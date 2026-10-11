@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
-import { computeStatus, displayName } from "../src/engine/status";
+import { binaryFor, computeStatus, displayName } from "../src/engine/status";
 import { claudeCachePaths } from "../src/usage/claude";
 import type { RunFn } from "../src/types";
 import { fakeCtx, localTs } from "./helpers";
@@ -14,6 +14,7 @@ const s = validateStrategy({
     byteplus: { via: "opencode", model: "coding-plan/x", usage: "quota", quota_source: "arkcli" },
     local: { via: "opencode", model: "lmstudio/q", usage: "unmetered" },
   },
+  pacing: { policy: "even" },
   routing: [{ default: ["byteplus", "codex", "local"] }],
 }, "/x");
 
@@ -84,6 +85,12 @@ test("PACER=off marks the status disabled; missing binaries are not installed", 
 
 test("displayName", () => {
   expect(displayName("claude-code")).toBe("Claude");
+  expect(displayName("agy")).toBe("Antigravity");
   expect(displayName("byteplus")).toBe("BytePlus");
   expect(displayName("opencode-go")).toBe("Opencode-go");
+});
+
+test("agy uses the Antigravity CLI binary", () => {
+  const s = validateStrategy({ planner: "codex", providers: { agy: {} } }, "/x");
+  expect(binaryFor(s.providers.agy)).toBe("agy");
 });

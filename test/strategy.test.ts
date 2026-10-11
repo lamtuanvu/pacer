@@ -44,7 +44,7 @@ test("a valid strategy normalizes defaults", () => {
   expect(s.providers.codex.allowPaid).toBe(false);
   expect(s.providers["opencode-go"].weeklyTokens).toBe(20_000_000);
   expect(s.providers.byteplus.quotaSource).toBe("arkcli");
-  expect(s.pacing).toEqual({ policy: "even", plannerReserve: 15, aheadThreshold: 10, behindThreshold: -10 });
+  expect(s.pacing).toEqual({ policy: "even", order: ["codex", "cursor", "opencode"], plannerReserve: 15, aheadThreshold: 10, behindThreshold: -10 });
   expect(s.routing).toEqual([
     { kinds: ["tests", "docs"], executors: ["byteplus", "local"] },
     { kinds: null, executors: ["byteplus", "codex"] },
@@ -115,5 +115,48 @@ test("useStrategy validates, switches the active strategy, and 'default' switche
 test("examples/strategy.yaml is valid", async () => {
   const path = join(import.meta.dir, "..", "examples", "strategy.yaml");
   const s = validateStrategy(Bun.YAML.parse(await Bun.file(path).text()), path);
-  expect(Object.keys(s.providers)).toEqual(["claude-code", "codex", "cursor", "byteplus", "local"]);
+  expect(Object.keys(s.providers)).toEqual(["claude-code", "codex", "cursor", "agy", "byteplus", "local"]);
+});
+
+test("omitted pacing defaults to priority with only configured native preferences", () => {
+  const s = validateStrategy({ planner: "claude-code", providers: { codex: {}, "claude-code": {} } }, "/x");
+  expect(s.pacing.policy).toBe("priority");
+  expect(s.pacing.order).toEqual(["codex"]);
+});
+
+test("explicit pacing order rejects unknown providers", () => {
+  try {
+    validateStrategy({ ...VALID, pacing: { order: ["codex", "gemini"] } }, "/x");
+    throw new Error("should have thrown");
+  } catch (e) {
+    expect(e).toBeInstanceOf(StrategyError);
+    expect((e as StrategyError).problems).toContain('pacing.order: unknown provider "gemini"');
+  }
+});
+
+test("pacing order must be a list", () => {
+  expect(() => validateStrategy({ ...VALID, pacing: { order: "codex" } }, "/x"))
+    .toThrow("pacing.order must be a list");
+});
+
+test("agy defaults to reactive usage and rejects quota usage", () => {
+  const s = validateStrategy({ planner: "codex", providers: { agy: {} } }, "/x");
+  expect(s.providers.agy.usage).toBe("reactive");
+  expect(() => validateStrategy({ planner: "codex", providers: { agy: { usage: "quota" } } }, "/x"))
+    .toThrow("providers.agy: quota usage is not available for agy; use reactive");
+});
+
+test("agy is not a planner", () => {
+  expect(() => validateStrategy({ planner: "agy", providers: { agy: {} } }, "/x"))
+    .toThrow("planner must be one of claude-code, codex, cursor, opencode");
+});
+
+test("explicit order accepts opencode without configured OpenCode providers for every policy", () => {
+  for (const policy of ["priority", "even", "burn-before-reset", "cheapest-first"]) {
+    const s = validateStrategy({
+      planner: "claude-code", providers: { codex: {}, "claude-code": {} },
+      pacing: { policy, order: ["opencode", "codex"] },
+    }, "/x");
+    expect(s.pacing.order).toEqual(["opencode", "codex"]);
+  }
 });

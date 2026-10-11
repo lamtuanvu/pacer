@@ -18,8 +18,8 @@ export interface Status {
   executors: { ranked: RankedExecutor[]; excluded: Excluded[] };
 }
 
-const BINARIES: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent" };
-const NAMES: Record<string, string> = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", byteplus: "BytePlus" };
+const BINARIES: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", agy: "agy" };
+const NAMES: Record<string, string> = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus" };
 
 export function binaryFor(cfg: ProviderCfg): string {
   return cfg.via === "opencode" ? "opencode" : BINARIES[cfg.id] ?? cfg.id;

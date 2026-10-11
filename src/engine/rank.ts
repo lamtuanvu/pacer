@@ -28,6 +28,8 @@ function score(st: ProviderStatus, s: Strategy): number {
   const behind = b?.delta !== undefined ? -b.delta : 0;
   let base: number;
   switch (s.pacing.policy) {
+    case "priority":
+      return 0; // Assigned from the final position after applying guardrails.
     case "even":
       base = behind;
       break;
@@ -65,6 +67,37 @@ export function rankExecutors(
     if (st.verdict === "EXHAUSTED" && !cfg.allowPaid) return excluded.push({ id, reason: "exhausted" });
     ranked.push({ id, score: score(st, s), verdict: st.verdict, reason: reason(st), unknown: st.verdict === "UNKNOWN", order });
   });
-  ranked.sort((a, b) => Number(a.unknown) - Number(b.unknown) || b.score - a.score || a.order - b.order);
+  if (s.pacing.policy === "priority") {
+    const sequence: typeof ranked = [];
+    const placed = new Set<string>();
+    const append = (candidate: (typeof ranked)[number]) => {
+      if (!placed.has(candidate.id)) {
+        sequence.push(candidate);
+        placed.add(candidate.id);
+      }
+    };
+    for (const id of s.pacing.order) {
+      if (id === "opencode") {
+        ranked.filter((e) => s.providers[e.id].via === "opencode").forEach(append);
+      } else {
+        const candidate = ranked.find((e) => e.id === id);
+        if (candidate) append(candidate);
+      }
+    }
+    ranked.forEach(append);
+    ranked.splice(0, ranked.length,
+      ...sequence.filter((e) => e.verdict === "EXPIRING"),
+      ...sequence.filter((e) => e.verdict !== "EXPIRING" && e.verdict !== "AHEAD"),
+      ...sequence.filter((e) => e.verdict === "AHEAD"),
+    );
+    for (let i = ranked.length - 2; i >= 0; i--) {
+      if (ranked[i].unknown && !ranked[i + 1].unknown) {
+        [ranked[i], ranked[i + 1]] = [ranked[i + 1], ranked[i]];
+      }
+    }
+    ranked.forEach((e, i) => { e.score = ranked.length - i; });
+  } else {
+    ranked.sort((a, b) => Number(a.unknown) - Number(b.unknown) || b.score - a.score || a.order - b.order);
+  }
   return { ranked: ranked.map(({ id, score, verdict, reason }) => ({ id, score, verdict, reason })), excluded };
 }

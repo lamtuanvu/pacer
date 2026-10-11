@@ -84,7 +84,7 @@ interface Provider {
 }
 ```
 
-- **Native:** `claude-code`, `codex`, `cursor`.
+- **Native:** `claude-code`, `codex`, `cursor`, `agy` (Antigravity CLI; executor only, not a planner).
 - **OpenCode-routed:** one generic adapter, instantiated per configured entry (`byteplus`, `opencode-go`, `ollama`, or any other OpenCode provider/model). Adding a provider is config, not code.
 
 ### 3.2 Usage sources
@@ -100,7 +100,7 @@ Every provider declares one source. Each reading has the shape `{windows: [{name
 
 Rules:
 - A `resetsAt` in the past means the window rolled over (drift or early reset): used = 0 until the next reading.
-- Readings are cached per source with a TTL. When a fetch fails, the last good reading is used, flagged `stale`. Past a staleness limit the status becomes `unknown`.
+- Readings are cached per source with a TTL. When a fetch fails, the last good reading is used, flagged `stale`. Command-based sources (`arkcli`, `opencode stats`) become `unknown` past a staleness limit. File-based Claude and Codex readings never expire to `unknown`: usage can only rise through those tools, which refresh the reading, so an old reading is flagged `[stale]` but stays usable.
 
 ### 3.3 Pace clock
 
@@ -122,12 +122,14 @@ providers:
   claude-code: { usage: quota }
   codex:       { usage: quota, allow_paid: false }
   cursor:      { usage: reactive, cooldown: 6h }
+  agy:         { usage: reactive, cooldown: 6h }
   byteplus:    { via: opencode, model: coding-plan/dola-seed-2.0-code, usage: quota, quota_source: arkcli }
   opencode-go: { via: opencode, model: opencode-go/kimi-k2, usage: metered, budget: { weekly_tokens: 20M } }  # example model id; `pacer init` fills in real ones
   ollama:      { via: opencode, model: ollama/qwen3.6-35b-a3b, usage: unmetered }
 
 pacing:
-  policy: even                     # even | burn-before-reset | cheapest-first
+  policy: priority                 # priority (default) | even | burn-before-reset | cheapest-first
+  order: [codex, cursor, agy, opencode]   # priority order; "opencode" = every OpenCode-routed provider
   planner_reserve: 15              # % of the planner's window held back for the end of the window
   ahead_threshold: 10              # used - pace (points) above this = AHEAD
   behind_threshold: -10
@@ -152,7 +154,7 @@ routing:
 | `BEHIND` | used − pace < behind_threshold |
 | `ON_PACE` | otherwise |
 
-A provider's verdict is its most constraining window.
+A provider's verdict comes from its **binding window**: a hard limit first (`EXHAUSTED`, `NEAR_LIMIT`, `AHEAD`, most severe wins); otherwise the paced window most urgent to use (`EXPIRING` > `BEHIND` > `ON_PACE`).
 
 **Planner mode** comes from the planner's verdict after subtracting `planner_reserve` from its available share:
 
@@ -167,6 +169,7 @@ A provider's verdict is its most constraining window.
 1. Take the matching routing list, or `default`.
 2. Drop providers that are exhausted, not installed, or `allow_paid: false` and over quota.
 3. Order by policy:
+   - `priority` (default; the user's decision 2026-10-11): follow `pacing.order` (default `codex, cursor, agy, opencode`; `opencode` expands to every OpenCode-routed candidate in routing order; unlisted candidates follow in routing order). Guardrails: `EXPIRING` moves to the front, `AHEAD` moves to the back, `UNKNOWN` moves down one place.
    - `even`: largest (pace − used) first.
    - `burn-before-reset`: largest unused share weighted by time until reset first.
    - `cheapest-first`: unmetered → flat subscriptions → metered, ignoring pace.
@@ -333,7 +336,7 @@ The policy text tells the planner to call `task_review` after it reviews each de
 
 | Failure | Behavior |
 |---|---|
-| Usage source fails | Last good reading, flagged `stale`; `unknown` past the limit; that provider drops one rank but stays usable |
+| Usage source fails | Last good reading, flagged `stale`; `unknown` past the limit; that provider drops one place (under `priority`; to the end of the known providers under the score-based policies) but stays usable |
 | Executor hits a limit | Mark exhausted until reset or cooldown, retry the next executor (at most 2), log it |
 | Executor fails the task | Return `failed`/`partial` with the report; the planner decides whether to retry, narrow the brief or escalate. No silent re-runs |
 | Orca unreachable | Direct backend; the result notes `backend: direct` |
