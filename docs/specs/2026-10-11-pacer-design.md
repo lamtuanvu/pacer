@@ -185,6 +185,7 @@ interface Backend {
 }
 type TaskResult = {
   status: "done" | "partial" | "failed" | "limit"
+  check?: { pass: boolean; confidence: number; adapter: string }   // result_check (3.9)
   executor: string; model?: string
   files: string            // git diff --stat
   acceptance?: { cmd: string; passed: boolean; tail: string }
@@ -215,10 +216,12 @@ type TaskResult = {
 | `task_status(task_id)` / `task_wait(task_id, timeout_s)` | Poll, or block until done; returns a `TaskResult` |
 | `task_stop(task_id)` | Stops a running task |
 | `report_limit(provider, until?)` | The planner reports a limit it observed itself |
+| `task_review(task_id, accepted, kind?)` | The planner's verdict on a delegated result; a ground-truth label for the benchmark (3.10) |
+| `guard_feedback(event_id, correct)` | The planner flags a wrong guard decision; a ground-truth label |
 
 `brief` is structured: `{goal, repo, scope, acceptance?, constraints?, context?}`.
 
-**CLI:** `pacer status [--line|--json|--hook <planner>]`, `route`, `delegate`, `tasks`, `use <strategy>`, `init`, `install|uninstall <planner>`, `doctor`, `console`, `mcp`, `serve`, `update`.
+**CLI:** `pacer status [--line|--json|--hook <planner>]`, `route`, `delegate`, `tasks`, `use <strategy>`, `init`, `install|uninstall <planner>`, `doctor`, `bench`, `console`, `mcp`, `serve`, `update`.
 
 **Local HTTP endpoint** (`pacer serve`, `127.0.0.1` only, bearer token in `~/.pacer/token`): `GET /state` and `GET /events` (server-sent events), carrying the same JSON as the MCP tools. In v1 it only serves the phase-2 plugin and the status line.
 
@@ -234,7 +237,7 @@ type TaskResult = {
 
 **Policy text contents:** the role ("plan, decide, review; delegate execution"), the modes, the brief format, "Claude- or planner-model subagents count as the planner doing the work", "verify before reporting done", and the escape hatch `PACER=off` (the successor to `DELEGATION=off`).
 
-**Guard behavior:**
+**Guard behavior** (the `guard` decision, 3.9; `rules` adapter shown):
 - **Allowed:** pacer executors, read-only helpers (`Explore`, `Plan`, `claude-code-guide`, `statusline-setup`) and reviewers (`*reviewer*`, `*analyzer*`, `pr-review-toolkit:*`).
 - **Blocked:** everything else, with a reason naming the top-ranked executor.
 - **Lifted when:** the mode is `relaxed`, no executor is available, or `PACER=off`.
@@ -249,7 +252,82 @@ type TaskResult = {
 
 ### 3.8 Local state (`~/.pacer/`)
 
-`strategy.yaml`, `strategies/`, `cache/` (usage readings), `activity.json`, `tasks/` (one JSON per task plus logs), `exhausted.json` (reactive or limit marks with expiry), `token`, `install-manifest.json` (what each installer changed, for uninstall).
+`strategy.yaml`, `strategies/`, `secrets` (classifier API keys, mode 0600), `decisions.jsonl` (3.10), `cache/` (usage readings), `activity.json`, `tasks/` (one JSON per task plus logs), `exhausted.json` (reactive or limit marks with expiry), `token`, `install-manifest.json` (what each installer changed, for uninstall).
+
+### 3.9 Decision classifier
+
+Four decisions are judgement calls rather than arithmetic. pacer routes each through one interface, so the implementation behind it can be swapped (rules today, Jev or a local model later) without changing callers.
+
+```ts
+type Question =
+  | { type: "choice"; id: string; instructions: string; criteria: Record<string, string> }
+  | { type: "score";  id: string; instructions: string; min: number; max: number }
+  | { type: "yesno";  id: string; instructions: string }
+type Answer = { value: string | number | boolean; probabilities?: Record<string, number>;
+                confidence: number; latencyMs: number; costUsd?: number }
+interface Classifier {
+  id: string                                    // "rules", "ollama", "jev", ...
+  ask(state: string, q: Question): Promise<Answer>
+}
+```
+
+**Decision points** (each one is configured on its own):
+
+| Decision | Question | Input (`state`) | Used by |
+|---|---|---|---|
+| `task_kind` | choice over the kinds enum | brief (goal, scope, context) | routing (3.4), when the planner's tag is missing or `verify_kind: true` |
+| `difficulty` | score 0–1: "can a mid-tier coding model complete this reliably?" | brief + repo size hints | executor ranking: below `difficulty.max_for_cheap` only capable executors stay eligible; pace orders the rest |
+| `guard` | yes/no: "is this execution work (vs. design or review judgement)?" | subagent type + prompt | guard hook (3.7); blocks only when yes |
+| `result_check` | yes/no: "does this result satisfy the brief?" | brief + report + `git diff --stat` + acceptance result | `TaskResult.check`, an early warning for the planner (never auto-accepts) |
+
+**Adapters:**
+- **`rules`** (default, v1): deterministic. `task_kind` uses the planner's tag or keyword rules; `difficulty` uses a heuristic (scope size, kind); `guard` uses the agent-type allow-list; `result_check` passes iff the acceptance command passed.
+- **`ollama`** (v1): a small local model answers the same questions with structured output. Free and private.
+- **`jev`** (adapter slot, built when evaluated): TypeSafe System One (`POST /v1/systemone`, `model: jev-latest`), called directly or through a LiteLLM proxy. The key is in `~/.pacer/secrets`. Its native choice, score and yes/no answers map one-to-one onto `Question`.
+
+```yaml
+classifier:
+  default: rules
+  decisions:
+    task_kind:    { use: rules, verify_kind: false }
+    difficulty:   { use: rules, max_for_cheap: 0.6 }
+    guard:        { use: rules }
+    result_check: { use: rules }
+  shadow: [ollama]          # also ask these, log their answers, never act on them (see 3.10)
+  timeout_ms: 3000
+```
+
+**Fallback:** a timeout, error, or `confidence` below `min_confidence` (default 0.6) falls back to the `rules` adapter. The decision log records that a fallback happened, so a classifier is never credited for a decision it didn't make.
+
+### 3.10 Decision log and classifier benchmark
+
+The goal is to judge Jev (or any classifier) on *this user's real tasks* before trusting it.
+
+**Decision log** (`~/.pacer/decisions.jsonl`): every classifier call appends `{ts, decision, state_hash, state (redactable), question, adapter, answer, acted_on, fallback}`. Shadow adapters are logged with `acted_on: false`.
+
+**Ground-truth labels**, captured as work happens and joined to decisions by `task_id`:
+
+| Decision | Label source |
+|---|---|
+| `task_kind` | The planner's tag, plus a correction when the planner re-tags via `task_review` |
+| `difficulty` | Outcome: did the chosen executor pass acceptance on the first try, or need escalation to a stronger one? |
+| `guard` | Overrides: a blocked subagent later run with `PACER=off`, or a planner `guard_feedback(wrong)` call |
+| `result_check` | The planner's final verdict via the new MCP tool `task_review(task_id, accepted, kind?)` |
+
+The policy text tells the planner to call `task_review` after it reviews each delegated result. That's one line of extra work per task.
+
+**Benchmark:**
+- `pacer bench [--decision <d>] [--adapters rules,ollama,jev] [--since 30d]` replays logged states through each adapter offline and reports, per decision and adapter:
+  - accuracy or AUC against labels
+  - calibration (are 0.8-confidence answers right about 80% of the time?)
+  - p50/p95 latency
+  - cost per 1k decisions
+  - agreement with `rules`
+  - **counterfactual value**, for example how many failed cheap-executor attempts `difficulty` would have avoided
+- **Shadow mode** collects a live comparison without risk: Jev answers every decision but `rules` still acts. After a week or two, `pacer bench` shows whether switching a decision to Jev would have been better.
+- **Privacy:** `bench.redact: true` replays only hashed or trimmed states to external adapters. Shadow calls to external adapters require an explicit opt-in.
+
+**Switching** a decision to a new classifier is a one-line change in `strategy.yaml` (`decisions.<d>.use: jev`), made only after `pacer bench` shows it beats the current adapter.
 
 ## 4. Failure handling
 
@@ -261,11 +339,13 @@ type TaskResult = {
 | Orca unreachable | Direct backend; the result notes `backend: direct` |
 | Paid overflow | Providers with `allow_paid: false` are skipped once exhausted |
 | Hook or guard internal error | Allow (fail-open). Hooks never wedge a session |
+| Classifier slow, erroring or unsure | Fall back to the `rules` adapter; log `fallback: true` |
 | MCP call slow | Per-call timeout; `delegate` is asynchronous, so long tasks never block the MCP transport |
 
 ## 5. Testing
 
 - **Unit tests** (`bun test`): pace clock (histogram, threshold, calendar fallback); each usage parser against recorded fixtures (Claude status-line JSON, Codex rollout lines, `arkcli usage plan` output, `opencode stats --json`); verdicts and modes; all three policies; routing by kind; limit-pattern detection; strategy validation.
+- **Classifier tests:** the `rules` adapter for all four decisions; adapter contract tests (each adapter maps choice, score and yes/no correctly) against recorded fixtures, including Jev's documented response shape; fallback on timeout and low confidence; `pacer bench` metrics on a fixture decision log with known labels.
 - **Integration tests:** `delegate` end to end in a scratch git repo with a **fake executor** (scripted CLI); the Orca backend against a fake `orca` binary; real executors behind `PACER_E2E=1`.
 - **Installer tests:** install, re-install, then uninstall into a temporary `HOME` for each planner; files must be restored byte for byte, and installs must be idempotent.
 - **`pacer doctor`:** checks provider CLIs, logins, usage sources, Orca reachability and installer state, with actionable messages.
@@ -313,7 +393,7 @@ Draft an issue for `stablyai/orca` proposing a sandbox-safe CLI → plugin messa
 
 ## 8. Scope summary
 
-**v1:** sections 3–6. Core, all four planner installers, the Orca and direct backends, migration of the existing `~/.claude` setup.
+**v1:** sections 3–6, including the classifier interface with the `rules` and `ollama` adapters, the decision log, labels, shadow mode and `pacer bench`. The `jev` adapter is built when the user starts the evaluation; its slot, config and contract tests are in v1. Core, all four planner installers, the Orca and direct backends, migration of the existing `~/.claude` setup.
 
 **Phase 2:** section 7. The plugin, link transports, the bridge spike, and the upstream proposal draft.
 
@@ -323,3 +403,5 @@ Draft an issue for `stablyai/orca` proposing a sandbox-safe CLI → plugin messa
 - Cursor rule-file location and format for user-level rules.
 - Whether OpenCode Go's quota is visible anywhere; until confirmed, it stays `metered`.
 - Default activity threshold (20%), to be tuned after a week of real data.
+- Jev pricing and data-retention terms (not in the LiteLLM docs). Needed before enabling shadow mode against it.
+- Which local Ollama model is good enough for the `ollama` classifier adapter (benchmark candidates during planning).
