@@ -66,6 +66,7 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     if (mode === "hook") return { code: 0, out: renderHook(st, args[args.indexOf("--hook") + 1] ?? "claude-code"), err: "" };
     return { code: 0, out: renderText(st), err: "" };
   } catch (e) {
+    // Status line and hooks run inside other tools: never fail them.
     if (mode === "line") return { code: 0, out: `◆ Budget ? (${explain(e).split("\n")[0].replace(/^pacer: /, "")})`, err: "" };
     if (mode === "hook") return { code: 0, out: "{}", err: "" };
     return { code: 2, out: "", err: explain(e) };

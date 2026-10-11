@@ -10,8 +10,18 @@ export interface ExecSpec {
 
 export interface ExecResult { code: number; stdout: string; stderr: string; timedOut: boolean }
 
+/** Signal the executor's process group, falling back to the direct child. Never throws. */
+export function killTree(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try { process.kill(pid, signal); } catch { /* already gone */ }
+  }
+}
+
 function spawn(spec: ExecSpec) {
   return Bun.spawn(spec.argv, {
+    detached: true,
     cwd: spec.cwd,
     env: spec.env,
     stdin: spec.stdin !== undefined ? new Blob([spec.stdin]) : "ignore",
@@ -74,7 +84,7 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
 
   const timer = setTimeout(() => {
     timedOut = true;
-    proc.kill("SIGKILL");
+    killTree(proc.pid, "SIGKILL");
     graceTimer = setTimeout(() => onGrace?.(), 2000);
   }, spec.timeoutMs);
 

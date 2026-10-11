@@ -4,7 +4,8 @@ import type { ProviderStatus } from "../src/engine/rank";
 import type { Status } from "../src/engine/status";
 import type { AttemptOutcome } from "../src/exec/direct";
 import { type RunnerDeps, runTask } from "../src/tasks/runner";
-import { createTask, readTask } from "../src/tasks/store";
+import { taskStop } from "../src/tasks/api";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readMarks } from "../src/usage/reactive";
 import { fakeCtx } from "./helpers";
 
@@ -126,4 +127,103 @@ test("a throwing runAttempt records the executor", async () => {
   const r = await runTask(ctx, t.id, d);
   expect(r.result).toMatchObject({ status: "failed", executor: "codex" });
   expect(r.result?.report).toContain("spawn exploded");
+});
+
+
+test("a task stopped before the runner starts never runs an executor", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  taskStop(ctx, t.id);
+  const d = deps({ codex: outcomeFor("codex", 0) });
+  const r = await runTask(ctx, t.id, d);
+  expect(r.state).toBe("stopped");
+  expect(r.result).toMatchObject({ status: "stopped", report: "stopped before an executor ran" });
+  expect(d.calls).toEqual([]);
+  expect(r.attempts).toEqual([]);
+});
+
+test("a stop while budgets are awaiting prevents the executor from running", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  const d = deps({ codex: outcomeFor("codex", 0) });
+  let resume!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  d.computeStatus = async () => { await gate; return status(); };
+  const running = runTask(ctx, t.id, d);
+  taskStop(ctx, t.id);
+  resume();
+  const r = await running;
+  expect(r.state).toBe("stopped");
+  expect(r.result?.report).toBe("stopped before an executor ran");
+  expect(d.calls).toEqual([]);
+  expect(r.attempts).toEqual([]);
+});
+
+test("a successful attempt cannot undo a stop recorded during execution", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  const d = deps({});
+  d.runAttempt = async () => { taskStop(ctx, t.id); return outcomeFor("codex", 0); };
+  const r = await runTask(ctx, t.id, d);
+  expect(r.state).toBe("stopped");
+  expect(r.result).toMatchObject({ status: "stopped", report: "codex report" });
+  expect(r.attempts[0].exitCode).toBe(0);
+});
+
+test("a stop during verification preserves the report and verification", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx, { acceptance: "true" });
+  const d = deps({ codex: outcomeFor("codex", 0) });
+  d.verifyRepo = async () => {
+    taskStop(ctx, t.id);
+    return { files: "a.ts", acceptance: { cmd: "true", passed: true, tail: "ok" } };
+  };
+  const r = await runTask(ctx, t.id, d);
+  expect(r.state).toBe("stopped");
+  expect(r.result).toMatchObject({ status: "stopped", report: "codex report", files: "a.ts", acceptance: { passed: true } });
+});
+
+test("a dependency error cannot undo a recorded stop", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  const d = deps({});
+  d.computeStatus = async () => { taskStop(ctx, t.id); throw new Error("stopped budgets"); };
+  const r = await runTask(ctx, t.id, d);
+  expect(r.state).toBe("stopped");
+  expect(r.result).toMatchObject({ status: "stopped", report: "pacer runner error: stopped budgets" });
+});
+
+
+test("a stop before onSpawn immediately signals the new executor's process group", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  const d = deps({});
+  const signals: Array<[number, NodeJS.Signals | number | undefined]> = [];
+  const kill = process.kill;
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+    if (signal !== 0) signals.push([pid, signal]);
+    return true;
+  }) as typeof process.kill;
+  d.runAttempt = async (_ctx, _cfg, _task, onSpawn) => {
+    taskStop(ctx, t.id);
+    onSpawn?.(123_456);
+    return outcomeFor("codex", 0);
+  };
+  try {
+    const r = await runTask(ctx, t.id, d);
+    expect(signals).toEqual([[-123_456, "SIGTERM"]]);
+    expect(r.state).toBe("stopped");
+    expect(r.childPid).toBeUndefined();
+  } finally { process.kill = kill; }
+});
+
+test("a terminal task never restarts an executor", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  updateTask(ctx, t.id, (x) => { x.state = "done"; });
+  const d = deps({ codex: outcomeFor("codex", 0) });
+  const r = await runTask(ctx, t.id, d);
+  expect(r.state).toBe("stopped");
+  expect(r.result?.report).toBe("stopped before an executor ran");
+  expect(d.calls).toEqual([]);
 });

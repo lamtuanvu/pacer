@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
+import { killTree } from "../exec/process";
 import type { Ctx } from "../types";
 import { createTask, readTask, updateTask } from "./store";
 import { type Brief, TERMINAL_STATES, type TaskRecord } from "./types";
@@ -82,17 +83,18 @@ function alive(pid: number | undefined): boolean {
 
 const isTerminal = (t: TaskRecord) => TERMINAL_STATES.includes(t.state);
 
-/** Read a task; a "running" task whose runner is gone becomes failed. */
+/** Read a task; missing or dead runners become failed. */
 export function taskStatus(ctx: Ctx, id: string): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
-  if (t.state === "running" && !alive(t.runnerPid)) {
+  const neverStarted = t.state === "queued" && !t.runnerPid && ctx.now - t.createdAt > 60;
+  if (neverStarted || (t.state === "running" && !alive(t.runnerPid))) {
     return updateTask(ctx, id, (x) => {
       if (TERMINAL_STATES.includes(x.state)) return;
       x.state = "failed";
       x.result = {
         status: "failed", executor: x.attempts.at(-1)?.executor ?? null, model: null, files: "",
-        report: "the pacer runner exited unexpectedly", backend: "direct",
+        report: neverStarted ? "the pacer runner never started" : "the pacer runner exited unexpectedly", backend: "direct",
       };
     });
   }
@@ -121,12 +123,6 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
       x.result = { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" };
     }
   });
-  if (t.childPid) {
-    try {
-      process.kill(t.childPid, "SIGTERM");
-    } catch {
-      // already gone
-    }
-  }
+  if (t.childPid) killTree(t.childPid, "SIGTERM");
   return updated;
 }
