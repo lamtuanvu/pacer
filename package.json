@@ -1,0 +1,18 @@
+{
+  "name": "pacer",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  },
+  "version": "0.1.0",
+  "bin": {
+    "pacer": "src/cli.ts"
+  },
+  "scripts": {
+    "test": "TZ=Asia/Ho_Chi_Minh bun test",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build --compile src/cli.ts --outfile dist/pacer"
+  }
+}
