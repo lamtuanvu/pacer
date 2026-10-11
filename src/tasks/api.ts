@@ -88,6 +88,7 @@ export function taskStatus(ctx: Ctx, id: string): TaskRecord | null {
   if (!t) return null;
   if (t.state === "running" && !alive(t.runnerPid)) {
     return updateTask(ctx, id, (x) => {
+      if (TERMINAL_STATES.includes(x.state)) return;
       x.state = "failed";
       x.result = {
         status: "failed", executor: x.attempts.at(-1)?.executor ?? null, model: null, files: "",
@@ -114,6 +115,7 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
   if (isTerminal(t)) return t;
   const runnerAlive = t.state === "running" && alive(t.runnerPid);
   const updated = updateTask(ctx, id, (x) => {
+    if (TERMINAL_STATES.includes(x.state)) return;
     x.state = "stopped";
     if (!runnerAlive) {
       x.result = { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" };

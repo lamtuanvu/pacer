@@ -55,6 +55,38 @@ test("dead runner is detected", () => {
   expect(r?.result?.report).toBe("the pacer runner exited unexpectedly");
 });
 
+test("a finished task is not overwritten by dead-runner detection", () => {
+  const ctx = fakeCtx();
+  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
+  const result = { status: "done" as const, executor: "codex", model: "m", files: "a.ts", report: "finished", backend: "direct" as const };
+  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; });
+  const kill = process.kill;
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+    updateTask(ctx, t.id, (x) => { x.state = "done"; x.result = result; });
+    throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+  }) as typeof process.kill;
+  let r;
+  try { r = taskStatus(ctx, t.id); } finally { process.kill = kill; }
+  expect(r?.state).toBe("done");
+  expect(r?.result).toEqual(result);
+});
+
+test("stop does not overwrite a finished task", () => {
+  const ctx = fakeCtx();
+  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
+  const result = { status: "done" as const, executor: "codex", model: "m", files: "a.ts", report: "finished", backend: "direct" as const };
+  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; });
+  const kill = process.kill;
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+    updateTask(ctx, t.id, (x) => { x.state = "done"; x.result = result; });
+    throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+  }) as typeof process.kill;
+  let r;
+  try { r = taskStop(ctx, t.id); } finally { process.kill = kill; }
+  expect(r?.state).toBe("done");
+  expect(r?.result).toEqual(result);
+});
+
 test("stop kills the running executor and the task ends stopped", async () => {
   const ctx = fakeCtx({ env: { PATH: process.env.PATH, HOME: process.env.HOME } });
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
