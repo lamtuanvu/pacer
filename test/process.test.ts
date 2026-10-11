@@ -46,3 +46,40 @@ test("onSpawn receives the pid; the log records command, output and exit", async
   expect(text).toContain("hi");
   expect(text).toContain("--- exit 0");
 });
+
+test("timeout holds when a grandchild keeps the pipes open", async () => {
+  const started = Date.now();
+  const r = await execProcess({
+    argv: ["sh", "-c", "sleep 30 & wait"],
+    cwd: tmpDir(),
+    env,
+    timeoutMs: 300,
+  });
+  expect(r.timedOut).toBe(true);
+  expect(Date.now() - started).toBeLessThan(5000);
+});
+
+test("a throwing onSpawn does not escape", async () => {
+  const r = await execProcess({
+    argv: ["sh", "-c", "echo ok"],
+    cwd: tmpDir(),
+    env,
+    timeoutMs: 5000,
+    onSpawn: () => {
+      throw new Error("onSpawn boom");
+    },
+  });
+  expect(r.code).toBe(0);
+  expect(r.stdout).toBe("ok\n");
+});
+
+test("an unwritable log file does not escape", async () => {
+  const r = await execProcess({
+    argv: ["sh", "-c", "echo ok"],
+    cwd: tmpDir(),
+    env,
+    timeoutMs: 5000,
+    logFile: "/dev/null/nope.log",
+  });
+  expect(r.code).toBe(0);
+});
