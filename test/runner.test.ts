@@ -106,3 +106,24 @@ test("no executor available at all reports the exclusions; the planner is never 
   expect(r.result?.report).toContain("cursor: not installed");
   expect(readTask(ctx, r.id)?.state).toBe("limit");
 });
+
+test("a throwing dependency finishes the task as failed with the error", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  const d = deps({});
+  d.computeStatus = async () => { throw new Error("boom"); };
+  const r = await runTask(ctx, t.id, d);
+  expect(r.state).toBe("failed");
+  expect(r.result?.report).toContain("pacer runner error: boom");
+  expect(readTask(ctx, t.id)).toMatchObject({ state: "failed", result: { report: expect.stringContaining("pacer runner error: boom") } });
+});
+
+test("a throwing runAttempt records the executor", async () => {
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  const d = deps({});
+  d.runAttempt = async () => { throw new Error("spawn exploded"); };
+  const r = await runTask(ctx, t.id, d);
+  expect(r.result).toMatchObject({ status: "failed", executor: "codex" });
+  expect(r.result?.report).toContain("spawn exploded");
+});
