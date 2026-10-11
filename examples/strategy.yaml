@@ -4,7 +4,7 @@ planner: claude-code
 providers:
   claude-code: { usage: quota }
   codex:       { usage: quota, allow_paid: false }   # never spend Codex credits
-  cursor:      { usage: reactive, cooldown: 6h }
+  cursor:      { usage: reactive, cooldown: 6h, model: auto }   # Cursor Free plan only allows the Auto model
   agy:         { usage: reactive, cooldown: 6h }
   byteplus:    { via: opencode, model: coding-plan/dola-seed-2.0-code, usage: quota, quota_source: arkcli }
   local:       { via: opencode, model: lmstudio/qwen3.6-35b-a3b, usage: unmetered }
