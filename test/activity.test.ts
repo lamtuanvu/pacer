@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { buildActivity, hourBin, loadActivity } from "../src/pace/activity";
 import { fakeCtx, localTs } from "./helpers";
@@ -42,4 +42,22 @@ test("no logs yields an empty profile; loadActivity caches for 24h", async () =>
   await claudeLog(ctx.home, "late", [1_000_000 - 3600]);
   expect((await loadActivity({ ...ctx, now: 1_000_000 + 3600 })).days).toBe(0); // cached
   expect((await loadActivity({ ...ctx, now: 1_000_000 + 90_000 })).days).toBe(1); // rebuilt
+});
+
+test("unreadable logs are skipped while readable logs still count", async () => {
+  const ctx = fakeCtx();
+  const readableTs = ctx.now - 3600;
+  await claudeLog(ctx.home, "readable", [readableTs]);
+  await claudeLog(ctx.home, "unreadable", [ctx.now - 86400]);
+  const path = join(ctx.home, ".claude", "projects", "-proj", "unreadable.jsonl");
+  const mode = statSync(path).mode;
+  try {
+    chmodSync(path, 0o000);
+    const p = await buildActivity(ctx);
+    expect(p.days).toBe(1);
+    expect(p.bins[hourBin(readableTs)]).toBe(1);
+    expect(p.bins.reduce((sum, count) => sum + count, 0)).toBe(1);
+  } finally {
+    chmodSync(path, mode);
+  }
 });
