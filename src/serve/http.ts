@@ -51,8 +51,14 @@ export function startServer(
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
             const send = async () => {
+              let envelope: { v: 1; type: "budget"; data: Awaited<ReturnType<typeof status>> } | { v: 1; type: "alert"; data: { error: string } };
               try {
-                controller.enqueue(enc.encode(`data: ${JSON.stringify({ v: 1, type: "budget", data: await status() })}\n\n`));
+                envelope = { v: 1, type: "budget", data: await status() };
+              } catch (e) {
+                envelope = { v: 1, type: "alert", data: { error: (e as Error).message } };
+              }
+              try {
+                controller.enqueue(enc.encode(`data: ${JSON.stringify(envelope)}\n\n`));
               } catch {
                 clearInterval(timer);
               }
