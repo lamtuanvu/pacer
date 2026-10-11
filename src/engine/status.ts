@@ -32,7 +32,7 @@ export function displayName(id: string): string {
 export async function computeStatus(
   ctx: Ctx, s: Strategy, opts: { profile?: ActivityProfile | null } = {},
 ): Promise<Status> {
-  const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx);
+  const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx).catch(() => null);
   const providers = await Promise.all(Object.values(s.providers).map(async (cfg): Promise<ProviderStatus> => {
     const reading: UsageReading = await readUsage(ctx, cfg).catch((e) => ({
       windows: [], capturedAt: null, stale: false, error: String(e),

@@ -27,7 +27,11 @@ async function logFiles(ctx: Ctx, since: number): Promise<string[]> {
   for (const [cwd, pattern] of roots) {
     if (!existsSync(cwd)) continue;
     for await (const p of new Bun.Glob(pattern).scan({ cwd, absolute: true })) {
-      if (statSync(p).mtimeMs / 1000 >= since) out.push(p);
+      try {
+        if (statSync(p).mtimeMs / 1000 >= since) out.push(p);
+      } catch {
+        // Skip logs that vanished or cannot be inspected.
+      }
     }
   }
   return out;
@@ -41,7 +45,12 @@ export async function buildActivity(
   const since = ctx.now - lookback;
   const hours = new Set<number>();
   for (const f of await logFiles(ctx, since)) {
-    const text = await Bun.file(f).text();
+    let text: string;
+    try {
+      text = await Bun.file(f).text();
+    } catch {
+      continue;
+    }
     for (const m of text.matchAll(TS_RE)) {
       const ts = parseTs(m[1]);
       if (ts !== null && ts >= since && ts <= ctx.now) hours.add(Math.floor(ts / 3600));
@@ -63,6 +72,10 @@ export async function loadActivity(ctx: Ctx): Promise<ActivityProfile> {
   const cached = readJson<ActivityProfile>(path);
   if (cached && ctx.now - cached.builtAt < 86400 && cached.bins?.length === 168) return cached;
   const fresh = await buildActivity(ctx);
-  writeJsonAtomic(path, fresh);
+  try {
+    writeJsonAtomic(path, fresh);
+  } catch {
+    // A cache write failure must not discard the fresh profile.
+  }
   return fresh;
 }

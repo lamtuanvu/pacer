@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { chmodSync, mkdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { computeStatus, displayName } from "../src/engine/status";
 import { claudeCachePaths } from "../src/usage/claude";
@@ -55,6 +55,23 @@ test("broken sources degrade to UNKNOWN and the status still renders", async () 
   expect(by.byteplus.error).toContain("arkcli");
   expect(st.mode).toBe("normal");
   expect(st.executors.ranked.map((e) => e.id)).toEqual(["local", "byteplus", "codex"]);
+});
+
+test("unreadable activity logs do not prevent status without a profile override", async () => {
+  const ctx = fakeCtx({ now, run });
+  const path = join(ctx.home, ".claude", "projects", "-proj", "unreadable.jsonl");
+  mkdirSync(dirname(path), { recursive: true });
+  await Bun.write(path, JSON.stringify({ timestamp: new Date((now - 3600) * 1000).toISOString() }));
+  const mode = statSync(path).mode;
+  try {
+    chmodSync(path, 0o000);
+    const st = await computeStatus(ctx, s);
+    expect(st.calendarPace).toBe(true);
+    expect(st.providers).toHaveLength(Object.keys(s.providers).length);
+    expect(st.providers.find((p) => p.id === "local")?.verdict).toBe("OK");
+  } finally {
+    chmodSync(path, mode);
+  }
 });
 
 test("PACER=off marks the status disabled; missing binaries are not installed", async () => {
