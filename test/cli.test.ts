@@ -56,3 +56,17 @@ test("use switches strategies; unknown commands print usage with exit 2", async 
   expect(bad.code).toBe(2);
   expect(bad.err).toContain("usage: pacer");
 });
+
+test("route prints the priority order and help lists the new commands", async () => {
+  const ctx = await withStrategy("planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: reactive }\n  cursor: {}\n");
+  const r = await main(["route", "debug"], ctx);
+  expect(r.code).toBe(0);
+  expect(r.out).toContain("1. codex");
+  expect(r.out).toContain("2. cursor");
+  expect(r.out).toContain("excluded: claude-code (planner)");
+  const help = await main(["help"], ctx);
+  for (const c of ["route", "delegate", "tasks", "stop", "mcp", "serve"]) expect(help.out).toContain(c);
+  const bad = await main(["delegate", "--goal", "x", "--repo", "relative"], ctx);
+  expect(bad.code).toBe(2);
+  expect(bad.err).toContain("repo does not exist");
+});
