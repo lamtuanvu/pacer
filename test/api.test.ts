@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { execProcess } from "../src/exec/process";
 import { DelegateError, delegate, selfCommand, taskStatus, taskStop, taskWait, validateInput } from "../src/tasks/api";
@@ -116,4 +118,58 @@ test("stopping a queued task with no live runner finalizes it; terminal tasks ar
   expect(r?.result?.report).toBe("stopped before an executor ran");
   expect(taskStop(ctx, t.id)?.state).toBe("stopped");
   expect(taskStop(ctx, "t-20261011-140500-abcd")).toBeNull();
+});
+
+
+test("a queued task without a runner fails after 60 seconds but fresh tasks stay queued", () => {
+  const ctx = fakeCtx();
+  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => undefined, s);
+  expect(taskStatus(ctx, t.id)?.state).toBe("queued");
+  expect(taskStatus({ ...ctx, now: ctx.now + 60 }, t.id)?.state).toBe("queued");
+  const old = taskStatus({ ...ctx, now: ctx.now + 61 }, t.id);
+  expect(old?.state).toBe("failed");
+  expect(old?.result).toMatchObject({ status: "failed", report: "the pacer runner never started" });
+});
+
+test("queued-runner expiry does not overwrite a terminal task or a recorded runner", () => {
+  const ctx = fakeCtx();
+  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => undefined, s);
+  updateTask(ctx, t.id, (x) => { x.runnerPid = process.pid; });
+  expect(taskStatus({ ...ctx, now: ctx.now + 61 }, t.id)?.state).toBe("queued");
+  taskStop(ctx, t.id);
+  expect(taskStatus({ ...ctx, now: ctx.now + 61 }, t.id)?.state).toBe("stopped");
+});
+
+test("stop kills the executor's grandchild too", async () => {
+  const ctx = fakeCtx({ env: { PATH: process.env.PATH, HOME: process.env.HOME } });
+  const repo = tmpDir();
+  const pidFile = join(repo, "gc.pid");
+  const t = delegate(ctx, { brief: { goal: "g", repo } }, () => undefined, s);
+  const running = runTask(ctx, t.id, {
+    loadStrategy: () => s,
+    computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true, executors: { ranked: [], excluded: [] },
+      providers: [{ id: "codex", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }] }),
+    runAttempt: async (_c, cfg, task, onSpawn) => {
+      const exec = await execProcess({ argv: ["sh", "-c", `sleep 30 & echo $! > '${pidFile}'; wait`], cwd: task.brief.repo, env: ctx.env, timeoutMs: 1000, onSpawn });
+      return { exec, report: "killed", attempt: { executor: cfg.id, model: null, startedAt: 0, endedAt: 0, exitCode: exec.code, timedOut: exec.timedOut, limitHit: false, log: "" } };
+    },
+    verifyRepo: async () => ({ files: "" }),
+  });
+  let pid = 0;
+  try {
+    for (let i = 0; i < 100 && (!readTask(ctx, t.id)?.childPid || !existsSync(pidFile) || !readFileSync(pidFile, "utf8").trim()); i++) await Bun.sleep(5);
+    expect(readTask(ctx, t.id)?.childPid).toBeGreaterThan(0);
+    pid = Number(readFileSync(pidFile, "utf8"));
+    expect(pid).toBeGreaterThan(0);
+    taskStop(ctx, t.id);
+    const r = await running;
+    await Bun.sleep(300);
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect(r.state).toBe("stopped");
+    expect(r.result?.status).toBe("stopped");
+    expect(r.attempts[0].timedOut).toBe(false);
+  } finally {
+    if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    await running;
+  }
 });

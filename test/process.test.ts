@@ -83,3 +83,23 @@ test("an unwritable log file does not escape", async () => {
   });
   expect(r.code).toBe(0);
 });
+
+
+test("timeout kills grandchildren", async () => {
+  const dir = tmpDir();
+  const pidFile = join(dir, "gc.pid");
+  let pid = 0;
+  try {
+    const r = await execProcess({
+      argv: ["sh", "-c", `sleep 30 & echo $! > '${pidFile}'; wait`],
+      cwd: dir, env, timeoutMs: 300,
+    });
+    pid = Number(await Bun.file(pidFile).text());
+    expect(pid).toBeGreaterThan(0);
+    expect(r.timedOut).toBe(true);
+    await Bun.sleep(300);
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
+  }
+});
