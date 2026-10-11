@@ -53,3 +53,28 @@ test("/events streams budget envelopes", async () => {
   expect(msg.data.planner).toBe("claude-code");
   await reader.cancel();
 });
+
+test("/events sends an alert when status fails and keeps streaming", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  const s = startServer(() => ctx, { port: 0, sseIntervalMs: 50 });
+  stop = s.stop;
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: [unclosed");
+
+  const r = await fetch(`http://127.0.0.1:${s.port}/events`, {
+    headers: { authorization: `Bearer ${s.token}` },
+  });
+  const reader = r.body!.getReader();
+  const decoder = new TextDecoder();
+  const first = await reader.read();
+  const firstMsg = JSON.parse(decoder.decode(first.value).slice(6).trim());
+  expect(firstMsg).toMatchObject({ v: 1, type: "alert" });
+  expect(firstMsg.data.error).toContain("YAML");
+
+  const second = await reader.read();
+  const secondMsg = JSON.parse(decoder.decode(second.value).slice(6).trim());
+  expect(secondMsg).toMatchObject({ v: 1, type: "alert" });
+  expect(secondMsg.data.error).toContain("YAML");
+  await reader.cancel();
+});
