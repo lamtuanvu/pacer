@@ -7,13 +7,14 @@ export const KINDS = [
   "boilerplate", "tests", "docs", "rename", "migration", "feature",
   "debug", "refactor", "performance", "unfamiliar-code", "research",
 ] as const;
-export const NATIVE = ["claude-code", "codex", "cursor"] as const;
-export const PLANNERS = [...NATIVE, "opencode"] as const;
-export const POLICIES = ["even", "burn-before-reset", "cheapest-first"] as const;
+export const NATIVE = ["claude-code", "codex", "cursor", "agy"] as const;
+export const PLANNERS = ["claude-code", "codex", "cursor", "opencode"] as const;
+export const POLICIES = ["priority", "even", "burn-before-reset", "cheapest-first"] as const;
 export type Policy = (typeof POLICIES)[number];
 
 const USAGES: UsageKind[] = ["quota", "metered", "reactive", "unmetered"];
-const NATIVE_USAGE: Record<string, UsageKind> = { "claude-code": "quota", codex: "quota", cursor: "reactive" };
+const NATIVE_USAGE: Record<string, UsageKind> = { "claude-code": "quota", codex: "quota", cursor: "reactive", agy: "reactive" };
+const DEFAULT_ORDER = ["codex", "cursor", "agy", "opencode"];
 
 export interface ProviderCfg {
   id: string;
@@ -30,7 +31,7 @@ export interface Strategy {
   name: string;
   planner: string;
   providers: Record<string, ProviderCfg>;
-  pacing: { policy: Policy; plannerReserve: number; aheadThreshold: number; behindThreshold: number };
+  pacing: { policy: Policy; order: string[]; plannerReserve: number; aheadThreshold: number; behindThreshold: number };
   routing: RouteRule[];
 }
 
@@ -87,8 +88,8 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
       }
       const usage = (c.usage ?? (native ? NATIVE_USAGE[id] : "metered")) as UsageKind;
       if (!USAGES.includes(usage)) p.push(`providers.${id}: usage must be one of ${USAGES.join(", ")}`);
-      if (id === "cursor" && usage === "quota") {
-        p.push("providers.cursor: quota usage is not available for cursor; use reactive");
+      if ((id === "cursor" || id === "agy") && usage === "quota") {
+        p.push(`providers.${id}: quota usage is not available for ${id}; use reactive`);
       }
       const quotaSource = c.quota_source === undefined ? null : c.quota_source;
       if (!native && usage === "quota" && quotaSource !== "arkcli") {
@@ -114,9 +115,23 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   }
 
   const pc = isObj(raw.pacing) ? raw.pacing : {};
-  const policy = String(pc.policy ?? "even") as Policy;
+  const policy = String(pc.policy ?? "priority") as Policy;
   if (!(POLICIES as readonly string[]).includes(policy)) {
     p.push(`pacing.policy must be one of ${POLICIES.join(", ")} (got "${policy}")`);
+  }
+  let order: string[] = [];
+  if (pc.order === undefined) {
+    const hasOpencode = Object.values(providers).some((cfg) => cfg.via === "opencode");
+    order = DEFAULT_ORDER.filter((id) => Object.hasOwn(providers, id) || (id === "opencode" && hasOpencode));
+  } else if (!Array.isArray(pc.order)) {
+    p.push("pacing.order must be a list");
+  } else {
+    order = pc.order.map(String);
+    for (const id of order) {
+      if (id !== "opencode" && !Object.hasOwn(providers, id)) {
+        p.push(`pacing.order: unknown provider "${id}"`);
+      }
+    }
   }
   const num = (k: string, d: number): number => {
     const v = pc[k] ?? d;
@@ -128,6 +143,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   };
   const pacing = {
     policy,
+    order,
     plannerReserve: num("planner_reserve", 15),
     aheadThreshold: num("ahead_threshold", 10),
     behindThreshold: num("behind_threshold", -10),
