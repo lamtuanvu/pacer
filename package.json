@@ -14,5 +14,9 @@
     "test": "TZ=Asia/Ho_Chi_Minh bun test",
     "typecheck": "tsc --noEmit",
     "build": "bun build --compile src/cli.ts --outfile dist/pacer"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "zod": "4.6.5"
   }
 }
