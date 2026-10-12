@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
 import type { Ctx } from "../types";
+import { toBudget } from "../link/budget";
+import { currentSnapshot, readLatest, readOutboxSince } from "../link/store";
+import { pumpOnce } from "../link/pump";
 
 export const DEFAULT_PORT = 4317;
 
@@ -21,10 +24,12 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected status endpoint (the phase-2 Orca plugin's transport 1). */
 export function startServer(
-  getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number } = {},
+  getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number } = {},
 ): { port: number; token: string; stop: () => void } {
   const token = ensureToken(getCtx());
   const interval = opts.sseIntervalMs ?? 15_000;
+  const tailMs = opts.tailMs ?? 1_000;
+  const pumpMs = opts.pumpMs ?? 15_000;
   const status = async () => {
     const ctx = getCtx();
     return computeStatus(ctx, loadStrategy(ctx));
@@ -46,28 +51,40 @@ export function startServer(
           return Response.json({ error: (e as Error).message }, { status: 500 });
         }
       }
+      if (pathname === "/link") return Response.json(currentSnapshot(getCtx()));
       if (pathname === "/events") {
         let timer: ReturnType<typeof setInterval> | undefined;
+        let tailTimer: ReturnType<typeof setInterval> | undefined;
+        let last = readLatest(getCtx()).seq;
+        const clearTimers = () => { clearInterval(timer); clearInterval(tailTimer); };
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
             const send = async () => {
-              let envelope: { v: 1; type: "budget"; data: Awaited<ReturnType<typeof status>> } | { v: 1; type: "alert"; data: { error: string } };
+              let envelope: unknown;
               try {
-                envelope = { v: 1, type: "budget", data: await status() };
+                envelope = { v: 1, type: "budget", data: toBudget(await status()) };
               } catch (e) {
-                envelope = { v: 1, type: "alert", data: { error: (e as Error).message } };
+                const m = (e as Error).message;
+                envelope = { v: 1, type: "alert", data: { key: "status-error", level: "error", title: "pacer status failed", body: m, error: m, at: getCtx().now } };
               }
               try {
                 controller.enqueue(enc.encode(`data: ${JSON.stringify(envelope)}\n\n`));
               } catch {
-                clearInterval(timer);
+                clearTimers();
               }
+            };
+            const tail = () => {
+              try {
+                const ctx = getCtx();
+                for (const e of readOutboxSince(ctx, last)) { controller.enqueue(enc.encode(`data: ${JSON.stringify(e.envelope)}\n\n`)); last = e.seq; }
+              } catch { clearTimers(); }
             };
             await send();
             timer = setInterval(send, interval);
+            tailTimer = setInterval(tail, tailMs);
           },
           cancel() {
-            clearInterval(timer);
+            clearTimers();
           },
         });
         return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
@@ -75,5 +92,12 @@ export function startServer(
       return new Response("not found\n", { status: 404 });
     },
   });
-  return { port: server.port!, token, stop: () => server.stop(true) };
+  let busy = false;
+  const tick = () => {
+    if (busy) return;
+    busy = true;
+    void pumpOnce(getCtx()).catch(() => []).finally(() => { busy = false; });
+  };
+  const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
+  return { port: server.port!, token, stop: () => { clearInterval(pumpTimer); server.stop(true); } };
 }
