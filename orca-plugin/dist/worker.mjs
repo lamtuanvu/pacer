@@ -70,7 +70,7 @@ function parseConsole(d) {
   const pid = num(d.pid), startedAt = num(d.startedAt), heartbeatAt = num(d.heartbeatAt);
   if (pid === null || startedAt === null || heartbeatAt === null)
     return null;
-  return { ...optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024) } : {}, pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
+  return { ...optStr(d.version, 64) ? { version: optStr(d.version, 64) } : {}, ...optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024) } : {}, pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
 }
 function parseEnvelope(raw) {
   if (!isObj(raw) || raw.v !== 1)
@@ -106,7 +106,7 @@ function parseSnapshot(raw) {
   if (seq === null || at === null)
     return null;
   const list = (v, f, max) => (Array.isArray(v) ? v : []).map(f).filter((x) => x !== null).slice(0, max);
-  return { v: 1, seq, at, budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list(raw.strategies, (v) => typeof v === "string" ? optStr(v, 128) : isObj(v) && optStr(v.name, 128) ? { name: optStr(v.name, 128), active: v.active === true, summary: str(v.summary, 1000) ?? "", description: str(v.description, 1000) ?? "" } : null, 32) };
+  return { v: 1, seq, at, ...typeof raw.serviceInstalled === "boolean" ? { serviceInstalled: raw.serviceInstalled } : {}, budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list(raw.strategies, (v) => typeof v === "string" ? optStr(v, 128) : isObj(v) && optStr(v.name, 128) ? { name: optStr(v.name, 128), active: v.active === true, summary: str(v.summary, 1000) ?? "", description: str(v.description, 1000) ?? "" } : null, 32) };
 }
 function reduce(s, e, at) {
   const next = { ...s, seq: s.seq + 1, at };
@@ -127,7 +127,7 @@ function reduce(s, e, at) {
   return next;
 }
 function contentKey(s) {
-  return JSON.stringify({ budget: s.budget ? { ...s.budget, generatedAt: undefined } : null, mode: s.mode, tasks: s.tasks, alerts: s.alerts, console: s.console, consoles: s.consoles, strategies: s.strategies });
+  return JSON.stringify({ serviceInstalled: s.serviceInstalled, budget: s.budget ? { ...s.budget, generatedAt: undefined } : null, mode: s.mode, tasks: s.tasks, alerts: s.alerts, console: s.console, consoles: s.consoles, strategies: s.strategies });
 }
 function liveConsole(s, nowS) {
   const c = s.console;
@@ -484,6 +484,7 @@ function packPanelData(value) {
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, packPanelData(v)]));
   return value;
 }
+var actionStatus = '<p data-status role="status" aria-live="polite" class="action-status"></p>';
 
 // orca-plugin/src/panel/icons.ts
 var paths = { "claude-code": "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z", cursor: "M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23", agy: "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81", byteplus: "M19.8772 1.4685L24 2.5326v18.9426l-4.1228 1.0563V1.4685zm-13.3481 9.428l4.115 1.0641v8.9786l-4.115 1.0642v-11.107zM0 2.572l4.115 1.0642v16.7354L0 21.428V2.572zm17.4553 5.6205v11.107l-4.1228-1.0642V9.2568l4.1228-1.0642z", local: "M14.025 0c3.492 0 5.237 0 6.571.68a6.24 6.24 0 0 1 2.725 2.724C24 4.738 24 6.484 24 9.975v4.05c0 3.492 0 5.237-.68 6.571a6.24 6.24 0 0 1-2.724 2.725c-1.334.679-3.08.679-6.571.679h-4.05c-3.492 0-5.237 0-6.571-.68A6.24 6.24 0 0 1 .68 20.597C0 19.262 0 17.516 0 14.025v-4.05c0-3.492 0-5.237.68-6.571A6.23 6.23 0 0 1 3.404.68C4.738 0 6.484 0 9.975 0zM7.688 16.313a1.313 1.313 0 0 0 0 2.625h11.625a1.313 1.313 0 0 0 0-2.625zm-3-3.75a1.313 1.313 0 0 0 0 2.624h11.625a1.313 1.313 0 0 0 0-2.624zm3-3.75a1.313 1.313 0 0 0 0 2.624h11.625a1.313 1.313 0 0 0 0-2.624zm-3-3.75a1.313 1.313 0 0 0 0 2.625h11.625a1.313 1.313 0 0 0 0-2.625z" };
@@ -597,23 +598,25 @@ function overview(s, now, reachable, commands, text) {
     return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small></div></div><div class="actions">${commands[key] ? `<button type="button" class="${g.stuck ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `Retry on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}</div></div>`;
   }).join("")}${attention.length ? "" : "<small>Nothing needs attention.</small>"}</section>
  <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter((t) => t.state === "done").sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).map((t) => `<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0, 100))}">${h(t.goal.slice(0, 100))}</span><small>${h(t.executor ? displayName(t.executor) : "—")} · ${h(age(t.updatedAt, now))}</small></div></div>`).join("")}${s.tasks.some((t) => t.state === "done") ? "" : "<small>No completed tasks yet.</small>"}</div></section>
- ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-view="strategy" data-live>Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div><div class="footnote">Updated <span data-updated>—</span> · console connected in <span data-worktree>—</span></div></div>`;
+ ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-view="strategy" data-live>Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div>${actionStatus}<div class="footnote">Updated <span data-updated>—</span> · <span data-console-connection>Checking console...</span></div></div>`;
 }
 
 // orca-plugin/src/panel/setup.ts
 function setup(s, now, reachable) {
   const consoleLive = !!liveConsole(s, now), planner = s.budget?.providers.find((p) => p.id === s.budget?.planner);
-  const step = (n, done, title, detail, command) => `<div class="step ${done ? "done" : n === 2 || reachable ? "current" : ""}"><span class="step-num" aria-hidden="true">${done ? "✓" : n}</span><div class="stack grow"><strong>${title}</strong><small>${detail}</small>${command ? `<div class="row command"><code class="grow">${command}</code><button type="button" data-setup="${command}">Type command</button></div>` : ""}</div></div>`;
-  return `<div class="content">${header(s, now, reachable)}<div class="stack"><div class="headline">Two steps to connect pacer</div><div class="muted">The plugin is on. It needs pacer running on this machine to show your budget and send work.</div></div><div class="list">${step(1, true, "Plugin enabled", "Loaded from ~/.pacer/orca-plugin")}${step(2, reachable, "Start the pacer link", "Shares live budget with this panel. Leave it running in any terminal.", "pacer serve")}${step(3, consoleLive, "Open the pacer console", "Lets the buttons here delegate and switch strategy. Runs in this worktree.", "pacer console --open")}</div>${!s.budget && reachable ? "<small>Waiting for the first budget snapshot. Check again after pacer refreshes.</small>" : ""}${planner ? `<section class="stack section"><h2>Last known budget · ${h(age(s.budget.generatedAt, now))} · not live</h2><div class="card stack last-known"><div class="row"><span class="name">${icon(planner.id)}${h(displayName(planner.id))}</span><span class="grow"></span><strong>${planner.usedPct === null ? "—" : `${Math.round(planner.usedPct)}%`} used</strong></div>${meter({ ...planner, pacePct: null })}<small>Shown greyed until pacer reconnects. Nothing here is live.</small></div></section>` : ""}<div class="row note info"><strong aria-hidden="true">i</strong><small>pacer never changes Orca's settings. Everything runs on 127.0.0.1 and only on this machine.</small></div></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" disabled>Delegate a task</button><button type="button" data-check>Check again</button></div><div class="footnote">Delegating needs the console from step 3</div></div>`;
+  const step = (n, done, title, detail, command) => `<div class="step ${done ? "done" : n === 1 || reachable ? "current" : ""}"><span class="step-num" aria-hidden="true">${done ? "✓" : n}</span><div class="stack grow"><strong>${title}</strong><small>${detail}</small>${command ? `<div class="row command"><code class="grow">${command}</code><button type="button" data-setup="${command}">Type command</button></div>` : ""}</div></div>`;
+  return `<div class="content">${header(s, now, reachable)}<div class="stack"><div class="headline">Connect pacer</div><div class="muted">The plugin is on. It needs pacer running on this machine to show your budget and send work.</div></div><div class="list">${step(1, reachable, s.serviceInstalled ? "pacer link is restarting" : "Start pacer in the background", s.serviceInstalled ? "pacer runs as a background service and restarts on its own within a few seconds. If it stays down, run:" : "Installs pacer as a login service so this panel always connects.", s.serviceInstalled ? "pacer service restart" : "pacer service install")}${step(2, consoleLive, "Open the pacer console", "Lets the buttons here delegate and switch strategy. Runs in this worktree.", "pacer console --open")}</div>${!s.budget && reachable ? "<small>Waiting for the first budget snapshot. Check again after pacer refreshes.</small>" : ""}${planner ? `<section class="stack section"><h2>Last known budget · ${h(age(s.budget.generatedAt, now))} · not live</h2><div class="card stack last-known"><div class="row"><span class="name">${icon(planner.id)}${h(displayName(planner.id))}</span><span class="grow"></span><strong>${planner.usedPct === null ? "—" : `${Math.round(planner.usedPct)}%`} used</strong></div>${meter({ ...planner, pacePct: null })}<small>Shown greyed until pacer reconnects. Nothing here is live.</small></div></section>` : ""}<div class="row note info"><strong aria-hidden="true">i</strong><small>pacer never changes Orca's settings. Everything runs on 127.0.0.1 and only on this machine.</small></div></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" disabled>Delegate a task</button><button type="button" data-check>Check again</button></div>${actionStatus}<div class="footnote">Delegating needs the console from step 2</div></div>`;
 }
 
 // orca-plugin/src/panel/delegate.ts
 function delegateView(s, now, reachable) {
-  return `<form id="delegate-form"><div class="content"><header><button type="button" data-view="overview" aria-label="Back to overview">←</button><strong>Delegate a task</strong><span class="grow"></span>${connectionIndicator(s, now, reachable)}</header><div class="muted">Write it the way you'd brief a colleague who can't see this chat. Claude plans; the task runs on an executor.</div><div class="stack"><label for="goal">What should be done?</label><textarea id="goal" name="goal" required maxlength="2000" rows="5" placeholder="e.g. Make the owner-facing diag calls accept browser_turn_id, with a regression test"></textarea></div><div class="stack"><strong>Where</strong><div class="stack where"><strong data-worktree>—</strong><small>Branch <span id="worktree-branch">—</span> · focused worktree</small></div></div><div class="stack"><label for="done">Done when</label><input id="done" name="acceptance" type="text" maxlength="500" placeholder="A command that passes, e.g. bun test"><small>pacer runs it after the executor finishes and only reports done if it passes.</small></div><fieldset class="stack"><legend>Runs on</legend><label class="radio"><input type="radio" name="executor" value="" checked><span class="stack grow"><strong>Best available</strong><small><span id="ranked-order"></span></small></span><span class="pill">Recommended</span></label><div id="executor-options" class="stack"></div></fieldset><div class="row note"><strong aria-hidden="true">i</strong><small>Runs in its own worktree. You'll get a notification when it finishes, and it shows under Needs attention if it fails.</small></div></div><div class="actionbar"><div class="actions"><button type="button" data-view="overview">Cancel</button><button type="submit" class="primary grow" data-live>Delegate</button></div></div></form>`;
+  return `<div id="delegate-form" role="group"><div class="content"><header><button type="button" data-view="overview" aria-label="Back to overview">←</button><strong>Delegate a task</strong><span class="grow"></span>${connectionIndicator(s, now, reachable)}</header><div class="muted">Write it the way you'd brief a colleague who can't see this chat. Claude plans; the task runs on an executor.</div><div class="stack"><label for="goal">What should be done?</label><textarea id="goal" name="goal" maxlength="2000" rows="5" placeholder="e.g. Make the owner-facing diag calls accept browser_turn_id, with a regression test"></textarea></div><div class="stack"><strong>Where</strong><div class="stack where"><strong data-worktree>—</strong><small>Branch <span id="worktree-branch">—</span> · focused worktree</small></div></div><div class="stack"><label for="done">Done when</label><input id="done" name="acceptance" type="text" maxlength="500" placeholder="A command that passes, e.g. bun test"><small>pacer runs it after the executor finishes and only reports done if it passes.</small></div><fieldset class="stack"><legend>Runs on</legend><label class="radio"><input type="radio" name="executor" value="" checked><span class="stack grow"><strong>Best available</strong><small><span id="ranked-order"></span></small></span><span class="pill">Recommended</span></label><div id="executor-options" class="stack"></div></fieldset><div class="row note"><strong aria-hidden="true">i</strong><small>Runs in its own worktree. You'll get a notification when it finishes, and it shows under Needs attention if it fails.</small></div></div><div class="actionbar"><div class="actions"><button type="button" data-view="overview">Cancel</button><button type="button" id="delegate-send" class="primary grow" data-live>Delegate</button></div>${actionStatus}</div></div>`;
 }
 
 // orca-plugin/src/panel/style.ts
 var style = `
+.action-status{margin:4px 0;color:var(--muted-foreground);white-space:pre-wrap;overflow-wrap:anywhere}.action-status:empty{display:none}
+
 .console-spinner{display:inline-block;animation:console-spin 1s linear infinite}@keyframes console-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.console-spinner{animation:none}}
 
 *{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);font-size:12px;font-family:var(--app-font-family,'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);line-height:1.4;letter-spacing:.01em;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;--good:color-mix(in srgb,seagreen 90%,var(--background));--warn:color-mix(in srgb,darkorange 90%,var(--background));--bad:color-mix(in srgb,crimson 90%,var(--background))}[hidden]{display:none!important}.view{min-height:100vh;display:flex;flex-direction:column}form{display:flex;flex-direction:column;flex:1}.content{padding:12px;display:flex;flex-direction:column;gap:12px;flex:1;min-width:0}.row,.name,header,.actions{display:flex;align-items:center;gap:8px}.grow{flex:1;min-width:0}.stack{display:flex;flex-direction:column;gap:6px;min-width:0}.brand{font-weight:600;font-size:14px;letter-spacing:.01em}.brand-tick{fill:#65A30D}@media(prefers-color-scheme:dark){.brand-tick{fill:#A3E635}body{--good:color-mix(in srgb,mediumseagreen 90%,var(--background));--warn:color-mix(in srgb,orange 90%,var(--background));--bad:color-mix(in srgb,lightcoral 90%,var(--background))}}.muted,small{color:var(--muted-foreground)}small{font-size:11px}.pill{font-size:10px;font-weight:500;padding:2px 6px;border-radius:6px;background:var(--muted);white-space:nowrap}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.pill.good{background:color-mix(in srgb,green 12%,var(--background))}.pill.warn{background:color-mix(in srgb,orange 16%,var(--background))}.pill.bad{background:color-mix(in srgb,crimson 12%,var(--background))}.dot{width:8px;height:8px;border-radius:50%;background:currentColor}.live{font-size:11px;white-space:nowrap}.card,.list{border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);background:var(--card)}.answer{padding:12px;gap:8px}.headline{font-size:13px;font-weight:600}h2{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;margin:0;color:var(--muted-foreground)}.section{gap:8px}.provider{padding:8px 10px;gap:6px}.provider+.provider,.step+.step{border-top:1px solid var(--border)}.rank{width:18px;height:18px;flex-shrink:0;background:var(--muted);border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:600}.provider:first-child .rank{background:var(--foreground);color:var(--background)}.name{font-weight:500;gap:6px;overflow-wrap:anywhere}.name svg,.monogram{flex-shrink:0}.monogram{border-radius:4px;background:var(--foreground);color:var(--background);display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:600}.meter{position:relative;height:6px;background:var(--border);border-radius:999px;margin:4px 0}.meter.slim{height:3px;margin-left:26px}.meter .fill{height:100%;border-radius:999px;background:currentColor}.pace{position:absolute;width:2px;top:-4px;bottom:-4px;background:var(--foreground);border-radius:2px}.percent{font-size:18px;font-weight:600}.unavailable{font-size:11px;padding:0 4px;gap:4px}.attention{padding:10px;gap:8px;border-color:color-mix(in srgb,crimson 25%,var(--background));background:color-mix(in srgb,crimson 2%,var(--card))}.attention.stuck{border-color:color-mix(in srgb,orange 35%,var(--background));background:color-mix(in srgb,orange 3%,var(--card))}.task-goal{font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent{gap:8px}button,input,textarea,select{font:inherit;color:var(--foreground)}button{white-space:nowrap;flex-shrink:0;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);background:var(--background);cursor:pointer}button.primary{min-height:32px;background:var(--primary);color:var(--background);font-weight:500;border-color:var(--primary)}button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--primary);outline-offset:2px}.actionbar{position:sticky;bottom:0;padding:8px 12px 10px;border-top:1px solid var(--border);background:var(--background);display:flex;flex-direction:column;gap:8px}.actionbar button,.actionbar button.primary{height:32px;min-height:32px}.actionbar .refresh{width:32px;min-width:32px;padding:0}.footnote{font-size:11px;text-align:center;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#status{margin:0;padding:0 12px 8px;color:var(--muted-foreground);white-space:pre-wrap;overflow-wrap:anywhere}#status:empty{display:none}.step{padding:10px;display:flex;gap:8px}.step-num{width:22px;height:22px;border:2px solid var(--border);border-radius:50%;display:grid;place-items:center;flex-shrink:0;font-size:11px;font-weight:600}.step.done .step-num{background:var(--good);border-color:var(--good);color:var(--background)}.step.current .step-num{border-color:var(--foreground)}.command,.where{padding:6px 6px 6px 10px;border-radius:calc(var(--radius,10px) - 2px);background:var(--muted)}code{font:11px ui-monospace,monospace;overflow-wrap:anywhere}.last-known{padding:10px;border-style:dashed;color:var(--muted-foreground)}.last-known .fill{background:var(--muted-foreground)}.note{padding:10px;background:var(--muted);border-radius:calc(var(--radius,10px) - 2px);color:var(--muted-foreground)}.note.info{background:color-mix(in srgb,dodgerblue 9%,var(--background))}textarea,input[type=text]{background:var(--background);border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);padding:6px 10px;width:100%}textarea{resize:vertical}input[type=text]{min-height:28px}strong,label,legend{font-weight:500}header>strong{font-weight:600}.where{padding:8px 10px}fieldset{border:0;padding:0;margin:0;min-width:0}legend{margin-bottom:6px}.radio{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);font-weight:400;cursor:pointer;min-height:32px}.radio:has(input:checked){outline:1px solid var(--foreground);border-color:var(--foreground)}.radio:has(input:disabled){color:var(--muted-foreground);cursor:default}.radio input{margin:0;width:14px;height:14px}.radio strong{font-weight:500}
@@ -625,11 +628,11 @@ function strategyView(s, now, reachable) {
   const agents = ["claude-code", "codex"].filter((id) => id === s.budget?.planner || s.budget?.providers.some((p) => p.id === id));
   return `<div class="content"><header><button type="button" data-view="overview" aria-label="Back to overview">←</button><strong>Strategy</strong><span class="grow"></span>${connectionIndicator(s, now, reachable)}</header>
  <section class="stack"><h2>Switch to</h2><div class="list strategy-list" id="strategy-list"></div></section>
- <form id="strategy-form" class="card stack strategy-builder"><strong>Build a new strategy with an agent</strong><small>Describe what you want. The agent drafts it, shows how routing would change, and asks before saving.</small>
- <label for="strategy-brief">What should it do?</label><textarea id="strategy-brief" rows="4" required maxlength="2000" placeholder="e.g. Protect Claude this week. Burn Codex before it resets on Sunday."></textarea>
+ <div id="strategy-form" role="group" class="card stack strategy-builder"><strong>Build a new strategy with an agent</strong><small>Describe what you want. The agent drafts it, shows how routing would change, and asks before saving.</small>
+ <label for="strategy-brief">What should it do?</label><textarea id="strategy-brief" rows="4" maxlength="2000" placeholder="e.g. Protect Claude this week. Burn Codex before it resets on Sunday."></textarea>
  <div class="row"><label class="stack grow">Start from<select id="strategy-from"></select></label><label class="stack grow">Agent<select id="strategy-agent">${agents.map((id) => `<option value="${id}"${id === s.budget?.planner ? " selected" : ""}>${id === "claude-code" ? "Claude Code" : "Codex"}${id === s.budget?.planner ? " (planner)" : ""}</option>`).join("")}</select></label></div>
- <div class="note row">${info}<small>Opens a new terminal in this worktree with the agent already briefed. You chat with it there; nothing changes until you approve the save. Switching stays a separate click here.</small></div><button type="submit" class="primary" data-live${agents.length ? "" : " disabled"}>Start session</button></form>
- <section id="strategy-after" class="stack" hidden></section></div><div class="actionbar"><button type="button" data-view="overview">Done</button></div>`;
+ <div class="note row">${info}<small>Opens a new terminal in this worktree with the agent already briefed. You chat with it there; nothing changes until you approve the save. Switching stays a separate click here.</small></div></div>
+ <section id="strategy-after" class="stack" hidden></section></div><div class="actionbar"><div class="actions"><button type="button" data-view="overview">Done</button><button type="button" id="strategy-send" class="primary grow" data-live${agents.length ? "" : " disabled"}>Start session</button></div>${actionStatus}</div>`;
 }
 
 // orca-plugin/src/panel/client.ts
@@ -644,11 +647,15 @@ const data = unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8
 const providerNames = {"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model",opencode:"OpenCode"};
 for (const p of [...data.rows,...data.muted]) p.name = Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
 data.executors = data.rows.map(p=>p.id);
-const status = document.getElementById("status");
+const statusNode = document.getElementById("status");
+const status = { get textContent() { return statusNode.textContent; }, set textContent(value) {
+ statusNode.textContent = value;
+ for (const el of document.querySelectorAll("[data-status]")) el.textContent = value;
+} };
 if(data.buildAlert) status.textContent=data.buildAlert.title+(data.buildAlert.body?": "+data.buildAlert.body:"");
 const sentAt = [], pending = new Map();
 let sequence = 0, context = null, sending = false;
-const submitButton = document.querySelector('button[type="submit"]');
+const submitButton = document.getElementById("delegate-send");
 function finishSending() { sending = false; submitButton.disabled = false; }
 function show(view) {
   if(view === "strategy" && savedStrategy) {try {sessionStorage.setItem("pacer-seen-strategies",JSON.stringify([...seenStrategies,savedStrategy.key+":"+savedStrategy.at].slice(-100)));}catch {}}
@@ -659,7 +666,7 @@ function live(workspace) {
   const available = data.consoles.filter(c=>c.handle && c.live);
   const selected = workspace === undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
   if (selected) { if(workspace !== undefined) data.handle = selected.handle; document.getElementById("console-hint").hidden = true; return true; }
-  status.textContent = "No pacer console in this worktree";
+  status.textContent = workspace !== undefined && Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>typeof t.title === "string" && /^pacer(?: console)?$/.test(t.title)) ? "Reopen the panel to connect to the new console." : data.autoConsole ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
   document.getElementById("console-hint").hidden = false;
   return false;
 }
@@ -702,12 +709,14 @@ function updateContext(value) {
   context = value && typeof value.branch === "string" && typeof value.displayName === "string" ? value : null;
   for (const el of document.querySelectorAll("[data-worktree]")) el.textContent = context ? context.displayName : "—";
   document.getElementById("worktree-branch").textContent = context ? context.branch : "—";
+  const connected = context && data.consoles.some(c=>c.live && Array.isArray(context.terminals) && context.terminals.some(t=>t.id===c.handle));
+  for (const el of document.querySelectorAll("[data-console-connection]")) el.textContent = context ? (connected ? "console connected in " : "console not connected in ") + context.displayName : "console not connected";
 }
 // Escape data before creating local provider rows; the same nodes populate the radio list.
 function h(value) { return String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 for (const el of document.querySelectorAll("[data-text]")) el.innerHTML = h(data.text[el.dataset.text]);
 const strategyEntries=data.strategies.map(e=>typeof e === "string"?{name:e,summary:"",active:e===data.strategy}:e);
-document.getElementById("strategy-list").innerHTML=strategyEntries.map((e,i)=>'<button type="button" class="row" data-strategy="'+i+'"'+(e.active?' disabled':'')+'><span>'+(e.active?'✓':'')+'</span><span class="stack grow"><strong>'+h(e.name)+'</strong><small>'+h(e.summary)+'</small></span>'+(e.active?'<span class="pill">Active</span>':'')+'</button>').join("");
+document.getElementById("strategy-list").innerHTML=strategyEntries.map((e,i)=>'<button type="button" class="row" data-strategy="'+i+'"'+(e.active?' disabled title="This strategy is already active."':'')+'><span>'+(e.active?'✓':'')+'</span><span class="stack grow"><strong>'+h(e.name)+'</strong><small>'+h(e.summary)+'</small></span>'+(e.active?'<span class="pill">Active</span>':'')+'</button>').join("");
 document.getElementById("strategy-from").innerHTML=strategyEntries.map(e=>'<option value="'+h(e.name)+'"'+(e.active?' selected':'')+'>'+h(e.name)+'</option>').join("");
 for(const b of document.querySelectorAll("[data-strategy]")) b.addEventListener("click",()=>sendCommand({cmd:"use",strategy:strategyEntries[Number(b.dataset.strategy)].name}));
 let seenStrategies=[];
@@ -740,7 +749,7 @@ for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("cl
 });
 for (const b of document.querySelectorAll("[data-command]")) b.addEventListener("click", () => {
   const command = data.commands[b.dataset.command];
-  if (command) sendCommand(command);
+  if (command) sendCommand(command); else status.textContent = "Reopen the panel to load this action.";
 });
 for (const b of document.querySelectorAll("[data-setup]")) b.addEventListener("click", () => {
   readContext(value => {
@@ -758,9 +767,9 @@ for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("c
   }
   sendCommand({cmd:"refresh"});
 });
-document.getElementById("delegate-form").addEventListener("submit", event => {
-  event.preventDefault();
-  if (sending || !live()) return;
+document.getElementById("delegate-send").addEventListener("click", () => {
+  if (sending) { status.textContent = "A command is already being sent. Please wait."; return; }
+  if (!live()) return;
   const goal = document.getElementById("goal").value, acceptance = document.getElementById("done").value;
   const selected = document.querySelector('input[name="executor"]:checked');
   if (!goal.trim()) { status.textContent = "What should be done is required."; return; }
@@ -779,15 +788,17 @@ document.getElementById("delegate-form").addEventListener("submit", event => {
     }, finishSending, value)) finishSending();
   }, finishSending)) finishSending();
 });
-document.getElementById("strategy-form").addEventListener("submit", event => {
- event.preventDefault(); if(sending || !live())return;
+document.getElementById("strategy-send").addEventListener("click", () => { if(sending){status.textContent="A command is already being sent. Please wait.";return;} if(!live())return;
  const brief=document.getElementById("strategy-brief").value, from=document.getElementById("strategy-from").value, agent=document.getElementById("strategy-agent").value;
  if(!brief.trim() || brief.length>2000 || !["claude-code","codex"].includes(agent)) {status.textContent="Enter a brief of at most 2000 characters and choose a configured agent.";return;}
- const button=document.querySelector('#strategy-form button[type="submit"]'); sending=true;button.disabled=true;
+ const button=document.getElementById("strategy-send"); sending=true;button.disabled=true;
  const finish=()=>{sending=false;button.disabled=false;};
  if(!readContext(value=>{updateContext(value);if(!context || !context.branch){status.textContent="Focus a worktree first.";finish();return;}
  sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
  },finish))finish();
+});
+document.getElementById("done").addEventListener("keydown", event => {
+ if(event.key === "Enter") {event.preventDefault();document.getElementById("delegate-send").click();}
 });
 window.addEventListener("message", event => {
   const r = event.data;
@@ -805,20 +816,22 @@ readContext(value => { live(value); });
 
 // orca-plugin/src/panel.ts
 function renderPanel(s, view) {
-  const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c) => c.handle && view.nowS - c.heartbeatAt <= LIMITS.heartbeatS).filter((c, i, a) => a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], selected = initialView(s, view.reachable, view.nowS);
+  const reconnecting = !view.reachable && !!s.budget && view.lastSeenAt !== undefined && view.nowS - view.lastSeenAt >= 0 && view.nowS - view.lastSeenAt < 20;
+  const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c) => c.handle && view.nowS - c.heartbeatAt <= LIMITS.heartbeatS).filter((c, i, a) => a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], selected = reconnecting ? "overview" : initialView(s, view.reachable, view.nowS);
   const commands = { refresh: { cmd: "refresh" } };
   const text = {};
   const main = overview(s, view.nowS, view.reachable, commands, text);
-  const disable = (html) => console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled");
-  const payload = { buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict) })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS) })) };
+  const reasonText = view.autoConsole ?? true ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
+  const disable = (html) => (console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label) => `<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
+  const payload = { autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict) })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS) })) };
   const strategy = strategyView(s, view.nowS, view.reachable);
   const outcome = view.autoConsoleOutcome, waiting = !outcome || outcome.status === "starting" && view.nowS - outcome.at < 15;
-  const reason = outcome ? outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
+  const reason = outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
   const consoleHint = waiting && view.transport === "http" && (view.autoConsole ?? true) && view.reachable ? `<small class="muted"><span class="console-spinner" aria-hidden="true">◐</span> Starting pacer console in this worktree...</small>` : `<button type="button" data-setup="pacer console">Start console</button><small>${h(reason)}</small>`;
   const packed = packPanelData(payload), plain = jsonForScript(packed), encoded = jsonForScript({ encoded: Buffer.from(JSON.stringify(packed), "utf8").toString("base64") });
   const data = encoded.length < plain.length ? encoded : plain;
   return `<!doctype html><html lang="en" data-transport="${h(view.transport ?? "none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style}</style></head><body>
- <main class="view" data-page="overview"${selected === "overview" ? "" : " hidden"}>${disable(main)}</main>
+ <main class="view" data-page="overview"${selected === "overview" ? "" : " hidden"}>${reconnecting ? '<div role="status" class="note">Reconnecting...</div><div style="opacity:.45;pointer-events:none" inert>' + disable(main) + "</div>" : disable(main)}</main>
  <main class="view" data-page="setup"${selected === "setup" ? "" : " hidden"}>${setup(s, view.nowS, view.reachable)}</main>
  <main class="view" data-page="delegate" hidden>${disable(delegateView(s, view.nowS, view.reachable))}</main>
  <main class="view" data-page="strategy" hidden>${disable(strategy)}</main>
@@ -887,6 +900,8 @@ function createPlugin(deps) {
       bridge
     ];
     let active = null, reachable = false, connecting = null;
+    let lastSeenAt;
+    const reconnecting = () => !reachable && lastSeenAt !== undefined && deps.nowS() - lastSeenAt < 20;
     let processing = Promise.resolve();
     let httpFailures = 0;
     let renderedKey = null;
@@ -906,6 +921,8 @@ function createPlugin(deps) {
     const panelKey = () => JSON.stringify({
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
+      serviceInstalled: store.snapshot.serviceInstalled,
+      reconnecting: reconnecting(),
       tasks: store.snapshot.tasks,
       alerts: store.snapshot.alerts,
       consoles: [...new Set([...(store.snapshot.consoles ?? []).map((c) => c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map((handle) => ({
@@ -929,7 +946,7 @@ function createPlugin(deps) {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
               renderedKey = key;
             } else
               ctx.log("pacer: refused panel write: unmanaged root");
@@ -958,6 +975,7 @@ function createPlugin(deps) {
       if (stopped)
         return;
       httpFailures = 0;
+      lastSeenAt = deps.nowS();
       if (!reachable) {
         reachable = true;
         scheduleRender();
@@ -969,7 +987,9 @@ function createPlugin(deps) {
       if (stopped)
         return;
       active = chosen.transport;
-      reachable = chosen.reachable;
+      reachable = chosen.reachable && active?.id !== "bridge";
+      if (reachable)
+        lastSeenAt = deps.nowS();
       store.transport = active?.id ?? null;
       if (!active) {
         scheduleRender();
@@ -985,9 +1005,11 @@ function createPlugin(deps) {
       if (snapshot)
         replaceSnapshot(snapshot);
       stopWatch = active.watch((e) => {
-        if (!stopped)
+        if (!stopped) {
+          lastSeenAt = deps.nowS();
           store.apply(e);
-      }, acceptSnapshot, () => {
+        }
+      }, active.id === "bridge" ? replaceSnapshot : acceptSnapshot, () => {
         handleHttpFailure().catch(logError);
       });
       scheduleRender();
@@ -1019,6 +1041,8 @@ function createPlugin(deps) {
       if (stopped || active?.id !== "http")
         return;
       reachable = false;
+      if (lastSeenAt !== undefined)
+        timers.after(Math.max(0, (20 - (deps.nowS() - lastSeenAt)) * 1000), scheduleRender);
       if (failures >= 3) {
         stopWatch?.();
         stopWatch = null;
@@ -1030,9 +1054,12 @@ function createPlugin(deps) {
     const refreshSnapshot = async () => {
       try {
         const snapshot = await active?.snapshot().catch(() => null);
-        if (snapshot)
-          acceptSnapshot(snapshot);
-        else if (active?.id === "http")
+        if (snapshot) {
+          if (active?.id === "bridge")
+            replaceSnapshot(snapshot);
+          else
+            acceptSnapshot(snapshot);
+        } else if (active?.id === "http")
           await handleHttpFailure();
         else {
           const fallback = await bridge.snapshot();
@@ -1121,6 +1148,9 @@ function createPlugin(deps) {
         const result = JSON.parse(response.body);
         if (!result.ok) {
           outcomes.set(worktree, { status: typeof result.reason === "string" ? result.reason : "orca-unavailable", at: deps.nowS() });
+          scheduleRender();
+        } else if (result.warning === "older-console") {
+          outcomes.set(worktree, { status: "older-console", at: deps.nowS() });
           scheduleRender();
         } else if (response.status !== 200)
           throw new Error(`HTTP ${response.status}`);
@@ -1216,8 +1246,34 @@ function createPlugin(deps) {
         return;
       await sendFresh({ cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch });
     });
+    ctx.events.on("worktree.removed", async (payload) => {
+      if (stopped || !payload || typeof payload !== "object" || !("worktreeId" in payload))
+        return;
+      const id = payload.worktreeId;
+      if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}(?:::[^\x00-\x1f\x7f]{1,900})?$/.test(id))
+        return;
+      outcomes.delete(id);
+      failureLogged.delete(id);
+      if (focusedWorktree === id) {
+        focusedWorktree = null;
+        attempted = false;
+      }
+      scheduleRender();
+      try {
+        const base = `http://127.0.0.1:${settings.port}`;
+        const health = await deps.http.get(`${base}/health`, "", 1500);
+        if (stopped || health.status !== 200 || health.headers?.["x-pacer"] !== "1")
+          return;
+        const token = deps.fs.readText(`${settings.pacerHome}/token`)?.trim();
+        if (!token || !deps.http.post)
+          return;
+        await deps.http.post(`${base}/console/forget`, token, { worktreeId: id }, 1500);
+      } catch (e) {
+        logError(e);
+      }
+    });
     try {
-      ctx.host.call("events.subscribe", { events: ["agent.status.changed", "worktree.created"] }).catch(logError);
+      ctx.host.call("events.subscribe", { events: ["agent.status.changed", "worktree.created", "worktree.removed"] }).catch(logError);
     } catch (e) {
       logError(e);
     }

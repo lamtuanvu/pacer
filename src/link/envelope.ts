@@ -8,9 +8,9 @@ export interface TaskData { id: string; state: string; goal: string; executor: s
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string }
 export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
-export interface ConsoleData { worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number }
+export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
-export interface LinkSnapshot { v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
+export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
 export const CMD_NAMES = ["delegate", "retry", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
 export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; agent?: string; from?: string; brief?: string }
@@ -50,7 +50,7 @@ function parseAlert(d: unknown): AlertData | null {
 }
 function parseConsole(d: unknown): ConsoleData | null {
   if (!isObj(d)) return null; const pid = num(d.pid), startedAt = num(d.startedAt), heartbeatAt = num(d.heartbeatAt);
-  if (pid === null || startedAt === null || heartbeatAt === null) return null; return { ...(optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024)! } : {}), pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
+  if (pid === null || startedAt === null || heartbeatAt === null) return null; return { ...(optStr(d.version, 64) ? { version: optStr(d.version, 64)! } : {}), ...(optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024)! } : {}), pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
 }
 export function parseEnvelope(raw: unknown): Envelope | null {
   if (!isObj(raw) || raw.v !== 1) return null;
@@ -66,7 +66,7 @@ export function emptySnapshot(): LinkSnapshot { return { v: 1, seq: 0, at: 0, bu
 export function parseSnapshot(raw: unknown): LinkSnapshot | null {
   if (!isObj(raw) || raw.v !== 1) return null; const seq = num(raw.seq), at = num(raw.at); if (seq === null || at === null) return null;
   const list = <T>(v: unknown, f: (x: unknown) => T | null, max: number): T[] => (Array.isArray(v) ? v : []).map(f).filter((x): x is T => x !== null).slice(0, max);
-  return { v: 1, seq, at, budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list<string | StrategyData>(raw.strategies, v => typeof v === "string" ? optStr(v,128) : isObj(v) && optStr(v.name,128) ? {name:optStr(v.name,128)!,active:v.active===true,summary:str(v.summary,1000)??"",description:str(v.description,1000)??""} : null, 32) };
+  return { v: 1, seq, at, ...(typeof raw.serviceInstalled === "boolean" ? {serviceInstalled: raw.serviceInstalled} : {}), budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list<string | StrategyData>(raw.strategies, v => typeof v === "string" ? optStr(v,128) : isObj(v) && optStr(v.name,128) ? {name:optStr(v.name,128)!,active:v.active===true,summary:str(v.summary,1000)??"",description:str(v.description,1000)??""} : null, 32) };
 }
 /** Pure. `at` is the caller's clock (unix seconds). */
 export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
@@ -78,7 +78,7 @@ export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
     case "alert": next.alerts = [e.data, ...s.alerts.filter(a => a.key !== e.data.key)].sort((a,b) => b.at-a.at).slice(0,LIMITS.alerts); break;
   } return next;
 }
-export function contentKey(s: LinkSnapshot): string { return JSON.stringify({ budget:s.budget ? {...s.budget, generatedAt: undefined} : null, mode:s.mode, tasks:s.tasks, alerts:s.alerts, console:s.console, consoles:s.consoles, strategies:s.strategies }); }
+export function contentKey(s: LinkSnapshot): string { return JSON.stringify({ serviceInstalled:s.serviceInstalled, budget:s.budget ? {...s.budget, generatedAt: undefined} : null, mode:s.mode, tasks:s.tasks, alerts:s.alerts, console:s.console, consoles:s.consoles, strategies:s.strategies }); }
 export function liveConsole(s: LinkSnapshot, nowS: number): ConsoleData | null { const c=s.console; return c && c.handle && nowS-c.heartbeatAt<=LIMITS.heartbeatS ? c : null; }
 const CMD_PREFIX = ": pacer '";
 export function encodeCmdLine(data: CmdData): string {

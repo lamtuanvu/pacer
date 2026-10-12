@@ -1,3 +1,5 @@
+import { restartConsoles } from "../console/restart";
+import { restartAfterUpdate } from "../service";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { ReleaseError } from "./errors";
@@ -6,9 +8,9 @@ import { type Platform, hostPlatform, latestUrl, parseLatest, parseManifest, par
 import { type SmokeFn, replaceBinary, runVersion } from "./replace";
 import { compareVersions, currentVersion, isVersion } from "./version";
 
-export const UPDATE_USAGE = "usage: pacer update [--check] [--to <version>] [--base <url>]";
+export const UPDATE_USAGE = "usage: pacer update [--check] [--to <version>] [--base <url>] [--no-restart]";
 
-export interface UpdateOptions { check: boolean; to?: string; base?: string }
+export interface UpdateOptions { check: boolean; noRestart?: boolean; to?: string; base?: string }
 
 export interface UpdateDeps {
   env: Record<string, string | undefined>;
@@ -18,6 +20,7 @@ export interface UpdateDeps {
   version: string;
   platform: Platform | null;
   smoke?: SmokeFn;
+  restartService?: (path: string) => Promise<boolean | { restarted: boolean; consoles: number; warning?: string }>;
 }
 
 export function parseUpdateArgs(args: string[]): UpdateOptions | string {
@@ -26,6 +29,8 @@ export function parseUpdateArgs(args: string[]): UpdateOptions | string {
     const a = args[i];
     if (a === "--check") {
       o.check = true;
+    } else if (a === "--no-restart") {
+      o.noRestart = true;
     } else if (a === "--to" || a === "--base") {
       const v = args[i + 1];
       if (v === undefined || v.startsWith("--")) return `pacer update: ${a} needs a value\n${UPDATE_USAGE}`;
@@ -48,6 +53,13 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
     standalone: Bun.isStandaloneExecutable,
     version: currentVersion(),
     platform: hostPlatform(),
+    restartService: async path => {
+      let restarted = false, warning: string | undefined;
+      try { restarted = await restartAfterUpdate(ctx, path); } catch (e) { warning = `could not restart pacer serve: ${(e as Error).message}`; }
+      const warnings = warning ? [warning] : [];
+      const consoles = await restartConsoles(ctx, undefined, message => warnings.push(message));
+      return { restarted, warning: warnings.length ? warnings.join("; ") : undefined, consoles };
+    },
   };
 }
 
@@ -90,7 +102,15 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
       throw new ReleaseError(`checksum mismatch for ${asset.file} (expected ${asset.sha256}, got ${got}); nothing was changed`);
     }
     const r = await replaceBinary(d.execPath, bytes, target, d.smoke ?? runVersion);
-    return ok([`updated pacer ${d.version} -> ${target}`, `binary: ${r.path}`, `previous binary: ${r.backup}`].join("\n"));
+    let serviceNote = "";
+    if (!o.noRestart && d.restartService) {
+      try { const result = await d.restartService(r.path);
+        if (typeof result === "boolean") { if (result) serviceNote = "\nrestarted pacer serve"; }
+        else serviceNote = (result.restarted ? "\nrestarted pacer serve" : "") + `\nrestarted ${result.consoles} pacer consoles` + (result.warning ? `\nWARNING: ${result.warning}` : "");
+      }
+      catch (e) { serviceNote = `\nWARNING: could not restart pacer serve: ${(e as Error).message}`; }
+    }
+    return ok([`updated pacer ${d.version} -> ${target}`, `binary: ${r.path}`, `previous binary: ${r.backup}`].join("\n") + serviceNote);
   } catch (e) {
     if (e instanceof SyntaxError) return fail(1, `release metadata is not valid JSON (${e.message})`);
     return fail(1, (e as Error).message);

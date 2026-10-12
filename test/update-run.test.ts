@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeRelease } from "../scripts/release/build";
@@ -224,4 +224,27 @@ test("pacer update through the CLI refuses from source and validates arguments",
   expect((await main(["update", "--force"], ctx)).code).toBe(2);
   expect((await main(["update", "--check"], ctx)).out).toContain(`-> 99.0.0`);
   expect((await main(["help"], ctx)).out).toContain("update [--check] [--to <v>] [--base <url>]");
+});
+
+test("update restarts after successful replacement, warns on restart failure, and honors --no-restart", async () => {
+  expect(parseUpdateArgs(["--no-restart"])).toEqual({ check: false, noRestart: true });
+  for (const mode of ["success", "failure", "skip", "check", "not-installed"]) {
+    const root = tmpDir(); release(root, "0.2.0"); const exec = installed(); let calls = 0;
+    const r = await runUpdate({ check: mode === "check", noRestart: mode === "skip" }, deps(root, exec, { restartService: async path => {
+      calls++; expect(path).toBe(realpathSync(exec)); expect(readFileSync(exec, "utf8")).toBe(script("0.2.0"));
+      if (mode === "failure") throw Error("kickstart failed"); return mode !== "not-installed";
+    } }));
+    expect(r.code).toBe(0); expect(calls).toBe(mode === "skip" || mode === "check" ? 0 : 1);
+    if (mode === "success") expect(r.out).toContain("restarted pacer serve");
+    if (mode === "failure") expect(r.out).toContain("WARNING: could not restart pacer serve: kickstart failed");
+    if (mode === "skip" || mode === "not-installed") expect(r.out).not.toContain("restarted pacer serve");
+  }
+});
+
+test("update reports service and console restart counts and retains warning with counts", async()=>{
+ for(const warning of [undefined,"could not restart pacer serve: unavailable"]) {
+  const root=tmpDir();release(root,"0.2.0");const exec=installed();
+  const result=await runUpdate({check:false},deps(root,exec,{restartService:async()=>({restarted:!warning,consoles:2,warning})}));
+  expect(result.code).toBe(0);expect(result.out).toContain("restarted 2 pacer consoles");if(warning)expect(result.out).toContain(`WARNING: ${warning}`);else expect(result.out).toContain("restarted pacer serve");
+ }
 });

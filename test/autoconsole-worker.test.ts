@@ -10,9 +10,10 @@ import { fakeCtx } from "./helpers";
 import { fakeRun } from "./fixtures/orca/fake";
 function fixture(settings:Record<string,unknown>={}) {
  const timers=new ManualTimers();let now=100;let snap=emptySnapshot();const posts:any[]=[], logs:string[]=[];let fail=false, health=true;let outcome:any={ok:true};const panels:string[]=[];let context:any={branch:"feat/x",displayName:"Feature",terminals:[{id:"term_target"}]};
- const ctx={host:{call:async(m:string)=>m==="settings.get"?{settings}:m==="workspace.readContext"?context:m==="storage.get"?{value:snap}:{subscribed:[]}},commands:{register(){}},events:{on(){}},log:(s:string)=>logs.push(s),grantedCapabilities:[]} as OrcaWorkerContext;
+ const events=new Map<string,(p:unknown)=>unknown>();
+ const ctx={host:{call:async(m:string)=>m==="settings.get"?{settings}:m==="workspace.readContext"?context:m==="storage.get"?{value:snap}:{subscribed:[]}},commands:{register(){}},events:{on(name:string,fn:(p:unknown)=>unknown){events.set(name,fn);}},log:(s:string)=>logs.push(s),grantedCapabilities:[]} as OrcaWorkerContext;
  const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp/plugin",nowS:()=>now,timers,fs:{readText:()=>"secret",exists:()=>true,writeTextAtomic(_p,text){panels.push(text);}},http:{get:async(url)=>({status:200,headers:{"x-pacer":health?"1":"0"},body:JSON.stringify(url.endsWith("/health")?{ok:true}:snap)}),post:async(...args:any[])=>{posts.push(args);if(fail)throw Error("offline");return {status:200,body:JSON.stringify(outcome),headers:{"x-pacer":"1"}};},stream:()=>()=>{}}});
- return {plugin,timers,posts,logs,panels,set outcome(v:any){outcome=v;},set fail(v:boolean){fail=v;},set health(v:boolean){health=v;},set context(v:any){context=v;},set snap(v:typeof snap){snap=v;},async start(){await plugin.activate(ctx);await flush();},async tick(seconds=5){now+=seconds;await timers.advance(seconds*1000);await flush();}};
+ return {plugin,timers,posts,logs,panels,events,set outcome(v:any){outcome=v;},set fail(v:boolean){fail=v;},set health(v:boolean){health=v;},set context(v:any){context=v;},set snap(v:typeof snap){snap=v;},async start(){await plugin.activate(ctx);await flush();},async tick(seconds=5){now+=seconds;await timers.advance(seconds*1000);await flush();}};
 }
 test("autoConsole setting defaults and on/off validation",()=>{
  expect(readSettings({},"/tmp").autoConsole).toBe(true);expect(readSettings({autoConsole:false},"/tmp").autoConsole).toBe(false);expect(readSettings({autoConsole:"off"},"/tmp").autoConsole).toBe(true);
@@ -61,3 +62,11 @@ test("missing workspace context still bounds the panel startup hint",async()=>{
 test("focus changes isolate failure reasons even on identical branch names",async()=>{
  const f=fixture();try{f.context={worktreeId:"one",branch:"shared",displayName:"One",terminals:[]};f.outcome={ok:false,reason:"console-terminal-exists"};await f.start();await f.tick();await f.tick();expect(f.panels.at(-1)).toContain("console-terminal-exists");f.context={worktreeId:"two",branch:"shared",displayName:"Two",terminals:[]};f.outcome={ok:true};await f.tick();await f.tick();expect(f.posts).toHaveLength(2);expect(f.panels.at(-1)).not.toContain("Auto-open: console-terminal-exists.");}finally{await f.plugin.deactivate();}
 });
+
+ test("worktree removal clears auto-console attempts and sends identified authenticated forget", async()=>{
+  const f=fixture();try {f.context={worktreeId:"wt",branch:"feat/x",displayName:"Feature",terminals:[]};await f.start();await f.tick();expect(f.posts).toHaveLength(1);
+   await f.events.get("worktree.removed")!({worktreeId:"wt"});expect(f.posts.at(-1)[0]).toContain("/console/forget");expect(f.posts.at(-1).slice(1,3)).toEqual(["secret",{worktreeId:"wt"}]);
+   await f.tick();expect(f.posts.filter(p=>p[0].endsWith("/console/open"))).toHaveLength(2);
+   f.health=false;const count=f.posts.length;await f.events.get("worktree.removed")!({worktreeId:"wt"});expect(f.posts).toHaveLength(count);
+  }finally{await f.plugin.deactivate();}
+ });

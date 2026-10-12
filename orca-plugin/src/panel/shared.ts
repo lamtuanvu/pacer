@@ -26,3 +26,5 @@ export function packPanelData(value: unknown): unknown {
  if(value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,packPanelData(v)]));
  return value;
 }
+
+export const actionStatus = '<p data-status role="status" aria-live="polite" class="action-status"></p>';
