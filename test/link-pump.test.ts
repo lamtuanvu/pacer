@@ -22,3 +22,14 @@ test("terminal first seen alerts after initial snapshot and status failures dedu
   const c = fakeCtx(); writeJsonAtomic(latestPath(c), { ...emptySnapshot(), seq: 1 }); let out=await pumpOnce(c,{status:async()=>status(),tasks:()=>[task("done")],publish:async()=>({seq:1,transports:[],errors:[]})}); expect(out.some(e=>e.type==="alert")).toBe(true);
   writeJsonAtomic(latestPath(c), emptySnapshot()); const bad: PumpDeps = { status:async()=>{throw new Error("oops")}, tasks:()=>[], publish:async()=>({seq:1,transports:[],errors:[]}) }; expect((await pumpOnce(c,bad)).length).toBe(1); writeJsonAtomic(latestPath(c), { ...emptySnapshot(), alerts:[{key:"status-error",level:"error",title:"bad",body:"oops",error:"oops",at:1}] }); expect(await pumpOnce(c,bad)).toEqual([]);
 });
+test("a different status-error message produces a new alert", async () => {
+  const c = fakeCtx();
+  writeJsonAtomic(latestPath(c), {...emptySnapshot(), alerts:[{key:"status-error",level:"error",title:"pacer status failed",body:"first failure",error:"first failure",at:1}]});
+  const published: Envelope[][] = [];
+  const out = await pumpOnce(c, {
+    status:async()=>{throw new Error("second failure");}, tasks:()=>[],
+    publish:async(_ctx,envs)=>{published.push(envs);return {seq:1,transports:[],errors:[]};},
+  });
+  expect(out).toEqual([{v:1,type:"alert",data:{key:"status-error",level:"error",title:"pacer status failed",body:"second failure",error:"second failure",at:c.now}}]);
+  expect(published).toEqual([out]);
+});
