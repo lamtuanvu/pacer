@@ -77,7 +77,7 @@ export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
     case "alert": next.alerts = [e.data, ...s.alerts.filter(a => a.key !== e.data.key)].sort((a,b) => b.at-a.at).slice(0,LIMITS.alerts); break;
   } return next;
 }
-export function contentKey(s: LinkSnapshot): string { return JSON.stringify({ budget:s.budget, mode:s.mode, tasks:s.tasks, alerts:s.alerts, console:s.console }); }
+export function contentKey(s: LinkSnapshot): string { return JSON.stringify({ budget:s.budget ? {...s.budget, generatedAt: undefined} : null, mode:s.mode, tasks:s.tasks, alerts:s.alerts, console:s.console }); }
 export function liveConsole(s: LinkSnapshot, nowS: number): ConsoleData | null { const c=s.console; return c && c.handle && nowS-c.heartbeatAt<=LIMITS.heartbeatS ? c : null; }
 const CMD_PREFIX = ": pacer '";
 export function encodeCmdLine(data: CmdData): string {

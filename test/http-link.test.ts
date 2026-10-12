@@ -105,3 +105,11 @@ test("pump timer contains synchronous context failure and can run again", async 
     expect(existsSync(latestPath(ctx))).toBe(true);
   } finally {globalThis.setInterval=original;}
 });
+
+test("health is unauthenticated and pacer responses identify themselves",async()=>{
+ const {url,headers}=await serve();
+ const health=await fetch(url+"/health");
+ expect(health.status).toBe(200);expect(health.headers.get("x-pacer")).toBe("1");
+ expect(await health.json()).toEqual({ok:true});
+ for(const path of ["/link","/state"]) expect((await fetch(url+path,{headers})).headers.get("x-pacer")).toBe("1");
+});

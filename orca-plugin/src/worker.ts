@@ -1,6 +1,6 @@
 import { get } from "node:http";
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPlugin, type Timers } from "./plugin";
 import type { HttpPort } from "./transports/http";
@@ -17,12 +17,12 @@ const http: HttpPort = {
   get(url, token, timeoutMs) {
     return new Promise((resolve, reject) => {
       checkLoopback(url);
-      const req = get(url, { headers: { Authorization: `Bearer ${token}` } }, res => {
+      const req = get(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }, res => {
         let body = "";
         res.setEncoding("utf8");
         res.on("data", chunk => { body += chunk; if (Buffer.byteLength(body) > 256 * 1024) req.destroy(new Error("pacer snapshot exceeds 256 KiB")); });
         res.on("error", reject);
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
       });
       const timeout = setTimeout(() => req.destroy(new Error("pacer HTTP timeout")), timeoutMs);
       req.on("close", () => clearTimeout(timeout));
@@ -50,7 +50,8 @@ const http: HttpPort = {
     return () => { stopped = true; req.destroy(); };
   },
 };
-const pluginRoot = fileURLToPath(new URL(".", import.meta.url));
+const pluginRoot = dirname(fileURLToPath(import.meta.url));
+let log = (message: string) => {};
 const plugin = createPlugin({
   nowS: () => Date.now() / 1000,
   timers, http,
@@ -61,12 +62,12 @@ const plugin = createPlugin({
     exists: existsSync,
     writeTextAtomic(path, text) {
       // The panel directory is supplied by the installer; never create other paths.
-      if (path !== join(pluginRoot, "panel", "live.html") || !existsSync(join(pluginRoot, ".pacer-managed"))) return;
+      if (resolve(path) !== resolve(pluginRoot, "panel", "live.html") || !existsSync(join(pluginRoot, ".pacer-managed"))) { log("pacer: refused panel write: unmanaged root or unexpected path"); return; }
       const temporary = `${path}.${process.pid}.tmp`;
       try { writeFileSync(temporary, text, "utf8"); renameSync(temporary, path); }
       finally { try { unlinkSync(temporary); } catch { /* renamed, or never written */ } }
     },
   },
 });
-export default async function activate(ctx: OrcaWorkerContext): Promise<void> { await plugin.activate(ctx); }
+export default async function activate(ctx: OrcaWorkerContext): Promise<void> { log = message => ctx.log(message); await plugin.activate(ctx); }
 export async function deactivate(): Promise<void> { await plugin.deactivate(); }

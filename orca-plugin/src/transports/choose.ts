@@ -5,7 +5,7 @@ export interface Transport {
   id: TransportId;
   probe(): Promise<boolean>;
   snapshot(): Promise<LinkSnapshot | null>;
-  watch(onEnvelope: (e: Envelope) => void, onSnapshot: (s: LinkSnapshot) => void): () => void;
+  watch(onEnvelope: (e: Envelope) => void, onSnapshot: (s: LinkSnapshot) => void, onFailure?: () => void): () => void;
 }
 export const TRANSPORT_ORDER: TransportId[] = ["http", "channel", "bridge"];
 export async function chooseTransport(ts: Transport[], forced: TransportChoice): Promise<{ transport: Transport | null; reachable: boolean }> {

@@ -1,6 +1,6 @@
 import { renderUninstall } from "../install/index";
 import { pacerArgv } from "../install/self";
-import { writePluginSetting } from "../link/bridge";
+import { pluginInstalled, writePluginSetting } from "../link/bridge";
 import { linkCli } from "../link/cli";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
@@ -47,8 +47,9 @@ export async function pluginCli(args: string[], ctx: Ctx): Promise<Result> {
         if (rest.length !== 2) return { code: 2, out: "", err: USAGE };
         let v: unknown;
         try { v = parseSetting(rest[0], rest[1]); } catch (e) { return err(2, e); }
+        if (!pluginInstalled(ctx)) return err(1, "the Orca plugin is not installed; run pacer plugin install first");
         writePluginSetting(ctx, rest[0], v);
-        return { code: 0, out: `plugin setting ${rest[0]} = ${JSON.stringify(v)} (takes effect on the plugin's next refresh)`, err: "" };
+        return { code: 0, out: `plugin setting ${rest[0]} = ${JSON.stringify(v)} (takes effect after reloading the plugin in Orca)`, err: "" };
       }
       default:
         return { code: 2, out: "", err: USAGE };

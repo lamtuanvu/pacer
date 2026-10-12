@@ -44,8 +44,8 @@ test("HTTP and installed storage bridge converge on the same envelopes", async (
     every: (ms: number, fn: () => void) => { const t = setInterval(fn, ms); return () => clearInterval(t); },
     after: (ms: number, fn: () => void) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
   };
-  const request = (url: string, token: string, timeoutMs: number) => new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const req = nodeGet(url, { headers: { Authorization: `Bearer ${token}` } }, res => { let body = ""; res.setEncoding("utf8"); res.on("data", chunk => body += chunk); res.on("end", () => resolve({ status: res.statusCode ?? 0, body })); });
+  const request = (url: string, token: string, timeoutMs: number) => new Promise<{ status: number; body: string; headers: import("node:http").IncomingHttpHeaders }>((resolve, reject) => {
+    const req = nodeGet(url, { headers: { Authorization: `Bearer ${token}` } }, res => { let body = ""; res.setEncoding("utf8"); res.on("data", chunk => body += chunk); res.on("end", () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers })); });
     req.setTimeout(timeoutMs, () => req.destroy(new Error("timeout"))); req.on("error", reject);
   });
   const stream = (url: string, token: string, onLine: (line: string) => void, onClose: (error?: Error) => void) => {

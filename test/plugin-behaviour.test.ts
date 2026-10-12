@@ -131,7 +131,7 @@ test("store contract produces the same content through HTTP SSE, bridge and chan
   throw new Error(method);
  }} as OrcaHost;
  const transports = [
-  httpTransport({timers,port:4317,readToken:()=>"test-token",http:{get:async()=>({status:200,body:JSON.stringify(bridgeSnapshot)}),stream:(_url,_token,fn)=>{onLine=fn;return()=>{};}}}),
+  httpTransport({timers,port:4317,readToken:()=>"test-token",http:{get:async()=>({status:200,headers:{"x-pacer":"1"},body:JSON.stringify(bridgeSnapshot)}),stream:(_url,_token,fn)=>{onLine=fn;return()=>{};}}}),
   bridgeTransport({host,timers,pollMs:5000}),
   channelTransport({host,registerEvent:(_name,fn)=>{onMessage=fn;}}),
  ];
@@ -163,7 +163,7 @@ test("activation tolerates hosts that throw for unknown event names", async () =
 for (const action of ["delegate", "switch-strategy", "refresh-status", "agent-done", "worktree-created"]) test(`${action} refreshes HTTP snapshot before checking console liveness`, async () => {
  const f=fixture();
  let requests=0;
- const http={get:async()=>{requests++;return {status:200,body:JSON.stringify(f.snapshot)};},stream:()=>()=>{}};
+ const http={get:async()=>{requests++;return {status:200,headers:{"x-pacer":"1"},body:JSON.stringify(f.snapshot)};},stream:()=>()=>{}};
  const plugin=createPlugin({home:"/tmp/fake",pluginRoot:"/tmp/fake",nowS:()=>140,timers:f.timers,http,fs:{readText:()=>"token",exists:()=>false,writeTextAtomic:()=>{}}});
  try {
   await plugin.activate(f.ctx);await flush();
@@ -191,7 +191,7 @@ test("equal timestamp alerts beyond the first three are delivered on later updat
 test("HTTP snapshot polls re-render panel liveness even when content is unchanged", async () => {
  const f=fixture();let now=100;const panels:string[]=[];
  const plugin=createPlugin({home:"/tmp/fake",pluginRoot:"/tmp/fake",nowS:()=>now,timers:f.timers,
-  http:{get:async()=>({status:200,body:JSON.stringify(f.snapshot)}),stream:()=>()=>{}},
+  http:{get:async()=>({status:200,headers:{"x-pacer":"1"},body:JSON.stringify(f.snapshot)}),stream:()=>()=>{}},
   fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_path,text)=>panels.push(text)}});
  try {
   await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
@@ -211,4 +211,124 @@ test("simultaneous done events still debounce after snapshot refresh", async () 
   await Promise.all([event({state:"done",paneKey:"pane",receivedAt:100}),event({state:"done",paneKey:"pane",receivedAt:100})]);
   expect(sends(f)).toHaveLength(1);
  }finally{await f.cleanup();}
+});
+
+test("channel refresh reads current console liveness from bridge", async () => {
+ const f=fixture(null);const original=f.host.call.bind(f.host);
+ f.host.call=(async(m:any,p:any)=>m==="events.subscribe"?{subscribed:[]}:original(m,p)) as OrcaHost["call"];
+ try {
+  await f.start();
+  f.snapshot={...f.snapshot,console:{handle:"new-console",paneKey:null,pid:1,startedAt:100,heartbeatAt:140}};
+  f.now=140;
+  expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});
+  expect(sends(f).at(-1)!.params.terminalId).toBe("new-console");
+ } finally {await f.cleanup();}
+});
+
+test("worker subscribes to supported lifecycle events even when channel is unavailable",async()=>{
+ const f=fixture();
+ try {await f.start();expect(f.calls.some(c=>c.method==="events.subscribe" && c.params.events.includes("agent.status.changed") && c.params.events.includes("worktree.created"))).toBe(true);}
+ finally {await f.cleanup();}
+});
+
+test("equal budgets with alternating generation times do not rewrite or notify",async()=>{
+ const f=fixture();
+ try {
+  f.snapshot={...f.snapshot,budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:[],ranked:[]}};
+  await f.start();await f.timers.advance(2000);
+  const before=f.writes.length;const notices=notes(f).length;
+  for(const generatedAt of [200,100,200]){
+   f.snapshot={...f.snapshot,budget:{...f.snapshot.budget!,generatedAt}};
+   await f.timers.advance(10000);
+  }
+  expect(f.writes.length).toBe(before);expect(notes(f).length).toBe(notices);
+ }finally{await f.cleanup();}
+});
+
+test("HTTP failures switch to bridge after three polls and recover when HTTP returns",async()=>{
+ const f=fixture();let up=true,stops=0;
+ const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100,timers:f.timers,
+  http:{get:async(url)=>up?{status:200,body:url.endsWith("/health")?'{"ok":true}':JSON.stringify(f.snapshot),headers:{"x-pacer":"1"}}:{status:503,body:""},stream:()=>()=>{stops++;}},
+  fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(path,text)=>f.writes.push({path,text})}});
+ try {
+  await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
+  expect(f.writes.at(-1)!.text).toContain("http");
+  up=false;f.snapshot={...f.snapshot,console:{...f.snapshot.console!,handle:"bridge-console"}};
+  await f.timers.advance(10000);
+  expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});
+  expect(sends(f).at(-1)!.params.terminalId).toBe("bridge-console");
+  await f.timers.advance(22000);
+  expect(stops).toBeGreaterThan(0);
+  expect(f.writes.at(-1)!.text).toContain("bridge");
+  up=true;await f.timers.advance(12000);
+  expect(f.writes.at(-1)!.text).toContain("http");
+ }finally{await plugin.deactivate();await f.cleanup();}
+});
+
+test("synchronous lifecycle subscription refusal cannot fail activation",async()=>{
+ const f=fixture();const original=f.host.call.bind(f.host);
+ f.host.call=((m:any,p:any)=>{if(m==="events.subscribe")throw Error("denied");return original(m,p);}) as OrcaHost["call"];
+ try{await f.start();expect(f.commands.size).toBe(4);}finally{await f.cleanup();}
+});
+test("HTTP recovery before failover restores reachable panel state",async()=>{
+ const f=fixture();let up=true;const panels:string[]=[];
+ const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100,timers:f.timers,
+ http:{get:async()=>({status:up?200:503,headers:{"x-pacer":"1"},body:JSON.stringify(f.snapshot)}),stream:()=>()=>{}},
+ fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_p,s)=>panels.push(s)}});
+ try{
+  await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
+  up=false;await f.timers.advance(10000);expect(panels.at(-1)).toContain("pacer link is unreachable");
+  up=true;await f.timers.advance(10000);expect(panels.at(-1)).not.toContain("pacer link is unreachable");
+ }finally{await plugin.deactivate();await f.cleanup();}
+});
+test("HTTP SSE and poll generation timestamps do not trigger renders or notifications",async()=>{
+ const f=fixture();let line!:(s:string)=>void;const panels:string[]=[];
+ f.snapshot={...emptySnapshot(),budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:[],ranked:[]},
+ alerts:[{key:"a",level:"info",title:"once",body:"",at:100}]};
+ const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100,timers:f.timers,
+ http:{get:async()=>({status:200,headers:{"x-pacer":"1"},body:JSON.stringify(f.snapshot)}),stream:(_u,_t,l)=>{line=l;return()=>{};}},
+ fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_p,s)=>panels.push(s)}});
+ try{
+  await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
+  for(let i=0;i<3;i++){line("data: "+JSON.stringify({v:1,type:"budget",data:{...f.snapshot.budget,generatedAt:200+i}}));await f.timers.advance(10000);}
+  expect(panels).toHaveLength(1);expect(notes(f)).toHaveLength(1);
+ }finally{await plugin.deactivate();await f.cleanup();}
+});
+
+
+test("channel polls bridge console heartbeat without requiring a command",async()=>{
+ const f=fixture(null);const original=f.host.call.bind(f.host);
+ f.host.call=(async(m:any,p:any)=>m==="events.subscribe"?{subscribed:[]}:original(m,p)) as OrcaHost["call"];
+ try{
+  await f.start();await f.timers.advance(2000);
+  f.snapshot={...f.snapshot,console:{handle:"new-console",paneKey:null,pid:1,startedAt:100,heartbeatAt:100}};
+  await f.timers.advance(12000);
+  expect(f.writes.at(-1)!.text).toContain("new-console");
+ }finally{await f.cleanup();}
+});
+
+test("real loopback server shutdown switches HTTP to bridge and restart restores HTTP",async()=>{
+ const f=fixture();const panels:string[]=[];
+ const serve=(port:number)=>Bun.serve({hostname:"127.0.0.1",port,fetch(req){
+  return Response.json(new URL(req.url).pathname==="/health"?{ok:true}:f.snapshot,{headers:{"X-Pacer":"1"}});
+ }});
+ let server=serve(0);const port=server.port!;
+ const original=f.host.call.bind(f.host);
+ f.host.call=(async(m:any,p:any)=>m==="settings.get"?{settings:{port}}:original(m,p)) as OrcaHost["call"];
+ const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100,timers:f.timers,
+ http:{get:async(url,token)=>{const r=await fetch(url,{headers:token?{Authorization:"Bearer "+token}:{}});return {status:r.status,body:await r.text(),headers:{"x-pacer":r.headers.get("x-pacer")??undefined}};},stream:()=>()=>{}},
+ fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_p,s)=>panels.push(s)}});
+ const settle=async()=>{await Bun.sleep(20);await flush();};
+ const advance=async(ms:number)=>{for(let n=0;n<ms;n+=1000){await f.timers.advance(1000);await settle();}};
+ try{
+  await plugin.activate(f.ctx);await settle();await advance(2000);
+  expect(panels.at(-1)).toContain("via http.");
+  server.stop(true);
+  for(let i=0;i<3;i++){await advance(10000);await settle();}
+  await advance(2000);
+  expect(panels.at(-1)).toContain("via bridge.");
+  server=serve(port);
+  await advance(10000);await settle();await advance(2000);
+  expect(panels.at(-1)).toContain("via http.");
+ }finally{server.stop(true);await plugin.deactivate();await f.cleanup();}
 });
