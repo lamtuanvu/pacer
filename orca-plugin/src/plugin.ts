@@ -7,7 +7,7 @@ import { chooseTransport, type Transport } from "./transports/choose";
 import { httpTransport, type HttpPort } from "./transports/http";
 import { bridgeTransport } from "./transports/bridge";
 import { channelTransport } from "./transports/channel";
-import { NO_CONSOLE, sendToConsole } from "./console-link";
+import { NO_CONSOLE, sendToConsole, focusedConsole } from "./console-link";
 import { notifyNewAlerts } from "./notify";
 import { renderPanel } from "./panel";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
@@ -57,7 +57,13 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     let active: Transport | null = null, reachable = false, connecting: Promise<void> | null = null;
     let processing = Promise.resolve();
     let httpFailures = 0;
-    let renderedConsoleLive = false;
+    let renderedKey: string | null = null, renderedAt = -Infinity;
+    const panelKey = () => JSON.stringify({
+      budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
+      mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
+      tasks: store.snapshot.tasks, alerts: store.snapshot.alerts,
+      consoles: [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
+    });
     const logError = (e: unknown) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
     const scheduleRender = () => {
       if (stopped || cancelRender) return;
@@ -65,19 +71,23 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         cancelRender = null;
         if (stopped) return;
         try {
-          if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS: deps.nowS(), transport: store.transport, reachable }));
-          else ctx.log("pacer: refused panel write: unmanaged root");
+          const key = panelKey(), nowS = deps.nowS();
+          if (key !== renderedKey || nowS - renderedAt >= 300) {
+            if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable }));
+              renderedKey = key; renderedAt = nowS;
+            } else ctx.log("pacer: refused panel write: unmanaged root");
+          }
         } catch (e) { logError(e); }
-        renderedConsoleLive = !!liveConsole(store.snapshot, deps.nowS());
         const snapshot = store.snapshot;
         processing = processing.then(async () => { if (!stopped) await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS); }).catch(logError);
       });
     };
     store.onChange(scheduleRender);
+    timers.every(300000, scheduleRender);
     const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
       store.replace(snapshot);
-      if (!!liveConsole(snapshot, deps.nowS()) !== renderedConsoleLive) scheduleRender();
     };
     const acceptSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
@@ -164,7 +174,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       await ensureConnected();
       let context = null;
       try { context = await ctx.host.call("workspace.readContext"); } catch (e) { logError(e); }
-      return send({ cmd: "delegate", ...(context ? { branch: context.branch, displayName: context.displayName } : {}) });
+      return send({ cmd: "delegate", ...(context ? { branch: context.branch, displayName: context.displayName, ...(context.worktreeId ? {worktreeId:context.worktreeId} : {}) } : {}) });
     });
     ctx.commands.register("switch-strategy", async () => { await ensureConnected(); return send({ cmd: "use" }); });
     ctx.commands.register("refresh-status", async () => {
@@ -179,7 +189,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     ctx.commands.register("open-console", async () => {
       await ensureConnected();
       await refreshSnapshot();
-      const c = liveConsole(store.snapshot, deps.nowS());
+      const c = await focusedConsole(ctx.host, store.snapshot, deps.nowS());
       const message = c ? "pacer console is running" : NO_CONSOLE.title;
       await notify(message, c ? `terminal ${c.handle}` : NO_CONSOLE.body);
       return { ok: !!c, message };

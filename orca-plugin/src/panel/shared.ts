@@ -13,3 +13,16 @@ export function duration(seconds: number, long=false): string {
 }
 export const backIn = (at: number | null, now: number) => at === null ? "reset unknown" : `back in ${duration(at-now)}`;
 export const age = (at: number, now: number) => `${duration(now-at)} ago`;
+
+/** Lossless run packing keeps large repeated snapshot strings within the panel budget. */
+export function packPanelData(value: unknown): unknown {
+ if(typeof value === "string" && value.length>=32) {
+  const runs: [string,number][]=[];
+  for(const char of value) { const last=runs.at(-1); if(last?.[0]===char) last[1]++; else runs.push([char,1]); }
+  const packed={ $runs:runs };
+  return JSON.stringify(packed).length<JSON.stringify(value).length ? packed : value;
+ }
+ if(Array.isArray(value)) return value.map(packPanelData);
+ if(value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,packPanelData(v)]));
+ return value;
+}

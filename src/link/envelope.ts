@@ -9,7 +9,7 @@ export interface ModeData { mode: string; previous: string | null; strategy: str
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string }
 export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
 export interface ConsoleData { handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number }
-export interface LinkSnapshot { v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null }
+export interface LinkSnapshot { v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: string[] }
 export const CMD_NAMES = ["delegate", "retry", "stop", "use", "refresh", "agent-done", "worktree-created"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
 export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string }
@@ -61,11 +61,11 @@ export function parseEnvelope(raw: unknown): Envelope | null {
     default: return null;
   }
 }
-export function emptySnapshot(): LinkSnapshot { return { v: 1, seq: 0, at: 0, budget: null, mode: null, tasks: [], alerts: [], console: null }; }
+export function emptySnapshot(): LinkSnapshot { return { v: 1, seq: 0, at: 0, budget: null, mode: null, tasks: [], alerts: [], console: null, consoles: [], strategies: [] }; }
 export function parseSnapshot(raw: unknown): LinkSnapshot | null {
   if (!isObj(raw) || raw.v !== 1) return null; const seq = num(raw.seq), at = num(raw.at); if (seq === null || at === null) return null;
   const list = <T>(v: unknown, f: (x: unknown) => T | null, max: number): T[] => (Array.isArray(v) ? v : []).map(f).filter((x): x is T => x !== null).slice(0, max);
-  return { v: 1, seq, at, budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console) };
+  return { v: 1, seq, at, budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list(raw.strategies, v => optStr(v, 128), 32) };
 }
 /** Pure. `at` is the caller's clock (unix seconds). */
 export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
@@ -77,7 +77,7 @@ export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
     case "alert": next.alerts = [e.data, ...s.alerts.filter(a => a.key !== e.data.key)].sort((a,b) => b.at-a.at).slice(0,LIMITS.alerts); break;
   } return next;
 }
-export function contentKey(s: LinkSnapshot): string { return JSON.stringify({ budget:s.budget ? {...s.budget, generatedAt: undefined} : null, mode:s.mode, tasks:s.tasks, alerts:s.alerts, console:s.console }); }
+export function contentKey(s: LinkSnapshot): string { return JSON.stringify({ budget:s.budget ? {...s.budget, generatedAt: undefined} : null, mode:s.mode, tasks:s.tasks, alerts:s.alerts, console:s.console, consoles:s.consoles, strategies:s.strategies }); }
 export function liveConsole(s: LinkSnapshot, nowS: number): ConsoleData | null { const c=s.console; return c && c.handle && nowS-c.heartbeatAt<=LIMITS.heartbeatS ? c : null; }
 const CMD_PREFIX = ": pacer '";
 export function encodeCmdLine(data: CmdData): string {

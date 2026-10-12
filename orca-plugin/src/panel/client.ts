@@ -1,38 +1,65 @@
 /** No network or navigation: every host request uses the sandboxed panel bridge. */
 export const client = `
 const embedded = JSON.parse(document.getElementById("pacer-actions").textContent);
-const data = embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(embedded.encoded), c=>c.charCodeAt(0)))) : embedded;
+function unpack(value) {
+ if(Array.isArray(value)) return value.map(unpack);
+ if(value && typeof value === "object") return Object.hasOwn(value,"$runs") ? value.$runs.map(([c,n])=>c.repeat(n)).join("") : Object.fromEntries(Object.entries(value).map(([k,v])=>[k,unpack(v)]));
+ return value;
+}
+const data = unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(embedded.encoded), c=>c.charCodeAt(0)))) : embedded);
 const providerNames = {"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model"};
 for (const p of [...data.rows,...data.muted]) p.name = Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
 data.executors = data.rows.map(p=>p.id);
 const status = document.getElementById("status");
 const sentAt = [], pending = new Map();
-let sequence = 0, context = null;
+let sequence = 0, context = null, sending = false;
+const submitButton = document.querySelector('button[type="submit"]');
+function finishSending() { sending = false; submitButton.disabled = false; }
 function show(view) {
   for (const el of document.querySelectorAll("[data-page]")) el.hidden = el.dataset.page !== view;
   status.textContent = "";
 }
-function live() {
-  if (data.handle && Date.now() <= data.expires) return true;
-  for (const b of document.querySelectorAll("[data-command],[data-live]")) b.disabled = true;
-  status.textContent = "Console heartbeat expired. Reopen this panel to refresh.";
+function live(workspace) {
+  const available = data.consoles.filter(c=>c.handle && Date.now()/1000-c.heartbeatAt<=600);
+  const selected = workspace === undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
+  if (selected) { if(workspace !== undefined) data.handle = selected.handle; document.getElementById("console-hint").hidden = true; return true; }
+  status.textContent = "No pacer console in this worktree";
+  document.getElementById("console-hint").hidden = false;
   return false;
 }
-function request(action, params, purpose, after) {
+function updateFreshness() {
+  const old = Date.now()/1000-data.snapshotAt>120;
+  for(const el of document.querySelectorAll("[data-freshness]")) {
+    el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "warn" : "good");
+    el.textContent = !data.reachable ? "Not connected" : (old ? "Stale · " : "Live · ") + new Date(data.snapshotAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
+  }
+}
+updateFreshness(); setInterval(updateFreshness,30000);
+function request(action, params, purpose, after, onFailure) {
   const now = Date.now();
   while (sentAt.length && now - sentAt[0] >= 10000) sentAt.shift();
   if (sentAt.length >= 30) { status.textContent = "Please wait before sending another command."; return false; }
   const requestId = "pacer-" + (++sequence), message = {type:"orca-panel-action",requestId,action,params};
   if (new TextEncoder().encode(JSON.stringify(message)).length > 65536) { status.textContent = "Panel message exceeds 64 KiB."; return false; }
-  pending.set(requestId,{purpose,after}); sentAt.push(now);
+  pending.set(requestId,{purpose,after,onFailure}); sentAt.push(now);
   window.parent.postMessage(message,"*"); return true;
 }
-function readContext(after) { return request("workspace.readContext",{},"context",after); }
-function sendCommand(command, after) {
-  if (!live()) return false;
-  const text = ": pacer '" + JSON.stringify({v:1,type:"cmd",data:command}).replace(/'/g,"\\\\u0027") + "'";
-  if (text.length > 4096) { status.textContent = "pacer command line exceeds 4096 characters. Shorten your brief and try again."; return false; }
-  return request("terminal.sendText",{terminalId:data.handle,text,enter:true},"console",after);
+function readContext(after, onFailure) { return request("workspace.readContext",{},"context",after,onFailure); }
+function sendCommand(command, after, onFailure, workspace) {
+  const fail = () => { if(onFailure) onFailure(); return false; };
+  if (Object.values(command).some(value => typeof value === "string" && /[\\x7f-\\x9f]/.test(value))) { status.textContent = "Input contains unsupported control characters."; return fail(); }
+  if (!live()) return fail();
+  const send = value => {
+    updateContext(value);
+    if (!live(value)) return fail();
+    const text = ": pacer '" + JSON.stringify({v:1,type:"cmd",data:command}).replace(/'/g,"\\\\u0027") + "'";
+    if (text.length > 4096) { status.textContent = "pacer command line exceeds 4096 characters. Shorten your brief and try again."; return fail(); }
+    if (!request("terminal.sendText",{terminalId:data.handle,text,enter:true},"console",after,onFailure)) return fail();
+    return true;
+  };
+  if (workspace !== undefined) return send(workspace);
+  if (!readContext(send,onFailure)) return fail();
+  return true;
 }
 function updateContext(value) {
   context = value && typeof value.branch === "string" && typeof value.displayName === "string" ? value : null;
@@ -42,6 +69,7 @@ function updateContext(value) {
 // Escape data before creating local provider rows; the same nodes populate the radio list.
 function h(value) { return String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 for (const el of document.querySelectorAll("[data-text]")) el.innerHTML = h(data.text[el.dataset.text]);
+document.getElementById("strategy-picker").innerHTML = '<strong>Strategy</strong>' + data.strategies.map((name,i)=>'<button type="button" data-strategy="'+i+'" aria-pressed="'+(name===data.strategy)+'">'+h(name)+(name===data.strategy?' · current':'')+'</button>').join("");
 document.getElementById("ranked-order").innerHTML = h(data.rows.map(p=>p.name).join(" → ") || "No executor available");
 function icon(p,size) {
   return Object.hasOwn(data.paths,p.id) ? '<svg role="img" aria-label="'+h(p.name)+'" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="currentColor"><path d="'+data.paths[p.id]+'"></path></svg>' : '<span class="monogram" role="img" aria-label="'+h(p.name)+'" style="width:'+size+'px;height:'+size+'px">'+h(p.id === "codex" ? "Cx" : p.id.slice(0,2))+'</span>';
@@ -52,14 +80,21 @@ function meter(p) {
  return '<div class="meter slim '+p.tone+'" role="progressbar" aria-label="'+h(p.name)+' usage" aria-valuenow="'+used+'" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:'+used+'%"></div>'+(pace===null?'':'<div class="pace" style="left:'+pace+'%"></div>')+'</div>';
 }
 const rankedList = document.getElementById("ranked-list"), mutedList = document.getElementById("unavailable-list"), options = document.getElementById("executor-options");
-rankedList.innerHTML = data.rows.map((p,i) => '<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,16)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
+rankedList.innerHTML = data.rows.map((p,i) => '<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
 mutedList.innerHTML = data.muted.map(p=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span></div>').join("");
-options.innerHTML = data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,16)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict === "EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,16)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
+options.innerHTML = data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict === "EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => {
   if (b.dataset.view === "delegate") {
     if (!live()) return;
-    readContext(value => { updateContext(value); show("delegate"); document.getElementById("goal").focus(); });
+    readContext(value => { updateContext(value); if(!live(value)) return; show("delegate"); document.getElementById("goal").focus(); });
   } else show(b.dataset.view);
+});
+for (const b of document.querySelectorAll("[data-strategy-toggle]")) b.addEventListener("click", () => {
+  if(b.disabled) return;
+  const picker=document.getElementById("strategy-picker"); picker.hidden=!picker.hidden; b.setAttribute?.("aria-expanded",String(!picker.hidden));
+});
+for (const b of document.querySelectorAll("[data-strategy]")) b.addEventListener("click", () => {
+  sendCommand({cmd:"use",strategy:data.strategies[Number(b.dataset.strategy)]},()=>{document.getElementById("strategy-picker").hidden=true;});
 });
 for (const b of document.querySelectorAll("[data-command]")) b.addEventListener("click", () => {
   const command = data.commands[b.dataset.command];
@@ -74,32 +109,39 @@ for (const b of document.querySelectorAll("[data-setup]")) b.addEventListener("c
   });
 });
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
-  if (data.handle && Date.now() <= data.expires) sendCommand({cmd:"refresh"});
-  else status.textContent = "Reopen this panel to check the latest connection and budget.";
+  sendCommand({cmd:"refresh"});
 });
 document.getElementById("delegate-form").addEventListener("submit", event => {
   event.preventDefault();
-  if (!live()) return;
+  if (sending || !live()) return;
   const goal = document.getElementById("goal").value, acceptance = document.getElementById("done").value;
   const selected = document.querySelector('input[name="executor"]:checked');
   if (!goal.trim()) { status.textContent = "What should be done is required."; return; }
   if (goal.length > 2000 || acceptance.length > 500) { status.textContent = "Goal must be at most 2000 characters; Done when at most 500."; return; }
   if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !/^[a-z0-9-]{1,64}$/.test(data.executors[Number(selected.value)]))) { status.textContent = "Choose an available executor."; return; }
-  readContext(value => {
+  sending = true; submitButton.disabled = true;
+  if (!readContext(value => {
     updateContext(value);
-    if (!context || !context.branch) { status.textContent = "Focus a worktree first."; return; }
-    sendCommand({cmd:"delegate",branch:context.branch,displayName:context.displayName,goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})});
-  });
+    if (!context || !context.branch) { status.textContent = "Focus a worktree first."; finishSending(); return; }
+    if (!sendCommand({cmd:"delegate",branch:context.branch,displayName:context.displayName,...(typeof context.worktreeId === "string" && context.worktreeId ? {worktreeId:context.worktreeId} : {}),goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})}, () => {
+      document.getElementById("goal").value = "";
+      document.getElementById("done").value = "";
+      document.querySelector('input[name="executor"][value=""]').checked = true;
+      finishSending(); show("overview");
+      status.textContent = "Sent. The task id appears in the pacer console.";
+    }, finishSending, value)) finishSending();
+  }, finishSending)) finishSending();
 });
 window.addEventListener("message", event => {
   const r = event.data;
   if (event.source !== window.parent || !r || r.type !== "orca-panel-action-result" || !pending.has(r.requestId)) return;
   const item = pending.get(r.requestId); pending.delete(r.requestId);
-  if (!r.ok) { status.textContent = typeof r.error === "string" ? r.error : "Orca refused this request."; return; }
+  if (!r.ok) { status.textContent = typeof r.error === "string" ? r.error : "Orca refused this request."; if (item.onFailure) item.onFailure(); return; }
   if (item.purpose === "context") { updateContext(r.value); if (item.after) item.after(r.value); return; }
   const accepted = r.value && r.value.accepted;
   status.textContent = accepted ? item.purpose === "setup" ? "Typed into your terminal. Press Enter to run it." : "Sent to pacer console" : "Orca refused to type into the terminal.";
   if (accepted && item.after) item.after(r.value);
+  if (!accepted && item.onFailure) item.onFailure();
 });
-readContext();
+readContext(value => { live(value); });
 `;

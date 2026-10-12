@@ -73,3 +73,15 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) test(`console removes heart
     expect(child.exitCode).toBe(signal==="SIGINT"?130:143);
   } finally {if(child.exitCode===null)child.kill("SIGKILL");child.stdin.end();}
 });
+
+test("resolveWorktreePath prefers argv id selector over ambiguous branch", async () => {
+ const id="wt-1;$(echo unsafe)";
+ const f=fakeRun([[["orca","worktree","show","--worktree",`id:${id}`,"--json"],raw('{"ok":true,"result":{"worktree":{"path":"/wt/id"}}}')]]);
+ expect(await resolveWorktreePath(fakeCtx({run:f.run}),"shared",id)).toBe("/wt/id");
+ expect(f.calls).toEqual([["orca","worktree","show","--worktree",`id:${id}`,"--json"]]);
+});
+test("resolveWorktreePath falls back to branch after id lookup fails", async () => {
+ const f=fakeRun([[["orca","worktree","show","--worktree","id:missing"],raw("",1)],[["orca","worktree","show","--worktree","branch:shared"],raw('{"ok":true,"result":{"worktree":{"path":"/wt/branch"}}}')]]);
+ expect(await resolveWorktreePath(fakeCtx({run:f.run}),"shared","missing")).toBe("/wt/branch");
+ expect(f.calls).toEqual([["orca","worktree","show","--worktree","id:missing","--json"],["orca","worktree","show","--worktree","branch:shared","--json"]]);
+});

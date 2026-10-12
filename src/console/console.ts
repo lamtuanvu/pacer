@@ -17,7 +17,7 @@ export interface ConsoleDeps {
   statusText(ctx: Ctx): Promise<string>;
   pump(ctx: Ctx): Promise<Envelope[]>;
   heartbeat(ctx: Ctx, c: ConsoleData | null): void;
-  resolveWorktreePath(ctx: Ctx, branch: string): Promise<string | null>;
+  resolveWorktreePath(ctx: Ctx, branch: string, worktreeId?: string): Promise<string | null>;
   selfHandle(ctx: Ctx): Promise<{ handle: string | null; paneKey: string | null }>;
   every(ms: number, fn: () => void): () => void;
   pid: number;
@@ -73,12 +73,12 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
     switch (data.cmd) {
       case "delegate": {
         if (!validExecutor(data.executor)) return;
-        const repo = data.branch ? await deps.resolveWorktreePath(fresh(), data.branch) : null;
+        const repo = data.worktreeId || data.branch ? await deps.resolveWorktreePath(fresh(), data.branch ?? "", data.worktreeId) : null;
         print(`delegate requested from Orca (${displayText(data.displayName || data.branch || "focused worktree")})`);
         if (data.goal !== undefined) {
           if (!data.goal.trim()) { print("pacer: goal is required"); return; }
-          if (data.branch && !repo) { print("pacer: focused worktree could not be resolved"); return; }
-          const task = deps.delegate(fresh(), { brief: { repo: repo || deps.cwd, goal: data.goal, acceptance: data.acceptance || "none" }, ...(data.executor ? { executor: data.executor } : {}) });
+          if ((data.worktreeId || data.branch) && !repo) { print("pacer: focused worktree could not be resolved"); return; }
+          const task = deps.delegate(fresh(), { brief: { repo: repo || deps.cwd, goal: data.goal, ...(data.acceptance?.trim() ? { acceptance: data.acceptance } : {}) }, ...(data.executor ? { executor: data.executor } : {}) });
           print(`${task.id} queued`); await deps.pump(fresh());
         } else startDelegate(repo || deps.cwd);
         break;

@@ -1,5 +1,3 @@
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { loadStrategy, useStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
@@ -15,13 +13,10 @@ import { delegate, taskStop } from "../tasks/api";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { isObj } from "../util";
+import { listStrategies } from "../link/strategies";
 import { runConsole, type ConsoleDeps } from "./console";
 
-export function listStrategies(ctx: Ctx): string[] {
-  const dir = join(ctx.pacerHome, "strategies");
-  const names = existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter(f => f.isFile() && f.name.endsWith(".yaml")).map(f => f.name.slice(0, -5)) : [];
-  return ["default", ...names.filter(name => name !== "default").sort()];
-}
+export { listStrategies } from "../link/strategies";
 
 export async function selfHandle(ctx: Ctx): Promise<{ handle: string | null; paneKey: string | null }> {
   const paneKey = ctx.env.ORCA_PANE_KEY ?? null;
@@ -37,12 +32,15 @@ export async function selfHandle(ctx: Ctx): Promise<{ handle: string | null; pan
   return { handle: null, paneKey };
 }
 
-export async function resolveWorktreePath(ctx: Ctx, branch: string): Promise<string | null> {
-  try {
-    const r = await ctx.run(["orca", "worktree", "show", "--worktree", `branch:${branch}`, "--json"], 30_000);
-    const reply = parseOrcaOutput(r.stdout);
-    if (r.code === 0 && isObj(reply) && reply.ok === true && isObj(reply.result) && isObj(reply.result.worktree) && typeof reply.result.worktree.path === "string") return reply.result.worktree.path;
-  } catch { /* Fall back to the console's cwd. */ }
+export async function resolveWorktreePath(ctx: Ctx, branch: string, worktreeId?: string): Promise<string | null> {
+  const selectors = [...(worktreeId ? [`id:${worktreeId}`] : []), ...(branch ? [`branch:${branch}`] : [])];
+  for (const selector of selectors) {
+    try {
+      const r = await ctx.run(["orca", "worktree", "show", "--worktree", selector, "--json"], 30_000);
+      const reply = parseOrcaOutput(r.stdout);
+      if (r.code === 0 && isObj(reply) && reply.ok === true && isObj(reply.result) && isObj(reply.result.worktree) && typeof reply.result.worktree.path === "string") return reply.result.worktree.path;
+    } catch { /* Try the branch for hosts that cannot resolve the id. */ }
+  }
   return null;
 }
 
@@ -71,11 +69,12 @@ export async function runConsoleCli(args: string[], ctx: Ctx): Promise<Result> {
     return { code: 1, out: "", err: `pacer: could not open the console in Orca: ${message}; run \`pacer console\` in any terminal\n` };
   }
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  let registeredHandle: string | null = null;
   const deps: ConsoleDeps = {
     delegate, taskStop, readTask, configuredExecutors: c => Object.keys(loadStrategy(c).providers), useStrategy, listStrategies, selfHandle, resolveWorktreePath,
     statusText: async c => renderText(await computeStatus(c, loadStrategy(c))),
     pump: pumpOnce,
-    heartbeat: (c, data) => { writeConsole(c, data); refreshBridge(c); },
+    heartbeat: (c, data) => { if (data) registeredHandle = data.handle; writeConsole(c, data, registeredHandle ?? undefined); refreshBridge(c); },
     every: (ms, fn) => { const timer = setInterval(fn, ms); return () => clearInterval(timer); },
     pid: process.pid, cwd: process.cwd(),
   };

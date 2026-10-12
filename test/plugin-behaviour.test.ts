@@ -30,14 +30,14 @@ const notes=(f:ReturnType<typeof fixture>)=>f.calls.filter(c=>c.method==="notifi
 test("settings validate defaults, forced transport and clamped poll range",()=> {expect(readSettings({},"/tmp/home")).toEqual({transport:"auto",port:4317,pacerHome:"/tmp/home/.pacer",pollSeconds:10,lastAlertAt:0});expect(readSettings({transport:"bridge",pollSeconds:1,port:-1,lastAlertAt:NaN},"/tmp")).toMatchObject({transport:"bridge",pollSeconds:5,port:4317,lastAlertAt:0});expect(readSettings({transport:"invalid",pollSeconds:999},"/tmp")).toMatchObject({transport:"auto",pollSeconds:300});});
 test("activation registers all commands without awaiting transport probes",async()=> {const f=fixture();f.pending=true;try{await f.plugin.activate(f.ctx);expect([...f.commands.keys()].sort()).toEqual(["delegate","switch-strategy","refresh-status","open-console"].sort());expect(f.events.has("plugin.message")).toBe(false);}finally{await f.cleanup();}});
 for(const heartbeat of [null,69])test(`delegate refuses console heartbeat ${heartbeat}`,async()=> {const f=fixture(heartbeat);try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).map(c=>c.params.title)).toEqual([NO_CONSOLE.title]);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
-test("delegate uses advertised live handle and shell-inert command with context",async()=> {const f=fixture();try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});expect(sends(f)[0].params).toEqual({terminalId:"term",text:encodeCmdLine({cmd:"delegate",branch:"pacer-task",displayName:"Project"}),enter:true});f.context=null;await f.commands.get("delegate")!();expect(sends(f)[1].params.text).toBe(encodeCmdLine({cmd:"delegate"}));await f.commands.get("switch-strategy")!();expect(sends(f)[2].params.text).toBe(encodeCmdLine({cmd:"use"}));}finally{await f.cleanup();}});
+test("delegate uses advertised live handle and shell-inert command with context",async()=> {const f=fixture();try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});expect(sends(f)[0].params).toEqual({terminalId:"term",text:encodeCmdLine({cmd:"delegate",branch:"pacer-task",displayName:"Project"}),enter:true});f.context=null;expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(sends(f)).toHaveLength(1);f.context={branch:"pacer-task",displayName:"Project",terminals:[{id:"term"}]};await f.commands.get("switch-strategy")!();expect(sends(f)[1].params.text).toBe(encodeCmdLine({cmd:"use"}));}finally{await f.cleanup();}});
 for(const error of [false,true])test(`send rejection ${error?"throws":"accepted false"} notifies without crash`,async()=> {const f=fixture();try{f.accepted=false;f.throwSend=error;await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).at(-1)!.params.title).toBe("Orca refused to type into the pacer console");}finally{await f.cleanup();}});
 test("refresh reports clipped budget summary and silently skips absent console",async()=> {const f=fixture(null);try{f.snapshot={...f.snapshot,budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:Array.from({length:32},(_,i)=>({id:"p"+i+"x".repeat(60),verdict:"OK",pacePct:null,usedPct:50,resetsAt:null,window:null,stale:false})),ranked:[]}};await f.start();expect(await f.commands.get("refresh-status")!()).toMatchObject({ok:true});expect(notes(f).at(-1)!.params.title).toBe(summaryLine(f.snapshot.budget));expect(notes(f).at(-1)!.params.body.length).toBeLessThanOrEqual(1000);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
 for(const heartbeat of [null,100])test(`open-console heartbeat ${heartbeat}`,async()=> {const f=fixture(heartbeat);try{await f.start();await f.commands.get("open-console")!();expect(notes(f).at(-1)!.params.title).toBe(heartbeat===null?NO_CONSOLE.title:"pacer console is running");expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
 test("agent events filter non-done and debounce per pane and globally",async()=> {const f=fixture();try{await f.start();const event=f.events.get("agent.status.changed")!;const p={worktreeId:"wt",paneKey:"pane",state:"done",receivedAt:100};await event({...p,state:"working"});await event({...p,mainAgent:{state:"working",stateStartedAt:0}});expect(sends(f)).toHaveLength(0);await event(p);await event(p);await event({...p,paneKey:"other"});expect(sends(f)).toHaveLength(1);expect(sends(f)[0].params.text).toBe(encodeCmdLine({cmd:"agent-done",paneKey:"pane",worktreeId:"wt"}));f.now=105;await event(p);expect(sends(f)).toHaveLength(2);}finally{await f.cleanup();}});
 test("worktree events send only pacer branches and silently skip absent console",async()=> {const f=fixture();try{await f.start();const event=f.events.get("worktree.created")!;const p={worktreeId:"wt",path:"/tmp/work",branch:"feature/x"};await event(p);expect(sends(f)).toHaveLength(0);await event({...p,branch:"pacer-1"});await event({...p,branch:"feature/pacer-2"});expect(sends(f)).toHaveLength(2);f.snapshot={...f.snapshot,console:null};await f.commands.get("refresh-status")!();await event({...p,branch:"pacer-3"});expect(sends(f)).toHaveLength(2);}finally{await f.cleanup();}});
 test("alerts suppress old and duplicate notifications, persist watermark and cap at three",async()=> {const f=fixture();try{const settings=readSettings({},"/tmp");const s=emptySnapshot();s.alerts=Array.from({length:6},(_,i)=>({key:`a${i}`,level:"warn",title:`A${i}`,body:"body",at:1000-i}));s.alerts.push({key:"old",level:"info",title:"old",body:"",at:399});const at=await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f).map(c=>c.params.title)).toEqual(["A5","A4","A3"]);expect(at).toBe(997);expect(f.calls.filter(c=>c.method==="settings.set").at(-1)!.params).toEqual({key:"lastAlertAt",value:997});settings.lastAlertAt=at;await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f).map(c=>c.params.title)).toEqual(["A5","A4","A3","A2","A1","A0"]);settings.lastAlertAt=1000;await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f)).toHaveLength(6);}finally{await f.cleanup();}});
-for(const marker of [false,true])test(`panel writes require managed marker ${marker}`,async()=> {const f=fixture(100,marker);try{f.snapshot={...f.snapshot,alerts:[{key:"a",level:"warn",title:"New alert",body:"body",at:100}]};await f.start();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?1:0);await f.commands.get("refresh-status")!();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?2:0);expect(notes(f).filter(c=>c.params.title==="New alert")).toHaveLength(1);if(marker)expect(f.writes[0].path.endsWith("/panel/live.html")).toBe(true);await f.plugin.deactivate();expect(f.timers.jobs.filter(j=>!j.cancelled)).toHaveLength(0);}finally{await f.cleanup();}});
+for(const marker of [false,true])test(`panel writes require managed marker ${marker}`,async()=> {const f=fixture(100,marker);try{f.snapshot={...f.snapshot,alerts:[{key:"a",level:"warn",title:"New alert",body:"body",at:100}]};await f.start();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?1:0);await f.commands.get("refresh-status")!();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?1:0);expect(notes(f).filter(c=>c.params.title==="New alert")).toHaveLength(1);if(marker)expect(f.writes[0].path.endsWith("/panel/live.html")).toBe(true);await f.plugin.deactivate();expect(f.timers.jobs.filter(j=>!j.cancelled)).toHaveLength(0);}finally{await f.cleanup();}});
 
 test("activation remains under one second when settings host never responds",async()=> {
  const f=fixture();
@@ -87,7 +87,7 @@ test("delegate quotes untrusted branch and display name as shell-inert JSON", as
  const f = fixture();
  const branch = "pacer-'; touch /tmp/pacer-injection; $(false)";
  const displayName = "</script><img src=x onerror=alert(1)>";
- f.context = {branch,displayName,terminals:[{id:"unrelated-shell"}]};
+ f.context = {branch,displayName,terminals:[{id:"term"},{id:"unrelated-shell"}]};
  try {
   await f.start();
   await f.commands.get("delegate")!();
@@ -111,7 +111,7 @@ test("panel escapes script injection in goals, alerts and console action JSON", 
  expect(html).toContain("data-page=\"delegate\"");
  const json = html.match(/id="pacer-actions">(.*?)<\/script>/s)![1];
  expect(json).not.toContain("<"); expect(json).not.toMatch(/[\u2028\u2029]/);
- expect(JSON.parse(json).handle).toBe(attack);
+ expect(JSON.parse(json).consoles[0].handle).toBe(attack);
 });
 
 test("store contract produces the same content through HTTP SSE, bridge and channel", async () => {
@@ -188,7 +188,7 @@ test("equal timestamp alerts beyond the first three are delivered on later updat
  }finally{await f.cleanup();}
 });
 
-test("HTTP snapshot polls re-render panel liveness even when content is unchanged", async () => {
+test("HTTP heartbeat-only polls leave the panel file unchanged", async () => {
  const f=fixture();let now=100;const panels:string[]=[];
  const plugin=createPlugin({home:"/tmp/fake",pluginRoot:"/tmp/fake",nowS:()=>now,timers:f.timers,
   http:{get:async()=>({status:200,headers:{"x-pacer":"1"},body:JSON.stringify(f.snapshot)}),stream:()=>()=>{}},
@@ -197,10 +197,12 @@ test("HTTP snapshot polls re-render panel liveness even when content is unchange
   await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
   expect(panels.at(-1)).toContain('data-view="delegate" data-live>');
   now=140;await f.timers.advance(10000);
-  expect(panels.at(-1)).toContain('data-view="delegate" data-live disabled');
+  expect(panels).toHaveLength(1);
   f.snapshot={...f.snapshot,console:{...f.snapshot.console!,heartbeatAt:140}};
   await f.timers.advance(10000);
-  expect(panels.at(-1)).toContain('data-view="delegate" data-live>');
+  expect(panels).toHaveLength(1);
+  f.snapshot={...f.snapshot,tasks:[{id:"t",state:"done",goal:"changed",executor:"codex",backend:null,worktree:null,updatedAt:140}]};
+  await f.timers.advance(10000);expect(panels).toHaveLength(2);expect(panels.at(-1)).toContain("changed");
  }finally{await plugin.deactivate();await f.cleanup();}
 });
 
@@ -218,7 +220,7 @@ test("channel refresh reads current console liveness from bridge", async () => {
  f.host.call=(async(m:any,p:any)=>m==="events.subscribe"?{subscribed:[]}:original(m,p)) as OrcaHost["call"];
  try {
   await f.start();
-  f.snapshot={...f.snapshot,console:{handle:"new-console",paneKey:null,pid:1,startedAt:100,heartbeatAt:140}};
+  f.snapshot={...f.snapshot,console:{handle:"new-console",paneKey:null,pid:1,startedAt:100,heartbeatAt:140}};f.context={branch:"pacer-task",displayName:"Project",terminals:[{id:"new-console"}]};
   f.now=140;
   expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});
   expect(sends(f).at(-1)!.params.terminalId).toBe("new-console");
@@ -253,7 +255,7 @@ test("HTTP failures switch to bridge after three polls and recover when HTTP ret
  try {
   await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
   expect(f.writes.at(-1)!.text).toContain("http");
-  up=false;f.snapshot={...f.snapshot,console:{...f.snapshot.console!,handle:"bridge-console"}};
+  up=false;f.snapshot={...f.snapshot,console:{...f.snapshot.console!,handle:"bridge-console"}};f.context={branch:"x",displayName:"X",terminals:[{id:"bridge-console"}]};
   await f.timers.advance(10000);
   expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});
   expect(sends(f).at(-1)!.params.terminalId).toBe("bridge-console");
@@ -278,7 +280,7 @@ test("HTTP recovery before failover restores reachable panel state",async()=>{
  try{
   await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
   up=false;await f.timers.advance(10000);expect(panels.at(-1)).toContain("Not connected");
-  up=true;await f.timers.advance(10000);expect(panels.at(-1)).not.toContain("Not connected");
+  up=true;await f.timers.advance(10000);expect(panels.at(-1)).toContain('name live good');
  }finally{await plugin.deactivate();await f.cleanup();}
 });
 test("HTTP SSE and poll generation timestamps do not trigger renders or notifications",async()=>{
@@ -331,4 +333,31 @@ test("real loopback server shutdown switches HTTP to bridge and restart restores
   await advance(10000);await settle();await advance(2000);
   expect(panels.at(-1)).toContain('data-transport="http"');
  }finally{server.stop(true);await plugin.deactivate();await f.cleanup();}
+});
+
+test("panel metadata-only refresh is limited to five-minute intervals",async()=>{
+ const f=fixture();try{
+ await f.start();await f.timers.advance(2000);expect(f.writes).toHaveLength(1);
+ for(let i=1;i<5;i++){f.now=100+i*60;f.snapshot={...f.snapshot,at:100+i*60,console:{...f.snapshot.console!,heartbeatAt:100+i*60}};await f.timers.advance(60000);expect(f.writes).toHaveLength(1);}
+ f.now=402;f.snapshot={...f.snapshot,at:402,console:{...f.snapshot.console!,heartbeatAt:402}};await f.timers.advance(62000);expect(f.writes).toHaveLength(2);
+ }finally{await f.cleanup();}
+});
+
+test("worker chooses the console registered in the focused worktree",async()=>{
+ const f=fixture();try{
+ f.snapshot={...f.snapshot,consoles:[f.snapshot.console!,{handle:"focused",paneKey:null,pid:2,startedAt:0,heartbeatAt:100}]};f.context={worktreeId:"wt",branch:"focused",displayName:"Focused",terminals:[{id:"focused"}]};
+ await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});expect(sends(f)[0].params.terminalId).toBe("focused");expect(JSON.parse(sends(f)[0].params.text.slice(9,-1)).data.worktreeId).toBe("wt");
+ }finally{await f.cleanup();}
+});
+test("worker never sends to a console outside the focused worktree",async()=>{
+ const f=fixture();try{f.context={branch:"other",displayName:"Other",terminals:[{id:"other"}]};await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(sends(f)).toHaveLength(0);expect(notes(f).at(-1)?.params.title).toBe("No pacer console in this worktree");}finally{await f.cleanup();}
+});
+test("multi-console heartbeat ordering does not rewrite the panel",async()=>{
+ const f=fixture();try{
+ const other={...f.snapshot.console!,handle:"other",heartbeatAt:99};f.snapshot={...f.snapshot,consoles:[f.snapshot.console!,other]};await f.start();await f.timers.advance(2000);
+ f.snapshot={...f.snapshot,console:{...other,heartbeatAt:110},consoles:[{...other,heartbeatAt:110},f.snapshot.console!]};await f.timers.advance(12000);expect(f.writes).toHaveLength(1);
+ }finally{await f.cleanup();}
+});
+test("open-console checks the focused worktree rather than another console",async()=>{
+ const f=fixture();try{f.context={branch:"x",displayName:"X",terminals:[{id:"other"}]};await f.start();expect(await f.commands.get("open-console")!()).toMatchObject({ok:false,message:"No pacer console in this worktree"});}finally{await f.cleanup();}
 });
