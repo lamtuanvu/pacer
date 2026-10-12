@@ -11,6 +11,9 @@ export interface ProviderStatus {
   installed: boolean;
   stale: boolean;
   error?: string;
+  brokenReason?: string;
+  blockedReason?: string;
+  blockedUntil?: number | null;
 }
 export interface RankedExecutor { id: string; score: number; verdict: Verdict; reason: string }
 export interface Excluded { id: string; reason: string }
@@ -63,6 +66,8 @@ export function rankExecutors(
     const cfg = s.providers[id];
     if (id === s.planner) return excluded.push({ id, reason: "planner" });
     if (!st || !cfg) return excluded.push({ id, reason: "not configured" });
+    if (st.blockedReason) return excluded.push({id,reason:"Blocked by you"});
+    if (st.brokenReason) return excluded.push({ id, reason: `Not working · ${st.brokenReason}` });
     if (!st.installed) return excluded.push({ id, reason: "not installed" });
     if (st.verdict === "EXHAUSTED" && !cfg.allowPaid) return excluded.push({ id, reason: "exhausted" });
     ranked.push({ id, score: score(st, s), verdict: st.verdict, reason: reason(st), unknown: st.verdict === "UNKNOWN", order });

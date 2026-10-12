@@ -2,9 +2,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Ctx, RunFn } from "./types";
 
-export const defaultRun: RunFn = async (argv, timeoutMs) => {
+export const defaultRun: RunFn = async (argv, timeoutMs, options) => {
   try {
-    const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
+    const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe", timeout: timeoutMs, ...(options?.env ? {env: options.env} : {}) });
     const [stdout, stderr, code] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),

@@ -227,3 +227,73 @@ test("a terminal task never restarts an executor", async () => {
   expect(r.result?.report).toBe("stopped before an executor ran");
   expect(d.calls).toEqual([]);
 });
+
+const launchFailure = (executor: string, stderr: string, code = 2) => {
+  const out = outcomeFor(executor, code);
+  out.exec.stderr = stderr;
+  return out;
+};
+test("startup usage error falls back and persists broken executor", async () => {
+  const ctx = fakeCtx();
+  const d = deps({ codex: launchFailure("codex", "error: unexpected argument '--sandbox' found"), cursor: outcomeFor("cursor", 0) });
+  ctx.run = async () => ({code:0, stdout:"", stderr:""});
+  const r = await runTask(ctx, newTask(ctx).id, d);
+  expect(d.calls).toEqual(["codex", "cursor"]);
+  expect(r.state).toBe("done");
+  expect(r.attempts[0].brokenReason).toContain("unexpected argument");
+  const marks = await Bun.file(`${ctx.pacerHome}/broken.json`).json();
+  expect(marks.codex.until).toBeGreaterThan(Date.now()/1000 + 1700);
+  const next = await runTask(ctx, newTask(ctx).id, d);
+  expect(next.result?.executor).toBe("cursor");
+});
+for (const [name, out] of [
+  ["agy prompt pairing", launchFailure("codex", 'Error: -p took "--sandbox" as its prompt')],
+  ["missing command", launchFailure("codex", "ENOENT",127)],
+  ["permission denied", launchFailure("codex", "permission denied",126)],
+] as const) test(`${name} is a broken startup`, async () => {
+  const ctx=fakeCtx({run:async()=>({code:0,stdout:"",stderr:""})});
+  const d=deps({codex:out,cursor:outcomeFor("cursor",0)});
+  expect((await runTask(ctx,newTask(ctx).id,d)).state).toBe("done");
+  expect(d.calls).toEqual(["codex","cursor"]);
+});
+test("usage-like failure after work or after ten seconds is not retried", async () => {
+  for (const changed of [true,false]) {
+    let n=0;
+    const ctx=fakeCtx({run:async()=>({code:0,stdout:changed&&n++>2?"changed":"",stderr:""})});
+    const out=launchFailure("codex","error: unknown option --bad");
+    if(!changed) out.attempt.endedAt=12;
+    const d=deps({codex:out});
+    expect((await runTask(ctx,newTask(ctx).id,d)).state).toBe("failed");
+    expect(d.calls).toEqual(["codex"]);
+  }
+});
+test("current executor and backend are persisted before execution", async()=>{
+  const ctx=fakeCtx(), t=newTask(ctx), d=deps({});
+  d.runAttempt=async()=>{
+    expect(readTask(ctx,t.id)).toMatchObject({executor:"codex",backend:"direct",attemptStartedAt:expect.any(Number)});
+    return outcomeFor("codex",0);
+  };
+  expect((await runTask(ctx,t.id,d)).state).toBe("done");
+});
+test("successful retry dismisses its failed ancestors only after done", async()=>{
+  const ctx=fakeCtx(), original=newTask(ctx);
+  updateTask(ctx,original.id,t=>{t.state="failed";});
+  const retry=newTask(ctx);updateTask(ctx,retry.id,t=>{t.retryOf=original.id;});
+  const d=deps({codex:outcomeFor("codex",0)});
+  expect(readTask(ctx,original.id)?.dismissed).toBeUndefined();
+  await runTask(ctx,retry.id,d);
+  expect(readTask(ctx,original.id)?.dismissed).toBe(true);
+});
+
+test("concurrent identical briefs launch only one executor unless forced",async()=>{
+ const ctx=fakeCtx();const a=newTask(ctx),b=newTask(ctx),d=deps({});
+ let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});
+ d.runAttempt=async()=>{d.calls.push("codex");await gate;return outcomeFor("codex",0);};
+ const first=runTask(ctx,a.id,d);
+ await Bun.sleep(10);
+ const second=await runTask(ctx,b.id,d);
+ expect(second.state).toBe("failed");expect(second.result?.report).toContain("already active");expect(d.calls).toEqual(["codex"]);
+ const forced=newTask(ctx);updateTask(ctx,forced.id,t=>{t.force=true;});
+ const third=runTask(ctx,forced.id,d);await Bun.sleep(10);release();await Promise.all([first,third]);
+ expect(d.calls).toEqual(["codex","codex"]);
+});

@@ -1,3 +1,4 @@
+import { executorName, shortGoal } from "./notification";
 import { createHash } from "node:crypto";
 import { isObj } from "../util";
 import { statSync } from "node:fs";
@@ -13,27 +14,45 @@ import type { Ctx } from "../types";
 import { budgetKey, toBudget } from "./budget";
 import { type AlertData, type Envelope, LIMITS, type TaskData, clip } from "./envelope";
 import { type PublishReport, publish } from "./publish";
-import { readLatest } from "./store";
+import { pidAlive, readLatest } from "./store";
 export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:Envelope[]):Promise<PublishReport> }
 export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,LIMITS.tasks).map(t=>taskStatus(ctx,t.id)??t),publish:(ctx,envs)=>publish(ctx,envs)};
 export function taskData(t:TaskRecord):TaskData {
-  const last=t.attempts.at(-1); return {id:t.id,state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??last?.executor??null,backend:t.result?.backend??null,worktree:t.result?.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0)};
+  const last=t.attempts.at(-1); return {id:t.id,state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0),
+    ...(t.dismissed ? {dismissed:true} : {}), ...(t.retryOf ? {retryOf:t.retryOf} : {}), ...(t.retriedBy ? {retriedBy:t.retriedBy} : {}),
+    ...(t.result?.brokenReason ? {brokenExecutor:t.result.brokenExecutor,brokenReason:t.result.brokenReason} : {}),
+    ...(t.attemptStartedAt ? {attemptStartedAt:t.attemptStartedAt} : {}),
+    ...(["running","queued"].includes(t.state) ? {runnerAlive:!!t.runnerPid && pidAlive(t.runnerPid)} : {}),
+  };
 }
 const alert=(a:AlertData):Envelope=>({v:1,type:"alert",data:a});
 export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Envelope[]> {
   const latest=readLatest(ctx),out:Envelope[]=[]; let st:Status;
   try{st=await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
-    if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"pacer status failed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return out;}
+    if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return out;}
   const b=toBudget(st); if(budgetKey(b)!==budgetKey(latest.budget))out.push({v:1,type:"budget",data:b});
-  const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({v:1,type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`pacer mode: ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
-  // Remember every task state ever published. latest.tasks is capped, so a task that drops out of it
-  // would otherwise look new on every pump and re-alert forever (seen live: one alert ~every 2 s).
-  const statesPath=join(ctx.pacerHome,"link","task-states.json"), knownRaw=readJson<unknown>(statesPath), known:Record<string,string>=isObj(knownRaw)?Object.fromEntries(Object.entries(knownRaw).filter(([,v])=>typeof v==="string")) as Record<string,string>:{};
+  const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({v:1,type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`Budget mode changed to ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
+  // Keep the main hotfix ledger even when a task falls out of the capped snapshot.
+  const statesPath=join(ctx.pacerHome,"link","task-states.json"),knownRaw=readJson<unknown>(statesPath);
+  const known:Record<string,string>=isObj(knownRaw)?Object.fromEntries(Object.entries(knownRaw).filter(([,v])=>typeof v==="string")) as Record<string,string>:{};
   let statesChanged=false;
   for(const t of deps.tasks(ctx)){const d=taskData(t),prev=latest.tasks.find(x=>x.id===d.id),before=known[d.id]??prev?.state;
     if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;}
-    if(before===d.state)continue;out.push({v:1,type:"task",data:d});
-    const terminal=TERMINAL_STATES.includes(d.state as TaskState);if(terminal&&(before!==undefined||latest.seq>0))out.push(alert({key:`task-${d.id}`,level:d.state==="failed"||d.state==="limit"?"warn":"info",title:clip(`pacer task ${d.state}: ${d.goal}`,LIMITS.title),body:clip(`${d.executor??"-"} via ${d.backend??"-"}${d.worktree?` in ${d.worktree}`:""}`,LIMITS.body),at:ctx.now}));}
+    if(!prev&&before===d.state)continue;
+    if(prev && Object.keys({...prev,...d}).every(k=>prev[k as keyof TaskData]===d[k as keyof TaskData]))continue;out.push({v:1,type:"task",data:d});
+    const terminal=TERMINAL_STATES.includes(d.state as TaskState);
+    if(terminal&&before!==d.state&&(before!==undefined||latest.seq>0)) {
+      const last=t.attempts.at(-1), name=executorName(d.executor), next=b.ranked.find(x=>x.id!==d.executor)?.id;
+      const kind=d.state==="done"?"done":"failed";
+      if(kind!=="done"||t.fromPanel||((last?.endedAt??ctx.now)-t.createdAt)>600) out.push(alert({key:`task-${d.id}`,level:kind==="failed"?"warn":"info",title:`Task ${kind} on ${name}`,body:`${shortGoal(d.goal)}\n${kind==="done"?"Nothing to do.":next?`Open the pacer panel to retry on ${executorName(next)}.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind,fromPanel:t.fromPanel===true,executor:d.executor??undefined,goal:d.goal,...(next?{nextExecutor:next}:{})}}));
+      const broken=t.attempts.find(a=>a.brokenReason);
+      if(broken)out.push(alert({key:`broken-${broken.executor}`,level:"warn",title:`${executorName(broken.executor)} isn't starting`,body:`${shortGoal(d.goal)}\n${d.executor&&d.executor!==broken.executor?`Moved to ${executorName(d.executor)} automatically.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind:"broken",executor:broken.executor,goal:d.goal,...(d.executor&&d.executor!==broken.executor?{nextExecutor:d.executor}:{})}}));
+    }
+  }
+  for(const p of b.providers) {
+    const previous=latest.budget?.providers.find(x=>x.id===p.id);
+    if(["EXHAUSTED","NEAR_LIMIT"].includes(p.verdict)&&previous?.verdict!==p.verdict&&latest.budget)out.push(alert({key:`quota-${p.id}`,level:"warn",title:`${executorName(p.id)} ${p.verdict==="EXHAUSTED"?"is out of quota":"is near its limit"}`,body:"Nothing to do.",at:ctx.now,notification:{kind:"quota",near:p.verdict==="NEAR_LIMIT",executor:p.id,...(p.resetsAt?{resetsAt:p.resetsAt}:{})}}));
+  }
   const seenPath=join(ctx.pacerHome,"link","strategy-seen.json"), previousSeen=readJson<unknown>(seenPath), entries=list(ctx);
   // Accept the old name-only ledger as a baseline, then persist content fingerprints.
   const seen:Record<string,unknown>|null=Array.isArray(previousSeen) ? Object.fromEntries(previousSeen.map(name=>[name,null])) : isObj(previousSeen) ? previousSeen : null;

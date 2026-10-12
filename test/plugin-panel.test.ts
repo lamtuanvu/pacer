@@ -35,7 +35,7 @@ function browser(html=panel(),seen:string[]=[]) {
   Date:class extends Date {static now(){return now;}},setInterval:(fn:Function,ms:number)=>{expect(ms).toBe(30000);intervals.push(fn);},TextEncoder,TextDecoder,Uint8Array,atob,
   document:{getElementById:(id:string)=>id==="pacer-actions"?{textContent:html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]}:ids[id],
    querySelectorAll:(selector:string)=>selector==="[data-status]"?feedback:selector==="[data-console-connection]"?[connection]:selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
-  window:{parent,addEventListener:(_n:string,h:Function)=>listener=h},
+  window:{parent,addEventListener:(n:string,h:Function)=>{if(n==="message")listener=h;}},
  });
  const reply=(m:any,value:any,ok=true,source=parent)=>listener({source,data:{type:"orca-panel-action-result",requestId:m.requestId,ok,value}});
  return {ids,pages,feedback,connection,views,strategy,strategies,freshness,check,updated,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-send"].click()};
@@ -74,7 +74,7 @@ test("delegate form switches locally, reads focused context and encodes the full
  const b=browser();b.views[0].click();b.reply(b.sent.at(-1),{branch:"feat",displayName:"Feature",terminals:[{id:"term_console"}]});expect(b.pages[2].hidden).toBe(false);expect(b.ids.goal.focused).toBe(true);expect(b.ids["worktree-branch"].textContent).toBe("feat");
  b.ids.goal.value="fix 'quotes' <script>\u2028";b.ids.done.value="bun test";b.selected.value="2";b.submit();b.reply(b.sent.at(-1),{branch:"current",displayName:"Current",terminals:[{id:"term_console"}]});const send=b.sent.at(-1);
  expect(send.params.enter).toBe(true);expect(send.params.terminalId).toBe("term_console");expect(decodeCmdLine(send.params.text).cmd?.data).toEqual({cmd:"delegate",branch:"current",displayName:"Current",goal:b.ids.goal.value,acceptance:"bun test",executor:"codex"});
- b.reply(send,{accepted:true});expect(b.ids.status.textContent).toBe("Sent. The task id appears in the pacer console.");expect(b.pages[0].hidden).toBe(false);expect(b.ids.goal.value).toBe("");expect(b.ids.done.value).toBe("");expect((b.best as any).checked).toBe(true);expect(b.submitButton.disabled).toBe(false);
+ b.reply(send,{accepted:true});expect(b.ids.status.textContent).toBe("Sent. The task id appears in the pacer console.");expect(b.pages[0].hidden).toBe(false);expect(b.ids.goal.value).toBe("");expect(b.ids.done.value).toBe("");expect((b.best as any).checked).toBe(true);expect(b.submitButton.disabled).toBe(true);
 });
 test("delegate payload validates exact limits and oversized encoded lines without truncation",()=>{
  const c={branch:"x",displayName:"X",terminals:[{id:"term_console"}]};expect(decodeCmdLine(delegateLine(c,"g".repeat(2000),"a".repeat(500))).cmd?.data.goal).toHaveLength(2000);
@@ -89,11 +89,9 @@ test("client requires a console live at render and current workspace membership"
  const expired=browser(panel(snapshot(),true,131));expired.now(131000);expired.strategies[1].click();expect(expired.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(expired.ids.status.textContent).toContain("console");
  const absent=browser();absent.strategies[1].click();absent.reply(absent.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"other"}]});expect(absent.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(absent.ids.status.textContent).toBe("The pacer console for this worktree is starting. Try again in a few seconds.");expect(absent.ids["console-hint"].hidden).toBe(false);
 });
-test("rate limit includes click-time context requests",()=>{
- const r=browser();for(let i=0;i<35;i++)r.strategies[1].click();expect(r.sent).toHaveLength(30);r.now(110000);r.strategies[1].click();expect(r.sent).toHaveLength(31);
- r.reply(r.sent.at(-1),{accepted:true},true,{} as any);expect(r.ids.status.textContent).not.toBe("Sent to pacer console");
+test("pending action suppresses duplicate clicks until outcome or timeout",()=>{
+ const r=browser();for(let i=0;i<35;i++)r.strategies[1].click();expect(r.sent).toHaveLength(2);r.now(161000);r.tick();r.strategies[1].click();expect(r.sent).toHaveLength(3);
 });
-
 test("all views escape hostile goals, titles, branches and provider identifiers",()=>{
  const attack="</script><script>\"'\u2028\u2029";const s=snapshot();s.budget!.mode=attack;s.budget!.providers.push(provider(attack));s.budget!.ranked.push({id:attack,verdict:"OK"});s.console!.handle=attack;s.tasks=[{id:"t",state:"failed",goal:attack,executor:attack,backend:null,worktree:null,updatedAt:1}];s.alerts=[{key:"a",level:"error",title:attack,body:attack,at:1}];
  const html=panel(s);expect(html).not.toContain("<script>\"");expect(jsonForScript(attack)).not.toMatch(/[<\u2028\u2029]/);expect(escapeHtml('&<>"\'')).toBe("&amp;&lt;&gt;&quot;&#39;");
@@ -124,7 +122,7 @@ test("prototype names are unknown providers with accessible monogram fallbacks",
 });
 test("recently done shows the latest three tasks with executor and age",()=>{
  const s=snapshot();s.tasks=Array.from({length:4},(_,i)=>({id:`t${i}`,state:"done",goal:`completed goal ${i}`,executor:"codex",backend:null,worktree:null,updatedAt:i}));
- const html=panel(s);expect(html).not.toContain("completed goal 0");for(const i of [1,2,3])expect(html).toContain(`completed goal ${i}`);expect(html).toContain("Codex · 1m ago");expect(html.indexOf("completed goal 3")).toBeLessThan(html.indexOf("completed goal 2"));
+ const html=panel(s).split('<script type="application/json"')[0];expect(html).not.toContain("completed goal 0");for(const i of [1,2,3])expect(html).toContain(`completed goal ${i}`);expect(html).toContain("Codex · 1m ago");expect(html.indexOf("completed goal 3")).toBeLessThan(html.indexOf("completed goal 2"));
 });
 
 test("retry excludes all failed executors in a goal group and hides action when none remain",()=>{
@@ -329,4 +327,11 @@ test("overview feedback stays in the main action bar when a retry button is pres
  expect(overview).toContain('data-command="attention-0"');
  expect(overview.indexOf('data-status')).toBeGreaterThan(overview.indexOf('class="actionbar"'));
  for(const view of ["setup","delegate","strategy"]){const body=html.match(new RegExp(`<main[^>]*data-page="${view}"[^>]*>([\\s\\S]*?)<\\/main>`))![1];expect(body.indexOf('data-status')).toBeGreaterThan(body.indexOf('class="actionbar"'));}
+});
+
+test("panel action is immediately pending and restores on refused send",()=>{
+ const b=browser();b.ids.goal.value="fix";b.submit();
+ expect(b.submitButton.disabled).toBe(true);expect(b.submitButton.innerHTML).toContain("Delegating");
+ b.reply(b.sent.at(-1),null,false);expect(b.submitButton.disabled).toBe(false);
+ expect(b.submitButton.innerHTML).not.toContain("Delegating");
 });

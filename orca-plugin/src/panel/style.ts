@@ -1,4 +1,5 @@
 export const style = `
+.action-spinner{display:inline-block;animation:console-spin 1s linear infinite}@media(prefers-reduced-motion:reduce){.action-spinner{animation:none}}
 .action-status{margin:4px 0;color:var(--muted-foreground);white-space:pre-wrap;overflow-wrap:anywhere}.action-status:empty{display:none}
 
 .console-spinner{display:inline-block;animation:console-spin 1s linear infinite}@keyframes console-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.console-spinner{animation:none}}

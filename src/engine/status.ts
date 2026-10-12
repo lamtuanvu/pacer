@@ -1,3 +1,5 @@
+import { readBlocked } from "../executors/blocked";
+import { readBroken } from "../exec/broken";
 import type { ProviderCfg, Strategy } from "../config/strategy";
 import { type ActivityProfile, loadActivity } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
@@ -32,6 +34,8 @@ export function displayName(id: string): string {
 export async function computeStatus(
   ctx: Ctx, s: Strategy, opts: { profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
 ): Promise<Status> {
+  const blocked = readBlocked(ctx);
+  const broken = readBroken(ctx);
   const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx).catch(() => null);
   const providers = await Promise.all(Object.values(s.providers).map(async (cfg): Promise<ProviderStatus> => {
     const key=JSON.stringify(cfg);
@@ -51,6 +55,8 @@ export async function computeStatus(
       id: cfg.id, usage: cfg.usage, windows, binding, verdict,
       installed: ctx.which(binaryFor(cfg)) !== null,
       stale: reading.stale,
+      ...(blocked[cfg.id] ? {blockedReason:blocked[cfg.id].reason,blockedUntil:blocked[cfg.id].until} : {}),
+      ...(broken[cfg.id] ? { brokenReason: broken[cfg.id].reason } : {}),
       ...(reading.error ? { error: reading.error } : {}),
     };
   }));

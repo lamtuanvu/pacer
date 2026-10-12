@@ -26,7 +26,7 @@ test("cursor, agy, claude: prompt as the last argument, cwd = repo", () => {
     cwd: "/repo", argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--workspace", "/repo", "--model", "sonnet-4", "P"],
   });
   expect(launchFor(s.providers.agy, "P", "/repo", "/t", ID)).toEqual({
-    cwd: "/repo", argv: ["agy", "-p", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/repo", "P"],
+    cwd: "/repo", argv: ["agy", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/repo", "-p", "P"],
   });
   expect(launchFor(s.providers["claude-code"], "P", "/repo", "/t", ID)).toEqual({
     cwd: "/repo", argv: ["claude", "-p", "--permission-mode", "acceptEdits", "--output-format", "text", "--model", "claude-sonnet-5", "P"],
@@ -42,3 +42,19 @@ test("opencode-routed providers always pass --agent build and their model", () =
 test("a provider with no launcher throws", () => {
   expect(() => launchFor({ ...s.providers.codex, id: "gemini" }, "P", "/repo", "/t", ID)).toThrow('no launcher for provider "gemini"');
 });
+
+for (const id of ["agy", "cursor", "claude-code", "codex", "byteplus"]) {
+  test(`${id}: launch contract preserves flag/value pairing`, () => {
+    const l = launchFor({ ...s.providers[id], model: "chosen-model" }, "the prompt", "/repo", "/tasks", ID);
+    const value = (flag: string) => l.argv[l.argv.indexOf(flag) + 1];
+    if (id === "agy") {
+      expect(value("-p")).toBe("the prompt");
+      expect(value("--add-dir")).toBe("/repo");
+    }
+    if (id === "cursor") { expect(value("--workspace")).toBe("/repo"); expect(value("--output-format")).toBe("text"); }
+    if (id === "claude-code") { expect(value("--permission-mode")).toBe("acceptEdits"); expect(value("--output-format")).toBe("text"); }
+    if (id === "codex") { expect(value("-C")).toBe("/repo"); expect(value("-s")).toBe("workspace-write"); expect(value("-o")).toBe(`/tasks/${ID}.codex-last.md`); expect(l.stdin).toBe("the prompt"); }
+    if (id === "byteplus") { expect(value("--agent")).toBe("build"); expect(value("--title")).toBe(`pacer ${ID}`); }
+    expect(value(["codex", "byteplus"].includes(id) ? "-m" : "--model")).toBe("chosen-model");
+  });
+}

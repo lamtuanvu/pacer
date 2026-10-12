@@ -36,6 +36,8 @@ export function renderLine(st: Status): string {
   const sep = `  ${paint("│", "dim")}  `;
   if (st.disabled) return `${paint("◆ Budget", "dim")}  pacer off (PACER=off)`;
   const parts = st.providers.map((p) => {
+    if(p.blockedReason) return `${displayName(p.id)} ${paint("Blocked by you","dim")}`;
+    if(p.brokenReason) return `${displayName(p.id)} ${paint(`Not working · ${p.brokenReason}`,"red")}`;
     const b = p.binding;
     const [text, color] = VERDICT_TEXT[p.verdict];
     let seg = `${C.bold}${displayName(p.id)}${C.reset} `;

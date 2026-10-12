@@ -1,8 +1,10 @@
-import { mkdirSync } from "node:fs";
+import { pidAlive } from "../../link/store";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { readJson, writeJsonAtomic } from "../../fsutil";
 import { type ExecutionCfg, validateExecution } from "../../config/execution";
 import { type ProviderCfg, loadStrategy } from "../../config/strategy";
-import { readTask, tasksDir } from "../../tasks/store";
+import { readTask, tasksDir, listTasks } from "../../tasks/store";
 import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { Backend } from "../backend";
@@ -12,7 +14,7 @@ import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
 import { OrcaClient, type Placement, agentTerminalOf, isReady, worktreePathOf } from "./client";
-import { ensureCoordinator, ensureRepo, gitInfo } from "./setup";
+import { ensureCoordinator, ensureRepo, gitInfo, realpathSafe } from "./setup";
 import { updateOrcaState, withLock } from "./state";
 import { type WaitResult, waitForWorker } from "./wait";
 
@@ -44,7 +46,7 @@ interface Ready {
   sub: string;
   notes: string[];
 }
-type Prepared = { ok: false; reason: string } | Ready;
+type Prepared = { ok: false; reason: string; refuse?:boolean } | Ready;
 interface Mapped { code: number; timedOut: boolean; settled: boolean; summary: string; tail?: string }
 
 async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskRecord, ex: ExecutionCfg): Promise<Prepared> {
@@ -53,20 +55,25 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   if (!isReady(await c.status())) return { ok: false, reason: "the Orca runtime is not ready (orca status)" };
   const git = await gitInfo(ctx.run, task.brief.repo);
   if ("error" in git) return { ok: false, reason: git.error };
-  const base = ex.baseBranch ?? git.branch;
-  if (ex.worktree === "new-child" && base === "HEAD") {
+  if(ex.worktree==="current") {
+    if(git.dirty)return {ok:false,reason:"current worktree has uncommitted changes",refuse:true};
+    const active=listTasks(ctx,Infinity).some(t=>t.id!==task.id&&t.state==="running"&&t.runnerPid&&pidAlive(t.runnerPid)&&(realpathSafe(t.brief.repo)===realpathSafe(git.top)||realpathSafe(t.brief.repo).startsWith(realpathSafe(git.top)+"/")));
+    if(active)return {ok:false,reason:"another pacer task is running in the current worktree",refuse:true};
+  }
+  const base = ex.worktree==="child-of-current"?git.branch:ex.baseBranch ?? git.branch;
+  if (ex.worktree !== "current" && base === "HEAD") {
     return { ok: false, reason: `${git.top} has a detached HEAD; check out a branch or set execution.base_branch` };
   }
-  const repoId = await ensureRepo(c, git.top);
+  const repoId = await ensureRepo(c, git.top, {main:git.main,linked:git.linked,registerRepos:ex.registerRepos});
   if (typeof repoId !== "string") return { ok: false, reason: repoId.error };
   const coord = await ensureCoordinator(ctx, c, git.top);
   if ("error" in coord) return { ok: false, reason: coord.error };
   const notes: string[] = [];
-  if (ex.worktree === "new-child" && git.dirty) {
+  if (ex.worktree !== "current" && git.dirty) {
     notes.push(`note: ${git.top} has uncommitted changes; the worker's new worktree starts from ${base} without them`);
   }
   // New-child worktree names pacer-<taskId>-<providerId> also identify executor hook sessions.
-  const placement: Placement = ex.worktree === "new-child"
+  const placement: Placement = ex.worktree !== "current"
     ? { kind: "new-child", repoId, baseBranch: base, name: `pacer-${task.id}-${cfg.id}` }
     : { kind: "existing", selector: `path:${git.top}` };
   return {
@@ -105,8 +112,17 @@ async function fallback(
   deps: OrcaBackendDeps, ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn: ((pid: number) => void) | undefined, reason: string,
 ): Promise<AttemptOutcome> {
   const out = await deps.direct(ctx, cfg, task, onSpawn);
-  const note = `(orca backend not used: ${reason.replace(/\s+/g, " ").trim()})\n`;
-  return { ...out, backend: "direct", report: note + tail(out.report, Math.max(0, REPORT_CHARS - note.length)) };
+  try {
+    await withLock(ctx,"fallback",async()=>{
+      const dir=join(ctx.pacerHome,"orca"), path=join(dir,"fallback.json");
+      const prior=readJson<{at:number}>(path);
+      if(prior && ctx.now-prior.at<3600)return;
+      mkdirSync(dir,{recursive:true});
+      appendFileSync(join(dir,"fallback.log"),`${new Date(ctx.now*1000).toISOString()} orca backend not used: ${reason.replace(/\s+/g," ").trim()}\n`);
+      writeJsonAtomic(path,{at:ctx.now,reason});
+    });
+  }catch { /* Diagnostics must not prevent direct execution. */ }
+  return { ...out, backend: "direct" };
 }
 
 async function cleanup(c: OrcaClient, dispatchId: string, terminal: string | null, settled: boolean, log: (l: string) => void) {
@@ -138,14 +154,17 @@ async function runOrcaAttempt(
   } catch (e) {
     return fallback(deps, ctx, cfg, task, onSpawn, (e as Error).message);
   }
-  const c = new OrcaClient(ctx.run);
+  const c = new OrcaClient(ctx.run, ctx.env);
   let p: Prepared;
   try {
     p = await prepare(ctx, c, cfg, task, ex);
   } catch (e) {
     return fallback(deps, ctx, cfg, task, onSpawn, String(e instanceof Error ? e.message : e));
   }
-  if (!p.ok) return fallback(deps, ctx, cfg, task, onSpawn, p.reason);
+  if (!p.ok) {
+    if(p.refuse){const at=Date.now()/1000;return {exec:{code:1,stdout:"",stderr:p.reason,timedOut:false},report:p.reason,backend:"orca",attempt:{executor:cfg.id,model:cfg.model,startedAt:at,endedAt:at,exitCode:1,timedOut:false,limitHit:false,log:""}};}
+    return fallback(deps, ctx, cfg, task, onSpawn, p.reason);
+  }
 
   const startedAt = Date.now() / 1000;
   const lines: string[] = [];
@@ -261,7 +280,7 @@ export function makeOrcaBackend(over: Partial<OrcaBackendDeps> = {}): Backend {
     available: async (ctx, s) => {
       const ex = validateExecution(s.execution);
       if (ex.backend === "direct") return false;
-      return isReady(await new OrcaClient(ctx.run).status());
+      return isReady(await new OrcaClient(ctx.run, ctx.env).status());
     },
     runAttempt: (ctx, cfg, task, onSpawn) => runOrcaAttempt(deps, ctx, cfg, task, onSpawn),
   };

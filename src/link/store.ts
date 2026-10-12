@@ -20,6 +20,14 @@ export function readConsole(ctx:Ctx, alive:(pid:number)=>boolean=pidAlive):Conso
 }
 const safeHandle = (handle: string | null | undefined): handle is string => !!handle && /^[A-Za-z0-9_-]+$/.test(handle);
 const terminalCache = new Map<string, { checked: number; listedAt?: number; unknownChecked?: number; handles?: Set<string>; pending?: Promise<void> }>();
+const registrations = new Map<string,{at:number;values:{path:string;raw:unknown}[]}>();
+export function invalidateConsoleCache(ctx:Ctx):void {registrations.delete(ctx.pacerHome);}
+function cachedRegistrations(ctx:Ctx):{path:string;raw:unknown}[] {
+  const hit=registrations.get(ctx.pacerHome);
+  if(hit && ctx.now-hit.at>=0 && ctx.now-hit.at<2)return hit.values;
+  const values=registrationPaths(ctx).map(path=>({path,raw:readJson<unknown>(path)}));
+  registrations.set(ctx.pacerHome,{at:ctx.now,values});return values;
+}
 function registrationPaths(ctx: Ctx): string[] {
   const dir = consolesDir(ctx);
   return [consolePath(ctx), ...(existsSync(dir) ? readdirSync(dir).filter(f => /^[A-Za-z0-9_-]+\.json$/.test(f)).map(f => join(dir, f)) : [])];
@@ -31,7 +39,7 @@ export async function refreshConsoleTerminals(ctx: Ctx, unknown = false): Promis
   unknown ||= !!prior?.handles && registrationPaths(ctx).some(path => {
     const c = readJson<ConsoleData>(path); return !!c?.handle && !prior.handles!.has(c.handle);
   });
-  if (prior && (unknown ? ctx.now - (prior.unknownChecked ?? -Infinity) < 5 : ctx.now - prior.checked < 30)) return;
+  if (prior && (unknown ? ctx.now - (prior.unknownChecked ?? -Infinity) < 5 : ctx.now - prior.checked < 10)) return;
   const entry = { checked: ctx.now, unknownChecked: unknown ? ctx.now : prior?.unknownChecked } as NonNullable<ReturnType<typeof terminalCache.get>>;
   // Invalidate the old membership before querying: an error cannot leave deletion authority behind.
   terminalCache.set(ctx.pacerHome, entry);
@@ -45,8 +53,10 @@ export async function refreshConsoleTerminals(ctx: Ctx, unknown = false): Promis
       if (!completeTerminalList(reply) || !completeTerminalList(reply.result)) return;
       if (!reply.result.terminals.every(t => isObj(t) && typeof t.handle === "string")) return;
       entry.listedAt = listedAt;
+      invalidateConsoleCache(ctx);
       entry.handles = new Set(reply.result.terminals.map(t => t.handle as string));
       readConsoles(ctx, pidAlive, false);
+      invalidateConsoleCache(ctx);
     } catch { /* Preserve registrations when the runtime is unavailable. */ }
   })();
   try { await entry.pending; } finally { entry.pending = undefined; }
@@ -57,6 +67,7 @@ export function completeTerminalList(value: Record<string, unknown>): boolean {
     (!isObj(value.pagination) || value.pagination.hasMore !== true && !value.pagination.nextCursor);
 }
 export function forgetConsoles(ctx: Ctx, worktreeId: string): void {
+  invalidateConsoleCache(ctx);
   const dir = consolesDir(ctx);
   if (existsSync(dir)) for (const file of readdirSync(dir)) if (/^[A-Za-z0-9_-]+\.json$/.test(file)) {
     const path = join(dir, file); if (readJson<ConsoleData>(path)?.worktreeId === worktreeId) rmSync(path, { force: true });
@@ -76,13 +87,11 @@ export function readConsoles(ctx:Ctx,alive:(pid:number)=>boolean=pidAlive, refre
     const previous=found.get(c.handle);
     if(!previous || previous.heartbeatAt<c.heartbeatAt) found.set(c.handle,c);
   };
-  if(existsSync(dir)) for(const file of readdirSync(dir)) if(/^[A-Za-z0-9_-]+\.json$/.test(file)) {
-    const path=join(dir,file);add(readJson<unknown>(path),path);
-  }
-  add(readJson<unknown>(consolePath(ctx)),consolePath(ctx));
+  for(const entry of cachedRegistrations(ctx))add(entry.raw,entry.path);
   return [...found.values()].sort((a,b)=>b.heartbeatAt-a.heartbeatAt).slice(0,32);
 }
 export function writeConsole(ctx:Ctx,c:ConsoleData|null,handle?:string):void {
+  invalidateConsoleCache(ctx);
   if(c) {
     if(safeHandle(c.handle)) writeJsonAtomic(join(consolesDir(ctx),`${c.handle}.json`),c);
     writeJsonAtomic(consolePath(ctx),c);

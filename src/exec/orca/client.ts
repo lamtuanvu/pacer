@@ -94,12 +94,21 @@ export function isLiveTerminal(r: OrcaReply<{ terminal?: TerminalRow }>): boolea
   return r.ok && r.result.terminal?.connected === true && r.result.terminal?.writable === true;
 }
 
+/** Remove caller attestation: pacer owns its coordinator identity. */
+export function sanitizedOrcaEnv(source: Record<string,string|undefined> = process.env): Record<string,string|undefined> {
+  const env = {...source}, named = source.ORCA_AGENT_SESSION_ID_ENV;
+  for (const key of Object.keys(env)) {
+    if (["ORCA_AGENT_SESSION_ID","ORCA_AGENT_SESSION_ID_ENV","ORCA_TERMINAL_HANDLE","ORCA_PANE_KEY","ORCA_TAB_ID","ORCA_WORKTREE_ID","ORCA_AGENT_LAUNCH_TOKEN",named].includes(key) || key.startsWith("ORCA_AGENT_HOOK_") || key.startsWith("ORCA_SESSION_")) delete env[key];
+  }
+  return env;
+}
+
 /** Every orca CLI call pacer makes. `run` is injectable (Ctx.run), so tests answer from recorded receipts. */
 export class OrcaClient {
-  constructor(private readonly run: RunFn) {}
+  constructor(private readonly run: RunFn, private readonly env: Record<string,string|undefined> = process.env) {}
 
   async call<T>(args: string[], timeoutMs = CALL_TIMEOUT_MS): Promise<OrcaReply<T>> {
-    const r = await this.run(["orca", ...args, "--json"], timeoutMs);
+    const r = await this.run(["orca", ...args, "--json"], timeoutMs, {env: sanitizedOrcaEnv(this.env)});
     const env = parseOrcaOutput(r.stdout);
     if (isObj(env)) {
       const { ok, result, error } = env;

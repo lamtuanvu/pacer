@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -30,7 +31,7 @@ async function logFiles(ctx: Ctx, since: number): Promise<string[]> {
     if (!existsSync(cwd)) continue;
     for await (const p of new Bun.Glob(pattern).scan({ cwd, absolute: true })) {
       try {
-        if (statSync(p).mtimeMs / 1000 >= since) out.push(p);
+        if ((await stat(p)).mtimeMs / 1000 >= since) out.push(p);
       } catch {
         // Skip logs that vanished or cannot be inspected.
       }

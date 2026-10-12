@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import {consoleOpener} from "../src/serve/console-open";
 import { startServer } from "../src/serve/http";
 import { fakeCtx } from "./helpers";
 import { fakeRun, raw } from "./fixtures/orca/fake";
@@ -16,11 +17,13 @@ function fixture(show=true) {
  const ctx=fakeCtx({run:f.run,env:{PACER_BIN:"/opt/pacer's bin"}});
  const server=startServer(()=>ctx,{port:0,pumpMs:0});stops.push(server.stop);
  const url=`http://127.0.0.1:${server.port}`;
- const post=(body:unknown={terminal:"term_existing",branch:"feat/x"},headers:Record<string,string>={},method="POST",path="/console/open")=>fetch(url+path,{method,headers:{authorization:`Bearer ${server.token}`,"content-type":"application/json",...headers},...(method==="GET"?{}:{body:typeof body==="string"?body:JSON.stringify(body)})});
- return {f,ctx,post};
+ const opener=consoleOpener(ctx.now);
+ const httpPost=(body:unknown={terminal:"term_existing",branch:"feat/x"},headers:Record<string,string>={},method="POST",path="/console/open")=>fetch(url+path,{method,headers:{authorization:`Bearer ${server.token}`,"content-type":"application/json",...headers},...(method==="GET"?{}:{body:typeof body==="string"?body:JSON.stringify(body)})});
+ const post=(body:unknown={terminal:"term_existing",branch:"feat/x"},headers:Record<string,string>={},method="POST",path="/console/open")=>opener(new Request(url+path,{method,headers:{"content-type":"application/json",...headers},body:typeof body==="string"?body:JSON.stringify(body)}),ctx);
+ return {f,ctx,post,httpPost};
 }
 test("console POST authenticates, validates methods, media type, size and selectors",async()=>{
- const {post,f}=fixture();
+ const {httpPost:post,f}=fixture();
  expect((await post({}, {authorization:"bad"})).status).toBe(401);
  expect((await post({}, {},"PUT")).status).toBe(405);
  expect((await post({}, {},"POST","/other")).status).toBe(405);
@@ -69,9 +72,9 @@ test("global hourly cap applies across distinct worktrees",async()=>{
  [["orca","terminal","list"],reply({terminals:[]})],
  [["orca","terminal","create"],reply({terminal:{handle:"term_new"}})],
  ]);
- const ctx=fakeCtx({run:f.run});const server=startServer(()=>ctx,{port:0,pumpMs:0});stops.push(server.stop);
+ const ctx=fakeCtx({run:f.run});const open=consoleOpener(ctx.now);
  for(let i=0;i<11;i++){
-  const r=await fetch(`http://127.0.0.1:${server.port}/console/open`,{method:"POST",headers:{authorization:`Bearer ${server.token}`,"content-type":"application/json"},body:JSON.stringify({branch:`feature-${i}`})});
+  const r=await open(new Request("http://127.0.0.1/console/open",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({branch:`feature-${i}`})}),ctx);
   expect(await r.json()).toMatchObject(i<10?{ok:true}:{ok:false,reason:"rate-limited"});
  }
  expect(f.count(["orca","terminal","create"])).toBe(10);
@@ -122,11 +125,11 @@ test("failed terminal create releases worktree and global reservations",async()=
 });
 
 test("console forget is token-gated, validates bounded JSON and removes only matching worktree registrations and reservations", async () => {
- const {post,ctx,f}=fixture();
+ const {post,httpPost,ctx,f}=fixture();
  expect((await (await post()).json()).ok).toBe(true);
  writeConsole(ctx,{worktreeId:"wt",handle:"term_gone",pid:process.pid,paneKey:null,startedAt:ctx.now,heartbeatAt:ctx.now});
  writeConsole(ctx,{worktreeId:"other",handle:"term_kept",pid:process.pid,paneKey:null,startedAt:ctx.now,heartbeatAt:ctx.now});
- expect((await post({worktreeId:"wt"},{authorization:"bad"},"POST","/console/forget")).status).toBe(401);
+ expect((await httpPost({worktreeId:"wt"},{authorization:"bad"},"POST","/console/forget")).status).toBe(401);
  for(const body of [{}, {worktreeId:"../bad"}, {worktreeId:123}, "{", " ".repeat(4097)]) expect((await post(body,{},"POST","/console/forget")).status).toBe(body === " ".repeat(4097) ? 413 : 400);
  expect(await (await post({worktreeId:"wt"},{},"POST","/console/forget")).json()).toEqual({ok:true});
  const {readConsoles}=await import("../src/link/store"); expect(readConsoles(ctx).map(c=>c.handle)).toEqual(["term_kept"]);

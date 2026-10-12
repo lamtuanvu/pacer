@@ -36,7 +36,7 @@ test("save header, summary, overwrite, active/default protection and complete li
  s.save(ctx,"protect",draft,"replace approved",{overwrite:true});expect(s.list(ctx).find(x=>x.name==="protect")?.description).toBe("Protect Claude");
  await s.use({...ctx,which:()=>null},"protect");expect(loadStrategy(ctx).name).toBe("protect");expect(()=>s.remove(ctx,"protect")).toThrow("active");
  await s.use({...ctx,which:()=>null},"default");expect(s.remove(ctx,"protect").deleted).toBe(true);expect(()=>s.remove(ctx,"default")).toThrow("protected");
- expect(readFileSync(join(ctx.pacerHome,"link","latest.json"),"utf8")).toContain("Strategy switched to default");
+ expect(readFileSync(join(ctx.pacerHome,"link","latest.json"),"utf8")).toContain("Switched to strategy default");
 });
 test("preview validates with no writes and computes ranking changes and policy wording",async()=>{
  const ctx=await setup();const before=readdirSync(ctx.pacerHome);
@@ -131,4 +131,11 @@ test("pump detects identical overwrites and migrates the old name-only ledger",a
  const first=await pumpOnce(ctx,deps as any);expect(first.some(e=>e.type==="alert"&&e.data.key.startsWith("strategySaved"))).toBe(false);
  const before=s.show(ctx,"same").yaml;s.save(ctx,"same",{from:"default"},"approved",{overwrite:true});expect(s.show(ctx,"same").yaml).toBe(before);
  expect((await pumpOnce(ctx,deps as any)).find(e=>e.type==="alert"&&e.data.key==="strategySaved-same")).toMatchObject({data:{title:'Strategy "same" updated'}});
+});
+
+test("CLI strategy save attributes user while service/MCP retain agent identity",async()=>{
+ const ctx=await setup();
+ expect((await main(["strategy","save","user-draft","--reason","approved"],ctx)).code).toBe(0);
+ expect(s.show(ctx,"user-draft").yaml).toContain("created by user");
+ s.save(ctx,"agent-draft",{from:"default"},"approved",{who:"Codex"});expect(s.show(ctx,"agent-draft").yaml).toContain("created by Codex");
 });

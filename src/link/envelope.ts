@@ -1,19 +1,20 @@
+import type { NotificationData } from "./notification";
 /** pacer brain <-> Orca plugin link. Dependency-free: the Orca plugin bundles this file. */
 export const PLUGIN_KEY = "pacer.pacer";
 export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 } as const;
 export type Level = "info" | "warn" | "error";
-export interface ProviderLine { id: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean }
+export interface ProviderLine { id: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
-export interface TaskData { id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number }
+export interface TaskData { id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
-export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string }
+export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
-export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number }
+export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
-export const CMD_NAMES = ["delegate", "retry", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build"] as const;
+export const CMD_NAMES = ["delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
-export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; agent?: string; from?: string; brief?: string }
+export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
 export interface Cmd { v: 1; type: "cmd"; data: CmdData }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max: number): string | null => typeof v === "string" ? v.slice(0, max) : null;
@@ -27,7 +28,7 @@ function parseBudget(d: unknown): BudgetData | null {
   if (generatedAt === null || strategy === null || planner === null || mode === null) return null;
   const providers = (Array.isArray(d.providers) ? d.providers : []).slice(0, LIMITS.providers).flatMap((p): ProviderLine[] => {
     if (!isObj(p)) return []; const id = str(p.id, 64), verdict = str(p.verdict, 32); if (id === null || verdict === null) return [];
-    return [{ id, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true }];
+    return [{ id, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true, ...(optStr(p.brokenReason,500) ? {brokenReason:optStr(p.brokenReason,500)!} : {}), ...(optStr(p.blockedReason,500) ? {blockedReason:optStr(p.blockedReason,500)!,blockedUntil:num(p.blockedUntil)} : {}) }];
   });
   const ranked = (Array.isArray(d.ranked) ? d.ranked : []).slice(0, LIMITS.providers).flatMap((r) => {
     if (!isObj(r)) return []; const id = str(r.id, 64), verdict = str(r.verdict, 32); return id === null || verdict === null ? [] : [{ id, verdict }];
@@ -37,7 +38,15 @@ function parseBudget(d: unknown): BudgetData | null {
 function parseTask(d: unknown): TaskData | null {
   if (!isObj(d)) return null; const id = str(d.id, LIMITS.id), state = str(d.state, 16), updatedAt = num(d.updatedAt);
   if (!id || !state || updatedAt === null) return null;
-  return { id, state, updatedAt, goal: str(d.goal, LIMITS.goal) ?? "", executor: optStr(d.executor, 64), backend: optStr(d.backend, 32), worktree: optStr(d.worktree, 4096) };
+  return { id, state, updatedAt, goal: str(d.goal, LIMITS.goal) ?? "", executor: optStr(d.executor, 64), backend: optStr(d.backend, 32), worktree: optStr(d.worktree, 4096),
+    ...(d.dismissed === true ? {dismissed:true} : {}),
+    ...(optStr(d.retriedBy,128) ? {retriedBy:optStr(d.retriedBy,128)!} : {}),
+    ...(optStr(d.retryOf,128) ? {retryOf:optStr(d.retryOf,128)!} : {}),
+    ...(optStr(d.brokenExecutor,64) ? {brokenExecutor:optStr(d.brokenExecutor,64)!} : {}),
+    ...(optStr(d.brokenReason,500) ? {brokenReason:optStr(d.brokenReason,500)!} : {}),
+    ...(num(d.attemptStartedAt) !== null ? {attemptStartedAt:num(d.attemptStartedAt)!} : {}),
+    ...(typeof d.runnerAlive === "boolean" ? {runnerAlive:d.runnerAlive} : {}),
+  };
 }
 function parseMode(d: unknown): ModeData | null {
   if (!isObj(d)) return null; const mode = str(d.mode, 32), strategy = str(d.strategy, 128), at = num(d.at);
@@ -46,11 +55,14 @@ function parseMode(d: unknown): ModeData | null {
 function parseAlert(d: unknown): AlertData | null {
   if (!isObj(d)) return null; const error = optStr(d.error, LIMITS.body), level = LEVELS.includes(d.level as Level) ? d.level as Level : error ? "error" : "info";
   const alert: AlertData = { key: optStr(d.key, LIMITS.id) ?? "alert", level, title: clip(optStr(d.title, 4096) ?? "pacer", LIMITS.title), body: clip(str(d.body, 4096) ?? error ?? "", LIMITS.body), at: num(d.at) ?? 0 };
-  if (error) alert.error = error; return alert;
+  if (error) alert.error = error;
+  const n=d.notification;
+  if(isObj(n)&&["failed","done","broken","quota","strategy","session"].includes(String(n.kind))) alert.notification={kind:n.kind as NotificationData["kind"],...(n.fromPanel===true?{fromPanel:true}:{}),...(n.near===true?{near:true}:{}),...(optStr(n.executor,64)?{executor:optStr(n.executor,64)!}:{}),...(optStr(n.goal,1000)?{goal:optStr(n.goal,1000)!}:{}),...(optStr(n.nextExecutor,64)?{nextExecutor:optStr(n.nextExecutor,64)!}:{}),...(optStr(n.strategy,128)?{strategy:optStr(n.strategy,128)!}:{}),...(num(n.resetsAt)!==null?{resetsAt:num(n.resetsAt)!}:{})};
+  return alert;
 }
 function parseConsole(d: unknown): ConsoleData | null {
   if (!isObj(d)) return null; const pid = num(d.pid), startedAt = num(d.startedAt), heartbeatAt = num(d.heartbeatAt);
-  if (pid === null || startedAt === null || heartbeatAt === null) return null; return { ...(optStr(d.version, 64) ? { version: optStr(d.version, 64)! } : {}), ...(optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024)! } : {}), pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
+  if (pid === null || startedAt === null || heartbeatAt === null) return null; return { ...(optStr(d.version, 64) ? { version: optStr(d.version, 64)! } : {}), ...(optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024)! } : {}), pid, startedAt, heartbeatAt, ...(num(d.busyUntil)!==null?{busyUntil:num(d.busyUntil)!}:{}), handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
 }
 export function parseEnvelope(raw: unknown): Envelope | null {
   if (!isObj(raw) || raw.v !== 1) return null;
@@ -98,6 +110,11 @@ export function parseCmd(raw: unknown): Cmd | null {
     if(!["claude-code","codex"].includes(String(d.agent)) || typeof d.from!=="string" || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(d.from) || typeof d.brief!=="string" || !d.brief.trim() || d.brief.length>2000)return null;
     data.agent=String(d.agent);data.from=d.from;data.brief=d.brief;
   }
+  if(d.taskIds !== undefined) {
+    if(!Array.isArray(d.taskIds) || !d.taskIds.length || d.taskIds.length>LIMITS.tasks || !d.taskIds.every(id=>typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id)))return null;
+    data.taskIds=[...new Set(d.taskIds)] as string[];
+  }
+  if(d.for !== undefined) { if(typeof d.for !== "string" || !/^\d+(?:s|m|h|d)$/.test(d.for))return null; data.for=d.for; }
   const path=optStr(d.path,4096); if(path) data.path=path; return {v:1,type:"cmd",data};
 }
 export function decodeCmdLine(line: string): { before: string; cmd: Cmd | null } {
@@ -107,4 +124,14 @@ export function decodeCmdLine(line: string): { before: string; cmd: Cmd | null }
 export function summaryLine(b: BudgetData | null): string {
   if(!b) return "pacer: no budget data yet"; const p=b.providers.find(x=>x.id===b.planner), pct=p?.usedPct==null?"?":`${Math.round(p.usedPct)}%`;
   return clip(`pacer ${b.mode} | ${b.planner} ${pct} ${p?.verdict??"UNKNOWN"} | next: ${b.ranked[0]?.id??"none"}`,LIMITS.title);
+}
+
+/** Split concatenated shell-inert plugin commands while preserving human input before the prefix. */
+export function splitCmdLines(line:string):string[] {
+ const parts=line.split(CMD_PREFIX);
+ if(parts.length===1)return [line];
+ const out:string[]=[];
+ if(parts[0].trim())out.push(parts[0]);
+ for(const part of parts.slice(1))out.push(CMD_PREFIX+part);
+ return out;
 }

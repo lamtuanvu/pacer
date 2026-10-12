@@ -29,7 +29,7 @@ function parseBudget(d) {
     const id = str(p.id, 64), verdict = str(p.verdict, 32);
     if (id === null || verdict === null)
       return [];
-    return [{ id, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true }];
+    return [{ id, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true, ...optStr(p.brokenReason, 500) ? { brokenReason: optStr(p.brokenReason, 500) } : {}, ...optStr(p.blockedReason, 500) ? { blockedReason: optStr(p.blockedReason, 500), blockedUntil: num(p.blockedUntil) } : {} }];
   });
   const ranked = (Array.isArray(d.ranked) ? d.ranked : []).slice(0, LIMITS.providers).flatMap((r) => {
     if (!isObj(r))
@@ -45,7 +45,22 @@ function parseTask(d) {
   const id = str(d.id, LIMITS.id), state = str(d.state, 16), updatedAt = num(d.updatedAt);
   if (!id || !state || updatedAt === null)
     return null;
-  return { id, state, updatedAt, goal: str(d.goal, LIMITS.goal) ?? "", executor: optStr(d.executor, 64), backend: optStr(d.backend, 32), worktree: optStr(d.worktree, 4096) };
+  return {
+    id,
+    state,
+    updatedAt,
+    goal: str(d.goal, LIMITS.goal) ?? "",
+    executor: optStr(d.executor, 64),
+    backend: optStr(d.backend, 32),
+    worktree: optStr(d.worktree, 4096),
+    ...d.dismissed === true ? { dismissed: true } : {},
+    ...optStr(d.retriedBy, 128) ? { retriedBy: optStr(d.retriedBy, 128) } : {},
+    ...optStr(d.retryOf, 128) ? { retryOf: optStr(d.retryOf, 128) } : {},
+    ...optStr(d.brokenExecutor, 64) ? { brokenExecutor: optStr(d.brokenExecutor, 64) } : {},
+    ...optStr(d.brokenReason, 500) ? { brokenReason: optStr(d.brokenReason, 500) } : {},
+    ...num(d.attemptStartedAt) !== null ? { attemptStartedAt: num(d.attemptStartedAt) } : {},
+    ...typeof d.runnerAlive === "boolean" ? { runnerAlive: d.runnerAlive } : {}
+  };
 }
 function parseMode(d) {
   if (!isObj(d))
@@ -62,6 +77,9 @@ function parseAlert(d) {
   const alert = { key: optStr(d.key, LIMITS.id) ?? "alert", level, title: clip(optStr(d.title, 4096) ?? "pacer", LIMITS.title), body: clip(str(d.body, 4096) ?? error ?? "", LIMITS.body), at: num(d.at) ?? 0 };
   if (error)
     alert.error = error;
+  const n = d.notification;
+  if (isObj(n) && ["failed", "done", "broken", "quota", "strategy", "session"].includes(String(n.kind)))
+    alert.notification = { kind: n.kind, ...n.fromPanel === true ? { fromPanel: true } : {}, ...n.near === true ? { near: true } : {}, ...optStr(n.executor, 64) ? { executor: optStr(n.executor, 64) } : {}, ...optStr(n.goal, 1000) ? { goal: optStr(n.goal, 1000) } : {}, ...optStr(n.nextExecutor, 64) ? { nextExecutor: optStr(n.nextExecutor, 64) } : {}, ...optStr(n.strategy, 128) ? { strategy: optStr(n.strategy, 128) } : {}, ...num(n.resetsAt) !== null ? { resetsAt: num(n.resetsAt) } : {} };
   return alert;
 }
 function parseConsole(d) {
@@ -70,7 +88,7 @@ function parseConsole(d) {
   const pid = num(d.pid), startedAt = num(d.startedAt), heartbeatAt = num(d.heartbeatAt);
   if (pid === null || startedAt === null || heartbeatAt === null)
     return null;
-  return { ...optStr(d.version, 64) ? { version: optStr(d.version, 64) } : {}, ...optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024) } : {}, pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
+  return { ...optStr(d.version, 64) ? { version: optStr(d.version, 64) } : {}, ...optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024) } : {}, pid, startedAt, heartbeatAt, ...num(d.busyUntil) !== null ? { busyUntil: num(d.busyUntil) } : {}, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
 }
 function parseEnvelope(raw) {
   if (!isObj(raw) || raw.v !== 1)
@@ -151,11 +169,13 @@ function summaryLine(b) {
 function readSettings(raw, home) {
   const finite = (v) => typeof v === "number" && Number.isFinite(v);
   return {
+    notifications: ["off", "important", "all"].includes(String(raw.notifications)) ? raw.notifications : "important",
     autoConsole: typeof raw.autoConsole === "boolean" ? raw.autoConsole : true,
     transport: ["auto", "http", "channel", "bridge"].includes(raw.transport) ? raw.transport : "auto",
     port: finite(raw.port) && Number.isInteger(raw.port) && raw.port >= 1 && raw.port <= 65535 ? raw.port : 4317,
     pacerHome: typeof raw.pacerHome === "string" && raw.pacerHome.length > 0 ? raw.pacerHome : `${home}/.pacer`,
     pollSeconds: finite(raw.pollSeconds) ? Math.max(5, Math.min(300, raw.pollSeconds)) : 10,
+    ...Array.isArray(raw.deliveredAlerts) ? { deliveredAlerts: raw.deliveredAlerts.filter((a) => !!a && typeof a === "object" && typeof a.key === "string" && finite(a.at)).slice(-200) } : {},
     lastAlertAt: finite(raw.lastAlertAt) && raw.lastAlertAt >= 0 ? raw.lastAlertAt : 0
   };
 }
@@ -342,7 +362,7 @@ function bridgeTransport(o) {
     probe: async () => await snapshot() !== null,
     watch(_onEnvelope, onSnapshot) {
       let key = null, stopped = false, busy = false;
-      const cancel = o.timers.every(o.pollMs, () => {
+      const cancel = o.timers.every(Math.min(o.pollMs, 1000), () => {
         if (busy)
           return;
         busy = true;
@@ -411,41 +431,131 @@ async function focusedConsole(host, s, nowS) {
     return null;
   }
 }
+var queues = new WeakMap;
 async function sendToConsole(host, s, data, nowS) {
   const console = await focusedConsole(host, s, nowS);
   if (!console)
     return "no-console";
-  try {
-    return (await host.call("terminal.sendText", { terminalId: console.handle, text: encodeCmdLine(data), enter: true })).accepted ? "sent" : "rejected";
-  } catch {
-    return "rejected";
+  let byTerminal = queues.get(host);
+  if (!byTerminal) {
+    byTerminal = new Map;
+    queues.set(host, byTerminal);
   }
+  const key = console.handle, queue = byTerminal.get(key) ?? { tail: Promise.resolve(), at: -Infinity };
+  byTerminal.set(key, queue);
+  const send = queue.tail.catch(() => {}).then(async () => {
+    const delay = Math.max(0, 1000 - (Date.now() - queue.at), Math.min(1000, ((console.busyUntil ?? nowS) - nowS) * 1000));
+    if (delay)
+      await new Promise((r) => setTimeout(r, delay));
+    try {
+      return (await host.call("terminal.sendText", { terminalId: key, text: encodeCmdLine(data), enter: true })).accepted ? "sent" : "rejected";
+    } catch {
+      return "rejected";
+    } finally {
+      queue.at = Date.now();
+    }
+  });
+  queue.tail = send;
+  return send;
 }
-var NO_CONSOLE = { title: "No pacer console in this worktree", body: "Type `pacer console` into a terminal in this worktree and press Enter, then retry." };
+var NO_CONSOLE = { title: "No console in this worktree", body: "Type `pacer console` into a terminal in this worktree and press Enter, then retry." };
+
+// src/link/notification.ts
+var executorName = (id) => NAMES[id ?? ""] ?? "the executor";
+var NAMES = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", opencode: "OpenCode", local: "Local model" };
+function shortGoal(goal, max = 90) {
+  const text = goal.replace(/\s+/g, " ").trim();
+  if (text.length <= max)
+    return text;
+  const prefix = text.slice(0, max - 1), space = prefix.lastIndexOf(" ");
+  return prefix.slice(0, space > max / 2 ? space : prefix.length) + "…";
+}
 
 // orca-plugin/src/notify.ts
-var deliveryState = new WeakMap;
-async function notifyNewAlerts(host, s, settings, activatedAtS) {
-  let state = deliveryState.get(settings);
+var shownAt = new WeakMap;
+async function deliverNotification(host, message, nowS) {
+  if (nowS - (shownAt.get(host) ?? -Infinity) < 5)
+    return false;
+  const previous = shownAt.get(host);
+  shownAt.set(host, nowS);
+  try {
+    const result = await host.call("notifications.show", message);
+    if (result.delivered)
+      return true;
+  } catch (e) {
+    if (previous === undefined)
+      shownAt.delete(host);
+    else
+      shownAt.set(host, previous);
+    throw e;
+  }
+  if (previous === undefined)
+    shownAt.delete(host);
+  else
+    shownAt.set(host, previous);
+  return false;
+}
+var states = new WeakMap;
+var id = (a) => JSON.stringify([a.key, a.at]);
+function notificationMessage(a) {
+  const n = a.notification, name = executorName(n?.executor);
+  const next = n?.nextExecutor ? `Moved to ${executorName(n.nextExecutor)} automatically.` : n?.kind === "failed" ? "Open the pacer panel to retry." : "Nothing to do.";
+  let title = a.title.replace(/\bpacer\b[: ]*/gi, "").trim(), body = "Nothing to do.";
+  if (n) {
+    title = n.kind === "failed" ? `Task failed on ${name}` : n.kind === "done" ? `Task done on ${name}` : n.kind === "broken" ? `${name} isn't starting` : n.kind === "quota" ? `${name} ${n.near ? "is near its limit" : "is out of quota"}${!n.near && n.resetsAt ? ` until ${new Date(n.resetsAt * 1000).toLocaleString("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "")}` : ""}` : n.kind === "strategy" ? `Switched to strategy ${n.strategy}` : "Strategy session opened";
+    body = `${shortGoal(n.goal ?? "")}
+${n.kind === "failed" && n.nextExecutor ? `Open the pacer panel to retry on ${executorName(n.nextExecutor)}.` : next}`;
+  }
+  if (!n)
+    title = title.replace(/\bagy\b/g, "Antigravity").replace(/\bcodex\b/gi, "Codex").replace(/\bcursor\b/gi, "Cursor").replace(/\bclaude-code\b/g, "Claude").replace(/\s+(via|backend)\b.*$/i, "");
+  return { title: shortGoal(title, 60), body };
+}
+async function notifyNewAlerts(host, s, settings, activatedAtS, nowS = Date.now() / 1000) {
+  let state = states.get(settings);
   if (!state) {
-    state = { since: Math.max(settings.lastAlertAt, activatedAtS - 600), delivered: new Set };
-    deliveryState.set(settings, state);
+    state = { since: settings.settingsReady === false ? activatedAtS : Math.max(settings.lastAlertAt, activatedAtS - 300), delivered: new Set((settings.deliveredAlerts ?? []).map((a) => JSON.stringify([a.key, a.at]))), pending: new Map, lastSent: -Infinity };
+    states.set(settings, state);
   }
-  const id = (a) => JSON.stringify([a.at, a.key]);
-  const alerts = s.alerts.filter((a) => a.at >= state.since && !state.delivered.has(id(a))).sort((a, b) => a.at - b.at).slice(0, 3);
-  let newest = settings.lastAlertAt;
-  for (const a of alerts) {
-    const result = await host.call("notifications.show", { title: clip(a.title, 120), body: clip(a.body, 1000) });
-    if (!result.delivered)
-      break;
-    state.delivered.add(id(a));
-    newest = Math.max(newest, a.at);
+  const level = settings.notifications ?? "important";
+  if (level === "off") {
+    state.pending.clear();
+    return settings.lastAlertAt;
   }
-  if (newest > settings.lastAlertAt) {
-    settings.lastAlertAt = newest;
-    await host.call("settings.set", { key: "lastAlertAt", value: newest });
+  const important = (a) => a.notification?.kind === "broken" || ["failed", "done"].includes(a.notification?.kind ?? "") && a.notification?.fromPanel === true || a.notification?.kind === "quota" && a.notification.executor === "claude-code";
+  for (const a of s.alerts)
+    if (a.at > Math.max(state.since, settings.lastAlertAt) && !state.delivered.has(id(a))) {
+      if (level === "all" || important(a))
+        state.pending.set(id(a), a);
+    }
+  if (nowS - state.lastSent < 5)
+    return settings.lastAlertAt;
+  const pending = [...state.pending.values()].sort((a, b) => a.at - b.at);
+  const a = pending[0];
+  if (a?.notification?.kind === "failed" && nowS - a.at < 30)
+    return settings.lastAlertAt;
+  if (!a)
+    return settings.lastAlertAt;
+  const batch = a.notification?.kind === "failed" ? pending.filter((x) => x.notification?.kind === "failed" && x.notification.executor === a.notification?.executor && Math.abs(x.at - a.at) <= 30) : [a];
+  const message = notificationMessage(a);
+  if (batch.length > 1) {
+    message.title = `${batch.length} tasks failed on ${executorName(a.notification?.executor)}`;
+    message.body = `${shortGoal(a.notification?.goal ?? "")}
+${a.notification?.nextExecutor ? `Moved to ${executorName(a.notification.nextExecutor)} automatically.` : "Open the pacer panel to retry."}`;
   }
-  return newest;
+  const delivered = await deliverNotification(host, message, nowS);
+  if (!delivered)
+    return settings.lastAlertAt;
+  state.lastSent = nowS;
+  for (const item of batch) {
+    state.pending.delete(id(item));
+    state.delivered.add(id(item));
+  }
+  settings.deliveredAlerts = [...settings.deliveredAlerts ?? [], ...batch.map((x) => ({ key: x.key, at: x.at }))].slice(-200);
+  await host.call("settings.set", { key: "deliveredAlerts", value: settings.deliveredAlerts });
+  const newest = Math.max(settings.lastAlertAt, ...batch.map((x) => x.at));
+  settings.lastAlertAt = state.pending.size ? Math.min(newest, Math.min(...[...state.pending.values()].map((x) => x.at)) - 0.001) : newest;
+  await host.call("settings.set", { key: "lastAlertAt", value: settings.lastAlertAt });
+  return settings.lastAlertAt;
 }
 
 // orca-plugin/src/panel/shared.ts
@@ -506,7 +616,7 @@ var verdictWords = (v) => Object.hasOwn(words, v) ? words[v] : "Unknown";
 var tone = (v) => v === "EXHAUSTED" ? "bad" : ["AHEAD", "NEAR_LIMIT", "EXPIRING", "EXPIRING_SOON"].includes(v) ? "warn" : ["OK", "ON_PACE", "BEHIND", "UNMETERED"].includes(v) ? "good" : "neutral";
 function rankedProviders(s) {
   const b = s.budget;
-  return (b?.ranked ?? []).filter((r, i, a) => r.id !== b?.planner && a.findIndex((x) => x.id === r.id) === i).map((r) => b?.providers.find((p) => p.id === r.id) ?? { ...r, usedPct: null, pacePct: null, resetsAt: null, window: null, stale: false }).filter((p) => p.verdict !== "EXHAUSTED");
+  return (b?.ranked ?? []).filter((r, i, a) => r.id !== b?.planner && a.findIndex((x) => x.id === r.id) === i).map((r) => b?.providers.find((p) => p.id === r.id) ?? { ...r, usedPct: null, pacePct: null, resetsAt: null, window: null, stale: false }).filter((p) => p.verdict !== "EXHAUSTED" && !p.brokenReason && !p.blockedReason);
 }
 function mutedProviders(s) {
   const ids = new Set(rankedProviders(s).map((p) => p.id));
@@ -540,6 +650,10 @@ function answerDetail(s, now) {
   return parts.join(" ");
 }
 function providerDetail(p, now) {
+  if (p.brokenReason)
+    return `Not working · ${p.brokenReason}`;
+  if (p.blockedReason)
+    return "Blocked by you";
   if (p.usedPct !== null)
     return `${Math.round(p.usedPct)}%${p.window ? ` of ${p.window}` : ""} used${p.resetsAt === null ? "" : ` · resets in ${duration(p.resetsAt - now)}`}${p.stale ? " · stale" : ""}`;
   if (p.id === "local")
@@ -548,20 +662,26 @@ function providerDetail(p, now) {
 }
 function attentionGroups(s, now) {
   const groups = new Map;
+  const resolved = new Set(s.tasks.filter((t) => t.state === "done" && t.retryOf).map((t) => t.retryOf));
   for (const t of [...s.tasks].sort((a, b) => b.updatedAt - a.updatedAt)) {
-    if (!["failed", "limit"].includes(t.state) && !(["running", "queued"].includes(t.state) && !t.executor && now - t.updatedAt > 600))
+    if (t.dismissed || t.retriedBy && s.tasks.some((retry) => retry.id === t.retriedBy && ["queued", "running", "done"].includes(retry.state)) || resolved.has(t.id) || now - t.updatedAt > 3 * 86400)
       continue;
-    groups.set(t.goal, [...groups.get(t.goal) ?? [], t]);
+    if (!["failed", "limit"].includes(t.state) && !(["running", "queued"].includes(t.state) && !t.executor && !t.attemptStartedAt && !t.runnerAlive && now - t.updatedAt > 600))
+      continue;
+    const key = t.brokenExecutor ? `broken:${t.brokenExecutor}` : t.goal;
+    groups.set(key, [...groups.get(key) ?? [], t]);
   }
-  return [...groups].map(([goal, tasks]) => ({ goal, tasks, latest: tasks[0], stuck: ["running", "queued"].includes(tasks[0].state), retry: rankedProviders(s).find((p) => !tasks.some((t) => t.executor === p.id)) ?? null }));
+  return [...groups].map(([_key, tasks]) => ({ goal: tasks[0].brokenExecutor ? `${displayName(tasks[0].brokenExecutor)} is not working` : tasks[0].goal, tasks, latest: tasks[0], stuck: ["running", "queued"].includes(tasks[0].state), retry: rankedProviders(s).find((p) => !tasks.some((t) => t.executor === p.id)) ?? null, ...tasks[0].brokenExecutor ? { brokenExecutor: tasks[0].brokenExecutor, brokenReason: tasks[0].brokenReason } : {} }));
 }
 function attentionText(g, now) {
+  if (g.brokenExecutor)
+    return `${displayName(g.brokenExecutor)} is not working: ${g.brokenReason ?? "CLI startup failed"} · ${g.tasks.length} tasks affected`;
   if (g.stuck)
     return `Waiting ${duration(now - g.latest.updatedAt)} with no executor picked`;
   const count = g.tasks.length, label = g.latest.state === "limit" ? "Hit a limit" : "Failed";
   return `${label}${count === 2 ? " twice" : count > 2 ? ` ×${count}` : ""}${g.latest.executor ? ` on ${displayName(g.latest.executor)}` : ""}`;
 }
-var unavailableDetail = (p, now) => p.verdict === "EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt, now)}` : "not in the queue";
+var unavailableDetail = (p, now) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.verdict === "EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt, now)}` : "not in the queue";
 
 // orca-plugin/src/panel/overview.ts
 function meter(p, slim = false) {
@@ -585,7 +705,7 @@ function overview(s, now, reachable, commands, text) {
   return `<div class="content">${header(s, now, reachable)}
  <div class="card stack answer"><div class="stack"><div class="headline">${h(headline(p, now))}</div><div class="muted">${h(answerDetail(s, now))}</div></div>${p ? `<div class="stack"><div class="row"><span class="name">${icon(p.id, 14)}${h(displayName(p.id))}</span><small>planner</small><span class="grow"></span><span class="percent">${p.usedPct === null ? "—" : `${Math.round(p.usedPct)}%`}</span><small>used</small></div>${meter(p)}<div class="row"><small>Pace marker ${p.pacePct == null ? "—" : `${p.pacePct}%`}</small><span class="grow"></span><small>${p.resetsAt === null ? "Reset unknown" : `Resets ${h(new Date(p.resetsAt * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }))}`}</small></div></div>` : ""}</div>
  <section class="stack section"><div class="row"><h2>Who runs next</h2><span class="grow"></span><small>in this order</small></div><div class="list" id="ranked-list"></div><div class="stack unavailable" id="unavailable-list"></div></section>
- <section class="stack section"><div class="row"><h2>Needs attention</h2>${attention.length ? `<span class="pill bad">${attention.length}</span>` : ""}</div>${attention.map((g, i) => {
+ <section class="stack section"><div class="row"><h2>Needs attention</h2>${attention.length ? `<span class="pill bad">${attention.length}</span>` : ""}</div>${attention.slice(0, 10).map((g, i) => {
     const key = `attention-${i}`;
     text[key + "-goal"] = g.goal.length > 96 ? g.goal.slice(0, 93) + "…" : g.goal;
     text[key + "-detail"] = attentionText(g, now) + (g.stuck ? "" : ` · ${age(g.latest.updatedAt, now)}`);
@@ -594,9 +714,12 @@ function overview(s, now, reachable, commands, text) {
     if (g.stuck && /^[A-Za-z0-9_-]{1,128}$/.test(g.latest.id))
       commands[key] = { cmd: "stop", taskId: g.latest.id };
     else if (g.retry && /^[A-Za-z0-9_-]{1,128}$/.test(g.latest.id) && /^[a-z0-9-]{1,64}$/.test(g.retry.id))
-      commands[key] = { cmd: "retry", taskId: g.latest.id, executor: g.retry.id };
-    return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small></div></div><div class="actions">${commands[key] ? `<button type="button" class="${g.stuck ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `Retry on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}</div></div>`;
-  }).join("")}${attention.length ? "" : "<small>Nothing needs attention.</small>"}</section>
+      commands[key] = g.brokenExecutor ? { cmd: "retry-all", taskIds: g.tasks.map((t) => t.id), executor: g.retry.id } : { cmd: "retry", taskId: g.latest.id, executor: g.retry.id };
+    if (!g.stuck)
+      commands[key + "-dismiss"] = { cmd: "dismiss", ...g.tasks.length > 1 ? { taskIds: g.tasks.map((t) => t.id) } : { taskId: g.latest.id } };
+    return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small></div></div><div class="actions">${commands[key] ? `<button type="button" class="${g.stuck ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `${g.brokenExecutor ? "Retry all" : "Retry"} on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}${!g.stuck ? `<button type="button" data-command="${key}-dismiss">Dismiss</button>` : ""}</div></div>`;
+  }).join("")}${attention.length > 10 ? `<small>${attention.length - 10} more groups need attention. View all with pacer tasks.</small>` : ""}${attention.length ? "" : "<small>Nothing needs attention.</small>"}</section>
+ <section class="stack section"><h2>Running</h2>${s.tasks.filter((t) => ["running", "queued"].includes(t.state)).map((t) => `<div class="card stack"><span>${h(t.goal)}</span><small>${t.executor ? `Running on ${h(displayName(t.executor))} · started <span data-age-at="${t.attemptStartedAt ?? t.updatedAt}">${Math.max(0, Math.floor(now - (t.attemptStartedAt ?? t.updatedAt)))}s ago</span>` : "Queued"}${t.retryOf ? ` · Retry of ${h(t.retryOf)}` : ""}</small></div>`).join("") || "<small>No tasks running.</small>"}</section>
  <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter((t) => t.state === "done").sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).map((t) => `<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0, 100))}">${h(t.goal.slice(0, 100))}</span><small>${h(t.executor ? displayName(t.executor) : "—")} · ${h(age(t.updatedAt, now))}</small></div></div>`).join("")}${s.tasks.some((t) => t.state === "done") ? "" : "<small>No completed tasks yet.</small>"}</div></section>
  ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-view="strategy" data-live>Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div>${actionStatus}<div class="footnote">Updated <span data-updated>—</span> · <span data-console-connection>Checking console...</span></div></div>`;
 }
@@ -615,6 +738,7 @@ function delegateView(s, now, reachable) {
 
 // orca-plugin/src/panel/style.ts
 var style = `
+.action-spinner{display:inline-block;animation:console-spin 1s linear infinite}@media(prefers-reduced-motion:reduce){.action-spinner{animation:none}}
 .action-status{margin:4px 0;color:var(--muted-foreground);white-space:pre-wrap;overflow-wrap:anywhere}.action-status:empty{display:none}
 
 .console-spinner{display:inline-block;animation:console-spin 1s linear infinite}@keyframes console-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.console-spinner{animation:none}}
@@ -627,6 +751,7 @@ select{height:28px;background:var(--background);border:1px solid var(--border);b
 function strategyView(s, now, reachable) {
   const agents = ["claude-code", "codex"].filter((id) => id === s.budget?.planner || s.budget?.providers.some((p) => p.id === id));
   return `<div class="content"><header><button type="button" data-view="overview" aria-label="Back to overview">←</button><strong>Strategy</strong><span class="grow"></span>${connectionIndicator(s, now, reachable)}</header>
+ <section class="stack"><label>Notifications<select id="notification-level"><option value="important">Important</option><option value="all">All</option><option value="off">Off</option></select></label></section>
  <section class="stack"><h2>Switch to</h2><div class="list strategy-list" id="strategy-list"></div></section>
  <div id="strategy-form" role="group" class="card stack strategy-builder"><strong>Build a new strategy with an agent</strong><small>Describe what you want. The agent drafts it, shows how routing would change, and asks before saving.</small>
  <label for="strategy-brief">What should it do?</label><textarea id="strategy-brief" rows="4" maxlength="2000" placeholder="e.g. Protect Claude this week. Burn Codex before it resets on Sunday."></textarea>
@@ -634,6 +759,62 @@ function strategyView(s, now, reachable) {
  <div class="note row">${info}<small>Opens a new terminal in this worktree with the agent already briefed. You chat with it there; nothing changes until you approve the save. Switching stays a separate click here.</small></div></div>
  <section id="strategy-after" class="stack" hidden></section></div><div class="actionbar"><div class="actions"><button type="button" data-view="overview">Done</button><button type="button" id="strategy-send" class="primary grow" data-live${agents.length ? "" : " disabled"}>Start session</button></div>${actionStatus}</div>`;
 }
+
+// orca-plugin/src/panel/pending.ts
+var pendingClient = `
+const actionStorage="pacer-pending-actions";
+let actionStates={};
+try {const saved=JSON.parse(sessionStorage.getItem(actionStorage)||"{}");if(saved && !Array.isArray(saved))actionStates=saved;}catch{}
+const actionButtons=new Map();
+function saveActions(){try{sessionStorage.setItem(actionStorage,JSON.stringify(actionStates));}catch{}}
+function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.goal||c.from||c.text||"");}
+function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...",type:"Typing command..."})[c.cmd]||"Working...";}
+function outcome(a){
+ const c=a.action,t=data.tasks||[],ids=c.taskIds||[c.taskId],p=[...data.rows,...data.muted].find(p=>p.id===c.executor);
+ if(c.cmd==="retry"||c.cmd==="retry-all")return ids.every(id=>t.some(x=>x.retryOf===id)||t.find(x=>x.id===id)?.retriedBy);
+ if(c.cmd==="stop")return ids.every(id=>t.some(x=>x.id===id&&!["queued","running"].includes(x.state)));
+ if(c.cmd==="dismiss")return ids.every(id=>!t.some(x=>x.id===id)||t.find(x=>x.id===id)?.dismissed);
+ if(c.cmd==="delegate")return t.some(x=>!a.known.includes(x.id)&&(x.goal===c.goal||x.goal===c.goal.slice(0,197)+"..."));
+ if(c.cmd==="block"||c.cmd==="unblock")return p && !!p.blocked===(c.cmd==="block");
+ if(c.cmd==="use")return data.strategy===c.strategy;
+ if(c.cmd==="strategy-build")return data.buildAlert && data.buildAlert.at>=a.startedAt;
+ if(c.cmd==="refresh")return data.sequence>a.sequence;
+ if(c.cmd==="type")return a.accepted;
+ return false;
+}
+function restoreAction(key){const entry=actionButtons.get(key);if(entry){entry.button.disabled=entry.disabled;entry.button.innerHTML=entry.html;entry.card?.removeAttribute?.("aria-busy");}actionButtons.delete(key);delete actionStates[key];saveActions();}
+function paintAction(key,button){
+ const a=actionStates[key];if(!a)return;
+ if(!actionButtons.has(key))actionButtons.set(key,{button,disabled:button.disabled,html:button.innerHTML,card:button.closest?.(".card,.row,.actionbar")});
+ button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
+ actionButtons.get(key).card?.setAttribute?.("aria-busy","true");
+}
+function beginAction(button,action){
+ const key=actionKey(action);if(actionStates[key]||button.disabled)return null;
+ actionStates[key]={action,target:action.taskId||action.executor||action.strategy||"",startedAt:Date.now()/1000,known:(data.tasks||[]).map(t=>t.id),sequence:data.sequence};
+ paintAction(key,button);saveActions();if(typeof setTimeout==="function")setTimeout(()=>recoverActions(),60000);return key;
+}
+function pendingSend(button,command,after,workspace){
+ const key=beginAction(button,command);if(!key)return false;
+ return sendCommand(command,value=>{if(actionStates[key]){actionStates[key].accepted=true;saveActions();}if(after)after(value);},()=>{restoreAction(key);if(!status.textContent)status.textContent="The console could not accept this action. Try again.";const card=button.closest?.(".card,.row,.actionbar");if(card?.insertAdjacentHTML)card.insertAdjacentHTML("beforeend",'<p role="alert" class="action-error">The console could not accept this action. Try again.</p>');},workspace);
+}
+function recoverActions(){
+ for(const [key,a] of Object.entries(actionStates)){
+  if(!a||typeof a.startedAt!=="number"||!a.action){delete actionStates[key];continue;}
+  const rejection=(data.actionErrors||[]).find(e=>e.key==="retry-"+a.action.taskId&&e.at>=a.startedAt);
+  if(rejection){restoreAction(key);status.textContent=rejection.body;continue;}
+  if(outcome(a)){restoreAction(key);continue;}
+  const button=actionButtons.get(key)?.button;
+  if(Date.now()/1000-a.startedAt>=60){
+   if(button){button.disabled=false;button.innerHTML=actionButtons.get(key).html;}
+   restoreAction(key);
+   status.textContent="Still waiting for the pacer console. Check the pacer tab in this worktree.";
+  }else if(button)paintAction(key,button);
+ }
+ saveActions();
+}
+function bindAction(button,action){const key=actionKey(action);if(actionStates[key]){if(outcome(actionStates[key]))restoreAction(key);else paintAction(key,button);}}
+`;
 
 // orca-plugin/src/panel/client.ts
 var client = `
@@ -671,14 +852,16 @@ function live(workspace) {
   return false;
 }
 function updateFreshness() {
+  for(const el of document.querySelectorAll("[data-age-at]"))el.textContent=Math.max(0,Math.floor(Date.now()/1000-Number(el.dataset.ageAt)))+"s ago";
   for(const el of document.querySelectorAll("[data-updated]")) el.textContent = data.updatedAt ? new Date(data.updatedAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
   const old = Date.now()/1000-data.snapshotAt>120;
   for(const el of document.querySelectorAll("[data-freshness]")) {
-    el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "warn" : "good");
-    el.textContent = !data.reachable ? "Not connected" : (old ? "Stale · " : "Live · ") + new Date(data.snapshotAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
+    // Unchanged data is not re-rendered (Orca reloads the panel on every write), so age alone is not a fault: show it neutrally.
+    el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "muted" : "good");
+    el.textContent = !data.reachable ? "Not connected" : (old ? "Updated " : "Live · ") + new Date(data.snapshotAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
   }
 }
-updateFreshness(); setInterval(updateFreshness,30000);
+updateFreshness(); setInterval(()=>{updateFreshness();recoverActions();},30000);
 function request(action, params, purpose, after, onFailure) {
   const now = Date.now();
   while (sentAt.length && now - sentAt[0] >= 10000) sentAt.shift();
@@ -705,6 +888,7 @@ function sendCommand(command, after, onFailure, workspace) {
   if (!readContext(send,onFailure)) return fail();
   return true;
 }
+${pendingClient}
 function updateContext(value) {
   context = value && typeof value.branch === "string" && typeof value.displayName === "string" ? value : null;
   for (const el of document.querySelectorAll("[data-worktree]")) el.textContent = context ? context.displayName : "—";
@@ -718,7 +902,7 @@ for (const el of document.querySelectorAll("[data-text]")) el.innerHTML = h(data
 const strategyEntries=data.strategies.map(e=>typeof e === "string"?{name:e,summary:"",active:e===data.strategy}:e);
 document.getElementById("strategy-list").innerHTML=strategyEntries.map((e,i)=>'<button type="button" class="row" data-strategy="'+i+'"'+(e.active?' disabled title="This strategy is already active."':'')+'><span>'+(e.active?'✓':'')+'</span><span class="stack grow"><strong>'+h(e.name)+'</strong><small>'+h(e.summary)+'</small></span>'+(e.active?'<span class="pill">Active</span>':'')+'</button>').join("");
 document.getElementById("strategy-from").innerHTML=strategyEntries.map(e=>'<option value="'+h(e.name)+'"'+(e.active?' selected':'')+'>'+h(e.name)+'</option>').join("");
-for(const b of document.querySelectorAll("[data-strategy]")) b.addEventListener("click",()=>sendCommand({cmd:"use",strategy:strategyEntries[Number(b.dataset.strategy)].name}));
+for(const b of document.querySelectorAll("[data-strategy]")) {const entry=strategyEntries[Number(b.dataset.strategy)];if(!entry)continue;const command={cmd:"use",strategy:entry.name};bindAction(b,command);b.addEventListener("click",()=>pendingSend(b,command));}
 let seenStrategies=[];
 try { seenStrategies=JSON.parse(sessionStorage.getItem("pacer-seen-strategies") || "[]"); if(!Array.isArray(seenStrategies))seenStrategies=[]; } catch {}
 const savedStrategy=(data.savedAlerts || []).find(a=>!seenStrategies.includes(a.key+":"+a.at));
@@ -726,7 +910,7 @@ const afterSession=document.getElementById("strategy-after");
 if(savedStrategy) {
  afterSession.hidden=false;
  afterSession.innerHTML='<h2>After the session</h2><div class="card row strategy-saved"><span class="good">✓</span><div class="stack grow"><strong>'+h(savedStrategy.title)+'</strong><small>'+h(savedStrategy.body)+'</small></div><button type="button" data-saved-switch>Switch</button></div>';
- document.querySelector("[data-saved-switch]")?.addEventListener("click",()=>sendCommand({cmd:"use",strategy:savedStrategy.key.slice("strategySaved-".length)}));
+ document.querySelector("[data-saved-switch]")?.addEventListener("click",event=>pendingSend(event.currentTarget,{cmd:"use",strategy:savedStrategy.key.slice("strategySaved-".length)}));
 }
 document.getElementById("ranked-order").innerHTML = h(data.rows.map(p=>p.name).join(" → ") || "No executor available");
 function icon(p,size) {
@@ -738,34 +922,44 @@ function meter(p) {
  return '<div class="meter slim '+p.tone+'" role="progressbar" aria-label="'+h(p.name)+' usage" aria-valuenow="'+used+'" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:'+used+'%"></div>'+(pace===null?'':'<div class="pace" style="left:'+pace+'%"></div>')+'</div>';
 }
 const rankedList = document.getElementById("ranked-list"), mutedList = document.getElementById("unavailable-list"), options = document.getElementById("executor-options");
-rankedList.innerHTML = data.rows.map((p,i) => '<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
-mutedList.innerHTML = data.muted.map(p=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span></div>').join("");
+rankedList.innerHTML = data.rows.map((p,i) => '<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span><button type="button" data-executor-action="'+i+'">Block</button></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
+mutedList.innerHTML = data.muted.map((p,i)=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span><button type="button" data-executor-action="'+(data.rows.length+i)+'">'+(p.blocked?'Unblock':'Block')+'</button></div>').join("");
 options.innerHTML = data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict === "EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
+for(const b of document.querySelectorAll("[data-executor-action]")) {
+ const provider=[...data.rows,...data.muted][Number(b.dataset.executorAction)];if(provider)bindAction(b,{cmd:provider.blocked?"unblock":"block",executor:provider.id});
+ b.addEventListener("click",()=>{
+ const p=[...data.rows,...data.muted][Number(b.dataset.executorAction)];
+ if(p && /^[a-z0-9-]{1,64}$/.test(p.id))pendingSend(b,{cmd:p.blocked?"unblock":"block",executor:p.id});
+});}
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => {
   if (["delegate","strategy"].includes(b.dataset.view)) {
     if (!live()) return;
     readContext(value => { updateContext(value); if(!live(value)) return; show(b.dataset.view); document.getElementById(b.dataset.view === "delegate" ? "goal" : "strategy-brief").focus(); });
   } else show(b.dataset.view);
 });
-for (const b of document.querySelectorAll("[data-command]")) b.addEventListener("click", () => {
+for (const b of document.querySelectorAll("[data-command]")) {
+ if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
+ b.addEventListener("click", () => {
   const command = data.commands[b.dataset.command];
-  if (command) sendCommand(command); else status.textContent = "Reopen the panel to load this action.";
+  if (command) pendingSend(b,command); else status.textContent = "Reopen the panel to load this action.";
 });
-for (const b of document.querySelectorAll("[data-setup]")) b.addEventListener("click", () => {
+}
+for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"type",text:b.dataset.setup});b.addEventListener("click", () => {
+  const key=beginAction(b,{cmd:"type",text:b.dataset.setup});if(!key)return;
   readContext(value => {
     updateContext(value);
     const terminal = context && Array.isArray(context.terminals) && context.terminals[0];
-    if (!terminal || typeof terminal.id !== "string") { status.textContent = "Open a terminal in this worktree first"; return; }
-    request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup");
-  });
-});
+    if (!terminal || typeof terminal.id !== "string") { status.textContent = "Open a terminal in this worktree first"; restoreAction(key);return; }
+    request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup",()=>restoreAction(key),()=>restoreAction(key));
+  },()=>restoreAction(key));
+});}
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
   if (!data.reachable) {
     status.textContent = "Waiting for pacer serve. Start it, then reopen this panel.";
     document.getElementById("console-hint").hidden = true;
     return;
   }
-  sendCommand({cmd:"refresh"});
+  pendingSend(b,{cmd:"refresh"});
 });
 document.getElementById("delegate-send").addEventListener("click", () => {
   if (sending) { status.textContent = "A command is already being sent. Please wait."; return; }
@@ -775,26 +969,29 @@ document.getElementById("delegate-send").addEventListener("click", () => {
   if (!goal.trim()) { status.textContent = "What should be done is required."; return; }
   if (goal.length > 2000 || acceptance.length > 500) { status.textContent = "Goal must be at most 2000 characters; Done when at most 500."; return; }
   if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !/^[a-z0-9-]{1,64}$/.test(data.executors[Number(selected.value)]))) { status.textContent = "Choose an available executor."; return; }
-  sending = true; submitButton.disabled = true;
+  const command={cmd:"delegate",goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})};
+  const action=beginAction(submitButton,command);if(!action)return;
+  sending = true;
+  const failDelegate=()=>{restoreAction(action);finishSending();};
   if (!readContext(value => {
     updateContext(value);
-    if (!context || !context.branch) { status.textContent = "Focus a worktree first."; finishSending(); return; }
+    if (!context || !context.branch) { status.textContent = "Focus a worktree first."; failDelegate(); return; }
     if (!sendCommand({cmd:"delegate",branch:context.branch,displayName:context.displayName,...(typeof context.worktreeId === "string" && context.worktreeId ? {worktreeId:context.worktreeId} : {}),goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})}, () => {
       document.getElementById("goal").value = "";
       document.getElementById("done").value = "";
       document.querySelector('input[name="executor"][value=""]').checked = true;
-      finishSending(); show("overview");
+      sending=false; show("overview");
       status.textContent = "Sent. The task id appears in the pacer console.";
-    }, finishSending, value)) finishSending();
-  }, finishSending)) finishSending();
+    }, failDelegate, value)) failDelegate();
+  }, failDelegate)) failDelegate();
 });
 document.getElementById("strategy-send").addEventListener("click", () => { if(sending){status.textContent="A command is already being sent. Please wait.";return;} if(!live())return;
  const brief=document.getElementById("strategy-brief").value, from=document.getElementById("strategy-from").value, agent=document.getElementById("strategy-agent").value;
  if(!brief.trim() || brief.length>2000 || !["claude-code","codex"].includes(agent)) {status.textContent="Enter a brief of at most 2000 characters and choose a configured agent.";return;}
- const button=document.getElementById("strategy-send"); sending=true;button.disabled=true;
- const finish=()=>{sending=false;button.disabled=false;};
+ const button=document.getElementById("strategy-send");const action=beginAction(button,{cmd:"strategy-build",agent,from,brief});if(!action)return;sending=true;
+ const finish=()=>{sending=false;restoreAction(action);};
  if(!readContext(value=>{updateContext(value);if(!context || !context.branch){status.textContent="Focus a worktree first.";finish();return;}
- sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
+ sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{sending=false;status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
  },finish))finish();
 });
 document.getElementById("done").addEventListener("keydown", event => {
@@ -805,12 +1002,22 @@ window.addEventListener("message", event => {
   if (event.source !== window.parent || !r || r.type !== "orca-panel-action-result" || !pending.has(r.requestId)) return;
   const item = pending.get(r.requestId); pending.delete(r.requestId);
   if (!r.ok) { status.textContent = typeof r.error === "string" ? r.error : "Orca refused this request."; if (item.onFailure) item.onFailure(); return; }
+  if(item.purpose==="notification-settings"){if(item.after)item.after(r.value);return;}
   if (item.purpose === "context") { updateContext(r.value); if (item.after) item.after(r.value); return; }
   const accepted = r.value && r.value.accepted;
   status.textContent = accepted ? item.purpose === "setup" ? "Typed into your terminal. Press Enter to run it." : "Sent to pacer console" : "Orca refused to type into the terminal.";
   if (accepted && item.after) item.after(r.value);
   if (!accepted && item.onFailure) item.onFailure();
 });
+for(const a of Object.values(actionStates)) {
+ if(a.action?.cmd==="delegate")bindAction(submitButton,a.action);
+ if(a.action?.cmd==="strategy-build")bindAction(document.getElementById("strategy-send"),a.action);
+}
+const notificationControl=document.getElementById("notification-level");
+if(notificationControl){request("settings.get",undefined,"notification-settings",value=>{const level=value?.settings?.notifications;if(["off","important","all"].includes(level))notificationControl.value=level;});notificationControl.addEventListener("change",()=>{request("settings.set",{key:"notifications",value:notificationControl.value},"notification-settings",()=>{status.textContent="Notification preference saved.";});});}
+recoverActions();
+try {const saved=Number(sessionStorage.getItem("pacer-panel-scroll"));if(Number.isFinite(saved)&&saved>=0)window.scrollTo?.(0,saved);}catch{}
+window.addEventListener("scroll",()=>{try{sessionStorage.setItem("pacer-panel-scroll",String(window.scrollY));}catch{}},{passive:true});
 readContext(value => { live(value); });
 `;
 
@@ -823,7 +1030,7 @@ function renderPanel(s, view) {
   const main = overview(s, view.nowS, view.reachable, commands, text);
   const reasonText = view.autoConsole ?? true ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
   const disable = (html) => (console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label) => `<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
-  const payload = { autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict) })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS) })) };
+  const payload = { actionErrors: s.alerts.filter((a) => a.key.startsWith("retry-") && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
   const strategy = strategyView(s, view.nowS, view.reachable);
   const outcome = view.autoConsoleOutcome, waiting = !outcome || outcome.status === "starting" && view.nowS - outcome.at < 15;
   const reason = outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
@@ -873,10 +1080,14 @@ function createPlugin(deps) {
     stopped = false;
     const activatedAtS = deps.nowS();
     let raw = {};
+    let settingsReady = false;
     let cancelSettings = () => {};
     try {
       const result = await Promise.race([
-        ctx.host.call("settings.get"),
+        ctx.host.call("settings.get").then((result) => {
+          settingsReady = true;
+          return result;
+        }),
         new Promise((resolve) => {
           cancelSettings = timers.after(500, () => resolve({ settings: {} }));
         })
@@ -888,6 +1099,15 @@ function createPlugin(deps) {
     if (stopped)
       return;
     const settings = readSettings(raw, deps.home);
+    settings.settingsReady = settingsReady;
+    timers.every(1e4, () => {
+      ctx.host.call("settings.get").then((result) => {
+        settings.lastAlertAt = Math.max(settings.lastAlertAt, readSettings(result.settings, deps.home).lastAlertAt);
+        settings.deliveredAlerts = [...settings.deliveredAlerts ?? [], ...readSettings(result.settings, deps.home).deliveredAlerts ?? []].slice(-200);
+        settings.notifications = readSettings(result.settings, deps.home).notifications;
+        settings.settingsReady = true;
+      }).catch(() => {});
+    });
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
@@ -905,6 +1125,8 @@ function createPlugin(deps) {
     let processing = Promise.resolve();
     let httpFailures = 0;
     let renderedKey = null;
+    let lastRenderAt = -Infinity;
+    let userOutcome = false;
     const outcomes = new Map;
     let focusedWorktree = null, attempted = false;
     const panelOutcome = () => (focusedWorktree ? outcomes.get(focusedWorktree) : undefined) ?? { status: "starting", at: activatedAtS };
@@ -923,7 +1145,7 @@ function createPlugin(deps) {
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       serviceInstalled: store.snapshot.serviceInstalled,
       reconnecting: reconnecting(),
-      tasks: store.snapshot.tasks,
+      tasks: store.snapshot.tasks.map(({ updatedAt, ...task }) => task),
       alerts: store.snapshot.alerts,
       consoles: [...new Set([...(store.snapshot.consoles ?? []).map((c) => c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map((handle) => ({
         handle,
@@ -935,10 +1157,15 @@ function createPlugin(deps) {
       reachable
     });
     const logError = (e) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
-    const scheduleRender = () => {
+    const scheduleRender = (immediate = false) => {
+      if (immediate) {
+        userOutcome = true;
+        cancelRender?.();
+        cancelRender = null;
+      }
       if (stopped || cancelRender)
         return;
-      cancelRender = timers.after(2000, () => {
+      cancelRender = timers.after(Math.max(200, (lastRenderAt + (userOutcome ? 2 : 10) - deps.nowS()) * 1000), () => {
         cancelRender = null;
         if (stopped)
           return;
@@ -948,6 +1175,8 @@ function createPlugin(deps) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
               deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
               renderedKey = key;
+              lastRenderAt = nowS;
+              userOutcome = false;
             } else
               ctx.log("pacer: refused panel write: unmanaged root");
           }
@@ -957,11 +1186,17 @@ function createPlugin(deps) {
         const snapshot = store.snapshot;
         processing = processing.then(async () => {
           if (!stopped)
-            await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS);
+            await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS());
         }).catch(logError);
       });
     };
-    store.onChange(scheduleRender);
+    store.onChange(() => scheduleRender());
+    timers.every(1000, () => {
+      processing = processing.then(async () => {
+        if (!stopped)
+          await notifyNewAlerts(ctx.host, store.snapshot, settings, activatedAtS, deps.nowS());
+      }).catch(logError);
+    });
     timers.every(15000, () => {
       if (panelKey() !== renderedKey)
         scheduleRender();
@@ -969,6 +1204,16 @@ function createPlugin(deps) {
     const replaceSnapshot = (snapshot) => {
       if (stopped)
         return;
+      const previous = store.snapshot;
+      const consoleChanged = !!snapshot.console?.handle !== !!previous.console?.handle;
+      const initiated = consoleChanged || snapshot.budget?.strategy !== previous.budget?.strategy || snapshot.tasks.some((t) => !previous.tasks.some((p) => p.id === t.id) || t.dismissed !== previous.tasks.find((p) => p.id === t.id)?.dismissed || t.retriedBy !== previous.tasks.find((p) => p.id === t.id)?.retriedBy) || snapshot.alerts.some((a) => a.key === "strategy-build" && !previous.alerts.some((p) => p.key === a.key && p.at === a.at)) || snapshot.budget?.providers.some((p) => p.blockedReason !== previous.budget?.providers.find((x) => x.id === p.id)?.blockedReason);
+      if (initiated) {
+        userOutcome = true;
+        if (cancelRender) {
+          cancelRender();
+          cancelRender = null;
+        }
+      }
       store.replace(snapshot);
     };
     const acceptSnapshot = (snapshot) => {
@@ -978,7 +1223,7 @@ function createPlugin(deps) {
       lastSeenAt = deps.nowS();
       if (!reachable) {
         reachable = true;
-        scheduleRender();
+        scheduleRender(true);
       }
       replaceSnapshot(snapshot);
     };
@@ -1028,7 +1273,10 @@ function createPlugin(deps) {
     }
     const notify = async (title, body) => {
       try {
-        await ctx.host.call("notifications.show", { title: clip(title, 120), ...body === undefined ? {} : { body: clip(body, 1000) } });
+        if (settings.notifications !== "all")
+          return;
+        const plain = title.startsWith("pacer ") && !title.includes("console") ? "Budget refreshed" : title.replace(/\bpacer\b\s*/gi, "");
+        await deliverNotification(ctx.host, { title: clip(plain, 60), body: body?.startsWith("terminal ") ? "Nothing to do." : title.startsWith("pacer ") && !title.includes("console") ? "Open the pacer panel for the current budget." : clip(body ?? "Nothing to do.", 1000) }, deps.nowS());
       } catch (e) {
         logError(e);
       }
@@ -1112,13 +1360,13 @@ function createPlugin(deps) {
           focusedWorktree = worktree;
           attempted = false;
           outcomes.delete(worktree);
-          scheduleRender();
+          scheduleRender(true);
         }
         const now = deps.nowS(), ids = new Set(context.terminals.map((t) => t.id));
         if ([...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS)) {
           if (outcomes.get(worktree)?.status !== "registered") {
             outcomes.set(worktree, { status: "registered", at: now });
-            scheduleRender();
+            scheduleRender(true);
           }
           return;
         }
@@ -1126,13 +1374,13 @@ function createPlugin(deps) {
           const outcome = outcomes.get(worktree);
           if (outcome?.status === "registered" || outcome?.status === "starting" && now - outcome.at >= 30) {
             outcomes.set(worktree, { status: "gave-up", at: now });
-            scheduleRender();
+            scheduleRender(true);
           }
           return;
         }
         attempted = true;
         outcomes.set(worktree, { status: "starting", at: now });
-        scheduleRender();
+        scheduleRender(true);
         const base = `http://127.0.0.1:${settings.port}`;
         const health = await deps.http.get(`${base}/health`, "", 1500);
         if (stopped || active?.id !== "http")
@@ -1148,16 +1396,16 @@ function createPlugin(deps) {
         const result = JSON.parse(response.body);
         if (!result.ok) {
           outcomes.set(worktree, { status: typeof result.reason === "string" ? result.reason : "orca-unavailable", at: deps.nowS() });
-          scheduleRender();
+          scheduleRender(true);
         } else if (result.warning === "older-console") {
           outcomes.set(worktree, { status: "older-console", at: deps.nowS() });
-          scheduleRender();
-        } else if (response.status !== 200)
+          scheduleRender(true);
+        } else if (response.status !== 200 && !(response.status === 202 && result.queued === true))
           throw new Error(`HTTP ${response.status}`);
       })().catch((e) => {
         const now = deps.nowS();
         outcomes.set(worktree, { status: "orca-unavailable", at: now });
-        scheduleRender();
+        scheduleRender(true);
         if (now - (failureLogged.get(worktree) ?? -Infinity) >= 300) {
           failureLogged.set(worktree, now);
           ctx.log(`pacer: auto console in ${worktree}: ${e instanceof Error ? e.message : String(e)}`);
@@ -1235,6 +1483,8 @@ function createPlugin(deps) {
         return;
       lastDone = now;
       paneLast.set(p.paneKey, now);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await refreshSnapshot();
       await sendToConsole(ctx.host, store.snapshot, { cmd: "agent-done", paneKey: p.paneKey, ...typeof p.worktreeId === "string" ? { worktreeId: p.worktreeId } : {} }, now);
     });
     ctx.events.on("worktree.created", async (payload) => {
@@ -1244,6 +1494,7 @@ function createPlugin(deps) {
       const p = payload;
       if (typeof p.branch !== "string" || !/(^|\/)pacer-/.test(p.branch) || typeof p.worktreeId !== "string" || typeof p.path !== "string")
         return;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       await sendFresh({ cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch });
     });
     ctx.events.on("worktree.removed", async (payload) => {

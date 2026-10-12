@@ -43,7 +43,7 @@ function baseRoutes(): Route[] {
     [["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nmain\n`)],
     [["git", "-C", REPO, "status"], raw("")],
     [O("status"), ok("status-ready.json")],
-    [O("repo", "list"), ok("repo-list.json")],
+    [O("repo", "list"), raw(JSON.stringify({ok:true,result:{repos:[{id:"40c98aad-c083-4ec9-b82e-a51798a20270",path:REPO}]}}))],
     [O("repo", "add"), ok("repo-add.json")],
     [O("terminal", "create"), ok("coordinator-terminal.json")],
     [O("terminal", "show"), ok("terminal-show-live.json")],
@@ -183,6 +183,7 @@ test("a repo subdirectory maps into the worker's worktree", async () => {
   const { f, ctx, task, backend, cfg } = setup(() => [
     [["git", "-C", REPO, "rev-parse"], raw("/work\nmain\n")],
     [["git", "-C", "/work", "status"], raw("")],
+    [O("repo","list"),raw(JSON.stringify({ok:true,result:{repos:[{id:"parent",path:"/work"}]}}))],
   ]);
   const out = await backend.runAttempt(ctx, cfg, task);
   expect(out.worktree).toBe(`${WT1}/app`);
@@ -208,7 +209,7 @@ test("falls back to direct when the Orca runtime is not ready", async () => {
   const out = await backend.runAttempt(ctx, cfg, task);
   expect(direct).toEqual(["cursor"]);
   expect(out.backend).toBe("direct");
-  expect(out.report.startsWith("(orca backend not used: the Orca runtime is not ready")).toBe(true);
+  expect(readFileSync(join(ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("runtime is not ready");
   expect(out.report).toContain("direct report");
   expect(f.count(O("orchestration", "worker-start"))).toBe(0);
 });
@@ -217,7 +218,7 @@ test("falls back to direct for an OpenCode provider with new-child, without call
   const { f, ctx, task, backend, cfg, direct } = setup(() => [], { provider: "byteplus" });
   const out = await backend.runAttempt(ctx, cfg, task);
   expect(direct).toEqual(["byteplus"]);
-  expect(out.report).toContain("existing worktree");
+  expect(readFileSync(join(ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("existing worktree");
   expect(f.calls).toHaveLength(0);
 });
 
@@ -225,11 +226,11 @@ test("falls back to direct when the repo is not git, or HEAD is detached without
   const a = setup(() => [[["git", "-C", REPO, "rev-parse"], raw("", 128, "fatal: not a git repository")]]);
   const outA = await a.backend.runAttempt(a.ctx, a.cfg, a.task);
   expect(outA.backend).toBe("direct");
-  expect(outA.report).toContain("is not a git repository");
+  expect(readFileSync(join(a.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("is not a git repository");
   const b = setup(() => [[["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nHEAD\n`)]]);
   const outB = await b.backend.runAttempt(b.ctx, b.cfg, b.task);
-  expect(outB.report).toContain("detached HEAD");
-  const c = setup(() => [[["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nHEAD\n`)]], { exec: { baseBranch: "main" } });
+  expect(readFileSync(join(b.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("detached HEAD");
+  const c = setup(() => [[["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nHEAD\n`)]], { exec: { baseBranch: "main", worktree:"new-child" } });
   const outC = await c.backend.runAttempt(c.ctx, c.cfg, c.task);
   expect(outC.backend).toBe("orca");
   expect(arg(startArgs(c.f), "--base-branch")).toBe("main");
@@ -239,11 +240,11 @@ test("falls back to direct on an invalid execution section or a refused worker-s
   const a = setup(() => [], { deps: { loadExecution: () => { throw new ExecutionError(['execution.backend must be one of auto, orca, direct (got "x")']); } } });
   const outA = await a.backend.runAttempt(a.ctx, a.cfg, a.task);
   expect(outA.backend).toBe("direct");
-  expect(outA.report).toContain("invalid execution section");
+  expect(readFileSync(join(a.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("invalid execution section");
   const b = setup(() => [[O("orchestration", "worker-start"), raw('{"ok":false,"error":{"code":"task_not_startable","message":"Task cannot start now."}}', 1)]]);
   const outB = await b.backend.runAttempt(b.ctx, b.cfg, b.task);
   expect(outB.backend).toBe("direct");
-  expect(outB.report).toContain("task_not_startable");
+  expect(readFileSync(join(b.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("task_not_startable");
 });
 
 test("available: needs execution.backend auto|orca and a ready runtime", async () => {
@@ -297,7 +298,7 @@ test("pre-dispatch runtime exceptions fall back to direct", async () => {
     ]);
     const out = await backend.runAttempt(ctx, cfg, task);
     expect(out.backend).toBe("direct");
-    expect(out.report).toContain("runtime connection lost");
+    expect(readFileSync(join(ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("runtime connection lost");
     expect(direct).toEqual(["cursor"]);
   }
 });
@@ -515,4 +516,25 @@ test("an idle worker limit marks the executor exhausted and the runner tries the
   expect(verified).toEqual([WT1]);
   expect(direct).toEqual([]);
   expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
+});
+
+test("direct fallback logs its reason at most once per hour without polluting task reports",async()=>{
+  const {ctx,task,backend,cfg}=setup(()=>[[O("status"),ok("status-down.json")]]);
+  const first=await backend.runAttempt(ctx,cfg,task);
+  const second=await backend.runAttempt(ctx,cfg,task);
+  expect(first.report).toBe("direct report");expect(second.report).toBe("direct report");
+  const file=join(ctx.pacerHome,"orca","fallback.log");
+  expect(readFileSync(file,"utf8").trim().split("\n")).toHaveLength(1);
+  await backend.runAttempt({...ctx,now:ctx.now+3601},cfg,task);
+  expect(readFileSync(file,"utf8").trim().split("\n")).toHaveLength(2);
+});
+
+test("child-of-current branches from the current worktree and ignores a global base branch",async()=>{
+ const {backend,ctx,cfg,task,f}=setup(()=>[[["git","-C",REPO,"rev-parse"],raw(`${REPO}\nfeature/current\n/projects/main/.git\n`)],[O("repo","list"),raw('{"ok":true,"result":{"repos":[{"id":"main-owner","path":"/projects/main"}]}}')]],{exec:{worktree:"child-of-current",baseBranch:"main"}});
+ expect((await backend.runAttempt(ctx,cfg,task)).backend).toBe("orca");const argv=startArgs(f);expect(arg(argv,"--repo")).toBe("id:main-owner");expect(arg(argv,"--base-branch")).toBe("feature/current");expect(f.count(O("repo","add"))).toBe(0);
+});
+test("current placement refuses dirty and already occupied worktrees without direct execution",async()=>{
+ const dirty=setup(()=>[[["git","-C",REPO,"status"],raw(" M file\n")]],{exec:{worktree:"current"}});
+ const out=await dirty.backend.runAttempt(dirty.ctx,dirty.cfg,dirty.task);expect(out.exec.code).toBe(1);expect(out.report).toContain("uncommitted changes");expect(out.backend).toBe("orca");expect(dirty.f.count(O("orchestration","worker-start"))).toBe(0);
+ const busy=setup(()=>[],{exec:{worktree:"current"}});const other=createTask(busy.ctx,{brief:{goal:"other",repo:REPO},kind:null,requestedExecutor:null,timeoutS:600});updateTask(busy.ctx,other.id,t=>{t.state="running";t.runnerPid=process.pid;});const refused=await busy.backend.runAttempt(busy.ctx,busy.cfg,busy.task);expect(refused.exec.code).toBe(1);expect(refused.report).toContain("another pacer task");expect(busy.f.count(O("orchestration","worker-start"))).toBe(0);
 });

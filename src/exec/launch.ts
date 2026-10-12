@@ -30,7 +30,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     case "agy":
       return {
         cwd: repo,
-        argv: ["agy", "-p", "--sandbox", "--dangerously-skip-permissions", "--add-dir", repo, ...(model ? ["--model", model] : []), prompt],
+        argv: ["agy", "--sandbox", "--dangerously-skip-permissions", "--add-dir", repo, ...(model ? ["--model", model] : []), "-p", prompt],
       };
     case "claude-code":
       return {

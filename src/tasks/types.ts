@@ -22,6 +22,7 @@ export interface Attempt {
   timedOut: boolean;
   limitHit: boolean;
   log: string;
+  brokenReason?: string;
 }
 
 export interface Verification {
@@ -36,6 +37,8 @@ export interface TaskResult extends Verification {
   report: string;
   backend: string;
   worktree?: string;
+  brokenExecutor?: string;
+  brokenReason?: string;
   check?: ResultCheck;
 }
 
@@ -48,6 +51,14 @@ export interface TaskRecord {
   brief: Brief;
   state: TaskState;
   runnerPid?: number;
+  executor?: string;
+  backend?: string;
+  attemptStartedAt?: number;
+  dismissed?: boolean;
+  retryOf?: string;
+  retriedBy?: string;
+  force?: boolean;
+  fromPanel?: boolean;
   childPid?: number;
   attempts: Attempt[];
   result?: TaskResult;

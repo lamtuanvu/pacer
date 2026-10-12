@@ -169,3 +169,16 @@ test("renderDoctor prints exact labels and indented fixes", () => {
     { name: "Activity", level: "info", detail: "calendar pace" },
   ])).toBe("[ok] Strategy: valid\n[warn] Usage: stale\n  fix: refresh\n[FAIL] Binary: missing\n  fix: install\n[info] Activity: calendar pace\n");
 });
+
+test("doctor checks executor launch flags from cached five-second CLI help",async()=>{
+  const ctx=fixture();const calls:string[][]=[];ctx.run=async(argv,ms)=>{
+    calls.push(argv);expect(ms).toBe(5000);
+    if(argv[0]==="codex")return {code:0,stdout:"-C -s --skip-git-repo-check -o -m",stderr:""};
+    if(argv[0]==="agy")return {code:0,stdout:"-p --sandbox --add-dir --model",stderr:""};
+    return {code:0,stdout:"--agent -m --auto --title --workspace --force -p --output-format --model",stderr:""};
+  };
+  const checks=await runDoctor(ctx,{status:async()=>status(),service:async()=>({installed:false,running:false,healthy:false,binaryMatches:false}) as any});
+  expect(checks.find(c=>c.name==="CLI codex")?.level).toBe("ok");
+  expect(checks.find(c=>c.name==="CLI agy")?.detail).toContain("--dangerously-skip-permissions");await runDoctor(ctx,{status:async()=>status(),service:async()=>({installed:false,running:false,healthy:false,binaryMatches:false}) as any});
+  expect(calls.filter(a=>a[0]==="codex")).toHaveLength(2);
+});

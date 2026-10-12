@@ -1,3 +1,4 @@
+import { pendingClient } from "./pending";
 /** No network or navigation: every host request uses the sandboxed panel bridge. */
 export const client = `
 const embedded = JSON.parse(document.getElementById("pacer-actions").textContent);
@@ -34,6 +35,7 @@ function live(workspace) {
   return false;
 }
 function updateFreshness() {
+  for(const el of document.querySelectorAll("[data-age-at]"))el.textContent=Math.max(0,Math.floor(Date.now()/1000-Number(el.dataset.ageAt)))+"s ago";
   for(const el of document.querySelectorAll("[data-updated]")) el.textContent = data.updatedAt ? new Date(data.updatedAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
   const old = Date.now()/1000-data.snapshotAt>120;
   for(const el of document.querySelectorAll("[data-freshness]")) {
@@ -42,7 +44,7 @@ function updateFreshness() {
     el.textContent = !data.reachable ? "Not connected" : (old ? "Updated " : "Live · ") + new Date(data.snapshotAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
   }
 }
-updateFreshness(); setInterval(updateFreshness,30000);
+updateFreshness(); setInterval(()=>{updateFreshness();recoverActions();},30000);
 function request(action, params, purpose, after, onFailure) {
   const now = Date.now();
   while (sentAt.length && now - sentAt[0] >= 10000) sentAt.shift();
@@ -69,6 +71,7 @@ function sendCommand(command, after, onFailure, workspace) {
   if (!readContext(send,onFailure)) return fail();
   return true;
 }
+${pendingClient}
 function updateContext(value) {
   context = value && typeof value.branch === "string" && typeof value.displayName === "string" ? value : null;
   for (const el of document.querySelectorAll("[data-worktree]")) el.textContent = context ? context.displayName : "—";
@@ -82,7 +85,7 @@ for (const el of document.querySelectorAll("[data-text]")) el.innerHTML = h(data
 const strategyEntries=data.strategies.map(e=>typeof e === "string"?{name:e,summary:"",active:e===data.strategy}:e);
 document.getElementById("strategy-list").innerHTML=strategyEntries.map((e,i)=>'<button type="button" class="row" data-strategy="'+i+'"'+(e.active?' disabled title="This strategy is already active."':'')+'><span>'+(e.active?'✓':'')+'</span><span class="stack grow"><strong>'+h(e.name)+'</strong><small>'+h(e.summary)+'</small></span>'+(e.active?'<span class="pill">Active</span>':'')+'</button>').join("");
 document.getElementById("strategy-from").innerHTML=strategyEntries.map(e=>'<option value="'+h(e.name)+'"'+(e.active?' selected':'')+'>'+h(e.name)+'</option>').join("");
-for(const b of document.querySelectorAll("[data-strategy]")) b.addEventListener("click",()=>sendCommand({cmd:"use",strategy:strategyEntries[Number(b.dataset.strategy)].name}));
+for(const b of document.querySelectorAll("[data-strategy]")) {const entry=strategyEntries[Number(b.dataset.strategy)];if(!entry)continue;const command={cmd:"use",strategy:entry.name};bindAction(b,command);b.addEventListener("click",()=>pendingSend(b,command));}
 let seenStrategies=[];
 try { seenStrategies=JSON.parse(sessionStorage.getItem("pacer-seen-strategies") || "[]"); if(!Array.isArray(seenStrategies))seenStrategies=[]; } catch {}
 const savedStrategy=(data.savedAlerts || []).find(a=>!seenStrategies.includes(a.key+":"+a.at));
@@ -90,7 +93,7 @@ const afterSession=document.getElementById("strategy-after");
 if(savedStrategy) {
  afterSession.hidden=false;
  afterSession.innerHTML='<h2>After the session</h2><div class="card row strategy-saved"><span class="good">✓</span><div class="stack grow"><strong>'+h(savedStrategy.title)+'</strong><small>'+h(savedStrategy.body)+'</small></div><button type="button" data-saved-switch>Switch</button></div>';
- document.querySelector("[data-saved-switch]")?.addEventListener("click",()=>sendCommand({cmd:"use",strategy:savedStrategy.key.slice("strategySaved-".length)}));
+ document.querySelector("[data-saved-switch]")?.addEventListener("click",event=>pendingSend(event.currentTarget,{cmd:"use",strategy:savedStrategy.key.slice("strategySaved-".length)}));
 }
 document.getElementById("ranked-order").innerHTML = h(data.rows.map(p=>p.name).join(" → ") || "No executor available");
 function icon(p,size) {
@@ -102,34 +105,44 @@ function meter(p) {
  return '<div class="meter slim '+p.tone+'" role="progressbar" aria-label="'+h(p.name)+' usage" aria-valuenow="'+used+'" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:'+used+'%"></div>'+(pace===null?'':'<div class="pace" style="left:'+pace+'%"></div>')+'</div>';
 }
 const rankedList = document.getElementById("ranked-list"), mutedList = document.getElementById("unavailable-list"), options = document.getElementById("executor-options");
-rankedList.innerHTML = data.rows.map((p,i) => '<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
-mutedList.innerHTML = data.muted.map(p=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span></div>').join("");
+rankedList.innerHTML = data.rows.map((p,i) => '<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span><button type="button" data-executor-action="'+i+'">Block</button></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
+mutedList.innerHTML = data.muted.map((p,i)=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span><button type="button" data-executor-action="'+(data.rows.length+i)+'">'+(p.blocked?'Unblock':'Block')+'</button></div>').join("");
 options.innerHTML = data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict === "EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
+for(const b of document.querySelectorAll("[data-executor-action]")) {
+ const provider=[...data.rows,...data.muted][Number(b.dataset.executorAction)];if(provider)bindAction(b,{cmd:provider.blocked?"unblock":"block",executor:provider.id});
+ b.addEventListener("click",()=>{
+ const p=[...data.rows,...data.muted][Number(b.dataset.executorAction)];
+ if(p && /^[a-z0-9-]{1,64}$/.test(p.id))pendingSend(b,{cmd:p.blocked?"unblock":"block",executor:p.id});
+});}
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => {
   if (["delegate","strategy"].includes(b.dataset.view)) {
     if (!live()) return;
     readContext(value => { updateContext(value); if(!live(value)) return; show(b.dataset.view); document.getElementById(b.dataset.view === "delegate" ? "goal" : "strategy-brief").focus(); });
   } else show(b.dataset.view);
 });
-for (const b of document.querySelectorAll("[data-command]")) b.addEventListener("click", () => {
+for (const b of document.querySelectorAll("[data-command]")) {
+ if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
+ b.addEventListener("click", () => {
   const command = data.commands[b.dataset.command];
-  if (command) sendCommand(command); else status.textContent = "Reopen the panel to load this action.";
+  if (command) pendingSend(b,command); else status.textContent = "Reopen the panel to load this action.";
 });
-for (const b of document.querySelectorAll("[data-setup]")) b.addEventListener("click", () => {
+}
+for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"type",text:b.dataset.setup});b.addEventListener("click", () => {
+  const key=beginAction(b,{cmd:"type",text:b.dataset.setup});if(!key)return;
   readContext(value => {
     updateContext(value);
     const terminal = context && Array.isArray(context.terminals) && context.terminals[0];
-    if (!terminal || typeof terminal.id !== "string") { status.textContent = "Open a terminal in this worktree first"; return; }
-    request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup");
-  });
-});
+    if (!terminal || typeof terminal.id !== "string") { status.textContent = "Open a terminal in this worktree first"; restoreAction(key);return; }
+    request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup",()=>restoreAction(key),()=>restoreAction(key));
+  },()=>restoreAction(key));
+});}
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
   if (!data.reachable) {
     status.textContent = "Waiting for pacer serve. Start it, then reopen this panel.";
     document.getElementById("console-hint").hidden = true;
     return;
   }
-  sendCommand({cmd:"refresh"});
+  pendingSend(b,{cmd:"refresh"});
 });
 document.getElementById("delegate-send").addEventListener("click", () => {
   if (sending) { status.textContent = "A command is already being sent. Please wait."; return; }
@@ -139,26 +152,29 @@ document.getElementById("delegate-send").addEventListener("click", () => {
   if (!goal.trim()) { status.textContent = "What should be done is required."; return; }
   if (goal.length > 2000 || acceptance.length > 500) { status.textContent = "Goal must be at most 2000 characters; Done when at most 500."; return; }
   if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !/^[a-z0-9-]{1,64}$/.test(data.executors[Number(selected.value)]))) { status.textContent = "Choose an available executor."; return; }
-  sending = true; submitButton.disabled = true;
+  const command={cmd:"delegate",goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})};
+  const action=beginAction(submitButton,command);if(!action)return;
+  sending = true;
+  const failDelegate=()=>{restoreAction(action);finishSending();};
   if (!readContext(value => {
     updateContext(value);
-    if (!context || !context.branch) { status.textContent = "Focus a worktree first."; finishSending(); return; }
+    if (!context || !context.branch) { status.textContent = "Focus a worktree first."; failDelegate(); return; }
     if (!sendCommand({cmd:"delegate",branch:context.branch,displayName:context.displayName,...(typeof context.worktreeId === "string" && context.worktreeId ? {worktreeId:context.worktreeId} : {}),goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})}, () => {
       document.getElementById("goal").value = "";
       document.getElementById("done").value = "";
       document.querySelector('input[name="executor"][value=""]').checked = true;
-      finishSending(); show("overview");
+      sending=false; show("overview");
       status.textContent = "Sent. The task id appears in the pacer console.";
-    }, finishSending, value)) finishSending();
-  }, finishSending)) finishSending();
+    }, failDelegate, value)) failDelegate();
+  }, failDelegate)) failDelegate();
 });
 document.getElementById("strategy-send").addEventListener("click", () => { if(sending){status.textContent="A command is already being sent. Please wait.";return;} if(!live())return;
  const brief=document.getElementById("strategy-brief").value, from=document.getElementById("strategy-from").value, agent=document.getElementById("strategy-agent").value;
  if(!brief.trim() || brief.length>2000 || !["claude-code","codex"].includes(agent)) {status.textContent="Enter a brief of at most 2000 characters and choose a configured agent.";return;}
- const button=document.getElementById("strategy-send"); sending=true;button.disabled=true;
- const finish=()=>{sending=false;button.disabled=false;};
+ const button=document.getElementById("strategy-send");const action=beginAction(button,{cmd:"strategy-build",agent,from,brief});if(!action)return;sending=true;
+ const finish=()=>{sending=false;restoreAction(action);};
  if(!readContext(value=>{updateContext(value);if(!context || !context.branch){status.textContent="Focus a worktree first.";finish();return;}
- sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
+ sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{sending=false;status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
  },finish))finish();
 });
 document.getElementById("done").addEventListener("keydown", event => {
@@ -169,11 +185,21 @@ window.addEventListener("message", event => {
   if (event.source !== window.parent || !r || r.type !== "orca-panel-action-result" || !pending.has(r.requestId)) return;
   const item = pending.get(r.requestId); pending.delete(r.requestId);
   if (!r.ok) { status.textContent = typeof r.error === "string" ? r.error : "Orca refused this request."; if (item.onFailure) item.onFailure(); return; }
+  if(item.purpose==="notification-settings"){if(item.after)item.after(r.value);return;}
   if (item.purpose === "context") { updateContext(r.value); if (item.after) item.after(r.value); return; }
   const accepted = r.value && r.value.accepted;
   status.textContent = accepted ? item.purpose === "setup" ? "Typed into your terminal. Press Enter to run it." : "Sent to pacer console" : "Orca refused to type into the terminal.";
   if (accepted && item.after) item.after(r.value);
   if (!accepted && item.onFailure) item.onFailure();
 });
+for(const a of Object.values(actionStates)) {
+ if(a.action?.cmd==="delegate")bindAction(submitButton,a.action);
+ if(a.action?.cmd==="strategy-build")bindAction(document.getElementById("strategy-send"),a.action);
+}
+const notificationControl=document.getElementById("notification-level");
+if(notificationControl){request("settings.get",undefined,"notification-settings",value=>{const level=value?.settings?.notifications;if(["off","important","all"].includes(level))notificationControl.value=level;});notificationControl.addEventListener("change",()=>{request("settings.set",{key:"notifications",value:notificationControl.value},"notification-settings",()=>{status.textContent="Notification preference saved.";});});}
+recoverActions();
+try {const saved=Number(sessionStorage.getItem("pacer-panel-scroll"));if(Number.isFinite(saved)&&saved>=0)window.scrollTo?.(0,saved);}catch{}
+window.addEventListener("scroll",()=>{try{sessionStorage.setItem("pacer-panel-scroll",String(window.scrollY));}catch{}},{passive:true});
 readContext(value => { live(value); });
 `;

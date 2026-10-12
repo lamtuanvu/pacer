@@ -16,7 +16,7 @@ export interface OrcaStatusReport {
 export async function orcaStatus(
   ctx: Ctx, loadExecution: (c: Ctx) => ExecutionCfg = (c) => validateExecution(loadStrategy(c).execution),
 ): Promise<OrcaStatusReport> {
-  const c = new OrcaClient(ctx.run);
+  const c = new OrcaClient(ctx.run, ctx.env);
   let execution: OrcaStatusReport["execution"];
   try {
     execution = { ok: true, cfg: loadExecution(ctx) };

@@ -20,23 +20,23 @@ function fixture(heartbeat: number|null=100, marker=true) {
  let snapshot:LinkSnapshot={...emptySnapshot(),console:heartbeat===null?null:{handle:"term",paneKey:"pane",pid:1,startedAt:0,heartbeatAt:heartbeat}};
  const calls:{method:string;params:any}[]=[];const commands=new Map<string,(args?:unknown)=>unknown>();const events=new Map<string,(p:unknown)=>void|Promise<void>>();const writes:{path:string;text:string}[]=[];
  let accepted=true,throwSend=false,pending=false,context:any={branch:"pacer-task",displayName:"Project",terminals:[{id:"term"}]};
- const host={call:async(method:string,params:any)=>{calls.push({method,params});switch(method){case "settings.get":return {settings:{}};case "events.subscribe":throw Error("invalid enum");case "storage.get":return {value:snapshot};case "workspace.readContext":return context;case "terminal.sendText":if(throwSend)throw Object.assign(Error("denied"),{code:"capability_denied"});return {accepted};case "notifications.show":return {delivered:true};case "settings.set":return {ok:true};default:throw Error(method);}}} as OrcaHost;
+ const host={call:async(method:string,params:any)=>{calls.push({method,params});switch(method){case "settings.get":return {settings:{notifications:"all"}};case "events.subscribe":throw Error("invalid enum");case "storage.get":return {value:snapshot};case "workspace.readContext":return context;case "terminal.sendText":if(throwSend)throw Object.assign(Error("denied"),{code:"capability_denied"});return {accepted};case "notifications.show":return {delivered:true};case "settings.set":return {ok:true};default:throw Error(method);}}} as OrcaHost;
  const plugin=createPlugin({home:root,pluginRoot:root,nowS:()=>now,timers,http:{get:async()=>pending?await new Promise(()=>{}):{status:401,body:""},stream:()=>()=>{}},fs:{readText:()=>"token",exists:p=>marker && p===join(root,".pacer-managed"),writeTextAtomic:(path,text)=>writes.push({path,text})}});
  const ctx:OrcaWorkerContext={host,commands:{register:(id,h)=>commands.set(id,h)},events:{on:(id,h)=>events.set(id,h)},grantedCapabilities:[],log:()=>{}};
  return {plugin,ctx,host,timers,calls,commands,events,writes,get snapshot(){return snapshot;},set snapshot(s){snapshot=s;},set accepted(v:boolean){accepted=v;},set throwSend(v:boolean){throwSend=v;},set pending(v:boolean){pending=v;},set context(v:any){context=v;},set now(v:number){now=v;},async start(){await plugin.activate(ctx);await flush();},async cleanup(){await plugin.deactivate();rmSync(root,{recursive:true,force:true});}};
 }
 const sends=(f:ReturnType<typeof fixture>)=>f.calls.filter(c=>c.method==="terminal.sendText");
 const notes=(f:ReturnType<typeof fixture>)=>f.calls.filter(c=>c.method==="notifications.show");
-test("settings validate defaults, forced transport and clamped poll range",()=> {expect(readSettings({},"/tmp/home")).toEqual({transport:"auto",port:4317,pacerHome:"/tmp/home/.pacer",pollSeconds:10,lastAlertAt:0,autoConsole:true});expect(readSettings({transport:"bridge",pollSeconds:1,port:-1,lastAlertAt:NaN},"/tmp")).toMatchObject({transport:"bridge",pollSeconds:5,port:4317,lastAlertAt:0});expect(readSettings({transport:"invalid",pollSeconds:999},"/tmp")).toMatchObject({transport:"auto",pollSeconds:300});});
+test("settings validate defaults, forced transport and clamped poll range",()=> {expect(readSettings({},"/tmp/home")).toEqual({transport:"auto",port:4317,pacerHome:"/tmp/home/.pacer",pollSeconds:10,lastAlertAt:0,autoConsole:true,notifications:"important"});expect(readSettings({transport:"bridge",pollSeconds:1,port:-1,lastAlertAt:NaN},"/tmp")).toMatchObject({transport:"bridge",pollSeconds:5,port:4317,lastAlertAt:0});expect(readSettings({transport:"invalid",pollSeconds:999},"/tmp")).toMatchObject({transport:"auto",pollSeconds:300});});
 test("activation registers all commands without awaiting transport probes",async()=> {const f=fixture();f.pending=true;try{await f.plugin.activate(f.ctx);expect([...f.commands.keys()].sort()).toEqual(["delegate","switch-strategy","refresh-status","open-console"].sort());expect(f.events.has("plugin.message")).toBe(false);}finally{await f.cleanup();}});
 for(const heartbeat of [null,69])test(`delegate refuses console heartbeat ${heartbeat}`,async()=> {const f=fixture(heartbeat);try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).map(c=>c.params.title)).toEqual([NO_CONSOLE.title]);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
 test("delegate uses advertised live handle and shell-inert command with context",async()=> {const f=fixture();try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});expect(sends(f)[0].params).toEqual({terminalId:"term",text:encodeCmdLine({cmd:"delegate",branch:"pacer-task",displayName:"Project"}),enter:true});f.context=null;expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(sends(f)).toHaveLength(1);f.context={branch:"pacer-task",displayName:"Project",terminals:[{id:"term"}]};await f.commands.get("switch-strategy")!();expect(sends(f)[1].params.text).toBe(encodeCmdLine({cmd:"use"}));}finally{await f.cleanup();}});
-for(const error of [false,true])test(`send rejection ${error?"throws":"accepted false"} notifies without crash`,async()=> {const f=fixture();try{f.accepted=false;f.throwSend=error;await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).at(-1)!.params.title).toBe("Orca refused to type into the pacer console");}finally{await f.cleanup();}});
-test("refresh reports clipped budget summary and silently skips absent console",async()=> {const f=fixture(null);try{f.snapshot={...f.snapshot,budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:Array.from({length:32},(_,i)=>({id:"p"+i+"x".repeat(60),verdict:"OK",pacePct:null,usedPct:50,resetsAt:null,window:null,stale:false})),ranked:[]}};await f.start();expect(await f.commands.get("refresh-status")!()).toMatchObject({ok:true});expect(notes(f).at(-1)!.params.title).toBe(summaryLine(f.snapshot.budget));expect(notes(f).at(-1)!.params.body.length).toBeLessThanOrEqual(1000);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
-for(const heartbeat of [null,100])test(`open-console heartbeat ${heartbeat}`,async()=> {const f=fixture(heartbeat);try{await f.start();await f.commands.get("open-console")!();expect(notes(f).at(-1)!.params.title).toBe(heartbeat===null?NO_CONSOLE.title:"pacer console is running");expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
+for(const error of [false,true])test(`send rejection ${error?"throws":"accepted false"} notifies without crash`,async()=> {const f=fixture();try{f.accepted=false;f.throwSend=error;await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).at(-1)!.params.title).toBe("Orca refused to type into the console");}finally{await f.cleanup();}});
+test("refresh reports clipped budget summary and silently skips absent console",async()=> {const f=fixture(null);try{f.snapshot={...f.snapshot,budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:Array.from({length:32},(_,i)=>({id:"p"+i+"x".repeat(60),verdict:"OK",pacePct:null,usedPct:50,resetsAt:null,window:null,stale:false})),ranked:[]}};await f.start();expect(await f.commands.get("refresh-status")!()).toMatchObject({ok:true});expect(notes(f).at(-1)!.params.title).toBe("Budget refreshed");expect(notes(f).at(-1)!.params.body.length).toBeLessThanOrEqual(1000);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
+for(const heartbeat of [null,100])test(`open-console heartbeat ${heartbeat}`,async()=> {const f=fixture(heartbeat);try{await f.start();await f.commands.get("open-console")!();expect(notes(f).at(-1)!.params.title).toBe(heartbeat===null?NO_CONSOLE.title:"console is running");expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
 test("agent events filter non-done and debounce per pane and globally",async()=> {const f=fixture();try{await f.start();const event=f.events.get("agent.status.changed")!;const p={worktreeId:"wt",paneKey:"pane",state:"done",receivedAt:100};await event({...p,state:"working"});await event({...p,mainAgent:{state:"working",stateStartedAt:0}});expect(sends(f)).toHaveLength(0);await event(p);await event(p);await event({...p,paneKey:"other"});expect(sends(f)).toHaveLength(1);expect(sends(f)[0].params.text).toBe(encodeCmdLine({cmd:"agent-done",paneKey:"pane",worktreeId:"wt"}));f.now=105;await event(p);expect(sends(f)).toHaveLength(2);}finally{await f.cleanup();}});
 test("worktree events send only pacer branches and silently skip absent console",async()=> {const f=fixture();try{await f.start();const event=f.events.get("worktree.created")!;const p={worktreeId:"wt",path:"/tmp/work",branch:"feature/x"};await event(p);expect(sends(f)).toHaveLength(0);await event({...p,branch:"pacer-1"});await event({...p,branch:"feature/pacer-2"});expect(sends(f)).toHaveLength(2);f.snapshot={...f.snapshot,console:null};await f.commands.get("refresh-status")!();await event({...p,branch:"pacer-3"});expect(sends(f)).toHaveLength(2);}finally{await f.cleanup();}});
-test("alerts suppress old and duplicate notifications, persist watermark and cap at three",async()=> {const f=fixture();try{const settings=readSettings({},"/tmp");const s=emptySnapshot();s.alerts=Array.from({length:6},(_,i)=>({key:`a${i}`,level:"warn",title:`A${i}`,body:"body",at:1000-i}));s.alerts.push({key:"old",level:"info",title:"old",body:"",at:399});const at=await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f).map(c=>c.params.title)).toEqual(["A5","A4","A3"]);expect(at).toBe(997);expect(f.calls.filter(c=>c.method==="settings.set").at(-1)!.params).toEqual({key:"lastAlertAt",value:997});settings.lastAlertAt=at;await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f).map(c=>c.params.title)).toEqual(["A5","A4","A3","A2","A1","A0"]);settings.lastAlertAt=1000;await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f)).toHaveLength(6);}finally{await f.cleanup();}});
+test("alerts persist delivery ids and throttle batches",async()=>{const f=fixture();try{const settings=readSettings({notifications:"all"},"/tmp");const s=emptySnapshot();s.alerts=[{key:"a",level:"warn",title:"A",body:"",at:1001}];await notifyNewAlerts(f.host,s,settings,1000,1001);await notifyNewAlerts(f.host,s,settings,1000,1002);expect(notes(f)).toHaveLength(1);expect(settings.deliveredAlerts).toEqual([{key:"a",at:1001}]);expect(settings.lastAlertAt).toBe(1001);}finally{await f.cleanup();}});
 for(const marker of [false,true])test(`panel writes require managed marker ${marker}`,async()=> {const f=fixture(100,marker);try{f.snapshot={...f.snapshot,alerts:[{key:"a",level:"warn",title:"New alert",body:"body",at:100}]};await f.start();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?1:0);await f.commands.get("refresh-status")!();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?1:0);expect(notes(f).filter(c=>c.params.title==="New alert")).toHaveLength(1);if(marker)expect(f.writes[0].path.endsWith("/panel/live.html")).toBe(true);await f.plugin.deactivate();expect(f.timers.jobs.filter(j=>!j.cancelled)).toHaveLength(0);}finally{await f.cleanup();}});
 
 test("activation remains under one second when settings host never responds",async()=> {
@@ -177,15 +177,9 @@ for (const action of ["delegate", "switch-strategy", "refresh-status", "agent-do
   await f.commands.get("switch-strategy")!();expect(sends(f)).toHaveLength(1);
  } finally {await plugin.deactivate();await f.cleanup();}
 });
-test("equal timestamp alerts beyond the first three are delivered on later updates", async () => {
- const f=fixture();const settings=readSettings({},"/tmp");const s=emptySnapshot();
- s.alerts=Array.from({length:7},(_,i)=>({key:`same-${i}`,level:"warn",title:`same-${i}`,body:"body",at:100}));
- try {
-  await notifyNewAlerts(f.host,s,settings,100);expect(notes(f)).toHaveLength(3);
-  await notifyNewAlerts(f.host,s,settings,100);expect(notes(f)).toHaveLength(6);
-  await notifyNewAlerts(f.host,s,settings,100);expect(notes(f)).toHaveLength(7);
-  await notifyNewAlerts(f.host,s,settings,100);expect(notes(f)).toHaveLength(7);
- }finally{await f.cleanup();}
+test("equal timestamp alerts are queued before advancing the watermark",async()=>{
+ const f=fixture(),settings=readSettings({notifications:"all"},"/tmp"),s=emptySnapshot();s.alerts=Array.from({length:7},(_,i)=>({key:`same-${i}`,level:"warn",title:`Same ${i}`,body:"",at:101}));
+ try{for(let i=0;i<8;i++)await notifyNewAlerts(f.host,s,settings,100,101+i*5);expect(notes(f)).toHaveLength(7);expect(settings.deliveredAlerts).toHaveLength(7);}finally{await f.cleanup();}
 });
 
 test("HTTP heartbeat-only polls leave the panel file unchanged", async () => {
@@ -286,7 +280,7 @@ test("HTTP recovery before failover restores reachable panel state",async()=>{
 test("HTTP SSE and poll generation timestamps do not trigger renders or notifications",async()=>{
  const f=fixture();
  const originalCall=f.ctx.host.call.bind(f.ctx.host);
- f.ctx.host={call:((method:any,params:any)=>method==="settings.get"?Promise.resolve({settings:{autoConsole:false}}):originalCall(method,params)) as OrcaHost["call"]};let line!:(s:string)=>void;const panels:string[]=[];
+ f.ctx.host={call:((method:any,params:any)=>method==="settings.get"?Promise.resolve({settings:{autoConsole:false,notifications:"all"}}):originalCall(method,params)) as OrcaHost["call"]};let line!:(s:string)=>void;const panels:string[]=[];
  f.snapshot={...emptySnapshot(),budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:[],ranked:[]},
  alerts:[{key:"a",level:"info",title:"once",body:"",at:100}]};
  const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100,timers:f.timers,
@@ -360,7 +354,7 @@ test("worker chooses the console registered in the focused worktree",async()=>{
  }finally{await f.cleanup();}
 });
 test("worker never sends to a console outside the focused worktree",async()=>{
- const f=fixture();try{f.context={branch:"other",displayName:"Other",terminals:[{id:"other"}]};await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(sends(f)).toHaveLength(0);expect(notes(f).at(-1)?.params.title).toBe("No pacer console in this worktree");}finally{await f.cleanup();}
+ const f=fixture();try{f.context={branch:"other",displayName:"Other",terminals:[{id:"other"}]};await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(sends(f)).toHaveLength(0);expect(notes(f).at(-1)?.params.title).toBe("No console in this worktree");}finally{await f.cleanup();}
 });
 test("multi-console heartbeat ordering does not rewrite the panel",async()=>{
  const f=fixture();try{
@@ -369,7 +363,7 @@ test("multi-console heartbeat ordering does not rewrite the panel",async()=>{
  }finally{await f.cleanup();}
 });
 test("open-console checks the focused worktree rather than another console",async()=>{
- const f=fixture();try{f.context={branch:"x",displayName:"X",terminals:[{id:"other"}]};await f.start();expect(await f.commands.get("open-console")!()).toMatchObject({ok:false,message:"No pacer console in this worktree"});}finally{await f.cleanup();}
+ const f=fixture();try{f.context={branch:"x",displayName:"X",terminals:[{id:"other"}]};await f.start();expect(await f.commands.get("open-console")!()).toMatchObject({ok:false,message:"No console in this worktree"});}finally{await f.cleanup();}
 });
 
 test("liveness timer rewrites on live to dead without a new snapshot and on recovery",async()=>{
@@ -388,5 +382,25 @@ test("worker console sends include the thirty-second boundary but reject the nex
  const f=fixture();try{
  await f.start();f.now=130;expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});
  f.now=131;expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(sends(f)).toHaveLength(1);
+ }finally{await f.cleanup();}
+});
+
+test("console sends are serialized while a prior host send is in flight",async()=>{
+ const f=fixture();let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});let sending=0,max=0,number=0;
+ const call=f.host.call.bind(f.host);
+ f.host.call=(async(method:any,params:any)=>{
+   if(method==="terminal.sendText"){sending++;max=Math.max(max,sending);if(number++===0)await gate;const r=await call(method,params);sending--;return r;}
+   return call(method,params);
+ }) as OrcaHost["call"];
+ try {await f.start();const a=f.commands.get("delegate")!(),b=f.events.get("worktree.created")!({worktreeId:"wt",path:"/r",branch:"pacer-task"});await flush();expect(max).toBe(1);release();await Promise.all([a,b]);expect(max).toBe(1);expect(sends(f)).toHaveLength(2);}finally{release?.();await f.cleanup();}
+});
+
+test("background task renders coalesce at ten seconds, retry outcomes render within two seconds, ages do not rewrite",async()=>{
+ const f=fixture();f.snapshot={...f.snapshot,tasks:[{id:"old",state:"running",goal:"task",executor:"codex",backend:"direct",worktree:null,updatedAt:100}]};
+ try{await f.start();await f.timers.advance(1000);expect(f.writes).toHaveLength(1);
+ f.now=101;f.snapshot={...f.snapshot,tasks:[{...f.snapshot.tasks[0]!,updatedAt:101}]};await f.timers.advance(1000);expect(f.writes).toHaveLength(1);
+ f.snapshot={...f.snapshot,tasks:[{...f.snapshot.tasks[0]!,state:"failed"}]};await f.timers.advance(1000);expect(f.writes).toHaveLength(1);
+ f.now=102;f.snapshot={...f.snapshot,tasks:[...f.snapshot.tasks,{id:"retry",retryOf:"old",state:"queued",goal:"task",executor:null,backend:null,worktree:null,updatedAt:102}]};await f.timers.advance(2000);expect(f.writes).toHaveLength(2);
+ expect(f.writes.at(-1)!.text).toContain("pacer-panel-scroll");
  }finally{await f.cleanup();}
 });

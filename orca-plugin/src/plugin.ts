@@ -8,7 +8,7 @@ import { httpTransport, type HttpPort } from "./transports/http";
 import { bridgeTransport } from "./transports/bridge";
 import { channelTransport } from "./transports/channel";
 import { NO_CONSOLE, sendToConsole, focusedConsole } from "./console-link";
-import { notifyNewAlerts } from "./notify";
+import { notifyNewAlerts, deliverNotification } from "./notify";
 import { renderPanel, type AutoConsoleOutcome } from "./panel";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
@@ -33,11 +33,12 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     stopped = false;
     const activatedAtS = deps.nowS();
     let raw: Record<string, unknown> = {};
+    let settingsReady=false;
     // Settings are host IPC, but cannot consume the worker's one-second ready budget.
     let cancelSettings = () => {};
     try {
       const result = await Promise.race([
-        ctx.host.call("settings.get"),
+        ctx.host.call("settings.get").then(result=>{settingsReady=true;return result;}),
         new Promise<{ settings: Record<string, unknown> }>(resolve => {
           cancelSettings = timers.after(500, () => resolve({ settings: {} }));
         }),
@@ -47,6 +48,13 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     finally { cancelSettings(); }
     if (stopped) return;
     const settings = readSettings(raw, deps.home);
+    settings.settingsReady=settingsReady;
+    timers.every(10000,()=>{void ctx.host.call("settings.get").then(result=>{
+      settings.lastAlertAt=Math.max(settings.lastAlertAt,readSettings(result.settings,deps.home).lastAlertAt);
+      settings.deliveredAlerts=[...(settings.deliveredAlerts??[]),...(readSettings(result.settings,deps.home).deliveredAlerts??[])].slice(-200);
+      settings.notifications=readSettings(result.settings,deps.home).notifications;
+      settings.settingsReady=true;
+    }).catch(()=>{});});
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
@@ -60,6 +68,8 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     let processing = Promise.resolve();
     let httpFailures = 0;
     let renderedKey: string | null = null;
+    let lastRenderAt=-Infinity;
+    let userOutcome=false;
     const outcomes = new Map<string, AutoConsoleOutcome>();
     let focusedWorktree: string | null = null, attempted = false;
     const panelOutcome = (): AutoConsoleOutcome => (focusedWorktree ? outcomes.get(focusedWorktree) : undefined) ?? { status: "starting", at: activatedAtS };
@@ -74,15 +84,16 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const panelKey = () => JSON.stringify({
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
-      serviceInstalled: store.snapshot.serviceInstalled, reconnecting: reconnecting(), tasks: store.snapshot.tasks, alerts: store.snapshot.alerts,
+      serviceInstalled: store.snapshot.serviceInstalled, reconnecting: reconnecting(), tasks: store.snapshot.tasks.map(({updatedAt,...task})=>task), alerts: store.snapshot.alerts,
       consoles: [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map(handle => ({
         handle, live: [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS),
       })), autoConsoleOutcome: hintKey(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
     });
     const logError = (e: unknown) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
-    const scheduleRender = () => {
+    const scheduleRender = (immediate=false) => {
+      if(immediate){userOutcome=true;cancelRender?.();cancelRender=null;}
       if (stopped || cancelRender) return;
-      cancelRender = timers.after(2000, () => {
+      cancelRender = timers.after(Math.max(200, (lastRenderAt+(userOutcome?2:10)-deps.nowS())*1000), () => {
         cancelRender = null;
         if (stopped) return;
         try {
@@ -90,25 +101,30 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
               deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
-              renderedKey = key;
+              renderedKey = key; lastRenderAt=nowS; userOutcome=false;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
         } catch (e) { logError(e); }
         const snapshot = store.snapshot;
-        processing = processing.then(async () => { if (!stopped) await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS); }).catch(logError);
+        processing = processing.then(async () => { if (!stopped) await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS()); }).catch(logError);
       });
     };
-    store.onChange(scheduleRender);
+    store.onChange(()=>scheduleRender());
+    timers.every(1000,()=>{processing=processing.then(async()=>{if(!stopped)await notifyNewAlerts(ctx.host,store.snapshot,settings,activatedAtS,deps.nowS());}).catch(logError);});
     timers.every(15000, () => { if (panelKey() !== renderedKey) scheduleRender(); });
     const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
+      const previous=store.snapshot;
+      const consoleChanged=!!snapshot.console?.handle!==!!previous.console?.handle;
+      const initiated=consoleChanged||snapshot.budget?.strategy!==previous.budget?.strategy || snapshot.tasks.some(t=>!previous.tasks.some(p=>p.id===t.id)||t.dismissed!==previous.tasks.find(p=>p.id===t.id)?.dismissed||t.retriedBy!==previous.tasks.find(p=>p.id===t.id)?.retriedBy) || snapshot.alerts.some(a=>a.key==="strategy-build"&&!previous.alerts.some(p=>p.key===a.key&&p.at===a.at)) || snapshot.budget?.providers.some(p=>p.blockedReason!==previous.budget?.providers.find(x=>x.id===p.id)?.blockedReason);
+      if(initiated){userOutcome=true;if(cancelRender){cancelRender();cancelRender=null;}}
       store.replace(snapshot);
     };
     const acceptSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
       httpFailures = 0;
       lastSeenAt = deps.nowS();
-      if (!reachable) { reachable = true; scheduleRender(); }
+      if (!reachable) { reachable = true; scheduleRender(true); }
       replaceSnapshot(snapshot);
     };
     const connect = async () => {
@@ -136,7 +152,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       return connecting;
     }
     const notify = async (title: string, body?: string) => {
-      try { await ctx.host.call("notifications.show", { title: clip(title, 120), ...(body === undefined ? {} : { body: clip(body, 1000) }) }); } catch (e) { logError(e); }
+      try { if(settings.notifications!=="all")return;const plain=title.startsWith("pacer ")&&!title.includes("console")?"Budget refreshed":title.replace(/\bpacer\b\s*/gi,"");await deliverNotification(ctx.host, { title: clip(plain, 60), body:body?.startsWith("terminal ")?"Nothing to do.":title.startsWith("pacer ")&&!title.includes("console")?"Open the pacer panel for the current budget.":clip(body??"Nothing to do.",1000) },deps.nowS()); } catch (e) { logError(e); }
     };
     const handleHttpFailure = async () => {
       const failures = ++httpFailures;
@@ -184,19 +200,19 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         if (stopped) return;
         if (!context || !context.branch) { focusedWorktree = null; attempted = false; scheduleRender(); return; }
         worktree = context.worktreeId || context.branch;
-        if (focusedWorktree !== worktree) { focusedWorktree = worktree; attempted = false; outcomes.delete(worktree); scheduleRender(); }
+        if (focusedWorktree !== worktree) { focusedWorktree = worktree; attempted = false; outcomes.delete(worktree); scheduleRender(true); }
         const now = deps.nowS(), ids = new Set(context.terminals.map(t => t.id));
         if ([...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS)) {
-          if (outcomes.get(worktree)?.status !== "registered") { outcomes.set(worktree, { status: "registered", at: now }); scheduleRender(); } return;
+          if (outcomes.get(worktree)?.status !== "registered") { outcomes.set(worktree, { status: "registered", at: now }); scheduleRender(true); } return;
         }
         if (attempted) {
           const outcome = outcomes.get(worktree);
           if (outcome?.status === "registered" || (outcome?.status === "starting" && now-outcome.at >= 30)) {
-            outcomes.set(worktree, { status: "gave-up", at: now }); scheduleRender();
+            outcomes.set(worktree, { status: "gave-up", at: now }); scheduleRender(true);
           }
           return;
         }
-        attempted = true; outcomes.set(worktree, { status: "starting", at: now }); scheduleRender();
+        attempted = true; outcomes.set(worktree, { status: "starting", at: now }); scheduleRender(true);
         // Verify the loopback listener's identity immediately before sending the bearer token.
         const base = `http://127.0.0.1:${settings.port}`;
         const health = await deps.http.get(`${base}/health`, "", 1500);
@@ -208,11 +224,11 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         if (response.headers?.["x-pacer"] !== "1") throw new Error(`HTTP ${response.status}`);
         const result = JSON.parse(response.body);
         if (!result.ok) {
-          outcomes.set(worktree, { status: typeof result.reason === "string" ? result.reason : "orca-unavailable", at: deps.nowS() }); scheduleRender();
-        } else if (result.warning === "older-console") { outcomes.set(worktree, { status: "older-console", at: deps.nowS() }); scheduleRender(); } else if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
+          outcomes.set(worktree, { status: typeof result.reason === "string" ? result.reason : "orca-unavailable", at: deps.nowS() }); scheduleRender(true);
+        } else if (result.warning === "older-console") { outcomes.set(worktree, { status: "older-console", at: deps.nowS() }); scheduleRender(true); } else if (response.status !== 200 && !(response.status === 202 && result.queued === true)) throw new Error(`HTTP ${response.status}`);
       })().catch(e => {
         const now = deps.nowS();
-        outcomes.set(worktree, { status: "orca-unavailable", at: now }); scheduleRender();
+        outcomes.set(worktree, { status: "orca-unavailable", at: now }); scheduleRender(true);
         if (now - (failureLogged.get(worktree) ?? -Infinity) >= 300) {
           failureLogged.set(worktree, now); ctx.log(`pacer: auto console in ${worktree}: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -268,6 +284,8 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       if (stopped || now - lastDone < 5 || now - (paneLast.get(p.paneKey) ?? -Infinity) < 5 || !liveConsole(store.snapshot, now)) return;
       // Reserve the debounce window before terminal IPC can yield.
       lastDone = now; paneLast.set(p.paneKey, now);
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      await refreshSnapshot();
       await sendToConsole(ctx.host, store.snapshot, { cmd: "agent-done", paneKey: p.paneKey, ...(typeof p.worktreeId === "string" ? { worktreeId: p.worktreeId } : {}) }, now);
     });
     ctx.events.on("worktree.created", async payload => {
@@ -275,6 +293,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       if (!payload || typeof payload !== "object") return;
       const p = payload as WorktreeCreated;
       if (typeof p.branch !== "string" || !/(^|\/)pacer-/.test(p.branch) || typeof p.worktreeId !== "string" || typeof p.path !== "string") return;
+      await new Promise(resolve=>setTimeout(resolve,1000));
       await sendFresh({ cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch });
     });
     ctx.events.on("worktree.removed", async payload => {

@@ -3,7 +3,7 @@
   "id": "pacer",
   "publisher": "pacer",
   "name": "pacer",
-  "version": "0.1.8",
+  "version": "0.1.10",
   "description": "Budget-aware delegation: pacer's budget panel, delegate and strategy commands, and worker-finished signals.",
   "engines": {
     "orca": ">=1.4.224"

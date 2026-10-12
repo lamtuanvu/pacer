@@ -1,14 +1,17 @@
+import { withLock } from "../exec/orca/state";
+import { blockExecutor, unblockExecutor } from "../executors/blocked";
+import {taskData} from "../link/pump";
 import { currentVersion } from "../update/version";
 import { publish } from "../link/publish";
 import { build } from "../strategy/launcher";
 import type { Ctx } from "../types";
 import type { DelegateInput } from "../tasks/api";
 import type { TaskRecord } from "../tasks/types";
-import { decodeCmdLine, summaryLine, type CmdData, type ConsoleData, type Envelope } from "../link/envelope";
+import { decodeCmdLine, splitCmdLines, summaryLine, type CmdData, type ConsoleData, type Envelope } from "../link/envelope";
 import { currentSnapshot } from "../link/store";
 import { loadStrategy } from "../config/strategy";
 import { taskStop } from "../tasks/api";
-import { readTask, isTaskId, listTasks } from "../tasks/store";
+import { readTask, updateTask, isTaskId, listTasks } from "../tasks/store";
 export interface ConsoleIO { lines: AsyncIterable<string>; write(text: string): void }
 export interface ConsoleDeps {
   delegate(ctx: Ctx, input: DelegateInput): TaskRecord;
@@ -85,16 +88,52 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
           if (!data.goal.trim()) { print("pacer: goal is required"); return; }
           if ((data.worktreeId || data.branch) && !repo) { print("pacer: focused worktree could not be resolved"); return; }
           const task = deps.delegate(fresh(), { brief: { repo: repo || deps.cwd, goal: data.goal, ...(data.acceptance?.trim() ? { acceptance: data.acceptance } : {}) }, ...(data.executor ? { executor: data.executor } : {}) });
+          if(readTask(fresh(),task.id))updateTask(fresh(),task.id,t=>{t.fromPanel=true;});
+          await publish(fresh(),[{v:1,type:"task",data:taskData(readTask(fresh(),task.id)??task)}]);
           print(`${task.id} queued`); await deps.pump(fresh());
         } else startDelegate(repo || deps.cwd);
         break;
       }
+      case "block":
+      case "unblock": {
+        if(!data.executor || !validExecutor(data.executor))return;
+        if(data.cmd === "block")blockExecutor(fresh(),data.executor,data.for);else unblockExecutor(fresh(),data.executor);
+        print(`${data.executor} ${data.cmd === "block" ? "Blocked by you" : "unblocked"}`);
+        await deps.pump(fresh());break;
+      }
+      case "dismiss": {
+        const ids = data.taskIds ?? (data.taskId ? [data.taskId] : []);
+        for(const id of ids) {
+          if(!readTask(fresh(),id)) { print("pacer: unknown task"); continue; }
+          const updated=updateTask(fresh(),id,t=>{t.dismissed=true;});
+          await publish(fresh(),[{v:1,type:"task",data:taskData(updated)}]);
+          print(`${id} dismissed`);
+        }
+        await deps.pump(fresh()); break;
+      }
+      case "retry-all":
       case "retry": {
         if (!validExecutor(data.executor)) return;
-        const task = data.taskId ? (deps.readTask ?? readTask)(fresh(), data.taskId) : null;
-        if (!task) { print("pacer: unknown task"); return; }
-        const next = deps.delegate(fresh(), { brief: { ...task.brief }, kind: task.kind, timeoutMin: task.timeoutS / 60, ...(data.executor ? { executor: data.executor } : {}) });
-        print(`${next.id} queued`); await deps.pump(fresh()); break;
+        const ids = data.taskIds ?? (data.taskId ? [data.taskId] : []);
+        for (const id of ids) {
+          await withLock(fresh(),`retry-${id}`,async()=>{
+            const task=(deps.readTask ?? readTask)(fresh(),id);
+            if(!task){print("pacer: unknown task");return;}
+            const retry=task.retriedBy ? readTask(fresh(),task.retriedBy) : null;
+            if(retry && ["queued","running"].includes(retry.state)) {
+              const reason=`${task.id} already has an active retry ${retry.id}`;
+              print(`pacer: ${reason}`);
+              await publish(fresh(),[{v:1,type:"alert",data:{key:`retry-${task.id}`,level:"warn",title:"Retry already running",body:reason,at:fresh().now}}]);
+              return;
+            }
+            const next=deps.delegate(fresh(),{brief:{...task.brief},kind:task.kind,timeoutMin:task.timeoutS/60,retryOf:task.id,...(data.executor?{executor:data.executor}:{})});
+            if(readTask(fresh(),next.id))updateTask(fresh(),next.id,t=>{t.retryOf=task.id;t.fromPanel=true;});
+            if(readTask(fresh(),task.id))updateTask(fresh(),task.id,t=>{t.retriedBy=next.id;});
+            await publish(fresh(),[{v:1,type:"task",data:taskData(readTask(fresh(),task.id)??task)},{v:1,type:"task",data:taskData(readTask(fresh(),next.id)??next)}]);
+            print(`${next.id} queued (retry of ${task.id})`);
+          });
+        }
+        await deps.pump(fresh()); break;
       }
       case "stop": {
         const task = data.taskId ? (deps.taskStop ?? taskStop)(fresh(), data.taskId) : null;
@@ -107,7 +146,7 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
         try { const result=await build(fresh(),{agent:data.agent,from:data.from,brief:data.brief,worktree:selector}); opened=result.opened; message=result.message; }
         catch(e){message=e instanceof Error?e.message:String(e);}
         print(message);
-        await publish(fresh(),[{v:1,type:"alert",data:{key:"strategy-build",level:opened?"info":"error",title:opened?"Strategy session opened in a new terminal":"Strategy session failed",body:opened?"":message,at:fresh().now}}]);
+        await publish(fresh(),[{v:1,type:"alert",data:{key:"strategy-build",level:opened?"info":"error",title:opened?"Strategy session opened":"Strategy session failed",body:opened?"":message,at:fresh().now}}]);
         break;
       }
       case "use": if (data.strategy) await use(data.strategy); else chooseStrategy(); break;
@@ -188,17 +227,24 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
       try { cancels.push(deps.every(ms, fn)); } catch (e) { error(e); }
     }
     showPrompt(); notifyIdle();
-    for await (const line of io.lines) {
+    for await (const input of io.lines) {
+      for(const line of splitCmdLines(input)) {
       const decoded = decodeCmdLine(line);
       if (decoded.cmd) {
-        if (decoded.before) print(`(discarded partial input: ${decoded.before})`);
+        if (decoded.before) await safe(()=>prompt?answer(decoded.before):human(decoded.before));
         if (prompt) queue.push(decoded.cmd.data);
-        else await safe(() => plugin(decoded.cmd!.data));
+        else {
+          const c=fresh();consoleData={...consoleData,heartbeatAt:c.now,busyUntil:c.now+1};
+          try{deps.heartbeat(c,consoleData);}catch(e){error(e);}
+          await safe(() => plugin(decoded.cmd!.data));
+        }
       } else if (line.includes(": pacer '")) print("ignored malformed plugin command");
       else await safe(() => prompt ? answer(line) : human(line));
       while (!closed && !prompt && queue.length) await safe(() => plugin(queue.shift()!));
       if (closed) break;
       showPrompt(); notifyIdle();
+      }
+      if(closed)break;
     }
   } catch (e) { error(e); }
   finally {
