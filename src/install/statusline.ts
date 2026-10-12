@@ -26,6 +26,8 @@ export function captureClaudeRateLimits(ctx: Ctx, stdin: string): boolean {
 export async function statusLine(ctx: Ctx, stdin: string): Promise<string> {
   try {
     captureClaudeRateLimits(ctx, stdin);
+  } catch { /* Cache persistence must not prevent budget rendering. */ }
+  try {
     return renderLine(await computeStatus(ctx, loadStrategy(ctx)));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

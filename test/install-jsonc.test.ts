@@ -97,3 +97,25 @@ test("escaped keys and tab indentation are handled", () => {
   expect(installed).toContain('\n\t"pacer": {\n\t  "enabled": true');
   expect(removeMember(installed, ["pacer"])).toBe(text);
 });
+
+test("removing a comma-terminated member removes its trailing line comment", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    const text = ['{', '  "keep": 1, // keep comment', '  "pacer": 2, // pacer comment', '  "other": 3', '}', ''].join(newline);
+    const expected = ['{', '  "keep": 1, // keep comment', '  "other": 3', '}', ''].join(newline);
+    expect(removeMember(text, ["pacer"])).toBe(expected);
+    expect(parseJsonc(removeMember(text, ["pacer"]))).toEqual({ keep: 1, other: 3 });
+  }
+});
+
+test("a leading UTF-8 BOM parses and survives member edits", () => {
+  const text = '\uFEFF{\n  "a": {},\n  "keep": 2, // user comment\n}\n';
+  expect(parseJsonc(text)).toEqual({ a: {}, keep: 2 });
+  expect(JSON.parse(stripJsonc(text))).toEqual({ a: {}, keep: 2 });
+  expect(getMember(text, ["keep"])).toBe(2);
+  expect(isEmptyObject(text, ["a"])).toBe(true);
+  expect(setMember(text, ["keep"], 3)).toBe(text.replace('"keep": 2', '"keep": 3'));
+  const installed = setMember(text, ["pacer"], { enabled: true });
+  expect(installed.startsWith('\uFEFF')).toBe(true);
+  expect(removeMember(installed, ["pacer"])).toBe(text);
+  expect(removeMember('\uFEFF{"a": 1}', ["a"])).toBe('\uFEFF{}');
+});

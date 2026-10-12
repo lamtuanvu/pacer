@@ -7,7 +7,10 @@ interface Node { start: number; end: number; kind: "object" | "array" | "string"
 
 class Parser {
   pos = 0;
-  constructor(readonly text: string) {}
+  constructor(readonly text: string) {
+    // Skip only the leading BOM so all spans still index the original text.
+    if (text.startsWith("\uFEFF")) this.pos = 1;
+  }
 
   fail(message: string): never { throw new JsoncError(`${message} at offset ${this.pos}`); }
 
@@ -191,6 +194,9 @@ export function removeMember(text: string, path: readonly string[]): string {
     const newline = text.lastIndexOf("\n", target.keyStart - 1);
     start = newline >= 0 && /^[\t ]*$/.test(text.slice(newline + 1, target.keyStart)) ? newline : target.keyStart;
     end = parser.pos + 1;
+    const lineEnd = text.indexOf("\n", end);
+    const remainder = text.slice(end, lineEnd < 0 ? text.length : lineEnd);
+    if (/^[\t ]*\/\//.test(remainder)) end = lineEnd < 0 ? text.length : lineEnd;
   } else {
     start = parent.members[parent.members.indexOf(target) - 1].value.end;
     end = target.value.end;

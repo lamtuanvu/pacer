@@ -28,7 +28,7 @@ export function addHooks(doc: HookDoc, fmt: HookFormat, specs: HookSpec[]): Hook
     const entries = result.hooks[spec.event] ??= [];
     const exists = fmt === "cursor"
       ? entries.some((hook: RemovedHook["hook"]) => hook.command === spec.command)
-      : entries.some((group: { hooks: RemovedHook["hook"][] }) => group.hooks.some((hook) => hook.command === spec.command));
+      : entries.some((group: { hooks: RemovedHook["hook"][] }) => Array.isArray(group.hooks) && group.hooks.some((hook) => hook.command === spec.command));
     if (exists) continue;
     const hook: RemovedHook["hook"] = { command: spec.command };
     if (spec.timeout !== undefined) hook.timeout = spec.timeout;
@@ -48,11 +48,16 @@ export function removeHooks(doc: HookDoc, fmt: HookFormat, match: (command: stri
   const removed: RemovedHook[] = [];
   for (const [event, entries] of Object.entries(result.hooks ?? {}) as [string, any[]][]) {
     const kept = [];
+    const removedBefore = removed.length;
     for (const entry of entries) {
       if (fmt === "cursor") {
         if (match(entry.command)) removed.push({ event, hook: entry });
         else kept.push(entry);
       } else {
+        if (!Array.isArray(entry.hooks) || entry.hooks.length === 0) {
+          kept.push(entry);
+          continue;
+        }
         entry.hooks = entry.hooks.filter((hook: RemovedHook["hook"]) => {
           if (!match(hook.command)) return true;
           removed.push({ event, ...(entry.matcher !== undefined ? { matcher: entry.matcher } : {}), hook });
@@ -61,7 +66,7 @@ export function removeHooks(doc: HookDoc, fmt: HookFormat, match: (command: stri
         if (entry.hooks.length) kept.push(entry);
       }
     }
-    if (entries.length && !kept.length) delete result.hooks[event];
+    if (removed.length > removedBefore && !kept.length) delete result.hooks[event];
     else result.hooks[event] = kept;
   }
   return { doc: result, removed };
