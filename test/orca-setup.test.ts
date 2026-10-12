@@ -114,6 +114,25 @@ test("stale coordinator is recreated with a new run", async () => {
   expect(loadOrcaState(ctx)).toMatchObject({ coordinator: COORD, run: RUN });
 });
 
+for (const code of ["timeout", "runtime_unavailable", "runtime_error"]) {
+  test(`coordinator terminal show ${code} returns an error without creating resources`, async () => {
+    const f = fakeRun([
+      [O("terminal", "show"), raw(JSON.stringify({ ok: false, error: { code, message: "terminal status unavailable" } }), 1)],
+      [O("terminal", "create"), ok("coordinator-terminal.json")],
+      [O("orchestration", "run-create"), ok("run-create.json")],
+    ]);
+    const ctx = fakeCtx({ run: f.run });
+    updateOrcaState(ctx, (st) => { st.coordinator = COORD; st.run = RUN; });
+    expect(await ensureCoordinator(ctx, new OrcaClient(f.run), MR)).toEqual({
+      error: `orca terminal show failed: ${code} terminal status unavailable`,
+    });
+    expect(f.count(O("terminal", "create"))).toBe(0);
+    expect(f.count(O("orchestration", "run-create"))).toBe(0);
+    expect(f.count(O("orchestration", "run-show"))).toBe(0);
+    expect(loadOrcaState(ctx)).toMatchObject({ coordinator: COORD, run: RUN });
+  });
+}
+
 test("closed coordinator (connected: false) is recreated", async () => {
   const f = fakeRun([
     [O("terminal", "show"), ok("terminal-show-closed.json")],
