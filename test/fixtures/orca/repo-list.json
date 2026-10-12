@@ -1,0 +1,11 @@
+{
+  "id": "8946c6e4-0e63-4a30-91fa-97d4b46b8b37",
+  "ok": true,
+  "result": {
+    "repos": [
+      { "id": "8f495282-8689-4d7b-bed7-7f115f3be8bc", "path": "~/node", "displayName": "node", "kind": "git" },
+      { "id": "40c98aad-c083-4ec9-b82e-a51798a20270", "path": "~/pacer", "displayName": "model-routing", "kind": "git" }
+    ]
+  },
+  "_meta": { "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1" }
+}

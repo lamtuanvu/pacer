@@ -1,0 +1,91 @@
+{
+  "id": "31883d6c-4f23-4026-a297-53705c3dd998",
+  "ok": true,
+  "result": {
+    "runId": "run_9d54b4f3810a",
+    "taskId": "task_8ac008c150a7",
+    "dispatchId": "ctx_df599d4e7101",
+    "state": "ready",
+    "stage": "input_accepted",
+    "turnStart": "unsupported",
+    "setup": {
+      "requested": "skip",
+      "effective": "skip",
+      "source": "explicit_request",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_configured"
+    },
+    "launch": {
+      "requested": {
+        "agent": "cursor",
+        "model": "auto",
+        "effort": null
+      },
+      "effective": {
+        "agent": "cursor",
+        "model": "auto",
+        "effort": null
+      }
+    },
+    "mode": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "user_default",
+      "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+    },
+    "timeoutMs": 180000,
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "created_child",
+        "id": "40c98aad-c083-4ec9-b82e-a51798a20270::~/worktrees/pacer-exec-t2"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_563674c8-c109-455e-a291-35acf015d00c",
+        "tabId": "82278722-c8a4-4966-8d16-6edea6c1d486",
+        "leafId": "2f55d282-8ffb-4e9d-8686-b47e8f01db63"
+      },
+      {
+        "kind": "setup",
+        "action": "skip",
+        "requested": "skip",
+        "effective": "skip",
+        "source": "explicit_request",
+        "hookFound": false,
+        "startupPolicy": "start-immediately",
+        "state": "not_configured"
+      },
+      {
+        "kind": "dispatch_input",
+        "role": "agent",
+        "id": "term_563674c8-c109-455e-a291-35acf015d00c",
+        "state": "accepted"
+      }
+    ],
+    "prompt": {
+      "requestId": "6ca4c86b-347d-4786-a54c-9ec30cd7ceb4",
+      "stages": [
+        "input_accepted"
+      ],
+      "provider": "unsupported",
+      "observation": "unsupported",
+      "processIncarnation": "d5d10c2b-b65e-43cf-b454-6d1196a7c659",
+      "generation": 87,
+      "baselineWorkingSequence": 0,
+      "baselineExplicitWorkingStartedAt": null,
+      "baselinePermissionSequence": 0
+    },
+    "residualResources": [],
+    "mutation": {
+      "requestId": "6ca4c86b-347d-4786-a54c-9ec30cd7ceb4",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1"
+  }
+}

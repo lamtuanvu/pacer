@@ -1,0 +1,28 @@
+{
+  "id": "e3f1cdff-4070-4ed9-9be5-d3a57cab2a38",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_1ddadcbd-780e-4951-b184-c51193ff39c6",
+      "ptyId": "40c98aad-c083-4ec9-b82e-a51798a20270::~/pacer@@f3ad61dd",
+      "incarnationId": "99d20345-ab1f-4a8c-a223-8fbf34349a90",
+      "orphaned": true,
+      "recordedPaneKey": "408fca5b-80b3-4fe3-8462-778c47fbb88e:01cf8698-18ba-4afb-aba1-62a0b075cf27",
+      "worktreeId": "40c98aad-c083-4ec9-b82e-a51798a20270::~/pacer",
+      "worktreePath": "~/pacer",
+      "branch": "refs/heads/main",
+      "tabId": "408fca5b-80b3-4fe3-8462-778c47fbb88e",
+      "leafId": "01cf8698-18ba-4afb-aba1-62a0b075cf27",
+      "title": "pacer coordinator (Claude)",
+      "connected": false,
+      "writable": false,
+      "lastOutputAt": 1791704924411,
+      "preview": "model-routing  main\n$",
+      "exitCause": { "kind": "operator_close" },
+      "executionHostId": "local",
+      "paneRuntimeId": -1,
+      "rendererGraphEpoch": 0
+    }
+  },
+  "_meta": { "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1" }
+}

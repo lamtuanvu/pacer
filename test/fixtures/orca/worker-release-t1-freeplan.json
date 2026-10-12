@@ -1,0 +1,22 @@
+{
+  "id": "ebfb36d2-6634-4e7a-bf52-77355e6bb284",
+  "ok": false,
+  "error": {
+    "code": "dispatch_inactive",
+    "message": "Dispatch ctx_c02eccc648eb is ready; only a settled worker can release. Use worker-stop to cancel an active worker. Orchestration mutation request ID: a1b9295d-05b5-44b7-90c3-cb7005bfdf25.",
+    "data": {
+      "orchestrationRequestId": "a1b9295d-05b5-44b7-90c3-cb7005bfdf25",
+      "originalCommand": [
+        "orca",
+        "orchestration",
+        "worker-release",
+        "--dispatch",
+        "ctx_c02eccc648eb",
+        "--json"
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1"
+  }
+}
