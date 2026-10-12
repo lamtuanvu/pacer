@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { detect, initCmd, starterStrategy } from "../src/install/init";
+import * as fsx from "../src/install/fsx";
 import { fakeCtx } from "./helpers";
 
 function detectedCtx(bins: string[], models = true) {
@@ -122,4 +123,25 @@ test("no planner and planner-only detection fail without writing or backing up",
   expect((await initCmd(ctx, { force: true })).code).toBe(1);
   expect(readdirSync(ctx.pacerHome)).toEqual(["strategy.yaml"]);
   expect(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")).toBe("old");
+});
+
+test("forced init copies the original to the shared backup helper destination", async () => {
+  const ctx = detectedCtx(["claude", "codex"]);
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const path = join(ctx.pacerHome, "strategy.yaml");
+  writeFileSync(path, "original strategy");
+  const destination = join(ctx.pacerHome, "shared-backup");
+  const backup = spyOn(fsx, "backupPath").mockImplementation((file, now) => {
+    if (file !== path || now !== ctx.now) throw new Error("wrong backup context");
+    return destination;
+  });
+  try {
+    const result = await initCmd(ctx, { force: true });
+    expect(result.code).toBe(0);
+    expect(existsSync(destination)).toBe(true);
+    expect(readFileSync(destination, "utf8")).toBe("original strategy");
+    expect(result.out).toContain(`Backup: ${destination}\n`);
+  } finally {
+    backup.mockRestore();
+  }
 });
