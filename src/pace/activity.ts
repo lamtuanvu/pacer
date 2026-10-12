@@ -143,7 +143,7 @@ export async function loadActivity(
   const cached = readJson<ActivityProfile>(path);
   if (cached && cached.bins?.length === 168 && Array.isArray(cached.active)) {
     if (ctx.now - cached.builtAt < 86400) return cached;
-    if (tryActivityLock(ctx)) {
+    if (!ctx.readOnly && tryActivityLock(ctx)) {
       try {
         (opts.trigger ?? backgroundRebuild)(ctx);
       } catch {
@@ -154,7 +154,7 @@ export async function loadActivity(
   }
   const fresh = await buildActivity(ctx);
   try {
-    writeJsonAtomic(path, fresh);
+    if (!ctx.readOnly) writeJsonAtomic(path, fresh);
   } catch {
     // A cache write failure must not discard the fresh profile.
   }

@@ -12,6 +12,8 @@ import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { markExhausted } from "../usage/reactive";
 
+import * as strategies from "../strategy/service";
+
 const json = (value: Record<string, unknown>) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 1) }],
   structuredContent: value,
@@ -34,7 +36,7 @@ function mustTask(t: TaskRecord | null, id: string): TaskRecord {
 }
 
 export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRunner } = {}): McpServer {
-  const server = new McpServer({ name: "pacer", version: "0.2.0" });
+  const server = new McpServer({ name: "pacer", version: "0.1.6" });
   const spawnFn = opts.spawnRunner ?? spawnRunner;
 
   server.registerTool("budget_status", {
@@ -125,6 +127,16 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     appendLabel(getCtx(), { type: "guard_feedback", event_id, correct, note: note ?? null });
     return json({ recorded: true });
   });
+
+  const guidance = "Always preview first and show the user the ranking change. Save only after the user agrees, with a reason. Never switch unless asked.";
+  const nameSchema=z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
+  const draftSchema=z.object({from:nameSchema,set:z.record(z.string(),z.json()).optional(),unset:z.array(z.string()).optional(),description:z.string().optional()});
+  const safeStrategy=async(fn:()=>unknown|Promise<unknown>)=>{try{return json(await fn() as Record<string,unknown>);}catch(e){return {...json({error:(e as Error).message}),isError:true};}};
+  server.registerTool("strategy_list",{description:"List strategies and their summaries. "+guidance,inputSchema:{}},async()=>safeStrategy(()=>({strategies:strategies.list(getCtx())})));
+  server.registerTool("strategy_show",{description:"Show a strategy YAML and summary. "+guidance,inputSchema:{name:nameSchema}},async({name})=>safeStrategy(()=>strategies.show(getCtx(),name)));
+  server.registerTool("strategy_preview",{description:"Validate a draft without writing; compare ranking and routing against current usage. "+guidance,inputSchema:{draft:draftSchema}},async({draft})=>safeStrategy(()=>strategies.preview(getCtx(),draft)));
+  server.registerTool("strategy_save",{description:"Save a validated draft without switching. "+guidance,inputSchema:{name:nameSchema,draft:draftSchema,reason:z.string().min(1),overwrite:z.boolean().optional(),who:z.string().min(1).optional().describe("Agent identity for the creation header")}},async({name,draft,reason,overwrite,who})=>safeStrategy(()=>strategies.save(getCtx(),name,draft,reason,{overwrite,who})));
+  server.registerTool("strategy_use",{description:"Switch the active strategy only when explicitly asked. "+guidance,inputSchema:{name:nameSchema}},async({name})=>safeStrategy(async()=>({name,path:await strategies.use(getCtx(),name)})));
 
   return server;
 }

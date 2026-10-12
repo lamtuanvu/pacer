@@ -17,7 +17,7 @@ export async function cachedFetch<T>(
   if (hit && ctx.now - hit.capturedAt < ttlS) return { value: hit.value, capturedAt: hit.capturedAt, stale: false };
   try {
     const value = await fetcher();
-    writeJsonAtomic(path, { capturedAt: ctx.now, value });
+    if (!ctx.readOnly) writeJsonAtomic(path, { capturedAt: ctx.now, value });
     return { value, capturedAt: ctx.now, stale: false };
   } catch (e) {
     const error = (e as Error).message;

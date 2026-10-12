@@ -27,11 +27,12 @@ async function connect() {
   return { ctx, client, call, spawned };
 }
 
-test("lists exactly the nine planner tools", async () => {
+test("lists planner and strategy tools", async () => {
   const { client } = await connect();
   expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
     "budget_status", "delegate", "guard_feedback", "report_limit", "route", "task_review", "task_status", "task_stop", "task_wait",
-  ]);
+    "strategy_list", "strategy_preview", "strategy_save", "strategy_show", "strategy_use",
+  ].sort());
 });
 
 test("budget_status and route return structured data in priority order", async () => {
@@ -100,4 +101,19 @@ test("Orca executor cwd refuses onward delegation without an environment marker"
     expect(result.content[0].text).toContain("cannot delegate onward");
     expect(spawned).toEqual([]);
   } finally { process.chdir(cwd); await client.close(); }
+});
+
+test("strategy MCP schemas and structured preview/save/show/use results",async()=>{
+ const {call,client}=await connect();
+ const tools=(await client.listTools()).tools.filter(t=>t.name.startsWith("strategy_"));
+ expect(tools).toHaveLength(5);for(const tool of tools){expect(tool.description).toContain("preview first");expect(tool.description).toContain("Never switch unless asked");}
+ const draft={from:"default",set:{"pacing.planner_reserve":25},description:"Protect planner"};
+ const preview=await call("strategy_preview",{draft});expect(preview.structuredContent.ok).toBe(true);expect(preview.structuredContent.ranking.current).toEqual(["codex","cursor"]);
+ expect((await call("strategy_save",{name:"protect",draft,reason:"Approved"})).structuredContent.active).toBe(false);
+ expect((await call("strategy_show",{name:"protect"})).structuredContent.summary).toContain("25%");
+ expect((await call("strategy_list")).structuredContent.strategies).toHaveLength(2);
+ expect((await call("strategy_use",{name:"protect"})).isError).toBeFalsy();expect((await call("strategy_show",{name:"protect"})).structuredContent.active).toBe(true);
+ expect((await call("strategy_save",{name:"protect",draft,reason:"Approved"})).isError).toBe(true);
+ expect((await call("strategy_save",{name:"../unsafe",draft,reason:"Approved"})).isError).toBe(true);
+ expect((await call("strategy_preview",{draft:{...draft,set:{"pacing.policy":"invalid"}}})).structuredContent.ok).toBe(false);await client.close();
 });

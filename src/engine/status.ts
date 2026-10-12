@@ -30,13 +30,15 @@ export function displayName(id: string): string {
 }
 
 export async function computeStatus(
-  ctx: Ctx, s: Strategy, opts: { profile?: ActivityProfile | null } = {},
+  ctx: Ctx, s: Strategy, opts: { profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
 ): Promise<Status> {
   const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx).catch(() => null);
   const providers = await Promise.all(Object.values(s.providers).map(async (cfg): Promise<ProviderStatus> => {
-    const reading: UsageReading = await readUsage(ctx, cfg).catch((e) => ({
+    const key=JSON.stringify(cfg);
+    const reading: UsageReading = opts.readings?.get(key) ?? await readUsage(ctx, cfg).catch((e) => ({
       windows: [], capturedAt: null, stale: false, error: String(e),
     }));
+    opts.readings?.set(key,reading);
     const th = {
       ahead: s.pacing.aheadThreshold,
       behind: s.pacing.behindThreshold,

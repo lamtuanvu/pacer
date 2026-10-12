@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
 import { io } from "./install/stdin";
 import { resolve } from "node:path";
@@ -221,7 +222,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "use":
       if (!rest[0]) return { code: 2, out: "", err: USAGE };
       try {
-        return { code: 0, out: `active strategy: ${rest[0]} (${useStrategy(ctx, rest[0])})`, err: "" };
+        return { code: 0, out: `active strategy: ${rest[0]} (${await switchStrategy(ctx, rest[0])})`, err: "" };
       } catch (e) {
         return { code: 2, out: "", err: explain(e) };
       }
