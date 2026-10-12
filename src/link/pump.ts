@@ -26,8 +26,14 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"pacer status failed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return out;}
   const b=toBudget(st); if(budgetKey(b)!==budgetKey(latest.budget))out.push({v:1,type:"budget",data:b});
   const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({v:1,type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`pacer mode: ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
-  for(const t of deps.tasks(ctx)){const d=taskData(t),prev=latest.tasks.find(x=>x.id===d.id);if(prev?.state===d.state)continue;out.push({v:1,type:"task",data:d});
-    const terminal=TERMINAL_STATES.includes(d.state as TaskState);if(terminal&&(prev||latest.seq>0))out.push(alert({key:`task-${d.id}`,level:d.state==="failed"||d.state==="limit"?"warn":"info",title:clip(`pacer task ${d.state}: ${d.goal}`,LIMITS.title),body:clip(`${d.executor??"-"} via ${d.backend??"-"}${d.worktree?` in ${d.worktree}`:""}`,LIMITS.body),at:ctx.now}));}
+  // Remember every task state ever published. latest.tasks is capped, so a task that drops out of it
+  // would otherwise look new on every pump and re-alert forever (seen live: one alert ~every 2 s).
+  const statesPath=join(ctx.pacerHome,"link","task-states.json"), knownRaw=readJson<unknown>(statesPath), known:Record<string,string>=isObj(knownRaw)?Object.fromEntries(Object.entries(knownRaw).filter(([,v])=>typeof v==="string")) as Record<string,string>:{};
+  let statesChanged=false;
+  for(const t of deps.tasks(ctx)){const d=taskData(t),prev=latest.tasks.find(x=>x.id===d.id),before=known[d.id]??prev?.state;
+    if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;}
+    if(before===d.state)continue;out.push({v:1,type:"task",data:d});
+    const terminal=TERMINAL_STATES.includes(d.state as TaskState);if(terminal&&(before!==undefined||latest.seq>0))out.push(alert({key:`task-${d.id}`,level:d.state==="failed"||d.state==="limit"?"warn":"info",title:clip(`pacer task ${d.state}: ${d.goal}`,LIMITS.title),body:clip(`${d.executor??"-"} via ${d.backend??"-"}${d.worktree?` in ${d.worktree}`:""}`,LIMITS.body),at:ctx.now}));}
   const seenPath=join(ctx.pacerHome,"link","strategy-seen.json"), previousSeen=readJson<unknown>(seenPath), entries=list(ctx);
   // Accept the old name-only ledger as a baseline, then persist content fingerprints.
   const seen:Record<string,unknown>|null=Array.isArray(previousSeen) ? Object.fromEntries(previousSeen.map(name=>[name,null])) : isObj(previousSeen) ? previousSeen : null;
@@ -46,6 +52,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     out.push(alert({key:`strategySaved-${entry.name}`,level:"info",title:Object.hasOwn(seen,entry.name)?`Strategy "${entry.name}" updated`:`New strategy "${entry.name}" saved`,body:`${entry.summary} · by ${who}`,at:ctx.now}));
   }
   const report=out.length ? await deps.publish(ctx,out) : null;
+  if(statesChanged)writeJsonAtomic(statesPath,known);
   // Only acknowledge changes after the durable alert reached the link outbox.
   if((!report || report.transports.includes("outbox")) && JSON.stringify(previousSeen)!==JSON.stringify(next))writeJsonAtomic(seenPath,next);
   return out;

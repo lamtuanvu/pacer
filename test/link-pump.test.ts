@@ -39,3 +39,18 @@ test("budget publishes pace rounded to one decimal",async()=>{
  const status={generatedAt:1,strategy:"s",planner:"p",mode:"normal",providers:[{id:"p",verdict:"OK",stale:false,binding:{usedPct:30,pace:28.456,resetsAt:100,name:"week"}},{id:"unmetered",verdict:"OK",stale:false,binding:null}],executors:{ranked:[]}} as any;
  expect(toBudget(status).providers.map(p=>p.pacePct)).toEqual([28.5,null]);
 });
+
+test("a finished task that dropped out of the capped snapshot does not re-alert on every pump", async () => {
+  const { fakeCtx } = await import("./helpers");
+  const { pumpOnce } = await import("../src/link/pump");
+  const ctx = fakeCtx();
+  const task = { id: "t-20261012-224220-ccfe", state: "failed", createdAt: 1, brief: { goal: "g" }, attempts: [], result: { executor: "agy", backend: "direct" } } as never;
+  const published: unknown[][] = [];
+  const deps = { status: async () => { throw new Error("skip"); }, tasks: () => [task], publish: async (_c: unknown, envs: unknown[]) => { published.push(envs); return { transports: ["outbox"] } as never; } };
+  const realDeps = { ...deps, status: async () => ({ generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", providers: [], executors: { ranked: [] } }) as never };
+  await pumpOnce(ctx, realDeps as never);
+  await pumpOnce(ctx, realDeps as never);
+  await pumpOnce(ctx, realDeps as never);
+  const alerts = published.flat().filter((e: any) => e.type === "alert" && e.data.key === "task-t-20261012-224220-ccfe");
+  expect(alerts.length).toBeLessThanOrEqual(1);
+});
