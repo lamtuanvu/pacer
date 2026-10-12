@@ -124,6 +124,20 @@ test("a tampered download is refused and nothing changes", async () => {
   expect(readdirSync(dirname(exec))).toEqual(["pacer"]);
 });
 
+test("a same-length tampered download fails the checksum and nothing changes", async () => {
+  const root = tmpDir();
+  release(root, "0.2.0");
+  const file = join(root, "0.2.0", "pacer-darwin-arm64");
+  const good = readFileSync(file, "utf8");
+  writeFileSync(file, good.replace("0.2.0", "0.2.1"));
+  const exec = installed();
+  const r = await runUpdate({ check: false }, deps(root, exec));
+  expect(r.code).toBe(1);
+  expect(r.err).toContain("checksum mismatch");
+  expect(readFileSync(exec, "utf8")).toBe(script("0.1.0"));
+  expect(readdirSync(dirname(exec))).toEqual(["pacer"]);
+});
+
 test("SHA256SUMS disagreeing with manifest.json is refused", async () => {
   const root = tmpDir();
   release(root, "0.2.0");
