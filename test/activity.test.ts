@@ -120,3 +120,32 @@ test("stale takeover reports failure if another process replaced its newly writt
   try { expect(activity.tryActivityLock(ctx)).toBe(false); }
   finally { spy.mockRestore(); }
 });
+
+test("detached activity child releases the parent's lock immediately after rebuilding", async () => {
+  const ctx = fakeCtx();
+  const argv = process.argv[1];
+  const lock = join(ctx.pacerHome, "activity.lock");
+  try {
+    process.argv[1] = new URL("../src/cli.ts", import.meta.url).pathname;
+    expect(activity.tryActivityLock(ctx)).toBe(true);
+    activity.backgroundRebuild(ctx);
+  } finally { process.argv[1] = argv; }
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline && (!existsSync(join(ctx.pacerHome, "activity.json")) || existsSync(lock))) {
+    await Bun.sleep(20);
+  }
+  expect(existsSync(join(ctx.pacerHome, "activity.json"))).toBe(true);
+  expect(existsSync(lock)).toBe(false);
+});
+
+test("activity child token cannot release a replacement lock", () => {
+  const ctx = fakeCtx({ env: { PACER_ACTIVITY_LOCK_TOKEN: "old-token" } });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const lock = join(ctx.pacerHome, "activity.lock");
+  writeFileSync(lock, JSON.stringify({ at: ctx.now, pid: process.pid, token: "new-token" }));
+  activity.releaseActivityLock(ctx);
+  expect(existsSync(lock)).toBe(true);
+  ctx.env.PACER_ACTIVITY_LOCK_TOKEN = "new-token";
+  activity.releaseActivityLock(ctx);
+  expect(existsSync(lock)).toBe(false);
+});

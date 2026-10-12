@@ -90,7 +90,7 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     return { code: 2, out: "", err: `pacer status: --hook needs a planner: ${PLANNERS.join(", ")}` };
   }
   try {
-    if (mode === "hook" && !plannerPolicyApplies(ctx, planner!, hookInput(await io.readStdin().catch(() => "")))) {
+    if (mode === "hook" && !plannerPolicyApplies(ctx, planner!, hookInput(process.stdin.isTTY ? "" : await io.readStdin().catch(() => "")))) {
       return { code: 0, out: "", err: "" };
     }
     const st = await computeStatus(ctx, loadStrategy(ctx));

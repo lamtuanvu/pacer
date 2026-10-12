@@ -34,7 +34,7 @@ function legacyBlock(text: string, anchor: RegExp): { start: number; end: number
 }
 
 function statuslineUndo(text: string): UndoOp {
-  const restore: { text: string; anchor: string | null }[] = [];
+  const restore: { text: string; anchor: string | null; spacing: string; atMarker: boolean }[] = [];
   if (!hasBlock(text, "hash")) {
     for (const pattern of [
       /^# Persist Claude's rate-limit windows for ~\/\.claude\/scripts\/budget\/budget-status[^\n]*\n/m,
@@ -43,10 +43,15 @@ function statuslineUndo(text: string): UndoOp {
       const block = legacyBlock(text, pattern);
       if (!block) continue;
       const before = text.slice(0, block.start);
-      const anchor = before.match(/[^\n]*\n$/)?.[0] ?? null;
-      restore.push({ text: text.slice(block.start, block.end), anchor });
+      const lines = before.split(/(?<=\n)/);
+      let spacing = "";
+      while (lines.length && !lines.at(-1)!.trim()) spacing = lines.pop()! + spacing;
+      const anchor = before.slice(0, before.length - spacing.length).match(/[^\n]*\n$/)?.[0] ?? null;
+      restore.push({ text: text.slice(block.start, block.end), anchor, spacing,
+        atMarker: text.slice(block.start).startsWith("# L4:") });
     }
   }
+  restore.sort((a, b) => text.indexOf(a.text) - text.indexOf(b.text));
   return { kind: "block", style: "hash", restore };
 }
 

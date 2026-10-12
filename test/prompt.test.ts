@@ -30,3 +30,10 @@ test("the contract forbids commits and re-planning and asks for a report", () =>
   expect(EXECUTOR_CONTRACT).toContain("Do not redesign, re-plan or expand scope");
   expect(EXECUTOR_CONTRACT).toContain("Finish with a short report");
 });
+
+test("every executor prompt begins with exactly one role marker", () => {
+  const marker = "PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.";
+  const prompt = buildPrompt({ goal: "Fix it", repo: "/r" }, "t-20261011-140500-abcd");
+  expect(prompt.split("\n")[0]).toBe(marker);
+  expect(prompt.split(marker)).toHaveLength(2);
+});

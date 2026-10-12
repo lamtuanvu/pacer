@@ -8,7 +8,7 @@ Executor contract (from pacer): you are executing a plan made by another enginee
 - Finish with a short report: files changed, what you did, the acceptance check result (command and pass/fail), and anything you could not do or are unsure about.`;
 
 export function buildPrompt(brief: Brief, taskId: string): string {
-  const parts = [`# Task ${taskId}`, `## Goal\n${brief.goal.trim()}`, `## Repository\n${brief.repo}`];
+  const parts = ["PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.", `# Task ${taskId}`, `## Goal\n${brief.goal.trim()}`, `## Repository\n${brief.repo}`];
   if (brief.scope?.trim()) parts.push(`## Scope\n${brief.scope.trim()}`);
   if (brief.context?.trim()) parts.push(`## Context\n${brief.context.trim()}`);
   if (brief.constraints?.trim()) parts.push(`## Constraints\n${brief.constraints.trim()}`);

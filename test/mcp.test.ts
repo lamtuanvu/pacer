@@ -87,3 +87,17 @@ test("executor MCP sessions cannot delegate onward", async () => {
   expect(spawned).toEqual([]);
   await client.close();
 });
+
+test("Orca executor cwd refuses onward delegation without an environment marker", async () => {
+  const { ctx, call, spawned, client } = await connect();
+  const cwd = process.cwd();
+  const worktree = join(ctx.home, "orca/workspaces/repo/pacer-t-20261011-140500-abcd-codex/src");
+  mkdirSync(worktree, { recursive: true });
+  try {
+    process.chdir(worktree);
+    const result = await call("delegate", { goal: "Loop", repo: ctx.home });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("cannot delegate onward");
+    expect(spawned).toEqual([]);
+  } finally { process.chdir(cwd); await client.close(); }
+});

@@ -165,7 +165,7 @@ async function runOrcaAttempt(
     };
   };
   let ws: Awaited<ReturnType<OrcaClient["workerStart"]>>;
-  const prompt = "PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.\n\n" + workerSpec(task, p);
+  const prompt = workerSpec(task, p);
   try {
     ws = await c.workerStart({ spec: prompt, agent: p.agent, model: p.model, placement: p.placement, run: p.run, from: p.coordinator });
   } catch (e) {

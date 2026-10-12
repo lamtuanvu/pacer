@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -81,7 +82,7 @@ export function tryActivityLock(ctx: Ctx): boolean {
       if (ctx.now - at <= ACTIVITY_LOCK_STALE_S) return false;
       unlinkSync(path);
     }
-    writeFileSync(path, JSON.stringify({ at: ctx.now, pid: process.pid }), { flag: "wx" });
+    writeFileSync(path, JSON.stringify({ at: ctx.now, pid: process.pid, token: randomUUID() }), { flag: "wx" });
     return readJson<{ pid?: unknown }>(path)?.pid === process.pid;
   } catch {
     return false;
@@ -91,7 +92,9 @@ export function tryActivityLock(ctx: Ctx): boolean {
 export function releaseActivityLock(ctx: Ctx): void {
   try {
     const path = join(ctx.pacerHome, "activity.lock");
-    if (readJson<{ pid?: unknown }>(path)?.pid === process.pid) unlinkSync(path);
+    const lock = readJson<{ pid?: unknown; token?: unknown }>(path);
+    const token = ctx.env.PACER_ACTIVITY_LOCK_TOKEN;
+    if (token ? lock?.token === token : lock?.pid === process.pid) unlinkSync(path);
   } catch {
     // Lock cleanup is best effort, including when the file is already gone.
   }
@@ -119,10 +122,12 @@ export const backgroundRebuild: RebuildTrigger = (ctx) => {
     return;
   }
   try {
+    const lock = readJson<{ pid?: unknown; token?: string }>(join(ctx.pacerHome, "activity.lock"));
+    if (lock?.pid !== process.pid || !lock.token) return;
     const child = spawn(cmd[0], [...cmd.slice(1), "_activity"], {
       detached: true,
       stdio: "ignore",
-      env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
+      env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_ACTIVITY_LOCK_TOKEN: lock.token },
     });
     child.on("error", () => releaseActivityLock(ctx));
     child.unref();

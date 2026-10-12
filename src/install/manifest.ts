@@ -6,7 +6,7 @@ import { readText } from "./fsx";
 import { removeHooks, restoreHooks, type HookFormat, type RemovedHook } from "./hookjson";
 import { getMember, isEmptyObject, parseJsonc, removeMember } from "./jsonc";
 
-export type UndoOp = { kind: "block"; style: BlockStyle; restore?: { text: string; anchor: string | null }[] }
+export type UndoOp = { kind: "block"; style: BlockStyle; restore?: { text: string; anchor: string | null; spacing?: string; atMarker?: boolean }[] }
   | { kind: "toml-table"; table: string }
   | { kind: "json-member"; path: string[]; dropEmpty?: string[] }
   | { kind: "hooks"; format: HookFormat; commands: string[]; restore: RemovedHook[] }
@@ -41,22 +41,41 @@ export function removeTomlTable(text: string, table: string): string {
 export function applyUndo(text: string, ops: UndoOp[], notes: string[] = []): string {
   for (const op of ops) {
     switch (op.kind) {
-      case "block":
+      case "block": {
+        let marker = op.style === "hash" && hasBlock(text, op.style) ? text.indexOf("# >>> pacer >>>") : -1;
+        const prefix = marker >= 0 ? text.slice(0, marker) : "";
         text = removeBlock(text, op.style);
+        // Removing an appended block trims its separator; a replacement needs it back.
+        if (text.length < marker && op.restore?.some(item => item.atMarker)) text = prefix;
+        let position = 0;
         for (const removed of op.restore ?? []) {
           if (text.includes(removed.text)) continue;
-          const lines = text.split(/(?<=\n)/);
-          const index = removed.anchor === null ? -1 : lines.indexOf(removed.anchor);
-          if (removed.anchor === null) text = removed.text + text;
-          else if (index >= 0) {
-            lines.splice(index + 1, 0, removed.text);
-            text = lines.join("");
-          } else {
-            text += (text && !text.endsWith("\n") ? "\n" : "") + removed.text;
+          let at = -1;
+          if (removed.atMarker && marker >= 0) at = marker;
+          else if (removed.anchor === null) at = position;
+          else {
+            // Match whole lines, searching forward so repeated anchors retain order.
+            let offset = 0;
+            for (const line of text.split(/(?<=\n)/)) {
+              if (offset >= position && line === removed.anchor) {
+                at = offset + line.length;
+                if (removed.spacing && text.startsWith(removed.spacing, at)) at += removed.spacing.length;
+                break;
+              }
+              offset += line.length;
+            }
+          }
+          if (at < 0) {
+            if (text && !text.endsWith("\n")) text += "\n";
+            at = text.length;
             notes.push("Legacy statusline block anchor missing; appended restored block.");
           }
+          text = text.slice(0, at) + removed.text + text.slice(at);
+          if (marker >= at) marker += removed.text.length;
+          position = at;
         }
         break;
+      }
       case "toml-table": text = removeTomlTable(text, op.table); break;
       case "json-member":
         text = removeMember(text, op.path);
