@@ -1,0 +1,85 @@
+{
+  "id": "ad1feca5-e7f0-4e96-b8f7-4ff38091478d",
+  "ok": true,
+  "result": {
+    "runId": "run_9d54b4f3810a",
+    "taskId": "task_ef3bf0618438",
+    "dispatchId": "ctx_802297d1724f",
+    "state": "ready",
+    "stage": "input_accepted",
+    "turnStart": "unsupported",
+    "setup": {
+      "requested": "not_applicable",
+      "effective": "not_applicable",
+      "source": "existing_worktree",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_applicable"
+    },
+    "launch": {
+      "requested": {
+        "agent": "cursor",
+        "model": "auto",
+        "effort": null
+      },
+      "effective": {
+        "agent": "cursor",
+        "model": "auto",
+        "effort": null
+      }
+    },
+    "mode": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "user_default",
+      "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+    },
+    "timeoutMs": 180000,
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "reused",
+        "id": "40c98aad-c083-4ec9-b82e-a51798a20270::~/worktrees/pacer-exec-t1"
+      },
+      {
+        "kind": "setup",
+        "action": "not_applicable",
+        "state": "not_applicable"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d",
+        "surface": "visible"
+      },
+      {
+        "kind": "dispatch_input",
+        "role": "agent",
+        "id": "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d",
+        "state": "accepted"
+      }
+    ],
+    "prompt": {
+      "requestId": "17454680-3770-4dff-9877-514d93002335",
+      "stages": [
+        "input_accepted"
+      ],
+      "provider": "unsupported",
+      "observation": "unsupported",
+      "processIncarnation": "ad60f1ab-99aa-405b-998d-f6639988f3de",
+      "generation": 85,
+      "baselineWorkingSequence": 0,
+      "baselineExplicitWorkingStartedAt": null,
+      "baselinePermissionSequence": 0
+    },
+    "residualResources": [],
+    "mutation": {
+      "requestId": "17454680-3770-4dff-9877-514d93002335",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1"
+  }
+}
