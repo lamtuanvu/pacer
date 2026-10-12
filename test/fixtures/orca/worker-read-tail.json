@@ -1,0 +1,23 @@
+{
+  "id": "48b7cee2-d006-4983-ac38-83397cae1b5c",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_802297d1724f",
+    "source": "terminal",
+    "terminal": {
+      "handle": "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d",
+      "status": "exited",
+      "tail": [
+        "Running bun test",
+        "error: You have hit your usage limit for this model",
+        "Stopping."
+      ],
+      "truncated": true,
+      "returnedLineCount": 3
+    },
+    "status": { "worker": "failed", "terminal": "exited", "liveness": "exited" },
+    "fallbackReason": "provider_unsupported",
+    "archived": true
+  },
+  "_meta": { "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1" }
+}
