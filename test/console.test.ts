@@ -241,3 +241,18 @@ test("human text glued before a plugin prefix is printed as discarded and never 
  const h=harness();await h.run(["status"+encodeCmdLine({cmd:"worktree-created",branch:"task",path:"/wt/task"})]);
  expect(h.output()).toContain("discarded");expect(h.output()).toContain("status");expect(h.calls).not.toContain("status");expect(h.output()).toContain("worktree created");
 });
+
+test("notify-level writes installed plugin setting through plugin CLI and prints result",async()=>{
+ const {writeManifest}=await import("../src/install/manifest");const {pluginDataDir}=await import("../src/link/paths");
+ const {readFileSync,rmSync}=await import("node:fs");const {join}=await import("node:path");const h=harness();
+ try {
+ writeManifest(h.ctx,{version:1,planners:{"orca-plugin":{planner:"orca-plugin",installedAt:1,pacerArgv:[],files:[],commands:[],notes:[]}}});
+ await h.run([encodeCmdLine({cmd:"notify-level",level:"off"})]);
+ expect(JSON.parse(readFileSync(join(pluginDataDir(h.ctx),"settings.json"),"utf8")).notifications).toBe("off");
+ expect(h.output()).toContain('plugin setting notifications = "off"');
+ }finally{rmSync(h.ctx.home,{recursive:true,force:true});}
+});
+test("notify-level failure prints error and console remains usable",async()=>{
+ const h=harness();await h.run([encodeCmdLine({cmd:"notify-level",level:"all"}),"status"]);
+ expect(h.output()).toContain("plugin is not installed");expect(h.output()).toContain("STATUS TEXT");
+});

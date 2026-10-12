@@ -55,7 +55,7 @@ export async function pluginCli(args: string[], ctx: Ctx): Promise<Result> {
         try { v = parseSetting(rest[0], rest[1]); } catch (e) { return err(2, e); }
         if (!pluginInstalled(ctx)) return err(1, "the Orca plugin is not installed; run pacer plugin install first");
         writePluginSetting(ctx, rest[0], v);
-        return { code: 0, out: `plugin setting ${rest[0]} = ${JSON.stringify(v)} (takes effect after reloading the plugin in Orca)`, err: "" };
+        return { code: 0, out: `plugin setting ${rest[0]} = ${JSON.stringify(v)} (${rest[0]==="notifications"?"takes effect within 30 seconds":"takes effect after reloading the plugin in Orca"})`, err: "" };
       }
       default:
         return { code: 2, out: "", err: USAGE };

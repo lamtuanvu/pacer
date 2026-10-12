@@ -5,8 +5,8 @@ let actionStates={};
 try {const saved=JSON.parse(sessionStorage.getItem(actionStorage)||"{}");if(saved && !Array.isArray(saved))actionStates=saved;}catch{}
 const actionButtons=new Map();
 function saveActions(){try{sessionStorage.setItem(actionStorage,JSON.stringify(actionStates));}catch{}}
-function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.goal||c.from||c.text||"");}
-function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...",type:"Typing command..."})[c.cmd]||"Working...";}
+function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.level||c.goal||c.from||c.text||"");}
+function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
 function outcome(a){
  const c=a.action,t=data.tasks||[],ids=c.taskIds||[c.taskId],p=[...data.rows,...data.muted].find(p=>p.id===c.executor);
  if(c.cmd==="retry"||c.cmd==="retry-all")return ids.every(id=>t.some(x=>x.retryOf===id)||t.find(x=>x.id===id)?.retriedBy);
@@ -17,6 +17,7 @@ function outcome(a){
  if(c.cmd==="use")return data.strategy===c.strategy;
  if(c.cmd==="strategy-build")return data.buildAlert && data.buildAlert.at>=a.startedAt;
  if(c.cmd==="refresh")return data.sequence>a.sequence;
+ if(c.cmd==="notify-level")return data.notifications===c.level;
  if(c.cmd==="type")return a.accepted;
  return false;
 }
@@ -24,7 +25,7 @@ function restoreAction(key){const entry=actionButtons.get(key);if(entry){entry.b
 function paintAction(key,button){
  const a=actionStates[key];if(!a)return;
  if(!actionButtons.has(key))actionButtons.set(key,{button,disabled:button.disabled,html:button.innerHTML,card:button.closest?.(".card,.row,.actionbar")});
- button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
+ button.disabled=true;if(a.action.cmd!=="notify-level")button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
  actionButtons.get(key).card?.setAttribute?.("aria-busy","true");
 }
 function beginAction(button,action){
@@ -41,7 +42,7 @@ function recoverActions(){
   if(!a||typeof a.startedAt!=="number"||!a.action){delete actionStates[key];continue;}
   const rejection=(data.actionErrors||[]).find(e=>e.key==="retry-"+a.action.taskId&&e.at>=a.startedAt);
   if(rejection){restoreAction(key);status.textContent=rejection.body;continue;}
-  if(outcome(a)){restoreAction(key);continue;}
+  if(outcome(a)){restoreAction(key);if(a.action.cmd==="notify-level")status.textContent="Notification preference saved.";continue;}
   const button=actionButtons.get(key)?.button;
   if(Date.now()/1000-a.startedAt>=60){
    if(button){button.disabled=false;button.innerHTML=actionButtons.get(key).html;}
@@ -51,5 +52,5 @@ function recoverActions(){
  }
  saveActions();
 }
-function bindAction(button,action){const key=actionKey(action);if(actionStates[key]){if(outcome(actionStates[key]))restoreAction(key);else paintAction(key,button);}}
+function bindAction(button,action){const key=actionKey(action);if(actionStates[key]){if(outcome(actionStates[key])){restoreAction(key);if(action.cmd==="notify-level")status.textContent="Notification preference saved.";}else paintAction(key,button);}}
 `;
