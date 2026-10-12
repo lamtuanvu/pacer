@@ -206,3 +206,10 @@ test("console publishes strategy session success, fallback and failure to the li
   if(mode==="fallback")expect(alert.body).toContain("Orca unavailable");
  }
 });
+
+test("console advertises idle only between completed commands with no active interactive prompt",async()=>{
+ const states:boolean[]=[];let h:ReturnType<typeof harness>;
+ h=harness({onIdle:idle=>states.push(idle),statusText:async()=>{expect(states.at(-1)).toBe(false);await Promise.resolve();expect(states.at(-1)).toBe(false);return "status";}});
+ await h.run(["status","delegate","", "use",""],i=>{if(i===0||i===1)expect(states.at(-1)).toBe(true);if(i===2||i===4)expect(states.at(-1)).toBe(false);if(i===3)expect(states.at(-1)).toBe(true);});
+ expect(states.at(-1)).toBe(false);
+});

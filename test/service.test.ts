@@ -7,7 +7,7 @@ import { runDoctor } from "../src/install/doctor";
 import { health, binaryInFile, parseLaunchd, parseSystemd, plist, restartAfterUpdate, serviceBackend, serviceInstalled, servicePath, servicePATH, unit, type ServiceDeps } from "../src/service";
 import { serviceCli } from "../src/service/cli";
 import { fakeCtx } from "./helpers";
-const goodFetch = (async () => Response.json({ ok: true }, { headers: { "X-Pacer": "1" } })) as NonNullable<ServiceDeps["fetch"]>;
+const goodFetch = (async () => Response.json({ ok: true, pid:456 }, { headers: { "X-Pacer": "1" } })) as NonNullable<ServiceDeps["fetch"]>;
 const deps: ServiceDeps = { platform: "darwin", uid: 501, argv: ["/opt/pacer"], fetch: goodFetch, waitMs: 0 };
 function put(path: string, text: string) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); }
 function fixture(platform = "darwin") {
@@ -45,7 +45,7 @@ test("adopts handwritten launchd plist with one backup, manifest, and correct bo
   expect(readFileSync(record.files[0].backup!, "utf8")).toBe(old);
   expect(calls.slice(0, 3)).toEqual([["launchctl", "bootout", "gui/501/com.pacer.serve"], ["launchctl", "bootstrap", "gui/501", path], ["launchctl", "print", "gui/501/com.pacer.serve"]]);
   expect(existsSync(join(ctx.pacerHome, "logs"))).toBe(true);
-  await b.install(); expect(readdirSync(dirname(path)).filter(x => x.includes("pacer-bak"))).toHaveLength(1);
+  await b.install(); expect(readdirSync(join(ctx.pacerHome,"backups/service"))).toHaveLength(1);
   expect((await b.status())).toMatchObject({ installed: true, loaded: true, running: true, pid: 456, lastExitCode: 9, healthy: true, binaryMatches: true });
   await b.restart(); expect(calls.at(-1)).toEqual(["launchctl", "kickstart", "-k", "gui/501/com.pacer.serve"]);
   await b.uninstall(); expect(calls.at(-1)).toEqual(["launchctl", "bootout", "gui/501/com.pacer.serve"]);
@@ -81,7 +81,7 @@ test("uninstall accepts exact legacy label and refuses unrelated files before bo
 });
 test("health validates identity, body, response status, configured port and network failure", async () => {
   const ctx = fakeCtx({ env: { PACER_PORT: "12345" } }); let seen = "";
-  expect(await health(ctx, { fetch: (async (url: any) => { seen = String(url); return Response.json({ ok: true }, { headers: { "X-Pacer": "1" } }); }) as NonNullable<ServiceDeps["fetch"]> })).toBe(true);
+  expect(await health(ctx, { fetch: (async (url: any) => { seen = String(url); return Response.json({ ok: true, pid:456 }, { headers: { "X-Pacer": "1" } }); }) as NonNullable<ServiceDeps["fetch"]> })).toBe(true);
   expect(seen).toBe("http://127.0.0.1:12345/health");
   for (const r of [Response.json({ ok: true }), Response.json({ ok: false }, { headers: { "X-Pacer": "1" } }), new Response("bad", { status: 503, headers: { "X-Pacer": "1" } })]) expect(await health(ctx, { fetch: (async () => r) as NonNullable<ServiceDeps["fetch"]> })).toBe(false);
   expect(await health(ctx, { fetch: (async () => { throw Error("offline"); }) as NonNullable<ServiceDeps["fetch"]> })).toBe(false);
@@ -99,10 +99,29 @@ test("restart after update only targets installed files pointing at replaced bin
     await expect(restartAfterUpdate(ctx, bin, d)).rejects.toThrow("restart failed");
   }
 });
-test("dev checkout install refusal and development argv warning", async () => {
-  const { ctx, d } = fixture(); delete ctx.env.PACER_BIN;
-  await expect(serviceBackend(ctx, { ...d, argv: ["/bin/bun", "/repo/.worktrees/w/src/cli.ts"] }).install()).rejects.toThrow("transient worktree");
-  const notes = await serviceBackend(ctx, { ...d, argv: ["/bin/bun", "/repo/src/cli.ts"] }).install(); expect(notes.join(" ")).toContain("WARNING: development install");
+test("service refuses source argv before any files or commands are changed", async () => {
+ const {ctx,d,calls,path}=fixture();delete ctx.env.PACER_BIN;
+ for(const argv of [["/bin/bun","/repo/.worktrees/w/src/cli.ts"],["/bin/bun","/repo/src/cli.ts"]]) {
+  await expect(serviceBackend(ctx,{...d,argv}).install()).rejects.toThrow("install a release binary or set PACER_BIN");
+  expect(existsSync(path)).toBe(false);expect(calls).toHaveLength(0);
+ }
+});
+for(const location of ["orca","git-worktree","dot-worktrees","symlink"] as const)test("service refuses a compiled binary in development workspace: "+location,async()=>{
+ const {ctx,d,calls,path}=fixture();delete ctx.env.PACER_BIN;
+ const root=location==="orca"?join(ctx.home,"orca/workspaces/repo"):location==="dot-worktrees"?join(ctx.home,"repo/.worktrees/w"):join(ctx.home,"checkout");
+ mkdirSync(root,{recursive:true});if(location==="git-worktree")put(join(root,".git"),"gitdir: /tmp/other");
+ const bin=join(root,"dist/pacer");put(bin,"binary");let argv=[bin];
+ if(location==="symlink"){const actual=join(ctx.home,"orca/workspaces/repo/pacer");put(actual,"binary");const alias=join(ctx.home,"pacer-link");symlinkSync(actual,alias);argv=[alias];}
+ await expect(serviceBackend(ctx,{...d,argv}).install()).rejects.toThrow("install a release binary or set PACER_BIN");
+ expect(calls).toHaveLength(0);expect(existsSync(path)).toBe(false);
+ ctx.env.PACER_BIN=argv[0];await serviceBackend(ctx,{...d,argv}).install();expect(existsSync(path)).toBe(true);
+});
+test("service backups live under pacerHome rather than the service-manager directory",async()=>{
+ for(const platform of ["darwin","linux"]){const {ctx,d,path}=fixture(platform);put(path,"original");await serviceBackend(ctx,d).install();
+ const backup=readManifest(ctx).planners.service.files[0].backup!;
+ expect(dirname(backup)).toBe(join(ctx.pacerHome,"backups/service"));expect(readFileSync(backup,"utf8")).toBe("original");
+ expect(readdirSync(dirname(path))).toEqual([platform==="darwin"?"com.pacer.serve.plist":"pacer-serve.service"]);
+ }
 });
 test("unsupported platform, CLI registration, log tail and strict arguments", async () => {
   const { ctx, d } = fixture(); expect(() => serviceBackend(ctx, { platform: "win32" })).toThrow("not supported");
@@ -126,4 +145,22 @@ test("cached service-installed snapshot field reflects adoption and uninstall", 
   const { ctx, d } = fixture(); expect(serviceInstalled(ctx, "darwin")).toBe(false);
   await serviceBackend(ctx, d).install(); expect(serviceInstalled(ctx, "darwin")).toBe(true);
   await serviceBackend(ctx, d).uninstall(); expect(serviceInstalled(ctx, "darwin")).toBe(false);
+});
+
+for(const platform of ["darwin","linux"])test(`service detects health pid mismatch against ${platform} manager and refuses verification`,async()=>{
+ const {ctx,d,path}=fixture(platform);put(path,platform==="darwin"?plist(ctx,["/opt/pacer"]):unit(ctx,["/opt/pacer"]));
+ const mismatch={...d,fetch:async()=>Response.json({ok:true,pid:789},{headers:{"X-Pacer":"1"}})};
+ expect(await serviceBackend(ctx,mismatch).status()).toMatchObject({pid:456,healthPid:789,healthy:false,warning:expect.stringContaining("pid mismatch")});
+ expect((await serviceCli(["status"],ctx,mismatch)).out).toContain("WARNING: health pid mismatch");
+ await expect(serviceBackend(ctx,mismatch).install()).rejects.toThrow("pid mismatch");
+});
+test("launchctl bootstrap retries Input/output error once after one second",async()=>{
+ const {ctx,d,calls}=fixture();const original=ctx.run;let attempts=0;const times:number[]=[];
+ ctx.run=async a=>{if(a[1]==="bootstrap"){times.push(Date.now());if(++attempts===1){calls.push(a);return {code:5,stdout:"",stderr:"Bootstrap failed: 5: Input/output error"};}}return original(a,1000);};
+ await serviceBackend(ctx,d).install();expect(attempts).toBe(2);expect(times[1]-times[0]).toBeGreaterThanOrEqual(950);
+});
+test("bootstrap permanent I/O failures get only one retry before rollback",async()=>{
+ const {ctx,d,path}=fixture();let attempts=0;
+ ctx.run=async a=>a[1]==="bootstrap"?(attempts++,{code:5,stdout:"",stderr:"Input/output error"}):{code:0,stdout:"",stderr:""};
+ await expect(serviceBackend(ctx,d).install()).rejects.toThrow("Input/output error");expect(attempts).toBe(2);expect(existsSync(path)).toBe(false);
 });

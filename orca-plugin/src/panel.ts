@@ -26,12 +26,12 @@ export function renderPanel(s:LinkSnapshot, view:{nowS:number;transport:Transpor
  const consoleHint=waiting && view.transport === "http" && (view.autoConsole ?? true) && view.reachable ? `<small class="muted"><span class="console-spinner" aria-hidden="true">◐</span> Starting pacer console in this worktree...</small>` : `<button type="button" data-setup="pacer console">Start console</button><small>${h(reason)}</small>`;
  const packed=packPanelData(payload), plain=jsonForScript(packed), encoded=jsonForScript({encoded:Buffer.from(JSON.stringify(packed),"utf8").toString("base64")});
  const data=encoded.length<plain.length?encoded:plain;
- const feedback=(html:string)=>html.replace(/(<button\b[^>]*class="[^"]*primary[^"]*"[^>]*>[\s\S]*?<\/button>)/, '$1<p data-status role="status" aria-live="polite" class="action-status"></p>');
+
  return `<!doctype html><html lang="en" data-transport="${h(view.transport??"none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style}</style></head><body>
- <main class="view" data-page="overview"${selected==="overview"?"":" hidden"}>${reconnecting?'<div role="status" class="note">Reconnecting...</div><div style="opacity:.45;pointer-events:none" inert>'+feedback(disable(main))+"</div>":feedback(disable(main))}</main>
- <main class="view" data-page="setup"${selected==="setup"?"":" hidden"}>${feedback(setup(s,view.nowS,view.reachable))}</main>
- <main class="view" data-page="delegate" hidden>${feedback(disable(delegateView(s,view.nowS,view.reachable)))}</main>
- <main class="view" data-page="strategy" hidden>${feedback(disable(strategy))}</main>
+ <main class="view" data-page="overview"${selected==="overview"?"":" hidden"}>${reconnecting?'<div role="status" class="note">Reconnecting...</div><div style="opacity:.45;pointer-events:none" inert>'+disable(main)+"</div>":disable(main)}</main>
+ <main class="view" data-page="setup"${selected==="setup"?"":" hidden"}>${setup(s,view.nowS,view.reachable)}</main>
+ <main class="view" data-page="delegate" hidden>${disable(delegateView(s,view.nowS,view.reachable))}</main>
+ <main class="view" data-page="strategy" hidden>${disable(strategy)}</main>
  <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong>${consoleHint}</div>
  <script type="application/json" id="pacer-actions">${data}</script><script>
 ${client}</script></body></html>`;

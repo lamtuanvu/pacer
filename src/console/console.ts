@@ -23,6 +23,7 @@ export interface ConsoleDeps {
   resolveWorktreePath(ctx: Ctx, branch: string, worktreeId?: string): Promise<string | null>;
   selfHandle(ctx: Ctx): Promise<{ handle: string | null; paneKey: string | null; worktreeId?: string }>;
   every(ms: number, fn: () => void): () => void;
+  onIdle?(idle: boolean): void;
   pid: number;
   cwd: string;
 }
@@ -42,6 +43,8 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
   const cancels: (() => void)[] = [];
   let ticking: Promise<void> | null = null;
   let closed = false;
+  let commandBusy = false;
+  const notifyIdle = () => deps.onIdle?.(!closed && !commandBusy && !prompt && !ticking && queue.length === 0);
   let consoleData: ConsoleData = { version: currentVersion(), handle: null, paneKey: null, pid: deps.pid, startedAt: ctx.now, heartbeatAt: ctx.now };
 
   const showPrompt = () => {
@@ -162,7 +165,9 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
     }
   };
   const safe = async (fn: () => Promise<void>) => {
+    commandBusy = true; notifyIdle();
     try { await fn(); } catch (e) { prompt = null; error(e); }
+    finally { commandBusy = false; }
   };
   try {
     try { consoleData = { ...consoleData, ...await deps.selfHandle(ctx) }; } catch (e) { error(e); }
@@ -176,12 +181,13 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
       }],
       [PUMP_MS, () => {
         if (closed || ticking) return;
-        ticking = Promise.resolve().then(() => deps.pump(fresh())).then(() => {}, error).finally(() => { ticking = null; });
+        ticking = Promise.resolve().then(() => deps.pump(fresh())).then(() => {}, error).finally(() => { ticking = null; notifyIdle(); });
+        notifyIdle();
       }],
     ] as const) {
       try { cancels.push(deps.every(ms, fn)); } catch (e) { error(e); }
     }
-    showPrompt();
+    showPrompt(); notifyIdle();
     for await (const line of io.lines) {
       const decoded = decodeCmdLine(line);
       if (decoded.cmd) {
@@ -192,11 +198,11 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
       else await safe(() => prompt ? answer(line) : human(line));
       while (!closed && !prompt && queue.length) await safe(() => plugin(queue.shift()!));
       if (closed) break;
-      showPrompt();
+      showPrompt(); notifyIdle();
     }
   } catch (e) { error(e); }
   finally {
-    closed = true;
+    closed = true; notifyIdle();
     for (const cancel of cancels) { try { cancel(); } catch (e) { error(e); } }
     if (ticking) await ticking;
     try { deps.heartbeat(fresh(), null); } catch (e) { error(e); }

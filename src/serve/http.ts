@@ -28,7 +28,8 @@ export function ensureToken(ctx: Ctx): string {
 export function startServer(
   getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number } = {},
 ): { port: number; token: string; stop: () => void } {
-  const token = ensureToken(getCtx());
+  const initialCtx = getCtx();
+  const token = ensureToken(initialCtx);
   const interval = opts.sseIntervalMs ?? 15_000;
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;
@@ -37,7 +38,7 @@ export function startServer(
     return computeStatus(ctx, loadStrategy(ctx));
   };
   const enc = new TextEncoder();
-  const openConsole = consoleOpener();
+  const openConsole = consoleOpener(initialCtx.now);
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -46,7 +47,7 @@ export function startServer(
     async fetch(req) {
       const { pathname } = new URL(req.url);
       const headers = { "X-Pacer": "1" };
-      if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true }, { headers });
+      if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid }, { headers });
       if (req.headers.get("authorization") !== `Bearer ${token}`) return new Response("unauthorized\n", { status: 401 });
       if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) return openConsole(req, getCtx());
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });

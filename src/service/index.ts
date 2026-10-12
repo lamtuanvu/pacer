@@ -1,9 +1,9 @@
-import { mkdirSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Ctx } from "../types";
 import { readText } from "../install/fsx";
 import { readManifest, writeManifest } from "../install/manifest";
-import { pacerArgv } from "../install/self";
+import { isDevArgv, pacerArgv } from "../install/self";
 import { runInstall } from "../install/txn";
 import { DEFAULT_PORT } from "../serve/http";
 
@@ -11,6 +11,7 @@ export const LABEL = "com.pacer.serve";
 export const MARKER = "Managed by pacer service";
 export interface ServiceStatus {
   installed: boolean; loaded: boolean; running: boolean; pid: number | null;
+  healthPid?: number | null; warning?: string;
   lastExitCode: number | null; healthy: boolean; plistPath: string; binaryPath: string | null; binaryMatches: boolean;
 }
 export interface ServiceBackend {
@@ -102,11 +103,34 @@ export function parseSystemd(text: string) {
     pid: Number(data.MainPID) > 0 ? Number(data.MainPID) : null,
     lastExitCode: /^-?\d+$/.test(data.ExecMainStatus ?? "") ? Number(data.ExecMainStatus) : null };
 }
-export async function health(ctx: Ctx, deps: ServiceDeps = {}): Promise<boolean> {
+async function healthInfo(ctx: Ctx, deps: ServiceDeps = {}): Promise<{ok: boolean; pid: number | null}> {
   try {
     const r = await (deps.fetch ?? fetch)(`http://127.0.0.1:${deps.port ?? Number(ctx.env.PACER_PORT ?? DEFAULT_PORT)}/health`, { signal: AbortSignal.timeout(deps.healthTimeoutMs ?? 750) });
-    return r.ok && r.headers.get("X-Pacer") === "1" && (await r.json() as { ok?: boolean }).ok === true;
-  } catch { return false; }
+    if (!r.ok || r.headers.get("X-Pacer") !== "1") return {ok:false,pid:null};
+    const body = await r.json() as {ok?: boolean; pid?: unknown};
+    const pid = typeof body.pid === "number" && Number.isInteger(body.pid) && body.pid > 0 ? body.pid : null;
+    return {ok:body.ok === true && pid !== null,pid};
+  } catch { return {ok:false,pid:null}; }
+}
+export async function health(ctx: Ctx, deps: ServiceDeps = {}): Promise<boolean> {
+  return (await healthInfo(ctx, deps)).ok;
+}
+/** Background services must not pin an ephemeral checkout unless explicitly overridden. */
+function validateServiceArgv(ctx: Ctx, argv: string[]): void {
+  if (ctx.env.PACER_BIN) return;
+  const canonical = (p: string) => { try { return realpathSync(p); } catch { return resolve(p); } };
+  const workspace = canonical(join(ctx.home, "orca/workspaces"));
+  const transient = (arg: string) => {
+    for (const path of new Set([resolve(arg), canonical(arg)])) {
+      if (path === workspace || path.startsWith(workspace + "/") || /\/\.worktrees(?:\/|$)/.test(path)) return true;
+      for (let dir = dirname(path);; dir = dirname(dir)) {
+        try { if (statSync(join(dir, ".git")).isFile()) return true; } catch { /* No git metadata here. */ }
+        if (dirname(dir) === dir) break;
+      }
+    }
+    return false;
+  };
+  if (isDevArgv(argv) || argv.some(transient)) throw new Error("Refusing development service command; install a release binary or set PACER_BIN to a stable pacer executable.");
 }
 export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend {
   const platform = deps.platform ?? process.platform;
@@ -115,29 +139,35 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
   const path = servicePath(ctx, platform), target = `gui/${deps.uid ?? process.getuid?.() ?? 0}/${LABEL}`;
   const system = (cmd: string, ...args: string[]) => ["systemctl", "--user", cmd, ...args];
   async function run(args: string[], absent = false) {
-    const r = await ctx.run(args, 10000);
+    let r = await ctx.run(args, 10000);
+    if (r.code !== 0 && args[0] === "launchctl" && args[1] === "bootstrap" && /Input\/output error/i.test(r.stderr + r.stdout)) {
+      await Bun.sleep(1000); r = await ctx.run(args, 10000);
+    }
     if (r.code !== 0 && !(absent && /not loaded|could not find service|no such process|not found|does not exist/i.test(r.stderr + r.stdout))) throw new Error(`${args.join(" ")}: ${r.stderr || r.stdout || `exit ${r.code}`}`);
   }
   const backend: ServiceBackend = {
     logsPath: () => join(ctx.pacerHome, "logs/serve.log"),
     async install() {
+      validateServiceArgv(ctx, argv);
       const old = readText(path);
       let activated = false;
       try {
       const report = await runInstall({ ctx, pacerArgv: argv }, "service", async tx => {
         mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true });
-        tx.edit(path, () => mac ? plist(ctx, argv) : unit(ctx, argv), []);
+        tx.edit(path, () => mac ? plist(ctx, argv) : unit(ctx, argv), [], join(ctx.pacerHome, "backups/service"));
         installedCache.delete(path);
         if (mac) { await run(["launchctl", "bootout", target], true); activated = true; await run(["launchctl", "bootstrap", target.slice(0, target.lastIndexOf("/")), path]); }
         else { await run(system("daemon-reload")); activated = true; await run(system("enable", "--now", "pacer-serve.service")); }
+        let verificationWarning: string | undefined;
         const deadline = Date.now() + (deps.waitMs ?? 10000);
         do {
           const s = await backend.status(deps.waitMs === 0 ? 1000 : Math.max(1, deadline - Date.now()));
           if (s.running && s.healthy) return;
+          verificationWarning = s.warning;
           if (Date.now() >= deadline) break;
           await Bun.sleep(Math.min(200, deadline - Date.now()));
         } while (Date.now() < deadline);
-        throw new Error("service did not become running and healthy within 10 seconds; inspect pacer service logs");
+        throw new Error(verificationWarning ?? "service did not become running and healthy within 10 seconds; inspect pacer service logs");
       });
       return report.notes;
       } catch (error) {
@@ -171,8 +201,10 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
       const text = readText(path), binaryPath = text === null ? null : binaryInFile(text, platform);
       const r = await ctx.run(mac ? ["launchctl", "print", target] : system("show", "pacer-serve.service", "--property=LoadState,ActiveState,SubState,MainPID,ExecMainStatus"), timeoutMs);
       const parsed = mac ? { ...parseLaunchd(r.stdout), loaded: r.code === 0, running: r.code === 0 && (parseLaunchd(r.stdout).pid ?? 0) > 0 } : parseSystemd(r.stdout);
-      return { ...parsed, loaded: r.code === 0 && parsed.loaded, running: r.code === 0 && parsed.running,
-        installed: text !== null, healthy: r.code === 0 && parsed.running && Date.now() < deadline ? await health(ctx, { ...deps, healthTimeoutMs: Math.max(1, Math.min(750, deadline - Date.now())) }) : false,
+      const h = r.code === 0 && parsed.running && Date.now() < deadline ? await healthInfo(ctx, { ...deps, healthTimeoutMs: Math.max(1, Math.min(750, deadline - Date.now())) }) : {ok:false,pid:null};
+      const warning = h.ok && h.pid !== parsed.pid ? `health pid mismatch: manager reports ${parsed.pid}, HTTP reports ${h.pid}` : undefined;
+      return { ...parsed, healthPid:h.pid, ...(warning ? {warning} : {}), loaded: r.code === 0 && parsed.loaded, running: r.code === 0 && parsed.running,
+        installed: text !== null, healthy: h.ok && h.pid === parsed.pid,
         plistPath: path, binaryPath, binaryMatches: sameBinary(binaryPath, argv[0]) };
     },
   };

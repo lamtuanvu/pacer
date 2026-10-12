@@ -19,21 +19,42 @@ export function readConsole(ctx:Ctx, alive:(pid:number)=>boolean=pidAlive):Conso
   if(!c || ctx.now-c.heartbeatAt>LIMITS.heartbeatS || !alive(c.pid)) return null; return c;
 }
 const safeHandle = (handle: string | null | undefined): handle is string => !!handle && /^[A-Za-z0-9_-]+$/.test(handle);
-const terminalCache = new Map<string, { checked: number; handles?: Set<string> }>();
-/** Failed/unavailable Orca queries never authorize deleting registrations. */
-export async function refreshConsoleTerminals(ctx: Ctx): Promise<void> {
+const terminalCache = new Map<string, { checked: number; listedAt?: number; unknownChecked?: number; handles?: Set<string>; pending?: Promise<void> }>();
+function registrationPaths(ctx: Ctx): string[] {
+  const dir = consolesDir(ctx);
+  return [consolePath(ctx), ...(existsSync(dir) ? readdirSync(dir).filter(f => /^[A-Za-z0-9_-]+\.json$/.test(f)).map(f => join(dir, f)) : [])];
+}
+/** Failed or partial Orca queries never authorize deleting registrations. */
+export async function refreshConsoleTerminals(ctx: Ctx, unknown = false): Promise<void> {
   const prior = terminalCache.get(ctx.pacerHome);
-  if (prior && Date.now() - prior.checked < 30000) return;
-  terminalCache.set(ctx.pacerHome, { ...prior, checked: Date.now() });
-  if (!ctx.which("orca")) return;
-  try {
-    const r = await ctx.run(["orca", "terminal", "list", "--json"], 1500);
-    const reply = parseOrcaOutput(r.stdout);
-    if (r.code !== 0 || !isObj(reply) || reply.ok !== true || !isObj(reply.result) || !Array.isArray(reply.result.terminals)) return;
-    if (!reply.result.terminals.every(t => isObj(t) && typeof t.handle === "string")) return;
-    terminalCache.set(ctx.pacerHome, { checked: Date.now(), handles: new Set(reply.result.terminals.map(t => t.handle as string)) });
-    readConsoles(ctx);
-  } catch { /* Preserve registrations when the runtime is unavailable. */ }
+  if (prior?.pending) return prior.pending;
+  unknown ||= !!prior?.handles && registrationPaths(ctx).some(path => {
+    const c = readJson<ConsoleData>(path); return !!c?.handle && !prior.handles!.has(c.handle);
+  });
+  if (prior && (unknown ? ctx.now - (prior.unknownChecked ?? -Infinity) < 5 : ctx.now - prior.checked < 30)) return;
+  const entry = { checked: ctx.now, unknownChecked: unknown ? ctx.now : prior?.unknownChecked } as NonNullable<ReturnType<typeof terminalCache.get>>;
+  // Invalidate the old membership before querying: an error cannot leave deletion authority behind.
+  terminalCache.set(ctx.pacerHome, entry);
+  const listedAt = ctx.now;
+  entry.pending = (async () => {
+    if (!ctx.which("orca")) return;
+    try {
+      const r = await ctx.run(["orca", "terminal", "list", "--json"], 1500);
+      const reply = parseOrcaOutput(r.stdout);
+      if (r.code !== 0 || !isObj(reply) || reply.ok !== true || !isObj(reply.result) || !Array.isArray(reply.result.terminals)) return;
+      if (!completeTerminalList(reply) || !completeTerminalList(reply.result)) return;
+      if (!reply.result.terminals.every(t => isObj(t) && typeof t.handle === "string")) return;
+      entry.listedAt = listedAt;
+      entry.handles = new Set(reply.result.terminals.map(t => t.handle as string));
+      readConsoles(ctx, pidAlive, false);
+    } catch { /* Preserve registrations when the runtime is unavailable. */ }
+  })();
+  try { await entry.pending; } finally { entry.pending = undefined; }
+}
+export function completeTerminalList(value: Record<string, unknown>): boolean {
+  return value.truncated !== true && value.hasMore !== true && !value.error &&
+    (!isObj(value.page) || value.page.hasMore !== true && !value.page.nextCursor) &&
+    (!isObj(value.pagination) || value.pagination.hasMore !== true && !value.pagination.nextCursor);
 }
 export function forgetConsoles(ctx: Ctx, worktreeId: string): void {
   const dir = consolesDir(ctx);
@@ -42,12 +63,15 @@ export function forgetConsoles(ctx: Ctx, worktreeId: string): void {
   }
   if (readJson<ConsoleData>(consolePath(ctx))?.worktreeId === worktreeId) rmSync(consolePath(ctx), { force: true });
 }
-export function readConsoles(ctx:Ctx,alive:(pid:number)=>boolean=pidAlive):ConsoleData[] {
+export function readConsoles(ctx:Ctx,alive:(pid:number)=>boolean=pidAlive, refreshUnknown = true):ConsoleData[] {
   const dir=consolesDir(ctx), found=new Map<string,ConsoleData>();
   const add=(raw:unknown,path?:string) => {
     const c=parseSnapshot({v:1,seq:0,at:0,console:raw})?.console;
     if(!c) return;
-    if(ctx.now-c.heartbeatAt>600 || !alive(c.pid) || (c.handle && terminalCache.get(ctx.pacerHome)?.handles && !terminalCache.get(ctx.pacerHome)!.handles!.has(c.handle))) { if(path) rmSync(path,{force:true}); return; }
+    const cached = terminalCache.get(ctx.pacerHome);
+    const missing = !!c.handle && !!cached?.handles && !cached.handles.has(c.handle);
+    if (missing && refreshUnknown) void refreshConsoleTerminals(ctx, true);
+    if(ctx.now-c.heartbeatAt>600 || !alive(c.pid) || (missing && (!refreshUnknown || !terminalCache.get(ctx.pacerHome)?.pending) && c.startedAt < (cached?.listedAt ?? -Infinity))) { if(path) rmSync(path,{force:true}); return; }
     if(!c.handle) return;
     const previous=found.get(c.handle);
     if(!previous || previous.heartbeatAt<c.heartbeatAt) found.set(c.handle,c);
