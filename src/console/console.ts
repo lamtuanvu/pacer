@@ -18,6 +18,7 @@ export interface ConsoleDeps {
   pid: number;
   cwd: string;
 }
+const displayText = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 export const HEARTBEAT_MS = 10_000;
 export const PUMP_MS = 15_000;
 type Prompt = { type: "strategy"; names: string[] } | {
@@ -38,10 +39,11 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
   const showPrompt = () => {
     if (!prompt) io.write("pacer> ");
     else if (prompt.type === "strategy") io.write("strategy (number or name, empty to cancel)> ");
-    else io.write(["goal> ", `repo [${prompt.repo}]> `, "scope (optional)> ", "acceptance (optional)> ", "kind (optional)> "][prompt.step]);
+    else io.write(["goal> ", `repo [${displayText(prompt.repo)}]> `, "scope (optional)> ", "acceptance (optional)> ", "kind (optional)> "][prompt.step]);
   };
   const startDelegate = (repo: string) => { prompt = { type: "delegate", step: 0, repo, goal: "", scope: "", acceptance: "" }; };
   const use = async (name: string) => {
+    if (!deps.listStrategies(fresh()).includes(name)) { print(`pacer: unknown strategy ${displayText(name)}`); return; }
     const path = deps.useStrategy(fresh(), name);
     print(`active strategy: ${name} (${path})`);
     await deps.pump(fresh());
@@ -60,7 +62,7 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
     switch (data.cmd) {
       case "delegate": {
         const repo = data.branch ? await deps.resolveWorktreePath(fresh(), data.branch) : null;
-        print(`delegate requested from Orca (${data.displayName || data.branch || "focused worktree"})`);
+        print(`delegate requested from Orca (${displayText(data.displayName || data.branch || "focused worktree")})`);
         startDelegate(repo || deps.cwd);
         break;
       }
@@ -71,7 +73,7 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
         const branch = data.branch ?? "";
         const match = /^pacer-(t-\d{8}-\d{6}-[0-9a-f]{4})-/.exec(branch);
         const task = match && isTaskId(match[1]) ? ` (task ${match[1]})` : "";
-        print(`worktree created: ${branch} ${data.path ?? ""}${task}`);
+        print(`worktree created: ${displayText(branch)} ${displayText(data.path ?? "")}${task}`);
         break;
       }
     }

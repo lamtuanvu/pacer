@@ -51,7 +51,10 @@ export function startServer(
           return Response.json({ error: (e as Error).message }, { status: 500 });
         }
       }
-      if (pathname === "/link") return Response.json(currentSnapshot(getCtx()));
+      if (pathname === "/link") {
+        try { return Response.json(currentSnapshot(getCtx())); }
+        catch (e) { return Response.json({ error: (e as Error).message }, { status: 500 }); }
+      }
       if (pathname === "/events") {
         let timer: ReturnType<typeof setInterval> | undefined;
         let tailTimer: ReturnType<typeof setInterval> | undefined;
@@ -96,7 +99,7 @@ export function startServer(
   const tick = () => {
     if (busy) return;
     busy = true;
-    void pumpOnce(getCtx()).catch(() => []).finally(() => { busy = false; });
+    void Promise.resolve().then(() => pumpOnce(getCtx())).catch(() => []).finally(() => { busy = false; });
   };
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
   return { port: server.port!, token, stop: () => { clearInterval(pumpTimer); server.stop(true); } };

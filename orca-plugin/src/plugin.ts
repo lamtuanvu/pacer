@@ -69,6 +69,12 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       });
     };
     store.onChange(scheduleRender);
+    const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
+      if (stopped) return;
+      store.replace(snapshot);
+      // Even identical data needs a new view of heartbeat expiry on reopen.
+      scheduleRender();
+    };
     const connect = async () => {
       const chosen = await chooseTransport(transports, settings.transport);
       if (stopped) return;
@@ -80,8 +86,8 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       }
       const snapshot = await active.snapshot() ?? await bridge.snapshot();
       if (stopped) return;
-      if (snapshot) store.replace(snapshot);
-      stopWatch = active.watch(e => { if (!stopped) store.apply(e); }, s => { if (!stopped) store.replace(s); });
+      if (snapshot) replaceSnapshot(snapshot);
+      stopWatch = active.watch(e => { if (!stopped) store.apply(e); }, replaceSnapshot);
       scheduleRender();
     };
     function ensureConnected(): Promise<void> {
@@ -95,8 +101,17 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const notify = async (title: string, body?: string) => {
       try { await ctx.host.call("notifications.show", { title: clip(title, 120), ...(body === undefined ? {} : { body: clip(body, 1000) }) }); } catch (e) { logError(e); }
     };
+    const refreshSnapshot = async () => {
+      try { const snapshot = await active?.snapshot(); if (snapshot) replaceSnapshot(snapshot); }
+      catch (e) { logError(e); }
+    };
+    const sendFresh = async (data: CmdData) => {
+      await refreshSnapshot();
+      if (stopped) return "no-console" as const;
+      return sendToConsole(ctx.host, store.snapshot, data, deps.nowS());
+    };
     const send = async (data: CmdData) => {
-      const result = await sendToConsole(ctx.host, store.snapshot, data, deps.nowS());
+      const result = await sendFresh(data);
       if (result === "no-console") { await notify(NO_CONSOLE.title, NO_CONSOLE.body); return { ok: false, message: NO_CONSOLE.title }; }
       if (result === "rejected") {
         const message = "Orca refused to type into the pacer console";
@@ -114,17 +129,15 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     ctx.commands.register("switch-strategy", async () => { await ensureConnected(); return send({ cmd: "use" }); });
     ctx.commands.register("refresh-status", async () => {
       await ensureConnected();
-      const s = await active?.snapshot(); if (s) store.replace(s);
-      if (liveConsole(store.snapshot, deps.nowS())) {
-        const result = await sendToConsole(ctx.host, store.snapshot, { cmd: "refresh" }, deps.nowS());
-        if (result === "rejected") await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
-      }
+      const result = await sendFresh({ cmd: "refresh" });
+      if (result === "rejected") await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
       const message = summaryLine(store.snapshot.budget);
       await notify(message, (store.snapshot.budget?.providers ?? []).map(p => `${p.id} ${p.verdict} ${p.usedPct === null ? "?" : `${Math.round(p.usedPct)}%`}`).join("\n"));
       return { ok: true, message };
     });
     ctx.commands.register("open-console", async () => {
       await ensureConnected();
+      await refreshSnapshot();
       const c = liveConsole(store.snapshot, deps.nowS());
       const message = c ? "pacer console is running" : NO_CONSOLE.title;
       await notify(message, c ? `terminal ${c.handle}` : NO_CONSOLE.body);
@@ -136,8 +149,10 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       if (!payload || typeof payload !== "object") return;
       const p = payload as AgentStatusChanged;
       if (p.state !== "done" || (p.mainAgent?.state ?? "done") !== "done" || typeof p.paneKey !== "string") return;
+      await refreshSnapshot();
       const now = deps.nowS();
-      if (now - lastDone < 5 || now - (paneLast.get(p.paneKey) ?? -Infinity) < 5 || !liveConsole(store.snapshot, now)) return;
+      if (stopped || now - lastDone < 5 || now - (paneLast.get(p.paneKey) ?? -Infinity) < 5 || !liveConsole(store.snapshot, now)) return;
+      // Reserve the debounce window before terminal IPC can yield.
       lastDone = now; paneLast.set(p.paneKey, now);
       await sendToConsole(ctx.host, store.snapshot, { cmd: "agent-done", paneKey: p.paneKey, ...(typeof p.worktreeId === "string" ? { worktreeId: p.worktreeId } : {}) }, now);
     });
@@ -145,8 +160,8 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       await ensureConnected();
       if (!payload || typeof payload !== "object") return;
       const p = payload as WorktreeCreated;
-      if (typeof p.branch !== "string" || !/(^|\/)pacer-/.test(p.branch) || typeof p.worktreeId !== "string" || typeof p.path !== "string" || !liveConsole(store.snapshot, deps.nowS())) return;
-      await sendToConsole(ctx.host, store.snapshot, { cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch }, deps.nowS());
+      if (typeof p.branch !== "string" || !/(^|\/)pacer-/.test(p.branch) || typeof p.worktreeId !== "string" || typeof p.path !== "string") return;
+      await sendFresh({ cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch });
     });
     void ensureConnected();
   }

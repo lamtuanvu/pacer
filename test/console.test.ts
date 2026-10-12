@@ -114,3 +114,30 @@ test("dependency errors at startup and timer ticks are printed without rejecting
   expect(await h.run(["status"], () => h.timers.get(PUMP_MS)!())).toBe(0);
   expect(h.output()).toContain("pacer: lookup failed"); expect(h.output()).toContain("pacer: pump failed"); expect(h.output()).toContain("STATUS TEXT");
 });
+
+for (const strategy of ["../x", "default\nmalicious", "economy ", "missing"]) test(`plugin rejects unlisted strategy ${JSON.stringify(strategy)}`, async () => {
+  const h = harness();
+  await h.run([encodeCmdLine({ cmd: "use", strategy }), "status"]);
+  expect(h.calls).toEqual([]);
+  expect(h.output()).toContain("pacer: unknown strategy");
+  expect(h.output()).toContain("STATUS TEXT");
+});
+test("plugin accepts an exact listed strategy", async () => {
+  const h = harness(); await h.run([encodeCmdLine({cmd:"use",strategy:"economy"})]);
+  expect(h.calls).toEqual(["use:economy", "pump"]);
+});
+test("plugin display names, branches and paths strip all C0 and C1 controls", async () => {
+  const h = harness();
+  const controls = Array.from({length:32},(_,i)=>String.fromCharCode(i)).join("") + Array.from({length:33},(_,i)=>String.fromCharCode(127+i)).join("");
+  await h.run([encodeCmdLine({cmd:"delegate",displayName:`Project${controls}name`,branch:"feat-x"}), "", encodeCmdLine({cmd:"worktree-created",branch:`pacer-${controls}branch`,path:`/wt/${controls}path`})]);
+  expect(h.output()).toContain("delegate requested from Orca (Projectname)");
+  expect(h.output()).toContain("worktree created: pacer-branch /wt/path");
+  expect(h.output().replace(/\n/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+});
+
+test("delegate repo prompt strips controls from a resolved worktree path", async () => {
+ const h=harness({resolveWorktreePath:async()=>"/wt/\u001b[31m\n\u009bpath"});
+ await h.run([encodeCmdLine({cmd:"delegate",branch:"feat-x"}),"fix", "", "", "", ""]);
+ expect(h.output()).toContain("repo [/wt/[31mpath]>");
+ expect(h.inputs[0].brief.repo).toBe("/wt/\u001b[31m\n\u009bpath");
+});

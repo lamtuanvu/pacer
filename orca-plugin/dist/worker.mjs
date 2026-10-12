@@ -275,7 +275,7 @@ function httpTransport(o) {
           reconnect();
         }
       };
-      const cancelPoll = o.timers.every(60000, () => {
+      const cancelPoll = o.timers.every(1e4, () => {
         if (refreshBusy)
           return;
         refreshBusy = true;
@@ -340,18 +340,22 @@ function bridgeTransport(o) {
 var CHANNEL_EVENT = "plugin.message";
 function channelTransport(o) {
   let listener = null;
-  o.registerEvent(CHANNEL_EVENT, (p) => {
-    if (typeof p !== "object" || !p)
-      return;
-    const e = parseEnvelope(p.data);
-    if (e)
-      listener?.(e);
-  });
+  let registered = false;
   return {
     id: "channel",
     probe: async () => {
       try {
         await o.host.call("events.subscribe", { events: [CHANNEL_EVENT] });
+        if (!registered) {
+          o.registerEvent(CHANNEL_EVENT, (p) => {
+            if (typeof p !== "object" || !p)
+              return;
+            const e = parseEnvelope(p.data);
+            if (e)
+              listener?.(e);
+          });
+          registered = true;
+        }
         return true;
       } catch {
         return false;
@@ -381,14 +385,22 @@ async function sendToConsole(host, s, data, nowS) {
 var NO_CONSOLE = { title: "pacer console is not running", body: "Run `pacer console --open` (or start `pacer console` in an Orca terminal), then retry." };
 
 // orca-plugin/src/notify.ts
+var deliveryState = new WeakMap;
 async function notifyNewAlerts(host, s, settings, activatedAtS) {
-  const alerts = s.alerts.filter((a) => a.at > Math.max(settings.lastAlertAt, activatedAtS - 600)).sort((a, b) => a.at - b.at).slice(0, 3);
+  let state = deliveryState.get(settings);
+  if (!state) {
+    state = { since: Math.max(settings.lastAlertAt, activatedAtS - 600), delivered: new Set };
+    deliveryState.set(settings, state);
+  }
+  const id = (a) => JSON.stringify([a.at, a.key]);
+  const alerts = s.alerts.filter((a) => a.at >= state.since && !state.delivered.has(id(a))).sort((a, b) => a.at - b.at).slice(0, 3);
   let newest = settings.lastAlertAt;
   for (const a of alerts) {
     const result = await host.call("notifications.show", { title: clip(a.title, 120), body: clip(a.body, 1000) });
     if (!result.delivered)
       break;
-    newest = a.at;
+    state.delivered.add(id(a));
+    newest = Math.max(newest, a.at);
   }
   if (newest > settings.lastAlertAt) {
     settings.lastAlertAt = newest;
@@ -539,6 +551,12 @@ function createPlugin(deps) {
       });
     };
     store.onChange(scheduleRender);
+    const replaceSnapshot = (snapshot) => {
+      if (stopped)
+        return;
+      store.replace(snapshot);
+      scheduleRender();
+    };
     const connect = async () => {
       const chosen = await chooseTransport(transports, settings.transport);
       if (stopped)
@@ -558,14 +576,11 @@ function createPlugin(deps) {
       if (stopped)
         return;
       if (snapshot)
-        store.replace(snapshot);
+        replaceSnapshot(snapshot);
       stopWatch = active.watch((e) => {
         if (!stopped)
           store.apply(e);
-      }, (s) => {
-        if (!stopped)
-          store.replace(s);
-      });
+      }, replaceSnapshot);
       scheduleRender();
     };
     function ensureConnected() {
@@ -587,8 +602,23 @@ function createPlugin(deps) {
         logError(e);
       }
     };
+    const refreshSnapshot = async () => {
+      try {
+        const snapshot = await active?.snapshot();
+        if (snapshot)
+          replaceSnapshot(snapshot);
+      } catch (e) {
+        logError(e);
+      }
+    };
+    const sendFresh = async (data) => {
+      await refreshSnapshot();
+      if (stopped)
+        return "no-console";
+      return sendToConsole(ctx.host, store.snapshot, data, deps.nowS());
+    };
     const send = async (data) => {
-      const result = await sendToConsole(ctx.host, store.snapshot, data, deps.nowS());
+      const result = await sendFresh(data);
       if (result === "no-console") {
         await notify(NO_CONSOLE.title, NO_CONSOLE.body);
         return { ok: false, message: NO_CONSOLE.title };
@@ -618,14 +648,9 @@ function createPlugin(deps) {
     });
     ctx.commands.register("refresh-status", async () => {
       await ensureConnected();
-      const s = await active?.snapshot();
-      if (s)
-        store.replace(s);
-      if (liveConsole(store.snapshot, deps.nowS())) {
-        const result = await sendToConsole(ctx.host, store.snapshot, { cmd: "refresh" }, deps.nowS());
-        if (result === "rejected")
-          await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
-      }
+      const result = await sendFresh({ cmd: "refresh" });
+      if (result === "rejected")
+        await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
       const message = summaryLine(store.snapshot.budget);
       await notify(message, (store.snapshot.budget?.providers ?? []).map((p) => `${p.id} ${p.verdict} ${p.usedPct === null ? "?" : `${Math.round(p.usedPct)}%`}`).join(`
 `));
@@ -633,6 +658,7 @@ function createPlugin(deps) {
     });
     ctx.commands.register("open-console", async () => {
       await ensureConnected();
+      await refreshSnapshot();
       const c = liveConsole(store.snapshot, deps.nowS());
       const message = c ? "pacer console is running" : NO_CONSOLE.title;
       await notify(message, c ? `terminal ${c.handle}` : NO_CONSOLE.body);
@@ -647,8 +673,9 @@ function createPlugin(deps) {
       const p = payload;
       if (p.state !== "done" || (p.mainAgent?.state ?? "done") !== "done" || typeof p.paneKey !== "string")
         return;
+      await refreshSnapshot();
       const now = deps.nowS();
-      if (now - lastDone < 5 || now - (paneLast.get(p.paneKey) ?? -Infinity) < 5 || !liveConsole(store.snapshot, now))
+      if (stopped || now - lastDone < 5 || now - (paneLast.get(p.paneKey) ?? -Infinity) < 5 || !liveConsole(store.snapshot, now))
         return;
       lastDone = now;
       paneLast.set(p.paneKey, now);
@@ -659,9 +686,9 @@ function createPlugin(deps) {
       if (!payload || typeof payload !== "object")
         return;
       const p = payload;
-      if (typeof p.branch !== "string" || !/(^|\/)pacer-/.test(p.branch) || typeof p.worktreeId !== "string" || typeof p.path !== "string" || !liveConsole(store.snapshot, deps.nowS()))
+      if (typeof p.branch !== "string" || !/(^|\/)pacer-/.test(p.branch) || typeof p.worktreeId !== "string" || typeof p.path !== "string")
         return;
-      await sendToConsole(ctx.host, store.snapshot, { cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch }, deps.nowS());
+      await sendFresh({ cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch });
     });
     ensureConnected();
   }

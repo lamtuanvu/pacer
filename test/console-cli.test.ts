@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { listStrategies, openConsoleArgv, resolveWorktreePath, runConsoleCli, selfHandle } from "../src/console/cli";
+import { consolePath } from "../src/link/paths";
 import { fakeCtx } from "./helpers";
 import { fakeRun, raw } from "./fixtures/orca/fake";
 
@@ -54,4 +55,21 @@ test("listStrategies includes default and sorts YAML basenames", () => {
 });
 test("invalid console arguments return usage without opening stdin", async () => {
   expect((await runConsoleCli(["--worktree"], fakeCtx())).code).toBe(2);
+});
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) test(`console removes heartbeat and exits on ${signal}`, async () => {
+  const ctx = fakeCtx();
+  const child = Bun.spawn([process.execPath, join(import.meta.dir,"../src/cli.ts"), "console"], {
+    env: {PATH:process.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_ORCA_USER_DATA:join(ctx.home,"orca")},
+    stdin:"pipe",stdout:"ignore",stderr:"pipe",
+  });
+  try {
+    const deadline=Date.now()+2000;
+    while(!existsSync(consolePath(ctx)) && Date.now()<deadline)await Bun.sleep(5);
+    expect(existsSync(consolePath(ctx))).toBe(true);
+    child.kill(signal);
+    await child.exited;
+    expect(existsSync(consolePath(ctx))).toBe(false);
+    expect(child.exitCode).toBe(signal==="SIGINT"?130:143);
+  } finally {if(child.exitCode===null)child.kill("SIGKILL");child.stdin.end();}
 });
