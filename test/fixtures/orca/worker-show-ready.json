@@ -1,0 +1,16 @@
+{
+  "id": "0f3c2a71-5b8e-4d0c-9a51-7f1e2b6c9d40",
+  "ok": true,
+  "result": {
+    "dispatch": { "id": "ctx_df599d4e7101", "runId": "run_9d54b4f3810a", "taskId": "task_8ac008c150a7" },
+    "worker": {
+      "dispatchId": "ctx_df599d4e7101",
+      "state": "ready",
+      "stage": "input_accepted",
+      "worktreeId": "40c98aad-c083-4ec9-b82e-a51798a20270::~/worktrees/pacer-exec-t2",
+      "agentTerminalHandle": "term_563674c8-c109-455e-a291-35acf015d00c",
+      "lastError": null
+    }
+  },
+  "_meta": { "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1" }
+}
