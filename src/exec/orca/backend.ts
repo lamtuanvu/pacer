@@ -65,6 +65,7 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   if (ex.worktree === "new-child" && git.dirty) {
     notes.push(`note: ${git.top} has uncommitted changes; the worker's new worktree starts from ${base} without them`);
   }
+  // New-child worktree names pacer-<taskId>-<providerId> also identify executor hook sessions.
   const placement: Placement = ex.worktree === "new-child"
     ? { kind: "new-child", repoId, baseBranch: base, name: `pacer-${task.id}-${cfg.id}` }
     : { kind: "existing", selector: `path:${git.top}` };
@@ -164,7 +165,7 @@ async function runOrcaAttempt(
     };
   };
   let ws: Awaited<ReturnType<OrcaClient["workerStart"]>>;
-  const prompt = workerSpec(task, p);
+  const prompt = "PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.\n\n" + workerSpec(task, p);
   try {
     ws = await c.workerStart({ spec: prompt, agent: p.agent, model: p.model, placement: p.placement, run: p.run, from: p.coordinator });
   } catch (e) {

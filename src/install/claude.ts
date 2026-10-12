@@ -33,6 +33,23 @@ function legacyBlock(text: string, anchor: RegExp): { start: number; end: number
   return end ? { start: match.index, end: match.index + match[0].length + end.index + end[0].length } : null;
 }
 
+function statuslineUndo(text: string): UndoOp {
+  const restore: { text: string; anchor: string | null }[] = [];
+  if (!hasBlock(text, "hash")) {
+    for (const pattern of [
+      /^# Persist Claude's rate-limit windows for ~\/\.claude\/scripts\/budget\/budget-status[^\n]*\n/m,
+      /^# L4: cross-subscription pacing[^\n]*\n/m,
+    ]) {
+      const block = legacyBlock(text, pattern);
+      if (!block) continue;
+      const before = text.slice(0, block.start);
+      const anchor = before.match(/[^\n]*\n$/)?.[0] ?? null;
+      restore.push({ text: text.slice(block.start, block.end), anchor });
+    }
+  }
+  return { kind: "block", style: "hash", restore };
+}
+
 export function editStatuslineScript(text: string, command: string): string | null {
   if (!/^input=\$\(cat\)\s*$/m.test(text)) return null;
   const body = `printf '%s' "$input" | ${command} statusline 2>/dev/null`;
@@ -110,7 +127,7 @@ export async function installClaude(tx: Txn): Promise<void> {
     const old = readText(settings.scriptPath);
     const next = old === null ? null : editStatuslineScript(old, command);
     if (next === null) needsPipe = true;
-    else tx.edit(settings.scriptPath, () => next, [{ kind: "block", style: "hash" }]);
+    else tx.edit(settings.scriptPath, () => next, [statuslineUndo(old!)]);
   }
   if (needsPipe) tx.notes.push(`Pipe your status-line JSON to \`${command} statusline\` to include pacer budgets.`);
 }

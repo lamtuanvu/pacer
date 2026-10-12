@@ -46,7 +46,7 @@ export async function runAttempt(
     return outcome(cfg, startedAt, exec, log, exec.stderr);
   }
   const exec = await execProcess({
-    argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env: ctx.env,
+    argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env: { ...ctx.env, PACER_ROLE: "executor" },
     timeoutMs: task.timeoutS * 1000, logFile: log, onSpawn,
   });
   let report = tail(exec.stdout.trim() || exec.stderr.trim(), REPORT_CHARS);

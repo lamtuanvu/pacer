@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { hookInput, plannerPolicyApplies } from "./install/role";
+import { io } from "./install/stdin";
 import { resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
@@ -88,6 +90,9 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     return { code: 2, out: "", err: `pacer status: --hook needs a planner: ${PLANNERS.join(", ")}` };
   }
   try {
+    if (mode === "hook" && !plannerPolicyApplies(ctx, planner!, hookInput(await io.readStdin().catch(() => "")))) {
+      return { code: 0, out: "", err: "" };
+    }
     const st = await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "line") return { code: 0, out: renderLine(st), err: "" };
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };

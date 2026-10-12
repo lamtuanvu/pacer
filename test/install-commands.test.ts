@@ -116,3 +116,19 @@ test("statusline reads stdin and stores Claude rate limits", async () => {
     expect((await main(["statusline"], ctx)).code).toBe(0);
   } finally { io.readStdin = original; }
 });
+
+test("development install warns with the exact baked shell command", async () => {
+  const { installPlanner, renderInstall } = await import("../src/install");
+  const ctx = fakeCtx();
+  const result = await installPlanner({ ctx, pacerArgv: ["/opt/bun", "/repo with spaces/src/cli.ts"] }, "codex");
+  const text = renderInstall(result);
+  expect(text).toContain("WARNING");
+  expect(text).toContain("/opt/bun '/repo with spaces/src/cli.ts'");
+});
+
+test("installer refuses transient worktree argv before writing files", async () => {
+  const { installPlanner } = await import("../src/install");
+  const ctx = fakeCtx();
+  await expect(installPlanner({ ctx, pacerArgv: ["/bun", "/repo/.worktrees/fix/src/cli.ts"] }, "codex")).rejects.toThrow("PACER_BIN");
+  expect(existsSync(join(ctx.home, ".codex"))).toBe(false);
+});

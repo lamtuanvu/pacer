@@ -6,7 +6,7 @@ import { readText } from "./fsx";
 import { removeHooks, restoreHooks, type HookFormat, type RemovedHook } from "./hookjson";
 import { getMember, isEmptyObject, parseJsonc, removeMember } from "./jsonc";
 
-export type UndoOp = { kind: "block"; style: BlockStyle }
+export type UndoOp = { kind: "block"; style: BlockStyle; restore?: { text: string; anchor: string | null }[] }
   | { kind: "toml-table"; table: string }
   | { kind: "json-member"; path: string[]; dropEmpty?: string[] }
   | { kind: "hooks"; format: HookFormat; commands: string[]; restore: RemovedHook[] }
@@ -38,10 +38,25 @@ export function removeTomlTable(text: string, table: string): string {
   while (end < lines.length && !lines[end].startsWith("[")) end++;
   return lines.slice(0, start).join("") + lines.slice(end).join("");
 }
-export function applyUndo(text: string, ops: UndoOp[]): string {
+export function applyUndo(text: string, ops: UndoOp[], notes: string[] = []): string {
   for (const op of ops) {
     switch (op.kind) {
-      case "block": text = removeBlock(text, op.style); break;
+      case "block":
+        text = removeBlock(text, op.style);
+        for (const removed of op.restore ?? []) {
+          if (text.includes(removed.text)) continue;
+          const lines = text.split(/(?<=\n)/);
+          const index = removed.anchor === null ? -1 : lines.indexOf(removed.anchor);
+          if (removed.anchor === null) text = removed.text + text;
+          else if (index >= 0) {
+            lines.splice(index + 1, 0, removed.text);
+            text = lines.join("");
+          } else {
+            text += (text && !text.endsWith("\n") ? "\n" : "") + removed.text;
+            notes.push("Legacy statusline block anchor missing; appended restored block.");
+          }
+        }
+        break;
       case "toml-table": text = removeTomlTable(text, op.table); break;
       case "json-member":
         text = removeMember(text, op.path);
@@ -76,6 +91,12 @@ export function mergeUndo(old: UndoOp[], added: UndoOp[]): UndoOp[] {
   for (const op of added) {
     const prior = result.find(item => key(item) === key(op));
     if (!prior) result.push(structuredClone(op));
+    else if (prior.kind === "block" && op.kind === "block" && op.restore?.length) {
+      prior.restore ??= [];
+      for (const removed of op.restore) {
+        if (!prior.restore.some(item => item.text === removed.text)) prior.restore.push(structuredClone(removed));
+      }
+    }
     else if (prior.kind === "hooks" && op.kind === "hooks") {
       prior.commands = [...new Set([...prior.commands, ...op.commands])];
       prior.restore.push(...structuredClone(op.restore));

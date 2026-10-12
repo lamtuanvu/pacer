@@ -127,3 +127,26 @@ test("resolveScript accepts existing absolute single tokens with home expansion"
   expect(resolveScript(`${f.script} --arg`, f.ctx.home)).toBeNull();
   expect(resolveScript("/missing/script", f.ctx.home)).toBeNull();
 });
+
+test("edited statusline restores both legacy blocks at their anchors and preserves user edits", async () => {
+  const f = legacyHome();
+  const original = readFileSync(f.script, "utf8");
+  await f.install();
+  writeFileSync(f.script, readFileSync(f.script, "utf8") + "# user edit\n");
+  await f.install(["/new/pacer"]);
+  const report = await uninstallPlanner(f.ctx, "claude-code");
+  expect(readFileSync(f.script, "utf8")).toBe(original + "# user edit\n");
+  expect(report!.reverted).toContain(f.script);
+});
+
+test("edited statusline appends a legacy block and notes when its anchor disappeared", async () => {
+  const f = legacyHome();
+  await f.install();
+  writeFileSync(f.script, readFileSync(f.script, "utf8").replace("echo mine\n", "echo edited\n"));
+  const report = await uninstallPlanner(f.ctx, "claude-code");
+  const text = readFileSync(f.script, "utf8");
+  expect(text).toContain("# Persist Claude's rate-limit windows");
+  expect(text).toContain("echo edited\n");
+  expect(text).toEndWith("# L4: cross-subscription pacing...\nif true; then\n  ~/.claude/scripts/budget/budget-status --line\nfi\n");
+  expect(report!.notes.join("\n")).toContain("anchor");
+});

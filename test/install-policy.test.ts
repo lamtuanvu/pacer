@@ -12,7 +12,8 @@ const planners = [
 for (const [planner, name] of planners) {
   test(`${planner} policy explains planner responsibilities, modes and task lifecycle`, () => {
     const text = policyText(planner);
-    expect(text.startsWith(`# pacer delegation policy (${name} is the planner)\n`)).toBe(true);
+    expect(text.split("\n")[0]).toBe("This applies only when you are the planner pacer is configured for; if pacer started you as an executor (PACER_ROLE=executor), ignore it.");
+    expect(text).toContain(`# pacer delegation policy (${name} is the planner)\n`);
     expect(text).toContain("plan, decide and review; delegate execution");
     expect(text).toContain("## Modes\n");
     for (const mode of ["strict/emergency", "normal", "relaxed"]) {
@@ -79,4 +80,10 @@ test("only commands with more than one argument point at a development checkout"
   expect(isDevArgv(["/opt/pacer"])).toBe(false);
   expect(isDevArgv([])).toBe(false);
   expect(isDevArgv(["/bun", "/repo/src/cli.ts", "extra"])).toBe(true);
+});
+
+test("transient worktree commands are refused unless PACER_BIN overrides them", () => {
+  expect(() => pacerArgv({}, ["/bun", "/repo/.worktrees/fix/src/cli.ts"], "/bun")).toThrow("PACER_BIN");
+  expect(() => pacerArgv({}, ["/repo/.worktrees/fix/pacer"], "/repo/.worktrees/fix/pacer")).toThrow("PACER_BIN");
+  expect(pacerArgv({ PACER_BIN: "/opt/pacer" }, ["/bun", "/repo/.worktrees/fix/src/cli.ts"], "/bun")).toEqual(["/opt/pacer"]);
 });

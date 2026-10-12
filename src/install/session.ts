@@ -3,11 +3,13 @@ import { computeStatus } from "../engine/status";
 import type { Status } from "../engine/status";
 import { renderHook } from "../render/hook";
 import type { Ctx } from "../types";
+import { hookInput, plannerPolicyApplies } from "./role";
 import { policyText } from "./policy";
 
 export interface SessionDeps { status?: (ctx: Ctx) => Promise<Status> }
 
-export async function sessionStart(ctx: Ctx, planner: string, deps: SessionDeps = {}): Promise<string> {
+export async function sessionStart(ctx: Ctx, planner: string, deps: SessionDeps = {}, stdin = ""): Promise<string> {
+  if (!plannerPolicyApplies(ctx, planner, hookInput(stdin))) return "";
   let body: string;
   if ((ctx.env.PACER ?? "").toLowerCase() === "off") {
     body = "pacer delegation policy is OFF for this session (PACER=off). Do the work directly.";

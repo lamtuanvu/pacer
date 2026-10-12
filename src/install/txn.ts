@@ -1,3 +1,4 @@
+import { isDevArgv, validateInstallArgv } from "./self";
 import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Ctx } from "../types";
@@ -90,7 +91,9 @@ export class Txn {
   }
 }
 export async function runInstall(env: InstallEnv, planner: string, fn: (tx: Txn) => void | Promise<void>): Promise<{ record: PlannerRecord; touched: string[]; notes: string[] }> {
+  validateInstallArgv(env.ctx.env, env.pacerArgv);
   const tx = new Txn(env, planner, readManifest(env.ctx).planners[planner]);
+  if (isDevArgv(env.pacerArgv)) tx.notes.push(`WARNING: development install bakes this command into integrations: ${shellCommand(env.pacerArgv)}`);
   try { await fn(tx); tx.commit(); }
   catch (error) { await tx.rollback(); throw error; }
   return { record: tx.record, touched: tx.touched, notes: tx.notes };
