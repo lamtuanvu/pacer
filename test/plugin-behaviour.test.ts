@@ -196,9 +196,9 @@ test("HTTP heartbeat-only polls leave the panel file unchanged", async () => {
  try {
   await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
   expect(panels.at(-1)).toContain('data-view="delegate" data-live>');
-  now=140;await f.timers.advance(10000);
+  now=120;await f.timers.advance(10000);
   expect(panels).toHaveLength(1);
-  f.snapshot={...f.snapshot,console:{...f.snapshot.console!,heartbeatAt:140}};
+  f.snapshot={...f.snapshot,console:{...f.snapshot.console!,heartbeatAt:120}};
   await f.timers.advance(10000);
   expect(panels).toHaveLength(1);
   f.snapshot={...f.snapshot,tasks:[{id:"t",state:"done",goal:"changed",executor:"codex",backend:null,worktree:null,updatedAt:140}]};
@@ -335,11 +335,11 @@ test("real loopback server shutdown switches HTTP to bridge and restart restores
  }finally{server.stop(true);await plugin.deactivate();await f.cleanup();}
 });
 
-test("panel metadata-only refresh is limited to five-minute intervals",async()=>{
+test("panel metadata-only refresh never rewrites even after five minutes",async()=>{
  const f=fixture();try{
  await f.start();await f.timers.advance(2000);expect(f.writes).toHaveLength(1);
  for(let i=1;i<5;i++){f.now=100+i*60;f.snapshot={...f.snapshot,at:100+i*60,console:{...f.snapshot.console!,heartbeatAt:100+i*60}};await f.timers.advance(60000);expect(f.writes).toHaveLength(1);}
- f.now=402;f.snapshot={...f.snapshot,at:402,console:{...f.snapshot.console!,heartbeatAt:402}};await f.timers.advance(62000);expect(f.writes).toHaveLength(2);
+ f.now=402;f.snapshot={...f.snapshot,at:402,console:{...f.snapshot.console!,heartbeatAt:402}};await f.timers.advance(62000);expect(f.writes).toHaveLength(1);
  }finally{await f.cleanup();}
 });
 
@@ -360,4 +360,23 @@ test("multi-console heartbeat ordering does not rewrite the panel",async()=>{
 });
 test("open-console checks the focused worktree rather than another console",async()=>{
  const f=fixture();try{f.context={branch:"x",displayName:"X",terminals:[{id:"other"}]};await f.start();expect(await f.commands.get("open-console")!()).toMatchObject({ok:false,message:"No pacer console in this worktree"});}finally{await f.cleanup();}
+});
+
+test("liveness timer rewrites on live to dead without a new snapshot and on recovery",async()=>{
+ const f=fixture();try{
+ await f.start();await f.timers.advance(2000);expect(f.writes).toHaveLength(1);
+ f.now=130;await f.timers.advance(15000);expect(f.writes).toHaveLength(1);
+ f.now=131;await f.timers.advance(15000);expect(f.writes).toHaveLength(2);
+ expect(f.writes.at(-1)!.text).toContain('data-view="delegate" data-live disabled');
+ await f.timers.advance(15000);expect(f.writes).toHaveLength(2);
+ f.snapshot={...f.snapshot,console:{...f.snapshot.console!,heartbeatAt:131}};
+ await f.timers.advance(12000);expect(f.writes).toHaveLength(3);
+ expect(f.writes.at(-1)!.text).toContain('data-view="delegate" data-live>');
+ }finally{await f.cleanup();}
+});
+test("worker console sends include the thirty-second boundary but reject the next second",async()=>{
+ const f=fixture();try{
+ await f.start();f.now=130;expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});
+ f.now=131;expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(sends(f)).toHaveLength(1);
+ }finally{await f.cleanup();}
 });

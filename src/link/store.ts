@@ -20,8 +20,8 @@ export function readConsoles(ctx:Ctx,alive:(pid:number)=>boolean=pidAlive):Conso
   const add=(raw:unknown,path?:string) => {
     const c=parseSnapshot({v:1,seq:0,at:0,console:raw})?.console;
     if(!c) return;
-    if(!alive(c.pid)) { if(path) rmSync(path,{force:true}); return; }
-    if(!c.handle || ctx.now-c.heartbeatAt>600) return;
+    if(ctx.now-c.heartbeatAt>600 || !alive(c.pid)) { if(path) rmSync(path,{force:true}); return; }
+    if(!c.handle) return;
     const previous=found.get(c.handle);
     if(!previous || previous.heartbeatAt<c.heartbeatAt) found.set(c.handle,c);
   };
@@ -37,9 +37,17 @@ export function writeConsole(ctx:Ctx,c:ConsoleData|null,handle?:string):void {
     writeJsonAtomic(consolePath(ctx),c);
   } else {
     const legacy=readJson<ConsoleData>(consolePath(ctx));
-    const own=handle ?? legacy?.handle;
-    if(safeHandle(own)) rmSync(join(consolesDir(ctx),`${own}.json`),{force:true});
-    if(!handle || legacy?.handle===handle) rmSync(consolePath(ctx),{force:true});
+    if(handle === undefined) {
+      const dir=consolesDir(ctx);
+      if(existsSync(dir)) for(const file of readdirSync(dir)) if(/^[A-Za-z0-9_-]+\.json$/.test(file)) {
+        const path=join(dir,file);
+        if(readJson<ConsoleData>(path)?.pid===process.pid) rmSync(path,{force:true});
+      }
+      if(legacy?.pid===process.pid) rmSync(consolePath(ctx),{force:true});
+    } else {
+      if(safeHandle(handle)) rmSync(join(consolesDir(ctx),`${handle}.json`),{force:true});
+      if(legacy?.handle===handle) rmSync(consolePath(ctx),{force:true});
+    }
   }
 }
 export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapshot {
