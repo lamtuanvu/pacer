@@ -23,9 +23,9 @@ fetch() {
       ;;
     *)
       if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$1" -o "$2" || die "download failed: $1"
+        curl --proto '=https,http,file' --proto-redir '=https' -fsSL "$1" -o "$2" || die "download failed: $1"
       elif command -v wget >/dev/null 2>&1; then
-        wget -q -O "$2" "$1" || die "download failed: $1"
+        wget --max-redirect=0 -q -O "$2" "$1" || die "download failed: $1"
       else
         die "need curl or wget to download $1"
       fi
@@ -47,6 +47,9 @@ sha256() {
 
 base=${PACER_RELEASE_BASE:-}
 [ -n "$base" ] || die "PACER_RELEASE_BASE is not set (pacer has no public release host yet). Example: PACER_RELEASE_BASE=file:///path/to/pacer/dist/release sh install.sh"
+case $base in
+  *\?* | *\#*) die "PACER_RELEASE_BASE must not contain ? or # (got: $base)" ;;
+esac
 while :; do
   case $base in
     */) base=${base%/} ;;
@@ -118,12 +121,12 @@ fi
 mkdir -p "$dir" || die "cannot create $dir"
 # Stage next to the target, then rename: a running pacer is never overwritten in place.
 stage=$dir/.pacer.install.$$
+trap 'rm -f "$stage"; rm -rf "$tmp"' EXIT
 cp "$tmp/$file" "$stage" || die "cannot write to $dir"
-chmod 755 "$stage"
-mv -f "$stage" "$dir/pacer" || { rm -f "$stage"; die "cannot replace $dir/pacer"; }
-
-installed=$("$dir/pacer" --version 2>/dev/null || true)
-[ -n "$installed" ] || die "installed $dir/pacer, but it does not run on this machine (pacer --version printed nothing)"
+chmod 755 "$stage" || die "cannot prepare staged binary in $dir"
+installed=$("$stage" --version 2>/dev/null) || die "staged $dir/pacer does not run on this machine"
+[ "$installed" = "pacer $version" ] || die "staged $dir/pacer reported '$installed', expected 'pacer $version'"
+mv -f "$stage" "$dir/pacer" || die "cannot replace $dir/pacer"
 say "installed: $installed ($dir/pacer)"
 case ":${PATH:-}:" in
   *":$dir:"*) ;;

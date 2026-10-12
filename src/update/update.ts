@@ -84,7 +84,7 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
     }
     const sums = parseSha256Sums(await fetchText(d.fetch, releaseUrl(base, target, "SHA256SUMS")));
     if (sums.get(asset.file) !== asset.sha256) throw new ReleaseError(`SHA256SUMS and manifest.json disagree about ${asset.file}; refusing to install`);
-    const bytes = await fetchBytes(d.fetch, releaseUrl(base, target, asset.file));
+    const bytes = await fetchBytes(d.fetch, releaseUrl(base, target, asset.file), asset.size);
     const got = sha256Hex(bytes);
     if (got !== asset.sha256 || bytes.length !== asset.size) {
       throw new ReleaseError(`checksum mismatch for ${asset.file} (expected ${asset.sha256}, got ${got}); nothing was changed`);

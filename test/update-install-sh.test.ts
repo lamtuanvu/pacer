@@ -99,6 +99,36 @@ test("checksum mismatch installs nothing and leaves an existing pacer alone", as
   expect(readdirSync(dir)).toEqual(["pacer"]);
 });
 
+test("staged binary must run and report the requested version before replacing the installed binary", async () => {
+  const root = tmpDir();
+  const dir = join(tmpDir(), "bin");
+  release(root, "0.2.0");
+  writeFileSync(join(root, "0.2.0", "pacer-darwin-arm64"), "#!/bin/sh\necho 'pacer 9.9.9'\n");
+  chmodSync(join(root, "0.2.0", "pacer-darwin-arm64"), 0o755);
+  writeRelease(root, "0.2.0", [MAC]);
+  mkdirSync(dir);
+  writeFileSync(join(dir, "pacer"), "old binary\n");
+  const r = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir });
+  expect(r.code).toBe(1);
+  expect(r.err).toContain("expected 'pacer 0.2.0'");
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe("old binary\n");
+  expect(readdirSync(dir)).toEqual(["pacer"]);
+});
+
+test("installer rejects bases with query or fragment components", async () => {
+  for (const base of ["file:///tmp/release?x=1", "https://example.com/releases#latest"]) {
+    const r = await runInstall({ PACER_RELEASE_BASE: base });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("must not contain ? or #");
+  }
+});
+
+test("downloader arguments forbid unsafe curl redirect schemes and wget redirects", () => {
+  const script = readFileSync(INSTALL_SH, "utf8");
+  expect(script).toContain("curl --proto '=https,http,file' --proto-redir '=https' -fsSL");
+  expect(script).toContain("wget --max-redirect=0");
+});
+
 test("missing or insecure base is refused", async () => {
   const none = await runInstall({});
   expect(none.code).toBe(1);
