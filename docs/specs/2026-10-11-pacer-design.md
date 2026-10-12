@@ -365,30 +365,30 @@ The policy text tells the planner to call `task_review` after it reviews each de
 ### 7.1 Plugin
 
 An Orca plugin (`orca-plugin.json`, `pluginApi: 1`) contributing:
-- **Agent profiles:** pacer executors (for example "BytePlus executor", "Ollama executor") in Orca's launcher.
+- **Agent profiles:** deferred; Orca 1.4.224 accepts the contribution but has no consumer or defined profile format (F13). No instructional contributions in v1, so panel rewrites keep consent stable.
 - **Commands:** Delegate, Switch strategy, Refresh status, Open pacer console.
 - **Event subscriptions:** `agent.status.changed` (a worker finished → tell the brain to refresh and verify) and `worktree.created`.
-- **A panel:** budget view (needs brain → plugin data; see 7.2).
+- **A panel:** budget snapshot, rewritten only in a pacer-managed development path and refreshed by reopening (F8–F9; see 7.2). Live signals use notifications; panel buttons send commands to the console.
 
-Capabilities: `workspace:read`, `terminal:send`, `notifications:show`, `events:subscribe`, `storage`, `settings:own`. Orca plugin API v1 offers no filesystem, process or network access.
+Capabilities: `workspace:read`, `terminal:send`, `notifications:show`, `events:subscribe`, `storage`, `settings:own`. The host API and panels offer no filesystem, process or network access; workers are full Node processes with that access (F7). pacer limits worker Node usage to loopback HTTP, reading its token, and writing its managed panel snapshot; it does not spawn processes. See the [transport decision record](../superpowers/decisions/2026-10-12-orca-link-transport.md) for D1–D7 and pending human verification.
 
 ### 7.2 Link
 
 **Envelope** (identical on every transport): `{ "v": 1, "type": "budget" | "task" | "mode" | "alert", "data": {…} }`.
 
-**Plugin → brain:** `terminal.sendText` into a terminal running `pacer console`. This always works.
+**Plugin → brain:** `terminal.sendText` into a terminal running `pacer console`, advertised with a heartbeat no older than 30 seconds. Commands use the shell-inert line `: pacer '<json>'` with escaped single quotes. Cross-worktree scope awaits S4; if refused, the console must run in the focused worktree.
 
 **Brain → plugin:** three transports, chosen by run-time detection in priority order:
 
 | # | Transport | Requires | Plugin-side detection |
 |---|---|---|---|
-| 1 | HTTP: the plugin polls `GET /state` and subscribes to `GET /events` on `pacer serve` | Orca shipping a network capability (manifest change + plugin release) | the capability is granted |
+| 1 | HTTP: the worker polls `GET /link` and subscribes to `GET /events` on `pacer serve`; `/state` retains its budget projection | `pacer serve` running (works today from the worker) | authenticated loopback HTTP probe succeeds (live S1 pending) |
 | 2 | Orca channel: the brain runs `orca plugin send pacer <json>` and the plugin receives an event | the upstream feature (7.3) | the event name is in the host's event list |
-| 3 | Unofficial bridge: chosen by a spike between **(a)** agent-status piggyback (pacer reports a status whose `state` is at most 256 characters and carries a compact summary) and **(b)** writing to Orca's on-disk plugin storage, which the plugin polls | nothing (works today) | a bridge probe message is received within N seconds |
+| 3 | Storage bridge (3b) chosen: the brain writes the plugin storage `link` key, which the worker polls. 3a rejected: agent `state` is a closed 4-value enum (F14) | nothing (works today; live S2 pending) | a bridge probe message is received within N seconds |
 
 - **The brain** publishes each message to every transport it can reach.
 - **The plugin** uses the best transport detected, and a setting can force one.
-- **Switching transports never changes plugin UI logic or brain logic.** Moving to transport 1 needs a one-line manifest change and a plugin release, because Orca rejects unknown capabilities. Transport 2 is auto-detected.
+- **Switching transports never changes plugin UI logic or brain logic.** Transport 2 is auto-detected and absent today (F12). `pacer serve` stays read-only: `GET /link` and outbox tailing in `/events`, with no POST endpoint.
 
 ### 7.3 Upstream proposal
 
