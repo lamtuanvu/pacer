@@ -361,6 +361,59 @@ test("an idle worker with a usage limit fails early and is stopped even if relea
   expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
 });
 
+for (const busy of [false, true]) {
+  test(`limit words in the dispatched goal do not stop the worker (busy: ${busy})`, async () => {
+    const { f, ctx, task, backend, cfg } = setup(() => [
+      [O("orchestration", "check"), [ok("check-w5a.ndjson"), ok("check-1.ndjson"), ok("ack-1.json")]],
+      [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
+      [O("orchestration", "worker-read"), () => raw(JSON.stringify({
+        ok: true, result: { terminal: { tail: [
+          `> ${arg(startArgs(f), "--spec").split("\n").find((line) => line.includes("rate limit exceeded"))}`,
+          busy ? "Working (esc to interrupt)" : "Ready",
+        ] } },
+      }))],
+    ]);
+    task.brief.goal = "Fix rate limit exceeded errors";
+    const out = await backend.runAttempt(ctx, cfg, task);
+    expect(out.exec).toMatchObject({ code: 0, timedOut: false });
+    expect(out.attempt.limitHit).toBe(false);
+    expect(f.count(O("orchestration", "worker-read"))).toBe(1);
+    expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
+  });
+}
+
+for (const indicator of ["esc to interrupt", "ctrl+c to stop", "terminal preview"]) {
+  test(`worker output about 429 while working does not stop it (${indicator})`, async () => {
+    const { f, ctx, task, backend, cfg } = setup(() => [
+      [O("orchestration", "check"), [ok("check-w5a.ndjson"), ok("check-1.ndjson"), ok("ack-1.json")]],
+      [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
+      [O("orchestration", "worker-read"), raw(JSON.stringify({
+        ok: true, result: { terminal: { tail: ["Investigating HTTP 429 handling", indicator] } },
+      }))],
+      ...(indicator === "terminal preview" ? [[O("terminal", "show"), ok("terminal-show-working.json")] as Route] : []),
+    ]);
+    const out = await backend.runAttempt(ctx, cfg, task);
+    expect(out.exec).toMatchObject({ code: 0, timedOut: false });
+    expect(out.attempt.limitHit).toBe(false);
+    expect(f.count(O("orchestration", "worker-read"))).toBe(1);
+    expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
+  });
+}
+
+test("a limit message outside the last 15 terminal lines does not stop the worker", async () => {
+  const { f, ctx, task, backend, cfg } = setup(() => [
+    [O("orchestration", "check"), [ok("check-w5a.ndjson"), ok("check-1.ndjson"), ok("ack-1.json")]],
+    [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
+    [O("orchestration", "worker-read"), raw(JSON.stringify({
+      ok: true, result: { terminal: { tail: ["HTTP 429", ...Array(15).fill("Checked another file")] } },
+    }))],
+  ]);
+  const out = await backend.runAttempt(ctx, cfg, task);
+  expect(out.exec.code).toBe(0);
+  expect(out.attempt.limitHit).toBe(false);
+  expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
+});
+
 for (const waitFails of [false, true]) {
   test(`a registration lock failure still supervises the worker (wait failure: ${waitFails})`, async () => {
     const original = new Error("wait connection lost");
