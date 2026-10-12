@@ -1,3 +1,4 @@
+import { currentVersion } from "../src/update/version";
 import { expect, test } from "bun:test";
 import { runConsole, HEARTBEAT_MS, PUMP_MS, type ConsoleDeps } from "../src/console/console";
 import { encodeCmdLine, type ConsoleData } from "../src/link/envelope";
@@ -35,7 +36,7 @@ function harness(overrides: Partial<ConsoleDeps> = {}) {
 test("startup advertises self handle and EOF cancels timers and clears heartbeat", async () => {
   const h = harness();
   expect(await h.run([])).toBe(0);
-  expect(h.heartbeats[0]).toEqual({ handle: "term_console", paneKey: "T:L", pid: process.pid, startedAt: h.ctx.now, heartbeatAt: h.ctx.now });
+  expect(h.heartbeats[0]).toEqual({ version: currentVersion(), handle: "term_console", paneKey: "T:L", pid: process.pid, startedAt: h.ctx.now, heartbeatAt: h.ctx.now });
   expect(h.heartbeats.at(-1)).toBeNull();
   expect(h.cancelled.sort()).toEqual([HEARTBEAT_MS, PUMP_MS]);
   expect(h.output()).toContain("pacer console (handle term_console). Type help.");

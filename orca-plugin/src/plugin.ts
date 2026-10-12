@@ -55,6 +55,8 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       bridge,
     ];
     let active: Transport | null = null, reachable = false, connecting: Promise<void> | null = null;
+    let lastSeenAt: number | undefined;
+    const reconnecting = () => !reachable && lastSeenAt !== undefined && deps.nowS()-lastSeenAt < 20;
     let processing = Promise.resolve();
     let httpFailures = 0;
     let renderedKey: string | null = null;
@@ -72,7 +74,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const panelKey = () => JSON.stringify({
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
-      tasks: store.snapshot.tasks, alerts: store.snapshot.alerts,
+      serviceInstalled: store.snapshot.serviceInstalled, reconnecting: reconnecting(), tasks: store.snapshot.tasks, alerts: store.snapshot.alerts,
       consoles: [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map(handle => ({
         handle, live: [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS),
       })), autoConsoleOutcome: hintKey(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
@@ -87,7 +89,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
               renderedKey = key;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
@@ -105,13 +107,15 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const acceptSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
       httpFailures = 0;
+      lastSeenAt = deps.nowS();
       if (!reachable) { reachable = true; scheduleRender(); }
       replaceSnapshot(snapshot);
     };
     const connect = async () => {
       const chosen = await chooseTransport(transports, settings.transport);
       if (stopped) return;
-      active = chosen.transport; reachable = chosen.reachable; store.transport = active?.id ?? null;
+      active = chosen.transport; reachable = chosen.reachable && active?.id !== "bridge";
+      if (reachable) lastSeenAt = deps.nowS(); store.transport = active?.id ?? null;
       if (!active) {
         scheduleRender();
         cancelRetry = timers.after(settings.pollSeconds * 1000, () => { cancelRetry = null; void ensureConnected(); });
@@ -120,7 +124,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       const snapshot = await active.snapshot().catch(() => null) ?? await bridge.snapshot();
       if (stopped) return;
       if (snapshot) replaceSnapshot(snapshot);
-      stopWatch = active.watch(e => { if (!stopped) store.apply(e); }, acceptSnapshot, () => { void handleHttpFailure().catch(logError); });
+      stopWatch = active.watch(e => { if (!stopped) { lastSeenAt = deps.nowS(); store.apply(e); } }, active.id === "bridge" ? replaceSnapshot : acceptSnapshot, () => { void handleHttpFailure().catch(logError); });
       scheduleRender();
     };
     function ensureConnected(): Promise<void> {
@@ -140,6 +144,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       if (snapshot) replaceSnapshot(snapshot);
       if (stopped || active?.id !== "http") return;
       reachable = false;
+      if (lastSeenAt !== undefined) timers.after(Math.max(0, (20 - (deps.nowS()-lastSeenAt))*1000), scheduleRender);
       if (failures >= 3) {
         stopWatch?.(); stopWatch = null; httpFailures = 0;
         await ensureConnected();
@@ -149,7 +154,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const refreshSnapshot = async () => {
       try {
         const snapshot = await active?.snapshot().catch(() => null);
-        if (snapshot) acceptSnapshot(snapshot);
+        if (snapshot) { if (active?.id === "bridge") replaceSnapshot(snapshot); else acceptSnapshot(snapshot); }
         else if (active?.id === "http") await handleHttpFailure();
         else { const fallback = await bridge.snapshot(); if (fallback) replaceSnapshot(fallback); }
       } catch (e) { logError(e); }
@@ -204,7 +209,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         const result = JSON.parse(response.body);
         if (!result.ok) {
           outcomes.set(worktree, { status: typeof result.reason === "string" ? result.reason : "orca-unavailable", at: deps.nowS() }); scheduleRender();
-        } else if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
+        } else if (result.warning === "older-console") { outcomes.set(worktree, { status: "older-console", at: deps.nowS() }); scheduleRender(); } else if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
       })().catch(e => {
         const now = deps.nowS();
         outcomes.set(worktree, { status: "orca-unavailable", at: now }); scheduleRender();
@@ -272,7 +277,23 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       if (typeof p.branch !== "string" || !/(^|\/)pacer-/.test(p.branch) || typeof p.worktreeId !== "string" || typeof p.path !== "string") return;
       await sendFresh({ cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch });
     });
-    try { void ctx.host.call("events.subscribe", { events: ["agent.status.changed", "worktree.created"] }).catch(logError); }
+    ctx.events.on("worktree.removed", async payload => {
+      if (stopped || !payload || typeof payload !== "object" || !("worktreeId" in payload)) return;
+      const id = payload.worktreeId;
+      if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}(?:::[^\x00-\x1f\x7f]{1,900})?$/.test(id)) return;
+      outcomes.delete(id); failureLogged.delete(id);
+      if (focusedWorktree === id) { focusedWorktree = null; attempted = false; }
+      scheduleRender();
+      try {
+        const base = `http://127.0.0.1:${settings.port}`;
+        const health = await deps.http.get(`${base}/health`, "", 1500);
+        if (stopped || health.status !== 200 || health.headers?.["x-pacer"] !== "1") return;
+        const token = deps.fs.readText(`${settings.pacerHome}/token`)?.trim();
+        if (!token || !deps.http.post) return;
+        await deps.http.post(`${base}/console/forget`, token, { worktreeId: id }, 1500);
+      } catch (e) { logError(e); }
+    });
+    try { void ctx.host.call("events.subscribe", { events: ["agent.status.changed", "worktree.created", "worktree.removed"] }).catch(logError); }
     catch (e) { logError(e); }
     void ensureConnected();
   }

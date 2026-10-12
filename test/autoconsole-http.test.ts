@@ -81,7 +81,7 @@ test("unresolved worktree or failed terminal listing never creates a console",as
  expect(await (await post({terminal:"term_missing"})).json()).toMatchObject({ok:false});
  expect(await (await post({branch:"missing"})).json()).toMatchObject({ok:false});expect(f.calls).toHaveLength(0);
 });
-for(const remembered of [false,true])test(`existing console terminal prevents recreate (remembered=${remembered})`,async()=>{
+for(const remembered of [false,true])test(`unregistered existing console terminal permits fresh recovery (remembered=${remembered})`,async()=>{
  const {post,ctx,f}=fixture();
  if(remembered){expect((await (await post()).json()).ok).toBe(true);ctx.now+=61;}
  const scripted=fakeRun([
@@ -89,7 +89,7 @@ for(const remembered of [false,true])test(`existing console terminal prevents re
  [["orca","terminal","list"],reply({terminals:[remembered?{handle:"term_new",title:"renamed"}:{handle:"term_dead",title:"pacer"}]})],
  [["orca","terminal","create"],reply({terminal:{handle:"term_duplicate"}})],
  ]);ctx.run=scripted.run;
- expect(await (await post()).json()).toMatchObject({ok:false,reason:"console-terminal-exists"});expect(scripted.count(["orca","terminal","create"])).toBe(0);
+ expect(await (await post()).json()).toMatchObject({ok:true,warning:"older-console"});expect(scripted.count(["orca","terminal","create"])).toBe(1);
 });
 test("failed terminal create releases worktree and global reservations",async()=>{
  const {post,ctx}=fixture();let attempts=0;
@@ -100,4 +100,20 @@ test("failed terminal create releases worktree and global reservations",async()=
  ]);ctx.run=f.run;
  for(let i=0;i<11;i++)expect(await (await post()).json()).toMatchObject({ok:false,reason:"orca-unavailable"});
  expect(await (await post()).json()).toMatchObject({ok:true,handle:"term_recovered"});
+});
+
+test("console forget is token-gated, validates bounded JSON and removes only matching worktree registrations and reservations", async () => {
+ const {post,ctx,f}=fixture();
+ expect((await (await post()).json()).ok).toBe(true);
+ writeConsole(ctx,{worktreeId:"wt",handle:"term_gone",pid:process.pid,paneKey:null,startedAt:ctx.now,heartbeatAt:ctx.now});
+ writeConsole(ctx,{worktreeId:"other",handle:"term_kept",pid:process.pid,paneKey:null,startedAt:ctx.now,heartbeatAt:ctx.now});
+ expect((await post({worktreeId:"wt"},{authorization:"bad"},"POST","/console/forget")).status).toBe(401);
+ for(const body of [{}, {worktreeId:"../bad"}, {worktreeId:123}, "{", " ".repeat(4097)]) expect((await post(body,{},"POST","/console/forget")).status).toBe(body === " ".repeat(4097) ? 413 : 400);
+ expect(await (await post({worktreeId:"wt"},{},"POST","/console/forget")).json()).toEqual({ok:true});
+ const {readConsoles}=await import("../src/link/store"); expect(readConsoles(ctx).map(c=>c.handle)).toEqual(["term_kept"]);
+ expect((await (await post()).json()).ok).toBe(true);expect(f.count(["orca","terminal","create"])).toBe(2);
+});
+
+test("forget accepts Orca composite worktree identity",async()=>{
+ const {post}=fixture();expect(await (await post({worktreeId:"abc-123::/Users/name/My Repo"},{},"POST","/console/forget")).json()).toEqual({ok:true});
 });
