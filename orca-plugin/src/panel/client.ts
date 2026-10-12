@@ -37,8 +37,9 @@ function updateFreshness() {
   for(const el of document.querySelectorAll("[data-updated]")) el.textContent = data.updatedAt ? new Date(data.updatedAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
   const old = Date.now()/1000-data.snapshotAt>120;
   for(const el of document.querySelectorAll("[data-freshness]")) {
-    el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "warn" : "good");
-    el.textContent = !data.reachable ? "Not connected" : (old ? "Stale · " : "Live · ") + new Date(data.snapshotAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
+    // Unchanged data is not re-rendered (Orca reloads the panel on every write), so age alone is not a fault: show it neutrally.
+    el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "muted" : "good");
+    el.textContent = !data.reachable ? "Not connected" : (old ? "Updated " : "Live · ") + new Date(data.snapshotAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
   }
 }
 updateFreshness(); setInterval(updateFreshness,30000);

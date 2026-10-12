@@ -180,7 +180,7 @@ test("strategy view lists summaries and sends a selected name",()=>{
  const s=snapshot();s.strategies=["default"];expect(panel(s)).toContain('data-view="strategy" data-live');expect(panel(s)).toContain("Build a new strategy with an agent");
 });
 test("freshness indicator turns stale in place on its thirty-second timer",()=>{
- const b=browser();expect(b.freshness[0].parentElement.className).toContain("good");b.now(221000);b.tick();expect(b.freshness[0].parentElement.className).toContain("warn");expect(b.freshness[0].textContent).toContain("Stale");
+ const b=browser();expect(b.freshness[0].parentElement.className).toContain("good");b.now(221000);b.tick();expect(b.freshness[0].parentElement.className).toContain("muted");expect(b.freshness[0].textContent).toContain("Updated ");
 });
 test("rendered desktop panel uses Orca's compact typography and control dimensions",()=>{
  const css=panel().match(/<style>(.*?)<\/style>/s)![1];
@@ -221,7 +221,7 @@ test("client renders the snapshot update time and ages freshness without a reloa
  const s=snapshot();const at=Date.UTC(2026,9,12,10)/1000;s.at=at;s.budget!.generatedAt=at;
  const b=browser(panel(s,true,at));b.now(at*1000);b.tick();
  expect(b.updated.textContent).toBe(new Date(at*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}));expect(b.freshness[0].parentElement.className).toContain("good");
- b.now((at+121)*1000);b.tick();expect(b.updated.textContent).toBe(new Date(at*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}));expect(b.freshness[0].textContent).toContain("Stale");
+ b.now((at+121)*1000);b.tick();expect(b.updated.textContent).toBe(new Date(at*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}));expect(b.freshness[0].textContent).toContain("Updated ");
 });
 
 test("a fresh registration remains usable when a stale duplicate precedes it",()=>{
