@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
+import { EXTRA_COMMANDS, findCommand } from "./commands/index";
+import type { Result } from "./commands/types";
 import { MissingStrategyError, StrategyError, loadStrategy, useStrategy } from "./config/strategy";
 import { makeCtx } from "./ctx";
 import { rankExecutors } from "./engine/rank";
@@ -27,7 +29,9 @@ const USAGE = `usage: pacer <command>
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
   help                                           this message`;
 
-type Result = { code: number; out: string; err: string; keepAlive?: boolean };
+function help(): string {
+  return EXTRA_COMMANDS.length ? `${USAGE}\n${EXTRA_COMMANDS.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
+}
 
 function explain(e: unknown): string {
   if (e instanceof MissingStrategyError) {
@@ -195,9 +199,12 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "help":
     case "--help":
     case "-h":
-      return { code: 0, out: USAGE, err: "" };
-    default:
-      return { code: 2, out: "", err: `pacer: unknown command "${cmd}"\n${USAGE}` };
+      return { code: 0, out: help(), err: "" };
+    default: {
+      const extra = findCommand(cmd);
+      if (extra) return extra.run(rest, ctx);
+      return { code: 2, out: "", err: `pacer: unknown command "${cmd}"\n${help()}` };
+    }
   }
 }
 

@@ -33,6 +33,8 @@ export interface Strategy {
   providers: Record<string, ProviderCfg>;
   pacing: { policy: Policy; order: string[]; plannerReserve: number; aheadThreshold: number; behindThreshold: number };
   routing: RouteRule[];
+  execution: Record<string, unknown>;
+  classifier: Record<string, unknown>;
 }
 
 export class StrategyError extends Error {
@@ -187,7 +189,11 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   }
 
   if (p.length) throw new StrategyError(path, p);
-  return { name, planner, providers, pacing, routing };
+  return {
+    name, planner, providers, pacing, routing,
+    execution: isObj(raw.execution) ? raw.execution : {},
+    classifier: isObj(raw.classifier) ? raw.classifier : {},
+  };
 }
 
 function activeName(ctx: Ctx): string | null {
