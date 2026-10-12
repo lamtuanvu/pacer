@@ -1,0 +1,1 @@
+Brand icons from Simple Icons 16.35.0 (CC0-1.0), https://simpleicons.org. Trademarks belong to their owners; used only to identify each provider. OpenAI is not in Simple Icons, so Codex uses a monogram.
