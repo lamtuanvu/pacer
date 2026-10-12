@@ -1,0 +1,17 @@
+{
+  "id": "c39969be-1311-4a68-8d5e-be4e22398588",
+  "ok": true,
+  "result": {
+    "dispatch": { "id": "ctx_802297d1724f", "runId": "run_9d54b4f3810a", "taskId": "task_ef3bf0618438", "status": "completed", "lastFailure": null, "terminationReason": null },
+    "worker": {
+      "dispatchId": "ctx_802297d1724f",
+      "state": "succeeded",
+      "stage": "settled",
+      "worktreeId": "40c98aad-c083-4ec9-b82e-a51798a20270::~/worktrees/pacer-exec-t1",
+      "agentTerminalHandle": "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d",
+      "lastError": null
+    },
+    "projection": { "outcome": "succeeded", "liveness": { "verdict": "exited", "source": "resource_release" } }
+  },
+  "_meta": { "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1" }
+}

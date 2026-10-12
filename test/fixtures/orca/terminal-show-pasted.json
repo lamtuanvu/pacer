@@ -1,0 +1,18 @@
+{
+  "id": "6a2f0b1e-3c4d-4e5f-8a9b-0c1d2e3f4a5b",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d",
+      "orphaned": false,
+      "worktreePath": "~/worktrees/pacer-exec-t1",
+      "title": "Cursor Agent",
+      "connected": true,
+      "writable": true,
+      "preview": "  [Pasted text #1 +142 lines]\n\n  > Add a follow-up\n  Auto",
+      "executionHostId": "local",
+      "agentIdentity": "cursor"
+    }
+  },
+  "_meta": { "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1" }
+}

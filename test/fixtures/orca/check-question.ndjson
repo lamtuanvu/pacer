@@ -1,0 +1,32 @@
+{"_keepalive":true,"_heartbeat":true,"elapsedMs":15000,"deadlineMs":30000}
+{
+  "id": "5b0c1f8e-0000-4000-8000-000000000001",
+  "ok": true,
+  "result": {
+    "runId": "run_9d54b4f3810a",
+    "deliveryId": "delivery_q00000000001",
+    "messages": [
+      {
+        "id": "msg_q00000000001",
+        "run_id": "run_9d54b4f3810a",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d",
+        "to_handle": "run:run_9d54b4f3810a",
+        "subject": "Scope question",
+        "body": "Should I also update the README?",
+        "type": "question",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_ef3bf0618438\",\"dispatchId\":\"ctx_802297d1724f\"}",
+        "created_at": "2026-10-11T08:01:30Z",
+        "delivered_at": null
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false
+  }
+}
