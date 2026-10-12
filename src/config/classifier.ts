@@ -98,7 +98,7 @@ export function validateClassifier(raw: unknown, providers: Record<string, Provi
     if (!Array.isArray(input.shadow)) problems.push("classifier.shadow must be a list");
     else input.shadow.forEach((value, i) => shadow.push(adapter(value, "rules", `classifier.shadow[${i}]`)));
   }
-  let logState: ClassifierConfig["logState"] = "full";
+  let logState: ClassifierConfig["logState"] = Object.keys(input).length ? "full" : "trimmed";
   if (input.log_state !== undefined) {
     if (input.log_state === "full" || input.log_state === "trimmed" || input.log_state === "none") logState = input.log_state;
     else problems.push("classifier.log_state must be one of full, trimmed, none");

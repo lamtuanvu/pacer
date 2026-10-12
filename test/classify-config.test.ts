@@ -14,7 +14,7 @@ test("empty input gives configured:false with all defaults", () => {
   expect(validateClassifier({}, providers)).toEqual({
     configured: false, default: "rules",
     decisions: { task_kind: decision, difficulty: decision, guard: decision, result_check: decision },
-    shadow: [], shadowExternal: false, timeoutMs: 3000, logState: "full",
+    shadow: [], shadowExternal: false, timeoutMs: 3000, logState: "trimmed",
     tiers: { codex: "capable", local: "cheap" },
     adapters: {
       ollama: { baseUrl: "http://127.0.0.1:1234/v1", model: "qwen3.6-35b-a3b", maxTokens: 512, keyEnv: null },

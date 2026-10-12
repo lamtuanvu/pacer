@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateClassifier } from "../src/config/classifier";
 import { decide, TimeoutError, withTimeout } from "../src/classify/decide";
@@ -68,7 +68,7 @@ describe("classifier decide", () => {
     const set = adapters(() => acting);
     set.jev.ask = async () => { release(answer); return { ...answer, value: "docs" }; };
     await decide(ctx, cfg({ default: "ollama", shadow: ["jev"], shadow_external: true, timeout_ms: 100 }), set, input);
-    expect(readDecisions(ctx).find(e => e.adapter === "jev")).toMatchObject({ answer: { value: "docs" }, acted_on: false, fallback: false });
+    expect(readDecisions(ctx).find(e => e.adapter === "jev")).toMatchObject({ answer: { value: "docs" }, acted_on: false, fallback: false, shadow: true });
     expect(readDecisions(ctx).find(e => e.acted_on)).toMatchObject({ adapter: "ollama", fallback: false });
   });
 
@@ -83,7 +83,7 @@ describe("classifier decide", () => {
   test("shadow errors are logged with answer null without fallback", async () => {
     const ctx = fakeCtx();
     await decide(ctx, cfg({ shadow: ["ollama"] }), adapters(async () => { throw new Error("shadow offline"); }), input);
-    expect(readDecisions(ctx).find(e => !e.acted_on)).toMatchObject({ adapter: "ollama", answer: null, error: "shadow offline", fallback: false });
+    expect(readDecisions(ctx).find(e => !e.acted_on)).toMatchObject({ adapter: "ollama", answer: null, error: "shadow offline", fallback: false, shadow: true });
   });
 
   test("shadow timeouts are bounded and logged", async () => {
@@ -174,4 +174,48 @@ describe("classifier decide", () => {
     await expect(withTimeout(Promise.reject(new Error("original")), 10, "test")).rejects.toThrow("original");
     await expect(withTimeout(new Promise(() => {}), 10, "test")).rejects.toBeInstanceOf(TimeoutError);
   });
+});
+
+
+test("decision log is private and rotates oversized files replacing the old backup", async () => {
+  const ctx = fakeCtx();
+  await decide(ctx, cfg(), adapters(), input);
+  const path = decisionsFile(ctx);
+  const oversized = "x".repeat(10 * 1024 * 1024 + 1);
+  writeFileSync(path, oversized);
+  writeFileSync(path + ".1", "old backup");
+  await decide(ctx, cfg(), adapters(), input);
+  expect(readFileSync(path + ".1", "utf8")).toBe(oversized);
+  expect(readDecisions(ctx)).toHaveLength(1);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+});
+
+test("unconfigured decisions log trimmed brief, report and acceptance output", async () => {
+  const ctx = fakeCtx();
+  const long = ctx.home + "/" + "private ".repeat(100);
+  await decide(ctx, cfg(), adapters(), { ...input, state: JSON.stringify({ goal: long, report: long, acceptance: { tail: long } }) });
+  const state = JSON.parse(readDecisions(ctx)[0].state!);
+  for (const text of [state.goal, state.report, state.acceptance.tail]) {
+    expect(text.length).toBeLessThanOrEqual(203);
+    expect(text).not.toContain(ctx.home);
+  }
+});
+
+test("guard returns before an unresolved shadow adapter", async () => {
+  const ctx = fakeCtx();
+  let release!: (answer: Answer) => void;
+  const shadow = new Promise<Answer>(resolve => { release = resolve; });
+  const pending = decide(ctx, cfg({ shadow: ["ollama"], timeout_ms: 1000 }), adapters(() => shadow), {
+    decision: "guard", state: '{"subagent_type":"Explore"}', question: QUESTIONS.guard, actedOn: true,
+  });
+  try {
+    const result = await Promise.race([pending, new Promise(resolve => setTimeout(() => resolve("blocked"), 50))]);
+    expect(result).not.toBe("blocked");
+  } finally { release(answer); await pending; }
+});
+
+test("new decision logs have mode 0600", async () => {
+  const ctx = fakeCtx();
+  await decide(ctx, cfg(), adapters(), input);
+  expect(statSync(decisionsFile(ctx)).mode & 0o777).toBe(0o600);
 });

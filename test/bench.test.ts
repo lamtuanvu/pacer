@@ -78,7 +78,7 @@ test("deduplicates acted states keeping the last and caps each decision", async 
   const ctx = fakeCtx();
   log(ctx, "guard", { subagent_type: "one" });
   log(ctx, "guard", { subagent_type: "two" });
-  log(ctx, "guard", { subagent_type: "shadow" }, { acted_on: false });
+  log(ctx, "guard", { subagent_type: "shadow" }, { acted_on: false, shadow: true });
   log(ctx, "guard", { subagent_type: "none" }, { state: null });
   log(ctx, "guard", { subagent_type: "one" });
   log(ctx, "task_kind", { goal: "Add something" });
@@ -141,4 +141,33 @@ test("invalid strategy and classifier configuration exit 2 with problems", async
     expect(r.code).toBe(2);
     expect(r.err).toContain("invalid");
   }
+});
+
+
+test("observe-only primary difficulty samples retain truth while shadows are excluded", async () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief: { goal: "test", repo: "/repo" }, kind: "tests", requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, t => { t.result = { status: "done", executor: "cheap", model: null, report: "", backend: "direct", files: "" }; });
+  log(ctx, "difficulty", { kind: "tests" }, { task_id: t.id, acted_on: false });
+  log(ctx, "difficulty", { kind: "debug" }, { task_id: t.id, acted_on: false, shadow: true });
+  const config = cfg(); config.tiers = { cheap: "cheap" };
+  const report = await runBench(ctx, config, set(), { ...options, adapters: ["rules"] });
+  expect(report.decisions.difficulty?.rules).toMatchObject({ n: 1, labelled: 1 });
+});
+
+for (const redact of [true, false]) test(`all benchmark adapters receive identical states with redaction ${redact}`, async () => {
+  const ctx = fakeCtx();
+  log(ctx, "task_kind", { goal: ctx.home + "/" + "x".repeat(400), planner_kind: "debug" });
+  const received: string[] = [];
+  const adapter = (id: string, external: boolean): Classifier => ({ id, external, async ask(state, q) {
+    received.push(state); return rulesClassifier.ask(state, q);
+  } });
+  const config = cfg(); config.bench.redact = redact;
+  const report = await runBench(ctx, config, { rules: adapter("rules", false), ollama: adapter("ollama", false), jev: adapter("jev", true) }, { ...options, adapters: ["rules", "ollama", "jev"] });
+  expect(received).toHaveLength(3);
+  expect(new Set(received).size).toBe(1);
+  expect(received[0].includes(ctx.home)).toBe(!redact);
+  expect(received[0]).not.toContain("planner_kind");
+  expect(JSON.parse(JSON.stringify(report)).redacted).toBe(redact);
+  expect(renderBench(report)).toContain(`redacted: ${redact}`);
 });
