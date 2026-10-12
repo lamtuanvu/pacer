@@ -126,12 +126,12 @@ export function summaryLine(b: BudgetData | null): string {
   return clip(`pacer ${b.mode} | ${b.planner} ${pct} ${p?.verdict??"UNKNOWN"} | next: ${b.ranked[0]?.id??"none"}`,LIMITS.title);
 }
 
-/** Split concatenated shell-inert plugin commands while preserving human input before the prefix. */
+/** Split concatenated shell-inert plugin commands while keeping preceding human text attached for the console to discard. */
 export function splitCmdLines(line:string):string[] {
  const parts=line.split(CMD_PREFIX);
  if(parts.length===1)return [line];
  const out:string[]=[];
- if(parts[0].trim())out.push(parts[0]);
- for(const part of parts.slice(1))out.push(CMD_PREFIX+part);
+ out.push(parts[0]+CMD_PREFIX+parts[1]);
+ for(const part of parts.slice(2))out.push(CMD_PREFIX+part);
  return out;
 }

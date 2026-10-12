@@ -42,7 +42,7 @@ test("gitInfo reads the top level, branch and dirtiness", async () => {
   ]);
   expect(await gitInfo(f.run, "/work/app")).toEqual({ top: "/work/app", branch: "main", sub: "", main:"/work/app",linked:false, dirty: true });
   expect(f.calls).toEqual([
-    ["git", "-C", "/work/app", "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD", "--git-common-dir"],
+    ["git", "-C", "/work/app", "rev-parse", "--path-format=absolute", "--show-toplevel", "--abbrev-ref", "HEAD", "--git-common-dir"],
     ["git", "-C", "/work/app", "status", "--porcelain"],
   ]);
 });
@@ -178,6 +178,7 @@ for(const persistent of [false,true]) test(`consumer_fenced recovery is bounded 
   const r=await ensureCoordinator(ctx,new OrcaClient(f.run),"/work/app");
   expect(f.count(O("orchestration","run-create"))).toBe(2);
   expect(f.count(O("terminal","create"))).toBe(1);
+  expect(f.calls).toContainEqual(["orca","terminal","close","--terminal",COORD,"--json"]);
   expect(f.calls.filter(a=>a[2]==="run-create")[1]).toContain(fresh);
   if(persistent){expect("error" in r && r.error).toContain("consumer_fenced");expect(loadOrcaState(ctx).run).toBeNull();}
   else expect(r).toEqual({coordinator:fresh,run:RUN});
@@ -193,3 +194,9 @@ test("worktree ownership receipt is used and registration requires explicit opt-
  const g=fakeRun([[O("repo","list"),raw('{"ok":true,"result":{"repos":[]}}')],[O("worktree","show"),raw('{"ok":false,"error":{"code":"not_found","message":"missing"}}')],[O("repo","add"),ok("repo-add.json")]]);
  expect(await ensureRepo(new OrcaClient(g.run),"/work/child",{linked:true,registerRepos:true})).toEqual({error:"repository is not an Orca project"});expect(await ensureRepo(new OrcaClient(g.run),"/projects/main")).toEqual({error:"repository is not an Orca project"});expect(g.count(O("repo","add"))).toBe(0);
 });
+
+ test("nested module asks git for absolute paths relative to the invocation directory", async()=>{
+ const nested="/projects/main/packages/module";
+ const f=fakeRun([[["git","-C",nested,"rev-parse"],argv=>argv.includes("--path-format=absolute")?raw("/projects/main\nmain\n/projects/main/.git\n"):raw("/projects/main\nmain\n../../.git\n")],[["git","-C","/projects/main","status"],raw("")]]);
+ expect(await gitInfo(f.run,nested)).toMatchObject({top:"/projects/main",main:"/projects/main",linked:false,sub:"packages/module"});
+ });

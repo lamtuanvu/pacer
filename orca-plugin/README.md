@@ -45,3 +45,5 @@ are included. Live verification is tracked by the separate spike checklist.
 
 Run `bun run test && bun run typecheck` and `bunx tsc --noEmit -p orca-plugin`
 after changes. Bundle freshness tests require rebuilding generated artifacts.
+
+Execution defaults to `child-of-current`, using the current branch under the owning Orca project. An explicit `execution.base_branch` without `execution.worktree` preserves `new-child` placement from that branch; set `worktree` explicitly to override it.

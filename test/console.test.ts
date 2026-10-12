@@ -62,9 +62,9 @@ test("plugin commands queue FIFO while human answers an active prompt", async ()
   expect(h.calls).toEqual(["delegate", "pump", "pump", "pump"]);
   expect(h.output().indexOf("published 0 update(s)")).toBeLessThan(h.output().indexOf("agent finished (queued-pane)"));
 });
-test("mixed plugin input preserves human input", async () => {
+test("mixed plugin input discards human input", async () => {
   const h = harness(); await h.run([`fix th${encodeCmdLine({ cmd: "refresh" })}`]);
-  expect(h.output()).toContain("unknown command fix"); expect(h.calls).toEqual(["pump"]);
+  expect(h.output()).toContain("discarded input before plugin command: fix th"); expect(h.calls).toEqual(["pump"]);
 });
 test("malformed plugin JSON is ignored", async () => {
   const h = harness(); await h.run([": pacer '{broken}'"]);
@@ -235,4 +235,9 @@ test("retry links both records and rejects a duplicate with an alert",async()=>{
  const {readTask}=await import("../src/tasks/store");const {readOutboxSince}=await import("../src/link/store");
  const old=readTask(h.ctx,task.id)!;expect(old.retriedBy).toBeDefined();expect(readTask(h.ctx,old.retriedBy!)?.retryOf).toBe(task.id);
  expect(h.inputs).toHaveLength(1);expect(h.output()).toContain("already has an active retry");expect(readOutboxSince(h.ctx,0).some(e=>e.envelope.type==="alert")).toBe(true);
+});
+
+test("human text glued before a plugin prefix is printed as discarded and never executed",async()=>{
+ const h=harness();await h.run(["status"+encodeCmdLine({cmd:"worktree-created",branch:"task",path:"/wt/task"})]);
+ expect(h.output()).toContain("discarded");expect(h.output()).toContain("status");expect(h.calls).not.toContain("status");expect(h.output()).toContain("worktree created");
 });

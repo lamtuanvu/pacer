@@ -48,3 +48,8 @@ test("a non-mapping section is rejected", () => {
 });
 
 test("repository registration is opt-in and child-of-current is supported",()=>{expect(validateExecution({worktree:"child-of-current",registerRepos:true})).toMatchObject({worktree:"child-of-current",registerRepos:true});expect(()=>validateExecution({registerRepos:"yes"})).toThrow("must be a boolean");});
+
+test("explicit base_branch preserves new-child default unless worktree is explicit",()=>{
+ expect(validateExecution({base_branch:"release"})).toMatchObject({worktree:"new-child",baseBranch:"release"});
+ expect(validateExecution({base_branch:"release",worktree:"child-of-current"}).worktree).toBe("child-of-current");
+});

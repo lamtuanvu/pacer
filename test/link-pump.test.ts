@@ -54,3 +54,28 @@ test("a finished task that dropped out of the capped snapshot does not re-alert 
   const alerts = published.flat().filter((e: any) => e.type === "alert" && e.data.key === "task-t-20261012-224220-ccfe");
   expect(alerts.length).toBeLessThanOrEqual(1);
 });
+
+ test("quota alerts ignore UNKNOWN transitions and cool down per provider and verdict",async()=>{
+ const c=fakeCtx();let verdict="ON_PACE";
+ const st=()=>({...status(),providers:[{id:"claude-code",verdict,stale:false,windows:[],binding:null}]});
+ const deps:PumpDeps={status:async()=>st(),tasks:()=>[],publish:async(ctx,envs)=>{let s=(await import("../src/link/store")).readLatest(ctx);for(const e of envs)s=reduce(s,e,ctx.now);writeJsonAtomic(latestPath(ctx),s);return {seq:1,transports:["outbox"],errors:[]};}};
+ const quotas=(envs:Envelope[])=>envs.filter(e=>e.type==="alert"&&e.data.notification?.kind==="quota");
+ await pumpOnce(c,deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce(c,deps))).toHaveLength(1);
+ verdict="ON_PACE";await pumpOnce({...c,now:c.now+1},deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+2},deps))).toHaveLength(0);
+ verdict="EXHAUSTED";expect(quotas(await pumpOnce({...c,now:c.now+3},deps))).toHaveLength(1);
+ verdict="UNKNOWN";expect(quotas(await pumpOnce({...c,now:c.now+1801},deps))).toHaveLength(0);
+ verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+1802},deps))).toHaveLength(0);
+ verdict="ON_PACE";await pumpOnce({...c,now:c.now+1803},deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+1804},deps))).toHaveLength(1);
+ });
+
+ test("broken tasks from one pump remain distinct in the snapshot for executor batching",async()=>{
+ const c=fakeCtx();writeJsonAtomic(latestPath(c),{...emptySnapshot(),seq:1});
+ const broken=(id:string)=>({...task("failed",id),attempts:[{executor:"agy",brokenReason:"usage error",startedAt:1,endedAt:2}],result:{executor:"agy",brokenExecutor:"agy",brokenReason:"usage error"}});
+ await pumpOnce(c,{status:async()=>status(),tasks:()=>[broken("one"),broken("two")],publish:async(ctx,envs)=>{let s=(await import("../src/link/store")).readLatest(ctx);for(const e of envs)s=reduce(s,e,ctx.now);writeJsonAtomic(latestPath(ctx),s);return{seq:1,transports:["outbox"],errors:[]};}});
+ const snap=(await import("../src/link/store")).readLatest(c);
+ expect(snap.alerts.filter(a=>a.notification?.kind==="broken")).toHaveLength(2);
+ const {notifyNewAlerts}=await import("../orca-plugin/src/notify");const {readSettings}=await import("../orca-plugin/src/settings");const notes:any[]=[];
+ const host={call:async(method:string,params:any)=>{if(method==="notifications.show"){notes.push(params);return{delivered:true};}return{ok:true};}} as any;
+ await notifyNewAlerts(host,snap,readSettings({notifications:"important"},c.home),c.now,c.now+31);
+ expect(notes).toHaveLength(1);expect(notes[0].body).toContain("2 tasks affected");
+ });

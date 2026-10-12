@@ -531,15 +531,16 @@ async function notifyNewAlerts(host, s, settings, activatedAtS, nowS = Date.now(
     return settings.lastAlertAt;
   const pending = [...state.pending.values()].sort((a, b) => a.at - b.at);
   const a = pending[0];
-  if (a?.notification?.kind === "failed" && nowS - a.at < 30)
+  const batched = a?.notification?.kind === "failed" || a?.notification?.kind === "broken";
+  if (batched && nowS - a.at < 30)
     return settings.lastAlertAt;
   if (!a)
     return settings.lastAlertAt;
-  const batch = a.notification?.kind === "failed" ? pending.filter((x) => x.notification?.kind === "failed" && x.notification.executor === a.notification?.executor && Math.abs(x.at - a.at) <= 30) : [a];
+  const batch = batched ? pending.filter((x) => x.notification?.kind === a.notification?.kind && x.notification?.executor === a.notification?.executor && Math.abs(x.at - a.at) <= 30) : [a];
   const message = notificationMessage(a);
   if (batch.length > 1) {
-    message.title = `${batch.length} tasks failed on ${executorName(a.notification?.executor)}`;
-    message.body = `${shortGoal(a.notification?.goal ?? "")}
+    message.title = a.notification?.kind === "broken" ? `${executorName(a.notification.executor)} isn't starting` : `${batch.length} tasks failed on ${executorName(a.notification?.executor)}`;
+    message.body = `${a.notification?.kind === "broken" ? `${batch.length} tasks affected` : shortGoal(a.notification?.goal ?? "")}
 ${a.notification?.nextExecutor ? `Moved to ${executorName(a.notification.nextExecutor)} automatically.` : "Open the pacer panel to retry."}`;
   }
   const delivered = await deliverNotification(host, message, nowS);

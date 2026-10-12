@@ -538,3 +538,24 @@ test("current placement refuses dirty and already occupied worktrees without dir
  const out=await dirty.backend.runAttempt(dirty.ctx,dirty.cfg,dirty.task);expect(out.exec.code).toBe(1);expect(out.report).toContain("uncommitted changes");expect(out.backend).toBe("orca");expect(dirty.f.count(O("orchestration","worker-start"))).toBe(0);
  const busy=setup(()=>[],{exec:{worktree:"current"}});const other=createTask(busy.ctx,{brief:{goal:"other",repo:REPO},kind:null,requestedExecutor:null,timeoutS:600});updateTask(busy.ctx,other.id,t=>{t.state="running";t.runnerPid=process.pid;});const refused=await busy.backend.runAttempt(busy.ctx,busy.cfg,busy.task);expect(refused.exec.code).toBe(1);expect(refused.report).toContain("another pacer task");expect(busy.f.count(O("orchestration","worker-start"))).toBe(0);
 });
+
+ test("Orca launch classification fingerprints the worker path and starts timing at readiness",async()=>{
+ let now=1000;
+ const {f,ctx,task,backend,cfg}=setup(()=>[
+ [O("orchestration","worker-start"),()=>{now=61000;return ok("worker-start-t1-auto.json");}],
+ [O("orchestration","check"),()=>{now=63000;return raw('{"ok":true,"result":{"messages":[{"id":"msg_fail","type":"worker_done","subject":"failed","body":"launch failed","taskId":"task_f","dispatchId":"ctx_802297d1724f","outcome":"failed"}],"deliveryId":"del_f"}}');}],
+ [O("orchestration","worker-show"),ok("worker-show-failed.json")],
+ [O("orchestration","worker-read"),raw('{"ok":true,"result":{"terminal":{"tail":["error: unexpected argument --bad found"]}}}')],
+ [["git","-C",WT1],raw("")],
+ ],{deps:{now:()=>now}});
+ const out=await backend.runAttempt(ctx,cfg,task);
+ expect(out.attempt.brokenReason).toContain("unexpected argument");
+ expect(out.attempt.endedAt-out.attempt.startedAt).toBe(2);
+ const fingerprints=f.calls.filter(a=>a[0]==="git"&&["diff","ls-files"].includes(a[3]));
+ expect(fingerprints).toHaveLength(4);expect(fingerprints.every(a=>a[2]===WT1)).toBe(true);
+ });
+ test("agent launch stage failure is broken even after slow worker creation",async()=>{
+ const receipt=JSON.parse(fixture("worker-start-t1.json"));receipt.result.failedStage="agent_launch";receipt.result.lastError="agent launch failed";
+ const {ctx,task,backend,cfg}=setup(()=>[[O("orchestration","worker-start"),raw(JSON.stringify(receipt),1)]]);
+ const out=await backend.runAttempt(ctx,cfg,task);expect(out.attempt.brokenReason).toContain("agent launch failed");
+ });

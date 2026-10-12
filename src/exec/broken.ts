@@ -19,15 +19,16 @@ const USAGE_ERRORS = [
   /error: -p took .*? as its prompt/i,
   /(?:error:.*\n)?usage:\s*(?:agy|codex|cursor-agent|agent|claude|opencode)\b/i,
   /\bENOENT\b|command not found|executable not found/i,
+  /ConnectionRefused|ECONNREFUSED|connection refused/i,
 ];
 /** CLI startup errors only: task failures and timeouts never qualify. */
-export function brokenReason(exec: ExecResult, durationS: number, unchanged: boolean): string | null {
-  if (!unchanged || durationS < 0 || durationS > 10 || exec.code === 0 || exec.timedOut) return null;
+export function brokenReason(exec: ExecResult, durationS: number, unchanged: boolean | null): string | null {
+  if (unchanged === false || durationS < 0 || durationS > 10 || exec.code === 0 || exec.timedOut) return null;
   const text = exec.stderr.slice(-8000);
   if (![126, 127].includes(exec.code) && !USAGE_ERRORS.some(re => re.test(text))) return null;
   return (text.trim().replace(/\s+/g, " ") || `CLI exited with code ${exec.code}`).slice(0, 500);
 }
-/** Compare content, including dirty files, untracked files and commits. Unknown never means unchanged. */
+/** Compare content, including dirty files, untracked files and commits. Unknown permits classification from strong launch-error evidence alone. */
 export async function repoFingerprint(ctx: Ctx, repo: string): Promise<string | null> {
   try {
     const results = await Promise.all([

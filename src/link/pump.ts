@@ -46,12 +46,19 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
       const kind=d.state==="done"?"done":"failed";
       if(kind!=="done"||t.fromPanel||((last?.endedAt??ctx.now)-t.createdAt)>600) out.push(alert({key:`task-${d.id}`,level:kind==="failed"?"warn":"info",title:`Task ${kind} on ${name}`,body:`${shortGoal(d.goal)}\n${kind==="done"?"Nothing to do.":next?`Open the pacer panel to retry on ${executorName(next)}.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind,fromPanel:t.fromPanel===true,executor:d.executor??undefined,goal:d.goal,...(next?{nextExecutor:next}:{})}}));
       const broken=t.attempts.find(a=>a.brokenReason);
-      if(broken)out.push(alert({key:`broken-${broken.executor}`,level:"warn",title:`${executorName(broken.executor)} isn't starting`,body:`${shortGoal(d.goal)}\n${d.executor&&d.executor!==broken.executor?`Moved to ${executorName(d.executor)} automatically.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind:"broken",executor:broken.executor,goal:d.goal,...(d.executor&&d.executor!==broken.executor?{nextExecutor:d.executor}:{})}}));
+      if(broken)out.push(alert({key:`broken-${broken.executor}-${d.id}`,level:"warn",title:`${executorName(broken.executor)} isn't starting`,body:`${shortGoal(d.goal)}\n${d.executor&&d.executor!==broken.executor?`Moved to ${executorName(d.executor)} automatically.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind:"broken",executor:broken.executor,goal:d.goal,...(d.executor&&d.executor!==broken.executor?{nextExecutor:d.executor}:{})}}));
     }
   }
+  const quotaPath=join(ctx.pacerHome,"link","quota-alerts.json");
+  const quotaSeen=readJson<Record<string,number>>(quotaPath) ?? {};
+  let quotaChanged=false;
   for(const p of b.providers) {
     const previous=latest.budget?.providers.find(x=>x.id===p.id);
-    if(["EXHAUSTED","NEAR_LIMIT"].includes(p.verdict)&&previous?.verdict!==p.verdict&&latest.budget)out.push(alert({key:`quota-${p.id}`,level:"warn",title:`${executorName(p.id)} ${p.verdict==="EXHAUSTED"?"is out of quota":"is near its limit"}`,body:"Nothing to do.",at:ctx.now,notification:{kind:"quota",near:p.verdict==="NEAR_LIMIT",executor:p.id,...(p.resetsAt?{resetsAt:p.resetsAt}:{})}}));
+    const quotaKey=`quota-${p.id}-${p.verdict}`;
+    if(["EXHAUSTED","NEAR_LIMIT"].includes(p.verdict)&&previous&&previous.verdict!=="UNKNOWN"&&previous.verdict!==p.verdict&&ctx.now-(quotaSeen[quotaKey]??-Infinity)>=1800) {
+      quotaSeen[quotaKey]=ctx.now;quotaChanged=true;
+      out.push(alert({key:quotaKey,level:"warn",title:`${executorName(p.id)} ${p.verdict==="EXHAUSTED"?"is out of quota":"is near its limit"}`,body:"Nothing to do.",at:ctx.now,notification:{kind:"quota",near:p.verdict==="NEAR_LIMIT",executor:p.id,...(p.resetsAt?{resetsAt:p.resetsAt}:{})}}));
+    }
   }
   const seenPath=join(ctx.pacerHome,"link","strategy-seen.json"), previousSeen=readJson<unknown>(seenPath), entries=list(ctx);
   // Accept the old name-only ledger as a baseline, then persist content fingerprints.
@@ -72,6 +79,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   }
   const report=out.length ? await deps.publish(ctx,out) : null;
   if(statesChanged)writeJsonAtomic(statesPath,known);
+  if(quotaChanged && report?.transports.includes("outbox"))writeJsonAtomic(quotaPath,quotaSeen);
   // Only acknowledge changes after the durable alert reached the link outbox.
   if((!report || report.transports.includes("outbox")) && JSON.stringify(previousSeen)!==JSON.stringify(next))writeJsonAtomic(seenPath,next);
   return out;

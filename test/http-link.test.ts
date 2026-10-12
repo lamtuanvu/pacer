@@ -31,9 +31,13 @@ test("/link includes published tasks and a fresh console heartbeat", async () =>
   const task = { id: "t1", state: "running", goal: "ship it", executor: null, backend: null, worktree: null, updatedAt: ctx.now };
   await publish(ctx, [{ v: 1, type: "task", data: task }], { bridge: false, channel: false });
   writeConsole(ctx, { handle: "term-1", paneKey: "pane-1", pid: process.pid, startedAt: ctx.now, heartbeatAt: ctx.now });
-  await Bun.sleep(150);
-  const snap = await (await fetch(`${url}/link`, { headers })).json();
-  expect(snap.tasks[0].id).toBe("t1");
+  const deadline = Date.now() + 3000;
+  let snap = await (await fetch(`${url}/link`, { headers })).json();
+  while ((snap.tasks[0]?.id !== "t1" || snap.console?.handle !== "term-1") && Date.now() < deadline) {
+    await Bun.sleep(10);
+    snap = await (await fetch(`${url}/link`, { headers })).json();
+  }
+  expect(snap.tasks[0]?.id).toBe("t1");
   expect(snap.console.handle).toBe("term-1");
 });
 

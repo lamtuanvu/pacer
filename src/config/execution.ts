@@ -35,7 +35,7 @@ export function validateExecution(raw: unknown): ExecutionCfg {
   if (!(EXEC_BACKENDS as readonly string[]).includes(backend)) {
     p.push(`execution.backend must be one of ${EXEC_BACKENDS.join(", ")} (got "${backend}")`);
   }
-  const worktree = String(raw.worktree ?? DEFAULT_EXECUTION.worktree);
+  const worktree = String(raw.worktree ?? (raw.base_branch != null ? "new-child" : DEFAULT_EXECUTION.worktree));
   if (!(WORKTREE_MODES as readonly string[]).includes(worktree)) {
     p.push(`execution.worktree must be one of ${WORKTREE_MODES.join(", ")} (got "${worktree}")`);
   }

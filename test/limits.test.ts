@@ -29,3 +29,7 @@ test("exhaustUntil uses the earliest future reset of a near-full window, else th
   expect(exhaustUntil(st([{ usedPct: 100, resetsAt: 500 }]), cfg, now)).toBe(now + 21600);
   expect(exhaustUntil(undefined, cfg, now)).toBe(now + 21600);
 });
+
+ for(const [provider,text] of [["cursor","ActionRequiredError: You've hit your usage limit"],["codex","You've hit your usage limit. Try again later."],["agy","quota exceeded for this project"]]) test(`recorded ${provider} quota text is a limit`,()=>{
+ expect(detectLimit(provider!,r(1,"",text))).toBe(true);
+ });

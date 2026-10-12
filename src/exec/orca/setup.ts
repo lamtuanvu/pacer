@@ -19,7 +19,7 @@ export function realpathSafe(p: string): string {
 
 /** The repo's git top level, current branch ("HEAD" when detached), sub-path of `repo` inside it, and dirtiness. */
 export async function gitInfo(run: RunFn, repo: string): Promise<RepoInfo | { error: string }> {
-  const r = await run(["git", "-C", repo, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD", "--git-common-dir"], 10_000);
+  const r = await run(["git", "-C", repo, "rev-parse", "--path-format=absolute", "--show-toplevel", "--abbrev-ref", "HEAD", "--git-common-dir"], 10_000);
   const [top = "", branch = "", common = ""] = r.stdout.trim().split("\n").map((l) => l.trim());
   if (r.code !== 0 || !top || !branch) {
     const why = r.stderr.trim().split("\n")[0] || `git exited with code ${r.code}`;
@@ -29,7 +29,7 @@ export async function gitInfo(run: RunFn, repo: string): Promise<RepoInfo | { er
   const sub = rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel : "";
   const st = await run(["git", "-C", top, "status", "--porcelain"], 10_000);
   if(st.code!==0)return {error:`cannot inspect working tree: ${st.stderr.trim()||st.code}`};
-  const main=realpathSafe(dirname(common?resolve(top,common):resolve(top,".git")));
+  const main=realpathSafe(dirname(common?resolve(repo,common):resolve(top,".git")));
   return { top, branch, sub, main, linked:realpathSafe(top)!==main, dirty: st.code === 0 && st.stdout.trim() !== "" };
 }
 
@@ -77,7 +77,9 @@ export async function ensureCoordinator(
           updateOrcaState(ctx, x => { x.coordinator = null; x.run = null; });
           const fresh = await c.terminalCreate(`path:${top}`, COORDINATOR_TITLE);
           if (!fresh.ok) return { error: `orca terminal create failed: ${fresh.error.code} ${fresh.error.message}` };
+          const oldHandle = handle;
           handle = fresh.result.terminal.handle;
+          if (oldHandle !== handle) await c.terminalClose(oldHandle);
           r = await c.runCreate(RUN_OBJECTIVE, handle);
         }
         if (!r.ok) {
