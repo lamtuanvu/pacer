@@ -1,4 +1,6 @@
 import { isExecutorSession, plannerPolicyApplies } from "../install/role";
+import { guardEventId } from "../classify/state";
+import { appendLabel } from "../tasks/labels";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks, GuardInput } from "../classify/hooks";
 import { loadStrategy } from "../config/strategy";
@@ -45,19 +47,29 @@ export function parseGuardInput(planner: string, raw: unknown): GuardInput | nul
 
 export async function decideGuard(ctx: Ctx, input: GuardInput, deps: GuardDeps = {}): Promise<GuardDecision> {
   if (isExecutorSession(ctx) || (ctx.env.PACER ?? "").toLowerCase() === "off") return { allow: true };
+  const id = guardEventId(input);
+  const verdict = (decision: GuardDecision, source: string): GuardDecision => {
+    try {
+      appendLabel(ctx, { type: "guard_verdict", event_id: id, blocked: !decision.allow, source });
+    } catch {
+      // Ground-truth logging must never change the guard's decision.
+    }
+    return decision;
+  };
   const opinion = await (deps.hooks ?? activeHooks).guard(ctx, input).catch(() => null);
-  if (opinion?.allow) return { allow: true, source: "classifier" };
-  if (!opinion && ALLOW_TYPES.some((pattern) => globMatch(pattern, input.subagentType))) return { allow: true };
+  if (opinion?.allow) return verdict({ allow: true, source: "classifier" }, "classifier");
+  if (!opinion && ALLOW_TYPES.some((pattern) => globMatch(pattern, input.subagentType))) return verdict({ allow: true }, "rules");
 
   const st = await (deps.status ? deps.status(ctx) : computeStatus(ctx, loadStrategy(ctx)));
   if (!opinion && st.providers.some((provider) =>
-    input.subagentType.toLowerCase() === `${provider.id}-executor`.toLowerCase())) return { allow: true };
-  if (st.mode === "relaxed" || !st.executors.ranked.length) return { allow: true };
+    input.subagentType.toLowerCase() === `${provider.id}-executor`.toLowerCase())) return verdict({ allow: true }, "rules");
+  if (st.mode === "relaxed" || !st.executors.ranked.length) return verdict({ allow: true }, "rules");
 
   const planner = displayName(st.planner);
   let reason = `pacer: '${input.subagentType}' is a ${planner} subagent, so it spends ${planner}'s own quota (mode: ${st.mode}). Delegate execution work with the pacer MCP tool \`delegate\` (top executor now: ${st.executors.ranked[0].id}) and a self-contained brief: goal, absolute repo path, scope, acceptance command. If this needs planner-level judgement (design, review), do it in the main conversation, or ask the user to start the session with PACER=off.`;
   if (opinion?.reason) reason += ` (${opinion.reason})`;
-  return { allow: false, reason };
+  reason += ` (pacer event ${id}: if this block was wrong, call the pacer MCP tool guard_feedback with event_id "${id}" and correct=false)`;
+  return verdict({ allow: false, reason }, opinion ? "classifier" : "rules");
 }
 
 export function renderGuard(planner: string, decision: GuardDecision): string {
