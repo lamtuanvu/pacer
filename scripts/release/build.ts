@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   type Manifest, type Platform, type ReleaseAsset, type Target, TARGETS, assetFile, formatSha256Sums,
@@ -92,6 +92,10 @@ function readPackageVersion(root: string): string {
 export async function buildRelease(o: BuildOptions): Promise<{ dir: string; manifest: Manifest }> {
   const version = o.version ?? readPackageVersion(o.root);
   if (!isVersion(version)) throw new Error(`invalid version "${version}" (expected MAJOR.MINOR.PATCH[-PRERELEASE])`);
+  const assets = join(o.root, "src", "plugin", "assets.generated.ts");
+  if (o.version === undefined && existsSync(assets) && !readFileSync(assets, "utf8").includes(`PLUGIN_VERSION = ${JSON.stringify(version)};`)) {
+    throw new Error(`the bundled Orca plugin assets are not built for ${version}; run bun run plugin:build first`);
+  }
   const outRoot = o.outRoot ?? join(o.root, "dist", "release");
   const targets = o.targets ?? TARGETS;
   const log = o.log ?? (() => {});
