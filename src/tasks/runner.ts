@@ -91,6 +91,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     const kind = await safe(() => hooks.taskKind(ctx, task), task.kind);
     const tried = new Set<string>();
     let excluded: Excluded[] = [];
+    let lastLimitReport: string | undefined;
     let lastBroken: { brokenExecutor: string; brokenReason: string } | undefined;
 
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -145,9 +146,9 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         };
       }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
-      if (out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
+      if (out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
         const after = await repoFingerprint(ctx, out.worktree ?? task.brief.repo);
-        const reason = brokenReason(out.exec, duration, before !== null && before === after);
+        const reason = brokenReason(out.exec, duration, before === null && after === null ? null : before !== null && before === after);
         if (reason) out.attempt.brokenReason = reason;
       }
       attemptedBackend = out.backend ?? attemptedBackend;
@@ -164,7 +165,9 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         lastBroken = { brokenExecutor: pick, brokenReason: out.attempt.brokenReason };
         continue;
       }
+      lastBroken = undefined;
       if (out.attempt.limitHit) {
+        lastLimitReport = out.report;
         markExhausted(ctx, pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000));
         if (task.requestedExecutor) break;
         continue;
@@ -183,9 +186,9 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       : tried.size
         ? `every executor tried hit a limit (${[...tried].join(", ")})`
         : `no executor available (${excluded.map((e) => `${e.id}: ${e.reason}`).join(", ") || "none configured"})`;
-    const unavailableBroken = Object.entries(readBroken({ ...ctx, now: Date.now()/1000 })).find(([id]) => excluded.some(e => e.id === id));
-    const failure = lastBroken ?? (unavailableBroken ? { brokenExecutor: unavailableBroken[0], brokenReason: unavailableBroken[1].reason } : undefined);
-    return finish(ctx, id, { status: failure ? "failed" : "limit", executor: failure?.brokenExecutor ?? null, model: null, files: "", report: failure ? `executor not working: ${failure.brokenReason}` : why, backend: attemptedBackend, ...failure });
+    const unavailableBroken = Object.entries(readBroken({ ...ctx, now: Date.now()/1000 })).find(([id]) => (!req || id === req) && excluded.some(e => e.id === id));
+    const failure = lastBroken ?? (unavailableBroken && (tried.size === 0 || req === unavailableBroken[0]) ? { brokenExecutor: unavailableBroken[0], brokenReason: unavailableBroken[1].reason } : undefined);
+    return finish(ctx, id, { status: failure ? "failed" : "limit", executor: failure?.brokenExecutor ?? attemptedExecutor, model: attemptedModel, files: "", report: failure ? `executor not working: ${failure.brokenReason}` : [why, lastLimitReport].filter(Boolean).join("\n\n"), backend: attemptedBackend, ...failure });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return finish(ctx, id, { status: "failed", executor: attemptedExecutor, model: attemptedModel, files: "", report: `pacer runner error: ${message}`, backend: attemptedBackend });

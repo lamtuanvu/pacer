@@ -297,3 +297,30 @@ test("concurrent identical briefs launch only one executor unless forced",async(
  const third=runTask(ctx,forced.id,d);await Bun.sleep(10);release();await Promise.all([first,third]);
  expect(d.calls).toEqual(["codex","codex"]);
 });
+
+ test("previously broken agy does not replace codex limit outcome",async()=>{
+ const {markBroken}=await import("../src/exec/broken");const ctx=fakeCtx();markBroken({...ctx,now:Date.now()/1000},"agy","bad agy launch");
+ const d=deps({codex:outcomeFor("codex",1,true)},status({cursor:{installed:false}}));
+ const r=await runTask(ctx,newTask(ctx).id,d);
+ expect(r.state).toBe("limit");expect(r.result?.executor).toBe("codex");expect(r.result?.report).toContain("codex");expect(r.result?.brokenExecutor).toBeUndefined();
+ });
+ test("a broken attempt followed by a limit retains the last real outcome",async()=>{
+ const ctx=fakeCtx({run:async()=>({code:0,stdout:"",stderr:""})});const d=deps({codex:launchFailure("codex","unknown option --bad"),cursor:outcomeFor("cursor",1,true)},status({agy:{installed:false}}));
+ const r=await runTask(ctx,newTask(ctx).id,d);expect(r.state).toBe("limit");expect(r.result?.executor).toBe("cursor");expect(r.result?.brokenExecutor).toBeUndefined();
+ });
+ for(const stderr of ['Error: -p took "--sandbox" as its prompt','ENOENT','ConnectionRefused: Unable to connect to LM Studio','error: unexpected argument --bad found','Usage: cursor-agent [options]']) test(`non-git launch errors fall back: ${stderr}`,async()=>{
+ const ctx=fakeCtx({run:async()=>({code:128,stdout:"",stderr:"not a git repository"})});const d=deps({codex:launchFailure("codex",stderr),cursor:outcomeFor("cursor",0)});
+ const r=await runTask(ctx,newTask(ctx).id,d);expect(r.state).toBe("done");expect(r.attempts[0].brokenReason).toBeTruthy();expect(d.calls).toEqual(["codex","cursor"]);
+ });
+
+ test("requested broken executor is reported even when another broken mark was inserted first",async()=>{
+ const {markBroken}=await import("../src/exec/broken");const ctx=fakeCtx();const at={...ctx,now:Date.now()/1000};
+ markBroken(at,"agy","agy usage error");markBroken(at,"codex","codex usage error");
+ const r=await runTask(ctx,newTask(ctx,{requestedExecutor:"codex"}).id,deps({}));
+ expect(r.result?.brokenExecutor).toBe("codex");expect(r.result?.report).toContain("codex usage error");
+ });
+ test("later limit report is retained when an earlier executor was broken",async()=>{
+ const ctx=fakeCtx({run:async()=>({code:0,stdout:"",stderr:""})});
+ const d=deps({codex:launchFailure("codex","unknown option --bad"),cursor:outcomeFor("cursor",1,true,"ActionRequiredError: You've hit your usage limit")},status({agy:{installed:false}}));
+ const r=await runTask(ctx,newTask(ctx).id,d);expect(r.result?.report).toContain("ActionRequiredError");
+ });

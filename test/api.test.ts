@@ -173,3 +173,15 @@ test("stop kills the executor's grandchild too", async () => {
     await running;
   }
 });
+
+test("legacy running records with attempts reconcile a dead runner immediately",()=>{
+ const ctx=fakeCtx();const t=delegate(ctx,{brief:{goal:"g",repo:tmpDir()}},()=>undefined,s);
+ updateTask(ctx,t.id,x=>{x.state="running";x.attempts=[{executor:"codex",model:null,startedAt:1,endedAt:2,exitCode:1,timedOut:false,limitHit:true,log:""}];});
+ expect(taskStatus(ctx,t.id)?.state).toBe("failed");
+});
+ test("legacy running records without attempts expire after ten minutes",()=>{
+ const ctx=fakeCtx();const t=delegate(ctx,{brief:{goal:"g",repo:tmpDir()}},()=>undefined,s);
+ updateTask(ctx,t.id,x=>{x.state="running";});
+ expect(taskStatus(ctx,t.id)?.state).toBe("running");
+ expect(taskStatus({...ctx,now:ctx.now+601},t.id)?.state).toBe("failed");
+});

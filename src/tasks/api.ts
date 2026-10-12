@@ -92,7 +92,7 @@ export function taskStatus(ctx: Ctx, id: string): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
   const neverStarted = ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
-  if (neverStarted || (t.state === "running" && !!t.attemptStartedAt && !alive(t.runnerPid))) {
+  if (neverStarted || (t.state === "running" && (t.attempts.length > 0 || t.attemptStartedAt !== undefined || ctx.now - t.createdAt > 600) && !alive(t.runnerPid))) {
     return updateTask(ctx, id, (x) => {
       if (TERMINAL_STATES.includes(x.state)) return;
       x.state = "failed";

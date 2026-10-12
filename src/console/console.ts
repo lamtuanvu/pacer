@@ -231,7 +231,7 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
       for(const line of splitCmdLines(input)) {
       const decoded = decodeCmdLine(line);
       if (decoded.cmd) {
-        if (decoded.before) await safe(()=>prompt?answer(decoded.before):human(decoded.before));
+        if (decoded.before) print(`discarded input before plugin command: ${decoded.before}`);
         if (prompt) queue.push(decoded.cmd.data);
         else {
           const c=fresh();consoleData={...consoleData,heartbeatAt:c.now,busyUntil:c.now+1};

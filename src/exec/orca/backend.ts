@@ -10,6 +10,7 @@ import type { Ctx } from "../../types";
 import type { Backend } from "../backend";
 import { type AttemptOutcome, REPORT_CHARS, runAttempt as directAttempt, tail } from "../direct";
 import { detectLimit } from "../limits";
+import { brokenReason, repoFingerprint } from "../broken";
 import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
@@ -166,7 +167,7 @@ async function runOrcaAttempt(
     return fallback(deps, ctx, cfg, task, onSpawn, p.reason);
   }
 
-  const startedAt = Date.now() / 1000;
+  let startedAt = deps.now() / 1000;
   const lines: string[] = [];
   const log = (line: string) => { lines.push(line); };
   const uncertainStart = async (reason: string): Promise<AttemptOutcome> => {
@@ -178,7 +179,7 @@ async function runOrcaAttempt(
     return {
       exec: { code: 1, stdout: report, stderr: "", timedOut: false }, report, backend: "orca",
       attempt: {
-        executor: cfg.id, model: cfg.model, startedAt, endedAt: Date.now() / 1000,
+        executor: cfg.id, model: cfg.model, startedAt, endedAt: deps.now() / 1000,
         exitCode: 1, timedOut: false, limitHit: false, log: logFile,
       },
     };
@@ -194,6 +195,7 @@ async function runOrcaAttempt(
     return uncertainStart(`${ws.error.code}: ${ws.error.message}`);
   }
   if (!ws.ok) return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`);
+  startedAt = deps.now() / 1000;
   const r = ws.result;
   if (!r.dispatchId) return uncertainStart("orca worker-start returned no dispatch id");
   const dispatchId = r.dispatchId;
@@ -211,6 +213,9 @@ async function runOrcaAttempt(
     }
   };
   let m: Mapped;
+  let before: string | null = null;
+  let launchBroken: string | undefined;
+  let endedAt: number;
   let tailText = "";
   try {
     try {
@@ -226,11 +231,15 @@ async function runOrcaAttempt(
       throw new Error(`orca worker ${dispatchId} returned no worktree path for new-child placement; stopped it without verifying the original repository`);
     }
     if (r.state !== "ready") {
+      if (/agent[ _-]?launch|launch[ _-]?agent/i.test(r.failedStage ?? "")) {
+        launchBroken = `orca agent launch failed: ${r.lastError ?? "no error given"}`;
+      }
       m = {
         code: 1, timedOut: false, settled: true,
         summary: `orca worker failed to start at ${r.failedStage ?? r.stage ?? "an unknown stage"}: ${r.lastError ?? "no error given"}`,
       };
     } else {
+      before = await repoFingerprint(ctx, worktree ?? task.brief.repo);
       m = mapWait(await waitForWorker(ctx, c, {
         providerId: cfg.id, prompt, coordinator: p.coordinator, run: p.run, dispatchId, terminal,
         deadlineMs: deps.now() + task.timeoutS * 1000,
@@ -239,6 +248,7 @@ async function runOrcaAttempt(
       }));
     }
 
+    endedAt = deps.now() / 1000;
     tailText = m.tail ?? "";
     if (m.code !== 0 && m.tail === undefined) {
       const rd = await c.workerRead(dispatchId, 60);
@@ -257,6 +267,8 @@ async function runOrcaAttempt(
   }
 
   const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };
+  const after = await repoFingerprint(ctx, worktree ?? task.brief.repo);
+  const reason = launchBroken ?? brokenReason(exec, endedAt - startedAt, before === null && after === null ? null : before !== null && before === after);
   const dir = tasksDir(ctx);
   mkdirSync(dir, { recursive: true });
   const logFile = join(dir, `${task.id}.${cfg.id}.log`);
@@ -267,7 +279,8 @@ async function runOrcaAttempt(
     backend: "orca",
     ...(worktree ? { worktree } : {}),
     attempt: {
-      executor: cfg.id, model: cfg.model, startedAt, endedAt: Date.now() / 1000,
+      executor: cfg.id, model: cfg.model, startedAt, endedAt,
+      ...(reason ? { brokenReason: reason } : {}),
       exitCode: m.code, timedOut: m.timedOut, limitHit: detectLimit(cfg.id, exec), log: logFile,
     },
   };
