@@ -57,9 +57,42 @@ test("console worktree identity survives snapshot registration and validation",(
 test("cheap terminal list prunes missing terminal registrations once per thirty seconds and preserves on failure", async () => {
  const {refreshConsoleTerminals,readConsoles}=await import("../src/link/store"); let calls=0;
  const ctx=fakeCtx({run:async()=>{calls++;return {code:0,stdout:JSON.stringify({ok:true,result:{terminals:[{handle:"term_live"}]}}),stderr:""};}});
- writeConsole(ctx,{handle:"term_missing",pid:process.pid,paneKey:null,startedAt:ctx.now,heartbeatAt:ctx.now});
+ writeConsole(ctx,{handle:"term_missing",pid:process.pid,paneKey:null,startedAt:ctx.now-1,heartbeatAt:ctx.now});
  writeConsole(ctx,{handle:"term_live",pid:process.pid,paneKey:null,startedAt:ctx.now,heartbeatAt:ctx.now});
  await refreshConsoleTerminals(ctx); await refreshConsoleTerminals(ctx); expect(calls).toBe(1);expect(readConsoles(ctx).map(c=>c.handle)).toEqual(["term_live"]);
  const offline=fakeCtx({run:async()=>({code:1,stdout:"",stderr:"offline"})});writeConsole(offline,{handle:"term_kept",pid:process.pid,paneKey:null,startedAt:offline.now,heartbeatAt:offline.now});
  await refreshConsoleTerminals(offline);expect(readConsoles(offline).map(c=>c.handle)).toEqual(["term_kept"]);
+});
+
+test("new registrations survive an older cached list and trigger one immediate rate-limited refresh", async () => {
+ const {refreshConsoleTerminals,readConsoles}=await import("../src/link/store"); let calls=0;
+ const ctx=fakeCtx({now:100,run:async()=>{calls++;return {code:0,stdout:JSON.stringify({ok:true,result:{terminals:calls===1?[]:[{handle:"term_new"}]}}),stderr:""};}});
+ await refreshConsoleTerminals(ctx);ctx.now=101;
+ writeConsole(ctx,{...c("term_new",process.pid,101),startedAt:101});
+ expect(readConsoles(ctx).map(c=>c.handle)).toEqual(["term_new"]);
+ await refreshConsoleTerminals(ctx);expect(calls).toBe(2);
+ expect(readConsoles(ctx).map(c=>c.handle)).toEqual(["term_new"]);
+ writeConsole(ctx,{...c("term_pending",process.pid,102),startedAt:102});ctx.now=102;
+ await refreshConsoleTerminals(ctx);expect(calls).toBe(2);expect(readConsoles(ctx).map(c=>c.handle)).toContain("term_pending");
+ ctx.now=106;await refreshConsoleTerminals(ctx);expect(calls).toBe(3);
+ expect(existsSync(join(linkDir(ctx),"consoles","term_pending.json"))).toBe(false);
+});
+for(const result of [{terminals:[],truncated:true},{terminals:[],page:{hasMore:true}}])test("partial terminal lists never authorize pruning "+JSON.stringify(result),async()=>{
+ const {refreshConsoleTerminals,readConsoles}=await import("../src/link/store");const ctx=fakeCtx({now:100,run:async()=>({code:0,stdout:JSON.stringify({ok:true,result}),stderr:""})});
+ writeConsole(ctx,{...c("term_keep",process.pid,100),startedAt:1});await refreshConsoleTerminals(ctx);
+ expect(readConsoles(ctx)).toHaveLength(1);expect(existsSync(consolePath(ctx))).toBe(true);
+});
+test("a failed refresh invalidates an earlier terminal list for pruning",async()=>{
+ const {refreshConsoleTerminals,readConsoles}=await import("../src/link/store");let fail=false;
+ const ctx=fakeCtx({now:100,run:async()=>fail?{code:1,stdout:"",stderr:"offline"}:{code:0,stdout:'{"ok":true,"result":{"terminals":[]}}',stderr:""}});
+ await refreshConsoleTerminals(ctx);fail=true;ctx.now=131;await refreshConsoleTerminals(ctx);
+ writeConsole(ctx,{...c("term_keep",process.pid,131),startedAt:1});expect(readConsoles(ctx)).toHaveLength(1);
+});
+
+test("unknown handles refresh membership even when the registration started before the cached list",async()=>{
+ const {refreshConsoleTerminals,readConsoles}=await import("../src/link/store");let calls=0;
+ const ctx=fakeCtx({now:100,run:async()=>({code:0,stdout:JSON.stringify({ok:true,result:{terminals:++calls===1?[]:[{handle:"term_recovered"}]}}),stderr:""})});
+ await refreshConsoleTerminals(ctx);ctx.now=101;writeConsole(ctx,{...c("term_recovered",process.pid,101),startedAt:1});
+ readConsoles(ctx);await refreshConsoleTerminals(ctx);
+ expect(calls).toBe(2);expect(readConsoles(ctx).map(c=>c.handle)).toEqual(["term_recovered"]);
 });

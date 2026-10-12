@@ -1,4 +1,4 @@
-import { binaryChanged, binaryStamp } from "./restart";
+import { binaryChanged, binaryStamp, consoleRestarter } from "./restart";
 import { createInterface } from "node:readline";
 import { use as switchStrategy } from "../strategy/service";
 import { loadStrategy, useStrategy } from "../config/strategy";
@@ -77,11 +77,13 @@ export async function runConsoleCli(args: string[], ctx: Ctx): Promise<Result> {
   }
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
   let registeredHandle: string | null = null;
+  let registration: import("../link/envelope").ConsoleData | null = null;
+  let consoleIdle = false;
   const deps: ConsoleDeps = {
     delegate, taskStop, readTask, configuredExecutors: c => Object.keys(loadStrategy(c).providers), useStrategy: switchStrategy, listStrategies, selfHandle, resolveWorktreePath,
     statusText: async c => renderText(await computeStatus(c, loadStrategy(c))),
     pump: pumpOnce,
-    heartbeat: (c, data) => { if (data) registeredHandle = data.handle; writeConsole(c, data, registeredHandle ?? undefined); refreshBridge(c); },
+    heartbeat: (c, data) => { if (data) { registeredHandle = data.handle; registration = data; } writeConsole(c, data, registeredHandle ?? undefined); refreshBridge(c); },
     every: (ms, fn) => { const timer = setInterval(fn, ms); return () => clearInterval(timer); },
     pid: process.pid, cwd: process.cwd(),
   };
@@ -91,17 +93,18 @@ export async function runConsoleCli(args: string[], ctx: Ctx): Promise<Result> {
   };
   const watchedBinary = Bun.isStandaloneExecutable ? process.execPath : process.argv[1];
   const stamp = binaryStamp(watchedBinary);
-  let restarting = false;
-  const restart = () => {
-    if (restarting) return;
-    restarting = true;
-    process.stdout.write("pacer was updated; restarting console\n");
-    try {
-      deps.heartbeat({ ...ctx, now: Date.now() / 1000 }, null);
+  const reexec = consoleRestarter({
+    idle: () => consoleIdle,
+    unregister: () => deps.heartbeat({ ...ctx, now: Date.now() / 1000 }, null),
+    register: () => { if (registration) { const now = Date.now() / 1000; deps.heartbeat({ ...ctx, now }, { ...registration, heartbeatAt: now }); } },
+    exec: () => {
       if (!process.execve) throw new Error("this runtime does not support process.execve");
       process.execve(process.execPath, Bun.isStandaloneExecutable ? [process.execPath, ...process.argv.slice(2)] : [process.execPath, ...process.argv.slice(1)], process.env);
-    } catch (e) { restarting = false; process.stderr.write(`pacer: could not restart console: ${(e as Error).message}\n`); }
-  };
+    },
+    report: message => { (message.startsWith("pacer: ") ? process.stderr : process.stdout).write(message + "\n"); },
+  });
+  deps.onIdle = idle => { consoleIdle = idle; if (idle) reexec.retry(); };
+  const restart = () => reexec.request();
   const versionTimer = setInterval(() => { if (binaryChanged(watchedBinary, stamp)) restart(); }, 30000);
   process.on("SIGUSR1", restart);
   const interrupt = () => stop(130), terminate = () => stop(143), hangup = () => stop(129);

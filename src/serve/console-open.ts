@@ -1,13 +1,19 @@
+import { join } from "node:path";
+import { readJson, writeJsonAtomic } from "../fsutil";
+import { consolePath, consolesDir, linkDir } from "../link/paths";
+import { compareVersions, isVersion } from "../update/version";
+import { type ConsoleData, parseSnapshot } from "../link/envelope";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 import { parseOrcaOutput } from "../exec/orca/client";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
-import { currentSnapshot, forgetConsoles } from "../link/store";
+import { completeTerminalList, currentSnapshot, forgetConsoles } from "../link/store";
 import { publish } from "../link/publish";
 
 /** Server-local reservations also prevent concurrent requests creating duplicate terminals. */
-export function consoleOpener() {
+export function consoleOpener(serveStartedAt = Date.now() / 1000) {
+  const replacements = new Map<string, number>();
   const lastOpen = new Map<string, number>();
   let opens: { at: number; worktreeKey: string }[] = [];
   const openedHandles = new Map<string, Set<string>>();
@@ -69,20 +75,47 @@ export function consoleOpener() {
         if (isObj(r.worktree) && typeof r.worktree.displayName === "string") displayName = r.worktree.displayName;
       }
       const listed = await result(ctx, ["orca", "terminal", "list", "--worktree", selector, "--json"]);
-      if (!Array.isArray(listed.terminals)) return json(false, "worktree-unresolved");
+      if (!Array.isArray(listed.terminals) || !completeTerminalList(listed)) return json(false, "worktree-unresolved");
       const handles = new Set(listed.terminals.flatMap(t => isObj(t) && typeof t.handle === "string" ? [t.handle] : []));
+      const existing = listed.terminals.filter(t => isObj(t) && (t.title === "pacer" || t.title === "pacer console" || (typeof t.handle === "string" && openedHandles.get(worktreeKey)?.has(t.handle))));
+      const legacy = parseSnapshot({v:1,seq:0,at:0,console:readJson(consolePath(ctx))})?.console;
+      const isOlder = (t: unknown) => {
+        if (!isObj(t) || typeof t.handle !== "string" || openedHandles.get(worktreeKey)?.has(t.handle)) return false;
+        const raw = /^[A-Za-z0-9_-]+$/.test(t.handle) ? readJson<ConsoleData>(join(consolesDir(ctx), `${t.handle}.json`)) : null;
+        const registration = parseSnapshot({v:1,seq:0,at:0,console:raw})?.console ?? (legacy?.handle === t.handle ? legacy : null);
+        if (registration?.version !== undefined) return isVersion(registration.version) && compareVersions(registration.version, "0.1.8") < 0;
+        if (legacy?.handle === t.handle) return true;
+        if (registration) return false;
+        const startedAt = typeof t.startedAt === "number" ? t.startedAt : typeof t.startedAt === "string" ? Date.parse(t.startedAt) / 1000 : NaN;
+        return Number.isFinite(startedAt) && startedAt > 0 && startedAt < serveStartedAt;
+      };
+      const provablyOlder = existing.every(isOlder);
       const snap = currentSnapshot(ctx);
       if ([...(snap.consoles ?? []), ...(snap.console ? [snap.console] : [])].some(c => c.handle && handles.has(c.handle) && ctx.now - c.heartbeatAt <= 30)) return json(false, "console-present");
-      const olderConsole = listed.terminals.some(t => isObj(t) && (t.title === "pacer" || t.title === "pacer console" || (typeof t.handle === "string" && openedHandles.get(worktreeKey)?.has(t.handle))));
+      const olderConsole = existing.length > 0;
+      const replacementPath = join(linkDir(ctx), "console-replacements.json");
+      const persisted = readJson<Record<string, number>>(replacementPath) ?? {};
+      const savedReplacement = persisted[worktreeKey];
+      if (typeof savedReplacement === "number" && Number.isFinite(savedReplacement)) replacements.set(worktreeKey, Math.max(replacements.get(worktreeKey) ?? -Infinity, savedReplacement));
+      if (olderConsole && (!provablyOlder || ctx.now - (replacements.get(worktreeKey) ?? -Infinity) < 3600)) return json(false, "console-terminal-exists");
       opens = opens.filter(slot => ctx.now - slot.at < 3600);
       if (ctx.now - (lastOpen.get(worktreeKey) ?? -Infinity) < 60 || opens.length >= 10) return json(false, "rate-limited");
       const previous = lastOpen.get(worktreeKey), slot = { at: ctx.now, worktreeKey };
       lastOpen.set(worktreeKey, ctx.now); opens.push(slot);
+      const previousReplacement = replacements.get(worktreeKey);
+      if (olderConsole) {
+        replacements.set(worktreeKey, ctx.now);
+        try { writeJsonAtomic(replacementPath, { ...persisted, [worktreeKey]: ctx.now }); }
+        catch (e) { if (previous === undefined) lastOpen.delete(worktreeKey); else lastOpen.set(worktreeKey, previous); opens = opens.filter(entry => entry !== slot); if (previousReplacement === undefined) replacements.delete(worktreeKey); else replacements.set(worktreeKey, previousReplacement); throw e; }
+      }
       let r: Record<string, unknown>;
       try { r = await result(ctx, ["orca", "terminal", "create", "--worktree", selector, "--title", "pacer", "--command", shellCommand([...pacerArgv(ctx.env), "console"]), "--json"]); }
       catch (e) {
         if (previous === undefined) lastOpen.delete(worktreeKey); else lastOpen.set(worktreeKey, previous);
         opens = opens.filter(entry => entry !== slot);
+        if (olderConsole) { if (previousReplacement === undefined) replacements.delete(worktreeKey); else replacements.set(worktreeKey, previousReplacement); const latest = readJson<Record<string, number>>(replacementPath) ?? {};
+          if (previousReplacement === undefined) delete latest[worktreeKey]; else latest[worktreeKey] = previousReplacement;
+          writeJsonAtomic(replacementPath, latest); }
         throw e;
       }
       if (!isObj(r.terminal) || typeof r.terminal.handle !== "string") return json(false, "invalid-orca-response");

@@ -56,7 +56,9 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
     restartService: async path => {
       let restarted = false, warning: string | undefined;
       try { restarted = await restartAfterUpdate(ctx, path); } catch (e) { warning = `could not restart pacer serve: ${(e as Error).message}`; }
-      return { restarted, warning, consoles: await restartConsoles(ctx) };
+      const warnings = warning ? [warning] : [];
+      const consoles = await restartConsoles(ctx, undefined, message => warnings.push(message));
+      return { restarted, warning: warnings.length ? warnings.join("; ") : undefined, consoles };
     },
   };
 }

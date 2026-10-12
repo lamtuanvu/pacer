@@ -14,10 +14,14 @@ export async function serviceCli(args: string[], ctx: Ctx, deps: ServiceDeps = {
     switch (cmd) {
       case "install": out = ["installed pacer serve", ...await b.install()].join("\n"); break;
       case "uninstall": await b.uninstall(); out = "uninstalled pacer serve"; break;
-      case "restart": await b.restart(); out = `restarted pacer serve\nrestarted ${await restartConsoles(ctx)} pacer consoles`; break;
+      case "restart": {
+        await b.restart(); const warnings: string[] = [];
+        const count = await restartConsoles(ctx, undefined, message => warnings.push(`WARNING: ${message}`));
+        out = [`restarted pacer serve`, `restarted ${count} pacer consoles`, ...warnings].join("\n"); break;
+      }
       case "status": {
         const s = await b.status();
-        out = rest.length ? JSON.stringify(s, null, 2) : `installed: ${s.installed}; loaded: ${s.loaded}; running: ${s.running}; healthy: ${s.healthy}\npid: ${s.pid ?? "-"}; last exit code: ${s.lastExitCode ?? "-"}\nservice: ${s.plistPath}\nbinary: ${s.binaryPath ?? "-"}; matches current: ${s.binaryMatches}`; break;
+        out = rest.length ? JSON.stringify(s, null, 2) : `installed: ${s.installed}; loaded: ${s.loaded}; running: ${s.running}; healthy: ${s.healthy}\npid: ${s.pid ?? "-"}; last exit code: ${s.lastExitCode ?? "-"}\nservice: ${s.plistPath}\nbinary: ${s.binaryPath ?? "-"}; matches current: ${s.binaryMatches}${s.warning ? `\nWARNING: ${s.warning}` : ""}`; break;
       }
       default: {
         const text = readText(b.logsPath()); if (text === null) throw new Error(`no log at ${b.logsPath()}`);

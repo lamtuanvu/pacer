@@ -322,3 +322,11 @@ test("feedback appears below each primary action and console footnote follows fo
  b.check.click();b.reply(b.sent.at(-1),{branch:"empty",displayName:"Empty",terminals:[{id:"neither"}]});expect(b.connection.textContent).toBe("console not connected in Empty");
  expect(b.feedback.every(n=>n.textContent==="The pacer console for this worktree is starting. Try again in a few seconds.")).toBe(true);
 });
+
+test("overview feedback stays in the main action bar when a retry button is present",()=>{
+ const s=snapshot();s.tasks=[{id:"failed",state:"failed",goal:"fix",executor:"claude-code",backend:null,worktree:null,updatedAt:100}];
+ const html=panel(s);const overview=html.match(/<main[^>]*data-page="overview"[^>]*>([\s\S]*?)<\/main>/)![1];
+ expect(overview).toContain('data-command="attention-0"');
+ expect(overview.indexOf('data-status')).toBeGreaterThan(overview.indexOf('class="actionbar"'));
+ for(const view of ["setup","delegate","strategy"]){const body=html.match(new RegExp(`<main[^>]*data-page="${view}"[^>]*>([\\s\\S]*?)<\\/main>`))![1];expect(body.indexOf('data-status')).toBeGreaterThan(body.indexOf('class="actionbar"'));}
+});
