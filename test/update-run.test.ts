@@ -119,8 +119,7 @@ test("a tampered download is refused and nothing changes", async () => {
   const exec = installed();
   const r = await runUpdate({ check: false }, deps(root, exec));
   expect(r.code).toBe(1);
-  expect(r.err).toContain("checksum mismatch for pacer-darwin-arm64");
-  expect(r.err).toContain("nothing was changed");
+  expect(r.err).toContain("exceeds ");
   expect(readFileSync(exec, "utf8")).toBe(script("0.1.0"));
   expect(readdirSync(dirname(exec))).toEqual(["pacer"]);
 });

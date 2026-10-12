@@ -56,6 +56,10 @@ test("SHA256SUMS round-trips and tolerates binary-mode markers and junk lines", 
   expect(sha256Hex(new TextEncoder().encode("abc"))).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 });
 
+test("SHA256SUMS rejects conflicting duplicate filenames", () => {
+  expect(() => parseSha256Sums(`${SHA}  pacer-linux-x64\n${"b".repeat(64)}  pacer-linux-x64\n`)).toThrow("conflicting hashes for pacer-linux-x64");
+});
+
 test("parseLatest strips a leading v and rejects anything that is not a version", () => {
   expect(parseLatest({ version: "0.2.0" })).toBe("0.2.0");
   expect(parseLatest({ version: "v0.2.0" })).toBe("0.2.0");
@@ -79,6 +83,7 @@ test("parseManifest validates every field and lists all problems", () => {
   expect(msg).toContain("size must be");
   expect(msg).toContain("unsupported os/arch windows-x64");
   expect(() => parseManifest({ version: "0.2.0", assets: [] })).toThrow("assets must be a non-empty list");
+  expect(() => parseManifest({ version: "0.2.0", assets: [good.assets[0], good.assets[0]] })).toThrow("duplicate platform darwin-arm64");
 });
 
 test("release URLs follow the documented layout", () => {

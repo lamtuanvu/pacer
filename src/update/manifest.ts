@@ -45,7 +45,12 @@ export function parseSha256Sums(text: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const line of text.split("\n")) {
     const m = /^([0-9a-fA-F]{64}) [ *](.+)$/.exec(line.trim());
-    if (m) out.set(m[2], m[1].toLowerCase());
+    if (m) {
+      const hash = m[1].toLowerCase();
+      const previous = out.get(m[2]);
+      if (previous !== undefined && previous !== hash) throw new ReleaseError(`SHA256SUMS has conflicting hashes for ${m[2]}`);
+      out.set(m[2], hash);
+    }
   }
   return out;
 }
@@ -66,6 +71,7 @@ export function parseManifest(raw: unknown): Manifest {
   if (!Array.isArray(o.assets) || o.assets.length === 0) {
     p.push("assets must be a non-empty list");
   } else {
+    const platforms = new Set<string>();
     o.assets.forEach((a: unknown, i: number) => {
       const x = (typeof a === "object" && a !== null ? a : {}) as Record<string, unknown>;
       const plat = hostPlatform(String(x.os), String(x.arch));
@@ -74,6 +80,9 @@ export function parseManifest(raw: unknown): Manifest {
         return;
       }
       const file = assetFile(plat);
+      const platformKey = `${plat.os}-${plat.arch}`;
+      if (platforms.has(platformKey)) p.push(`assets[${i}]: duplicate platform ${platformKey}`);
+      platforms.add(platformKey);
       const shaOk = typeof x.sha256 === "string" && /^[0-9a-f]{64}$/.test(x.sha256);
       const sizeOk = typeof x.size === "number" && Number.isInteger(x.size) && x.size > 0;
       if (x.file !== file) p.push(`assets[${i}]: file must be "${file}" (got ${JSON.stringify(x.file ?? null)})`);

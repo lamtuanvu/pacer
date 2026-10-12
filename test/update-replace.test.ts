@@ -27,9 +27,26 @@ test("normalizeBase trims slashes and allows only https, file and loopback http"
   expect(normalizeBase("https://example.com/pacer/")).toBe("https://example.com/pacer");
   expect(normalizeBase("http://127.0.0.1:4321")).toBe("http://127.0.0.1:4321");
   expect(normalizeBase("http://localhost/r")).toBe("http://localhost/r");
-  for (const bad of ["http://example.com/r", "ftp://x/y", "/abs/path", "http://127.0.0.1.evil.com/x", "http://127.0.0.1:1@evil.com/"]) {
+  for (const bad of ["http://example.com/r", "ftp://x/y", "/abs/path", "http://127.0.0.1.evil.com/x", "http://127.0.0.1:1@evil.com/", "https://example.com/r?x=1", "file:///tmp/release#frag"]) {
     expect(() => normalizeBase(bad)).toThrow("must start with https://");
   }
+});
+
+test("download limits use Content-Length and stop streaming after the byte cap", async () => {
+  const declared = await fetchBytes(async () => new Response("12345", { headers: { "content-length": "5" } }), "fixture://declared", 4).catch((e: unknown) => e);
+  expect((declared as Error).message).toContain("exceeds 4 byte limit");
+  let pulled = 0;
+  let cancelled = false;
+  const streaming = new ReadableStream<Uint8Array>({
+    pull(controller) { pulled++; controller.enqueue(new Uint8Array(3)); },
+    cancel() { cancelled = true; },
+  });
+  const oversized = await fetchBytes(async () => new Response(streaming), "fixture://stream", 4).catch((e: unknown) => e);
+  expect((oversized as Error).message).toContain("exceeds 4 byte limit");
+  expect(pulled).toBeLessThanOrEqual(3);
+  expect(cancelled).toBe(true);
+  const metadata = await fetchText(async () => new Response("x".repeat(1024 * 1024 + 1)), "fixture://metadata").catch((e: unknown) => e);
+  expect((metadata as Error).message).toContain("exceeds 1048576 byte limit");
 });
 
 test("releaseFetch reads file:// URLs and reports a missing file as HTTP 404", async () => {
