@@ -1,4 +1,5 @@
 import type { Ctx } from "../../types";
+import { detectLimit } from "../limits";
 import { type CheckResult, type OrcaClient, parsePayload } from "./client";
 import { hasInbox, putInbox, takeInbox } from "./state";
 
@@ -9,6 +10,7 @@ export const SETTLED_STATES = ["succeeded", "failed", "stopped"];
 const SUCCEEDED_GRACE_PASSES = 2;
 
 export interface WaitOpts {
+  providerId?: string;
   coordinator: string;
   run: string;
   dispatchId: string;
@@ -23,7 +25,7 @@ export interface WaitOpts {
 
 export type WaitResult =
   | { kind: "done"; outcome: string; subject: string; body: string; filesModified: string[] }
-  | { kind: "settled"; state: string; error: string | null }
+  | { kind: "settled"; state: string; error: string | null; tail?: string; needsStop?: boolean }
   | { kind: "timeout" }
   | { kind: "stopped" };
 
@@ -92,6 +94,12 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
         await sleep(Math.min(5_000, Math.max(0, left)));
       }
       if (hasInbox(ctx, o.dispatchId)) continue;
+
+      const rd = await c.workerRead(o.dispatchId, 40);
+      const output = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
+      if (detectLimit(o.providerId ?? "", { code: 1, stdout: "", stderr: output, timedOut: false })) {
+        return { kind: "settled", state: "failed", error: "provider usage limit", tail: output, needsStop: true };
+      }
 
       const w = await c.workerShow(o.dispatchId);
       const state = w.ok ? (w.result.worker?.state ?? "") : "";

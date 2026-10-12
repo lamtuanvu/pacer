@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { DEFAULT_EXECUTION, type ExecutionCfg, ExecutionError } from "../src/config/execution";
 import { validateStrategy } from "../src/config/strategy";
 import type { ProviderStatus } from "../src/engine/rank";
@@ -13,6 +13,7 @@ import { loadOrcaState, withLock } from "../src/exec/orca/state";
 import { runTask } from "../src/tasks/runner";
 import { createTask, updateTask } from "../src/tasks/store";
 import type { Ctx } from "../src/types";
+import { readMarks } from "../src/usage/reactive";
 import { fakeCtx } from "./helpers";
 import { type Route, fail, fakeRun, fixture, ok, raw } from "./fixtures/orca/fake";
 
@@ -53,7 +54,7 @@ function baseRoutes(): Route[] {
     [O("orchestration", "worker-start"), ok("worker-start-t1-auto.json")],
     [O("orchestration", "check"), [ok("check-1.ndjson"), ok("ack-1.json")]],
     [O("orchestration", "worker-show"), ok("worker-show-succeeded.json")],
-    [O("orchestration", "worker-read"), ok("worker-read-tail.json")],
+    [O("orchestration", "worker-read"), raw('{"ok":true,"result":{"terminal":{"tail":["Working"]}}}')],
     [O("orchestration", "worker-release"), ok("worker-release-t1.json")],
     [O("orchestration", "worker-stop"), ok("worker-stop-t8-cursor-limit.json")],
     [O("orchestration", "reply"), ok("reply.json")],
@@ -158,7 +159,7 @@ test("a failed worker_done that reports a usage limit marks limitHit", async () 
   const limited = fixture("check-1.ndjson")
     .replace('\\"outcome\\":\\"succeeded\\"', '\\"outcome\\":\\"failed\\"')
     .replace('"subject": "Task 1 done"', '"subject": "You have hit your usage limit"');
-  const { ctx, task, backend, cfg } = setup(() => [[O("orchestration", "check"), [raw(limited), ok("ack-1.json")]]]);
+  const { ctx, task, backend, cfg } = setup(() => [[O("orchestration", "check"), [raw(limited), ok("ack-1.json")]], [O("orchestration", "worker-read"), ok("worker-read-tail.json")]]);
   const out = await backend.runAttempt(ctx, cfg, task);
   expect(out.exec.code).toBe(1);
   expect(out.attempt.limitHit).toBe(true);
@@ -288,8 +289,8 @@ test("through the runner: the result records backend orca and verification runs 
 });
 
 
-test("pre-dispatch runtime and worker-start exceptions fall back to direct", async () => {
-  for (const prefix of [O("status"), O("orchestration", "worker-start")]) {
+test("pre-dispatch runtime exceptions fall back to direct", async () => {
+  for (const prefix of [O("status"), O("repo", "list"), O("orchestration", "run-create")]) {
     const { ctx, task, backend, cfg, direct } = setup(() => [
       [prefix, () => { throw new Error("runtime connection lost"); }],
     ]);
@@ -340,6 +341,124 @@ test("settled workers without a report map their state and release", async () =>
     expect(out.report).toContain("without a worker_done report");
     expect(f.count(O("orchestration", "worker-release"))).toBe(1);
     expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
-    expect(f.count(O("orchestration", "worker-read"))).toBe(code);
+    expect(f.count(O("orchestration", "worker-read"))).toBeGreaterThan(0);
   }
+});
+
+test("an idle worker with a usage limit fails early and is stopped even if release would succeed", async () => {
+  let t = 0;
+  const { f, ctx, task, backend, cfg, direct } = setup(() => [
+    [O("orchestration", "check"), () => { t += 1_000; return ok("check-w5a.ndjson"); }],
+    [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
+    [O("orchestration", "worker-read"), [ok("worker-read-tail.json"), raw('{"ok":true,"result":{"terminal":{"tail":[]}}}')]],
+  ], { deps: { now: () => t } });
+  const out = await backend.runAttempt(ctx, cfg, task);
+  expect(out.exec).toMatchObject({ code: 1, timedOut: false });
+  expect(out.attempt.limitHit).toBe(true);
+  expect(out.exec.stderr).toContain("usage limit");
+  expect(t).toBeLessThan(10_000);
+  expect(direct).toEqual([]);
+  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
+});
+
+for (const waitFails of [false, true]) {
+  test(`a registration lock failure still supervises the worker (wait failure: ${waitFails})`, async () => {
+    const original = new Error("wait connection lost");
+    const { f, ctx, task, backend, cfg } = setup((h) => [
+      [O("orchestration", "worker-start"), () => {
+        const dir = join(h.ctx.pacerHome, "orca");
+        rmSync(dir, { recursive: true, force: true });
+        writeFileSync(dir, "block lock creation");
+        return ok("worker-start-t1-auto.json");
+      }],
+      [O("orchestration", "check"), () => {
+        if (waitFails) throw original;
+        return ok("check-w5a.ndjson");
+      }],
+    ]);
+    try {
+      if (waitFails) {
+        await expect(backend.runAttempt(ctx, cfg, task)).rejects.toBe(original);
+        expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
+      } else {
+        const out = await backend.runAttempt(ctx, cfg, task);
+        expect(out.exec.code).toBe(0);
+        expect(readFileSync(out.attempt.log, "utf8")).toContain("registration failed");
+        expect(f.count(O("orchestration", "worker-release"))).toBe(1);
+      }
+      expect(f.count(O("orchestration", "check"))).toBeGreaterThan(0);
+    } finally {
+      rmSync(join(ctx.pacerHome, "orca"), { force: true });
+    }
+  });
+}
+
+for (const response of [
+  raw("", 124, "worker-start timed out"),
+  raw("not JSON", 0),
+  raw('{"ok":false,"error":{"code":"timeout","message":"worker-start timed out"}}', 1),
+  raw('{"ok":true,"result":{"state":"ready"}}'),
+  () => { throw new Error("worker-start connection lost"); },
+]) {
+  test("an ambiguous worker-start fails without launching a duplicate direct attempt", async () => {
+    const { f, ctx, task, backend, cfg, direct } = setup(() => [[O("orchestration", "worker-start"), response]]);
+    const out = await backend.runAttempt(ctx, cfg, task);
+    expect(out.backend).toBe("orca");
+    expect(out.exec).toMatchObject({ code: 1, timedOut: false });
+    expect(out.attempt.limitHit).toBe(false);
+    expect(out.report).toContain("cannot tell whether Orca created the worker");
+    expect(direct).toEqual([]);
+    expect(f.count(O("orchestration", "worker-start"))).toBe(1);
+  });
+}
+
+test("a new-child receipt without a worktree fails the task without verifying the original repo", async () => {
+  const receipt = JSON.parse(fixture("worker-start-t1-auto.json"));
+  receipt.result.effects = receipt.result.effects.filter((e: { kind: string }) => e.kind !== "worktree");
+  const { f, ctx, task, backend, direct } = setup(() => [
+    [O("orchestration", "worker-start"), raw(JSON.stringify(receipt))],
+  ]);
+  const verified: string[] = [];
+  const rec = await runTask(ctx, task.id, {
+    loadStrategy: () => validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, cursor: {} } }, "/x"),
+    computeStatus: async () => statusFor("cursor"),
+    runAttempt: backend.runAttempt,
+    verifyRepo: async (repo) => { verified.push(repo); return { files: "" }; },
+  });
+  expect(rec.result?.status).toBe("failed");
+  expect(rec.result?.report).toContain("worktree path");
+  expect(verified).toEqual([]);
+  expect(direct).toEqual([]);
+  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
+  expect(f.count(O("orchestration", "check"))).toBe(0);
+  expect(loadOrcaState(ctx).workers).toEqual({});
+});
+
+
+test("an idle worker limit marks the executor exhausted and the runner tries the next executor", async () => {
+  let t = 0;
+  const { f, ctx, task, backend, direct } = setup(() => [
+    [O("orchestration", "check"), [
+      () => { t += 1_000; return ok("check-w5a.ndjson"); },
+      ok("check-1.ndjson"), ok("ack-1.json"),
+    ]],
+    [O("orchestration", "worker-read"), ok("worker-read-tail.json")],
+  ], { deps: { now: () => t } });
+  const st = statusFor("codex");
+  st.providers.push(...statusFor("cursor").providers);
+  const verified: string[] = [];
+  const rec = await runTask(ctx, task.id, {
+    loadStrategy: () => validateStrategy({
+      planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {} }, pacing: { policy: "priority" },
+    }, "/x"),
+    computeStatus: async () => st,
+    runAttempt: backend.runAttempt,
+    verifyRepo: async (repo) => { verified.push(repo); return { files: "" }; },
+  });
+  expect(rec.result).toMatchObject({ status: "done", executor: "cursor", backend: "orca" });
+  expect(rec.attempts.map((a) => [a.executor, a.limitHit])).toEqual([["codex", true], ["cursor", false]]);
+  expect(readMarks(ctx).codex).toBeGreaterThan(Date.now() / 1000);
+  expect(verified).toEqual([WT1]);
+  expect(direct).toEqual([]);
+  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
 });

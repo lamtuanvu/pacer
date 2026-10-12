@@ -45,7 +45,7 @@ interface Ready {
   notes: string[];
 }
 type Prepared = { ok: false; reason: string } | Ready;
-interface Mapped { code: number; timedOut: boolean; settled: boolean; summary: string }
+interface Mapped { code: number; timedOut: boolean; settled: boolean; summary: string; tail?: string }
 
 async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskRecord, ex: ExecutionCfg): Promise<Prepared> {
   const pick = orcaAgentFor(cfg, ex.worktree);
@@ -90,7 +90,7 @@ function mapWait(w: WaitResult): Mapped {
       };
     case "settled":
       return {
-        code: w.state === "succeeded" ? 0 : 1, timedOut: false, settled: true,
+        code: w.state === "succeeded" ? 0 : 1, timedOut: false, settled: !w.needsStop, tail: w.tail,
         summary: `orca worker ${w.state} without a worker_done report${w.error ? ` (${w.error})` : ""}`,
       };
     case "timeout":
@@ -149,28 +149,61 @@ async function runOrcaAttempt(
   const startedAt = Date.now() / 1000;
   const lines: string[] = [];
   const log = (line: string) => { lines.push(line); };
+  const uncertainStart = async (reason: string): Promise<AttemptOutcome> => {
+    const report = `pacer cannot tell whether Orca created the worker: ${reason}. Direct fallback was skipped to avoid duplicate execution.`;
+    const dir = tasksDir(ctx);
+    mkdirSync(dir, { recursive: true });
+    const logFile = join(dir, `${task.id}.${cfg.id}.log`);
+    await Bun.write(logFile, report + "\n");
+    return {
+      exec: { code: 1, stdout: report, stderr: "", timedOut: false }, report, backend: "orca",
+      attempt: {
+        executor: cfg.id, model: cfg.model, startedAt, endedAt: Date.now() / 1000,
+        exitCode: 1, timedOut: false, limitHit: false, log: logFile,
+      },
+    };
+  };
   let ws: Awaited<ReturnType<OrcaClient["workerStart"]>>;
   try {
     ws = await c.workerStart({ spec: workerSpec(task, p), agent: p.agent, model: p.model, placement: p.placement, run: p.run, from: p.coordinator });
   } catch (e) {
-    return fallback(deps, ctx, cfg, task, onSpawn, String(e instanceof Error ? e.message : e));
+    return uncertainStart(String(e instanceof Error ? e.message : e));
+  }
+  if (!ws.ok && ["timeout", "bad_output"].includes(ws.error.code)) {
+    return uncertainStart(`${ws.error.code}: ${ws.error.message}`);
   }
   if (!ws.ok) return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`);
   const r = ws.result;
-  if (!r.dispatchId) return fallback(deps, ctx, cfg, task, onSpawn, "orca worker-start returned no dispatch id");
+  if (!r.dispatchId) return uncertainStart("orca worker-start returned no dispatch id");
   const dispatchId = r.dispatchId;
   const root = worktreePathOf(r.effects);
   const worktree = p.placement.kind === "existing" ? task.brief.repo : root ? (p.sub ? join(root, p.sub) : root) : null;
   const terminal = agentTerminalOf(r.effects);
   log(`worker-start ${dispatchId}: ${r.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
-  await withLock(ctx, "coordinator", async () => {
-    updateOrcaState(ctx, (s) => {
-      s.workers[dispatchId] = { dispatchId, taskId: task.id, executor: cfg.id, worktree, terminal, startedAt };
-    });
-  });
-
+  const forget = async () => {
+    try {
+      await withLock(ctx, "coordinator", async () => {
+        updateOrcaState(ctx, (s) => { delete s.workers[dispatchId]; });
+      });
+    } catch (e) {
+      log(`worker state cleanup failed: ${String(e)}`);
+    }
+  };
   let m: Mapped;
+  let tailText = "";
   try {
+    try {
+      await withLock(ctx, "coordinator", async () => {
+        updateOrcaState(ctx, (s) => {
+          s.workers[dispatchId] = { dispatchId, taskId: task.id, executor: cfg.id, worktree, terminal, startedAt };
+        });
+      });
+    } catch (e) {
+      log(`worker registration failed; continuing supervision: ${String(e)}`);
+    }
+    if (p.placement.kind === "new-child" && !worktree) {
+      throw new Error(`orca worker ${dispatchId} returned no worktree path for new-child placement; stopped it without verifying the original repository`);
+    }
     if (r.state !== "ready") {
       m = {
         code: 1, timedOut: false, settled: true,
@@ -178,29 +211,29 @@ async function runOrcaAttempt(
       };
     } else {
       m = mapWait(await waitForWorker(ctx, c, {
-        coordinator: p.coordinator, run: p.run, dispatchId, terminal,
+        providerId: cfg.id, coordinator: p.coordinator, run: p.run, dispatchId, terminal,
         deadlineMs: deps.now() + task.timeoutS * 1000,
         isStopped: () => readTask(ctx, task.id)?.state === "stopped",
         sliceMs: deps.sliceMs, now: deps.now, sleep: deps.sleep, log,
       }));
     }
+
+    tailText = m.tail ?? "";
+    if (m.code !== 0 && m.tail === undefined) {
+      const rd = await c.workerRead(dispatchId, 60);
+      tailText = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
+    }
+    await cleanup(c, dispatchId, terminal, m.settled, log);
+    await forget();
   } catch (e) {
-    await c.workerStop(dispatchId);
-    await withLock(ctx, "coordinator", async () => {
-      updateOrcaState(ctx, (s) => { delete s.workers[dispatchId]; });
-    });
+    try {
+      await c.workerStop(dispatchId);
+    } catch (stopError) {
+      log(`worker-stop failed: ${String(stopError)}`);
+    }
+    await forget();
     throw e;
   }
-
-  let tailText = "";
-  if (m.code !== 0) {
-    const rd = await c.workerRead(dispatchId, 60);
-    tailText = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
-  }
-  await cleanup(c, dispatchId, terminal, m.settled, log);
-  await withLock(ctx, "coordinator", async () => {
-    updateOrcaState(ctx, (s) => { delete s.workers[dispatchId]; });
-  });
 
   const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };
   const dir = tasksDir(ctx);
