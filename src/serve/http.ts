@@ -5,7 +5,7 @@ import { loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
 import type { Ctx } from "../types";
 import { toBudget } from "../link/budget";
-import { currentSnapshot, readLatest, readOutboxSince } from "../link/store";
+import { currentSnapshot, refreshConsoleTerminals, readLatest, readOutboxSince } from "../link/store";
 import { pumpOnce } from "../link/pump";
 
 import { consoleOpener } from "./console-open";
@@ -48,7 +48,7 @@ export function startServer(
       const headers = { "X-Pacer": "1" };
       if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true }, { headers });
       if (req.headers.get("authorization") !== `Bearer ${token}`) return new Response("unauthorized\n", { status: 401 });
-      if (req.method === "POST" && pathname === "/console/open") return openConsole(req, getCtx());
+      if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) return openConsole(req, getCtx());
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });
       if (pathname === "/state") {
         try {
@@ -105,7 +105,7 @@ export function startServer(
   const tick = () => {
     if (busy) return;
     busy = true;
-    void Promise.resolve().then(() => pumpOnce(getCtx())).catch(() => []).finally(() => { busy = false; });
+    void Promise.resolve().then(async () => { const ctx = getCtx(); await refreshConsoleTerminals(ctx); return pumpOnce(ctx); }).catch(() => []).finally(() => { busy = false; });
   };
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
   return { port: server.port!, token, stop: () => { clearInterval(pumpTimer); server.stop(true); } };

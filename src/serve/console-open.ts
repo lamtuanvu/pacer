@@ -3,13 +3,13 @@ import { isObj } from "../util";
 import { parseOrcaOutput } from "../exec/orca/client";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
-import { currentSnapshot } from "../link/store";
+import { currentSnapshot, forgetConsoles } from "../link/store";
 import { publish } from "../link/publish";
 
 /** Server-local reservations also prevent concurrent requests creating duplicate terminals. */
 export function consoleOpener() {
   const lastOpen = new Map<string, number>();
-  let opens: { at: number }[] = [];
+  let opens: { at: number; worktreeKey: string }[] = [];
   const openedHandles = new Map<string, Set<string>>();
   async function result(ctx: Ctx, argv: string[]): Promise<Record<string, unknown>> {
     const r = await ctx.run(argv, 30_000);
@@ -18,7 +18,7 @@ export function consoleOpener() {
     return reply.result;
   }
   return async (req: Request, ctx: Ctx): Promise<Response> => {
-    const json = (ok: boolean, reason?: string, status = 200, handle?: string) => Response.json({ ok, ...(reason ? { reason } : {}), ...(handle ? { handle } : {}) }, { status, headers: { "X-Pacer": "1" } });
+    const json = (ok: boolean, reason?: string, status = 200, handle?: string, warning?: string) => Response.json({ ok, ...(reason ? { reason } : {}), ...(handle ? { handle } : {}), ...(warning ? { warning } : {}) }, { status, headers: { "X-Pacer": "1" } });
     if (req.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") return json(false, "content-type", 415);
     // Read incrementally: a missing or dishonest Content-Length cannot bypass the cap.
     const reader = req.body?.getReader();
@@ -35,6 +35,14 @@ export function consoleOpener() {
     } catch { return json(false, "invalid-body", 400); }
     let data: unknown;
     try { data = JSON.parse(body); } catch { return json(false, "invalid-json", 400); }
+    if (new URL(req.url).pathname === "/console/forget") {
+      if (!isObj(data) || typeof data.worktreeId !== "string" || !/^[A-Za-z0-9_-]{1,128}(?:::[^\x00-\x1f\x7f]{1,900})?$/.test(data.worktreeId)) return json(false, "invalid-selector", 400);
+      const key = `id:${data.worktreeId}`;
+      lastOpen.delete(key); openedHandles.delete(key); opens = opens.filter(slot => slot.worktreeKey !== key);
+      forgetConsoles(ctx, data.worktreeId);
+      await publish(ctx, [], { channel: false });
+      return json(true);
+    }
     if (!isObj(data) || (data.terminal === undefined && data.branch === undefined)
       || (data.terminal !== undefined && (typeof data.terminal !== "string" || !/^term_[A-Za-z0-9-]{1,100}$/.test(data.terminal)))
       || (data.branch !== undefined && (typeof data.branch !== "string" || !/^[A-Za-z0-9._/-]{1,200}$/.test(data.branch)))) return json(false, "invalid-selector", 400);
@@ -65,10 +73,10 @@ export function consoleOpener() {
       const handles = new Set(listed.terminals.flatMap(t => isObj(t) && typeof t.handle === "string" ? [t.handle] : []));
       const snap = currentSnapshot(ctx);
       if ([...(snap.consoles ?? []), ...(snap.console ? [snap.console] : [])].some(c => c.handle && handles.has(c.handle) && ctx.now - c.heartbeatAt <= 30)) return json(false, "console-present");
-      if (listed.terminals.some(t => isObj(t) && (t.title === "pacer" || (typeof t.handle === "string" && openedHandles.get(worktreeKey)?.has(t.handle))))) return json(false, "console-terminal-exists");
+      const olderConsole = listed.terminals.some(t => isObj(t) && (t.title === "pacer" || t.title === "pacer console" || (typeof t.handle === "string" && openedHandles.get(worktreeKey)?.has(t.handle))));
       opens = opens.filter(slot => ctx.now - slot.at < 3600);
       if (ctx.now - (lastOpen.get(worktreeKey) ?? -Infinity) < 60 || opens.length >= 10) return json(false, "rate-limited");
-      const previous = lastOpen.get(worktreeKey), slot = { at: ctx.now };
+      const previous = lastOpen.get(worktreeKey), slot = { at: ctx.now, worktreeKey };
       lastOpen.set(worktreeKey, ctx.now); opens.push(slot);
       let r: Record<string, unknown>;
       try { r = await result(ctx, ["orca", "terminal", "create", "--worktree", selector, "--title", "pacer", "--command", shellCommand([...pacerArgv(ctx.env), "console"]), "--json"]); }
@@ -81,7 +89,7 @@ export function consoleOpener() {
       const remembered = openedHandles.get(worktreeKey) ?? new Set<string>();
       remembered.add(r.terminal.handle); openedHandles.set(worktreeKey, remembered);
       await publish(ctx, [{ v: 1, type: "alert", data: { key: `console-open-${r.terminal.handle}`, level: "info", title: `Opened pacer console in ${displayName || (typeof data.branch === "string" ? data.branch : selector)}`, body: "", at: ctx.now } }], { channel: false });
-      return json(true, undefined, 200, r.terminal.handle);
+      return json(true, undefined, 200, r.terminal.handle, olderConsole ? "older-console" : undefined);
     } catch { return json(false, "orca-unavailable"); }
   };
 }

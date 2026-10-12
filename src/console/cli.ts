@@ -1,3 +1,4 @@
+import { binaryChanged, binaryStamp } from "./restart";
 import { createInterface } from "node:readline";
 import { use as switchStrategy } from "../strategy/service";
 import { loadStrategy, useStrategy } from "../config/strategy";
@@ -88,9 +89,25 @@ export async function runConsoleCli(args: string[], ctx: Ctx): Promise<Result> {
     try { deps.heartbeat({ ...ctx, now: Date.now() / 1000 }, null); }
     finally { process.exit(code); }
   };
-  const interrupt = () => stop(130), terminate = () => stop(143);
+  const watchedBinary = Bun.isStandaloneExecutable ? process.execPath : process.argv[1];
+  const stamp = binaryStamp(watchedBinary);
+  let restarting = false;
+  const restart = () => {
+    if (restarting) return;
+    restarting = true;
+    process.stdout.write("pacer was updated; restarting console\n");
+    try {
+      deps.heartbeat({ ...ctx, now: Date.now() / 1000 }, null);
+      if (!process.execve) throw new Error("this runtime does not support process.execve");
+      process.execve(process.execPath, Bun.isStandaloneExecutable ? [process.execPath, ...process.argv.slice(2)] : [process.execPath, ...process.argv.slice(1)], process.env);
+    } catch (e) { restarting = false; process.stderr.write(`pacer: could not restart console: ${(e as Error).message}\n`); }
+  };
+  const versionTimer = setInterval(() => { if (binaryChanged(watchedBinary, stamp)) restart(); }, 30000);
+  process.on("SIGUSR1", restart);
+  const interrupt = () => stop(130), terminate = () => stop(143), hangup = () => stop(129);
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
+  process.on("SIGHUP", hangup);
   try { return { code: await runConsole(ctx, { lines, write: text => { process.stdout.write(text); } }, deps), out: "", err: "" }; }
-  finally { process.off("SIGINT", interrupt); process.off("SIGTERM", terminate); lines.close(); }
+  finally { process.off("SIGINT", interrupt); process.off("SIGTERM", terminate); process.off("SIGHUP", hangup); process.off("SIGUSR1", restart); clearInterval(versionTimer); lines.close(); }
 }

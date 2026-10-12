@@ -1,3 +1,4 @@
+import { currentVersion } from "../update/version";
 import { publish } from "../link/publish";
 import { build } from "../strategy/launcher";
 import type { Ctx } from "../types";
@@ -41,7 +42,7 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
   const cancels: (() => void)[] = [];
   let ticking: Promise<void> | null = null;
   let closed = false;
-  let consoleData: ConsoleData = { handle: null, paneKey: null, pid: deps.pid, startedAt: ctx.now, heartbeatAt: ctx.now };
+  let consoleData: ConsoleData = { version: currentVersion(), handle: null, paneKey: null, pid: deps.pid, startedAt: ctx.now, heartbeatAt: ctx.now };
 
   const showPrompt = () => {
     if (!prompt) io.write("pacer> ");

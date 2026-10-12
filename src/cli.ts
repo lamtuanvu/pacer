@@ -205,7 +205,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "serve": {
       const { opts } = parseFlags(rest, []);
       try {
-        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? DEFAULT_PORT) });
+        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });
         return { code: 0, out: `pacer serve listening on http://127.0.0.1:${s.port} (token: ${ctx.pacerHome}/token)`, err: "", keepAlive: true };
       } catch (e) {
         return { code: 2, out: "", err: explain(e) };

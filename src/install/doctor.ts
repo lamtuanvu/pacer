@@ -1,3 +1,4 @@
+import { serviceBackend, type ServiceStatus } from "../service";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy, MissingStrategyError, type Strategy } from "../config/strategy";
@@ -17,7 +18,7 @@ export interface Check {
   fix?: string;
 }
 
-export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status> } = {}): Promise<Check[]> {
+export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status>; service?: () => Promise<ServiceStatus> } = {}): Promise<Check[]> {
   const checks: Check[] = [];
   let strategy: Strategy | undefined;
   try {
@@ -72,6 +73,14 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       detail: reachable ? "runtime reachable" : "tasks use the direct backend" });
   }
 
+  try {
+    const s = await (deps.service ? deps.service() : serviceBackend(ctx).status());
+    const good = s.installed && s.running && s.healthy && s.binaryMatches;
+    checks.push({ name: "Service", level: good ? "ok" : "warn",
+      detail: `installed: ${s.installed}; running: ${s.running}; healthy: ${s.healthy}; binary matches current: ${s.binaryMatches}`,
+      ...(!good ? { fix: !s.installed || !s.binaryMatches ? "pacer service install" : "pacer service restart" } : {}) });
+  } catch (e) { checks.push({ name: "Service", level: "info", detail: errorText(e) }); }
+
   const profile = readJson<ActivityProfile>(join(ctx.pacerHome, "activity.json"));
   const usableProfile = profile && Array.isArray(profile.active) && Array.isArray(profile.bins)
     && profile.bins.length === 168 && !isCalendar(profile);
@@ -85,7 +94,7 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       const broken = record.files.filter(file => !fileIntact(file));
       checks.push({ name: `Install ${record.planner}`, level: broken.length ? "warn" : "ok",
         detail: broken.length ? `missing or changed: ${broken.map(file => file.path).join(", ")}` : "installed files intact",
-        ...(broken.length ? { fix: `pacer install ${record.planner}` } : {}) });
+        ...(broken.length ? { fix: record.planner === "service" ? "pacer service install" : `pacer install ${record.planner}` } : {}) });
     }
   } catch (e) {
     checks.push({ name: "Installs", level: "warn", detail: errorText(e) });

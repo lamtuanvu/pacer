@@ -53,3 +53,13 @@ test("console worktree identity survives snapshot registration and validation",(
  const ctx=fakeCtx({now:100});writeConsole(ctx,{...c("term_own",process.pid,100),worktreeId:"wt-own"} as any);
  expect(parseSnapshot(currentSnapshot(ctx))?.consoles?.[0]).toHaveProperty("worktreeId","wt-own");
 });
+
+test("cheap terminal list prunes missing terminal registrations once per thirty seconds and preserves on failure", async () => {
+ const {refreshConsoleTerminals,readConsoles}=await import("../src/link/store"); let calls=0;
+ const ctx=fakeCtx({run:async()=>{calls++;return {code:0,stdout:JSON.stringify({ok:true,result:{terminals:[{handle:"term_live"}]}}),stderr:""};}});
+ writeConsole(ctx,{handle:"term_missing",pid:process.pid,paneKey:null,startedAt:ctx.now,heartbeatAt:ctx.now});
+ writeConsole(ctx,{handle:"term_live",pid:process.pid,paneKey:null,startedAt:ctx.now,heartbeatAt:ctx.now});
+ await refreshConsoleTerminals(ctx); await refreshConsoleTerminals(ctx); expect(calls).toBe(1);expect(readConsoles(ctx).map(c=>c.handle)).toEqual(["term_live"]);
+ const offline=fakeCtx({run:async()=>({code:1,stdout:"",stderr:"offline"})});writeConsole(offline,{handle:"term_kept",pid:process.pid,paneKey:null,startedAt:offline.now,heartbeatAt:offline.now});
+ await refreshConsoleTerminals(offline);expect(readConsoles(offline).map(c=>c.handle)).toEqual(["term_kept"]);
+});
