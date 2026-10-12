@@ -110,6 +110,6 @@ test("health is unauthenticated and pacer responses identify themselves",async()
  const {url,headers}=await serve();
  const health=await fetch(url+"/health");
  expect(health.status).toBe(200);expect(health.headers.get("x-pacer")).toBe("1");
- expect(await health.json()).toEqual({ok:true});
+ expect(await health.json()).toEqual({ok:true,pid:process.pid});
  for(const path of ["/link","/state"]) expect((await fetch(url+path,{headers})).headers.get("x-pacer")).toBe("1");
 });

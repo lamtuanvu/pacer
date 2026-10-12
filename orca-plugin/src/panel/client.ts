@@ -10,11 +10,15 @@ const data = unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8
 const providerNames = {"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model",opencode:"OpenCode"};
 for (const p of [...data.rows,...data.muted]) p.name = Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
 data.executors = data.rows.map(p=>p.id);
-const status = document.getElementById("status");
+const statusNode = document.getElementById("status");
+const status = { get textContent() { return statusNode.textContent; }, set textContent(value) {
+ statusNode.textContent = value;
+ for (const el of document.querySelectorAll("[data-status]")) el.textContent = value;
+} };
 if(data.buildAlert) status.textContent=data.buildAlert.title+(data.buildAlert.body?": "+data.buildAlert.body:"");
 const sentAt = [], pending = new Map();
 let sequence = 0, context = null, sending = false;
-const submitButton = document.querySelector('button[type="submit"]');
+const submitButton = document.getElementById("delegate-send");
 function finishSending() { sending = false; submitButton.disabled = false; }
 function show(view) {
   if(view === "strategy" && savedStrategy) {try {sessionStorage.setItem("pacer-seen-strategies",JSON.stringify([...seenStrategies,savedStrategy.key+":"+savedStrategy.at].slice(-100)));}catch {}}
@@ -25,7 +29,7 @@ function live(workspace) {
   const available = data.consoles.filter(c=>c.handle && c.live);
   const selected = workspace === undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
   if (selected) { if(workspace !== undefined) data.handle = selected.handle; document.getElementById("console-hint").hidden = true; return true; }
-  status.textContent = "No pacer console in this worktree";
+  status.textContent = workspace !== undefined && Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>typeof t.title === "string" && /^pacer(?: console)?$/.test(t.title)) ? "Reopen the panel to connect to the new console." : data.autoConsole ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
   document.getElementById("console-hint").hidden = false;
   return false;
 }
@@ -68,12 +72,14 @@ function updateContext(value) {
   context = value && typeof value.branch === "string" && typeof value.displayName === "string" ? value : null;
   for (const el of document.querySelectorAll("[data-worktree]")) el.textContent = context ? context.displayName : "—";
   document.getElementById("worktree-branch").textContent = context ? context.branch : "—";
+  const connected = context && data.consoles.some(c=>c.live && Array.isArray(context.terminals) && context.terminals.some(t=>t.id===c.handle));
+  for (const el of document.querySelectorAll("[data-console-connection]")) el.textContent = context ? (connected ? "console connected in " : "console not connected in ") + context.displayName : "console not connected";
 }
 // Escape data before creating local provider rows; the same nodes populate the radio list.
 function h(value) { return String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 for (const el of document.querySelectorAll("[data-text]")) el.innerHTML = h(data.text[el.dataset.text]);
 const strategyEntries=data.strategies.map(e=>typeof e === "string"?{name:e,summary:"",active:e===data.strategy}:e);
-document.getElementById("strategy-list").innerHTML=strategyEntries.map((e,i)=>'<button type="button" class="row" data-strategy="'+i+'"'+(e.active?' disabled':'')+'><span>'+(e.active?'✓':'')+'</span><span class="stack grow"><strong>'+h(e.name)+'</strong><small>'+h(e.summary)+'</small></span>'+(e.active?'<span class="pill">Active</span>':'')+'</button>').join("");
+document.getElementById("strategy-list").innerHTML=strategyEntries.map((e,i)=>'<button type="button" class="row" data-strategy="'+i+'"'+(e.active?' disabled title="This strategy is already active."':'')+'><span>'+(e.active?'✓':'')+'</span><span class="stack grow"><strong>'+h(e.name)+'</strong><small>'+h(e.summary)+'</small></span>'+(e.active?'<span class="pill">Active</span>':'')+'</button>').join("");
 document.getElementById("strategy-from").innerHTML=strategyEntries.map(e=>'<option value="'+h(e.name)+'"'+(e.active?' selected':'')+'>'+h(e.name)+'</option>').join("");
 for(const b of document.querySelectorAll("[data-strategy]")) b.addEventListener("click",()=>sendCommand({cmd:"use",strategy:strategyEntries[Number(b.dataset.strategy)].name}));
 let seenStrategies=[];
@@ -106,7 +112,7 @@ for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("cl
 });
 for (const b of document.querySelectorAll("[data-command]")) b.addEventListener("click", () => {
   const command = data.commands[b.dataset.command];
-  if (command) sendCommand(command);
+  if (command) sendCommand(command); else status.textContent = "Reopen the panel to load this action.";
 });
 for (const b of document.querySelectorAll("[data-setup]")) b.addEventListener("click", () => {
   readContext(value => {
@@ -124,9 +130,9 @@ for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("c
   }
   sendCommand({cmd:"refresh"});
 });
-document.getElementById("delegate-form").addEventListener("submit", event => {
-  event.preventDefault();
-  if (sending || !live()) return;
+document.getElementById("delegate-send").addEventListener("click", () => {
+  if (sending) { status.textContent = "A command is already being sent. Please wait."; return; }
+  if (!live()) return;
   const goal = document.getElementById("goal").value, acceptance = document.getElementById("done").value;
   const selected = document.querySelector('input[name="executor"]:checked');
   if (!goal.trim()) { status.textContent = "What should be done is required."; return; }
@@ -145,15 +151,17 @@ document.getElementById("delegate-form").addEventListener("submit", event => {
     }, finishSending, value)) finishSending();
   }, finishSending)) finishSending();
 });
-document.getElementById("strategy-form").addEventListener("submit", event => {
- event.preventDefault(); if(sending || !live())return;
+document.getElementById("strategy-send").addEventListener("click", () => { if(sending){status.textContent="A command is already being sent. Please wait.";return;} if(!live())return;
  const brief=document.getElementById("strategy-brief").value, from=document.getElementById("strategy-from").value, agent=document.getElementById("strategy-agent").value;
  if(!brief.trim() || brief.length>2000 || !["claude-code","codex"].includes(agent)) {status.textContent="Enter a brief of at most 2000 characters and choose a configured agent.";return;}
- const button=document.querySelector('#strategy-form button[type="submit"]'); sending=true;button.disabled=true;
+ const button=document.getElementById("strategy-send"); sending=true;button.disabled=true;
  const finish=()=>{sending=false;button.disabled=false;};
  if(!readContext(value=>{updateContext(value);if(!context || !context.branch){status.textContent="Focus a worktree first.";finish();return;}
  sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
  },finish))finish();
+});
+document.getElementById("done").addEventListener("keydown", event => {
+ if(event.key === "Enter") {event.preventDefault();document.getElementById("delegate-send").click();}
 });
 window.addEventListener("message", event => {
   const r = event.data;

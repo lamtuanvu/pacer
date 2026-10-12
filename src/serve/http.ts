@@ -5,7 +5,7 @@ import { loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
 import type { Ctx } from "../types";
 import { toBudget } from "../link/budget";
-import { currentSnapshot, readLatest, readOutboxSince } from "../link/store";
+import { currentSnapshot, refreshConsoleTerminals, readLatest, readOutboxSince } from "../link/store";
 import { pumpOnce } from "../link/pump";
 
 import { consoleOpener } from "./console-open";
@@ -28,7 +28,8 @@ export function ensureToken(ctx: Ctx): string {
 export function startServer(
   getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number } = {},
 ): { port: number; token: string; stop: () => void } {
-  const token = ensureToken(getCtx());
+  const initialCtx = getCtx();
+  const token = ensureToken(initialCtx);
   const interval = opts.sseIntervalMs ?? 15_000;
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;
@@ -37,7 +38,7 @@ export function startServer(
     return computeStatus(ctx, loadStrategy(ctx));
   };
   const enc = new TextEncoder();
-  const openConsole = consoleOpener();
+  const openConsole = consoleOpener(initialCtx.now);
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -46,9 +47,9 @@ export function startServer(
     async fetch(req) {
       const { pathname } = new URL(req.url);
       const headers = { "X-Pacer": "1" };
-      if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true }, { headers });
+      if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid }, { headers });
       if (req.headers.get("authorization") !== `Bearer ${token}`) return new Response("unauthorized\n", { status: 401 });
-      if (req.method === "POST" && pathname === "/console/open") return openConsole(req, getCtx());
+      if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) return openConsole(req, getCtx());
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });
       if (pathname === "/state") {
         try {
@@ -105,7 +106,7 @@ export function startServer(
   const tick = () => {
     if (busy) return;
     busy = true;
-    void Promise.resolve().then(() => pumpOnce(getCtx())).catch(() => []).finally(() => { busy = false; });
+    void Promise.resolve().then(async () => { const ctx = getCtx(); await refreshConsoleTerminals(ctx); return pumpOnce(ctx); }).catch(() => []).finally(() => { busy = false; });
   };
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
   return { port: server.port!, token, stop: () => { clearInterval(pumpTimer); server.stop(true); } };

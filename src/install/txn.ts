@@ -1,6 +1,6 @@
 import { isDevArgv, validateInstallArgv } from "./self";
 import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Ctx } from "../types";
 import { backupPath, readText, sha256, shellCommand } from "./fsx";
 import { mergeUndo, readManifest, writeManifest, type PlannerRecord, type UndoOp } from "./manifest";
@@ -21,7 +21,7 @@ export class Txn {
     };
     this.record.pacerArgv = [...env.pacerArgv];
   }
-  edit(path: string, fn: (old: string | null) => string, undo: UndoOp[]): boolean {
+  edit(path: string, fn: (old: string | null) => string, undo: UndoOp[], backupDir?: string): boolean {
     const old = readText(path);
     let next: string;
     try { next = fn(old); }
@@ -30,8 +30,9 @@ export class Txn {
     let change = this.record.files.find(file => file.path === path);
     if (change?.action === "moved") throw new InstallError(`cannot update ${path}: already moved aside`);
     if (!change) {
-      const backup = old === null ? undefined : backupPath(path, this.env.ctx.now);
+      const backup = old === null ? undefined : backupPath(backupDir ? join(backupDir, basename(path)) : path, this.env.ctx.now);
       if (backup) {
+        mkdirSync(dirname(backup), { recursive: true });
         copyFileSync(path, backup);
         this.changes.push(() => rmSync(backup, { force: true }));
       }

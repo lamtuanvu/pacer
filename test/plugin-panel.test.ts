@@ -20,13 +20,13 @@ class Node {
  focus(){this.focused=true;}
 }
 function browser(html=panel(),seen:string[]=[]) {
- const ids:Record<string,Node>=Object.fromEntries(["strategy-after","strategy-form","strategy-list","strategy-from","strategy-agent","strategy-brief","status","delegate-form","goal","done","worktree-branch","ranked-list","unavailable-list","executor-options","ranked-order","strategy-picker","console-hint"].map(id=>[id,new Node()]));
+ const ids:Record<string,Node>=Object.fromEntries(["delegate-send","strategy-send","strategy-after","strategy-form","strategy-list","strategy-from","strategy-agent","strategy-brief","status","delegate-form","goal","done","worktree-branch","ranked-list","unavailable-list","executor-options","ranked-order","strategy-picker","console-hint"].map(id=>[id,new Node()]));
  ids["strategy-after"].hidden=true;ids["strategy-picker"].hidden=true;ids["console-hint"].hidden=true;
  const make=(dataset:Record<string,string>)=>Object.assign(new Node(),{dataset});
  const pages=[make({page:"overview"}),make({page:"setup"}),make({page:"delegate"})];
- const submitButton=new Node(), best=new Node();best.value="";
- const views=[make({view:"delegate"}),make({view:"overview"})], strategy=make({strategyToggle:""}), setups=[make({setup:"pacer serve"}),make({setup:"pacer console --open"}),make({setup:"pacer console"})],worktree=new Node(),selected=new Node();
- const check=new Node(), updated=new Node();
+ const submitButton=ids["delegate-send"], best=new Node();best.value="";
+ const views=[make({view:"delegate"}),make({view:"overview"})], strategy=make({strategyToggle:""}), setups=[make({setup:"pacer service install"}),make({setup:"pacer console --open"}),make({setup:"pacer console"})],worktree=new Node(),selected=new Node();
+ const check=new Node(), updated=new Node(), connection=new Node(), feedback=Array.from({length:4},()=>new Node());
  const strategies=[make({strategy:"0"}),make({strategy:"1"})], freshness=[new Node(),new Node()], intervals:Function[]=[];
  const sent:any[]=[];let now=100000,listener:Function=()=>{};
  const parent={postMessage:(m:any)=>sent.push(m)};
@@ -34,11 +34,11 @@ function browser(html=panel(),seen:string[]=[]) {
   sessionStorage:{getItem:()=>JSON.stringify(seen),setItem:(_key:string,value:string)=>{seen=JSON.parse(value);}},
   Date:class extends Date {static now(){return now;}},setInterval:(fn:Function,ms:number)=>{expect(ms).toBe(30000);intervals.push(fn);},TextEncoder,TextDecoder,Uint8Array,atob,
   document:{getElementById:(id:string)=>id==="pacer-actions"?{textContent:html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]}:ids[id],
-   querySelectorAll:(selector:string)=>selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
+   querySelectorAll:(selector:string)=>selector==="[data-status]"?feedback:selector==="[data-console-connection]"?[connection]:selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
   window:{parent,addEventListener:(_n:string,h:Function)=>listener=h},
  });
  const reply=(m:any,value:any,ok=true,source=parent)=>listener({source,data:{type:"orca-panel-action-result",requestId:m.requestId,ok,value}});
- return {ids,pages,views,strategy,strategies,freshness,check,updated,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-form"].handlers.submit({preventDefault(){}})};
+ return {ids,pages,feedback,connection,views,strategy,strategies,freshness,check,updated,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-send"].click()};
 }
 for(const [verdict,expected] of [["ON_PACE","You're on pace for the week."],["OK","You're on pace for the week."],["AHEAD","Claude is ahead of pace. Slow down planning."],["NEAR_LIMIT","Claude is ahead of pace. Slow down planning."],["BEHIND","Claude is behind pace. Room for more planning."],["UNKNOWN","Budget unknown."]]) test(`headline ${verdict}`,()=>expect(headline(provider("claude-code",verdict))).toBe(expected));
 test("exhausted and absent planner headlines and unknown detail",()=>{
@@ -63,11 +63,11 @@ test("attention groups duplicate goals, excludes failed executor, detects stuck 
 });
 test("setup selection and checklist states",()=>{
  const s=snapshot();expect(initialView(s,true,100)).toBe("overview");expect(initialView(s,false,100)).toBe("setup");expect(initialView({...s,budget:null},true,100)).toBe("setup");expect(initialView(s,true,130)).toBe("overview");expect(initialView(s,true,131)).toBe("setup");
- const html=panel(s,false);expect(html).toContain('data-page="setup">');expect(html).toContain("Last known budget");expect(html).toContain("not live");expect(html).toContain("pacer never changes Orca's settings");expect(html).toContain('step done');expect(html).toContain('data-setup="pacer serve"');
+ const html=panel(s,false);expect(html).toContain('data-page="setup">');expect(html).toContain("Last known budget");expect(html).toContain("not live");expect(html).toContain("pacer never changes Orca's settings");expect(html).toContain('step current');expect(html).toContain('data-setup="pacer service install"');
 });
 test("setup commands use focused first terminal and never enter; no-terminal result is useful",()=>{
  const b=browser(panel(emptySnapshot(),false));b.setups[0].click();const contextRequest=b.sent.at(-1);expect(contextRequest.action).toBe("workspace.readContext");b.reply(contextRequest,{branch:"x",displayName:"X",terminals:[{id:"first"},{id:"second"}]});
- const send=b.sent.at(-1);expect(send.params).toEqual({terminalId:"first",text:"pacer serve",enter:false});b.reply(send,{accepted:true});expect(b.ids.status.textContent).toBe("Typed into your terminal. Press Enter to run it.");
+ const send=b.sent.at(-1);expect(send.params).toEqual({terminalId:"first",text:"pacer service install",enter:false});b.reply(send,{accepted:true});expect(b.ids.status.textContent).toBe("Typed into your terminal. Press Enter to run it.");
  b.setups[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[]});expect(b.ids.status.textContent).toBe("Open a terminal in this worktree first");
 });
 test("delegate form switches locally, reads focused context and encodes the full brief",()=>{
@@ -87,7 +87,7 @@ test("delegate payload validates exact limits and oversized encoded lines withou
 test("client requires a console live at render and current workspace membership",()=>{
  const b=browser();b.now(700000);b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});expect(b.sent.at(-1).action).toBe("terminal.sendText");
  const expired=browser(panel(snapshot(),true,131));expired.now(131000);expired.strategies[1].click();expect(expired.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(expired.ids.status.textContent).toContain("console");
- const absent=browser();absent.strategies[1].click();absent.reply(absent.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"other"}]});expect(absent.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(absent.ids.status.textContent).toBe("No pacer console in this worktree");expect(absent.ids["console-hint"].hidden).toBe(false);
+ const absent=browser();absent.strategies[1].click();absent.reply(absent.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"other"}]});expect(absent.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(absent.ids.status.textContent).toBe("The pacer console for this worktree is starting. Try again in a few seconds.");expect(absent.ids["console-hint"].hidden).toBe(false);
 });
 test("rate limit includes click-time context requests",()=>{
  const r=browser();for(let i=0;i<35;i++)r.strategies[1].click();expect(r.sent).toHaveLength(30);r.now(110000);r.strategies[1].click();expect(r.sent).toHaveLength(31);
@@ -210,7 +210,7 @@ test("Check again explains an unreachable link without mentioning the console or
 });
 test("Check again explains a reachable link with no console in the active worktree",()=>{
  const b=browser();b.check.click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"other"}]});
- expect(b.ids.status.textContent).toBe("No pacer console in this worktree");expect(b.ids["console-hint"].hidden).toBe(false);
+ expect(b.ids.status.textContent).toBe("The pacer console for this worktree is starting. Try again in a few seconds.");expect(b.ids["console-hint"].hidden).toBe(false);
  expect(b.sent.some(m=>m.action==="terminal.sendText")).toBe(false);
 });
 test("Check again refreshes a reachable console in the active worktree",()=>{
@@ -233,10 +233,10 @@ test("a fresh registration remains usable when a stale duplicate precedes it",()
 
 test("strategy builder sends safe brief payload into current worktree and limits input",()=>{
  const b=browser();b.ids["strategy-brief"].value="Protect Claude";b.ids["strategy-from"].value="default";b.ids["strategy-agent"].value="codex";
- b.ids["strategy-form"].handlers.submit({preventDefault(){}});const context=b.sent.at(-1);b.reply(context,{branch:"main",displayName:"Main",worktreeId:"wt",terminals:[{id:"term_console"}]});
+ b.ids["strategy-send"].click();const context=b.sent.at(-1);b.reply(context,{branch:"main",displayName:"Main",worktreeId:"wt",terminals:[{id:"term_console"}]});
  expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data).toEqual({cmd:"strategy-build",agent:"codex",from:"default",brief:"Protect Claude",branch:"main",worktreeId:"wt"});
  b.reply(b.sent.at(-1),{accepted:true});expect(b.ids.status.textContent).toBe("Sent to the pacer console. Watch the new terminal.");
- b.ids["strategy-brief"].value="x".repeat(2001);const count=b.sent.length;b.ids["strategy-form"].handlers.submit({preventDefault(){}});expect(b.sent).toHaveLength(count);
+ b.ids["strategy-brief"].value="x".repeat(2001);const count=b.sent.length;b.ids["strategy-send"].click();expect(b.sent).toHaveLength(count);
 });
 test("strategy summaries escape and every button has nowrap and shrink protection",()=>{
  const s=snapshot();s.strategies=[{name:"default",active:true,summary:'<script>alert("x")</script>',description:""}];
@@ -276,4 +276,57 @@ for(const transport of ["bridge","channel"] as const)test(`manual console fallba
 for(const [outcome,now] of [[{status:"starting",at:100},114],[{status:"starting",at:100},115],[{status:"gave-up",at:100},101],[{status:"<script>bad</script>",at:100},101]] as const)test(`bounded starting hint ${outcome.status} at ${now}`,()=>{
  const html=renderPanel(emptySnapshot(),{nowS:now,transport:"http",reachable:true,autoConsole:true,autoConsoleOutcome:outcome} as any);
  expect(html.includes('>Start console</button>')).toBe(now!==114);expect(html).not.toContain('<script>bad</script>');
+});
+
+test("service setup distinguishes installed restart from first install and numbers two remaining steps", () => {
+ for (const installed of [false,true]) {
+  const s={...snapshot(),serviceInstalled:installed}; const html=panel(s,false);
+  expect(html).toContain("Connect pacer"); expect(html).not.toContain("Two steps"); expect(html).not.toContain("Leave it running in any terminal");
+  expect(html).toContain(installed ? "pacer link is restarting" : "Start pacer in the background");
+  expect(html).toContain(installed ? 'data-setup="pacer service restart"' : 'data-setup="pacer service install"');
+  expect(html).toContain('step-num" aria-hidden="true">1'); expect(html).not.toContain('step-num" aria-hidden="true">3');
+ }
+});
+test("brief link outages keep a disabled grey overview for 20 seconds before setup", () => {
+ const s=snapshot();
+ const render=(nowS:number,lastSeenAt?:number)=>renderPanel(s,{nowS,transport:"http",reachable:false,lastSeenAt});
+ for(const now of [100,119]) { const html=render(now,100); expect(html).toContain('data-page="overview">');expect(html).toContain("Reconnecting...");expect(html).toContain('pointer-events:none" inert'); }
+ expect(render(120,100)).toContain('data-page="setup">'); expect(render(100)).toContain('data-page="setup">');
+ expect(renderPanel(s,{nowS:110,transport:"http",reachable:true,lastSeenAt:100})).not.toContain("Reconnecting...");
+});
+
+test("all primary views expose polite feedback and forms rely on visible JavaScript validation",()=>{
+ const html=panel(); expect(html).not.toMatch(/\srequired(?:\s|>)/);expect(html.match(/data-status role="status" aria-live="polite"/g)).toHaveLength(4);
+ const b=browser();b.ids["strategy-brief"].value="";b.ids["strategy-send"].click();expect(b.ids.status.textContent).toContain("Enter a brief");
+});
+test("all console actions show startup feedback when console is missing, including strategy-build submit",()=>{
+ for(const autoConsole of [true,false]) {
+  const html=renderPanel(emptySnapshot(),{nowS:100,reachable:true,transport:"http",autoConsole});const b=browser(html);
+  const expected=autoConsole?"The pacer console for this worktree is starting. Try again in a few seconds.":"Start the console first.";
+  b.submit();expect(b.ids.status.textContent).toBe(expected);
+  b.ids["strategy-send"].click();expect(b.ids.status.textContent).toBe(expected);
+  b.strategies[0].click();expect(b.ids.status.textContent).toBe(expected);b.views[0].click();expect(b.ids.status.textContent).toBe(expected);
+ }
+ const b=browser();b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_new",title:"pacer"}]});expect(b.ids.status.textContent).toBe("Reopen the panel to connect to the new console.");
+});
+
+test("sandboxed panel action buttons use click handlers and never depend on form submit",()=>{
+ const html=panel();expect(html).not.toContain('type="submit"');expect(html).not.toContain('<form');const b=browser(html);
+ expect(b.ids["delegate-form"].handlers.submit).toBeUndefined();expect(b.ids["strategy-form"].handlers.submit).toBeUndefined();
+ expect(b.ids["delegate-send"].handlers.click).toBeDefined();expect(b.ids["strategy-send"].handlers.click).toBeDefined();
+ b.ids.goal.value="fix";b.ids.done.handlers.keydown({key:"Enter",preventDefault(){}});b.reply(b.sent.at(-1),{branch:"main",displayName:"Main",terminals:[{id:"term_console"}]});expect(b.sent.at(-1).action).toBe("terminal.sendText");
+});
+test("feedback appears below each primary action and console footnote follows focused workspace membership",()=>{
+ const s=snapshot();s.consoles=[{...s.console!,handle:"other"},s.console!];const b=browser(panel(s));
+ b.reply(b.sent.at(-1),{branch:"focus",displayName:"Focused",terminals:[{id:"term_console"}]});expect(b.connection.textContent).toBe("console connected in Focused");
+ b.check.click();b.reply(b.sent.at(-1),{branch:"empty",displayName:"Empty",terminals:[{id:"neither"}]});expect(b.connection.textContent).toBe("console not connected in Empty");
+ expect(b.feedback.every(n=>n.textContent==="The pacer console for this worktree is starting. Try again in a few seconds.")).toBe(true);
+});
+
+test("overview feedback stays in the main action bar when a retry button is present",()=>{
+ const s=snapshot();s.tasks=[{id:"failed",state:"failed",goal:"fix",executor:"claude-code",backend:null,worktree:null,updatedAt:100}];
+ const html=panel(s);const overview=html.match(/<main[^>]*data-page="overview"[^>]*>([\s\S]*?)<\/main>/)![1];
+ expect(overview).toContain('data-command="attention-0"');
+ expect(overview.indexOf('data-status')).toBeGreaterThan(overview.indexOf('class="actionbar"'));
+ for(const view of ["setup","delegate","strategy"]){const body=html.match(new RegExp(`<main[^>]*data-page="${view}"[^>]*>([\\s\\S]*?)<\\/main>`))![1];expect(body.indexOf('data-status')).toBeGreaterThan(body.indexOf('class="actionbar"'));}
 });

@@ -29,7 +29,7 @@ test("refreshBridge rewrites console heartbeat without changing latest or outbox
     writeConsole(c, console);
     expect(refreshBridge(c, "darwin")).toBe("written");
     const file = join(pluginDataDir(c, "darwin"), "storage.json");
-    expect(JSON.parse(readFileSync(file, "utf8")).link).toEqual({...latest, console, consoles:[console], strategies:[{name:"default",active:false,summary:"Invalid or missing strategy",description:""}]});
+    expect(JSON.parse(readFileSync(file, "utf8")).link).toEqual({...latest, serviceInstalled:false, console, consoles:[console], strategies:[{name:"default",active:false,summary:"Invalid or missing strategy",description:""}]});
     const later = {...c, now:c.now + 10};
     writeConsole(later, {...console, heartbeatAt:later.now});
     expect(refreshBridge(later, "darwin")).toBe("written");
