@@ -17,7 +17,8 @@ export function policyText(planner: string): string {
     ? "Do not use them for execution work unless"
     : "A hook blocks them for execution work unless";
 
-  return `# pacer delegation policy (${name} is the planner)
+  return `This applies only when you are the planner pacer is configured for; if pacer started you as an executor (PACER_ROLE=executor), ignore it.
+# pacer delegation policy (${name} is the planner)
 
 Your role: plan, decide and review; delegate execution.
 

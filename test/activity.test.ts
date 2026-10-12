@@ -72,7 +72,7 @@ test("stale activity locks are replaced, recent locks are held, and rebuild rele
   writeFileSync(path, JSON.stringify({ at: ctx.now - 10, pid: 1 }));
   expect(activity.tryActivityLock(ctx)).toBe(false);
   await activity.rebuildActivity(ctx);
-  expect(existsSync(path)).toBe(false);
+  expect(existsSync(path)).toBe(true);
 });
 
 test("unreadable logs are skipped while readable logs still count", async () => {
@@ -91,4 +91,32 @@ test("unreadable logs are skipped while readable logs still count", async () => 
   } finally {
     chmodSync(path, mode);
   }
+});
+
+test("release keeps another process lock and removes only its own", () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const path = join(ctx.pacerHome, "activity.lock");
+  writeFileSync(path, JSON.stringify({ at: ctx.now, pid: process.pid + 1 }));
+  activity.releaseActivityLock(ctx);
+  expect(existsSync(path)).toBe(true);
+  writeFileSync(path, JSON.stringify({ at: ctx.now, pid: process.pid }));
+  activity.releaseActivityLock(ctx);
+  expect(existsSync(path)).toBe(false);
+});
+
+test("stale takeover reports failure if another process replaced its newly written lock", async () => {
+  const { spyOn } = await import("bun:test");
+  const fs = await import("node:fs");
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const path = join(ctx.pacerHome, "activity.lock");
+  writeFileSync(path, JSON.stringify({ at: ctx.now - 601, pid: 1 }));
+  const realWrite = fs.writeFileSync;
+  const spy = spyOn(fs, "writeFileSync").mockImplementation((...args: Parameters<typeof realWrite>) => {
+    realWrite(...args);
+    if (args[0] === path) realWrite(path, JSON.stringify({ at: ctx.now, pid: process.pid + 1 }));
+  });
+  try { expect(activity.tryActivityLock(ctx)).toBe(false); }
+  finally { spy.mockRestore(); }
 });

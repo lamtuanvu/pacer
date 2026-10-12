@@ -54,3 +54,12 @@ test("tail keeps the last n characters", () => {
   expect(tail("abcdef", 3)).toBe("def");
   expect(tail("ab", 3)).toBe("ab");
 });
+
+test("executor launch sets its role while preserving the caller environment", async () => {
+  const { ctx, task } = await setup("cursor-agent", 'printf "%s:%s" "$PACER_ROLE" "$CUSTOM_VALUE"');
+  ctx.env.HOME = ctx.home;
+  ctx.env.PACER_ROLE = "planner";
+  ctx.env.CUSTOM_VALUE = "kept";
+  expect((await runAttempt(ctx, s.providers.cursor, task)).report).toBe("executor:kept");
+  expect(ctx.env.PACER_ROLE).toBe("planner");
+});

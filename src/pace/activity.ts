@@ -82,7 +82,7 @@ export function tryActivityLock(ctx: Ctx): boolean {
       unlinkSync(path);
     }
     writeFileSync(path, JSON.stringify({ at: ctx.now, pid: process.pid }), { flag: "wx" });
-    return true;
+    return readJson<{ pid?: unknown }>(path)?.pid === process.pid;
   } catch {
     return false;
   }
@@ -90,7 +90,8 @@ export function tryActivityLock(ctx: Ctx): boolean {
 
 export function releaseActivityLock(ctx: Ctx): void {
   try {
-    unlinkSync(join(ctx.pacerHome, "activity.lock"));
+    const path = join(ctx.pacerHome, "activity.lock");
+    if (readJson<{ pid?: unknown }>(path)?.pid === process.pid) unlinkSync(path);
   } catch {
     // Lock cleanup is best effort, including when the file is already gone.
   }

@@ -25,7 +25,7 @@ export async function uninstallPlanner(ctx: Ctx, planner: string): Promise<Unins
         copyFileSync(file.backup, file.path); rmSync(file.backup); report.restored.push(file.path);
       } else {
         if (text !== null && file.undo.length) {
-          writeFileSync(file.path, applyUndo(text, file.undo)); report.reverted.push(file.path);
+          writeFileSync(file.path, applyUndo(text, file.undo, report.notes)); report.reverted.push(file.path);
         } else report.notes.push(`left ${file.path} unchanged`);
         if (file.backup) report.notes.push(`backup kept at ${file.backup}`);
       }

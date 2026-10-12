@@ -1,3 +1,4 @@
+import { isExecutorSession, plannerPolicyApplies } from "../install/role";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks, GuardInput } from "../classify/hooks";
 import { loadStrategy } from "../config/strategy";
@@ -43,7 +44,7 @@ export function parseGuardInput(planner: string, raw: unknown): GuardInput | nul
 }
 
 export async function decideGuard(ctx: Ctx, input: GuardInput, deps: GuardDeps = {}): Promise<GuardDecision> {
-  if ((ctx.env.PACER ?? "").toLowerCase() === "off") return { allow: true };
+  if (isExecutorSession(ctx) || (ctx.env.PACER ?? "").toLowerCase() === "off") return { allow: true };
   const opinion = await (deps.hooks ?? activeHooks).guard(ctx, input).catch(() => null);
   if (opinion?.allow) return { allow: true, source: "classifier" };
   if (!opinion && ALLOW_TYPES.some((pattern) => globMatch(pattern, input.subagentType))) return { allow: true };
@@ -84,7 +85,9 @@ export async function runGuard(ctx: Ctx, planner: string, stdin: string, deps: G
   if (!(GUARD_PLANNERS as readonly string[]).includes(planner)) return "";
   const allow: GuardDecision = { allow: true };
   try {
-    const input = parseGuardInput(planner, JSON.parse(stdin));
+    const raw = JSON.parse(stdin);
+    if (!plannerPolicyApplies(ctx, planner, raw)) return renderGuard(planner, allow);
+    const input = parseGuardInput(planner, raw);
     const decision = input
       ? await withTimeout(decideGuard(ctx, input, deps), deps.timeoutMs ?? 10000, allow)
       : allow;

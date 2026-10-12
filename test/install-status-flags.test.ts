@@ -63,8 +63,8 @@ test("status rejects repeated mode flags", async () => {
   expect(r.err).toContain("only one of");
 });
 
-test("status --hook codex renders subscription budget context", async () => {
-  const r = await main(["status", "--hook", "codex"], await withStrategy());
+test("status --hook configured planner renders subscription budget context", async () => {
+  const r = await main(["status", "--hook", "claude-code"], await withStrategy());
   expect(r.code).toBe(0);
   expect(r.out).toContain("Subscription budget status (pacer)");
   expect(r.err).toBe("");

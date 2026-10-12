@@ -104,7 +104,7 @@ export const COMMANDS: Command[] = [
     name: "session-start",
     usage: usage("session-start --planner <p>", "print planner policy and budget context"),
     async run(args, ctx) {
-      try { return ok(await sessionStart(ctx, plannerFlag(args))); } catch { return ok(); }
+      try { return ok(await sessionStart(ctx, plannerFlag(args), {}, await io.readStdin().catch(() => ""))); } catch { return ok(); }
     },
   },
   {

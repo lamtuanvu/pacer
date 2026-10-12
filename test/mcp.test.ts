@@ -77,3 +77,13 @@ test("report_limit marks exhaustion; task_review and guard_feedback record label
   expect(labels[0]).toMatchObject({ type: "task_review", task_id: d.structuredContent.task_id, accepted: false, kind: "refactor", note: "wrong file" });
   expect(labels[1]).toMatchObject({ type: "guard_feedback", event_id: "e-1", correct: true });
 });
+
+test("executor MCP sessions cannot delegate onward", async () => {
+  const { ctx, call, spawned, client } = await connect();
+  ctx.env.PACER_ROLE = "executor";
+  const result = await call("delegate", { goal: "Loop work", repo: tmpDir() });
+  expect(result.isError).toBe(true);
+  expect(result.content[0].text).toContain("PACER_ROLE=executor");
+  expect(spawned).toEqual([]);
+  await client.close();
+});
