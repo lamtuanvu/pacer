@@ -2,7 +2,7 @@
 import { resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
-import { MissingStrategyError, StrategyError, loadStrategy, useStrategy } from "./config/strategy";
+import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, useStrategy } from "./config/strategy";
 import { makeCtx } from "./ctx";
 import { rankExecutors } from "./engine/rank";
 import { computeStatus, displayName } from "./engine/status";
@@ -64,12 +64,34 @@ const str = (v: string | true | undefined): string | undefined => (typeof v === 
 const fresh = (ctx: Ctx): Ctx => ({ ...ctx, now: Date.now() / 1000 });
 
 async function status(args: string[], ctx: Ctx): Promise<Result> {
-  const mode = args.includes("--line") ? "line" : args.includes("--json") ? "json" : args.includes("--hook") ? "hook" : "text";
+  const modes: ("line" | "json" | "hook")[] = [];
+  let planner: string | undefined;
+  const bad: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--line") modes.push("line");
+    else if (a === "--json") modes.push("json");
+    else if (a === "--hook") {
+      modes.push("hook");
+      const v = args[i + 1];
+      if (v !== undefined && !v.startsWith("--")) {
+        planner = v;
+        i++;
+      }
+    } else bad.push(a);
+  }
+  const usage = "usage: pacer status [--line | --json | --hook <planner>]";
+  if (bad.length) return { code: 2, out: "", err: `pacer status: unknown argument ${bad.map((b) => `"${b}"`).join(", ")}\n${usage}` };
+  if (modes.length > 1) return { code: 2, out: "", err: `pacer status: give only one of --line, --json, --hook <planner>\n${usage}` };
+  const mode = modes[0] ?? "text";
+  if (mode === "hook" && !(PLANNERS as readonly string[]).includes(planner ?? "")) {
+    return { code: 2, out: "", err: `pacer status: --hook needs a planner: ${PLANNERS.join(", ")}` };
+  }
   try {
     const st = await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "line") return { code: 0, out: renderLine(st), err: "" };
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
-    if (mode === "hook") return { code: 0, out: renderHook(st, args[args.indexOf("--hook") + 1] ?? "claude-code"), err: "" };
+    if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
     return { code: 0, out: renderText(st), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.
