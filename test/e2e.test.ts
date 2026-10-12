@@ -18,7 +18,7 @@ function setup(executors: Record<string, string>, strategy: string) {
   }
   const repo = join(home, "repo");
   mkdirSync(repo);
-  const env = { ...process.env, HOME: home, PACER_HOME: pacerHome, PATH: `${bin}:${process.env.PATH}`, TZ: "Asia/Ho_Chi_Minh" };
+  const env = { ...process.env, HOME: home, PACER_HOME: pacerHome, PACER_BACKEND: "direct", PATH: `${bin}:${process.env.PATH}`, TZ: "Asia/Ho_Chi_Minh" };
   Bun.spawnSync(["sh", "-c", "git init -q && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init"], { cwd: repo, env });
   return { repo, env, pacerHome };
 }

@@ -1,0 +1,17 @@
+{
+  "id": "8c2b4d61-7e9f-4a0b-9c1d-2e3f4a5b6c7d",
+  "ok": true,
+  "result": {
+    "dispatch": { "id": "ctx_bba4856d2d41", "status": "failed", "lastFailure": "stopped", "terminationReason": null },
+    "worker": {
+      "dispatchId": "ctx_bba4856d2d41",
+      "state": "stopped",
+      "stage": "process_stopped",
+      "worktreeId": "40c98aad-c083-4ec9-b82e-a51798a20270::~/worktrees/pacer-exec-t8",
+      "agentTerminalHandle": "term_eb50974e-6bfb-4f7c-8e46-16bfb77c546c",
+      "lastError": null
+    },
+    "projection": { "outcome": "failed", "liveness": { "verdict": "exited", "source": "worker_stop" } }
+  },
+  "_meta": { "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1" }
+}

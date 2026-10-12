@@ -1,0 +1,10 @@
+{
+  "id": "local-status",
+  "ok": true,
+  "result": {
+    "target": { "kind": "local" },
+    "app": { "running": false },
+    "runtime": { "state": "not_running", "reachable": false },
+    "graph": { "state": "unavailable" }
+  }
+}

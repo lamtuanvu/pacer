@@ -1,0 +1,87 @@
+{
+  "id": "cff3ab65-fb23-4c6c-8eeb-508757ebfa7f",
+  "ok": true,
+  "result": {
+    "runId": "run_9d54b4f3810a",
+    "taskId": "task_ef3bf0618438",
+    "dispatchId": "ctx_2da746213039",
+    "state": "failed",
+    "stage": "dispatch_input",
+    "failedStage": "dispatch_input",
+    "lastError": "agent_not_in_foreground",
+    "setup": {
+      "requested": "skip",
+      "effective": "skip",
+      "source": "explicit_request",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_configured"
+    },
+    "launch": {
+      "requested": {
+        "agent": "cursor",
+        "model": null,
+        "effort": null
+      },
+      "effective": {
+        "agent": "cursor",
+        "model": null,
+        "effort": null
+      }
+    },
+    "mode": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "user_default",
+      "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+    },
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "created_child",
+        "id": "40c98aad-c083-4ec9-b82e-a51798a20270::~/worktrees/pacer-exec-t1"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_0249bbd0-4ff1-4ea0-9bcd-4b89f3463b82",
+        "tabId": "ba348c41-5069-47d1-a646-e41afd29028a",
+        "leafId": "7662918d-67ff-406c-89f7-b1fe58c1a290"
+      },
+      {
+        "kind": "setup",
+        "action": "skip",
+        "requested": "skip",
+        "effective": "skip",
+        "source": "explicit_request",
+        "hookFound": false,
+        "startupPolicy": "start-immediately",
+        "state": "not_configured"
+      }
+    ],
+    "residualResources": [
+      {
+        "kind": "worktree",
+        "action": "created_child",
+        "id": "40c98aad-c083-4ec9-b82e-a51798a20270::~/worktrees/pacer-exec-t1"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_0249bbd0-4ff1-4ea0-9bcd-4b89f3463b82",
+        "tabId": "ba348c41-5069-47d1-a646-e41afd29028a",
+        "leafId": "7662918d-67ff-406c-89f7-b1fe58c1a290"
+      }
+    ],
+    "recovery": "This start created a terminal that never ran the Task. Close it with: orca orchestration worker-release --dispatch ctx_2da746213039",
+    "mutation": {
+      "requestId": "b8eadffa-5d1c-4633-8246-8d56ff9cc665",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1"
+  }
+}
