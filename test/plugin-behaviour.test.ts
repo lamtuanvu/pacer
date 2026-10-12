@@ -9,6 +9,12 @@ import { NO_CONSOLE } from "../orca-plugin/src/console-link";
 import { emptySnapshot, encodeCmdLine, summaryLine, type LinkSnapshot } from "../src/link/envelope";
 import type { OrcaHost, OrcaWorkerContext } from "../orca-plugin/src/orca-api";
 import { ManualTimers, flush } from "./plugin-transports.test";
+import { renderPanel } from "../orca-plugin/src/panel";
+import { LinkStore } from "../orca-plugin/src/store";
+import { httpTransport } from "../orca-plugin/src/transports/http";
+import { bridgeTransport } from "../orca-plugin/src/transports/bridge";
+import { channelTransport } from "../orca-plugin/src/transports/channel";
+import { contentKey, reduce, type Envelope } from "../src/link/envelope";
 function fixture(heartbeat: number|null=100, marker=true) {
  const root=mkdtempSync(join(tmpdir(),"pacer-plugin-"));const timers=new ManualTimers();let now=100;
  let snapshot:LinkSnapshot={...emptySnapshot(),console:heartbeat===null?null:{handle:"term",paneKey:"pane",pid:1,startedAt:0,heartbeatAt:heartbeat}};
@@ -39,4 +45,112 @@ test("activation remains under one second when settings host never responds",asy
  f.ctx.host={call:((method:any,params:any)=>method==="settings.get"?new Promise(()=>{}):original(method,params)) as OrcaHost["call"]};
  let activated=false;
  try {void f.plugin.activate(f.ctx).then(()=>activated=true);await flush();await f.timers.advance(500);expect(activated).toBe(true);expect(f.commands.size).toBe(4);}finally{await f.cleanup();}
+});
+
+for (const [label, heartbeat] of [["no console", null], ["stale heartbeat", 69]] as const) test(`${label} blocks every command and event that can type into the console`, async () => {
+ const f = fixture(heartbeat);
+ try {
+  await f.start();
+  for (const id of ["delegate", "switch-strategy", "refresh-status", "open-console"]) await f.commands.get(id)!();
+  await f.events.get("agent.status.changed")!({worktreeId:"wt",paneKey:"pane",state:"done",receivedAt:100});
+  await f.events.get("worktree.created")!({worktreeId:"wt",path:"/tmp/work",branch:"pacer-task"});
+  expect(sends(f)).toHaveLength(0);
+ } finally { await f.cleanup(); }
+});
+
+test("console heartbeat exactly thirty seconds old still permits delegate", async () => {
+ const f = fixture(70);
+ try {
+  await f.start();
+  expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});
+  expect(sends(f)).toHaveLength(1);
+  expect(sends(f)[0].params.terminalId).toBe("term");
+ } finally { await f.cleanup(); }
+});
+
+test("delegate rechecks console freshness after awaiting workspace context", async () => {
+ const f = fixture(70);
+ const original = f.host.call.bind(f.host);
+ f.host.call = (async (method: any, params: any) => {
+  if (method === "workspace.readContext") f.now = 101;
+  return original(method, params);
+ }) as OrcaHost["call"];
+ try {
+  await f.start();
+  expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});
+  expect(sends(f)).toHaveLength(0);
+  expect(notes(f).at(-1)!.params.title).toBe(NO_CONSOLE.title);
+ } finally { await f.cleanup(); }
+});
+
+test("delegate quotes untrusted branch and display name as shell-inert JSON", async () => {
+ const f = fixture();
+ const branch = "pacer-'; touch /tmp/pacer-injection; $(false)";
+ const displayName = "</script><img src=x onerror=alert(1)>";
+ f.context = {branch,displayName,terminals:[{id:"unrelated-shell"}]};
+ try {
+  await f.start();
+  await f.commands.get("delegate")!();
+  const {terminalId,text,enter} = sends(f)[0].params;
+  expect(terminalId).toBe("term"); expect(enter).toBe(true);
+  expect(text.startsWith(": pacer '")).toBe(true);
+  expect(text.slice(9,-1)).not.toContain("'");
+  expect(JSON.parse(text.slice(9,-1))).toEqual({v:1,type:"cmd",data:{cmd:"delegate",branch,displayName}});
+ } finally { await f.cleanup(); }
+});
+
+test("panel escapes script injection in goals, alerts and console action JSON", () => {
+ const attack = "</script><img src=x onerror=alert(1)>\u2028\u2029";
+ const s: LinkSnapshot = {...emptySnapshot(),
+  console:{handle:attack,paneKey:null,pid:1,startedAt:100,heartbeatAt:100},
+  tasks:[{id:"t",state:"running",goal:attack,executor:attack,backend:null,worktree:attack,updatedAt:100}],
+  alerts:[{key:"a",level:"error",title:attack,body:attack,at:100}],
+ };
+ const html = renderPanel(s,{nowS:100,transport:"bridge",reachable:true});
+ expect(html).not.toContain("<img src=x");
+ expect(html.match(/&lt;img src=x/g)).toHaveLength(4);
+ const json = html.match(/id="pacer-actions">(.*?)<\/script>/s)![1];
+ expect(json).not.toContain("<"); expect(json).not.toMatch(/[\u2028\u2029]/);
+ expect(JSON.parse(json).delegate.terminalId).toBe(attack);
+});
+
+test("store contract produces the same content through HTTP SSE, bridge and channel", async () => {
+ const timers = new ManualTimers();
+ const envelopes: Envelope[] = [
+  {v:1,type:"budget",data:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:[],ranked:[]}},
+  {v:1,type:"mode",data:{mode:"normal",previous:null,strategy:"s",at:100}},
+  ...["running","done"].map(state => ({v:1 as const,type:"task" as const,data:{id:"t",state,goal:"goal",executor:"e",backend:null,worktree:null,updatedAt:100}})),
+  {v:1,type:"alert",data:{key:"a",level:"warn",title:"Finished",body:"body",at:100}},
+ ];
+ let bridgeSnapshot = emptySnapshot();
+ let onLine!: (line: string) => void;
+ let onMessage!: (payload: unknown) => void;
+ const host = {call:async (method:string) => {
+  if (method === "storage.get") return {value:bridgeSnapshot};
+  if (method === "events.subscribe") return {subscribed:["plugin.message"]};
+  throw new Error(method);
+ }} as OrcaHost;
+ const transports = [
+  httpTransport({timers,port:4317,readToken:()=>"test-token",http:{get:async()=>({status:200,body:JSON.stringify(emptySnapshot())}),stream:(_url,_token,fn)=>{onLine=fn;return()=>{};}}}),
+  bridgeTransport({host,timers,pollMs:5000}),
+  channelTransport({host,registerEvent:(_name,fn)=>{onMessage=fn;}}),
+ ];
+ const stores = transports.map(()=>new LinkStore(()=>100));
+ const stops: (()=>void)[] = [];
+ try {
+  for (const [i,t] of transports.entries()) {
+   expect(await t.probe()).toBe(true);
+   stops.push(t.watch(e=>stores[i].apply(e),s=>stores[i].replace(s)));
+  }
+  for (const e of envelopes) {
+   bridgeSnapshot = reduce(bridgeSnapshot,e,100);
+   onLine(`data: ${JSON.stringify(e)}`); onMessage({data:e});
+   await timers.advance(5000);
+   for (const store of stores) expect(JSON.parse(contentKey(store.snapshot))).toEqual(JSON.parse(contentKey(bridgeSnapshot)));
+   expect(contentKey(stores[0].snapshot)).toBe(contentKey(stores[1].snapshot));
+   expect(contentKey(stores[0].snapshot)).toBe(contentKey(stores[2].snapshot));
+  }
+  expect(stores[0].snapshot.tasks).toMatchObject([{id:"t",state:"done"}]);
+  expect(stores[0].snapshot.alerts).toMatchObject([{key:"a",title:"Finished"}]);
+ } finally { for (const stop of stops) stop(); }
 });
