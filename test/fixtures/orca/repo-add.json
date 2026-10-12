@@ -1,0 +1,30 @@
+{
+  "id": "d1c2e916-b34d-48a9-a376-a22aedaea24a",
+  "ok": true,
+  "result": {
+    "repo": {
+      "id": "40c98aad-c083-4ec9-b82e-a51798a20270",
+      "path": "~/pacer",
+      "displayName": "model-routing",
+      "badgeColor": "#737373",
+      "addedAt": 1791704843895,
+      "kind": "git",
+      "externalWorktreeVisibilityLegacy": false,
+      "upstream": null,
+      "gitUsername": "",
+      "hookSettings": {
+        "mode": "auto",
+        "setupRunPolicy": "run-by-default",
+        "setupAgentStartupPolicy": "start-immediately",
+        "scripts": {
+          "setup": "",
+          "archive": ""
+        }
+      },
+      "externalWorktreeVisibility": "hide"
+    }
+  },
+  "_meta": {
+    "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1"
+  }
+}

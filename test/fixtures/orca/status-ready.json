@@ -1,0 +1,17 @@
+{
+  "id": "local-status",
+  "ok": true,
+  "result": {
+    "target": { "kind": "local" },
+    "app": { "running": true, "pid": 7228, "desktopWindowStatus": "available" },
+    "runtime": {
+      "state": "ready",
+      "reachable": true,
+      "connectionState": "connected",
+      "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1",
+      "appVersion": "1.4.224",
+      "capabilities": ["orchestration.contract.v1"]
+    },
+    "graph": { "state": "ready" }
+  }
+}
