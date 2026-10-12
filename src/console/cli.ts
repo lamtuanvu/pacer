@@ -21,6 +21,8 @@ export { listStrategies } from "../link/strategies";
 
 export async function selfHandle(ctx: Ctx): Promise<{ handle: string | null; paneKey: string | null }> {
   const paneKey = ctx.env.ORCA_PANE_KEY ?? null;
+  const handle = ctx.env.ORCA_TERMINAL_HANDLE;
+  if (handle && /^term_[A-Za-z0-9-]{1,100}$/.test(handle)) return { handle, paneKey };
   if (!paneKey) return { handle: null, paneKey: null };
   try {
     const r = await ctx.run(["orca", "terminal", "list", "--json"], 30_000);

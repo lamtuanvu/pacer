@@ -65,14 +65,24 @@ that a successful spike verifies every detail of the host API.
   tools, not worker operations.
 - **D7. Read-only serve:** add `GET /link` and outbox tailing in `/events`,
   without POST routes. Plugin-to-brain actions remain visible in the console.
+  **Amendment, 2026-10-12 (0.1.7):** serve now has exactly one POST route,
+  token-gated `POST /console/open`, because Orca 1.4.224 permits typing only in
+  the active worktree and users should not start a console in each worktree by
+  hand. The HTTP worker checks workspace context every five seconds; autoConsole
+  defaults on and bridge/channel transports do nothing. The route accepts only
+  bounded JSON terminal/branch selectors, resolves the worktree, checks live
+  registrations and rate limits (one per worktree per 60 seconds, ten per hour),
+  then uses server-owned pacer argv to create a console without `--focus`.
+  Opens are logged as info alerts in link/outbox; task commands still go through
+  the visible console. D6 remains unchanged: the worker spawns no subprocesses.
 
 ## Rejected options
 
 - **Agent-status piggyback (3a):** F14's closed four-value enum drops arbitrary
   state strings. The event's <=256 validation bound does not admit a compact
   summary; encoding two bits per event is unsuitable for the link.
-- **A POST endpoint on pacer serve:** widens the attack surface by allowing a
-  token holder to delegate work. Keep the HTTP surface read-only and actions
+- **A task-delegation POST endpoint on pacer serve:** widens the attack surface by allowing a
+  token holder to delegate work. Keep task actions
   visible in the console.
 - **Spawning pacer from the worker:** goes beyond the declared capability model
   the user reviewed. Full Node access is disclosed by Orca, but pacer limits
