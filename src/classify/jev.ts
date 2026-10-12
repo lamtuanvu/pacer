@@ -1,4 +1,4 @@
-import { joinUrl, postJson } from "./http";
+import { HttpError, joinUrl, postJson } from "./http";
 import type { Answer, Classifier, Question } from "./types";
 
 export function jevRequest(state: string, q: Question, model: string) {
@@ -61,22 +61,34 @@ export function jevClassifier(options: {
     async ask(state, q) {
       const key = options.apiKey();
       if (!key) throw new Error(`Missing Jev API key: ${options.keyName}`);
-      const start = nowMs();
-      const response = record(await postJson(joinUrl(options.baseUrl, "/v1/systemone"), jevRequest(state, q, options.model), {
-        headers: { Authorization: `Bearer ${key}` }, timeoutMs: options.timeoutMs,
-      }));
-      const answers = record(response.answers);
-      if (!Object.hasOwn(answers, q.id)) throw new Error(`Missing Jev answer for ${q.id}`);
-      const answer = mapJevAnswer(q, answers[q.id]);
-      answer.latencyMs = nowMs() - start;
-      if (options.usdPerMtokIn != null && options.usdPerMtokOut != null && response.usage != null) {
-        const usage = record(response.usage);
-        const input = number(usage.input_tokens, "input_tokens");
-        const output = number(usage.output_tokens, "output_tokens");
-        if (input < 0 || output < 0) throw new Error("Invalid Jev token usage");
-        answer.costUsd = (input * options.usdPerMtokIn + output * options.usdPerMtokOut) / 1_000_000;
+      try {
+        const start = nowMs();
+        const response = record(await postJson(joinUrl(options.baseUrl, "/v1/systemone"), jevRequest(state, q, options.model), {
+          headers: { Authorization: `Bearer ${key}` }, timeoutMs: options.timeoutMs,
+        }));
+        const answers = record(response.answers);
+        if (!Object.hasOwn(answers, q.id)) throw new Error(`Missing Jev answer for ${q.id}`);
+        const answer = mapJevAnswer(q, answers[q.id]);
+        answer.latencyMs = nowMs() - start;
+        if (options.usdPerMtokIn != null && options.usdPerMtokOut != null && response.usage != null) {
+          const usage = response.usage;
+          if (typeof usage === "object" && !Array.isArray(usage)) {
+            const { input_tokens: input, output_tokens: output } = usage as Record<string, unknown>;
+            if (typeof input === "number" && Number.isFinite(input) && input >= 0 &&
+                typeof output === "number" && Number.isFinite(output) && output >= 0) {
+              answer.costUsd = (input * options.usdPerMtokIn + output * options.usdPerMtokOut) / 1_000_000;
+            }
+          }
+        }
+        return answer;
+      } catch (error) {
+        const message = error instanceof HttpError ? `Jev HTTP ${error.status}`
+          : error instanceof Error ? error.message : String(error);
+        if (error instanceof HttpError || message.includes(key)) {
+          throw new Error(message.split(key).join("[REDACTED]"));
+        }
+        throw error;
       }
-      return answer;
     },
   };
 }
