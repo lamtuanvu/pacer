@@ -8,9 +8,11 @@ export const NO_ANSWER =
   "If you cannot finish without an answer, send worker_done with --outcome failed and say what you need.";
 export const SETTLED_STATES = ["succeeded", "failed", "stopped"];
 const SUCCEEDED_GRACE_PASSES = 2;
+const WORKING_INDICATOR = /(?:esc\s+to\s+interrupt|ctrl\s*\+\s*c\s+to\s+stop)/i;
 
 export interface WaitOpts {
   providerId?: string;
+  prompt?: string;
   coordinator: string;
   run: string;
   dispatchId: string;
@@ -62,6 +64,8 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
   const log = o.log ?? (() => {});
   const slice = o.sliceMs ?? 30_000;
   const replied = new Set<string>();
+  const promptLines = (o.prompt ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const withoutPrompt = (lines: string[]) => lines.filter((line) => !promptLines.some((prompt) => line.includes(prompt)));
   let pendingAck: string | null = null;
   let nudged = false;
   let succeededPasses = 0;
@@ -96,9 +100,16 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
       if (hasInbox(ctx, o.dispatchId)) continue;
 
       const rd = await c.workerRead(o.dispatchId, 40);
-      const output = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
-      if (detectLimit(o.providerId ?? "", { code: 1, stdout: "", stderr: output, timedOut: false })) {
-        return { kind: "settled", state: "failed", error: "provider usage limit", tail: output, needsStop: true };
+      const lines = rd.ok ? (rd.result.terminal?.tail ?? []) : [];
+      // Only recent worker output counts: the echoed task can itself discuss limits.
+      const recent = withoutPrompt(lines.slice(-15)).join("\n");
+      if (!WORKING_INDICATOR.test(withoutPrompt(lines).join("\n")) &&
+          detectLimit(o.providerId ?? "", { code: 1, stdout: "", stderr: recent, timedOut: false })) {
+        const t = o.terminal ? await c.terminalShow(o.terminal) : null;
+        const preview = t?.ok ? withoutPrompt((t.result.terminal?.preview ?? "").split(/\r?\n/)).join("\n") : "";
+        if (!WORKING_INDICATOR.test(preview)) {
+          return { kind: "settled", state: "failed", error: "provider usage limit", tail: recent, needsStop: true };
+        }
       }
 
       const w = await c.workerShow(o.dispatchId);

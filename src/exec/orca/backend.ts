@@ -164,8 +164,9 @@ async function runOrcaAttempt(
     };
   };
   let ws: Awaited<ReturnType<OrcaClient["workerStart"]>>;
+  const prompt = workerSpec(task, p);
   try {
-    ws = await c.workerStart({ spec: workerSpec(task, p), agent: p.agent, model: p.model, placement: p.placement, run: p.run, from: p.coordinator });
+    ws = await c.workerStart({ spec: prompt, agent: p.agent, model: p.model, placement: p.placement, run: p.run, from: p.coordinator });
   } catch (e) {
     return uncertainStart(String(e instanceof Error ? e.message : e));
   }
@@ -211,7 +212,7 @@ async function runOrcaAttempt(
       };
     } else {
       m = mapWait(await waitForWorker(ctx, c, {
-        providerId: cfg.id, coordinator: p.coordinator, run: p.run, dispatchId, terminal,
+        providerId: cfg.id, prompt, coordinator: p.coordinator, run: p.run, dispatchId, terminal,
         deadlineMs: deps.now() + task.timeoutS * 1000,
         isStopped: () => readTask(ctx, task.id)?.state === "stopped",
         sliceMs: deps.sliceMs, now: deps.now, sleep: deps.sleep, log,
