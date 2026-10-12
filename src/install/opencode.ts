@@ -26,7 +26,7 @@ export async function installOpencode(env: InstallEnv) {
     const pacer = { type: "local", command: [...env.pacerArgv, "mcp"], enabled: true };
     const undo: UndoOp = { kind: "json-member", path: ["mcp", "pacer"] };
     tx.edit(opencodeConfigPath(env.ctx), old => {
-      if (old === null) {
+      if (!old?.trim()) {
         undo.dropEmpty = ["mcp"];
         return JSON.stringify({ $schema: "https://opencode.ai/config.json", mcp: { pacer } }, null, 2) + "\n";
       }

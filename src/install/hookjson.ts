@@ -51,7 +51,7 @@ export function removeHooks(doc: HookDoc, fmt: HookFormat, match: (command: stri
     const removedBefore = removed.length;
     for (const entry of entries) {
       if (fmt === "cursor") {
-        if (match(entry.command)) removed.push({ event, hook: entry });
+        if (typeof entry.command === "string" && match(entry.command)) removed.push({ event, hook: entry });
         else kept.push(entry);
       } else {
         if (!Array.isArray(entry.hooks) || entry.hooks.length === 0) {
@@ -59,7 +59,7 @@ export function removeHooks(doc: HookDoc, fmt: HookFormat, match: (command: stri
           continue;
         }
         entry.hooks = entry.hooks.filter((hook: RemovedHook["hook"]) => {
-          if (!match(hook.command)) return true;
+          if (typeof hook.command !== "string" || !match(hook.command)) return true;
           removed.push({ event, ...(entry.matcher !== undefined ? { matcher: entry.matcher } : {}), hook });
           return false;
         });
@@ -86,12 +86,38 @@ export function restoreHooks(doc: HookDoc, fmt: HookFormat, removed: RemovedHook
 
 export function isPacerHook(command: string, planner: string): boolean {
   const escapedPlanner = planner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return /pacer|cli\.(ts|js)/.test(command)
+  return typeof command === "string" && /pacer|cli\.(ts|js)/.test(command)
     && new RegExp(`\\s(guard --planner|status --hook|session-start --planner) ${escapedPlanner}$`).test(command);
 }
 
+/** Keep group and hook indices stable: Codex trust entries refer to both. */
+export function upsertHooks(doc: HookDoc, fmt: HookFormat, specs: HookSpec[], planner: string): HookDoc {
+  const result = cloneWithHooks(doc, fmt);
+  for (const spec of specs) {
+    const entries = result.hooks[spec.event] ?? [];
+    const candidates = fmt === "cursor" ? entries : entries
+      .filter((group: any) => group.matcher === spec.matcher && Array.isArray(group.hooks))
+      .flatMap((group: any) => group.hooks);
+    const existing = candidates.filter((hook: any) => isPacerHook(hook.command, planner));
+    if (!existing.length) {
+      const added = addHooks({}, fmt, [spec]).hooks[spec.event];
+      (result.hooks[spec.event] ??= []).push(...added);
+      continue;
+    }
+    for (const hook of existing) {
+      hook.command = spec.command;
+      if (spec.timeout === undefined) delete hook.timeout;
+      else hook.timeout = spec.timeout;
+      if (spec.statusMessage === undefined) delete hook.statusMessage;
+      else hook.statusMessage = spec.statusMessage;
+    }
+  }
+  return result;
+}
+
 export function editHooksFile(old: string | null, fmt: HookFormat, specs: HookSpec[], planner: string): string {
-  const doc = old === null ? {} : parseJsonc(old);
-  const cleaned = removeHooks(doc, fmt, (command) => isPacerHook(command, planner)).doc;
-  return JSON.stringify(addHooks(cleaned, fmt, specs), null, 2) + "\n";
+  const doc = !old?.trim() ? {} : parseJsonc(old);
+  const next = upsertHooks(doc, fmt, specs, planner);
+  return old !== null && JSON.stringify(doc) === JSON.stringify(next)
+    ? old : JSON.stringify(next, null, 2) + "\n";
 }

@@ -155,8 +155,8 @@ test("editHooksFile parses JSONC and replaces old pacer hooks while keeping othe
   const edited = editHooksFile(old, "claude", [SPECS[0]!], "claude-code");
   expect(JSON.parse(edited)).toEqual({ env: { OTHER_TOOL: "enabled" }, hooks: { SessionStart: [
     { hooks: [{ type: "command", command: "other" }] },
-    { hooks: [{ type: "command", command: "/old/pacer status --hook codex" }] },
     { hooks: [{ type: "command", command: "/new/pacer status --hook claude-code", timeout: 15, statusMessage: "Checking budgets" }] },
+    { hooks: [{ type: "command", command: "/old/pacer status --hook codex" }] },
   ] } });
   expect(edited.endsWith("\n")).toBe(true);
   expect(editHooksFile(edited, "claude", [SPECS[0]!], "claude-code")).toBe(edited);
@@ -186,4 +186,14 @@ test("Claude groups without a hooks array survive adding and removing hooks", ()
 test("pre-existing empty Claude groups survive when another group is removed", () => {
   const doc = { hooks: { SessionStart: [{ hooks: [] }, { hooks: [{ command: "remove" }] }] } };
   expect(removeHooks(doc, "claude", () => true).doc).toEqual({ hooks: { SessionStart: [{ hooks: [] }] } });
+});
+
+test("editHooksFile appends a missing matcher without relocating other matcher groups", () => {
+  const command = "/new/pacer guard --planner codex";
+  const other = { matcher: "Agent", hooks: [{ type: "command", command }] };
+  const edited = editHooksFile(JSON.stringify({ hooks: { PreToolUse: [other] } }), "claude",
+    [{ event: "PreToolUse", matcher: "spawn_agent", command, timeout: 15 }], "codex");
+  expect(JSON.parse(edited).hooks.PreToolUse).toEqual([
+    other, { matcher: "spawn_agent", hooks: [{ type: "command", command, timeout: 15 }] },
+  ]);
 });

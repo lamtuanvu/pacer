@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { blockText, hasBlock, upsertBlock } from "./blocks";
 import { readText, shellCommand } from "./fsx";
-import { addHooks, isPacerHook, removeHooks } from "./hookjson";
+import { removeHooks, upsertHooks } from "./hookjson";
 import { parseJsonc } from "./jsonc";
 import type { UndoOp } from "./manifest";
 import { policyText } from "./policy";
@@ -51,13 +51,12 @@ type ClaudeCommands = { session: string; guard: string; statusline: string };
 export function editClaudeSettings(old: string | null, cmds: ClaudeCommands, home: string): {
   text: string; undo: UndoOp[]; scriptPath: string | null; needsPipe: boolean;
 } {
-  const original = old === null ? {} : parseJsonc(old);
-  const cleaned = removeHooks(original, "claude", command => isPacerHook(command, "claude-code")).doc;
-  const { doc, removed } = removeHooks(cleaned, "claude", command => command.includes("/.claude/scripts/budget/"));
-  const next = addHooks(doc, "claude", [
+  const original = !old?.trim() ? {} : parseJsonc(old);
+  const { doc, removed } = removeHooks(original, "claude", command => typeof command === "string" && command.includes("/.claude/scripts/budget/"));
+  const next = upsertHooks(doc, "claude", [
     { event: "SessionStart", command: cmds.session, timeout: 15, statusMessage: "Checking subscription budgets" },
     { event: "PreToolUse", matcher: "Agent|Task", command: cmds.guard, timeout: 15 },
-  ]);
+  ], "claude-code");
   const createdStatusLine = next.statusLine === undefined;
   let scriptPath: string | null = null;
   let needsPipe = false;
@@ -72,7 +71,8 @@ export function editClaudeSettings(old: string | null, cmds: ClaudeCommands, hom
     }
   }
   return {
-    text: JSON.stringify(next, null, 2) + "\n",
+    text: old !== null && JSON.stringify(original) === JSON.stringify(next)
+      ? old : JSON.stringify(next, null, 2) + "\n",
     undo: [
       { kind: "hooks", format: "claude", commands: [cmds.session, cmds.guard], restore: removed },
       ...(createdStatusLine ? [{ kind: "json-key" as const, key: "statusLine" }] : []),
