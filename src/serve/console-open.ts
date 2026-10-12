@@ -9,7 +9,8 @@ import { publish } from "../link/publish";
 /** Server-local reservations also prevent concurrent requests creating duplicate terminals. */
 export function consoleOpener() {
   const lastOpen = new Map<string, number>();
-  let opens: number[] = [];
+  let opens: { at: number }[] = [];
+  const openedHandles = new Map<string, Set<string>>();
   async function result(ctx: Ctx, argv: string[]): Promise<Record<string, unknown>> {
     const r = await ctx.run(argv, 30_000);
     const reply = parseOrcaOutput(r.stdout);
@@ -64,11 +65,21 @@ export function consoleOpener() {
       const handles = new Set(listed.terminals.flatMap(t => isObj(t) && typeof t.handle === "string" ? [t.handle] : []));
       const snap = currentSnapshot(ctx);
       if ([...(snap.consoles ?? []), ...(snap.console ? [snap.console] : [])].some(c => c.handle && handles.has(c.handle) && ctx.now - c.heartbeatAt <= 30)) return json(false, "console-present");
-      opens = opens.filter(at => ctx.now - at < 3600);
+      if (listed.terminals.some(t => isObj(t) && (t.title === "pacer" || (typeof t.handle === "string" && openedHandles.get(worktreeKey)?.has(t.handle))))) return json(false, "console-terminal-exists");
+      opens = opens.filter(slot => ctx.now - slot.at < 3600);
       if (ctx.now - (lastOpen.get(worktreeKey) ?? -Infinity) < 60 || opens.length >= 10) return json(false, "rate-limited");
-      lastOpen.set(worktreeKey, ctx.now); opens.push(ctx.now);
-      const r = await result(ctx, ["orca", "terminal", "create", "--worktree", selector, "--title", "pacer", "--command", shellCommand([...pacerArgv(ctx.env), "console"]), "--json"]);
+      const previous = lastOpen.get(worktreeKey), slot = { at: ctx.now };
+      lastOpen.set(worktreeKey, ctx.now); opens.push(slot);
+      let r: Record<string, unknown>;
+      try { r = await result(ctx, ["orca", "terminal", "create", "--worktree", selector, "--title", "pacer", "--command", shellCommand([...pacerArgv(ctx.env), "console"]), "--json"]); }
+      catch (e) {
+        if (previous === undefined) lastOpen.delete(worktreeKey); else lastOpen.set(worktreeKey, previous);
+        opens = opens.filter(entry => entry !== slot);
+        throw e;
+      }
       if (!isObj(r.terminal) || typeof r.terminal.handle !== "string") return json(false, "invalid-orca-response");
+      const remembered = openedHandles.get(worktreeKey) ?? new Set<string>();
+      remembered.add(r.terminal.handle); openedHandles.set(worktreeKey, remembered);
       await publish(ctx, [{ v: 1, type: "alert", data: { key: `console-open-${r.terminal.handle}`, level: "info", title: `Opened pacer console in ${displayName || (typeof data.branch === "string" ? data.branch : selector)}`, body: "", at: ctx.now } }], { channel: false });
       return json(true, undefined, 200, r.terminal.handle);
     } catch { return json(false, "orca-unavailable"); }

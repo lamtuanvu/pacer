@@ -8,7 +8,7 @@ export interface TaskData { id: string; state: string; goal: string; executor: s
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string }
 export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
-export interface ConsoleData { handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number }
+export interface ConsoleData { worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
 export const CMD_NAMES = ["delegate", "retry", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build"] as const;
@@ -50,7 +50,7 @@ function parseAlert(d: unknown): AlertData | null {
 }
 function parseConsole(d: unknown): ConsoleData | null {
   if (!isObj(d)) return null; const pid = num(d.pid), startedAt = num(d.startedAt), heartbeatAt = num(d.heartbeatAt);
-  if (pid === null || startedAt === null || heartbeatAt === null) return null; return { pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
+  if (pid === null || startedAt === null || heartbeatAt === null) return null; return { ...(optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024)! } : {}), pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
 }
 export function parseEnvelope(raw: unknown): Envelope | null {
   if (!isObj(raw) || raw.v !== 1) return null;
