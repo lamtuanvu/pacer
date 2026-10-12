@@ -1,0 +1,20 @@
+{
+  "id": "e3f1cdff-4070-4ed9-9be5-d3a57cab2a38",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_1ddadcbd-780e-4951-b184-c51193ff39c6",
+      "orphaned": false,
+      "worktreeId": "40c98aad-c083-4ec9-b82e-a51798a20270::~/pacer",
+      "worktreePath": "~/pacer",
+      "branch": "refs/heads/main",
+      "title": "pacer coordinator",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": null,
+      "preview": "model-routing  main\n$",
+      "executionHostId": "local"
+    }
+  },
+  "_meta": { "runtimeId": "9c289519-90e2-42bc-af75-701cf59fced1" }
+}
