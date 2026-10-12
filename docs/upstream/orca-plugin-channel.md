@@ -1,5 +1,7 @@
 # Proposal: a sandbox-safe CLI -> plugin message channel (and worker -> panel data push)
 
+Draft for review. Not posted.
+
 ## Motivation
 
 Pacer is a budget-aware delegation CLI. It wants to show live budget and task state in an Orca panel and react to CLI-side events. Orca's current plugin event contribution supports only `worktree.created`, `worktree.removed`, and `agent.status.changed` (`plugin-manifest.js`, `plugin-events.js`; F2, F5), and there is no CLI-to-plugin channel (F12).
