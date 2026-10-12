@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "build": "bun build --compile src/cli.ts --outfile dist/pacer",
     "release": "bun scripts/release/build.ts",
-    "release:host": "bun scripts/release/build.ts --host"
+    "release:host": "bun scripts/release/build.ts --host",
+    "plugin:build": "bun orca-plugin/build.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
