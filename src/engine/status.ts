@@ -19,7 +19,7 @@ export interface Status {
 }
 
 const BINARIES: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", agy: "agy" };
-const NAMES: Record<string, string> = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus" };
+const NAMES: Record<string, string> = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", opencode: "OpenCode" };
 
 export function binaryFor(cfg: ProviderCfg): string {
   return cfg.via === "opencode" ? "opencode" : BINARIES[cfg.id] ?? cfg.id;

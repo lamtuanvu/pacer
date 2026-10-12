@@ -1,3 +1,4 @@
+import { publish } from "../link/publish";
 import { build } from "../strategy/launcher";
 import type { Ctx } from "../types";
 import type { DelegateInput } from "../tasks/api";
@@ -98,7 +99,12 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
       }
       case "strategy-build": {
         const selector=data.worktreeId ? `id:${data.worktreeId}` : data.branch ? `branch:${data.branch}` : "active";
-        print((await build(fresh(),{agent:data.agent,from:data.from,brief:data.brief,worktree:selector})).message); break;
+        let opened=false, message="";
+        try { const result=await build(fresh(),{agent:data.agent,from:data.from,brief:data.brief,worktree:selector}); opened=result.opened; message=result.message; }
+        catch(e){message=e instanceof Error?e.message:String(e);}
+        print(message);
+        await publish(fresh(),[{v:1,type:"alert",data:{key:"strategy-build",level:opened?"info":"error",title:opened?"Strategy session opened in a new terminal":"Strategy session failed",body:opened?"":message,at:fresh().now}}]);
+        break;
       }
       case "use": if (data.strategy) await use(data.strategy); else chooseStrategy(); break;
       case "refresh": await refresh(); break;

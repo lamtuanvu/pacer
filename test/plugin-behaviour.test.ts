@@ -320,18 +320,26 @@ test("real loopback server shutdown switches HTTP to bridge and restart restores
  const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100,timers:f.timers,
  http:{get:async(url,token)=>{const r=await fetch(url,{headers:token?{Authorization:"Bearer "+token}:{}});return {status:r.status,body:await r.text(),headers:{"x-pacer":r.headers.get("x-pacer")??undefined}};},stream:()=>()=>{}},
  fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_p,s)=>panels.push(s)}});
- const settle=async()=>{await Bun.sleep(20);await flush();};
- const advance=async(ms:number)=>{for(let n=0;n<ms;n+=1000){await f.timers.advance(1000);await settle();}};
+ const waitForPanel=async(transport:string)=>{
+  const deadline=Date.now()+2000;
+  while(!panels.at(-1)?.includes(`data-transport="${transport}"`) && Date.now()<deadline){
+   await f.timers.advance(1000);await Bun.sleep(10);await flush();
+  }
+  expect(panels.at(-1)).toContain(`data-transport="${transport}"`);
+ };
+ const restart=async()=>{
+  const deadline=Date.now()+2000;
+  while(true){
+   try{return serve(port);}catch(e){
+    if((e as {code?:string}).code!=="EADDRINUSE" || Date.now()>=deadline)throw e;
+    await Bun.sleep(10);
+   }
+  }
+ };
  try{
-  await plugin.activate(f.ctx);await settle();await advance(2000);
-  expect(panels.at(-1)).toContain('data-transport="http"');
-  server.stop(true);
-  for(let i=0;i<3;i++){await advance(10000);await settle();}
-  await advance(2000);
-  expect(panels.at(-1)).toContain('data-transport="bridge"');
-  server=serve(port);
-  await advance(10000);await settle();await advance(2000);
-  expect(panels.at(-1)).toContain('data-transport="http"');
+  await plugin.activate(f.ctx);await waitForPanel("http");
+  server.stop(true);await waitForPanel("bridge");
+  server=await restart();await waitForPanel("http");
  }finally{server.stop(true);await plugin.deactivate();await f.cleanup();}
 });
 

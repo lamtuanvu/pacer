@@ -141,6 +141,7 @@ for (const mode of ["observe", "filter", "shadow"] as const) test(`repo file pro
   expect(probes).toBe(mode === "observe" ? 0 : 1);
 });
 
+// These eviction tests exercise 500 real decision-log writes; allow disk contention.
 for (const method of ["kind", "difficulty"] as const) test(`${method} cache evicts least recently used tasks after 500`, async () => {
   const ctx = fakeCtx(); const s = strategy({ default: "ollama" });
   let calls = 0;
@@ -159,7 +160,7 @@ for (const method of ["kind", "difficulty"] as const) test(`${method} cache evic
   expect(calls).toBe(501);
   await invoke("1");
   expect(calls).toBe(502);
-});
+}, 30000);
 
 test("activeHooks without classifier preserve default kind and executor lists", async () => {
   const ctx = fakeCtx();

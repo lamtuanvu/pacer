@@ -190,3 +190,18 @@ test("strategy-build opens a new terminal for the requested worktree and malform
  expect(calls[0]?.slice(0,8)).toEqual(["orca","terminal","create","--worktree","id:wt","--title","pacer strategy","--command"]);expect(h.output()).toContain("Session opened in a new terminal");
  const bad=harness();await bad.run([encodeCmdLine({cmd:"strategy-build",agent:"agy",from:"default",brief:"x"})]);expect(bad.output()).toContain("ignored malformed plugin command");
 });
+
+test("console publishes strategy session success, fallback and failure to the link",async()=>{
+ for(const mode of ["success","fallback","failure"]){
+  const h=harness();await Bun.write(`${h.ctx.pacerHome}/strategy.yaml`,"planner: claude-code\nproviders:\n  claude-code: {usage: reactive}\n  codex: {usage: reactive}\n");
+  h.ctx.which=()=>mode==="fallback"?null:"/fake/orca";
+  h.ctx.run=async()=>mode==="failure"?{code:1,stdout:"",stderr:"Terminal creation refused"}:{code:0,stdout:'{"ok":true,"result":{}}',stderr:""};
+  await h.run([encodeCmdLine({cmd:"strategy-build",agent:"codex",from:"default",brief:"Protect planning",worktreeId:"wt"})]);
+  const snapshot=JSON.parse(await Bun.file(`${h.ctx.pacerHome}/link/latest.json`).text());
+  const alert=snapshot.alerts.find((a:any)=>a.key==="strategy-build");
+  expect(alert.level).toBe(mode==="success"?"info":"error");
+  expect(alert.title).toBe(mode==="success"?"Strategy session opened in a new terminal":"Strategy session failed");
+  if(mode==="failure")expect(alert.body).toContain("Terminal creation refused");
+  if(mode==="fallback")expect(alert.body).toContain("Orca unavailable");
+ }
+});

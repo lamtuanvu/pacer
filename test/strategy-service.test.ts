@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdirSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync, readdirSync, statSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import * as s from "../src/strategy/service";
@@ -8,7 +8,7 @@ import { parseStrategyArgs } from "../src/commands/plan7";
 import { main } from "../src/cli";
 import { parseCmd, parseSnapshot, emptySnapshot } from "../src/link/envelope";
 import { pumpOnce } from "../src/link/pump";
-import { loadStrategy } from "../src/config/strategy";
+import { loadStrategy, validateStrategy } from "../src/config/strategy";
 const yaml=`planner: claude-code
 providers:
   claude-code: {usage: reactive}
@@ -22,9 +22,9 @@ routing:
 `;
 async function setup(){const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});await Bun.write(join(ctx.pacerHome,"strategy.yaml"),yaml);return ctx;}
 test("draft replaces arrays and objects wholesale, unsets nested keys and guards prototype paths",()=>{
- expect(s.applyDraft({pacing:{order:["a"],x:2},routing:[1]}, {from:"default",set:{"pacing.order":["b","c"],routing:[{default:["b"]}]},unset:["pacing.x"]})).toEqual({pacing:{order:["b","c"]},routing:[{default:["b"]}]});
+ expect(s.applyDraft({pacing:{order:["a"],policy:"even"},routing:[1]}, {from:"default",set:{"pacing.order":["b","c"],routing:[{default:["b"]}]},unset:["pacing.policy"]})).toEqual({pacing:{order:["b","c"]},routing:[{default:["b"]}]});
  expect(()=>s.applyDraft({}, {from:"default",set:{"__proto__.polluted":true}})).toThrow("invalid dotted path");
- expect(()=>s.applyDraft({a:[]},{from:"default",set:{"a.0":1}})).toThrow("replace wholesale");
+ expect(()=>s.applyDraft({routing:[]},{from:"default",set:{"routing.0":1}})).toThrow("replace wholesale");
 });
 test("save header, summary, overwrite, active/default protection and complete lifecycle",async()=>{
  const ctx=await setup();const draft={from:"default",description:"Protect Claude",set:{"pacing.planner_reserve":25}};
@@ -68,8 +68,67 @@ test("strategy build commands reject malformed input and snapshots accept both s
  expect(parseSnapshot({...emptySnapshot(),strategies:["default",{name:"custom",active:true,summary:"Codex first",description:"Custom"}]} )?.strategies).toHaveLength(2);
 });
 test("pump alerts once when a new strategy appears and includes header author",async()=>{
- const ctx=await setup();const deps={status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}} as const),tasks:()=>[],publish:async()=>({seq:1,transports:[],errors:[]})};
+ const ctx=await setup();const deps={status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}} as const),tasks:()=>[],publish:async()=>({seq:1,transports:["outbox"],errors:[]})};
  await pumpOnce(ctx,deps as any);s.save(ctx,"new-one",{from:"default"},"Approved",{who:"Codex"});
  const out=await pumpOnce(ctx,deps as any);expect(out.find(e=>e.type==="alert"&&e.data.key==="strategySaved-new-one")).toMatchObject({data:{title:'New strategy "new-one" saved',body:"Codex first, Claude keeps 15% · by Codex"}});
  expect((await pumpOnce(ctx,deps as any)).some(e=>e.type==="alert"&&e.data.key.startsWith("strategySaved"))).toBe(false);
+});
+
+test("preview and saved YAML use identical indented blocks and a final newline",async()=>{
+ const ctx=await setup(), draft={from:"default",set:{"pacing.planner_reserve":25}};
+ const result=await s.preview(ctx,draft);
+ const expected="planner: claude-code\nproviders: \n  claude-code: \n    usage: reactive\n  codex: \n    usage: reactive\n  agy: \n    usage: reactive\npacing: \n  order: \n    - codex\n    - agy\n  planner_reserve: 25\nrouting: \n  - default: \n      - codex\n      - agy\n";
+ expect(result.yaml).toBe(expected);
+ s.save(ctx,"block",draft,"approved");
+ expect(s.show(ctx,"block").yaml.split("\n").slice(2).join("\n")).toBe(expected);
+ expect(validateStrategy(Bun.YAML.parse(expected),"test").pacing.plannerReserve).toBe(25);
+});
+test("unknown set and unset paths name the rejected key and suggest the nearest known key",()=>{
+ for(const key of ["junk.x","pacing.planer_reserve","providers.codex.usag","execution.bakend","classifier.adapters.ollama.modle"]){
+  for(const op of [{set:{[key]:1}},{unset:[key]}]){
+   expect(()=>s.applyDraft({}, {from:"default",...op})).toThrow(key);
+   expect(()=>s.applyDraft({}, {from:"default",...op})).toThrow("known key");
+  }
+ }
+ expect(()=>s.applyDraft({}, {from:"default",set:{"pacing.planer_reserve":20}})).toThrow("pacing.planner_reserve");
+});
+test("active overwrite requires explicit approval with CLI-specific flags",async()=>{
+ const ctx=await setup();s.save(ctx,"live",{from:"default"},"approved");await s.use({...ctx,which:()=>null},"live");
+ expect(()=>s.save(ctx,"live",{from:"default"},"approved",{overwrite:true})).toThrow("activeOk");
+ expect((await main(["strategy","save","live","--reason","approved"],ctx)).err).toContain("--overwrite");
+ expect((await main(["strategy","save","live","--reason","approved","--overwrite"],ctx)).err).toContain("--allow-active");
+ expect((await main(["strategy","save","live","--reason","approved","--overwrite","--allow-active"],ctx)).code).toBe(0);
+});
+test("existing strategy names remain selectable and starter comments are not descriptions",async()=>{
+ const ctx=await setup();mkdirSync(join(ctx.pacerHome,"strategies"));writeFileSync(join(ctx.pacerHome,"strategies","Legacy_name.yaml"),yaml);
+ expect((await main(["use","Legacy_name"],{...ctx,which:()=>null})).code).toBe(0);
+ expect(s.show(ctx,"Legacy_name").active).toBe(true);
+ writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"# pacer starter strategy: edit me\n"+yaml);
+ expect(s.list(ctx).find(x=>x.name==="default")?.description).toBe("");
+});
+test("launcher creates private briefs and prunes only expired session files",async()=>{
+ const ctx=await setup(), dir=join(ctx.pacerHome,"link","sessions");mkdirSync(dir,{recursive:true});
+ for(const file of ["old.md","recent.md","keep.txt"]){writeFileSync(join(dir,file),"private");utimesSync(join(dir,file),ctx.now-8*86400,ctx.now-8*86400);}
+ utimesSync(join(dir,"recent.md"),ctx.now,ctx.now);
+ const result=await build({...ctx,which:()=>null});
+ expect(statSync(result.path).mode&0o777).toBe(0o600);expect(existsSync(join(dir,"old.md"))).toBe(false);expect(existsSync(join(dir,"recent.md"))).toBe(true);expect(existsSync(join(dir,"keep.txt"))).toBe(true);
+});
+test("pump persists seen fingerprints only after publishing and only when changed",async()=>{
+ const ctx=await setup();const deps={status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),tasks:()=>[],publish:async()=>({seq:1,transports:["outbox"],errors:[]})};
+ const path=join(ctx.pacerHome,"link","strategy-seen.json");await pumpOnce(ctx,deps as any);const before=statSync(path).mtimeMs;
+ await Bun.sleep(10);await pumpOnce(ctx,deps as any);expect(statSync(path).mtimeMs).toBe(before);
+ s.save(ctx,"new",{from:"default"},"approved");
+ await pumpOnce(ctx,{...deps,publish:async()=>({seq:0,transports:[],errors:["outbox: failure"]})} as any);
+ const retry=await pumpOnce(ctx,deps as any);expect(retry.some(e=>e.type==="alert"&&e.data.key==="strategySaved-new")).toBe(true);
+ s.save(ctx,"new",{from:"default",set:{"pacing.planner_reserve":25}},"approved",{overwrite:true});
+ expect((await pumpOnce(ctx,deps as any)).find(e=>e.type==="alert"&&e.data.key==="strategySaved-new")).toMatchObject({data:{title:'Strategy "new" updated'}});
+});
+
+test("pump detects identical overwrites and migrates the old name-only ledger",async()=>{
+ const ctx=await setup();const deps={status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),tasks:()=>[],publish:async()=>({seq:1,transports:["outbox"],errors:[]})};
+ s.save(ctx,"same",{from:"default"},"approved");
+ mkdirSync(join(ctx.pacerHome,"link"),{recursive:true});writeFileSync(join(ctx.pacerHome,"link","strategy-seen.json"),JSON.stringify(["default","same"]));
+ const first=await pumpOnce(ctx,deps as any);expect(first.some(e=>e.type==="alert"&&e.data.key.startsWith("strategySaved"))).toBe(false);
+ const before=s.show(ctx,"same").yaml;s.save(ctx,"same",{from:"default"},"approved",{overwrite:true});expect(s.show(ctx,"same").yaml).toBe(before);
+ expect((await pumpOnce(ctx,deps as any)).find(e=>e.type==="alert"&&e.data.key==="strategySaved-same")).toMatchObject({data:{title:'Strategy "same" updated'}});
 });

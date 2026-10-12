@@ -7,10 +7,11 @@ function unpack(value) {
  return value;
 }
 const data = unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(embedded.encoded), c=>c.charCodeAt(0)))) : embedded);
-const providerNames = {"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model"};
+const providerNames = {"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model",opencode:"OpenCode"};
 for (const p of [...data.rows,...data.muted]) p.name = Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
 data.executors = data.rows.map(p=>p.id);
 const status = document.getElementById("status");
+if(data.buildAlert) status.textContent=data.buildAlert.title+(data.buildAlert.body?": "+data.buildAlert.body:"");
 const sentAt = [], pending = new Map();
 let sequence = 0, context = null, sending = false;
 const submitButton = document.querySelector('button[type="submit"]');
@@ -151,7 +152,7 @@ document.getElementById("strategy-form").addEventListener("submit", event => {
  const button=document.querySelector('#strategy-form button[type="submit"]'); sending=true;button.disabled=true;
  const finish=()=>{sending=false;button.disabled=false;};
  if(!readContext(value=>{updateContext(value);if(!context || !context.branch){status.textContent="Focus a worktree first.";finish();return;}
- sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Session opened in a new terminal";},finish,value);
+ sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
  },finish))finish();
 });
 window.addEventListener("message", event => {

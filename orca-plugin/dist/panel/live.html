@@ -15,10 +15,10 @@ select{height:28px;background:var(--background);border:1px solid var(--border);b
  <form id="strategy-form" class="card stack strategy-builder"><strong>Build a new strategy with an agent</strong><small>Describe what you want. The agent drafts it, shows how routing would change, and asks before saving.</small>
  <label for="strategy-brief">What should it do?</label><textarea id="strategy-brief" rows="4" required maxlength="2000" placeholder="e.g. Protect Claude this week. Burn Codex before it resets on Sunday."></textarea>
  <div class="row"><label class="stack grow">Start from<select id="strategy-from"></select></label><label class="stack grow">Agent<select id="strategy-agent"></select></label></div>
- <div class="note"><small>Opens a new terminal in this worktree with the agent already briefed. You chat with it there; nothing changes until you approve the save. Switching stays a separate click here.</small></div><button type="submit" class="primary" data-live disabled disabled>Start session</button></form>
+ <div class="note row"><svg role="img" aria-label="Information" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="flex-shrink:0"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7v1"></path></svg><small>Opens a new terminal in this worktree with the agent already briefed. You chat with it there; nothing changes until you approve the save. Switching stays a separate click here.</small></div><button type="submit" class="primary" data-live disabled disabled>Start session</button></form>
  <section id="strategy-after" class="stack" hidden></section></div><div class="actionbar"><button type="button" data-view="overview">Done</button></div></main>
  <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong><button type="button" data-setup="pacer console">Type pacer console</button><small>Press Enter in the terminal to start it.</small></div>
- <script type="application/json" id="pacer-actions">{"consoles":[],"strategies":["default"],"strategy":"default","savedAlerts":[],"snapshotAt":0,"updatedAt":0,"reachable":false,"commands":{"refresh":{"cmd":"refresh"}},"text":{},"paths":{},"rows":[],"muted":[]}</script><script>
+ <script type="application/json" id="pacer-actions">{"buildAlert":null,"consoles":[],"strategies":["default"],"strategy":"default","savedAlerts":[],"snapshotAt":0,"updatedAt":0,"reachable":false,"commands":{"refresh":{"cmd":"refresh"}},"text":{},"paths":{},"rows":[],"muted":[]}</script><script>
 
 const embedded = JSON.parse(document.getElementById("pacer-actions").textContent);
 function unpack(value) {
@@ -27,10 +27,11 @@ function unpack(value) {
  return value;
 }
 const data = unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(embedded.encoded), c=>c.charCodeAt(0)))) : embedded);
-const providerNames = {"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model"};
+const providerNames = {"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model",opencode:"OpenCode"};
 for (const p of [...data.rows,...data.muted]) p.name = Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
 data.executors = data.rows.map(p=>p.id);
 const status = document.getElementById("status");
+if(data.buildAlert) status.textContent=data.buildAlert.title+(data.buildAlert.body?": "+data.buildAlert.body:"");
 const sentAt = [], pending = new Map();
 let sequence = 0, context = null, sending = false;
 const submitButton = document.querySelector('button[type="submit"]');
@@ -171,7 +172,7 @@ document.getElementById("strategy-form").addEventListener("submit", event => {
  const button=document.querySelector('#strategy-form button[type="submit"]'); sending=true;button.disabled=true;
  const finish=()=>{sending=false;button.disabled=false;};
  if(!readContext(value=>{updateContext(value);if(!context || !context.branch){status.textContent="Focus a worktree first.";finish();return;}
- sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Session opened in a new terminal";},finish,value);
+ sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
  },finish))finish();
 });
 window.addEventListener("message", event => {
