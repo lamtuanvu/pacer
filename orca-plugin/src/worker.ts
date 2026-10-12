@@ -1,4 +1,4 @@
-import { get } from "node:http";
+import { get, request } from "node:http";
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,21 @@ function checkLoopback(url: string): void {
   if (u.protocol !== "http:" || u.hostname !== "127.0.0.1" || u.username || u.password) throw new Error("pacer worker only supports loopback HTTP");
 }
 const http: HttpPort = {
+  post(url, token, data, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      checkLoopback(url);
+      const body = JSON.stringify(data);
+      const req = request(url, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, res => {
+        let response = "";
+        res.setEncoding("utf8");
+        res.on("data", chunk => { response += chunk; if (Buffer.byteLength(response) > 256 * 1024) req.destroy(new Error("pacer response exceeds 256 KiB")); });
+        res.on("error", reject);
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: response, headers: res.headers }));
+      });
+      const timeout = setTimeout(() => req.destroy(new Error("pacer HTTP timeout")), timeoutMs);
+      req.on("close", () => clearTimeout(timeout)); req.on("error", reject); req.end(body);
+    });
+  },
   get(url, token, timeoutMs) {
     return new Promise((resolve, reject) => {
       checkLoopback(url);

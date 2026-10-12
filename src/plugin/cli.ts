@@ -6,11 +6,14 @@ import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { installPlugin, uninstallPlugin } from "./install";
 
-const USAGE = "usage: pacer plugin install|uninstall|status|set <transport|port|pacerHome|pollSeconds> <value>";
+const USAGE = "usage: pacer plugin install|uninstall|status|set <transport|port|pacerHome|pollSeconds|autoConsole> <value>";
 const err = (code: number, e: unknown): Result => ({ code, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` });
 
 export function parseSetting(key: string, value: string): unknown {
   switch (key) {
+    case "autoConsole":
+      if (!["on", "off"].includes(value)) throw new Error("autoConsole must be on or off");
+      return value === "on";
     case "transport":
       if (!["auto", "http", "channel", "bridge"].includes(value)) throw new Error("transport must be auto, http, channel or bridge");
       return value;

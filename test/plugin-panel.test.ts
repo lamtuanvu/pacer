@@ -258,3 +258,12 @@ test("strategy note includes the information icon and OpenCode has a readable la
  const s=snapshot();s.budget!.providers.push({id:"opencode",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false});s.budget!.ranked.push({id:"opencode",verdict:"OK"});
  const b=browser(panel(s));expect(b.ids["ranked-list"].innerHTML).toContain("OpenCode");expect(panel(s)).toContain('aria-label="Information"');
 });
+
+test("autoConsole panel starting state and manual fallback",()=>{
+ for(const [autoConsole,reachable,starting] of [[true,true,true],[false,true,false],[true,false,false]] as const){
+  const html=renderPanel(emptySnapshot(),{nowS:100,transport:"http",reachable,autoConsole});
+  expect(html.includes("Starting pacer console in this worktree...")).toBe(starting);
+  expect(html.includes('>Start console</button>')).toBe(!starting);
+  if(starting){expect(html).toContain("◐");expect(html).toContain("prefers-reduced-motion");}
+ }
+});

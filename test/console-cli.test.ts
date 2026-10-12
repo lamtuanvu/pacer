@@ -85,3 +85,16 @@ test("resolveWorktreePath falls back to branch after id lookup fails", async () 
  expect(await resolveWorktreePath(fakeCtx({run:f.run}),"shared","missing")).toBe("/wt/branch");
  expect(f.calls).toEqual([["orca","worktree","show","--worktree","id:missing","--json"],["orca","worktree","show","--worktree","branch:shared","--json"]]);
 });
+
+test("auto-created console registers exported handle and unregisters on exit",async()=>{
+ const ctx=fakeCtx();
+ const child=Bun.spawn([process.execPath,join(import.meta.dir,"../src/cli.ts"),"console"],{
+  env:{PATH:process.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,ORCA_TERMINAL_HANDLE:"term_autocreated",PACER_ORCA_USER_DATA:join(ctx.home,"orca")},stdin:"pipe",stdout:"ignore",stderr:"pipe",
+ });
+ try{
+  const path=join(ctx.pacerHome,"link/consoles/term_autocreated.json");const deadline=Date.now()+2000;
+  while(!existsSync(path)&&Date.now()<deadline)await Bun.sleep(5);
+  expect(existsSync(path)).toBe(true);expect(JSON.parse(readFileSync(path,"utf8")).handle).toBe("term_autocreated");
+  child.stdin.end();await child.exited;expect(child.exitCode).toBe(0);expect(existsSync(path)).toBe(false);
+ }finally{if(child.exitCode===null)child.kill("SIGKILL");}
+});

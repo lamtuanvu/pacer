@@ -76,7 +76,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, autoConsole: settings.autoConsole }));
               renderedKey = key;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
@@ -156,6 +156,38 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         stopWatch?.(); stopWatch = null;
         await ensureConnected();
       })().catch(logError).finally(() => { probing = false; });
+    });
+    const requested = new Map<string, number>(), failureLogged = new Map<string, number>();
+    let opening = false;
+    timers.every(5000, () => {
+      if (stopped || opening || !settings.autoConsole || active?.id !== "http" || !reachable) return;
+      opening = true;
+      let worktree = "unknown";
+      void (async () => {
+        const context = await ctx.host.call("workspace.readContext");
+        if (stopped || !context || !context.branch) return;
+        worktree = context.worktreeId || context.branch;
+        const now = deps.nowS(), ids = new Set(context.terminals.map(t => t.id));
+        if ([...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS)) return;
+        if (now - (requested.get(worktree) ?? -Infinity) < 60) return;
+        requested.set(worktree, now);
+        // Verify the loopback listener's identity immediately before sending the bearer token.
+        const base = `http://127.0.0.1:${settings.port}`;
+        const health = await deps.http.get(`${base}/health`, "", 1500);
+        if (stopped || active?.id !== "http") return;
+        if (health.status !== 200 || health.headers?.["x-pacer"] !== "1") throw new Error("unidentified HTTP listener");
+        const token = deps.fs.readText(`${settings.pacerHome}/token`)?.trim();
+        if (!token || !deps.http.post) throw new Error("HTTP console opening unavailable");
+        const response = await deps.http.post(`${base}/console/open`, token, { ...(context.terminals[0] ? { terminal: context.terminals[0].id } : {}), branch: context.branch }, 1500);
+        if (response.status !== 200 || response.headers?.["x-pacer"] !== "1") throw new Error(`HTTP ${response.status}`);
+        const result = JSON.parse(response.body);
+        if (!result.ok && !["console-present", "rate-limited"].includes(result.reason)) throw new Error(result.reason || "console opening failed");
+      })().catch(e => {
+        const now = deps.nowS();
+        if (now - (failureLogged.get(worktree) ?? -Infinity) >= 300) {
+          failureLogged.set(worktree, now); ctx.log(`pacer: auto console in ${worktree}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }).finally(() => { opening = false; });
     });
     const sendFresh = async (data: CmdData) => {
       await refreshSnapshot();

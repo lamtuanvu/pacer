@@ -8,6 +8,8 @@ import { toBudget } from "../link/budget";
 import { currentSnapshot, readLatest, readOutboxSince } from "../link/store";
 import { pumpOnce } from "../link/pump";
 
+import { consoleOpener } from "./console-open";
+
 export const DEFAULT_PORT = 4317;
 
 export function ensureToken(ctx: Ctx): string {
@@ -22,7 +24,7 @@ export function ensureToken(ctx: Ctx): string {
   return t;
 }
 
-/** Localhost-only, token-protected status endpoint (the phase-2 Orca plugin's transport 1). */
+/** Localhost-only, token-protected status endpoint and guarded console opener (the Orca plugin's HTTP transport). */
 export function startServer(
   getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number } = {},
 ): { port: number; token: string; stop: () => void } {
@@ -35,6 +37,7 @@ export function startServer(
     return computeStatus(ctx, loadStrategy(ctx));
   };
   const enc = new TextEncoder();
+  const openConsole = consoleOpener();
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -45,6 +48,7 @@ export function startServer(
       const headers = { "X-Pacer": "1" };
       if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true }, { headers });
       if (req.headers.get("authorization") !== `Bearer ${token}`) return new Response("unauthorized\n", { status: 401 });
+      if (req.method === "POST" && pathname === "/console/open") return openConsole(req, getCtx());
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });
       if (pathname === "/state") {
         try {

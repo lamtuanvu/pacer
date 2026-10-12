@@ -1,5 +1,5 @@
 // orca-plugin/src/worker.ts
-import { get } from "node:http";
+import { get, request } from "node:http";
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { dirname, join as join2, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -151,6 +151,7 @@ function summaryLine(b) {
 function readSettings(raw, home) {
   const finite = (v) => typeof v === "number" && Number.isFinite(v);
   return {
+    autoConsole: typeof raw.autoConsole === "boolean" ? raw.autoConsole : true,
     transport: ["auto", "http", "channel", "bridge"].includes(raw.transport) ? raw.transport : "auto",
     port: finite(raw.port) && Number.isInteger(raw.port) && raw.port >= 1 && raw.port <= 65535 ? raw.port : 4317,
     pacerHome: typeof raw.pacerHome === "string" && raw.pacerHome.length > 0 ? raw.pacerHome : `${home}/.pacer`,
@@ -613,6 +614,8 @@ function delegateView(s, now, reachable) {
 
 // orca-plugin/src/panel/style.ts
 var style = `
+.console-spinner{display:inline-block;animation:console-spin 1s linear infinite}@keyframes console-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.console-spinner{animation:none}}
+
 *{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);font-size:12px;font-family:var(--app-font-family,'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);line-height:1.4;letter-spacing:.01em;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;--good:color-mix(in srgb,seagreen 90%,var(--background));--warn:color-mix(in srgb,darkorange 90%,var(--background));--bad:color-mix(in srgb,crimson 90%,var(--background))}[hidden]{display:none!important}.view{min-height:100vh;display:flex;flex-direction:column}form{display:flex;flex-direction:column;flex:1}.content{padding:12px;display:flex;flex-direction:column;gap:12px;flex:1;min-width:0}.row,.name,header,.actions{display:flex;align-items:center;gap:8px}.grow{flex:1;min-width:0}.stack{display:flex;flex-direction:column;gap:6px;min-width:0}.brand{font-weight:600;font-size:14px;letter-spacing:.01em}.brand-tick{fill:#65A30D}@media(prefers-color-scheme:dark){.brand-tick{fill:#A3E635}body{--good:color-mix(in srgb,mediumseagreen 90%,var(--background));--warn:color-mix(in srgb,orange 90%,var(--background));--bad:color-mix(in srgb,lightcoral 90%,var(--background))}}.muted,small{color:var(--muted-foreground)}small{font-size:11px}.pill{font-size:10px;font-weight:500;padding:2px 6px;border-radius:6px;background:var(--muted);white-space:nowrap}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.pill.good{background:color-mix(in srgb,green 12%,var(--background))}.pill.warn{background:color-mix(in srgb,orange 16%,var(--background))}.pill.bad{background:color-mix(in srgb,crimson 12%,var(--background))}.dot{width:8px;height:8px;border-radius:50%;background:currentColor}.live{font-size:11px;white-space:nowrap}.card,.list{border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);background:var(--card)}.answer{padding:12px;gap:8px}.headline{font-size:13px;font-weight:600}h2{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;margin:0;color:var(--muted-foreground)}.section{gap:8px}.provider{padding:8px 10px;gap:6px}.provider+.provider,.step+.step{border-top:1px solid var(--border)}.rank{width:18px;height:18px;flex-shrink:0;background:var(--muted);border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:600}.provider:first-child .rank{background:var(--foreground);color:var(--background)}.name{font-weight:500;gap:6px;overflow-wrap:anywhere}.name svg,.monogram{flex-shrink:0}.monogram{border-radius:4px;background:var(--foreground);color:var(--background);display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:600}.meter{position:relative;height:6px;background:var(--border);border-radius:999px;margin:4px 0}.meter.slim{height:3px;margin-left:26px}.meter .fill{height:100%;border-radius:999px;background:currentColor}.pace{position:absolute;width:2px;top:-4px;bottom:-4px;background:var(--foreground);border-radius:2px}.percent{font-size:18px;font-weight:600}.unavailable{font-size:11px;padding:0 4px;gap:4px}.attention{padding:10px;gap:8px;border-color:color-mix(in srgb,crimson 25%,var(--background));background:color-mix(in srgb,crimson 2%,var(--card))}.attention.stuck{border-color:color-mix(in srgb,orange 35%,var(--background));background:color-mix(in srgb,orange 3%,var(--card))}.task-goal{font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent{gap:8px}button,input,textarea,select{font:inherit;color:var(--foreground)}button{white-space:nowrap;flex-shrink:0;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);background:var(--background);cursor:pointer}button.primary{min-height:32px;background:var(--primary);color:var(--background);font-weight:500;border-color:var(--primary)}button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--primary);outline-offset:2px}.actionbar{position:sticky;bottom:0;padding:8px 12px 10px;border-top:1px solid var(--border);background:var(--background);display:flex;flex-direction:column;gap:8px}.actionbar button,.actionbar button.primary{height:32px;min-height:32px}.actionbar .refresh{width:32px;min-width:32px;padding:0}.footnote{font-size:11px;text-align:center;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#status{margin:0;padding:0 12px 8px;color:var(--muted-foreground);white-space:pre-wrap;overflow-wrap:anywhere}#status:empty{display:none}.step{padding:10px;display:flex;gap:8px}.step-num{width:22px;height:22px;border:2px solid var(--border);border-radius:50%;display:grid;place-items:center;flex-shrink:0;font-size:11px;font-weight:600}.step.done .step-num{background:var(--good);border-color:var(--good);color:var(--background)}.step.current .step-num{border-color:var(--foreground)}.command,.where{padding:6px 6px 6px 10px;border-radius:calc(var(--radius,10px) - 2px);background:var(--muted)}code{font:11px ui-monospace,monospace;overflow-wrap:anywhere}.last-known{padding:10px;border-style:dashed;color:var(--muted-foreground)}.last-known .fill{background:var(--muted-foreground)}.note{padding:10px;background:var(--muted);border-radius:calc(var(--radius,10px) - 2px);color:var(--muted-foreground)}.note.info{background:color-mix(in srgb,dodgerblue 9%,var(--background))}textarea,input[type=text]{background:var(--background);border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);padding:6px 10px;width:100%}textarea{resize:vertical}input[type=text]{min-height:28px}strong,label,legend{font-weight:500}header>strong{font-weight:600}.where{padding:8px 10px}fieldset{border:0;padding:0;margin:0;min-width:0}legend{margin-bottom:6px}.radio{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);font-weight:400;cursor:pointer;min-height:32px}.radio:has(input:checked){outline:1px solid var(--foreground);border-color:var(--foreground)}.radio:has(input:disabled){color:var(--muted-foreground);cursor:default}.radio input{margin:0;width:14px;height:14px}.radio strong{font-weight:500}
 select{height:28px;background:var(--background);border:1px solid var(--border);border-radius:8px;padding:0 8px;min-width:0}.strategy-list{overflow:hidden}.strategy-list button{width:100%;border:0;border-radius:0;padding:8px 10px;text-align:left}.strategy-list button+button{border-top:1px solid var(--border)}.strategy-list small{white-space:normal}.strategy-builder{padding:12px;gap:10px;flex:0;background:var(--muted)}.strategy-saved{padding:10px;background:color-mix(in srgb,green 3%,var(--card));border-color:color-mix(in srgb,green 25%,var(--background))}
 `;
@@ -809,6 +812,7 @@ function renderPanel(s, view) {
   const disable = (html) => console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled");
   const payload = { buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict) })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS) })) };
   const strategy = strategyView(s, view.nowS, view.reachable);
+  const consoleHint = (view.autoConsole ?? true) && view.reachable ? `<small class="muted"><span class="console-spinner" aria-hidden="true">◐</span> Starting pacer console in this worktree...</small>` : `<button type="button" data-setup="pacer console">Start console</button><small>Press Enter in the terminal to start it.</small>`;
   const packed = packPanelData(payload), plain = jsonForScript(packed), encoded = jsonForScript({ encoded: Buffer.from(JSON.stringify(packed), "utf8").toString("base64") });
   const data = encoded.length < plain.length ? encoded : plain;
   return `<!doctype html><html lang="en" data-transport="${h(view.transport ?? "none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style}</style></head><body>
@@ -816,7 +820,7 @@ function renderPanel(s, view) {
  <main class="view" data-page="setup"${selected === "setup" ? "" : " hidden"}>${setup(s, view.nowS, view.reachable)}</main>
  <main class="view" data-page="delegate" hidden>${disable(delegateView(s, view.nowS, view.reachable))}</main>
  <main class="view" data-page="strategy" hidden>${disable(strategy)}</main>
- <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong><button type="button" data-setup="pacer console">Type pacer console</button><small>Press Enter in the terminal to start it.</small></div>
+ <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong>${consoleHint}</div>
  <script type="application/json" id="pacer-actions">${data}</script><script>
 ${client}</script></body></html>`;
 }
@@ -909,7 +913,7 @@ function createPlugin(deps) {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, autoConsole: settings.autoConsole }));
               renderedKey = key;
             } else
               ctx.log("pacer: refused panel write: unmanaged root");
@@ -1043,6 +1047,49 @@ function createPlugin(deps) {
         probing = false;
       });
     });
+    const requested = new Map, failureLogged = new Map;
+    let opening = false;
+    timers.every(5000, () => {
+      if (stopped || opening || !settings.autoConsole || active?.id !== "http" || !reachable)
+        return;
+      opening = true;
+      let worktree = "unknown";
+      (async () => {
+        const context = await ctx.host.call("workspace.readContext");
+        if (stopped || !context || !context.branch)
+          return;
+        worktree = context.worktreeId || context.branch;
+        const now = deps.nowS(), ids = new Set(context.terminals.map((t) => t.id));
+        if ([...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS))
+          return;
+        if (now - (requested.get(worktree) ?? -Infinity) < 60)
+          return;
+        requested.set(worktree, now);
+        const base = `http://127.0.0.1:${settings.port}`;
+        const health = await deps.http.get(`${base}/health`, "", 1500);
+        if (stopped || active?.id !== "http")
+          return;
+        if (health.status !== 200 || health.headers?.["x-pacer"] !== "1")
+          throw new Error("unidentified HTTP listener");
+        const token = deps.fs.readText(`${settings.pacerHome}/token`)?.trim();
+        if (!token || !deps.http.post)
+          throw new Error("HTTP console opening unavailable");
+        const response = await deps.http.post(`${base}/console/open`, token, { ...context.terminals[0] ? { terminal: context.terminals[0].id } : {}, branch: context.branch }, 1500);
+        if (response.status !== 200 || response.headers?.["x-pacer"] !== "1")
+          throw new Error(`HTTP ${response.status}`);
+        const result = JSON.parse(response.body);
+        if (!result.ok && !["console-present", "rate-limited"].includes(result.reason))
+          throw new Error(result.reason || "console opening failed");
+      })().catch((e) => {
+        const now = deps.nowS();
+        if (now - (failureLogged.get(worktree) ?? -Infinity) >= 300) {
+          failureLogged.set(worktree, now);
+          ctx.log(`pacer: auto console in ${worktree}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }).finally(() => {
+        opening = false;
+      });
+    });
     const sendFresh = async (data) => {
       await refreshSnapshot();
       if (stopped)
@@ -1164,6 +1211,27 @@ function checkLoopback(url) {
     throw new Error("pacer worker only supports loopback HTTP");
 }
 var http = {
+  post(url, token, data, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      checkLoopback(url);
+      const body = JSON.stringify(data);
+      const req = request(url, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, (res) => {
+        let response = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          response += chunk;
+          if (Buffer.byteLength(response) > 256 * 1024)
+            req.destroy(new Error("pacer response exceeds 256 KiB"));
+        });
+        res.on("error", reject);
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: response, headers: res.headers }));
+      });
+      const timeout = setTimeout(() => req.destroy(new Error("pacer HTTP timeout")), timeoutMs);
+      req.on("close", () => clearTimeout(timeout));
+      req.on("error", reject);
+      req.end(body);
+    });
+  },
   get(url, token, timeoutMs) {
     return new Promise((resolve, reject) => {
       checkLoopback(url);
