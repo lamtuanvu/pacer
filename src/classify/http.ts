@@ -1,6 +1,6 @@
 export class HttpError extends Error {
   constructor(readonly status: number, readonly body: string) {
-    super(`HTTP ${status}: ${body}`);
+    super(`HTTP ${status}: ${body.slice(0, 200)}`);
     this.name = "HttpError";
   }
 }
@@ -14,6 +14,7 @@ export async function postJson<T = unknown>(
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(url, {
     method: "POST",
+    redirect: "error",
     headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(options.timeoutMs),

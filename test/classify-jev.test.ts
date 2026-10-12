@@ -125,3 +125,43 @@ test("reads private KEY=VALUE secrets and missing files or keys return null", ()
   expect(readSecrets(ctx)).toEqual({});
   expect(secret(ctx, "TYPESAFE_API_KEY")).toBeNull();
 });
+
+
+test("Jev HTTP errors omit an upstream body that echoes the API key", async () => {
+  const key = "secret-test-key";
+  const body = `Upstream unauthorized: ${key}`;
+  const app = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(body, { status: 401 }) });
+  cleanup.push(() => app.stop(true));
+  const error = await adapter(app.url.href, { apiKey: () => key }).ask("s", choice).catch((e) => e);
+  expect(error).toBeInstanceOf(Error);
+  expect(error.message).not.toContain(key);
+  expect(error.message).not.toContain(body);
+  expect(error.message).toBe("Jev HTTP 401");
+});
+
+test("Jev scrubs the API key from non-HTTP error messages", async () => {
+  const key = "secret-test-key";
+  const { baseUrl } = serverFor({ answers: {} });
+  const error = await adapter(baseUrl, { apiKey: () => key }).ask("s", { ...choice, id: key + key }).catch((e) => e);
+  expect(error).toBeInstanceOf(Error);
+  expect(error.message).not.toContain(key);
+  expect(error.message).toContain("Missing Jev answer");
+});
+
+for (const usage of ["bad", [], {}, { input_tokens: "100", output_tokens: 20 }, { input_tokens: 100, output_tokens: -1 }, { input_tokens: null, output_tokens: 20 }]) {
+  test(`malformed usage ${JSON.stringify(usage)} preserves a valid Jev answer without cost`, async () => {
+    const { baseUrl } = serverFor({ ...choiceFixture, usage });
+    const answer = await adapter(baseUrl, { usdPerMtokIn: 2, usdPerMtokOut: 5 }).ask("s", choice);
+    expect(answer).toMatchObject({ value: "docs", confidence: 0.9 });
+    expect(answer.costUsd).toBeUndefined();
+  });
+}
+
+test("Jev rejects a hung server within its short timeout budget", async () => {
+  const app = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Promise<Response>(() => {}) });
+  cleanup.push(() => app.stop(true));
+  const start = performance.now();
+  const error = await Promise.race([adapter(app.url.href, { timeoutMs: 20 }).ask("s", choice).catch((e) => e), Bun.sleep(250).then(() => undefined)]);
+  expect(error).toBeInstanceOf(Error);
+  expect(performance.now() - start).toBeLessThan(250);
+}, 1000);

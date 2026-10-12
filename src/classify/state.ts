@@ -84,7 +84,8 @@ export function withoutPlannerKind(state: string): string {
 export function redactState(state: string, home: string): string {
   const redact = (value: unknown): unknown => {
     if (typeof value === "string") {
-      const text = home ? value.split(home).join("~") : value;
+      const text = home ? value.replaceAll(home, (match, offset: number) =>
+        offset + home.length === value.length || value[offset + home.length] === "/" ? "~" : match) : value;
       return text.length > 200 ? text.slice(0, 200) + "..." : text;
     }
     if (Array.isArray(value)) return value.map(redact);
