@@ -12,7 +12,7 @@ const arg = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
 const checks = (f: FakeRun) => f.calls.filter((a) => a[1] === "orchestration" && a[2] === "check");
 
 function setup(routes: Route[], over: Partial<WaitOpts> = {}) {
-  const f = fakeRun(routes);
+  const f = fakeRun([...routes, [O("orchestration", "worker-read"), raw('{"ok":true,"result":{"terminal":{"tail":["Working"]}}}')]]);
   const ctx = fakeCtx({ run: f.run });
   const sleeps: number[] = [];
   const opts: WaitOpts = {
