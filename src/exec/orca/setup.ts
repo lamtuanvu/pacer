@@ -50,7 +50,11 @@ export async function ensureCoordinator(
       const s = loadOrcaState(ctx);
       let handle: string;
       let runId: string | null = s.run;
-      if (s.coordinator && isLiveTerminal(await c.terminalShow(s.coordinator))) {
+      const terminal = s.coordinator ? await c.terminalShow(s.coordinator) : null;
+      if (terminal && !terminal.ok && terminal.error.code !== "terminal_handle_stale") {
+        return { error: `orca terminal show failed: ${terminal.error.code} ${terminal.error.message}` };
+      }
+      if (s.coordinator && terminal && isLiveTerminal(terminal)) {
         handle = s.coordinator;
       } else {
         const t = await c.terminalCreate(`path:${top}`, COORDINATOR_TITLE);
