@@ -1,7 +1,8 @@
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
 import { type Excluded, rankExecutors } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
-import { type AttemptOutcome, runAttempt } from "../exec/direct";
+import { selectBackend } from "../exec/backend";
+import type { AttemptOutcome } from "../exec/direct";
 import { killTree } from "../exec/process";
 import { exhaustUntil } from "../exec/limits";
 import { verifyRepo } from "../exec/verify";
@@ -22,7 +23,7 @@ export interface RunnerDeps {
 const DEFAULTS: RunnerDeps = {
   loadStrategy,
   computeStatus: (ctx, s) => computeStatus(ctx, s),
-  runAttempt,
+  runAttempt: async (ctx, cfg, task, onSpawn) => (await selectBackend(ctx, loadStrategy(ctx))).runAttempt(ctx, cfg, task, onSpawn),
   verifyRepo: (repo, acceptance, env) => verifyRepo(repo, acceptance, env),
 };
 
@@ -88,17 +89,17 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         delete t.childPid;
       });
       if (task.state === "stopped") {
-        return finish(ctx, id, { status: "stopped", executor: pick, model: cfg.model, files: "", report: out.report, backend: "direct" });
+        return finish(ctx, id, { status: "stopped", executor: pick, model: cfg.model, files: "", report: out.report, backend: out.backend ?? "direct" });
       }
       if (out.attempt.limitHit) {
         markExhausted(ctx, pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000));
         if (task.requestedExecutor) break;
         continue;
       }
-      const v = await deps.verifyRepo(task.brief.repo, task.brief.acceptance, ctx.env);
+      const v = await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const status = !ok ? "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
-      return finish(ctx, id, { status, executor: pick, model: cfg.model, ...v, report: out.report, backend: "direct" });
+      return finish(ctx, id, { status, executor: pick, model: cfg.model, ...v, report: out.report, backend: out.backend ?? "direct", ...(out.worktree ? { worktree: out.worktree } : {}) });
     }
 
     const req = task.requestedExecutor;
