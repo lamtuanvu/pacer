@@ -33,7 +33,7 @@ test("HTTP parses SSE, reconnects with 2/4s backoff, rereads token and refreshes
  const seen:Envelope[]=[]; let snapshots=0;const stop=t.watch(e=>seen.push(e),()=>snapshots++);
  line(": keepalive"); line("data: nope");line('data: {"v":1,"type":"unknown"}');line(`data: ${JSON.stringify(alert)}\n\n`);expect(seen).toEqual([alert]);
  close();token="second";await timers.advance(1999);expect(tokens).toEqual(["first"]);await timers.advance(1);expect(tokens).toEqual(["first","second"]);close();await timers.advance(3999);expect(tokens.length).toBe(2);await timers.advance(1);expect(tokens.length).toBe(3);
- await timers.advance(54000);expect(snapshots).toBe(1);expect(gets).toBe(3);stop();await timers.advance(60000);expect(snapshots).toBe(1);expect(stopped).toBeGreaterThan(0);
+ await timers.advance(4000);expect(snapshots).toBe(1);expect(gets).toBe(3);stop();await timers.advance(60000);expect(snapshots).toBe(1);expect(stopped).toBeGreaterThan(0);
 });
 test("bridge only emits changed content and tolerates storage rejection",async()=> {
  const timers=new ManualTimers();let s=emptySnapshot();let reject=false;
@@ -49,4 +49,12 @@ test("store contract converges with brain reduction and ignores metadata-only ch
  const store=new LinkStore(()=>100);let calls=0;store.onChange(()=>calls++);
  const es:Envelope[]=[{v:1,type:"budget",data:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:[],ranked:[]}},...(["running","done"].map(state=>({v:1 as const,type:"task" as const,data:{id:"t",state,goal:"goal",executor:"e",backend:null,worktree:null,updatedAt:100}}))),alert];
  let brain=emptySnapshot();for(const e of es){store.apply(e);brain=reduce(brain,e,100);}expect(contentKey(store.snapshot)).toBe(contentKey(brain));expect(calls).toBe(4);store.replace({...brain,seq:99,at:200});expect(calls).toBe(4);const other=new LinkStore(()=>100);other.replace(brain);expect(contentKey(other.snapshot)).toBe(contentKey(store.snapshot));
+});
+
+test("channel registers only after a successful probe and tolerates registration rejection", async () => {
+ let registrations=0,allow=false;
+ const host={call:async()=>{if(!allow)throw Error("unsupported");return {subscribed:[]};}} as OrcaHost;
+ const t=channelTransport({host,registerEvent:()=>{registrations++;throw Error("unknown event");}});
+ expect(registrations).toBe(0);expect(await t.probe()).toBe(false);expect(registrations).toBe(0);
+ allow=true;expect(await t.probe()).toBe(false);expect(registrations).toBe(1);
 });

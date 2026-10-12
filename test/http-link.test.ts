@@ -79,3 +79,29 @@ test("/state still returns full Status", async () => {
   const state = await (await fetch(`${url}/state`, { headers })).json();
   expect(state).toHaveProperty("executors");
 });
+
+test("/link returns JSON 500 when context lookup fails", async () => {
+  const ctx = fakeCtx(); let fail = false;
+  const server = startServer(() => { if (fail) throw Error("context unavailable"); return ctx; }, {port:0,pumpMs:0});
+  stops.push(server.stop); fail = true;
+  const response = await fetch(`http://127.0.0.1:${server.port}/link`, {headers:{authorization:`Bearer ${server.token}`}});
+  expect(response.status).toBe(500);
+  expect(response.headers.get("content-type")).toContain("application/json");
+  expect(await response.json()).toEqual({error:"context unavailable"});
+});
+
+test("pump timer contains synchronous context failure and can run again", async () => {
+  const ctx = fakeCtx(); let calls=0, fail=true;
+  const original = globalThis.setInterval;
+  let tick!: () => void;
+  globalThis.setInterval = ((fn: () => void) => {tick=fn;return original(()=>{},100000);}) as typeof setInterval;
+  try {
+    const server = startServer(() => {calls++; if(calls>1 && fail)throw Error("context unavailable");return ctx;}, {port:0,pumpMs:10});
+    stops.push(server.stop);
+    expect(() => tick()).not.toThrow();
+    await Bun.sleep(10);fail=false;tick();
+    const deadline=Date.now()+300;
+    while(!existsSync(latestPath(ctx)) && Date.now()<deadline)await Bun.sleep(5);
+    expect(existsSync(latestPath(ctx))).toBe(true);
+  } finally {globalThis.setInterval=original;}
+});

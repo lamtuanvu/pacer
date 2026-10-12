@@ -28,7 +28,7 @@ function fixture(heartbeat: number|null=100, marker=true) {
 const sends=(f:ReturnType<typeof fixture>)=>f.calls.filter(c=>c.method==="terminal.sendText");
 const notes=(f:ReturnType<typeof fixture>)=>f.calls.filter(c=>c.method==="notifications.show");
 test("settings validate defaults, forced transport and clamped poll range",()=> {expect(readSettings({},"/tmp/home")).toEqual({transport:"auto",port:4317,pacerHome:"/tmp/home/.pacer",pollSeconds:10,lastAlertAt:0});expect(readSettings({transport:"bridge",pollSeconds:1,port:-1,lastAlertAt:NaN},"/tmp")).toMatchObject({transport:"bridge",pollSeconds:5,port:4317,lastAlertAt:0});expect(readSettings({transport:"invalid",pollSeconds:999},"/tmp")).toMatchObject({transport:"auto",pollSeconds:300});});
-test("activation registers all commands without awaiting transport probes",async()=> {const f=fixture();f.pending=true;try{await f.plugin.activate(f.ctx);expect([...f.commands.keys()].sort()).toEqual(["delegate","switch-strategy","refresh-status","open-console"].sort());expect(f.events.has("plugin.message")).toBe(true);}finally{await f.cleanup();}});
+test("activation registers all commands without awaiting transport probes",async()=> {const f=fixture();f.pending=true;try{await f.plugin.activate(f.ctx);expect([...f.commands.keys()].sort()).toEqual(["delegate","switch-strategy","refresh-status","open-console"].sort());expect(f.events.has("plugin.message")).toBe(false);}finally{await f.cleanup();}});
 for(const heartbeat of [null,69])test(`delegate refuses console heartbeat ${heartbeat}`,async()=> {const f=fixture(heartbeat);try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).map(c=>c.params.title)).toEqual([NO_CONSOLE.title]);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
 test("delegate uses advertised live handle and shell-inert command with context",async()=> {const f=fixture();try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});expect(sends(f)[0].params).toEqual({terminalId:"term",text:encodeCmdLine({cmd:"delegate",branch:"pacer-task",displayName:"Project"}),enter:true});f.context=null;await f.commands.get("delegate")!();expect(sends(f)[1].params.text).toBe(encodeCmdLine({cmd:"delegate"}));await f.commands.get("switch-strategy")!();expect(sends(f)[2].params.text).toBe(encodeCmdLine({cmd:"use"}));}finally{await f.cleanup();}});
 for(const error of [false,true])test(`send rejection ${error?"throws":"accepted false"} notifies without crash`,async()=> {const f=fixture();try{f.accepted=false;f.throwSend=error;await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).at(-1)!.params.title).toBe("Orca refused to type into the pacer console");}finally{await f.cleanup();}});
@@ -37,7 +37,7 @@ for(const heartbeat of [null,100])test(`open-console heartbeat ${heartbeat}`,asy
 test("agent events filter non-done and debounce per pane and globally",async()=> {const f=fixture();try{await f.start();const event=f.events.get("agent.status.changed")!;const p={worktreeId:"wt",paneKey:"pane",state:"done",receivedAt:100};await event({...p,state:"working"});await event({...p,mainAgent:{state:"working",stateStartedAt:0}});expect(sends(f)).toHaveLength(0);await event(p);await event(p);await event({...p,paneKey:"other"});expect(sends(f)).toHaveLength(1);expect(sends(f)[0].params.text).toBe(encodeCmdLine({cmd:"agent-done",paneKey:"pane",worktreeId:"wt"}));f.now=105;await event(p);expect(sends(f)).toHaveLength(2);}finally{await f.cleanup();}});
 test("worktree events send only pacer branches and silently skip absent console",async()=> {const f=fixture();try{await f.start();const event=f.events.get("worktree.created")!;const p={worktreeId:"wt",path:"/tmp/work",branch:"feature/x"};await event(p);expect(sends(f)).toHaveLength(0);await event({...p,branch:"pacer-1"});await event({...p,branch:"feature/pacer-2"});expect(sends(f)).toHaveLength(2);f.snapshot={...f.snapshot,console:null};await f.commands.get("refresh-status")!();await event({...p,branch:"pacer-3"});expect(sends(f)).toHaveLength(2);}finally{await f.cleanup();}});
 test("alerts suppress old and duplicate notifications, persist watermark and cap at three",async()=> {const f=fixture();try{const settings=readSettings({},"/tmp");const s=emptySnapshot();s.alerts=Array.from({length:6},(_,i)=>({key:`a${i}`,level:"warn",title:`A${i}`,body:"body",at:1000-i}));s.alerts.push({key:"old",level:"info",title:"old",body:"",at:399});const at=await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f).map(c=>c.params.title)).toEqual(["A5","A4","A3"]);expect(at).toBe(997);expect(f.calls.filter(c=>c.method==="settings.set").at(-1)!.params).toEqual({key:"lastAlertAt",value:997});settings.lastAlertAt=at;await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f).map(c=>c.params.title)).toEqual(["A5","A4","A3","A2","A1","A0"]);settings.lastAlertAt=1000;await notifyNewAlerts(f.host,s,settings,1000);expect(notes(f)).toHaveLength(6);}finally{await f.cleanup();}});
-for(const marker of [false,true])test(`panel writes require managed marker ${marker}`,async()=> {const f=fixture(100,marker);try{f.snapshot={...f.snapshot,alerts:[{key:"a",level:"warn",title:"New alert",body:"body",at:100}]};await f.start();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?1:0);await f.commands.get("refresh-status")!();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?1:0);expect(notes(f).filter(c=>c.params.title==="New alert")).toHaveLength(1);if(marker)expect(f.writes[0].path.endsWith("/panel/live.html")).toBe(true);await f.plugin.deactivate();expect(f.timers.jobs.filter(j=>!j.cancelled)).toHaveLength(0);}finally{await f.cleanup();}});
+for(const marker of [false,true])test(`panel writes require managed marker ${marker}`,async()=> {const f=fixture(100,marker);try{f.snapshot={...f.snapshot,alerts:[{key:"a",level:"warn",title:"New alert",body:"body",at:100}]};await f.start();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?1:0);await f.commands.get("refresh-status")!();await f.timers.advance(2000);expect(f.writes.length).toBe(marker?2:0);expect(notes(f).filter(c=>c.params.title==="New alert")).toHaveLength(1);if(marker)expect(f.writes[0].path.endsWith("/panel/live.html")).toBe(true);await f.plugin.deactivate();expect(f.timers.jobs.filter(j=>!j.cancelled)).toHaveLength(0);}finally{await f.cleanup();}});
 
 test("activation remains under one second when settings host never responds",async()=> {
  const f=fixture();
@@ -131,7 +131,7 @@ test("store contract produces the same content through HTTP SSE, bridge and chan
   throw new Error(method);
  }} as OrcaHost;
  const transports = [
-  httpTransport({timers,port:4317,readToken:()=>"test-token",http:{get:async()=>({status:200,body:JSON.stringify(emptySnapshot())}),stream:(_url,_token,fn)=>{onLine=fn;return()=>{};}}}),
+  httpTransport({timers,port:4317,readToken:()=>"test-token",http:{get:async()=>({status:200,body:JSON.stringify(bridgeSnapshot)}),stream:(_url,_token,fn)=>{onLine=fn;return()=>{};}}}),
   bridgeTransport({host,timers,pollMs:5000}),
   channelTransport({host,registerEvent:(_name,fn)=>{onMessage=fn;}}),
  ];
@@ -153,4 +153,62 @@ test("store contract produces the same content through HTTP SSE, bridge and chan
   expect(stores[0].snapshot.tasks).toMatchObject([{id:"t",state:"done"}]);
   expect(stores[0].snapshot.alerts).toMatchObject([{key:"a",title:"Finished"}]);
  } finally { for (const stop of stops) stop(); }
+});
+
+test("activation tolerates hosts that throw for unknown event names", async () => {
+ const f=fixture();
+ f.ctx.events.on=(name,h)=>{if(name==="plugin.message")throw Error("unknown event");f.events.set(name,h);};
+ try {await f.start(); expect(f.commands.size).toBe(4); expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});} finally {await f.cleanup();}
+});
+for (const action of ["delegate", "switch-strategy", "refresh-status", "agent-done", "worktree-created"]) test(`${action} refreshes HTTP snapshot before checking console liveness`, async () => {
+ const f=fixture();
+ let requests=0;
+ const http={get:async()=>{requests++;return {status:200,body:JSON.stringify(f.snapshot)};},stream:()=>()=>{}};
+ const plugin=createPlugin({home:"/tmp/fake",pluginRoot:"/tmp/fake",nowS:()=>140,timers:f.timers,http,fs:{readText:()=>"token",exists:()=>false,writeTextAtomic:()=>{}}});
+ try {
+  await plugin.activate(f.ctx);await flush();
+  const before=requests;
+  f.snapshot={...f.snapshot,console:{...f.snapshot.console!,heartbeatAt:140}};
+  if(action==="agent-done")await f.events.get("agent.status.changed")!({state:"done",paneKey:"pane",receivedAt:140});
+  else if(action==="worktree-created")await f.events.get("worktree.created")!({branch:"pacer-task",worktreeId:"wt",path:"/wt"});
+  else await f.commands.get(action)!();
+  expect(requests).toBeGreaterThan(before);expect(sends(f)).toHaveLength(1);
+  f.snapshot={...f.snapshot,console:null};
+  await f.commands.get("switch-strategy")!();expect(sends(f)).toHaveLength(1);
+ } finally {await plugin.deactivate();await f.cleanup();}
+});
+test("equal timestamp alerts beyond the first three are delivered on later updates", async () => {
+ const f=fixture();const settings=readSettings({},"/tmp");const s=emptySnapshot();
+ s.alerts=Array.from({length:7},(_,i)=>({key:`same-${i}`,level:"warn",title:`same-${i}`,body:"body",at:100}));
+ try {
+  await notifyNewAlerts(f.host,s,settings,100);expect(notes(f)).toHaveLength(3);
+  await notifyNewAlerts(f.host,s,settings,100);expect(notes(f)).toHaveLength(6);
+  await notifyNewAlerts(f.host,s,settings,100);expect(notes(f)).toHaveLength(7);
+  await notifyNewAlerts(f.host,s,settings,100);expect(notes(f)).toHaveLength(7);
+ }finally{await f.cleanup();}
+});
+
+test("HTTP snapshot polls re-render panel liveness even when content is unchanged", async () => {
+ const f=fixture();let now=100;const panels:string[]=[];
+ const plugin=createPlugin({home:"/tmp/fake",pluginRoot:"/tmp/fake",nowS:()=>now,timers:f.timers,
+  http:{get:async()=>({status:200,body:JSON.stringify(f.snapshot)}),stream:()=>()=>{}},
+  fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_path,text)=>panels.push(text)}});
+ try {
+  await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
+  expect(panels.at(-1)).toContain('data-action="delegate">');
+  now=140;await f.timers.advance(10000);
+  expect(panels.at(-1)).toContain('data-action="delegate" disabled');
+  f.snapshot={...f.snapshot,console:{...f.snapshot.console!,heartbeatAt:140}};
+  await f.timers.advance(10000);
+  expect(panels.at(-1)).toContain('data-action="delegate">');
+ }finally{await plugin.deactivate();await f.cleanup();}
+});
+
+test("simultaneous done events still debounce after snapshot refresh", async () => {
+ const f=fixture();
+ try {
+  await f.start();const event=f.events.get("agent.status.changed")!;
+  await Promise.all([event({state:"done",paneKey:"pane",receivedAt:100}),event({state:"done",paneKey:"pane",receivedAt:100})]);
+  expect(sends(f)).toHaveLength(1);
+ }finally{await f.cleanup();}
 });

@@ -78,6 +78,13 @@ export async function runConsoleCli(args: string[], ctx: Ctx): Promise<Result> {
     every: (ms, fn) => { const timer = setInterval(fn, ms); return () => clearInterval(timer); },
     pid: process.pid, cwd: process.cwd(),
   };
+  const stop = (code: number) => {
+    try { deps.heartbeat({ ...ctx, now: Date.now() / 1000 }, null); }
+    finally { process.exit(code); }
+  };
+  const interrupt = () => stop(130), terminate = () => stop(143);
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", terminate);
   try { return { code: await runConsole(ctx, { lines, write: text => { process.stdout.write(text); } }, deps), out: "", err: "" }; }
-  finally { lines.close(); }
+  finally { process.off("SIGINT", interrupt); process.off("SIGTERM", terminate); lines.close(); }
 }

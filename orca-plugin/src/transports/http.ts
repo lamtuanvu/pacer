@@ -47,7 +47,7 @@ export function httpTransport(o: { http: HttpPort; readToken(): string | null; p
           }, reconnect);
         } catch { reconnect(); }
       };
-      const cancelPoll = o.timers.every(60000, () => {
+      const cancelPoll = o.timers.every(10000, () => {
         if (refreshBusy) return;
         refreshBusy = true;
         void snapshot().then(s => { if (s && !stopped) onSnapshot(s); }).finally(() => { refreshBusy = false; });
