@@ -34,6 +34,7 @@ export interface TaskResult extends Verification {
   report: string;
   backend: string;
   worktree?: string;
+  check?: ResultCheck;
 }
 
 export interface TaskRecord {
@@ -49,3 +50,5 @@ export interface TaskRecord {
   attempts: Attempt[];
   result?: TaskResult;
 }
+import type { ResultCheck } from "../classify/hooks";
+

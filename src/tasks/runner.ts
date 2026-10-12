@@ -1,3 +1,5 @@
+import { activeHooks } from "../classify/active";
+import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
 import { type Excluded, rankExecutors } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
@@ -18,6 +20,7 @@ export interface RunnerDeps {
   computeStatus: (ctx: Ctx, s: Strategy) => Promise<Status>;
   runAttempt: (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void) => Promise<AttemptOutcome>;
   verifyRepo: (repo: string, acceptance: string | undefined, env: Ctx["env"]) => Promise<Verification>;
+  hooks?: DecisionHooks;
 }
 
 const DEFAULTS: RunnerDeps = {
@@ -55,6 +58,8 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   let attemptedModel: string | null = null;
   try {
     const s = deps.loadStrategy(ctx);
+    const hooks = deps.hooks ?? activeHooks;
+    const kind = await hooks.taskKind(ctx, task).catch(() => task.kind);
     const tried = new Set<string>();
     let excluded: Excluded[] = [];
 
@@ -65,9 +70,12 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       const now = Date.now() / 1000;
       const st = await deps.computeStatus({ ...ctx, now }, s);
       const byId = Object.fromEntries(st.providers.map((p) => [p.id, p]));
-      const ranking = rankExecutors(task.kind, s, byId);
+      const ranking = rankExecutors(kind, s, byId);
       excluded = ranking.excluded;
-      const ids = ranking.ranked.map((e) => e.id);
+      const rankedIds = ranking.ranked.map((e) => e.id);
+      const ids = task.requestedExecutor
+        ? rankedIds
+        : await hooks.filterExecutors(ctx, task, rankedIds, s).catch(() => rankedIds);
       const pick = task.requestedExecutor
         ? (ids.includes(task.requestedExecutor) && !tried.has(task.requestedExecutor) ? task.requestedExecutor : undefined)
         : ids.find((e) => !tried.has(e));
@@ -99,7 +107,9 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       const v = await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const status = !ok ? "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
-      return finish(ctx, id, { status, executor: pick, model: cfg.model, ...v, report: out.report, backend: out.backend ?? "direct", ...(out.worktree ? { worktree: out.worktree } : {}) });
+      const result: TaskResult = { status, executor: pick, model: cfg.model, ...v, report: out.report, backend: out.backend ?? "direct", ...(out.worktree ? { worktree: out.worktree } : {}) };
+      const check = await hooks.resultCheck(ctx, task, result).catch(() => undefined);
+      return finish(ctx, id, check ? { ...result, check } : result);
     }
 
     const req = task.requestedExecutor;
