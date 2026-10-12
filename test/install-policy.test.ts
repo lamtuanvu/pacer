@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { policyText } from "../src/install/policy";
-import { isDevArgv, pacerArgv } from "../src/install/self";
+import { isDevArgv, pacerArgv, validateInstallArgv } from "../src/install/self";
 
 const planners = [
   ["claude-code", "Claude Code"],
@@ -83,7 +83,8 @@ test("only commands with more than one argument point at a development checkout"
 });
 
 test("transient worktree commands are refused unless PACER_BIN overrides them", () => {
-  expect(() => pacerArgv({}, ["/bun", "/repo/.worktrees/fix/src/cli.ts"], "/bun")).toThrow("PACER_BIN");
-  expect(() => pacerArgv({}, ["/repo/.worktrees/fix/pacer"], "/repo/.worktrees/fix/pacer")).toThrow("PACER_BIN");
-  expect(pacerArgv({ PACER_BIN: "/opt/pacer" }, ["/bun", "/repo/.worktrees/fix/src/cli.ts"], "/bun")).toEqual(["/opt/pacer"]);
+  expect(() => validateInstallArgv({}, pacerArgv({}, ["/bun", "/repo/.worktrees/fix/src/cli.ts"], "/bun"))).toThrow("PACER_BIN");
+  expect(() => validateInstallArgv({}, pacerArgv({}, ["/repo/.worktrees/fix/pacer"], "/repo/.worktrees/fix/pacer"))).toThrow("PACER_BIN");
+  const pinned = { PACER_BIN: "/opt/pacer" };
+  expect(() => validateInstallArgv(pinned, pacerArgv(pinned, ["/bun", "/repo/.worktrees/fix/src/cli.ts"], "/bun"))).not.toThrow();
 });
