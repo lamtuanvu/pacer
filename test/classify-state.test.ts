@@ -113,3 +113,37 @@ test("isLocalUrl recognizes loopback and localhost subdomains only", () => {
   for (const host of ["localhost", "127.0.0.1", "[::1]", "x.localhost"]) expect(isLocalUrl(`http://${host}:1234/v1`)).toBe(true);
   for (const url of ["https://example.com", "http://localhost.example.com", "http://notlocalhost", "invalid"]) expect(isLocalUrl(url)).toBe(false);
 });
+
+
+test("redactState replaces home only before a slash or end", () => {
+  const input = { own: "/Users/vu/repo", home: "/Users/vu", other: "~/repo", prose: "At /Users/vu/repo and ~/repo", nested: ["/Users/vu", "/Users/vu-backup"] };
+  expect(JSON.parse(redactState(JSON.stringify(input), "/Users/vu"))).toEqual({ own: "~/repo", home: "~", other: "~/repo", prose: "At ~/repo and ~/repo", nested: ["~", "/Users/vu-backup"] });
+  expect(JSON.parse(redactState('{"path":"/home/a.b/repo /home/axb/repo"}', "/home/a.b"))).toEqual({ path: "~/repo /home/axb/repo" });
+});
+
+test("HttpError caps body in its message at 200 characters and retains the full body", async () => {
+  const body = "x".repeat(200) + "private tail";
+  const app = server(() => new Response(body, { status: 500 }));
+  try {
+    const error = await postJson(app.url.href, {}, { timeoutMs: 1000 }).catch((e) => e);
+    expect(error).toBeInstanceOf(HttpError);
+    if (!(error instanceof HttpError)) throw new Error("Expected an HttpError");
+    expect(error.body).toBe(body);
+    expect(error.message).toBe("HTTP 500: " + "x".repeat(200));
+  } finally { app.stop(true); }
+});
+
+test("postJson rejects redirects without forwarding authorization", async () => {
+  let redirected = 0;
+  const app = server((request) => {
+    if (new URL(request.url).pathname === "/target") {
+      redirected++;
+      return Response.json({ authorization: request.headers.get("authorization") });
+    }
+    return new Response(null, { status: 302, headers: { Location: "/target" } });
+  });
+  try {
+    await expect(postJson(app.url.href, {}, { headers: { Authorization: "Bearer private-key" }, timeoutMs: 1000 })).rejects.toThrow();
+    expect(redirected).toBe(0);
+  } finally { app.stop(true); }
+});
