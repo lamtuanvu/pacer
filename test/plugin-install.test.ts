@@ -67,6 +67,7 @@ test("plugin uninstall reports missing install", async () => {
 
 test("plugin set validates values and writes isolated Orca settings", async () => {
   const { ctx, userData } = setup();
+  await pluginCli(["install"], ctx);
   expect(await pluginCli(["set", "transport", "http"], ctx)).toMatchObject({ code: 0 });
   expect(JSON.parse(readFileSync(join(userData, "plugins-data", "pacer.pacer", "settings.json"), "utf8"))).toEqual({ transport: "http" });
   expect((await pluginCli(["set", "transport", "ftp"], ctx)).code).toBe(2);
@@ -84,4 +85,25 @@ test("plugin paths stay under a temporary home", async () => {
   await pluginCli(["install"], ctx);
   expect(readdirSync(home).sort()).toEqual([...before, ".pacer"].sort());
   expect(ctx.pacerHome.startsWith(ctx.home)).toBe(true);
+});
+
+test("plugin set refuses absent installation",async()=>{
+ const {ctx,userData}=setup();const r=await pluginCli(["set","port","1234"],ctx);
+ expect(r.code).toBe(1);expect(r.err).toContain("not installed");expect(existsSync(userData)).toBe(false);
+});
+test("plugin setting message requires reload",async()=>{
+ const {ctx}=setup();await pluginCli(["install"],ctx);
+ expect((await pluginCli(["set","port","1234"],ctx)).out).toContain("takes effect after reloading the plugin in Orca");
+});
+test("plugin status probes configured port and home",async()=>{
+ const {ctx}=setup();await pluginCli(["install"],ctx);
+ const alternate=join(ctx.home,"alternate");mkdirSync(alternate);writeFileSync(join(alternate,"token"),"alternate-token");
+ const requests:{path:string;auth:string|null}[]=[];
+ const server=Bun.serve({hostname:"127.0.0.1",port:0,fetch(req){requests.push({path:new URL(req.url).pathname,auth:req.headers.get("authorization")});return Response.json({ok:true},{headers:{"X-Pacer":"1"}});}});
+ try{
+  await pluginCli(["set","port",String(server.port)],ctx);await pluginCli(["set","pacerHome",alternate],ctx);
+  const result=await pluginCli(["status"],ctx);
+  expect(result.out).toContain("serve: reachable");
+  expect(requests).toEqual([{path:"/health",auth:null},{path:"/link",auth:"Bearer alternate-token"}]);
+ }finally{server.stop(true);}
 });

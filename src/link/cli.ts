@@ -22,12 +22,18 @@ export async function linkCli(args: string[], ctx: Ctx): Promise<Result> {
   const bridge = readJson<{ link?: unknown }>(file);
   const linked = parseSnapshot(bridge?.link);
   const bridgeText = pluginInstalled(ctx) ? `${file} exists=${existsSync(file)}${linked ? ` link.at=${linked.at} age=${Math.max(0, ctx.now - linked.at)}s` : " link unavailable"}` : "plugin not installed";
-  const url = `http://127.0.0.1:${DEFAULT_PORT}/link`;
+  const settings = readJson<Record<string, unknown>>(join(pluginDataDir(ctx), "settings.json"));
+  const port = typeof settings?.port === "number" && Number.isInteger(settings.port) && settings.port > 0 && settings.port <= 65535 ? settings.port : DEFAULT_PORT;
+  const pacerHome = typeof settings?.pacerHome === "string" && settings.pacerHome.startsWith("/") ? settings.pacerHome : ctx.pacerHome;
+  const url = `http://127.0.0.1:${port}/link`;
   let serve = "not reachable (token missing)";
   try {
-    const token = readFileSync(join(ctx.pacerHome, "token"), "utf8").trim();
+    const token = readFileSync(join(pacerHome, "token"), "utf8").trim();
     if (token) {
-      const response = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1000) });
+      const health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1000), redirect: "error" });
+      await health.body?.cancel();
+      if (!health.ok || health.headers.get("x-pacer") !== "1") throw new Error("server is not pacer");
+      const response = await fetch(url, { redirect: "error", headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1000) });
       serve = response.ok ? "reachable" : `not reachable (HTTP ${response.status})`;
       await response.body?.cancel();
     }

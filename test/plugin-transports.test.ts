@@ -14,7 +14,7 @@ export class ManualTimers implements Timers {
   after(ms: number, fn: () => void) { return this.schedule(ms, fn, 0); }
   async advance(ms: number) { const end = this.now + ms; for (;;) { const j = this.jobs.filter(j => !j.cancelled && j.at <= end).sort((a,b) => a.at-b.at)[0]; if (!j) break; this.now=j.at; if(j.interval) j.at += j.interval; else j.cancelled=true; j.fn(); await flush(); } this.now=end; await flush(); }
 }
-export async function flush() { for(let i=0;i<30;i++) await Promise.resolve(); }
+export async function flush() { for(let i=0;i<100;i++) await Promise.resolve(); }
 const alert: Envelope = { v:1, type:"alert", data:{ key:"a", level:"warn", title:"Alert", body:"body", at:100 } };
 function stub(id: Transport["id"], up: boolean): Transport { return { id, probe:async()=>up, snapshot:async()=>null, watch:()=>()=>{} }; }
 for (const [up, forced, id, reachable] of [
@@ -28,9 +28,9 @@ test("HTTP probe rejects missing token, 401 and a pending request at 1500ms",asy
 });
 test("HTTP parses SSE, reconnects with 2/4s backoff, rereads token and refreshes snapshots",async()=> {
  const timers=new ManualTimers(); let token="first"; let line!:(s:string)=>void, close!:(e?:Error)=>void; const tokens:string[]=[]; let stopped=0; let gets=0;
- const http:HttpPort={get:async(url,t,ms)=> { expect(url).toBe("http://127.0.0.1:4317/link"); expect(ms).toBe(1500); gets++; return {status:200,body:JSON.stringify(emptySnapshot())}; },stream:(url,t,l,c)=>{expect(url).toBe("http://127.0.0.1:4317/events"); tokens.push(t);line=l;close=c;return()=>{stopped++;};}};
+ const http:HttpPort={get:async(url,t,ms)=> { expect(["http://127.0.0.1:4317/link","http://127.0.0.1:4317/health"]).toContain(url); expect(ms).toBe(1500); if(url.endsWith("/link")) gets++; return {status:200,headers:{"x-pacer":"1"},body:JSON.stringify(emptySnapshot())}; },stream:(url,t,l,c)=>{expect(url).toBe("http://127.0.0.1:4317/events"); tokens.push(t);line=l;close=c;return()=>{stopped++;};}};
  const t=httpTransport({http,readToken:()=>token,port:4317,timers}); expect(await t.probe()).toBe(true); expect(await t.snapshot()).toEqual(emptySnapshot());
- const seen:Envelope[]=[]; let snapshots=0;const stop=t.watch(e=>seen.push(e),()=>snapshots++);
+ const seen:Envelope[]=[]; let snapshots=0;const stop=t.watch(e=>seen.push(e),()=>snapshots++);await flush();
  line(": keepalive"); line("data: nope");line('data: {"v":1,"type":"unknown"}');line(`data: ${JSON.stringify(alert)}\n\n`);expect(seen).toEqual([alert]);
  close();token="second";await timers.advance(1999);expect(tokens).toEqual(["first"]);await timers.advance(1);expect(tokens).toEqual(["first","second"]);close();await timers.advance(3999);expect(tokens.length).toBe(2);await timers.advance(1);expect(tokens.length).toBe(3);
  await timers.advance(4000);expect(snapshots).toBe(1);expect(gets).toBe(3);stop();await timers.advance(60000);expect(snapshots).toBe(1);expect(stopped).toBeGreaterThan(0);
@@ -57,4 +57,17 @@ test("channel registers only after a successful probe and tolerates registration
  const t=channelTransport({host,registerEvent:()=>{registrations++;throw Error("unknown event");}});
  expect(registrations).toBe(0);expect(await t.probe()).toBe(false);expect(registrations).toBe(0);
  allow=true;expect(await t.probe()).toBe(false);expect(registrations).toBe(1);
+});
+
+test("HTTP never discloses token to an unidentified server including SSE reconnect",async()=>{
+ const timers=new ManualTimers();const requests:{url:string;token:string}[]=[];let identified=false,streams=0;let close!:()=>void;
+ const t=httpTransport({timers,port:4317,readToken:()=>"secret",http:{
+  get:async(url,token)=>{requests.push({url,token});return {status:200,body:JSON.stringify(emptySnapshot()),headers:identified?{"x-pacer":"1"}:{}};},
+  stream:(_u,_t,_l,c)=>{streams++;close=c;return()=>{};}
+ }});
+ expect(await t.probe()).toBe(false);expect(requests.every(r=>r.url.endsWith("/health") && !r.token)).toBe(true);
+ identified=true;expect(await t.probe()).toBe(true);
+ const stop=t.watch(()=>{},()=>{});await flush();expect(streams).toBe(1);
+ identified=false;requests.length=0;close();await timers.advance(2000);
+ expect(streams).toBe(1);expect(requests.every(r=>r.url.endsWith("/health") && !r.token)).toBe(true);stop();
 });

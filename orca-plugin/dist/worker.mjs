@@ -1,8 +1,11 @@
 // orca-plugin/src/worker.ts
 import { get } from "node:http";
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join as join2, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// orca-plugin/src/plugin.ts
+import { join } from "node:path";
 
 // src/link/envelope.ts
 var LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 };
@@ -124,7 +127,7 @@ function reduce(s, e, at) {
   return next;
 }
 function contentKey(s) {
-  return JSON.stringify({ budget: s.budget, mode: s.mode, tasks: s.tasks, alerts: s.alerts, console: s.console });
+  return JSON.stringify({ budget: s.budget ? { ...s.budget, generatedAt: undefined } : null, mode: s.mode, tasks: s.tasks, alerts: s.alerts, console: s.console });
 }
 function liveConsole(s, nowS) {
   const c = s.console;
@@ -205,14 +208,11 @@ async function chooseTransport(ts, forced) {
 // orca-plugin/src/transports/http.ts
 function httpTransport(o) {
   const base = `http://127.0.0.1:${o.port}`;
-  async function get() {
+  async function request(path, token) {
     let cancel = () => {};
     try {
-      const token = o.readToken();
-      if (!token)
-        return null;
       return await Promise.race([
-        o.http.get(`${base}/link`, token, 1500),
+        o.http.get(base + path, token, 1500),
         new Promise((resolve) => {
           cancel = o.timers.after(1500, () => resolve(null));
         })
@@ -221,6 +221,23 @@ function httpTransport(o) {
       return null;
     } finally {
       cancel();
+    }
+  }
+  async function identified() {
+    const health = await request("/health", "");
+    return health?.status === 200 && health.headers?.["x-pacer"] === "1";
+  }
+  async function get() {
+    try {
+      if (!await identified())
+        return null;
+      const token = o.readToken();
+      if (!token)
+        return null;
+      const response = await request("/link", token);
+      return response?.headers?.["x-pacer"] === "1" ? response : null;
+    } catch {
+      return null;
     }
   }
   async function snapshot() {
@@ -237,7 +254,7 @@ function httpTransport(o) {
     id: "http",
     probe: async () => (await get())?.status === 200,
     snapshot,
-    watch(onEnvelope, onSnapshot) {
+    watch(onEnvelope, onSnapshot, onFailure) {
       let stopped = false, failures = 0;
       let stopStream = () => {}, cancelRetry = () => {};
       let refreshBusy = false;
@@ -246,13 +263,21 @@ function httpTransport(o) {
           return;
         const delay = [2000, 4000, 8000, 16000, 30000][Math.min(failures++, 4)];
         cancelRetry();
-        cancelRetry = o.timers.after(delay, connect);
+        cancelRetry = o.timers.after(delay, () => {
+          connect();
+        });
       };
-      const connect = () => {
+      const connect = async () => {
         if (stopped)
           return;
         stopStream();
         try {
+          if (!await identified()) {
+            reconnect();
+            return;
+          }
+          if (stopped)
+            return;
           const token = o.readToken();
           if (!token) {
             reconnect();
@@ -280,8 +305,12 @@ function httpTransport(o) {
           return;
         refreshBusy = true;
         snapshot().then((s) => {
-          if (s && !stopped)
-            onSnapshot(s);
+          if (!stopped) {
+            if (s)
+              onSnapshot(s);
+            else
+              onFailure?.();
+          }
         }).finally(() => {
           refreshBusy = false;
         });
@@ -529,6 +558,8 @@ function createPlugin(deps) {
     ];
     let active = null, reachable = false, connecting = null;
     let processing = Promise.resolve();
+    let httpFailures = 0;
+    let renderedConsoleLive = false;
     const logError = (e) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
     const scheduleRender = () => {
       if (stopped || cancelRender)
@@ -538,11 +569,14 @@ function createPlugin(deps) {
         if (stopped)
           return;
         try {
-          if (deps.fs.exists(`${deps.pluginRoot}/.pacer-managed`))
-            deps.fs.writeTextAtomic(`${deps.pluginRoot}/panel/live.html`, renderPanel(store.snapshot, { nowS: deps.nowS(), transport: store.transport, reachable }));
+          if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed")))
+            deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS: deps.nowS(), transport: store.transport, reachable }));
+          else
+            ctx.log("pacer: refused panel write: unmanaged root");
         } catch (e) {
           logError(e);
         }
+        renderedConsoleLive = !!liveConsole(store.snapshot, deps.nowS());
         const snapshot = store.snapshot;
         processing = processing.then(async () => {
           if (!stopped)
@@ -555,7 +589,18 @@ function createPlugin(deps) {
       if (stopped)
         return;
       store.replace(snapshot);
-      scheduleRender();
+      if (!!liveConsole(snapshot, deps.nowS()) !== renderedConsoleLive)
+        scheduleRender();
+    };
+    const acceptSnapshot = (snapshot) => {
+      if (stopped)
+        return;
+      httpFailures = 0;
+      if (!reachable) {
+        reachable = true;
+        scheduleRender();
+      }
+      replaceSnapshot(snapshot);
     };
     const connect = async () => {
       const chosen = await chooseTransport(transports, settings.transport);
@@ -572,7 +617,7 @@ function createPlugin(deps) {
         });
         return;
       }
-      const snapshot = await active.snapshot() ?? await bridge.snapshot();
+      const snapshot = await active.snapshot().catch(() => null) ?? await bridge.snapshot();
       if (stopped)
         return;
       if (snapshot)
@@ -580,7 +625,9 @@ function createPlugin(deps) {
       stopWatch = active.watch((e) => {
         if (!stopped)
           store.apply(e);
-      }, replaceSnapshot);
+      }, acceptSnapshot, () => {
+        handleHttpFailure().catch(logError);
+      });
       scheduleRender();
     };
     function ensureConnected() {
@@ -602,15 +649,58 @@ function createPlugin(deps) {
         logError(e);
       }
     };
+    const handleHttpFailure = async () => {
+      const failures = ++httpFailures;
+      const snapshot = await bridge.snapshot();
+      if (snapshot)
+        replaceSnapshot(snapshot);
+      if (stopped || active?.id !== "http")
+        return;
+      reachable = false;
+      if (failures >= 3) {
+        stopWatch?.();
+        stopWatch = null;
+        httpFailures = 0;
+        await ensureConnected();
+      }
+      scheduleRender();
+    };
     const refreshSnapshot = async () => {
       try {
-        const snapshot = await active?.snapshot();
+        const snapshot = await active?.snapshot().catch(() => null);
         if (snapshot)
-          replaceSnapshot(snapshot);
+          acceptSnapshot(snapshot);
+        else if (active?.id === "http")
+          await handleHttpFailure();
+        else {
+          const fallback = await bridge.snapshot();
+          if (fallback)
+            replaceSnapshot(fallback);
+        }
       } catch (e) {
         logError(e);
       }
     };
+    let probing = false;
+    timers.every(settings.pollSeconds * 1000, () => {
+      if (stopped || probing || connecting || active?.id === "http")
+        return;
+      probing = true;
+      (async () => {
+        if (active?.id === "channel")
+          await refreshSnapshot();
+        if (stopped || settings.transport !== "auto")
+          return;
+        const chosen = await chooseTransport(transports, settings.transport);
+        if (stopped || chosen.transport?.id === active?.id)
+          return;
+        stopWatch?.();
+        stopWatch = null;
+        await ensureConnected();
+      })().catch(logError).finally(() => {
+        probing = false;
+      });
+    });
     const sendFresh = async (data) => {
       await refreshSnapshot();
       if (stopped)
@@ -651,6 +741,7 @@ function createPlugin(deps) {
       const result = await sendFresh({ cmd: "refresh" });
       if (result === "rejected")
         await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
+      scheduleRender();
       const message = summaryLine(store.snapshot.budget);
       await notify(message, (store.snapshot.budget?.providers ?? []).map((p) => `${p.id} ${p.verdict} ${p.usedPct === null ? "?" : `${Math.round(p.usedPct)}%`}`).join(`
 `));
@@ -690,6 +781,11 @@ function createPlugin(deps) {
         return;
       await sendFresh({ cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch });
     });
+    try {
+      ctx.host.call("events.subscribe", { events: ["agent.status.changed", "worktree.created"] }).catch(logError);
+    } catch (e) {
+      logError(e);
+    }
     ensureConnected();
   }
   return {
@@ -729,7 +825,7 @@ var http = {
   get(url, token, timeoutMs) {
     return new Promise((resolve, reject) => {
       checkLoopback(url);
-      const req = get(url, { headers: { Authorization: `Bearer ${token}` } }, (res) => {
+      const req = get(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }, (res) => {
         let body = "";
         res.setEncoding("utf8");
         res.on("data", (chunk) => {
@@ -738,7 +834,7 @@ var http = {
             req.destroy(new Error("pacer snapshot exceeds 256 KiB"));
         });
         res.on("error", reject);
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
       });
       const timeout = setTimeout(() => req.destroy(new Error("pacer HTTP timeout")), timeoutMs);
       req.on("close", () => clearTimeout(timeout));
@@ -787,7 +883,8 @@ var http = {
     };
   }
 };
-var pluginRoot = fileURLToPath(new URL(".", import.meta.url));
+var pluginRoot = dirname(fileURLToPath(import.meta.url));
+var log = (message) => {};
 var plugin = createPlugin({
   nowS: () => Date.now() / 1000,
   timers,
@@ -804,8 +901,10 @@ var plugin = createPlugin({
     },
     exists: existsSync,
     writeTextAtomic(path, text) {
-      if (path !== join(pluginRoot, "panel", "live.html") || !existsSync(join(pluginRoot, ".pacer-managed")))
+      if (resolve(path) !== resolve(pluginRoot, "panel", "live.html") || !existsSync(join2(pluginRoot, ".pacer-managed"))) {
+        log("pacer: refused panel write: unmanaged root or unexpected path");
         return;
+      }
       const temporary = `${path}.${process.pid}.tmp`;
       try {
         writeFileSync(temporary, text, "utf8");
@@ -819,6 +918,7 @@ var plugin = createPlugin({
   }
 });
 async function activate(ctx) {
+  log = (message) => ctx.log(message);
   await plugin.activate(ctx);
 }
 async function deactivate() {

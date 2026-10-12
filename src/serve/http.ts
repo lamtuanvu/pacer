@@ -41,19 +41,21 @@ export function startServer(
     port: opts.port ?? DEFAULT_PORT,
     idleTimeout: 0,
     async fetch(req) {
+      const { pathname } = new URL(req.url);
+      const headers = { "X-Pacer": "1" };
+      if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true }, { headers });
       if (req.headers.get("authorization") !== `Bearer ${token}`) return new Response("unauthorized\n", { status: 401 });
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });
-      const { pathname } = new URL(req.url);
       if (pathname === "/state") {
         try {
-          return Response.json(await status());
+          return Response.json(await status(), { headers });
         } catch (e) {
-          return Response.json({ error: (e as Error).message }, { status: 500 });
+          return Response.json({ error: (e as Error).message }, { status: 500, headers });
         }
       }
       if (pathname === "/link") {
-        try { return Response.json(currentSnapshot(getCtx())); }
-        catch (e) { return Response.json({ error: (e as Error).message }, { status: 500 }); }
+        try { return Response.json(currentSnapshot(getCtx()), { headers }); }
+        catch (e) { return Response.json({ error: (e as Error).message }, { status: 500, headers }); }
       }
       if (pathname === "/events") {
         let timer: ReturnType<typeof setInterval> | undefined;
