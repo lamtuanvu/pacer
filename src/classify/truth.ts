@@ -26,6 +26,7 @@ export function buildTruth(ctx: Ctx, entries: readonly DecisionEntry[], cfg: Pic
   };
   const reviews = new Map<string, Record<string, unknown>>();
   const guards = new Map<string, DecisionEntry>();
+  const verdicts = new Map<string, boolean>();
   for (const entry of entries) {
     if (entry.decision !== "guard" || !entry.acted_on) continue;
     guards.set(entry.state_hash, entry);
@@ -40,11 +41,17 @@ export function buildTruth(ctx: Ctx, entries: readonly DecisionEntry[], cfg: Pic
     }
     if (typeof label.event_id !== "string") continue;
     const entry = guards.get(label.event_id);
-    if (label.type === "guard_override") {
-      index.guard[entry?.state_hash ?? label.event_id] = false;
-    } else if (label.type === "guard_feedback" && typeof label.correct === "boolean"
-      && entry && typeof entry.answer?.value === "boolean") {
-      index.guard[entry.state_hash] = label.correct ? entry.answer.value : !entry.answer.value;
+    const eventId = entry?.state_hash ?? label.event_id;
+    if (label.type === "guard_verdict" && typeof label.blocked === "boolean") {
+      verdicts.set(eventId, label.blocked);
+    } else if (label.type === "guard_override") {
+      index.guard[eventId] = false;
+    } else if (label.type === "guard_feedback" && typeof label.correct === "boolean") {
+      // The guard question's true answer means execution work. Feedback judges
+      // the final block/allow, which may differ from the classifier's answer.
+      const blocked = verdicts.get(eventId);
+      const execution = blocked ?? (typeof entry?.answer?.value === "boolean" ? entry.answer.value : undefined);
+      if (execution !== undefined) index.guard[eventId] = label.correct ? execution : !execution;
     }
   }
 

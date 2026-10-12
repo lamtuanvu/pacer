@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { buildTruth, truthFor } from "../src/classify/truth";
-import { QUESTIONS } from "../src/classify/state";
+import { decideGuard } from "../src/guard/guard";
+import { defaultHooks } from "../src/classify/hooks";
+import type { Status } from "../src/engine/status";
+import { guardEventId, QUESTIONS } from "../src/classify/state";
 import type { DecisionEntry, DecisionName } from "../src/classify/types";
 import { appendLabel } from "../src/tasks/labels";
 import { createTask, updateTask } from "../src/tasks/store";
@@ -143,4 +146,62 @@ test("difficulty truth is limited to configured cheap executors", () => {
   const index = buildTruth(ctx, [], { tiers: { cheap: "cheap", capable: "capable" } });
   expect(index.difficulty[cheap]?.reliable).toBe(true);
   for (const id of [capable, unknown, missing]) expect(truthFor(index, entry("difficulty", { task_id: id }))).toBeUndefined();
+});
+
+
+for (const { blocked, correct, want } of [
+  { blocked: true, correct: true, want: true },
+  { blocked: true, correct: false, want: false },
+  { blocked: false, correct: true, want: false },
+  { blocked: false, correct: false, want: true },
+]) {
+  test(`guard feedback uses final blocked=${blocked}, correct=${correct} over classifier answer`, () => {
+    const ctx = fakeCtx();
+    const e = entry("guard", { answer: { value: !blocked, confidence: 1, latencyMs: 0 } });
+    appendLabel(ctx, { type: "guard_verdict", event_id: e.state_hash, blocked, source: "rules" });
+    expect(truthFor(buildTruth(ctx, [e]), e)).toBeUndefined();
+    appendLabel(ctx, { type: "guard_feedback", event_id: e.state_hash, correct });
+    expect(truthFor(buildTruth(ctx, [e]), e)).toBe(want);
+  });
+}
+
+test("verdict feedback works without a classifier answer and canonicalizes decision ids", () => {
+  const ctx = fakeCtx();
+  const e = entry("guard", { answer: null });
+  appendLabel(ctx, { type: "guard_verdict", event_id: e.state_hash, blocked: false, source: "rules" });
+  appendLabel(ctx, { type: "guard_feedback", event_id: e.id, correct: false });
+  expect(truthFor(buildTruth(ctx, [e]), e)).toBe(true);
+  appendLabel(ctx, { type: "guard_override", event_id: e.id });
+  expect(truthFor(buildTruth(ctx, [e]), e)).toBe(false);
+});
+
+test("verdict replay uses only preceding verdicts and the latest verdict for later feedback", () => {
+  const ctx = fakeCtx();
+  const e = entry("guard");
+  appendLabel(ctx, { type: "guard_feedback", event_id: e.state_hash, correct: true });
+  appendLabel(ctx, { type: "guard_verdict", event_id: e.state_hash, blocked: false, source: "rules" });
+  expect(truthFor(buildTruth(ctx, [e]), e)).toBe(true);
+  appendLabel(ctx, { type: "guard_feedback", event_id: e.state_hash, correct: true });
+  expect(truthFor(buildTruth(ctx, [e]), e)).toBe(false);
+  appendLabel(ctx, { type: "guard_verdict", event_id: e.state_hash, blocked: true, source: "rules" });
+  appendLabel(ctx, { type: "guard_feedback", event_id: e.state_hash, correct: false });
+  expect(truthFor(buildTruth(ctx, [e]), e)).toBe(false);
+});
+
+test("relaxed-mode lifted allow marked incorrect becomes execution truth", async () => {
+  const ctx = fakeCtx();
+  const input = { subagentType: "general-purpose", prompt: "Implement the change" };
+  const e = entry("guard", { state_hash: guardEventId(input) });
+  const st: Status = {
+    generatedAt: 0, strategy: "default", planner: "codex", mode: "relaxed",
+    disabled: false, calendarPace: true, providers: [],
+    executors: { ranked: [{ id: "local", score: 1, verdict: "OK", reason: "ok" }], excluded: [] },
+  };
+  const decision = await decideGuard(ctx, input, {
+    hooks: { ...defaultHooks, guard: async () => ({ allow: false, adapter: "test", confidence: 1 }) },
+    status: async () => st,
+  });
+  expect(decision.allow).toBe(true);
+  appendLabel(ctx, { type: "guard_feedback", event_id: e.state_hash, correct: false });
+  expect(truthFor(buildTruth(ctx, [e]), e)).toBe(true);
 });
