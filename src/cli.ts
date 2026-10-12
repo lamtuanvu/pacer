@@ -30,7 +30,9 @@ const USAGE = `usage: pacer <command>
   help                                           this message`;
 
 function help(): string {
-  return EXTRA_COMMANDS.length ? `${USAGE}\n${EXTRA_COMMANDS.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
+  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
+  const extras = EXTRA_COMMANDS.filter((c) => !builtins.has(c.name));
+  return extras.length ? `${USAGE}\n${extras.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
 }
 
 function explain(e: unknown): string {
