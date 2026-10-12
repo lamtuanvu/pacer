@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>pacer budget</title><style>
+body{background:var(--background);color:var(--foreground);font:14px system-ui,sans-serif;margin:20px;line-height:1.5}h1{font-size:20px}h2{font-size:16px;margin-top:24px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px;border-bottom:1px solid var(--border)}footer,#status{color:var(--muted-foreground);margin-top:16px}button{background:var(--background);color:var(--foreground);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;margin-right:8px;cursor:pointer}button:disabled{color:var(--muted-foreground);cursor:default}li{overflow-wrap:anywhere}p{white-space:pre-wrap}
+</style></head><body>
+<h1>pacer budget</h1><p>pacer: no budget data yet</p>
+<h2>Providers</h2><table><thead><tr><th>Provider</th><th>Verdict</th><th>Used</th><th>Window</th><th>Reset</th><th>Freshness</th></tr></thead><tbody></tbody></table>
+<h2>Ranked executors</h2><ol></ol>
+<h2>Tasks</h2><ul></ul>
+<h2>Alerts</h2>
+<div><button data-action="delegate" disabled>Delegate</button><button data-action="strategy" disabled>Switch strategy</button><button data-action="refresh" disabled>Refresh</button></div>
+<p id="status" role="status"></p>
+<footer>as of unknown via none. Reopen this panel to refresh.<p>Start the console: pacer console --open</p><p>pacer link is unreachable</p></footer>
+<script type="application/json" id="pacer-actions">{}</script>
+<script>
+const actions = JSON.parse(document.getElementById("pacer-actions").textContent);
+const status = document.getElementById("status");
+const pending = new Set();
+const sentAt = [];
+let sequence = 0;
+for (const button of document.querySelectorAll("button[data-action]")) button.addEventListener("click", () => {
+  const params = actions[button.dataset.action];
+  if (!params) return;
+  if (Date.now() > 30000) {
+    for (const b of document.querySelectorAll("button[data-action]")) b.disabled = true;
+    status.textContent = "Console heartbeat expired. Reopen this panel to refresh.";
+    return;
+  }
+  const now = Date.now();
+  while (sentAt.length && now - sentAt[0] >= 10000) sentAt.shift();
+  if (sentAt.length >= 30) { status.textContent = "Please wait before sending another console command."; return; }
+  sentAt.push(now);
+  const requestId = "pacer-" + (++sequence);
+  pending.add(requestId);
+  window.parent.postMessage({type:"orca-panel-action",requestId,action:"terminal.sendText",params}, "*");
+});
+window.addEventListener("message", event => {
+  const r = event.data;
+  if (event.source !== window.parent || !r || r.type !== "orca-panel-action-result" || !pending.delete(r.requestId)) return;
+  status.textContent = r.ok && r.value && r.value.accepted ? "Sent to pacer console" : (r.error || "Orca refused to type into the pacer console");
+});
+</script></body></html>

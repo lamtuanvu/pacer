@@ -1,0 +1,52 @@
+import { test, expect } from "bun:test";
+import { chooseTransport, type Transport } from "../orca-plugin/src/transports/choose";
+import { httpTransport, type HttpPort } from "../orca-plugin/src/transports/http";
+import { bridgeTransport } from "../orca-plugin/src/transports/bridge";
+import { channelTransport } from "../orca-plugin/src/transports/channel";
+import { LinkStore } from "../orca-plugin/src/store";
+import { emptySnapshot, contentKey, reduce, type Envelope } from "../src/link/envelope";
+import type { Timers } from "../orca-plugin/src/plugin";
+import type { OrcaHost } from "../orca-plugin/src/orca-api";
+export class ManualTimers implements Timers {
+  now = 0; jobs: { at: number; interval: number; fn: () => void; cancelled: boolean }[] = [];
+  schedule(ms: number, fn: () => void, interval: number) { const j = { at: this.now + ms, interval, fn, cancelled: false }; this.jobs.push(j); return () => { j.cancelled = true; }; }
+  every(ms: number, fn: () => void) { return this.schedule(ms, fn, ms); }
+  after(ms: number, fn: () => void) { return this.schedule(ms, fn, 0); }
+  async advance(ms: number) { const end = this.now + ms; for (;;) { const j = this.jobs.filter(j => !j.cancelled && j.at <= end).sort((a,b) => a.at-b.at)[0]; if (!j) break; this.now=j.at; if(j.interval) j.at += j.interval; else j.cancelled=true; j.fn(); await flush(); } this.now=end; await flush(); }
+}
+export async function flush() { for(let i=0;i<30;i++) await Promise.resolve(); }
+const alert: Envelope = { v:1, type:"alert", data:{ key:"a", level:"warn", title:"Alert", body:"body", at:100 } };
+function stub(id: Transport["id"], up: boolean): Transport { return { id, probe:async()=>up, snapshot:async()=>null, watch:()=>()=>{} }; }
+for (const [up, forced, id, reachable] of [
+  [[true,true,true],"auto","http",true], [[false,true,true],"auto","channel",true], [[false,false,true],"auto","bridge",true], [[false,false,false],"auto",null,false], [[true,true,true],"bridge","bridge",true], [[false,true,true],"http","http",false],
+] as const) test(`choose ${up} forced ${forced}`, async()=> { const r=await chooseTransport([stub("bridge",up[2]),stub("channel",up[1]),stub("http",up[0])],forced); expect(r.transport?.id??null).toBe(id); expect(r.reachable).toBe(reachable); });
+test("HTTP probe rejects missing token, 401 and a pending request at 1500ms",async()=> {
+ const timers=new ManualTimers(); let token:string|null=null; let pending=false;
+ const http:HttpPort={get:async()=>pending?await new Promise(()=>{}):{status:401,body:""},stream:()=>()=>{}};
+ const t=httpTransport({http,readToken:()=>token,port:4317,timers}); expect(await t.probe()).toBe(false); token="t"; expect(await t.probe()).toBe(false);
+ pending=true; let result:boolean|undefined; void t.probe().then(v=>result=v); await flush(); await timers.advance(1499); expect(result).toBeUndefined(); await timers.advance(1); expect(result).toBe(false);
+});
+test("HTTP parses SSE, reconnects with 2/4s backoff, rereads token and refreshes snapshots",async()=> {
+ const timers=new ManualTimers(); let token="first"; let line!:(s:string)=>void, close!:(e?:Error)=>void; const tokens:string[]=[]; let stopped=0; let gets=0;
+ const http:HttpPort={get:async(url,t,ms)=> { expect(url).toBe("http://127.0.0.1:4317/link"); expect(ms).toBe(1500); gets++; return {status:200,body:JSON.stringify(emptySnapshot())}; },stream:(url,t,l,c)=>{expect(url).toBe("http://127.0.0.1:4317/events"); tokens.push(t);line=l;close=c;return()=>{stopped++;};}};
+ const t=httpTransport({http,readToken:()=>token,port:4317,timers}); expect(await t.probe()).toBe(true); expect(await t.snapshot()).toEqual(emptySnapshot());
+ const seen:Envelope[]=[]; let snapshots=0;const stop=t.watch(e=>seen.push(e),()=>snapshots++);
+ line(": keepalive"); line("data: nope");line('data: {"v":1,"type":"unknown"}');line(`data: ${JSON.stringify(alert)}\n\n`);expect(seen).toEqual([alert]);
+ close();token="second";await timers.advance(1999);expect(tokens).toEqual(["first"]);await timers.advance(1);expect(tokens).toEqual(["first","second"]);close();await timers.advance(3999);expect(tokens.length).toBe(2);await timers.advance(1);expect(tokens.length).toBe(3);
+ await timers.advance(54000);expect(snapshots).toBe(1);expect(gets).toBe(3);stop();await timers.advance(60000);expect(snapshots).toBe(1);expect(stopped).toBeGreaterThan(0);
+});
+test("bridge only emits changed content and tolerates storage rejection",async()=> {
+ const timers=new ManualTimers();let s=emptySnapshot();let reject=false;
+ const host={call:async(m:string,p:any)=>{expect(m).toBe("storage.get");expect(p).toEqual({key:"link"});if(reject)throw Error("denied");return {value:s};}} as OrcaHost;
+ const t=bridgeTransport({host,pollMs:5000,timers});expect(await t.probe()).toBe(true);const seen:any[]=[];const stop=t.watch(()=>{},x=>seen.push(x));await timers.advance(5000);expect(seen.length).toBe(1);s={...s,seq:2,at:2};await timers.advance(5000);expect(seen.length).toBe(1);s=reduce(s,alert,100);await timers.advance(5000);expect(seen.length).toBe(2);reject=true;await timers.advance(5000);expect(seen.length).toBe(2);stop();
+});
+test("channel probe handles unavailable API and validates data payload",async()=> {
+ let reject=true;let handler!:(p:unknown)=>void;
+ const host={call:async(m:string,p:any)=>{expect(m).toBe("events.subscribe");expect(p).toEqual({events:["plugin.message"]});if(reject)throw Error("zod invalid enum");return {subscribed:[]};}} as OrcaHost;
+ const t=channelTransport({host,registerEvent:(name,h)=>{expect(name).toBe("plugin.message");handler=h;}});expect(await t.probe()).toBe(false);reject=false;expect(await t.probe()).toBe(true);expect(await t.snapshot()).toBeNull();const seen:Envelope[]=[];const stop=t.watch(e=>seen.push(e),()=>{});handler({data:alert});handler({data:{v:1,type:"bad"}});expect(seen).toEqual([alert]);stop();handler({data:alert});expect(seen.length).toBe(1);
+});
+test("store contract converges with brain reduction and ignores metadata-only changes",()=> {
+ const store=new LinkStore(()=>100);let calls=0;store.onChange(()=>calls++);
+ const es:Envelope[]=[{v:1,type:"budget",data:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:[],ranked:[]}},...(["running","done"].map(state=>({v:1 as const,type:"task" as const,data:{id:"t",state,goal:"goal",executor:"e",backend:null,worktree:null,updatedAt:100}}))),alert];
+ let brain=emptySnapshot();for(const e of es){store.apply(e);brain=reduce(brain,e,100);}expect(contentKey(store.snapshot)).toBe(contentKey(brain));expect(calls).toBe(4);store.replace({...brain,seq:99,at:200});expect(calls).toBe(4);const other=new LinkStore(()=>100);other.replace(brain);expect(contentKey(other.snapshot)).toBe(contentKey(store.snapshot));
+});
