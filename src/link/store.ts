@@ -1,8 +1,10 @@
-import { appendFileSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { appendFileSync, readdirSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
 import { type ConsoleData, type Envelope, LIMITS, type LinkSnapshot, emptySnapshot, parseEnvelope, parseSnapshot } from "./envelope";
-import { consolePath, latestPath, linkDir, outboxPath } from "./paths";
+import { consolePath, consolesDir, latestPath, linkDir, outboxPath } from "./paths";
+import { listStrategies } from "./strategies";
 export const OUTBOX_MAX_BYTES = 256 * 1024;
 export const OUTBOX_KEEP = 200;
 export interface OutboxEntry { seq:number; envelope:Envelope }
@@ -12,8 +14,38 @@ export function readConsole(ctx:Ctx, alive:(pid:number)=>boolean=pidAlive):Conso
   const c=parseSnapshot({v:1,seq:0,at:0,console:readJson<unknown>(consolePath(ctx))})?.console??null;
   if(!c || ctx.now-c.heartbeatAt>LIMITS.heartbeatS || !alive(c.pid)) return null; return c;
 }
-export function writeConsole(ctx:Ctx,c:ConsoleData|null):void { if(c) writeJsonAtomic(consolePath(ctx),c); else rmSync(consolePath(ctx),{force:true}); }
-export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapshot { return {...readLatest(ctx),console:readConsole(ctx,alive)}; }
+const safeHandle = (handle: string | null | undefined): handle is string => !!handle && /^[A-Za-z0-9_-]+$/.test(handle);
+export function readConsoles(ctx:Ctx,alive:(pid:number)=>boolean=pidAlive):ConsoleData[] {
+  const dir=consolesDir(ctx), found=new Map<string,ConsoleData>();
+  const add=(raw:unknown,path?:string) => {
+    const c=parseSnapshot({v:1,seq:0,at:0,console:raw})?.console;
+    if(!c) return;
+    if(!alive(c.pid)) { if(path) rmSync(path,{force:true}); return; }
+    if(!c.handle || ctx.now-c.heartbeatAt>600) return;
+    const previous=found.get(c.handle);
+    if(!previous || previous.heartbeatAt<c.heartbeatAt) found.set(c.handle,c);
+  };
+  if(existsSync(dir)) for(const file of readdirSync(dir)) if(/^[A-Za-z0-9_-]+\.json$/.test(file)) {
+    const path=join(dir,file);add(readJson<unknown>(path),path);
+  }
+  add(readJson<unknown>(consolePath(ctx)),consolePath(ctx));
+  return [...found.values()].sort((a,b)=>b.heartbeatAt-a.heartbeatAt).slice(0,32);
+}
+export function writeConsole(ctx:Ctx,c:ConsoleData|null,handle?:string):void {
+  if(c) {
+    if(safeHandle(c.handle)) writeJsonAtomic(join(consolesDir(ctx),`${c.handle}.json`),c);
+    writeJsonAtomic(consolePath(ctx),c);
+  } else {
+    const legacy=readJson<ConsoleData>(consolePath(ctx));
+    const own=handle ?? legacy?.handle;
+    if(safeHandle(own)) rmSync(join(consolesDir(ctx),`${own}.json`),{force:true});
+    if(!handle || legacy?.handle===handle) rmSync(consolePath(ctx),{force:true});
+  }
+}
+export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapshot {
+  const consoles=readConsoles(ctx,alive);
+  return {...readLatest(ctx),consoles,console:consoles[0] ?? readConsole(ctx,alive),strategies:listStrategies(ctx)};
+}
 export function appendOutbox(ctx:Ctx,entries:OutboxEntry[]):void {
   if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true}); const p=outboxPath(ctx); appendFileSync(p,entries.map(e=>`${JSON.stringify(e)}\n`).join(""));
   if(statSync(p).size>OUTBOX_MAX_BYTES) { const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP); writeFileSync(`${p}.tmp`,`${lines.join("\n")}\n`); renameSync(`${p}.tmp`,p); }

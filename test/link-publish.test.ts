@@ -26,8 +26,8 @@ test("channel errors preserve successful transports", async () => {
   const c = fakeCtx({ run: async (argv) => argv[1] === "agent-context" ? ({ code: 0, stdout: '{"commands":[{"path":["plugin","send"]}]}', stderr: "" }) : ({ code: 1, stdout: "", stderr: "channel unavailable" }) }); writeManifest(c, { version: 1, planners: { "orca-plugin": { planner: "orca-plugin", installedAt: 1, pacerArgv: [], files: [], commands: [], notes: [] } } });
   const r = await publish(c, [b], { platform: "darwin" }); expect(r.transports).toContain("outbox"); expect(r.transports).toContain("bridge"); expect(r.errors).toHaveLength(1);
 });
-test("current snapshot includes only a live console and pid", () => {
+test("current snapshot keeps recent console registrations with live pids", () => {
   const c = fakeCtx(); mkdirSync(join(c.pacerHome, "link"), { recursive: true }); const p = join(c.pacerHome, "link", "console.json");
   writeFileSync(p, JSON.stringify({ handle: "h", paneKey: null, pid: 1, startedAt: c.now, heartbeatAt: c.now })); expect(currentSnapshot(c, () => true).console?.handle).toBe("h"); expect(currentSnapshot(c, () => false).console).toBeNull();
-  writeFileSync(p, JSON.stringify({ handle: "h", paneKey: null, pid: 1, startedAt: c.now, heartbeatAt: c.now - 31 })); expect(currentSnapshot(c, () => true).console).toBeNull();
+  writeFileSync(p, JSON.stringify({ handle: "h", paneKey: null, pid: 1, startedAt: c.now, heartbeatAt: c.now - 31 })); expect(currentSnapshot(c, () => true).console?.handle).toBe("h");
 });

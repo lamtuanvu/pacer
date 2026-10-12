@@ -8,31 +8,35 @@ import { delegateLine } from "../orca-plugin/src/panel/delegate";
 import { duration } from "../orca-plugin/src/panel/shared";
 const provider=(id:string, verdict="OK", values:Partial<ProviderLine>={}):ProviderLine=>({id,verdict,usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false,...values});
 function snapshot():LinkSnapshot {
- return {...emptySnapshot(),at:100,budget:{generatedAt:100,strategy:"default",planner:"claude-code",mode:"normal",providers:[provider("claude-code","ON_PACE",{usedPct:30,pacePct:28,resetsAt:100+4*86400+20*3600}),provider("agy"),provider("local"),provider("codex","AHEAD",{usedPct:36,pacePct:24}),provider("cursor","EXHAUSTED",{resetsAt:100+5*3600+24*60})],ranked:[{id:"agy",verdict:"OK"},{id:"local",verdict:"OK"},{id:"codex",verdict:"AHEAD"}]},console:{handle:"term_console",paneKey:null,pid:1,startedAt:0,heartbeatAt:100}};
+ return {...emptySnapshot(),at:100,strategies:["default","custom"],budget:{generatedAt:100,strategy:"default",planner:"claude-code",mode:"normal",providers:[provider("claude-code","ON_PACE",{usedPct:30,pacePct:28,resetsAt:100+4*86400+20*3600}),provider("agy"),provider("local"),provider("codex","AHEAD",{usedPct:36,pacePct:24}),provider("cursor","EXHAUSTED",{resetsAt:100+5*3600+24*60})],ranked:[{id:"agy",verdict:"OK"},{id:"local",verdict:"OK"},{id:"codex",verdict:"AHEAD"}]},console:{handle:"term_console",paneKey:null,pid:1,startedAt:0,heartbeatAt:100}};
 }
 function panel(s=snapshot(),reachable=true,nowS=100) {return renderPanel(s,{nowS,reachable,transport:"bridge"});}
-function payload(html:string) {const d=JSON.parse(html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]);return d.encoded?JSON.parse(Buffer.from(d.encoded,"base64").toString("utf8")):d;}
+function payload(html:string) {const d=JSON.parse(html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]);const raw=d.encoded?JSON.parse(Buffer.from(d.encoded,"base64").toString("utf8")):d;
+ const unpack=(v:any):any=>Array.isArray(v)?v.map(unpack):v&&typeof v==="object"?Object.hasOwn(v,"$runs")?v.$runs.map(([c,n]:[string,number])=>c.repeat(n)).join(""):Object.fromEntries(Object.entries(v).map(([k,x])=>[k,unpack(x)])):v;return unpack(raw);}
 class Node {
- dataset:Record<string,string>={}; disabled=false; hidden=false; textContent=""; innerHTML=""; value=""; focused=false; handlers:Record<string,Function>={};
+ parentElement:any={className:""}; className=""; dataset:Record<string,string>={}; disabled=false; hidden=false; textContent=""; innerHTML=""; value=""; focused=false; handlers:Record<string,Function>={};
  addEventListener(name:string,fn:Function){this.handlers[name]=fn;}
  click(){this.handlers.click?.();}
  focus(){this.focused=true;}
 }
 function browser(html=panel()) {
- const ids:Record<string,Node>=Object.fromEntries(["status","delegate-form","goal","done","worktree-branch","ranked-list","unavailable-list","executor-options","ranked-order"].map(id=>[id,new Node()]));
+ const ids:Record<string,Node>=Object.fromEntries(["status","delegate-form","goal","done","worktree-branch","ranked-list","unavailable-list","executor-options","ranked-order","strategy-picker","console-hint"].map(id=>[id,new Node()]));
+ ids["strategy-picker"].hidden=true;ids["console-hint"].hidden=true;
  const make=(dataset:Record<string,string>)=>Object.assign(new Node(),{dataset});
  const pages=[make({page:"overview"}),make({page:"setup"}),make({page:"delegate"})];
- const views=[make({view:"delegate"}),make({view:"overview"})], strategy=make({command:"strategy"}), setups=[make({setup:"pacer serve"}),make({setup:"pacer console --open"})],worktree=new Node(),selected=new Node();
+ const submitButton=new Node(), best=new Node();best.value="";
+ const views=[make({view:"delegate"}),make({view:"overview"})], strategy=make({strategyToggle:""}), setups=[make({setup:"pacer serve"}),make({setup:"pacer console --open"}),make({setup:"pacer console"})],worktree=new Node(),selected=new Node();
+ const strategies=[make({strategy:"0"}),make({strategy:"1"})], freshness=[new Node(),new Node()], intervals:Function[]=[];
  const sent:any[]=[];let now=100000,listener:Function=()=>{};
  const parent={postMessage:(m:any)=>sent.push(m)};
  runInNewContext(html.match(/<script>\n([\s\S]*?)<\/script>/)![1],{
-  Date:{now:()=>now},TextEncoder,TextDecoder,Uint8Array,atob,
+  Date:class extends Date {static now(){return now;}},setInterval:(fn:Function,ms:number)=>{expect(ms).toBe(30000);intervals.push(fn);},TextEncoder,TextDecoder,Uint8Array,atob,
   document:{getElementById:(id:string)=>id==="pacer-actions"?{textContent:html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]}:ids[id],
-   querySelectorAll:(selector:string)=>selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[strategy]:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:()=>selected},
+   querySelectorAll:(selector:string)=>selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
   window:{parent,addEventListener:(_n:string,h:Function)=>listener=h},
  });
  const reply=(m:any,value:any,ok=true,source=parent)=>listener({source,data:{type:"orca-panel-action-result",requestId:m.requestId,ok,value}});
- return {ids,pages,views,strategy,setups,selected,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-form"].handlers.submit({preventDefault(){}})};
+ return {ids,pages,views,strategy,strategies,freshness,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-form"].handlers.submit({preventDefault(){}})};
 }
 for(const [verdict,expected] of [["ON_PACE","You're on pace for the week."],["OK","You're on pace for the week."],["AHEAD","Claude is ahead of pace. Slow down planning."],["NEAR_LIMIT","Claude is ahead of pace. Slow down planning."],["BEHIND","Claude is behind pace. Room for more planning."],["UNKNOWN","Budget unknown."]]) test(`headline ${verdict}`,()=>expect(headline(provider("claude-code",verdict))).toBe(expected));
 test("exhausted and absent planner headlines and unknown detail",()=>{
@@ -56,7 +60,7 @@ test("attention groups duplicate goals, excludes failed executor, detects stuck 
  s.budget!.ranked=[{id:"cursor",verdict:"EXHAUSTED"},{id:"agy",verdict:"OK"}];expect(attentionGroups(s,100)[0].retry).toBeNull();
 });
 test("setup selection and checklist states",()=>{
- const s=snapshot();expect(initialView(s,true,100)).toBe("overview");expect(initialView(s,false,100)).toBe("setup");expect(initialView({...s,budget:null},true,100)).toBe("setup");expect(initialView(s,true,131)).toBe("setup");
+ const s=snapshot();expect(initialView(s,true,100)).toBe("overview");expect(initialView(s,false,100)).toBe("setup");expect(initialView({...s,budget:null},true,100)).toBe("setup");expect(initialView(s,true,701)).toBe("setup");
  const html=panel(s,false);expect(html).toContain('data-page="setup">');expect(html).toContain("Last known budget");expect(html).toContain("not live");expect(html).toContain("pacer never changes Orca's settings");expect(html).toContain('step done');expect(html).toContain('data-setup="pacer serve"');
 });
 test("setup commands use focused first terminal and never enter; no-terminal result is useful",()=>{
@@ -65,44 +69,51 @@ test("setup commands use focused first terminal and never enter; no-terminal res
  b.setups[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[]});expect(b.ids.status.textContent).toBe("Open a terminal in this worktree first");
 });
 test("delegate form switches locally, reads focused context and encodes the full brief",()=>{
- const b=browser();b.views[0].click();b.reply(b.sent.at(-1),{branch:"feat",displayName:"Feature",terminals:[]});expect(b.pages[2].hidden).toBe(false);expect(b.ids.goal.focused).toBe(true);expect(b.ids["worktree-branch"].textContent).toBe("feat");
- b.ids.goal.value="fix 'quotes' <script>\u2028";b.ids.done.value="bun test";b.selected.value="2";b.submit();b.reply(b.sent.at(-1),{branch:"current",displayName:"Current",terminals:[]});const send=b.sent.at(-1);
+ const b=browser();b.views[0].click();b.reply(b.sent.at(-1),{branch:"feat",displayName:"Feature",terminals:[{id:"term_console"}]});expect(b.pages[2].hidden).toBe(false);expect(b.ids.goal.focused).toBe(true);expect(b.ids["worktree-branch"].textContent).toBe("feat");
+ b.ids.goal.value="fix 'quotes' <script>\u2028";b.ids.done.value="bun test";b.selected.value="2";b.submit();b.reply(b.sent.at(-1),{branch:"current",displayName:"Current",terminals:[{id:"term_console"}]});const send=b.sent.at(-1);
  expect(send.params.enter).toBe(true);expect(send.params.terminalId).toBe("term_console");expect(decodeCmdLine(send.params.text).cmd?.data).toEqual({cmd:"delegate",branch:"current",displayName:"Current",goal:b.ids.goal.value,acceptance:"bun test",executor:"codex"});
- b.reply(send,{accepted:true});expect(b.ids.status.textContent).toBe("Sent to pacer console");b.views[1].click();expect(b.pages[0].hidden).toBe(false);
+ b.reply(send,{accepted:true});expect(b.ids.status.textContent).toBe("Sent. The task id appears in the pacer console.");expect(b.pages[0].hidden).toBe(false);expect(b.ids.goal.value).toBe("");expect(b.ids.done.value).toBe("");expect((b.best as any).checked).toBe(true);expect(b.submitButton.disabled).toBe(false);
 });
 test("delegate payload validates exact limits and oversized encoded lines without truncation",()=>{
- const c={branch:"x",displayName:"X",terminals:[]};expect(decodeCmdLine(delegateLine(c,"g".repeat(2000),"a".repeat(500))).cmd?.data.goal).toHaveLength(2000);
+ const c={branch:"x",displayName:"X",terminals:[{id:"term_console"}]};expect(decodeCmdLine(delegateLine(c,"g".repeat(2000),"a".repeat(500))).cmd?.data.goal).toHaveLength(2000);
  for(const [g,a] of [["",""],["g".repeat(2001),""],["g","a".repeat(501)]]) expect(()=>delegateLine(c,g,a)).toThrow();
  expect(()=>delegateLine(c,"'".repeat(2000),"")).toThrow("4096");expect(()=>delegateLine(null,"goal","")).toThrow();
  const b=browser();b.ids.goal.value="'".repeat(2000);b.submit();b.reply(b.sent.at(-1),c);expect(b.sent.at(-1).action).toBe("workspace.readContext");expect(b.ids.status.textContent).toContain("4096");
  b.ids.goal.value="g".repeat(2001);const count=b.sent.length;b.submit();expect(b.sent).toHaveLength(count);expect(b.ids.status.textContent).toContain("2000");
  b.ids.goal.value="goal";b.selected.disabled=true;b.submit();expect(b.sent).toHaveLength(count);
 });
-test("heartbeat gating and rate limit include context requests",()=>{
- const b=browser();b.now(130000);b.strategy.click();expect(b.sent).toHaveLength(2);b.now(130001);b.strategy.click();expect(b.sent).toHaveLength(2);expect(b.strategy.disabled).toBe(true);expect(b.ids.status.textContent).toContain("expired");
- const r=browser();for(let i=0;i<35;i++)r.strategy.click();expect(r.sent).toHaveLength(30);r.now(110000);r.strategy.click();expect(r.sent).toHaveLength(31);
+test("click-time workspace membership and ten-minute heartbeat age gate commands",()=>{
+ const b=browser();b.now(700000);b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});expect(b.sent.at(-1).action).toBe("terminal.sendText");
+ const expired=browser();expired.now(700001);expired.strategies[1].click();expect(expired.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(expired.ids.status.textContent).toContain("console");
+ const absent=browser();absent.strategies[1].click();absent.reply(absent.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"other"}]});expect(absent.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(absent.ids.status.textContent).toBe("No pacer console in this worktree");expect(absent.ids["console-hint"].hidden).toBe(false);
+});
+test("rate limit includes click-time context requests",()=>{
+ const r=browser();for(let i=0;i<35;i++)r.strategies[1].click();expect(r.sent).toHaveLength(30);r.now(110000);r.strategies[1].click();expect(r.sent).toHaveLength(31);
  r.reply(r.sent.at(-1),{accepted:true},true,{} as any);expect(r.ids.status.textContent).not.toBe("Sent to pacer console");
 });
+
 test("all views escape hostile goals, titles, branches and provider identifiers",()=>{
  const attack="</script><script>\"'\u2028\u2029";const s=snapshot();s.budget!.mode=attack;s.budget!.providers.push(provider(attack));s.budget!.ranked.push({id:attack,verdict:"OK"});s.console!.handle=attack;s.tasks=[{id:"t",state:"failed",goal:attack,executor:attack,backend:null,worktree:null,updatedAt:1}];s.alerts=[{key:"a",level:"error",title:attack,body:attack,at:1}];
  const html=panel(s);expect(html).not.toContain("<script>\"");expect(jsonForScript(attack)).not.toMatch(/[<\u2028\u2029]/);expect(escapeHtml('&<>"\'')).toBe("&amp;&lt;&gt;&quot;&#39;");
- const b=browser(html);expect(b.ids["ranked-list"].innerHTML).toContain("&lt;/script&gt;");b.reply(b.sent[0],{branch:attack,displayName:attack,terminals:[]});expect(b.ids["worktree-branch"].textContent).toBe(attack);expect(html).toContain("default-src 'none'");expect(html).not.toMatch(/https?:/);
+ const b=browser(html);expect(b.ids["ranked-list"].innerHTML).toContain("&lt;/script&gt;");b.reply(b.sent[0],{branch:attack,displayName:attack,terminals:[{id:"term_console"}]});expect(b.ids["worktree-branch"].textContent).toBe(attack);expect(html).toContain("default-src 'none'");expect(html).not.toMatch(/https?:/);
 });
 test("maximum snapshots and hostile escaping stay under 64 KiB",()=>{
  for(const fill of ["x","\"","<","&","界","🧠"]) {
   const s=snapshot();s.budget!.planner=fill.repeat(64).slice(0,64);s.budget!.mode=fill.repeat(32).slice(0,32);s.console!.handle=fill.repeat(1024).slice(0,1024);s.budget!.providers=Array.from({length:32},(_,i)=>provider(String(i)+fill.repeat(62),"OK",{usedPct:50,pacePct:28,resetsAt:3700,window:fill.repeat(32).slice(0,32),stale:true}));s.budget!.ranked=s.budget!.providers.map(p=>({id:p.id,verdict:p.verdict}));
+  s.consoles=Array.from({length:32},(_,i)=>({handle:`term_${String(i).padStart(36,"0")}`,paneKey:null,pid:i+1,startedAt:0,heartbeatAt:100}));s.strategies=Array.from({length:32},(_,i)=>String(i)+fill.repeat(126).slice(0,126));
   s.tasks=Array.from({length:20},(_,i)=>({id:`t${i}`+"i".repeat(125),state:"failed",goal:String(i)+fill.repeat(198).slice(0,198),executor:fill.repeat(64).slice(0,64),backend:null,worktree:null,updatedAt:100}));s.alerts=Array.from({length:10},(_,i)=>({key:`a${i}`,level:"warn",title:fill.repeat(120),body:fill.repeat(1000),at:100}));
   expect(Buffer.byteLength(panel(s))).toBeLessThan(65536);expect(payload(panel(s)).rows).toHaveLength(32);
+  const rendered=browser(panel(s));expect(rendered.ids["ranked-list"].innerHTML.match(/class="stack provider"/g)).toHaveLength(32);expect(rendered.ids["strategy-picker"].innerHTML.match(/data-strategy=/g)).toHaveLength(32);
  }
 });
 test("stale budget is amber and unknown percentages use em dash",()=>{
  const s=snapshot();s.console!.heartbeatAt=250;const html=panel(s,true,250);expect(html).toContain('name live warn');s.budget!.providers[0].usedPct=null;s.budget!.providers[0].pacePct=null;expect(panel(s)).toContain("Pace marker —");
 });
 test("expired heartbeat is checked again after an asynchronous context reply",()=>{
- const b=browser();b.ids.goal.value="fix";b.submit();const before=b.sent.length;b.now(130001);b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[]});expect(b.sent).toHaveLength(before);expect(b.ids.status.textContent).toContain("expired");
+ const b=browser();b.ids.goal.value="fix";b.submit();const before=b.sent.length;b.now(700001);b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});expect(b.sent).toHaveLength(before);expect(b.ids.status.textContent).toContain("console");
 });
 test("rejected bridge send reports failure and duplicate responses cannot change status",()=>{
- const b=browser();b.strategy.click();const command=b.sent.at(-1);b.reply(command,{accepted:false});expect(b.ids.status.textContent).toContain("refused");b.reply(command,{accepted:true});expect(b.ids.status.textContent).toContain("refused");
+ const b=browser();b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});const command=b.sent.at(-1);b.reply(command,{accepted:false});expect(b.ids.status.textContent).toContain("refused");b.reply(command,{accepted:true});expect(b.ids.status.textContent).toContain("refused");
 });
 test("prototype names are unknown providers with accessible monogram fallbacks",()=>{
  for(const id of ["__proto__","constructor","toString"]) {expect(displayName(id)).toBe(id);expect(icon(id)).toContain(`aria-label="${id}"`);expect(icon(id)).not.toContain("<path");expect(verdictWords(id)).toBe("Unknown");}
@@ -110,4 +121,76 @@ test("prototype names are unknown providers with accessible monogram fallbacks",
 test("recently done shows the latest three tasks with executor and age",()=>{
  const s=snapshot();s.tasks=Array.from({length:4},(_,i)=>({id:`t${i}`,state:"done",goal:`completed goal ${i}`,executor:"codex",backend:null,worktree:null,updatedAt:i}));
  const html=panel(s);expect(html).not.toContain("completed goal 0");for(const i of [1,2,3])expect(html).toContain(`completed goal ${i}`);expect(html).toContain("Codex · 1m ago");expect(html.indexOf("completed goal 3")).toBeLessThan(html.indexOf("completed goal 2"));
+});
+
+test("retry excludes all failed executors in a goal group and hides action when none remain",()=>{
+ const s=snapshot();s.tasks=[{id:"a",state:"failed",goal:"same",executor:"agy",backend:null,worktree:null,updatedAt:90},{id:"b",state:"limit",goal:"same",executor:"local",backend:null,worktree:null,updatedAt:80}];
+ expect(attentionGroups(s,100)[0].retry?.id).toBe("codex");
+ s.budget!.providers.find(p=>p.id==="codex")!.verdict="EXHAUSTED";
+ expect(attentionGroups(s,100)[0].retry).toBeNull();
+ expect(payload(panel(s)).commands).not.toHaveProperty("attention-0");expect(panel(s)).not.toContain("Retry on");
+});
+test("unranked available and unknown providers show no quota reset claim",()=>{
+ const s=snapshot();s.budget!.providers.push(provider("byteplus","OK",{resetsAt:3700}),provider("unknown","UNKNOWN"));
+ const html=browser(panel(s)).ids["unavailable-list"].innerHTML;
+ expect(html).toContain("not in the queue");expect(html).not.toContain("back in 1h");expect(html).not.toContain("reset unknown");expect(html).not.toContain("not ranked");
+});
+for (const [reachable,now,tone,label] of [[true,100,"good","Live ·"],[true,250,"warn","Live ·"],[false,100,"bad","Not connected"]] as const) test(`delegate header shares overview connection indicator ${tone}`,()=>{
+ const html=panel(snapshot(),reachable,now);
+ const delegate=html.match(/data-page="delegate" hidden>(.*?)<\/main>/s)![1];
+ expect(delegate).toContain(`name live ${tone}`);expect(delegate).toContain(label);
+ if(reachable)expect(delegate).toMatch(/Live · \d{2}:\d{2}/);
+});
+
+test("delegate blocks duplicate submits during context and terminal requests",()=>{
+ const b=browser();b.ids.goal.value="fix";b.submit();const count=b.sent.length;
+ expect(b.submitButton.disabled).toBe(true);b.submit();expect(b.sent).toHaveLength(count);
+ b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});const send=b.sent.at(-1);
+ b.submit();expect(b.sent).toHaveLength(count+1);
+ b.reply(send,{accepted:false});expect(b.submitButton.disabled).toBe(false);expect(b.ids.goal.value).toBe("fix");b.submit();expect(b.sent).toHaveLength(count+2);
+});
+for(const phase of ["context","terminal"]) test(`delegate releases pending state on bridge ${phase} failure`,()=>{
+ const b=browser();b.ids.goal.value="fix";b.submit();expect(b.submitButton.disabled).toBe(true);
+ if(phase==="terminal")b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ b.reply(b.sent.at(-1),null,false);expect(b.submitButton.disabled).toBe(false);expect(b.ids.goal.value).toBe("fix");expect(b.ids.status.textContent).toContain("refused");
+ const count=b.sent.length;b.submit();expect(b.sent).toHaveLength(count+1);
+});
+test("delegate payload includes worktree id when workspace context supplies it",()=>{
+ const c={worktreeId:"wt-1",branch:"shared",displayName:"X",terminals:[{id:"term_console"}]};
+ expect(decodeCmdLine(delegateLine(c,"fix","")).cmd?.data.worktreeId).toBe("wt-1");
+ const b=browser();b.ids.goal.value="fix";b.submit();b.reply(b.sent.at(-1),c);
+ expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data.worktreeId).toBe("wt-1");
+});
+for(const field of ["goal","done"]) for(const code of [0x7f,0x80,0x9f]) test(`delegate rejects control ${code} in ${field} visibly`,()=>{
+ const b=browser();b.ids.goal.value="fix";b.ids[field].value="bad"+String.fromCharCode(code)+"input";b.submit();
+ const last=b.sent.at(-1);if(last.action==="workspace.readContext")b.reply(last,{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ expect(b.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(b.ids.status.textContent).toContain("control");expect(b.submitButton.disabled).toBe(false);
+});
+
+test("panel picks the worktree console from multiple registrations",()=>{
+ const s=snapshot();s.consoles=[s.console!,{...s.console!,handle:"focused"}];const b=browser(panel(s));b.ids.goal.value="fix";b.submit();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"focused"}]});expect(b.sent.at(-1).params.terminalId).toBe("focused");
+});
+test("strategy picker sends a selected name and marks the active strategy",()=>{
+ const b=browser();b.strategy.click();expect(b.ids["strategy-picker"].hidden).toBe(false);
+ b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data).toEqual({cmd:"use",strategy:"custom"});expect(b.ids["strategy-picker"].innerHTML).toContain("default · current");
+ const s=snapshot();s.strategies=["default"];expect(panel(s)).toContain("Only one strategy (default). Add files under ~/.pacer/strategies to switch.");expect(panel(s)).toContain('data-strategy-toggle disabled');
+});
+test("freshness indicator turns stale in place on its thirty-second timer",()=>{
+ const b=browser();expect(b.freshness[0].parentElement.className).toContain("good");b.now(221000);b.tick();expect(b.freshness[0].parentElement.className).toContain("warn");expect(b.freshness[0].textContent).toContain("Stale");
+});
+test("rendered desktop panel uses Orca's compact typography and control dimensions",()=>{
+ const css=panel().match(/<style>(.*?)<\/style>/s)![1];
+ const declarations=(selector:string)=>{
+  const block=[...css.matchAll(/([^{}]+)\{([^{}]+)\}/g)].filter(m=>m[1].split(",").includes(selector)).map(m=>m[2]).join(";");
+  return Object.fromEntries(block.split(";").map(d=>{const i=d.indexOf(":");return [d.slice(0,i),d.slice(i+1)];}));
+ };
+ expect(declarations("body")["font-size"]).toBe("12px");expect(declarations("body")["font-family"]).toContain("var(--app-font-family");
+ expect(declarations("small")["font-size"]).toBe("11px");expect(declarations(".headline")["font-size"]).toBe("13px");expect(declarations(".percent")["font-size"]).toBe("18px");
+ expect(declarations("button")["min-height"]).toBe("28px");expect(declarations("button.primary")["min-height"]).toBe("32px");expect(declarations(".content")["padding"]).toBe("12px");expect(declarations(".meter")["height"]).toBe("6px");expect(declarations(".meter.slim")["height"]).toBe("3px");
+});
+
+test("missing-console recovery only types pacer console into the focused first terminal",()=>{
+ const b=browser(panel(emptySnapshot()));b.setups[2].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"first"}]});
+ expect(b.sent.at(-1).params).toEqual({terminalId:"first",text:"pacer console",enter:false});b.reply(b.sent.at(-1),{accepted:true});expect(b.ids.status.textContent).toContain("Press Enter");
 });

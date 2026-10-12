@@ -1,8 +1,8 @@
-import { liveConsole, type LinkSnapshot, type ProviderLine, type TaskData } from "../../../src/link/envelope";
+import { type LinkSnapshot, type ProviderLine, type TaskData } from "../../../src/link/envelope";
 import { displayName } from "./icons";
 import { duration, backIn } from "./shared";
 export function initialView(s: LinkSnapshot, reachable: boolean, now: number): "overview" | "setup" {
- return reachable && s.budget && liveConsole(s,now) ? "overview" : "setup";
+ return reachable && s.budget && [...(s.consoles ?? []), ...(s.console ? [s.console] : [])].some(c=>c.handle && now-c.heartbeatAt<=600) ? "overview" : "setup";
 }
 const words:Record<string,string> = {ON_PACE:"Available",OK:"Available",UNMETERED:"Available",AHEAD:"Ahead of pace",BEHIND:"Behind pace",EXPIRING:"Expiring soon",EXPIRING_SOON:"Expiring soon",NEAR_LIMIT:"Near limit",EXHAUSTED:"Out of quota"};
 export const verdictWords = (v: string) => Object.hasOwn(words,v) ? words[v] : "Unknown";
@@ -44,11 +44,11 @@ export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] 
   if(!["failed","limit"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&now-t.updatedAt>600)) continue;
   groups.set(t.goal,[...(groups.get(t.goal)??[]),t]);
  }
- return [...groups].map(([goal,tasks])=>({goal,tasks,latest:tasks[0],stuck:["running","queued"].includes(tasks[0].state),retry:rankedProviders(s).find(p=>p.id!==tasks[0].executor)??null}));
+ return [...groups].map(([goal,tasks])=>({goal,tasks,latest:tasks[0],stuck:["running","queued"].includes(tasks[0].state),retry:rankedProviders(s).find(p=>!tasks.some(t=>t.executor===p.id))??null}));
 }
 export function attentionText(g: AttentionGroup, now: number): string {
  if(g.stuck) return `Waiting ${duration(now-g.latest.updatedAt)} with no executor picked`;
  const count=g.tasks.length, label=g.latest.state==="limit"?"Hit a limit":"Failed";
  return `${label}${count===2?" twice":count>2?` ×${count}`:""}${g.latest.executor?` on ${displayName(g.latest.executor)}`:""}`;
 }
-export const unavailableDetail = (p: ProviderLine, now:number) => `${p.verdict==="EXHAUSTED"?"out of quota":"not ranked"} · ${backIn(p.resetsAt,now)}`;
+export const unavailableDetail = (p: ProviderLine, now:number) => p.verdict==="EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt,now)}` : "not in the queue";

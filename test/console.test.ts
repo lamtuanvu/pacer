@@ -147,8 +147,8 @@ test("delegate with goal bypasses prompts and preserves the full brief and selec
  await h.run([encodeCmdLine({cmd:"delegate",branch:"feat-x",goal:"fix this",acceptance:"bun test",executor:"codex"}),"status"]);
  expect(h.inputs).toEqual([{brief:{repo:"/wt/feat-x",goal:"fix this",acceptance:"bun test"},executor:"codex"}]);expect(h.output()).not.toContain("goal> ");expect(h.output()).toContain("STATUS TEXT");expect(h.output()).toContain("t-20261012-120000-abcd queued");
 });
-test("delegate defaults acceptance and refuses unresolved focused worktree",async()=>{
- const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:"fix"})]);expect(h.inputs[0].brief.acceptance).toBe("none");
+test("delegate omits acceptance and refuses unresolved focused worktree",async()=>{
+ const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:"fix"})]);expect(h.inputs[0].brief).not.toHaveProperty("acceptance");
  const failed=harness({resolveWorktreePath:async()=>null});await failed.run([encodeCmdLine({cmd:"delegate",branch:"missing",goal:"fix"})]);expect(failed.inputs).toHaveLength(0);expect(failed.output()).toContain("could not be resolved");
 });
 test("retry re-delegates the stored brief with explicit executor or ranking",async()=>{
@@ -169,4 +169,16 @@ test("invalid configured executor causes no delegation or lookup",async()=>{
 });
 test("an explicitly empty goal errors instead of starting the interactive prompt",async()=>{
  const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:""}),"status"]);expect(h.output()).toContain("goal is required");expect(h.output()).not.toContain("goal> ");expect(h.inputs).toHaveLength(0);expect(h.output()).toContain("STATUS TEXT");
+});
+
+for (const acceptance of ["", " \t\n"]) test(`empty Done when omits acceptance (${JSON.stringify(acceptance)})`, async () => {
+ const h=harness(); await h.run([encodeCmdLine({cmd:"delegate",goal:"fix",acceptance})]);
+ expect(h.inputs[0].brief).toEqual({repo:"/cwd",goal:"fix"});
+});
+test("delegate forwards worktree id ahead of branch and refuses unresolved id-only context", async () => {
+ const selectors:any[]=[];
+ const h=harness({resolveWorktreePath:async (_ctx,branch,id)=>{selectors.push([branch,id]);return "/wt/by-id";}});
+ await h.run([encodeCmdLine({cmd:"delegate",goal:"fix",branch:"shared",worktreeId:"wt-1"}),encodeCmdLine({cmd:"delegate",goal:"fix",worktreeId:"wt-2"})]);
+ expect(selectors).toEqual([["shared","wt-1"],["","wt-2"]]);expect(h.inputs.map(i=>i.brief.repo)).toEqual(["/wt/by-id","/wt/by-id"]);
+ const failed=harness({resolveWorktreePath:async()=>null});await failed.run([encodeCmdLine({cmd:"delegate",goal:"fix",worktreeId:"missing"})]);expect(failed.inputs).toHaveLength(0);
 });

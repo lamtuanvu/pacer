@@ -1,5 +1,5 @@
 export type OrcaEventName = "worktree.created" | "worktree.removed" | "agent.status.changed";
-export interface WorkspaceContext { branch: string; displayName: string; terminals: { id: string }[] }
+export interface WorkspaceContext { worktreeId?: string; branch: string; displayName: string; terminals: { id: string }[] }
 export interface HostParams {
   "workspace.readContext": undefined;
   "terminal.sendText": { terminalId: string; text: string; enter?: boolean };
