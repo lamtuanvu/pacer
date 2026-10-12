@@ -1,4 +1,5 @@
-import { type DecisionHooks, defaultHooks } from "./hooks";
+import { makeClassifierHooks } from "./classifier-hooks";
+import type { DecisionHooks } from "./hooks";
 
-/** The decision hooks pacer uses. Plan 4 points this at its classifier-backed implementation. */
-export const activeHooks: DecisionHooks = defaultHooks;
+/** The decision hooks pacer uses. */
+export const activeHooks: DecisionHooks = makeClassifierHooks();
