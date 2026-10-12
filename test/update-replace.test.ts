@@ -59,6 +59,35 @@ test("releaseFetch downloads over loopback http; refused connections are downloa
   expect((err as Error).message).toContain(`download failed: ${deadUrl}`);
 });
 
+test("releaseFetch refuses redirects without requesting their target", async () => {
+  let targetRequests = 0;
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: (req) => {
+      if (new URL(req.url).pathname === "/start") return new Response(null, { status: 302, headers: { Location: "http://example.com/x" } });
+      targetRequests++;
+      return new Response("unexpected");
+    },
+  });
+  servers.push(server);
+  const url = `${String(server.url).replace(/\/$/, "")}/start`;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "http://example.com/x") targetRequests++;
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const err = await fetchBytes(releaseFetch, url).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ReleaseError);
+    expect((err as Error).message).toContain(url);
+    expect((err as Error).message).toContain("redirect");
+    expect(targetRequests).toBe(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runVersion and reportsVersion", async () => {
   const p = installed(tmpDir(), "0.2.0");
   expect((await runVersion(p)).trim()).toBe("pacer 0.2.0");
@@ -66,6 +95,13 @@ test("runVersion and reportsVersion", async () => {
   expect(reportsVersion("pacer 0.2.0\n", "0.2.0")).toBe(true);
   expect(reportsVersion("pacer 0.2.0-rc.1", "0.2.0")).toBe(false);
   expect(reportsVersion("", "0.2.0")).toBe(false);
+});
+
+test("runVersion rejects a version-printing process that exits nonzero", async () => {
+  const p = installed(tmpDir());
+  writeFileSync(p, `${script("0.2.0")}exit 1\n`);
+  chmodSync(p, 0o755);
+  expect(await runVersion(p)).toBe("");
 });
 
 test("replaceBinary swaps the binary atomically and keeps the old one as .bak", async () => {
@@ -101,6 +137,24 @@ test("a binary that reports the wrong version is not installed", async () => {
   expect((err as Error).message).toContain("did not report version 0.2.0");
   expect(readFileSync(p, "utf8")).toBe(script("0.1.0"));
   expect(readdirSync(dir)).toEqual(["pacer"]);
+});
+
+test("replacement wraps non-permission filesystem failures in ReleaseError", async () => {
+  const dir = join(tmpDir(), "bin");
+  const p = installed(dir, "0.1.0");
+  const smoke = async () => { throw Object.assign(new Error("disk full"), { code: "ENOSPC" }); };
+  const err = await replaceBinary(p, enc(script("0.2.0")), "0.2.0", smoke).catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ReleaseError);
+  expect((err as Error).message).toContain(`could not replace ${realpathSync(p)}: disk full`);
+});
+
+test("failed replacement keeps the previous backup intact", async () => {
+  const dir = join(tmpDir(), "bin");
+  const p = installed(dir, "0.1.0");
+  writeFileSync(`${p}.bak`, "existing backup");
+  const err = await replaceBinary(p, enc(script("0.2.0")), "0.2.0", async () => "wrong version").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ReleaseError);
+  expect(readFileSync(`${p}.bak`, "utf8")).toBe("existing backup");
 });
 
 test.skipIf(process.getuid?.() === 0)("an unwritable directory fails cleanly", async () => {

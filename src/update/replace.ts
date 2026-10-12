@@ -9,8 +9,8 @@ export interface ReplaceResult { path: string; backup: string }
 export const runVersion: SmokeFn = async (path) => {
   try {
     const p = Bun.spawn([path, "--version"], { stdout: "pipe", stderr: "pipe", timeout: 15_000 });
-    const [out] = await Promise.all([new Response(p.stdout).text(), p.exited]);
-    return out;
+    const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+    return code === 0 ? out : "";
   } catch {
     return "";
   }
@@ -48,6 +48,7 @@ export async function replaceBinary(target: string, bytes: Uint8Array, version: 
   const dir = dirname(real);
   const tmp = join(dir, `.${basename(real)}.update-${process.pid}`);
   const backup = `${real}.bak`;
+  const backupTmp = `${backup}.update-${process.pid}`;
   try {
     const fd = openSync(tmp, "w", 0o755);
     try {
@@ -62,21 +63,23 @@ export async function replaceBinary(target: string, bytes: Uint8Array, version: 
     if (!reportsVersion(out, version)) {
       throw new ReleaseError(`the downloaded binary did not report version ${version} when run (output: ${out.trim().slice(0, 200) || "none"}); nothing was changed`);
     }
-    rmSync(backup, { force: true });
     try {
-      linkSync(real, backup);
+      linkSync(real, backupTmp);
     } catch {
-      copyFileSync(real, backup);
+      copyFileSync(real, backupTmp);
     }
+    renameSync(backupTmp, backup);
     renameSync(tmp, real);
     fsyncDir(dir);
     return { path: real, backup };
   } catch (e) {
-    rmSync(tmp, { force: true });
+    try { rmSync(tmp, { force: true }); } catch { /* preserve the replacement failure */ }
+    try { rmSync(backupTmp, { force: true }); } catch { /* preserve the replacement failure */ }
+    if (e instanceof ReleaseError) throw e;
     const code = (e as { code?: unknown }).code;
     if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
       throw new ReleaseError(`cannot write to ${dir} (${String(code)}). Reinstall pacer into a directory you own (install.sh defaults to ~/.local/bin)`);
     }
-    throw e;
+    throw new ReleaseError(`could not replace ${real}: ${(e as Error).message}`);
   }
 }

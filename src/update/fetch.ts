@@ -22,7 +22,7 @@ export const releaseFetch: FetchFn = async (url) => {
     if (!(await f.exists())) return new Response(`not found: ${path}`, { status: 404 });
     return new Response(await f.arrayBuffer());
   }
-  return fetch(url, { signal: AbortSignal.timeout(300_000) });
+  return fetch(url, { redirect: "manual", signal: AbortSignal.timeout(300_000) });
 };
 
 export async function fetchBytes(fetchFn: FetchFn, url: string): Promise<Uint8Array> {
@@ -32,6 +32,7 @@ export async function fetchBytes(fetchFn: FetchFn, url: string): Promise<Uint8Ar
   } catch (e) {
     throw new ReleaseError(`download failed: ${url} (${(e as Error).message})`);
   }
+  if (res.status >= 300 && res.status < 400) throw new ReleaseError(`download failed: ${url} (redirect HTTP ${res.status})`);
   if (!res.ok) throw new ReleaseError(`download failed: ${url} (HTTP ${res.status})`);
   try {
     return new Uint8Array(await res.arrayBuffer());
