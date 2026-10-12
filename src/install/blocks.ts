@@ -15,7 +15,7 @@ function findBlock(text: string, style: BlockStyle): { start: number; end: numbe
   const start = text.indexOf(open);
   if (start === -1) return null;
   const closing = text.indexOf(close, start);
-  if (closing === -1) return null;
+  if (closing === -1) throw new Error(`unmatched open marker: ${open}`);
   let end = closing + close.length;
   if (text[end] === "\n") end++;
   return { start, end };
