@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildActivity, hourBin, loadActivity } from "../src/pace/activity";
+import * as activity from "../src/pace/activity";
 import { fakeCtx, localTs } from "./helpers";
 
 async function claudeLog(home: string, name: string, stamps: number[]) {
@@ -41,7 +42,37 @@ test("no logs yields an empty profile; loadActivity caches for 24h", async () =>
   expect(existsSync(join(ctx.pacerHome, "activity.json"))).toBe(true);
   await claudeLog(ctx.home, "late", [1_000_000 - 3600]);
   expect((await loadActivity({ ...ctx, now: 1_000_000 + 3600 })).days).toBe(0); // cached
-  expect((await loadActivity({ ...ctx, now: 1_000_000 + 90_000 })).days).toBe(1); // rebuilt
+  const stale = { ...ctx, now: 1_000_000 + 90_000 };
+  let triggers = 0;
+  expect((await loadActivity(stale, { trigger: () => { triggers++; } })).days).toBe(0);
+  expect(triggers).toBe(1);
+  expect((await activity.rebuildActivity(stale)).days).toBe(1);
+  expect((await loadActivity(stale)).days).toBe(1);
+});
+
+test("five parallel stale loads return the cache and trigger one rebuild", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  await loadActivity(ctx);
+  await claudeLog(ctx.home, "late", [ctx.now - 3600]);
+  const stale = { ...ctx, now: ctx.now + 90_000 };
+  let triggers = 0;
+  const profiles = await Promise.all(Array.from({ length: 5 }, () =>
+    loadActivity(stale, { trigger: () => { triggers++; } }),
+  ));
+  expect(profiles.map((p) => p.days)).toEqual([0, 0, 0, 0, 0]);
+  expect(triggers).toBe(1);
+});
+
+test("stale activity locks are replaced, recent locks are held, and rebuild releases the lock", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const path = join(ctx.pacerHome, "activity.lock");
+  writeFileSync(path, JSON.stringify({ at: ctx.now - 601, pid: 1 }));
+  expect(activity.tryActivityLock(ctx)).toBe(true);
+  writeFileSync(path, JSON.stringify({ at: ctx.now - 10, pid: 1 }));
+  expect(activity.tryActivityLock(ctx)).toBe(false);
+  await activity.rebuildActivity(ctx);
+  expect(existsSync(path)).toBe(false);
 });
 
 test("unreadable logs are skipped while readable logs still count", async () => {

@@ -1,4 +1,5 @@
-import { existsSync, statSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
@@ -67,10 +68,84 @@ export async function buildActivity(
   return { builtAt: ctx.now, days: dates.size, bins, active: bins.map((b) => max > 0 && b >= threshold * max) };
 }
 
-export async function loadActivity(ctx: Ctx): Promise<ActivityProfile> {
+export const ACTIVITY_LOCK_STALE_S = 600;
+
+export function tryActivityLock(ctx: Ctx): boolean {
+  const path = join(ctx.pacerHome, "activity.lock");
+  try {
+    mkdirSync(ctx.pacerHome, { recursive: true });
+    if (existsSync(path)) {
+      const lock = readJson<{ at?: unknown }>(path);
+      const at = typeof lock?.at === "number" && Number.isFinite(lock.at)
+        ? lock.at : statSync(path).mtimeMs / 1000;
+      if (ctx.now - at <= ACTIVITY_LOCK_STALE_S) return false;
+      unlinkSync(path);
+    }
+    writeFileSync(path, JSON.stringify({ at: ctx.now, pid: process.pid }), { flag: "wx" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function releaseActivityLock(ctx: Ctx): void {
+  try {
+    unlinkSync(join(ctx.pacerHome, "activity.lock"));
+  } catch {
+    // Lock cleanup is best effort, including when the file is already gone.
+  }
+}
+
+export async function rebuildActivity(ctx: Ctx): Promise<ActivityProfile> {
+  try {
+    const fresh = await buildActivity(ctx);
+    writeJsonAtomic(join(ctx.pacerHome, "activity.json"), fresh);
+    return fresh;
+  } finally {
+    releaseActivityLock(ctx);
+  }
+}
+
+export type RebuildTrigger = (ctx: Ctx) => void;
+
+export const backgroundRebuild: RebuildTrigger = (ctx) => {
+  const script = process.argv[1] ?? "";
+  const cmd = /\.(ts|js|mjs)$/.test(script) ? [process.execPath, script] : [process.execPath];
+  const isPacer = (cmd.length === 2 && /cli\.(ts|js)$/.test(cmd[1]))
+    || (cmd.length === 1 && !/(^|\/)bun(\.exe)?$/.test(cmd[0]));
+  if (!isPacer) {
+    void rebuildActivity(ctx).catch(() => {});
+    return;
+  }
+  try {
+    const child = spawn(cmd[0], [...cmd.slice(1), "_activity"], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
+    });
+    child.on("error", () => releaseActivityLock(ctx));
+    child.unref();
+  } catch {
+    releaseActivityLock(ctx);
+  }
+};
+
+export async function loadActivity(
+  ctx: Ctx, opts: { trigger?: RebuildTrigger } = {},
+): Promise<ActivityProfile> {
   const path = join(ctx.pacerHome, "activity.json");
   const cached = readJson<ActivityProfile>(path);
-  if (cached && ctx.now - cached.builtAt < 86400 && cached.bins?.length === 168) return cached;
+  if (cached && cached.bins?.length === 168 && Array.isArray(cached.active)) {
+    if (ctx.now - cached.builtAt < 86400) return cached;
+    if (tryActivityLock(ctx)) {
+      try {
+        (opts.trigger ?? backgroundRebuild)(ctx);
+      } catch {
+        releaseActivityLock(ctx);
+      }
+    }
+    return cached;
+  }
   const fresh = await buildActivity(ctx);
   try {
     writeJsonAtomic(path, fresh);
