@@ -51,6 +51,7 @@ test("help lists install, uninstall, init and doctor", async () => {
 
 test("install errors return code 1 and roll back earlier edits", async () => {
   const ctx = fakeCtx();
+  ctx.env.PACER_BIN = "/opt/pacer/bin/pacer";
   const dir = join(ctx.home, ".codex");
   mkdirSync(dir);
   writeFileSync(join(dir, "hooks.json"), "broken JSON");

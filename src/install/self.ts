@@ -7,9 +7,7 @@ export function pacerArgv(
   argv: string[] = process.argv,
   execPath: string = process.execPath,
 ): string[] {
-  const command = env.PACER_BIN ? [env.PACER_BIN] : selfCommand(argv, execPath);
-  validateInstallArgv(env, command);
-  return command;
+  return env.PACER_BIN ? [env.PACER_BIN] : selfCommand(argv, execPath);
 }
 
 export function isDevArgv(a: string[]): boolean {
