@@ -20,7 +20,7 @@ class Node {
  focus(){this.focused=true;}
 }
 function browser(html=panel(),seen:string[]=[]) {
- const ids:Record<string,Node>=Object.fromEntries(["delegate-send","strategy-send","strategy-after","strategy-form","strategy-list","strategy-from","strategy-agent","strategy-brief","status","delegate-form","goal","done","worktree-branch","ranked-list","unavailable-list","executor-options","ranked-order","strategy-picker","console-hint"].map(id=>[id,new Node()]));
+ const ids:Record<string,Node>=Object.fromEntries(["notification-level","delegate-send","strategy-send","strategy-after","strategy-form","strategy-list","strategy-from","strategy-agent","strategy-brief","status","delegate-form","goal","done","worktree-branch","ranked-list","unavailable-list","executor-options","ranked-order","strategy-picker","console-hint"].map(id=>[id,new Node()]));
  ids["strategy-after"].hidden=true;ids["strategy-picker"].hidden=true;ids["console-hint"].hidden=true;
  const make=(dataset:Record<string,string>)=>Object.assign(new Node(),{dataset});
  const pages=[make({page:"overview"}),make({page:"setup"}),make({page:"delegate"})];
@@ -334,4 +334,32 @@ test("panel action is immediately pending and restores on refused send",()=>{
  expect(b.submitButton.disabled).toBe(true);expect(b.submitButton.innerHTML).toContain("Delegating");
  b.reply(b.sent.at(-1),null,false);expect(b.submitButton.disabled).toBe(false);
  expect(b.submitButton.innerHTML).not.toContain("Delegating");
+});
+
+for (const level of ["off", "important", "all"] as const) test(`notification preference ${level} renders from worker data`, () => {
+ const html=renderPanel(snapshot(),{nowS:100,reachable:true,transport:"bridge",notifications:level});
+ expect(html).toContain(`value="${level}" selected`);
+ expect(payload(html).notifications).toBe(level);
+});
+test("generated panel script uses only panel-callable host actions",()=>{
+ const script=panel().match(/<script>\n([\s\S]*?)<\/script>/)![1];
+ const actions=[...script.matchAll(/(?:request|call)\("([a-z]+\.[A-Za-z]+)"/g)].map(m=>m[1]);
+ expect(actions.length).toBeGreaterThan(0);
+ expect(actions.every(a=>["workspace.readContext","terminal.sendText","notifications.show"].includes(a!))).toBe(true);
+ expect(script).not.toMatch(/(?:settings|storage)\./);
+});
+test("notification change sends console command and stays pending until worker confirms",()=>{
+ const b=browser(), control=b.ids["notification-level"];
+ control.innerHTML='<option value="important">Important</option>';control.value="off";
+ b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ control.handlers.change!();expect(control.disabled).toBe(true);expect(control.innerHTML).toContain("Important");
+ b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ const send=b.sent.at(-1);expect(send.action).toBe("terminal.sendText");
+ expect(decodeCmdLine(send.params.text).cmd?.data).toEqual({cmd:"notify-level",level:"off"});
+ b.reply(send,{accepted:true});expect(control.disabled).toBe(true);expect(b.ids.status.textContent).toContain("console");
+});
+test("notification send refusal restores select and reports failure",()=>{
+ const b=browser(), control=b.ids["notification-level"];control.value="all";
+ control.handlers.change!();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ b.reply(b.sent.at(-1),{accepted:false});expect(control.disabled).toBe(false);expect(b.ids.status.textContent).toContain("refused");
 });

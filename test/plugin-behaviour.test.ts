@@ -404,3 +404,12 @@ test("background task renders coalesce at ten seconds, retry outcomes render wit
  expect(f.writes.at(-1)!.text).toContain("pacer-panel-scroll");
  }finally{await f.cleanup();}
 });
+
+test("worker refreshes notification preference after 30 seconds and rerenders without snapshot changes",async()=>{
+ const f=fixture();let level="off",reads=0;const original=f.ctx.host.call.bind(f.ctx.host);
+ f.ctx.host={call:((method:any,params:any)=>method==="settings.get"?(reads++,Promise.resolve({settings:{notifications:level}})):original(method,params)) as OrcaHost["call"]};
+ try{await f.start();await f.timers.advance(200);expect(f.writes.at(-1)!.text).toContain('value="off" selected');
+ level="all";f.now=130;await f.timers.advance(29799);expect(reads).toBe(1);
+ await f.timers.advance(1);await f.timers.advance(200);expect(reads).toBe(2);expect(f.writes.at(-1)!.text).toContain('value="all" selected');
+ }finally{await f.cleanup();}
+});

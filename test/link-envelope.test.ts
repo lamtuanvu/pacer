@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { encodeCmdLine, decodeCmdLine, parseEnvelope, reduce, emptySnapshot, contentKey, summaryLine, liveConsole, type Envelope } from "../src/link/envelope";
+import { parseCmd, encodeCmdLine, decodeCmdLine, parseEnvelope, reduce, emptySnapshot, contentKey, summaryLine, liveConsole, type Envelope } from "../src/link/envelope";
 
 const budget = { generatedAt: 1, strategy: "default", planner: "claude-code", mode: "normal", providers: [{ id: "claude-code", verdict: "ON_PACE", pacePct:null,usedPct: 61.4, resetsAt: null, window: null, stale: false }], ranked: [{ id: "codex", verdict: "OK" }] };
 const envs: Envelope[] = [
@@ -56,4 +56,11 @@ test("structured commands clamp brief fields, validate identifiers and preserve 
  for(const executor of ["../bad","ABC","x y","",4]) expect(parse({cmd:"retry",executor})).toBeNull();
  for(const taskId of ["../bad","x y","",4]) expect(parse({cmd:"stop",taskId})).toBeNull();
  expect(decodeCmdLine(encodeCmdLine({cmd:"retry",taskId:"T_1-2",executor:"codex"})).cmd?.data).toEqual({cmd:"retry",taskId:"T_1-2",executor:"codex"});
+});
+
+for(const level of ["off","important","all"] as const) test(`notify-level validates ${level}`,()=>{
+ expect(parseCmd({v:1,type:"cmd",data:{cmd:"notify-level",level}})?.data).toEqual({cmd:"notify-level",level});
+});
+for(const level of [undefined,null,"", "ALL", "off; touch /tmp/x", 1,{},["all"]]) test(`notify-level rejects ${JSON.stringify(level)}`,()=>{
+ expect(parseCmd({v:1,type:"cmd",data:{cmd:"notify-level",level}})).toBeNull();
 });

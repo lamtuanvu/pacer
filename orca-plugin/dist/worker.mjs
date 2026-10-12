@@ -749,10 +749,10 @@ select{height:28px;background:var(--background);border:1px solid var(--border);b
 `;
 
 // orca-plugin/src/panel/strategy.ts
-function strategyView(s, now, reachable) {
+function strategyView(s, now, reachable, notifications = "important") {
   const agents = ["claude-code", "codex"].filter((id) => id === s.budget?.planner || s.budget?.providers.some((p) => p.id === id));
   return `<div class="content"><header><button type="button" data-view="overview" aria-label="Back to overview">←</button><strong>Strategy</strong><span class="grow"></span>${connectionIndicator(s, now, reachable)}</header>
- <section class="stack"><label>Notifications<select id="notification-level"><option value="important">Important</option><option value="all">All</option><option value="off">Off</option></select></label></section>
+ <section class="stack"><label>Notifications<select id="notification-level">${["important", "all", "off"].map((level) => `<option value="${level}"${level === notifications ? " selected" : ""}>${level === "important" ? "Important" : level === "all" ? "All" : "Off"}</option>`).join("")}</select></label></section>
  <section class="stack"><h2>Switch to</h2><div class="list strategy-list" id="strategy-list"></div></section>
  <div id="strategy-form" role="group" class="card stack strategy-builder"><strong>Build a new strategy with an agent</strong><small>Describe what you want. The agent drafts it, shows how routing would change, and asks before saving.</small>
  <label for="strategy-brief">What should it do?</label><textarea id="strategy-brief" rows="4" maxlength="2000" placeholder="e.g. Protect Claude this week. Burn Codex before it resets on Sunday."></textarea>
@@ -768,8 +768,8 @@ let actionStates={};
 try {const saved=JSON.parse(sessionStorage.getItem(actionStorage)||"{}");if(saved && !Array.isArray(saved))actionStates=saved;}catch{}
 const actionButtons=new Map();
 function saveActions(){try{sessionStorage.setItem(actionStorage,JSON.stringify(actionStates));}catch{}}
-function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.goal||c.from||c.text||"");}
-function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...",type:"Typing command..."})[c.cmd]||"Working...";}
+function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.level||c.goal||c.from||c.text||"");}
+function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
 function outcome(a){
  const c=a.action,t=data.tasks||[],ids=c.taskIds||[c.taskId],p=[...data.rows,...data.muted].find(p=>p.id===c.executor);
  if(c.cmd==="retry"||c.cmd==="retry-all")return ids.every(id=>t.some(x=>x.retryOf===id)||t.find(x=>x.id===id)?.retriedBy);
@@ -780,6 +780,7 @@ function outcome(a){
  if(c.cmd==="use")return data.strategy===c.strategy;
  if(c.cmd==="strategy-build")return data.buildAlert && data.buildAlert.at>=a.startedAt;
  if(c.cmd==="refresh")return data.sequence>a.sequence;
+ if(c.cmd==="notify-level")return data.notifications===c.level;
  if(c.cmd==="type")return a.accepted;
  return false;
 }
@@ -787,7 +788,7 @@ function restoreAction(key){const entry=actionButtons.get(key);if(entry){entry.b
 function paintAction(key,button){
  const a=actionStates[key];if(!a)return;
  if(!actionButtons.has(key))actionButtons.set(key,{button,disabled:button.disabled,html:button.innerHTML,card:button.closest?.(".card,.row,.actionbar")});
- button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
+ button.disabled=true;if(a.action.cmd!=="notify-level")button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
  actionButtons.get(key).card?.setAttribute?.("aria-busy","true");
 }
 function beginAction(button,action){
@@ -804,7 +805,7 @@ function recoverActions(){
   if(!a||typeof a.startedAt!=="number"||!a.action){delete actionStates[key];continue;}
   const rejection=(data.actionErrors||[]).find(e=>e.key==="retry-"+a.action.taskId&&e.at>=a.startedAt);
   if(rejection){restoreAction(key);status.textContent=rejection.body;continue;}
-  if(outcome(a)){restoreAction(key);continue;}
+  if(outcome(a)){restoreAction(key);if(a.action.cmd==="notify-level")status.textContent="Notification preference saved.";continue;}
   const button=actionButtons.get(key)?.button;
   if(Date.now()/1000-a.startedAt>=60){
    if(button){button.disabled=false;button.innerHTML=actionButtons.get(key).html;}
@@ -814,7 +815,7 @@ function recoverActions(){
  }
  saveActions();
 }
-function bindAction(button,action){const key=actionKey(action);if(actionStates[key]){if(outcome(actionStates[key]))restoreAction(key);else paintAction(key,button);}}
+function bindAction(button,action){const key=actionKey(action);if(actionStates[key]){if(outcome(actionStates[key])){restoreAction(key);if(action.cmd==="notify-level")status.textContent="Notification preference saved.";}else paintAction(key,button);}}
 `;
 
 // orca-plugin/src/panel/client.ts
@@ -1003,7 +1004,6 @@ window.addEventListener("message", event => {
   if (event.source !== window.parent || !r || r.type !== "orca-panel-action-result" || !pending.has(r.requestId)) return;
   const item = pending.get(r.requestId); pending.delete(r.requestId);
   if (!r.ok) { status.textContent = typeof r.error === "string" ? r.error : "Orca refused this request."; if (item.onFailure) item.onFailure(); return; }
-  if(item.purpose==="notification-settings"){if(item.after)item.after(r.value);return;}
   if (item.purpose === "context") { updateContext(r.value); if (item.after) item.after(r.value); return; }
   const accepted = r.value && r.value.accepted;
   status.textContent = accepted ? item.purpose === "setup" ? "Typed into your terminal. Press Enter to run it." : "Sent to pacer console" : "Orca refused to type into the terminal.";
@@ -1015,7 +1015,13 @@ for(const a of Object.values(actionStates)) {
  if(a.action?.cmd==="strategy-build")bindAction(document.getElementById("strategy-send"),a.action);
 }
 const notificationControl=document.getElementById("notification-level");
-if(notificationControl){request("settings.get",undefined,"notification-settings",value=>{const level=value?.settings?.notifications;if(["off","important","all"].includes(level))notificationControl.value=level;});notificationControl.addEventListener("change",()=>{request("settings.set",{key:"notifications",value:notificationControl.value},"notification-settings",()=>{status.textContent="Notification preference saved.";});});}
+if(notificationControl){
+ for(const a of Object.values(actionStates))if(a.action?.cmd==="notify-level")bindAction(notificationControl,a.action);
+ notificationControl.addEventListener("change",()=>{
+  const level=notificationControl.value;if(!["off","important","all"].includes(level))return;
+  pendingSend(notificationControl,{cmd:"notify-level",level},()=>{status.textContent="Sent to pacer console. Saving notification preference...";});
+ });
+}
 recoverActions();
 try {const saved=Number(sessionStorage.getItem("pacer-panel-scroll"));if(Number.isFinite(saved)&&saved>=0)window.scrollTo?.(0,saved);}catch{}
 window.addEventListener("scroll",()=>{try{sessionStorage.setItem("pacer-panel-scroll",String(window.scrollY));}catch{}},{passive:true});
@@ -1031,8 +1037,8 @@ function renderPanel(s, view) {
   const main = overview(s, view.nowS, view.reachable, commands, text);
   const reasonText = view.autoConsole ?? true ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
   const disable = (html) => (console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label) => `<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
-  const payload = { actionErrors: s.alerts.filter((a) => a.key.startsWith("retry-") && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
-  const strategy = strategyView(s, view.nowS, view.reachable);
+  const payload = { notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => a.key.startsWith("retry-") && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
+  const strategy = strategyView(s, view.nowS, view.reachable, view.notifications ?? "important");
   const outcome = view.autoConsoleOutcome, waiting = !outcome || outcome.status === "starting" && view.nowS - outcome.at < 15;
   const reason = outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
   const consoleHint = waiting && view.transport === "http" && (view.autoConsole ?? true) && view.reachable ? `<small class="muted"><span class="console-spinner" aria-hidden="true">◐</span> Starting pacer console in this worktree...</small>` : `<button type="button" data-setup="pacer console">Start console</button><small>${h(reason)}</small>`;
@@ -1101,14 +1107,6 @@ function createPlugin(deps) {
       return;
     const settings = readSettings(raw, deps.home);
     settings.settingsReady = settingsReady;
-    timers.every(1e4, () => {
-      ctx.host.call("settings.get").then((result) => {
-        settings.lastAlertAt = Math.max(settings.lastAlertAt, readSettings(result.settings, deps.home).lastAlertAt);
-        settings.deliveredAlerts = [...settings.deliveredAlerts ?? [], ...readSettings(result.settings, deps.home).deliveredAlerts ?? []].slice(-200);
-        settings.notifications = readSettings(result.settings, deps.home).notifications;
-        settings.settingsReady = true;
-      }).catch(() => {});
-    });
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
@@ -1142,6 +1140,7 @@ function createPlugin(deps) {
       return { ...current, expired: current.status === "starting" && deps.nowS() - current.at >= 15 };
     };
     const panelKey = () => JSON.stringify({
+      notifications: settings.notifications,
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       serviceInstalled: store.snapshot.serviceInstalled,
@@ -1174,7 +1173,7 @@ function createPlugin(deps) {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome() }));
               renderedKey = key;
               lastRenderAt = nowS;
               userOutcome = false;
@@ -1191,6 +1190,25 @@ function createPlugin(deps) {
         }).catch(logError);
       });
     };
+    let refreshingSettings = false;
+    timers.every(30000, () => {
+      if (stopped || refreshingSettings)
+        return;
+      refreshingSettings = true;
+      ctx.host.call("settings.get").then((result) => {
+        if (stopped)
+          return;
+        const updated = readSettings(result.settings, deps.home), changed = settings.notifications !== updated.notifications;
+        settings.lastAlertAt = Math.max(settings.lastAlertAt, updated.lastAlertAt);
+        settings.deliveredAlerts = [...settings.deliveredAlerts ?? [], ...updated.deliveredAlerts ?? []].slice(-200);
+        settings.notifications = updated.notifications;
+        settings.settingsReady = true;
+        if (changed)
+          scheduleRender(true);
+      }).catch(() => {}).finally(() => {
+        refreshingSettings = false;
+      });
+    });
     store.onChange(() => scheduleRender());
     timers.every(1000, () => {
       processing = processing.then(async () => {

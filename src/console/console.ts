@@ -1,3 +1,4 @@
+import { pluginCli } from "../plugin/cli";
 import { withLock } from "../exec/orca/state";
 import { blockExecutor, unblockExecutor } from "../executors/blocked";
 import {taskData} from "../link/pump";
@@ -147,6 +148,11 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
         catch(e){message=e instanceof Error?e.message:String(e);}
         print(message);
         await publish(fresh(),[{v:1,type:"alert",data:{key:"strategy-build",level:opened?"info":"error",title:opened?"Strategy session opened":"Strategy session failed",body:opened?"":message,at:fresh().now}}]);
+        break;
+      }
+      case "notify-level": {
+        const result=await pluginCli(["set","notifications",data.level ?? ""],fresh());
+        print(result.code===0 ? result.out : result.err);
         break;
       }
       case "use": if (data.strategy) await use(data.strategy); else chooseStrategy(); break;

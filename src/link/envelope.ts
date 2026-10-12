@@ -12,9 +12,9 @@ export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
-export const CMD_NAMES = ["delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build"] as const;
+export const CMD_NAMES = ["delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build", "notify-level"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
-export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
+export interface CmdData { cmd: CmdName; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
 export interface Cmd { v: 1; type: "cmd"; data: CmdData }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max: number): string | null => typeof v === "string" ? v.slice(0, max) : null;
@@ -105,6 +105,10 @@ export function parseCmd(raw: unknown): Cmd | null {
   for (const [k,max,pattern] of [["executor",64,/^[a-z0-9-]+$/],["taskId",128,/^[A-Za-z0-9_-]+$/]] as const) {
     if (d[k] !== undefined && (typeof d[k] !== "string" || !pattern.test(d[k] as string))) return null;
     const v=optStr(d[k],max); if(v) data[k]=v;
+  }
+  if(data.cmd==="notify-level") {
+    if(typeof d.level!=="string" || !["off","important","all"].includes(d.level))return null;
+    data.level=d.level as CmdData["level"];
   }
   if(data.cmd==="strategy-build") {
     if(!["claude-code","codex"].includes(String(d.agent)) || typeof d.from!=="string" || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(d.from) || typeof d.brief!=="string" || !d.brief.trim() || d.brief.length>2000)return null;

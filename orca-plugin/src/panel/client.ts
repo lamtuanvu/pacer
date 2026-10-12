@@ -185,7 +185,6 @@ window.addEventListener("message", event => {
   if (event.source !== window.parent || !r || r.type !== "orca-panel-action-result" || !pending.has(r.requestId)) return;
   const item = pending.get(r.requestId); pending.delete(r.requestId);
   if (!r.ok) { status.textContent = typeof r.error === "string" ? r.error : "Orca refused this request."; if (item.onFailure) item.onFailure(); return; }
-  if(item.purpose==="notification-settings"){if(item.after)item.after(r.value);return;}
   if (item.purpose === "context") { updateContext(r.value); if (item.after) item.after(r.value); return; }
   const accepted = r.value && r.value.accepted;
   status.textContent = accepted ? item.purpose === "setup" ? "Typed into your terminal. Press Enter to run it." : "Sent to pacer console" : "Orca refused to type into the terminal.";
@@ -197,7 +196,13 @@ for(const a of Object.values(actionStates)) {
  if(a.action?.cmd==="strategy-build")bindAction(document.getElementById("strategy-send"),a.action);
 }
 const notificationControl=document.getElementById("notification-level");
-if(notificationControl){request("settings.get",undefined,"notification-settings",value=>{const level=value?.settings?.notifications;if(["off","important","all"].includes(level))notificationControl.value=level;});notificationControl.addEventListener("change",()=>{request("settings.set",{key:"notifications",value:notificationControl.value},"notification-settings",()=>{status.textContent="Notification preference saved.";});});}
+if(notificationControl){
+ for(const a of Object.values(actionStates))if(a.action?.cmd==="notify-level")bindAction(notificationControl,a.action);
+ notificationControl.addEventListener("change",()=>{
+  const level=notificationControl.value;if(!["off","important","all"].includes(level))return;
+  pendingSend(notificationControl,{cmd:"notify-level",level},()=>{status.textContent="Sent to pacer console. Saving notification preference...";});
+ });
+}
 recoverActions();
 try {const saved=Number(sessionStorage.getItem("pacer-panel-scroll"));if(Number.isFinite(saved)&&saved>=0)window.scrollTo?.(0,saved);}catch{}
 window.addEventListener("scroll",()=>{try{sessionStorage.setItem("pacer-panel-scroll",String(window.scrollY));}catch{}},{passive:true});

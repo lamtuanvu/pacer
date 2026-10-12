@@ -49,12 +49,6 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     if (stopped) return;
     const settings = readSettings(raw, deps.home);
     settings.settingsReady=settingsReady;
-    timers.every(10000,()=>{void ctx.host.call("settings.get").then(result=>{
-      settings.lastAlertAt=Math.max(settings.lastAlertAt,readSettings(result.settings,deps.home).lastAlertAt);
-      settings.deliveredAlerts=[...(settings.deliveredAlerts??[]),...(readSettings(result.settings,deps.home).deliveredAlerts??[])].slice(-200);
-      settings.notifications=readSettings(result.settings,deps.home).notifications;
-      settings.settingsReady=true;
-    }).catch(()=>{});});
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
@@ -82,6 +76,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       return { ...current, expired: current.status === "starting" && deps.nowS()-current.at >= 15 };
     };
     const panelKey = () => JSON.stringify({
+      notifications:settings.notifications,
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       serviceInstalled: store.snapshot.serviceInstalled, reconnecting: reconnecting(), tasks: store.snapshot.tasks.map(({updatedAt,...task})=>task), alerts: store.snapshot.alerts,
@@ -100,7 +95,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome() }));
               renderedKey = key; lastRenderAt=nowS; userOutcome=false;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
@@ -109,6 +104,21 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         processing = processing.then(async () => { if (!stopped) await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS()); }).catch(logError);
       });
     };
+    // Only the worker may read host settings; refresh preferences without restarting.
+    let refreshingSettings=false;
+    timers.every(30000,()=>{
+      if(stopped || refreshingSettings)return;
+      refreshingSettings=true;
+      void ctx.host.call("settings.get").then(result=>{
+        if(stopped)return;
+        const updated=readSettings(result.settings,deps.home),changed=settings.notifications!==updated.notifications;
+        settings.lastAlertAt=Math.max(settings.lastAlertAt,updated.lastAlertAt);
+        settings.deliveredAlerts=[...(settings.deliveredAlerts??[]),...(updated.deliveredAlerts??[])].slice(-200);
+        settings.notifications=updated.notifications;
+        settings.settingsReady=true;
+        if(changed)scheduleRender(true);
+      }).catch(()=>{}).finally(()=>{refreshingSettings=false;});
+    });
     store.onChange(()=>scheduleRender());
     timers.every(1000,()=>{processing=processing.then(async()=>{if(!stopped)await notifyNewAlerts(ctx.host,store.snapshot,settings,activatedAtS,deps.nowS());}).catch(logError);});
     timers.every(15000, () => { if (panelKey() !== renderedKey) scheduleRender(); });

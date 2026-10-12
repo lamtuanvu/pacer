@@ -24,3 +24,10 @@ test("a bridge refusal restores action while a timeout explains the wait and per
 for(const [cmd,label] of [["retry","Retrying"],["stop","Stopping"],["dismiss","Dismissing"],["delegate","Delegating"],["strategy-build","Starting session"],["use","Switching"],["block","Blocking"],["unblock","Unblocking"],["refresh","Refreshing"],["type","Typing command"]])test(`${cmd} has an accessible immediate pending state`,()=>{
  const h=harness();h.api.beginAction(h.button,{cmd,executor:"codex",taskId:"old"});expect(h.button.disabled).toBe(true);expect(h.button.innerHTML).toContain(label);expect(h.button.innerHTML).toContain("◐");expect(h.card.busy).toBe(true);
 });
+
+test("notification action preserves select options and completes on refreshed worker preference",()=>{
+ const h=harness(new Map(),{notifications:"important"}),c={cmd:"notify-level",level:"off"};
+ h.button.innerHTML='<option value="important">Important</option>';
+ h.api.pendingSend(h.button,c);expect(h.button.disabled).toBe(true);expect(h.button.innerHTML).toContain("<option");
+ h.data.notifications="off";h.api.recoverActions();expect(h.button.disabled).toBe(false);expect(h.status.textContent).toContain("saved");
+});
