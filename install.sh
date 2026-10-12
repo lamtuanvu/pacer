@@ -1,0 +1,139 @@
+#!/bin/sh
+# pacer installer. Downloads the release binary for this OS and CPU, verifies its
+# SHA-256 checksum against the release's SHA256SUMS, and installs it.
+#
+#   PACER_RELEASE_BASE     release root (required until a public host exists), e.g.
+#                          file:///path/to/pacer/dist/release   or   https://host/pacer/releases
+#   PACER_INSTALL_VERSION  version to install (default: the "version" in <base>/latest.json)
+#   PACER_INSTALL_DIR      install directory (default: $HOME/.local/bin)
+#
+# Layout under the base: latest.json, <version>/SHA256SUMS, <version>/pacer-<os>-<arch>.
+set -eu
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'pacer install: %s\n' "$*" >&2; exit 1; }
+
+# fetch <url> <dest>
+fetch() {
+  case $1 in
+    file://*)
+      src=${1#file://}
+      [ -f "$src" ] || die "not found: $1"
+      cp "$src" "$2" || die "cannot copy $1"
+      ;;
+    *)
+      if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$1" -o "$2" || die "download failed: $1"
+      elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$2" "$1" || die "download failed: $1"
+      else
+        die "need curl or wget to download $1"
+      fi
+      ;;
+  esac
+}
+
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$1" | sed 's/^.*= *//'
+  else
+    die "need sha256sum, shasum or openssl to verify the download"
+  fi
+}
+
+base=${PACER_RELEASE_BASE:-}
+[ -n "$base" ] || die "PACER_RELEASE_BASE is not set (pacer has no public release host yet). Example: PACER_RELEASE_BASE=file:///path/to/pacer/dist/release sh install.sh"
+while :; do
+  case $base in
+    */) base=${base%/} ;;
+    *) break ;;
+  esac
+done
+case $base in
+  *@*) die "PACER_RELEASE_BASE must not contain user info (got: $base)" ;;
+esac
+case $base in
+  https://* | file://* | http://127.0.0.1 | http://127.0.0.1:* | http://127.0.0.1/* | http://localhost | http://localhost:* | http://localhost/*) ;;
+  *) die "PACER_RELEASE_BASE must start with https://, file://, or http://127.0.0.1 / http://localhost (got: $base)" ;;
+esac
+
+s=$(uname -s)
+case $s in
+  Darwin) os=darwin ;;
+  Linux) os=linux ;;
+  *) die "unsupported OS: $s (pacer builds exist for macOS and Linux)" ;;
+esac
+m=$(uname -m)
+case $m in
+  x86_64 | amd64) arch=x64 ;;
+  arm64 | aarch64) arch=arm64 ;;
+  *) die "unsupported CPU: $m (pacer builds exist for x86_64 and arm64)" ;;
+esac
+# A shell running under Rosetta reports x86_64 on Apple Silicon: install the native build.
+if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
+  arch=arm64
+fi
+if [ "$os" = linux ]; then
+  for f in /lib/ld-musl-*; do
+    if [ -e "$f" ]; then die "musl-based Linux (for example Alpine) is not supported yet"; fi
+  done
+fi
+
+tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pacer)
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 130' INT TERM
+
+version=${PACER_INSTALL_VERSION:-}
+if [ -z "$version" ]; then
+  fetch "$base/latest.json" "$tmp/latest.json"
+  version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
+  [ -n "$version" ] || die "could not read a version from $base/latest.json"
+fi
+version=${version#v}
+case $version in
+  [0-9]*) ;;
+  *) die "invalid version: $version" ;;
+esac
+case $version in
+  *[!0-9A-Za-z.-]*) die "invalid version: $version" ;;
+esac
+
+file=pacer-$os-$arch
+fetch "$base/$version/SHA256SUMS" "$tmp/SHA256SUMS"
+expected=$(awk -v f="$file" '$2 == f || $2 == "*" f { print $1; exit }' "$tmp/SHA256SUMS")
+[ -n "$expected" ] || die "release $version has no build for $os-$arch"
+fetch "$base/$version/$file" "$tmp/$file"
+actual=$(sha256 "$tmp/$file")
+[ "$actual" = "$expected" ] || die "checksum mismatch for $file (expected $expected, got $actual); nothing was installed"
+
+dir=${PACER_INSTALL_DIR:-}
+if [ -z "$dir" ]; then
+  [ -n "${HOME:-}" ] || die "HOME is not set; set PACER_INSTALL_DIR"
+  dir=$HOME/.local/bin
+fi
+mkdir -p "$dir" || die "cannot create $dir"
+# Stage next to the target, then rename: a running pacer is never overwritten in place.
+stage=$dir/.pacer.install.$$
+cp "$tmp/$file" "$stage" || die "cannot write to $dir"
+chmod 755 "$stage"
+mv -f "$stage" "$dir/pacer" || { rm -f "$stage"; die "cannot replace $dir/pacer"; }
+
+installed=$("$dir/pacer" --version 2>/dev/null || true)
+[ -n "$installed" ] || die "installed $dir/pacer, but it does not run on this machine (pacer --version printed nothing)"
+say "installed: $installed ($dir/pacer)"
+case ":${PATH:-}:" in
+  *":$dir:"*) ;;
+  *)
+    say ""
+    say "note: $dir is not on your PATH. Add this line to your shell profile:"
+    say "  export PATH=\"$dir:\$PATH\""
+    ;;
+esac
+say ""
+say "next steps:"
+say "  pacer init                 detect your AI tools and write ~/.pacer/strategy.yaml"
+say "  pacer install <planner>    connect pacer to claude-code, codex, cursor or opencode"
