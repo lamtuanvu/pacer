@@ -24,8 +24,8 @@ test("plugin install records generated files and leaves panel output untracked",
   const root = join(ctx.pacerHome, "orca-plugin");
   const r = await pluginCli(["install"], ctx);
   expect(r.code).toBe(0);
-  for (const file of ["orca-plugin.json", "worker.mjs", ".pacer-managed", "panel/live.html"]) expect(existsSync(join(root, file))).toBe(true);
-  expect(readManifest(ctx).planners["orca-plugin"]?.files.map(f => f.action)).toEqual(["created", "created", "created"]);
+  for (const file of ["orca-plugin.json", "assets/pacer-mark.svg", "worker.mjs", ".pacer-managed", "panel/live.html"]) expect(existsSync(join(root, file))).toBe(true);
+  expect(readManifest(ctx).planners["orca-plugin"]?.files.map(f => f.action)).toEqual(["created", "created", "created", "created"]);
   expect(readManifest(ctx).planners["orca-plugin"]?.files.some(f => f.path.endsWith("live.html"))).toBe(false);
   expect(r.out).toContain("development plugin paths");
   for (const cap of ["workspace:read", "terminal:send", "notifications:show", "events:subscribe", "storage", "settings:own"]) expect(r.out).toContain(cap);

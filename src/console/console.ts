@@ -3,10 +3,15 @@ import type { DelegateInput } from "../tasks/api";
 import type { TaskRecord } from "../tasks/types";
 import { decodeCmdLine, summaryLine, type CmdData, type ConsoleData, type Envelope } from "../link/envelope";
 import { currentSnapshot } from "../link/store";
-import { isTaskId, listTasks } from "../tasks/store";
+import { loadStrategy } from "../config/strategy";
+import { taskStop } from "../tasks/api";
+import { readTask, isTaskId, listTasks } from "../tasks/store";
 export interface ConsoleIO { lines: AsyncIterable<string>; write(text: string): void }
 export interface ConsoleDeps {
   delegate(ctx: Ctx, input: DelegateInput): TaskRecord;
+  readTask?: typeof readTask;
+  taskStop?: typeof taskStop;
+  configuredExecutors?(ctx: Ctx): string[];
   useStrategy(ctx: Ctx, name: string): string;
   listStrategies(ctx: Ctx): string[];
   statusText(ctx: Ctx): Promise<string>;
@@ -58,13 +63,37 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
     print(summaryLine(currentSnapshot(c).budget));
     print(`published ${updates.length} update(s)`);
   };
+  const validExecutor = (id?: string) => {
+    if (!id) return true;
+    const ids = deps.configuredExecutors?.(fresh()) ?? Object.keys(loadStrategy(fresh()).providers);
+    if (ids.includes(id)) return true;
+    print(`pacer: unknown executor ${displayText(id)}`); return false;
+  };
   const plugin = async (data: CmdData) => {
     switch (data.cmd) {
       case "delegate": {
+        if (!validExecutor(data.executor)) return;
         const repo = data.branch ? await deps.resolveWorktreePath(fresh(), data.branch) : null;
         print(`delegate requested from Orca (${displayText(data.displayName || data.branch || "focused worktree")})`);
-        startDelegate(repo || deps.cwd);
+        if (data.goal !== undefined) {
+          if (!data.goal.trim()) { print("pacer: goal is required"); return; }
+          if (data.branch && !repo) { print("pacer: focused worktree could not be resolved"); return; }
+          const task = deps.delegate(fresh(), { brief: { repo: repo || deps.cwd, goal: data.goal, acceptance: data.acceptance || "none" }, ...(data.executor ? { executor: data.executor } : {}) });
+          print(`${task.id} queued`); await deps.pump(fresh());
+        } else startDelegate(repo || deps.cwd);
         break;
+      }
+      case "retry": {
+        if (!validExecutor(data.executor)) return;
+        const task = data.taskId ? (deps.readTask ?? readTask)(fresh(), data.taskId) : null;
+        if (!task) { print("pacer: unknown task"); return; }
+        const next = deps.delegate(fresh(), { brief: { ...task.brief }, kind: task.kind, timeoutMin: task.timeoutS / 60, ...(data.executor ? { executor: data.executor } : {}) });
+        print(`${next.id} queued`); await deps.pump(fresh()); break;
+      }
+      case "stop": {
+        const task = data.taskId ? (deps.taskStop ?? taskStop)(fresh(), data.taskId) : null;
+        print(task ? `${task.id} ${task.state}` : "pacer: unknown task");
+        if (task) await deps.pump(fresh()); break;
       }
       case "use": if (data.strategy) await use(data.strategy); else chooseStrategy(); break;
       case "refresh": await refresh(); break;

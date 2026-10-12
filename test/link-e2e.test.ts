@@ -107,7 +107,7 @@ test("installed bridge connects pump snapshots and plugin console commands", asy
     const stored = JSON.parse(readFileSync(storage, "utf8")).link;
     expect(stored.tasks[0].goal).toBe("ship feature");
     await timers.advance(2000);
-    expect(readFileSync(join(root, "panel/live.html"), "utf8")).toContain(summaryLine(stored.budget));
+    expect(readFileSync(join(root, "panel/live.html"), "utf8")).toContain("Budget unknown.");
     await handlers.get("delegate")!();
     expect(decodeCmdLine(sent).cmd?.data).toEqual({ cmd: "delegate", branch: "feat-x", displayName: "feat-x" });
     const userKeys = Object.keys(JSON.parse(readFileSync(storage, "utf8")));

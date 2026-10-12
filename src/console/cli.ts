@@ -10,7 +10,8 @@ import { pumpOnce } from "../link/pump";
 import { refreshBridge } from "../link/publish";
 import { writeConsole } from "../link/store";
 import { renderText } from "../render/text";
-import { delegate } from "../tasks/api";
+import { readTask } from "../tasks/store";
+import { delegate, taskStop } from "../tasks/api";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { isObj } from "../util";
@@ -71,7 +72,7 @@ export async function runConsoleCli(args: string[], ctx: Ctx): Promise<Result> {
   }
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
   const deps: ConsoleDeps = {
-    delegate, useStrategy, listStrategies, selfHandle, resolveWorktreePath,
+    delegate, taskStop, readTask, configuredExecutors: c => Object.keys(loadStrategy(c).providers), useStrategy, listStrategies, selfHandle, resolveWorktreePath,
     statusText: async c => renderText(await computeStatus(c, loadStrategy(c))),
     pump: pumpOnce,
     heartbeat: (c, data) => { writeConsole(c, data); refreshBridge(c); },

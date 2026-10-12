@@ -33,3 +33,9 @@ test("a different status-error message produces a new alert", async () => {
   expect(out).toEqual([{v:1,type:"alert",data:{key:"status-error",level:"error",title:"pacer status failed",body:"second failure",error:"second failure",at:c.now}}]);
   expect(published).toEqual([out]);
 });
+
+test("budget publishes pace rounded to one decimal",async()=>{
+ const {toBudget}=await import("../src/link/budget");
+ const status={generatedAt:1,strategy:"s",planner:"p",mode:"normal",providers:[{id:"p",verdict:"OK",stale:false,binding:{usedPct:30,pace:28.456,resetsAt:100,name:"week"}},{id:"unmetered",verdict:"OK",stale:false,binding:null}],executors:{ranked:[]}} as any;
+ expect(toBudget(status).providers.map(p=>p.pacePct)).toEqual([28.5,null]);
+});
