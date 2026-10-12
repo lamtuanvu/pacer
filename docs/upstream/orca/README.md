@@ -1,4 +1,13 @@
-# Orca upstream drafts (for review, nothing posted)
+# Orca upstream posts
+
+Posted 2026-10-12 from the GitHub account lamtuanvu:
+- comment on stablyai/orca#25129: https://github.com/stablyai/orca/issues/25129#issuecomment-6126817756
+- comment on stablyai/orca#26951: https://github.com/stablyai/orca/issues/26951#issuecomment-6126818405
+- comment on stablyai/orca#18214: https://github.com/stablyai/orca/issues/18214#issuecomment-6126819013
+- new issue stablyai/orca#28008 (plugin terminals): https://github.com/stablyai/orca/issues/28008
+- new issue stablyai/orca#28009 (panel forms): https://github.com/stablyai/orca/issues/28009
+
+## Drafts as posted
 
 Verified against Orca 1.4.224. Each file says where it would go. Posting is the user's decision; post with the web UI, or `gh issue comment` / `gh issue create -R stablyai/orca` after approval.
 
