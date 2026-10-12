@@ -32,7 +32,8 @@ export interface TaskResult extends Verification {
   executor: string | null;
   model: string | null;
   report: string;
-  backend: "direct";
+  backend: string;
+  worktree?: string;
 }
 
 export interface TaskRecord {

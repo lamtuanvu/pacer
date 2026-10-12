@@ -11,7 +11,7 @@ import { buildPrompt } from "./prompt";
 
 export const REPORT_CHARS = 4000;
 
-export interface AttemptOutcome { attempt: Attempt; exec: ExecResult; report: string }
+export interface AttemptOutcome { attempt: Attempt; exec: ExecResult; report: string; backend?: string; worktree?: string }
 
 export function tail(s: string, n: number): string {
   return s.length > n ? s.slice(-n) : s;
@@ -19,6 +19,7 @@ export function tail(s: string, n: number): string {
 
 function outcome(cfg: ProviderCfg, startedAt: number, exec: ExecResult, log: string, report: string): AttemptOutcome {
   return {
+    backend: "direct",
     exec,
     report,
     attempt: {
