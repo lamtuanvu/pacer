@@ -9,10 +9,11 @@ export interface ModeData { mode: string; previous: string | null; strategy: str
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string }
 export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
 export interface ConsoleData { handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number }
-export interface LinkSnapshot { v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: string[] }
-export const CMD_NAMES = ["delegate", "retry", "stop", "use", "refresh", "agent-done", "worktree-created"] as const;
+export interface StrategyData { name:string; active:boolean; summary:string; description:string }
+export interface LinkSnapshot { v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
+export const CMD_NAMES = ["delegate", "retry", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
-export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string }
+export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; agent?: string; from?: string; brief?: string }
 export interface Cmd { v: 1; type: "cmd"; data: CmdData }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max: number): string | null => typeof v === "string" ? v.slice(0, max) : null;
@@ -65,7 +66,7 @@ export function emptySnapshot(): LinkSnapshot { return { v: 1, seq: 0, at: 0, bu
 export function parseSnapshot(raw: unknown): LinkSnapshot | null {
   if (!isObj(raw) || raw.v !== 1) return null; const seq = num(raw.seq), at = num(raw.at); if (seq === null || at === null) return null;
   const list = <T>(v: unknown, f: (x: unknown) => T | null, max: number): T[] => (Array.isArray(v) ? v : []).map(f).filter((x): x is T => x !== null).slice(0, max);
-  return { v: 1, seq, at, budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list(raw.strategies, v => optStr(v, 128), 32) };
+  return { v: 1, seq, at, budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list<string | StrategyData>(raw.strategies, v => typeof v === "string" ? optStr(v,128) : isObj(v) && optStr(v.name,128) ? {name:optStr(v.name,128)!,active:v.active===true,summary:str(v.summary,1000)??"",description:str(v.description,1000)??""} : null, 32) };
 }
 /** Pure. `at` is the caller's clock (unix seconds). */
 export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
@@ -92,6 +93,10 @@ export function parseCmd(raw: unknown): Cmd | null {
   for (const [k,max,pattern] of [["executor",64,/^[a-z0-9-]+$/],["taskId",128,/^[A-Za-z0-9_-]+$/]] as const) {
     if (d[k] !== undefined && (typeof d[k] !== "string" || !pattern.test(d[k] as string))) return null;
     const v=optStr(d[k],max); if(v) data[k]=v;
+  }
+  if(data.cmd==="strategy-build") {
+    if(!["claude-code","codex"].includes(String(d.agent)) || typeof d.from!=="string" || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(d.from) || typeof d.brief!=="string" || !d.brief.trim() || d.brief.length>2000)return null;
+    data.agent=String(d.agent);data.from=d.from;data.brief=d.brief;
   }
   const path=optStr(d.path,4096); if(path) data.path=path; return {v:1,type:"cmd",data};
 }

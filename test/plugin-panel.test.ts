@@ -19,9 +19,9 @@ class Node {
  click(){this.handlers.click?.();}
  focus(){this.focused=true;}
 }
-function browser(html=panel()) {
- const ids:Record<string,Node>=Object.fromEntries(["status","delegate-form","goal","done","worktree-branch","ranked-list","unavailable-list","executor-options","ranked-order","strategy-picker","console-hint"].map(id=>[id,new Node()]));
- ids["strategy-picker"].hidden=true;ids["console-hint"].hidden=true;
+function browser(html=panel(),seen:string[]=[]) {
+ const ids:Record<string,Node>=Object.fromEntries(["strategy-after","strategy-form","strategy-list","strategy-from","strategy-agent","strategy-brief","status","delegate-form","goal","done","worktree-branch","ranked-list","unavailable-list","executor-options","ranked-order","strategy-picker","console-hint"].map(id=>[id,new Node()]));
+ ids["strategy-after"].hidden=true;ids["strategy-picker"].hidden=true;ids["console-hint"].hidden=true;
  const make=(dataset:Record<string,string>)=>Object.assign(new Node(),{dataset});
  const pages=[make({page:"overview"}),make({page:"setup"}),make({page:"delegate"})];
  const submitButton=new Node(), best=new Node();best.value="";
@@ -31,6 +31,7 @@ function browser(html=panel()) {
  const sent:any[]=[];let now=100000,listener:Function=()=>{};
  const parent={postMessage:(m:any)=>sent.push(m)};
  runInNewContext(html.match(/<script>\n([\s\S]*?)<\/script>/)![1],{
+  sessionStorage:{getItem:()=>JSON.stringify(seen),setItem:(_key:string,value:string)=>{seen=JSON.parse(value);}},
   Date:class extends Date {static now(){return now;}},setInterval:(fn:Function,ms:number)=>{expect(ms).toBe(30000);intervals.push(fn);},TextEncoder,TextDecoder,Uint8Array,atob,
   document:{getElementById:(id:string)=>id==="pacer-actions"?{textContent:html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]}:ids[id],
    querySelectorAll:(selector:string)=>selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
@@ -104,7 +105,7 @@ test("maximum snapshots and hostile escaping stay under 64 KiB",()=>{
   s.consoles=Array.from({length:32},(_,i)=>({handle:`term_${String(i).padStart(36,"0")}`,paneKey:null,pid:i+1,startedAt:0,heartbeatAt:100}));s.strategies=Array.from({length:32},(_,i)=>String(i)+fill.repeat(126).slice(0,126));
   s.tasks=Array.from({length:20},(_,i)=>({id:`t${i}`+"i".repeat(125),state:"failed",goal:String(i)+fill.repeat(198).slice(0,198),executor:fill.repeat(64).slice(0,64),backend:null,worktree:null,updatedAt:100}));s.alerts=Array.from({length:10},(_,i)=>({key:`a${i}`,level:"warn",title:fill.repeat(120),body:fill.repeat(1000),at:100}));
   expect(Buffer.byteLength(panel(s))).toBeLessThan(65536);expect(payload(panel(s)).rows).toHaveLength(32);
-  const rendered=browser(panel(s));expect(rendered.ids["ranked-list"].innerHTML.match(/class="stack provider"/g)).toHaveLength(32);expect(rendered.ids["strategy-picker"].innerHTML.match(/data-strategy=/g)).toHaveLength(32);
+  const rendered=browser(panel(s));expect(rendered.ids["ranked-list"].innerHTML.match(/class="stack provider"/g)).toHaveLength(32);expect(rendered.ids["strategy-list"].innerHTML.match(/data-strategy=/g)).toHaveLength(32);
  }
 });
 test("stale budget is amber and unknown percentages use em dash",()=>{
@@ -173,11 +174,10 @@ for(const field of ["goal","done"]) for(const code of [0x7f,0x80,0x9f]) test(`de
 test("panel picks the worktree console from multiple registrations",()=>{
  const s=snapshot();s.consoles=[s.console!,{...s.console!,handle:"focused"}];const b=browser(panel(s));b.ids.goal.value="fix";b.submit();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"focused"}]});expect(b.sent.at(-1).params.terminalId).toBe("focused");
 });
-test("strategy picker sends a selected name and marks the active strategy",()=>{
- const b=browser();b.strategy.click();expect(b.ids["strategy-picker"].hidden).toBe(false);
- b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
- expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data).toEqual({cmd:"use",strategy:"custom"});expect(b.ids["strategy-picker"].innerHTML).toContain("default · current");
- const s=snapshot();s.strategies=["default"];expect(panel(s)).toContain("Only one strategy (default). Add files under ~/.pacer/strategies to switch.");expect(panel(s)).toContain('data-strategy-toggle disabled');
+test("strategy view lists summaries and sends a selected name",()=>{
+ const b=browser();b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"main",displayName:"Main",terminals:[{id:"term_console"}]});
+ expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data).toEqual({cmd:"use",strategy:"custom"});expect(b.ids["strategy-list"].innerHTML).toContain("Active");
+ const s=snapshot();s.strategies=["default"];expect(panel(s)).toContain('data-view="strategy" data-live');expect(panel(s)).toContain("Build a new strategy with an agent");
 });
 test("freshness indicator turns stale in place on its thirty-second timer",()=>{
  const b=browser();expect(b.freshness[0].parentElement.className).toContain("good");b.now(221000);b.tick();expect(b.freshness[0].parentElement.className).toContain("warn");expect(b.freshness[0].textContent).toContain("Stale");
@@ -229,4 +229,21 @@ test("a fresh registration remains usable when a stale duplicate precedes it",()
  const b=browser(panel(s));b.strategies[1].click();
  b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
  expect(b.sent.at(-1).action).toBe("terminal.sendText");
+});
+
+test("strategy builder sends safe brief payload into current worktree and limits input",()=>{
+ const b=browser();b.ids["strategy-brief"].value="Protect Claude";b.ids["strategy-from"].value="default";b.ids["strategy-agent"].value="codex";
+ b.ids["strategy-form"].handlers.submit({preventDefault(){}});const context=b.sent.at(-1);b.reply(context,{branch:"main",displayName:"Main",worktreeId:"wt",terminals:[{id:"term_console"}]});
+ expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data).toEqual({cmd:"strategy-build",agent:"codex",from:"default",brief:"Protect Claude",branch:"main",worktreeId:"wt"});
+ b.reply(b.sent.at(-1),{accepted:true});expect(b.ids.status.textContent).toBe("Session opened in a new terminal");
+ b.ids["strategy-brief"].value="x".repeat(2001);const count=b.sent.length;b.ids["strategy-form"].handlers.submit({preventDefault(){}});expect(b.sent).toHaveLength(count);
+});
+test("strategy summaries escape and every button has nowrap and shrink protection",()=>{
+ const s=snapshot();s.strategies=[{name:"default",active:true,summary:'<script>alert("x")</script>',description:""}];
+ const html=panel(s), b=browser(html);expect(b.ids["strategy-list"].innerHTML).toContain("&lt;script&gt;");expect(html).toContain("button{white-space:nowrap;flex-shrink:0;");expect(html).toContain('maxlength="2000"');expect(html).not.toContain('<option value="agy"');
+});
+test("after-session card uses newest unseen saved alert and escapes its text",()=>{
+ const s=snapshot();s.alerts=[{key:"strategySaved-new",level:"info",title:'New strategy "new" saved',body:"Codex first",at:100},{key:"strategySaved-older",level:"info",title:'<img onerror="bad">',body:"<script>bad</script>",at:90}];
+ const b=browser(panel(s),["strategySaved-new:100"]);expect(b.ids["strategy-after"].hidden).toBe(false);expect(b.ids["strategy-after"].innerHTML).toContain("&lt;img");expect(b.ids["strategy-after"].innerHTML).not.toContain('<script>');
+ expect(browser(panel(s),["strategySaved-new:100","strategySaved-older:90"]).ids["strategy-after"].hidden).toBe(true);
 });

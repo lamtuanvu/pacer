@@ -23,7 +23,7 @@ test("old snapshots parse and new console and strategy lists survive validation"
 });
 test("current snapshot lists available strategies for the panel",()=>{
  const ctx=fakeCtx();mkdirSync(join(ctx.pacerHome,"strategies"),{recursive:true});writeFileSync(join(ctx.pacerHome,"strategies","custom.yaml"),"");
- expect(currentSnapshot(ctx,()=>true).strategies).toEqual(["default","custom"]);
+ expect(currentSnapshot(ctx,()=>true).strategies?.map(x=>typeof x==="string"?x:x.name)).toEqual(["default","custom"]);
 });
 
 test("shutdown without a handle preserves another process registrations",()=>{

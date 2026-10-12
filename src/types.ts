@@ -23,6 +23,7 @@ export interface RunResult { code: number; stdout: string; stderr: string }
 export type RunFn = (argv: string[], timeoutMs: number) => Promise<RunResult>;
 
 export interface Ctx {
+  readOnly?: boolean; // Suppress cache writes for strategy previews.
   home: string;       // user home (agent logs live under it)
   pacerHome: string;  // pacer state dir
   now: number;        // unix seconds

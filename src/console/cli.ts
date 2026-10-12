@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline";
+import { use as switchStrategy } from "../strategy/service";
 import { loadStrategy, useStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
 import { parseOrcaOutput } from "../exec/orca/client";
@@ -71,7 +72,7 @@ export async function runConsoleCli(args: string[], ctx: Ctx): Promise<Result> {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
   let registeredHandle: string | null = null;
   const deps: ConsoleDeps = {
-    delegate, taskStop, readTask, configuredExecutors: c => Object.keys(loadStrategy(c).providers), useStrategy, listStrategies, selfHandle, resolveWorktreePath,
+    delegate, taskStop, readTask, configuredExecutors: c => Object.keys(loadStrategy(c).providers), useStrategy: switchStrategy, listStrategies, selfHandle, resolveWorktreePath,
     statusText: async c => renderText(await computeStatus(c, loadStrategy(c))),
     pump: pumpOnce,
     heartbeat: (c, data) => { if (data) registeredHandle = data.handle; writeConsole(c, data, registeredHandle ?? undefined); refreshBridge(c); },

@@ -16,6 +16,7 @@ let sequence = 0, context = null, sending = false;
 const submitButton = document.querySelector('button[type="submit"]');
 function finishSending() { sending = false; submitButton.disabled = false; }
 function show(view) {
+  if(view === "strategy" && savedStrategy) {try {sessionStorage.setItem("pacer-seen-strategies",JSON.stringify([...seenStrategies,savedStrategy.key+":"+savedStrategy.at].slice(-100)));}catch {}}
   for (const el of document.querySelectorAll("[data-page]")) el.hidden = el.dataset.page !== view;
   status.textContent = "";
 }
@@ -70,7 +71,19 @@ function updateContext(value) {
 // Escape data before creating local provider rows; the same nodes populate the radio list.
 function h(value) { return String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 for (const el of document.querySelectorAll("[data-text]")) el.innerHTML = h(data.text[el.dataset.text]);
-document.getElementById("strategy-picker").innerHTML = '<strong>Strategy</strong>' + data.strategies.map((name,i)=>'<button type="button" data-strategy="'+i+'" aria-pressed="'+(name===data.strategy)+'">'+h(name)+(name===data.strategy?' · current':'')+'</button>').join("");
+const strategyEntries=data.strategies.map(e=>typeof e === "string"?{name:e,summary:"",active:e===data.strategy}:e);
+document.getElementById("strategy-list").innerHTML=strategyEntries.map((e,i)=>'<button type="button" class="row" data-strategy="'+i+'"'+(e.active?' disabled':'')+'><span>'+(e.active?'✓':'')+'</span><span class="stack grow"><strong>'+h(e.name)+'</strong><small>'+h(e.summary)+'</small></span>'+(e.active?'<span class="pill">Active</span>':'')+'</button>').join("");
+document.getElementById("strategy-from").innerHTML=strategyEntries.map(e=>'<option value="'+h(e.name)+'"'+(e.active?' selected':'')+'>'+h(e.name)+'</option>').join("");
+for(const b of document.querySelectorAll("[data-strategy]")) b.addEventListener("click",()=>sendCommand({cmd:"use",strategy:strategyEntries[Number(b.dataset.strategy)].name}));
+let seenStrategies=[];
+try { seenStrategies=JSON.parse(sessionStorage.getItem("pacer-seen-strategies") || "[]"); if(!Array.isArray(seenStrategies))seenStrategies=[]; } catch {}
+const savedStrategy=(data.savedAlerts || []).find(a=>!seenStrategies.includes(a.key+":"+a.at));
+const afterSession=document.getElementById("strategy-after");
+if(savedStrategy) {
+ afterSession.hidden=false;
+ afterSession.innerHTML='<h2>After the session</h2><div class="card row strategy-saved"><span class="good">✓</span><div class="stack grow"><strong>'+h(savedStrategy.title)+'</strong><small>'+h(savedStrategy.body)+'</small></div><button type="button" data-saved-switch>Switch</button></div>';
+ document.querySelector("[data-saved-switch]")?.addEventListener("click",()=>sendCommand({cmd:"use",strategy:savedStrategy.key.slice("strategySaved-".length)}));
+}
 document.getElementById("ranked-order").innerHTML = h(data.rows.map(p=>p.name).join(" → ") || "No executor available");
 function icon(p,size) {
   return Object.hasOwn(data.paths,p.id) ? '<svg role="img" aria-label="'+h(p.name)+'" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="currentColor"><path d="'+data.paths[p.id]+'"></path></svg>' : '<span class="monogram" role="img" aria-label="'+h(p.name)+'" style="width:'+size+'px;height:'+size+'px">'+h(p.id === "codex" ? "Cx" : p.id.slice(0,2))+'</span>';
@@ -85,17 +98,10 @@ rankedList.innerHTML = data.rows.map((p,i) => '<div class="stack provider"><div 
 mutedList.innerHTML = data.muted.map(p=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span></div>').join("");
 options.innerHTML = data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict === "EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => {
-  if (b.dataset.view === "delegate") {
+  if (["delegate","strategy"].includes(b.dataset.view)) {
     if (!live()) return;
-    readContext(value => { updateContext(value); if(!live(value)) return; show("delegate"); document.getElementById("goal").focus(); });
+    readContext(value => { updateContext(value); if(!live(value)) return; show(b.dataset.view); document.getElementById(b.dataset.view === "delegate" ? "goal" : "strategy-brief").focus(); });
   } else show(b.dataset.view);
-});
-for (const b of document.querySelectorAll("[data-strategy-toggle]")) b.addEventListener("click", () => {
-  if(b.disabled) return;
-  const picker=document.getElementById("strategy-picker"); picker.hidden=!picker.hidden; b.setAttribute?.("aria-expanded",String(!picker.hidden));
-});
-for (const b of document.querySelectorAll("[data-strategy]")) b.addEventListener("click", () => {
-  sendCommand({cmd:"use",strategy:data.strategies[Number(b.dataset.strategy)]},()=>{document.getElementById("strategy-picker").hidden=true;});
 });
 for (const b of document.querySelectorAll("[data-command]")) b.addEventListener("click", () => {
   const command = data.commands[b.dataset.command];
@@ -137,6 +143,16 @@ document.getElementById("delegate-form").addEventListener("submit", event => {
       status.textContent = "Sent. The task id appears in the pacer console.";
     }, finishSending, value)) finishSending();
   }, finishSending)) finishSending();
+});
+document.getElementById("strategy-form").addEventListener("submit", event => {
+ event.preventDefault(); if(sending || !live())return;
+ const brief=document.getElementById("strategy-brief").value, from=document.getElementById("strategy-from").value, agent=document.getElementById("strategy-agent").value;
+ if(!brief.trim() || brief.length>2000 || !["claude-code","codex"].includes(agent)) {status.textContent="Enter a brief of at most 2000 characters and choose a configured agent.";return;}
+ const button=document.querySelector('#strategy-form button[type="submit"]'); sending=true;button.disabled=true;
+ const finish=()=>{sending=false;button.disabled=false;};
+ if(!readContext(value=>{updateContext(value);if(!context || !context.branch){status.textContent="Focus a worktree first.";finish();return;}
+ sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{finish();status.textContent="Session opened in a new terminal";},finish,value);
+ },finish))finish();
 });
 window.addEventListener("message", event => {
   const r = event.data;

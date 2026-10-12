@@ -1,3 +1,4 @@
+import { build } from "../strategy/launcher";
 import type { Ctx } from "../types";
 import type { DelegateInput } from "../tasks/api";
 import type { TaskRecord } from "../tasks/types";
@@ -12,7 +13,7 @@ export interface ConsoleDeps {
   readTask?: typeof readTask;
   taskStop?: typeof taskStop;
   configuredExecutors?(ctx: Ctx): string[];
-  useStrategy(ctx: Ctx, name: string): string;
+  useStrategy(ctx: Ctx, name: string): string | Promise<string>;
   listStrategies(ctx: Ctx): string[];
   statusText(ctx: Ctx): Promise<string>;
   pump(ctx: Ctx): Promise<Envelope[]>;
@@ -49,7 +50,7 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
   const startDelegate = (repo: string) => { prompt = { type: "delegate", step: 0, repo, goal: "", scope: "", acceptance: "" }; };
   const use = async (name: string) => {
     if (!deps.listStrategies(fresh()).includes(name)) { print(`pacer: unknown strategy ${displayText(name)}`); return; }
-    const path = deps.useStrategy(fresh(), name);
+    const path = await deps.useStrategy(fresh(), name);
     print(`active strategy: ${name} (${path})`);
     await deps.pump(fresh());
   };
@@ -94,6 +95,10 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
         const task = data.taskId ? (deps.taskStop ?? taskStop)(fresh(), data.taskId) : null;
         print(task ? `${task.id} ${task.state}` : "pacer: unknown task");
         if (task) await deps.pump(fresh()); break;
+      }
+      case "strategy-build": {
+        const selector=data.worktreeId ? `id:${data.worktreeId}` : data.branch ? `branch:${data.branch}` : "active";
+        print((await build(fresh(),{agent:data.agent,from:data.from,brief:data.brief,worktree:selector})).message); break;
       }
       case "use": if (data.strategy) await use(data.strategy); else chooseStrategy(); break;
       case "refresh": await refresh(); break;

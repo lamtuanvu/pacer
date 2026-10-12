@@ -4,7 +4,7 @@ import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
 import { type ConsoleData, type Envelope, LIMITS, type LinkSnapshot, emptySnapshot, parseEnvelope, parseSnapshot } from "./envelope";
 import { consolePath, consolesDir, latestPath, linkDir, outboxPath } from "./paths";
-import { listStrategies } from "./strategies";
+import { list as listStrategies } from "../strategy/service";
 export const OUTBOX_MAX_BYTES = 256 * 1024;
 export const OUTBOX_KEEP = 200;
 export interface OutboxEntry { seq:number; envelope:Envelope }

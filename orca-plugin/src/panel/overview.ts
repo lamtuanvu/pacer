@@ -14,10 +14,7 @@ export function connectionIndicator(s:LinkSnapshot, now:number, reachable:boolea
 export function header(s:LinkSnapshot, now:number, reachable:boolean):string {
  return `<header><span class="brand name">${mark}pacer</span>${s.budget?`<span class="pill">${h((s.mode?.mode??s.budget.mode).replace(/^./,c=>c.toUpperCase()))} mode</span>`:""}<span class="grow"></span>${connectionIndicator(s,now,reachable)}</header>`;
 }
-function strategyPicker(s:LinkSnapshot):string {
- const names=s.strategies?.length?s.strategies:[s.budget?.strategy ?? "default"];
- return `<section id="strategy-picker" class="card stack" hidden></section>${names.length===1?`<small>Only one strategy (${h(names[0])}). Add files under ~/.pacer/strategies to switch.</small>`:""}`;
-}
+function strategyPicker(_s:LinkSnapshot):string { return `<section id="strategy-picker" hidden></section>`; }
 export function overview(s:LinkSnapshot, now:number, reachable:boolean, commands:Record<string,CmdData>, text:Record<string,string>):string {
  const p=s.budget?.providers.find(p=>p.id===s.budget?.planner), attention=attentionGroups(s,now);
  return `<div class="content">${header(s,now,reachable)}
@@ -32,5 +29,5 @@ export function overview(s:LinkSnapshot, now:number, reachable:boolean, commands
  return `<div class="card stack attention ${g.stuck?"stuck":""}"><div class="row"><span class="${g.stuck?"warn":"bad"}" aria-hidden="true">${g.stuck?"◐":"✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small></div></div><div class="actions">${commands[key]?`<button type="button" class="${g.stuck?"":"primary"}" data-command="${key}">${g.stuck?"Stop it":`Retry on <span data-text="${key}-executor"></span>`}</button>`:"<small>No other executor available.</small>"}</div></div>`;
  }).join("")}${attention.length?"":"<small>Nothing needs attention.</small>"}</section>
  <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter(t=>t.state==="done").sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,3).map(t=>`<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0,100))}">${h(t.goal.slice(0,100))}</span><small>${h(t.executor?displayName(t.executor):"—")} · ${h(age(t.updatedAt,now))}</small></div></div>`).join("")}${s.tasks.some(t=>t.state==="done")?"":"<small>No completed tasks yet.</small>"}</div></section>
- ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-strategy-toggle${(s.strategies?.length ?? 1)<=1?" disabled":""} aria-expanded="false">Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div><div class="footnote">Updated <span data-updated>—</span> · console connected in <span data-worktree>—</span></div></div>`;
+ ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-view="strategy" data-live>Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div><div class="footnote">Updated <span data-updated>—</span> · console connected in <span data-worktree>—</span></div></div>`;
 }

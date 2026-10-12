@@ -182,3 +182,11 @@ test("delegate forwards worktree id ahead of branch and refuses unresolved id-on
  expect(selectors).toEqual([["shared","wt-1"],["","wt-2"]]);expect(h.inputs.map(i=>i.brief.repo)).toEqual(["/wt/by-id","/wt/by-id"]);
  const failed=harness({resolveWorktreePath:async()=>null});await failed.run([encodeCmdLine({cmd:"delegate",goal:"fix",worktreeId:"missing"})]);expect(failed.inputs).toHaveLength(0);
 });
+
+test("strategy-build opens a new terminal for the requested worktree and malformed requests do not launch",async()=>{
+ const h=harness();await Bun.write(`${h.ctx.pacerHome}/strategy.yaml`,"planner: claude-code\nproviders:\n  claude-code: {usage: reactive}\n  codex: {usage: reactive}\n");
+ const calls:string[][]=[];h.ctx.run=async argv=>{calls.push(argv);return {code:0,stdout:'{"ok":true,"result":{}}',stderr:""};};
+ await h.run([encodeCmdLine({cmd:"strategy-build",agent:"codex",from:"default",brief:"Protect planning",worktreeId:"wt",branch:"main"})]);
+ expect(calls[0]?.slice(0,8)).toEqual(["orca","terminal","create","--worktree","id:wt","--title","pacer strategy","--command"]);expect(h.output()).toContain("Session opened in a new terminal");
+ const bad=harness();await bad.run([encodeCmdLine({cmd:"strategy-build",agent:"agy",from:"default",brief:"x"})]);expect(bad.output()).toContain("ignored malformed plugin command");
+});
