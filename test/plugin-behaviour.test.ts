@@ -32,7 +32,7 @@ test("activation registers all commands without awaiting transport probes",async
 for(const heartbeat of [null,69])test(`delegate refuses console heartbeat ${heartbeat}`,async()=> {const f=fixture(heartbeat);try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).map(c=>c.params.title)).toEqual([NO_CONSOLE.title]);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
 test("delegate uses advertised live handle and shell-inert command with context",async()=> {const f=fixture();try{await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:true});expect(sends(f)[0].params).toEqual({terminalId:"term",text:encodeCmdLine({cmd:"delegate",branch:"pacer-task",displayName:"Project"}),enter:true});f.context=null;await f.commands.get("delegate")!();expect(sends(f)[1].params.text).toBe(encodeCmdLine({cmd:"delegate"}));await f.commands.get("switch-strategy")!();expect(sends(f)[2].params.text).toBe(encodeCmdLine({cmd:"use"}));}finally{await f.cleanup();}});
 for(const error of [false,true])test(`send rejection ${error?"throws":"accepted false"} notifies without crash`,async()=> {const f=fixture();try{f.accepted=false;f.throwSend=error;await f.start();expect(await f.commands.get("delegate")!()).toMatchObject({ok:false});expect(notes(f).at(-1)!.params.title).toBe("Orca refused to type into the pacer console");}finally{await f.cleanup();}});
-test("refresh reports clipped budget summary and silently skips absent console",async()=> {const f=fixture(null);try{f.snapshot={...f.snapshot,budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:Array.from({length:32},(_,i)=>({id:"p"+i+"x".repeat(60),verdict:"OK",usedPct:50,resetsAt:null,window:null,stale:false})),ranked:[]}};await f.start();expect(await f.commands.get("refresh-status")!()).toMatchObject({ok:true});expect(notes(f).at(-1)!.params.title).toBe(summaryLine(f.snapshot.budget));expect(notes(f).at(-1)!.params.body.length).toBeLessThanOrEqual(1000);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
+test("refresh reports clipped budget summary and silently skips absent console",async()=> {const f=fixture(null);try{f.snapshot={...f.snapshot,budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:Array.from({length:32},(_,i)=>({id:"p"+i+"x".repeat(60),verdict:"OK",pacePct:null,usedPct:50,resetsAt:null,window:null,stale:false})),ranked:[]}};await f.start();expect(await f.commands.get("refresh-status")!()).toMatchObject({ok:true});expect(notes(f).at(-1)!.params.title).toBe(summaryLine(f.snapshot.budget));expect(notes(f).at(-1)!.params.body.length).toBeLessThanOrEqual(1000);expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
 for(const heartbeat of [null,100])test(`open-console heartbeat ${heartbeat}`,async()=> {const f=fixture(heartbeat);try{await f.start();await f.commands.get("open-console")!();expect(notes(f).at(-1)!.params.title).toBe(heartbeat===null?NO_CONSOLE.title:"pacer console is running");expect(sends(f)).toHaveLength(0);}finally{await f.cleanup();}});
 test("agent events filter non-done and debounce per pane and globally",async()=> {const f=fixture();try{await f.start();const event=f.events.get("agent.status.changed")!;const p={worktreeId:"wt",paneKey:"pane",state:"done",receivedAt:100};await event({...p,state:"working"});await event({...p,mainAgent:{state:"working",stateStartedAt:0}});expect(sends(f)).toHaveLength(0);await event(p);await event(p);await event({...p,paneKey:"other"});expect(sends(f)).toHaveLength(1);expect(sends(f)[0].params.text).toBe(encodeCmdLine({cmd:"agent-done",paneKey:"pane",worktreeId:"wt"}));f.now=105;await event(p);expect(sends(f)).toHaveLength(2);}finally{await f.cleanup();}});
 test("worktree events send only pacer branches and silently skip absent console",async()=> {const f=fixture();try{await f.start();const event=f.events.get("worktree.created")!;const p={worktreeId:"wt",path:"/tmp/work",branch:"feature/x"};await event(p);expect(sends(f)).toHaveLength(0);await event({...p,branch:"pacer-1"});await event({...p,branch:"feature/pacer-2"});expect(sends(f)).toHaveLength(2);f.snapshot={...f.snapshot,console:null};await f.commands.get("refresh-status")!();await event({...p,branch:"pacer-3"});expect(sends(f)).toHaveLength(2);}finally{await f.cleanup();}});
@@ -108,10 +108,10 @@ test("panel escapes script injection in goals, alerts and console action JSON", 
  };
  const html = renderPanel(s,{nowS:100,transport:"bridge",reachable:true});
  expect(html).not.toContain("<img src=x");
- expect(html.match(/&lt;img src=x/g)).toHaveLength(4);
+ expect(html).toContain("data-page=\"delegate\"");
  const json = html.match(/id="pacer-actions">(.*?)<\/script>/s)![1];
  expect(json).not.toContain("<"); expect(json).not.toMatch(/[\u2028\u2029]/);
- expect(JSON.parse(json).delegate.terminalId).toBe(attack);
+ expect(JSON.parse(json).handle).toBe(attack);
 });
 
 test("store contract produces the same content through HTTP SSE, bridge and channel", async () => {
@@ -195,12 +195,12 @@ test("HTTP snapshot polls re-render panel liveness even when content is unchange
   fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_path,text)=>panels.push(text)}});
  try {
   await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
-  expect(panels.at(-1)).toContain('data-action="delegate">');
+  expect(panels.at(-1)).toContain('data-view="delegate" data-live>');
   now=140;await f.timers.advance(10000);
-  expect(panels.at(-1)).toContain('data-action="delegate" disabled');
+  expect(panels.at(-1)).toContain('data-view="delegate" data-live disabled');
   f.snapshot={...f.snapshot,console:{...f.snapshot.console!,heartbeatAt:140}};
   await f.timers.advance(10000);
-  expect(panels.at(-1)).toContain('data-action="delegate">');
+  expect(panels.at(-1)).toContain('data-view="delegate" data-live>');
  }finally{await plugin.deactivate();await f.cleanup();}
 });
 
@@ -277,8 +277,8 @@ test("HTTP recovery before failover restores reachable panel state",async()=>{
  fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_p,s)=>panels.push(s)}});
  try{
   await plugin.activate(f.ctx);await flush();await f.timers.advance(2000);
-  up=false;await f.timers.advance(10000);expect(panels.at(-1)).toContain("pacer link is unreachable");
-  up=true;await f.timers.advance(10000);expect(panels.at(-1)).not.toContain("pacer link is unreachable");
+  up=false;await f.timers.advance(10000);expect(panels.at(-1)).toContain("Not connected");
+  up=true;await f.timers.advance(10000);expect(panels.at(-1)).not.toContain("Not connected");
  }finally{await plugin.deactivate();await f.cleanup();}
 });
 test("HTTP SSE and poll generation timestamps do not trigger renders or notifications",async()=>{
@@ -322,13 +322,13 @@ test("real loopback server shutdown switches HTTP to bridge and restart restores
  const advance=async(ms:number)=>{for(let n=0;n<ms;n+=1000){await f.timers.advance(1000);await settle();}};
  try{
   await plugin.activate(f.ctx);await settle();await advance(2000);
-  expect(panels.at(-1)).toContain("via http.");
+  expect(panels.at(-1)).toContain('data-transport="http"');
   server.stop(true);
   for(let i=0;i<3;i++){await advance(10000);await settle();}
   await advance(2000);
-  expect(panels.at(-1)).toContain("via bridge.");
+  expect(panels.at(-1)).toContain('data-transport="bridge"');
   server=serve(port);
   await advance(10000);await settle();await advance(2000);
-  expect(panels.at(-1)).toContain("via http.");
+  expect(panels.at(-1)).toContain('data-transport="http"');
  }finally{server.stop(true);await plugin.deactivate();await f.cleanup();}
 });

@@ -2,7 +2,7 @@
 export const PLUGIN_KEY = "pacer.pacer";
 export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 } as const;
 export type Level = "info" | "warn" | "error";
-export interface ProviderLine { id: string; verdict: string; usedPct: number | null; resetsAt: number | null; window: string | null; stale: boolean }
+export interface ProviderLine { id: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
 export interface TaskData { id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
@@ -10,9 +10,9 @@ export interface AlertData { key: string; level: Level; title: string; body: str
 export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
 export interface ConsoleData { handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number }
 export interface LinkSnapshot { v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null }
-export const CMD_NAMES = ["delegate", "use", "refresh", "agent-done", "worktree-created"] as const;
+export const CMD_NAMES = ["delegate", "retry", "stop", "use", "refresh", "agent-done", "worktree-created"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
-export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string }
+export interface CmdData { cmd: CmdName; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string }
 export interface Cmd { v: 1; type: "cmd"; data: CmdData }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max: number): string | null => typeof v === "string" ? v.slice(0, max) : null;
@@ -26,7 +26,7 @@ function parseBudget(d: unknown): BudgetData | null {
   if (generatedAt === null || strategy === null || planner === null || mode === null) return null;
   const providers = (Array.isArray(d.providers) ? d.providers : []).slice(0, LIMITS.providers).flatMap((p): ProviderLine[] => {
     if (!isObj(p)) return []; const id = str(p.id, 64), verdict = str(p.verdict, 32); if (id === null || verdict === null) return [];
-    return [{ id, verdict, usedPct: num(p.usedPct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true }];
+    return [{ id, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true }];
   });
   const ranked = (Array.isArray(d.ranked) ? d.ranked : []).slice(0, LIMITS.providers).flatMap((r) => {
     if (!isObj(r)) return []; const id = str(r.id, 64), verdict = str(r.verdict, 32); return id === null || verdict === null ? [] : [{ id, verdict }];
@@ -88,6 +88,11 @@ export function parseCmd(raw: unknown): Cmd | null {
   if (!isObj(raw) || raw.v !== 1 || raw.type !== "cmd" || !isObj(raw.data)) return null; const d=raw.data;
   if (!CMD_NAMES.includes(d.cmd as CmdName)) return null; const data: CmdData = { cmd:d.cmd as CmdName };
   for (const k of ["branch","displayName","paneKey","worktreeId","strategy"] as const) { const v=optStr(d[k],1024); if(v) data[k]=v; }
+  for (const [k,max] of [["goal",2000],["acceptance",500]] as const) { const v=str(d[k],max); if(v !== null) data[k]=v; }
+  for (const [k,max,pattern] of [["executor",64,/^[a-z0-9-]+$/],["taskId",128,/^[A-Za-z0-9_-]+$/]] as const) {
+    if (d[k] !== undefined && (typeof d[k] !== "string" || !pattern.test(d[k] as string))) return null;
+    const v=optStr(d[k],max); if(v) data[k]=v;
+  }
   const path=optStr(d.path,4096); if(path) data.path=path; return {v:1,type:"cmd",data};
 }
 export function decodeCmdLine(line: string): { before: string; cmd: Cmd | null } {

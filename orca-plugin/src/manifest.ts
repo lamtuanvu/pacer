@@ -9,6 +9,7 @@ export function pluginManifest(version: string) {
     engines: { orca: ">=1.4.224" },
     pluginApi: 1,
     main: "worker.mjs",
+    icon: "assets/pacer-mark.svg",
     contributes: {
       panels: [{ id: "budget", title: "pacer budget", icon: "gauge", entry: "panel/live.html" }],
       commands: [

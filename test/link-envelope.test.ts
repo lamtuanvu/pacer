@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { encodeCmdLine, decodeCmdLine, parseEnvelope, reduce, emptySnapshot, contentKey, summaryLine, liveConsole, type Envelope } from "../src/link/envelope";
 
-const budget = { generatedAt: 1, strategy: "default", planner: "claude-code", mode: "normal", providers: [{ id: "claude-code", verdict: "ON_PACE", usedPct: 61.4, resetsAt: null, window: null, stale: false }], ranked: [{ id: "codex", verdict: "OK" }] };
+const budget = { generatedAt: 1, strategy: "default", planner: "claude-code", mode: "normal", providers: [{ id: "claude-code", verdict: "ON_PACE", pacePct:null,usedPct: 61.4, resetsAt: null, window: null, stale: false }], ranked: [{ id: "codex", verdict: "OK" }] };
 const envs: Envelope[] = [
   { v: 1, type: "budget", data: budget },
   { v: 1, type: "task", data: { id: "t1", state: "running", goal: "go", executor: null, backend: null, worktree: null, updatedAt: 2 } },
@@ -40,4 +40,20 @@ describe("link envelope", () => {
     expect(summaryLine(null)).toBe("pacer: no budget data yet"); expect(summaryLine(budget)).toBe("pacer normal | claude-code 61% ON_PACE | next: codex"); expect(summaryLine(budget).length).toBeLessThanOrEqual(120);
     const s = { ...emptySnapshot(), console: { handle: "h", paneKey: null, pid: 1, startedAt: 1, heartbeatAt: 100 } }; expect(liveConsole(s, 130)).not.toBeNull(); expect(liveConsole(s, 131)).toBeNull(); expect(liveConsole({ ...s, console: { ...s.console!, handle: null } }, 101)).toBeNull();
   });
+});
+
+test("pacePct accepts only finite numbers and old budgets still parse",()=>{
+ for(const [value,expected] of [[undefined,null],[null,null],[28.4,28.4],[NaN,null],[Infinity,null],["25",null]]) {
+  const parsed=parseEnvelope({v:1,type:"budget",data:{...budget,providers:[{...budget.providers[0],pacePct:value}]}}) as any;
+  expect(parsed.data.providers[0].pacePct).toBe(expected);
+ }
+});
+test("structured commands clamp brief fields, validate identifiers and preserve legacy payloads",async()=>{
+ const {parseCmd}=await import("../src/link/envelope");
+ const parse=(data:unknown)=>parseCmd({v:1,type:"cmd",data});
+ expect(parse({cmd:"delegate"})?.data).toEqual({cmd:"delegate"});
+ expect(parse({cmd:"delegate",goal:"g".repeat(3000),acceptance:"a".repeat(600),executor:"x".repeat(100),taskId:"t".repeat(200)})?.data).toEqual({cmd:"delegate",goal:"g".repeat(2000),acceptance:"a".repeat(500),executor:"x".repeat(64),taskId:"t".repeat(128)});
+ for(const executor of ["../bad","ABC","x y","",4]) expect(parse({cmd:"retry",executor})).toBeNull();
+ for(const taskId of ["../bad","x y","",4]) expect(parse({cmd:"stop",taskId})).toBeNull();
+ expect(decodeCmdLine(encodeCmdLine({cmd:"retry",taskId:"T_1-2",executor:"codex"})).cmd?.data).toEqual({cmd:"retry",taskId:"T_1-2",executor:"codex"});
 });

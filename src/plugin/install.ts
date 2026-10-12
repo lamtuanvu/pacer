@@ -42,7 +42,7 @@ export async function uninstallPlugin(ctx: Ctx, platform?: NodeJS.Platform): Pro
   if (!report) return null;
   const dir = pluginDir(ctx), live = join(dir, LIVE_PANEL);
   if (existsSync(live)) { rmSync(live); report.removed.push(live); }
-  for (const d of [join(dir, "panel"), dir]) {
+  for (const d of [join(dir, "panel"), join(dir, "assets"), dir]) {
     try { if (existsSync(d) && readdirSync(d).length === 0) rmdirSync(d); } catch { /* keep non-empty */ }
   }
   const c = clearBridge(ctx, platform);

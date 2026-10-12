@@ -141,3 +141,32 @@ test("delegate repo prompt strips controls from a resolved worktree path", async
  expect(h.output()).toContain("repo [/wt/[31mpath]>");
  expect(h.inputs[0].brief.repo).toBe("/wt/\u001b[31m\n\u009bpath");
 });
+
+test("delegate with goal bypasses prompts and preserves the full brief and selected executor",async()=>{
+ const h=harness({configuredExecutors:()=>["codex"]});
+ await h.run([encodeCmdLine({cmd:"delegate",branch:"feat-x",goal:"fix this",acceptance:"bun test",executor:"codex"}),"status"]);
+ expect(h.inputs).toEqual([{brief:{repo:"/wt/feat-x",goal:"fix this",acceptance:"bun test"},executor:"codex"}]);expect(h.output()).not.toContain("goal> ");expect(h.output()).toContain("STATUS TEXT");expect(h.output()).toContain("t-20261012-120000-abcd queued");
+});
+test("delegate defaults acceptance and refuses unresolved focused worktree",async()=>{
+ const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:"fix"})]);expect(h.inputs[0].brief.acceptance).toBe("none");
+ const failed=harness({resolveWorktreePath:async()=>null});await failed.run([encodeCmdLine({cmd:"delegate",branch:"missing",goal:"fix"})]);expect(failed.inputs).toHaveLength(0);expect(failed.output()).toContain("could not be resolved");
+});
+test("retry re-delegates the stored brief with explicit executor or ranking",async()=>{
+ const h=harness({configuredExecutors:()=>["codex"]});
+ const task=createTask(h.ctx,{brief:{goal:"retry me",repo:"/repo",acceptance:"bun test",scope:"src",constraints:"stay here"},kind:"code",requestedExecutor:"old",timeoutS:120});
+ await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"}),encodeCmdLine({cmd:"retry",taskId:task.id})]);
+ expect(h.inputs[0]).toEqual({brief:task.brief,kind:"code",timeoutMin:2,executor:"codex"});expect(h.inputs[1].executor).toBeUndefined();expect(h.inputs[1].brief).toEqual(task.brief);expect(h.calls.filter(c=>c==="pump")).toHaveLength(2);
+});
+test("stop uses the task API and unknown tasks print an error",async()=>{
+ const h=harness();const task=createTask(h.ctx,{brief:{goal:"stop",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
+ await h.run([encodeCmdLine({cmd:"stop",taskId:task.id}),encodeCmdLine({cmd:"stop",taskId:"missing"}),encodeCmdLine({cmd:"retry",taskId:"missing"})]);
+ expect(h.output()).toContain(`${task.id} stopped`);expect(h.output().match(/unknown task/g)).toHaveLength(2);expect(h.inputs).toHaveLength(0);
+});
+test("invalid configured executor causes no delegation or lookup",async()=>{
+ const h=harness({configuredExecutors:()=>["codex"],readTask:()=>{throw new Error("must not look up");}});
+ await h.run([encodeCmdLine({cmd:"delegate",goal:"fix",branch:"feat-x",executor:"missing"}),encodeCmdLine({cmd:"retry",taskId:"t",executor:"missing"})]);
+ expect(h.inputs).toHaveLength(0);expect(h.calls).toEqual([]);expect(h.output().match(/unknown executor missing/g)).toHaveLength(2);
+});
+test("an explicitly empty goal errors instead of starting the interactive prompt",async()=>{
+ const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:""}),"status"]);expect(h.output()).toContain("goal is required");expect(h.output()).not.toContain("goal> ");expect(h.inputs).toHaveLength(0);expect(h.output()).toContain("STATUS TEXT");
+});
