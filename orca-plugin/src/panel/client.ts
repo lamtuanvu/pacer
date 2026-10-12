@@ -20,7 +20,7 @@ function show(view) {
   status.textContent = "";
 }
 function live(workspace) {
-  const available = data.consoles.filter(c=>c.handle && Date.now()/1000-c.heartbeatAt<=600);
+  const available = data.consoles.filter(c=>c.handle && c.live);
   const selected = workspace === undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
   if (selected) { if(workspace !== undefined) data.handle = selected.handle; document.getElementById("console-hint").hidden = true; return true; }
   status.textContent = "No pacer console in this worktree";
@@ -28,6 +28,7 @@ function live(workspace) {
   return false;
 }
 function updateFreshness() {
+  for(const el of document.querySelectorAll("[data-updated]")) el.textContent = data.updatedAt ? new Date(data.updatedAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
   const old = Date.now()/1000-data.snapshotAt>120;
   for(const el of document.querySelectorAll("[data-freshness]")) {
     el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "warn" : "good");
@@ -109,6 +110,11 @@ for (const b of document.querySelectorAll("[data-setup]")) b.addEventListener("c
   });
 });
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
+  if (!data.reachable) {
+    status.textContent = "Waiting for pacer serve. Start it, then reopen this panel.";
+    document.getElementById("console-hint").hidden = true;
+    return;
+  }
   sendCommand({cmd:"refresh"});
 });
 document.getElementById("delegate-form").addEventListener("submit", event => {

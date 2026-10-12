@@ -2,7 +2,7 @@ import { type LinkSnapshot, type ProviderLine, type TaskData } from "../../../sr
 import { displayName } from "./icons";
 import { duration, backIn } from "./shared";
 export function initialView(s: LinkSnapshot, reachable: boolean, now: number): "overview" | "setup" {
- return reachable && s.budget && [...(s.consoles ?? []), ...(s.console ? [s.console] : [])].some(c=>c.handle && now-c.heartbeatAt<=600) ? "overview" : "setup";
+ return reachable && s.budget && [...(s.consoles ?? []), ...(s.console ? [s.console] : [])].some(c=>c.handle && now-c.heartbeatAt<=30) ? "overview" : "setup";
 }
 const words:Record<string,string> = {ON_PACE:"Available",OK:"Available",UNMETERED:"Available",AHEAD:"Ahead of pace",BEHIND:"Behind pace",EXPIRING:"Expiring soon",EXPIRING_SOON:"Expiring soon",NEAR_LIMIT:"Near limit",EXHAUSTED:"Out of quota"};
 export const verdictWords = (v: string) => Object.hasOwn(words,v) ? words[v] : "Unknown";

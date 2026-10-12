@@ -6,11 +6,11 @@
  <section class="stack section"><div class="row"><h2>Who runs next</h2><span class="grow"></span><small>in this order</small></div><div class="list" id="ranked-list"></div><div class="stack unavailable" id="unavailable-list"></div></section>
  <section class="stack section"><div class="row"><h2>Needs attention</h2></div><small>Nothing needs attention.</small></section>
  <section class="stack section"><h2>Recently done</h2><div class="stack recent"><small>No completed tasks yet.</small></div></section>
- <section id="strategy-picker" class="card stack" hidden></section><small>Only one strategy (default). Add files under ~/.pacer/strategies to switch.</small></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live disabled>Delegate a task</button><button type="button" data-strategy-toggle disabled aria-expanded="false">Strategy</button><button type="button" class="refresh" data-command="refresh" disabled aria-label="Refresh">↻</button></div><div class="footnote">Updated — · console connected in <span data-worktree>—</span></div></div></main>
+ <section id="strategy-picker" class="card stack" hidden></section><small>Only one strategy (default). Add files under ~/.pacer/strategies to switch.</small></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live disabled>Delegate a task</button><button type="button" data-strategy-toggle disabled aria-expanded="false">Strategy</button><button type="button" class="refresh" data-command="refresh" disabled aria-label="Refresh">↻</button></div><div class="footnote">Updated <span data-updated>—</span> · console connected in <span data-worktree>—</span></div></div></main>
  <main class="view" data-page="setup"><div class="content"><header><span class="brand name"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><rect x="4" y="20" width="40" height="8" rx="4" fill="var(--border)"></rect><rect x="4" y="20" width="22" height="8" rx="4" fill="currentColor"></rect><rect class="brand-tick" x="29" y="12" width="4" height="24" rx="2"></rect></svg>pacer</span><span class="grow"></span><span class="name live bad"><span class="dot"></span><span data-freshness>Not connected</span></span></header><div class="stack"><div class="headline">Two steps to connect pacer</div><div class="muted">The plugin is on. It needs pacer running on this machine to show your budget and send work.</div></div><div class="list"><div class="step done"><span class="step-num" aria-hidden="true">✓</span><div class="stack grow"><strong>Plugin enabled</strong><small>Loaded from ~/.pacer/orca-plugin</small></div></div><div class="step current"><span class="step-num" aria-hidden="true">2</span><div class="stack grow"><strong>Start the pacer link</strong><small>Shares live budget with this panel. Leave it running in any terminal.</small><div class="row command"><code class="grow">pacer serve</code><button type="button" data-setup="pacer serve">Type command</button></div></div></div><div class="step "><span class="step-num" aria-hidden="true">3</span><div class="stack grow"><strong>Open the pacer console</strong><small>Lets the buttons here delegate and switch strategy. Runs in this worktree.</small><div class="row command"><code class="grow">pacer console --open</code><button type="button" data-setup="pacer console --open">Type command</button></div></div></div></div><div class="row note info"><strong aria-hidden="true">i</strong><small>pacer never changes Orca's settings. Everything runs on 127.0.0.1 and only on this machine.</small></div></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" disabled>Delegate a task</button><button type="button" data-check>Check again</button></div><div class="footnote">Delegating needs the console from step 3</div></div></main>
  <main class="view" data-page="delegate" hidden><form id="delegate-form"><div class="content"><header><button type="button" data-view="overview" aria-label="Back to overview">←</button><strong>Delegate a task</strong><span class="grow"></span><span class="name live bad"><span class="dot"></span><span data-freshness>Not connected</span></span></header><div class="muted">Write it the way you'd brief a colleague who can't see this chat. Claude plans; the task runs on an executor.</div><div class="stack"><label for="goal">What should be done?</label><textarea id="goal" name="goal" required maxlength="2000" rows="5" placeholder="e.g. Make the owner-facing diag calls accept browser_turn_id, with a regression test"></textarea></div><div class="stack"><strong>Where</strong><div class="stack where"><strong data-worktree>—</strong><small>Branch <span id="worktree-branch">—</span> · focused worktree</small></div></div><div class="stack"><label for="done">Done when</label><input id="done" name="acceptance" type="text" maxlength="500" placeholder="A command that passes, e.g. bun test"><small>pacer runs it after the executor finishes and only reports done if it passes.</small></div><fieldset class="stack"><legend>Runs on</legend><label class="radio"><input type="radio" name="executor" value="" checked><span class="stack grow"><strong>Best available</strong><small><span id="ranked-order"></span></small></span><span class="pill">Recommended</span></label><div id="executor-options" class="stack"></div></fieldset><div class="row note"><strong aria-hidden="true">i</strong><small>Runs in its own worktree. You'll get a notification when it finishes, and it shows under Needs attention if it fails.</small></div></div><div class="actionbar"><div class="actions"><button type="button" data-view="overview">Cancel</button><button type="submit" class="primary grow" data-live disabled>Delegate</button></div></div></form></main>
  <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong><button type="button" data-setup="pacer console">Type pacer console</button><small>Press Enter in the terminal to start it.</small></div>
- <script type="application/json" id="pacer-actions">{"consoles":[],"strategies":["default"],"strategy":"default","snapshotAt":0,"reachable":false,"commands":{"refresh":{"cmd":"refresh"}},"text":{},"paths":{},"rows":[],"muted":[]}</script><script>
+ <script type="application/json" id="pacer-actions">{"consoles":[],"strategies":["default"],"strategy":"default","snapshotAt":0,"updatedAt":0,"reachable":false,"commands":{"refresh":{"cmd":"refresh"}},"text":{},"paths":{},"rows":[],"muted":[]}</script><script>
 
 const embedded = JSON.parse(document.getElementById("pacer-actions").textContent);
 function unpack(value) {
@@ -32,7 +32,7 @@ function show(view) {
   status.textContent = "";
 }
 function live(workspace) {
-  const available = data.consoles.filter(c=>c.handle && Date.now()/1000-c.heartbeatAt<=600);
+  const available = data.consoles.filter(c=>c.handle && c.live);
   const selected = workspace === undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
   if (selected) { if(workspace !== undefined) data.handle = selected.handle; document.getElementById("console-hint").hidden = true; return true; }
   status.textContent = "No pacer console in this worktree";
@@ -40,6 +40,7 @@ function live(workspace) {
   return false;
 }
 function updateFreshness() {
+  for(const el of document.querySelectorAll("[data-updated]")) el.textContent = data.updatedAt ? new Date(data.updatedAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
   const old = Date.now()/1000-data.snapshotAt>120;
   for(const el of document.querySelectorAll("[data-freshness]")) {
     el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "warn" : "good");
@@ -121,6 +122,11 @@ for (const b of document.querySelectorAll("[data-setup]")) b.addEventListener("c
   });
 });
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
+  if (!data.reachable) {
+    status.textContent = "Waiting for pacer serve. Start it, then reopen this panel.";
+    document.getElementById("console-hint").hidden = true;
+    return;
+  }
   sendCommand({cmd:"refresh"});
 });
 document.getElementById("delegate-form").addEventListener("submit", event => {

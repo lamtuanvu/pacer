@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { clip, liveConsole, summaryLine, type CmdData } from "../../src/link/envelope";
+import { clip, LIMITS, liveConsole, summaryLine, type CmdData } from "../../src/link/envelope";
 import type { AgentStatusChanged, OrcaWorkerContext, WorktreeCreated } from "./orca-api";
 import { readSettings } from "./settings";
 import { LinkStore } from "./store";
@@ -57,12 +57,14 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     let active: Transport | null = null, reachable = false, connecting: Promise<void> | null = null;
     let processing = Promise.resolve();
     let httpFailures = 0;
-    let renderedKey: string | null = null, renderedAt = -Infinity;
+    let renderedKey: string | null = null;
     const panelKey = () => JSON.stringify({
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       tasks: store.snapshot.tasks, alerts: store.snapshot.alerts,
-      consoles: [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
+      consoles: [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map(handle => ({
+        handle, live: [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS),
+      })), strategies: store.snapshot.strategies, transport: store.transport, reachable,
     });
     const logError = (e: unknown) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
     const scheduleRender = () => {
@@ -72,10 +74,10 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         if (stopped) return;
         try {
           const key = panelKey(), nowS = deps.nowS();
-          if (key !== renderedKey || nowS - renderedAt >= 300) {
+          if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
               deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable }));
-              renderedKey = key; renderedAt = nowS;
+              renderedKey = key;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
         } catch (e) { logError(e); }
@@ -84,7 +86,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       });
     };
     store.onChange(scheduleRender);
-    timers.every(300000, scheduleRender);
+    timers.every(15000, () => { if (panelKey() !== renderedKey) scheduleRender(); });
     const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
       store.replace(snapshot);

@@ -25,3 +25,27 @@ test("current snapshot lists available strategies for the panel",()=>{
  const ctx=fakeCtx();mkdirSync(join(ctx.pacerHome,"strategies"),{recursive:true});writeFileSync(join(ctx.pacerHome,"strategies","custom.yaml"),"");
  expect(currentSnapshot(ctx,()=>true).strategies).toEqual(["default","custom"]);
 });
+
+test("shutdown without a handle preserves another process registrations",()=>{
+ const ctx=fakeCtx({now:100});writeConsole(ctx,c("other",process.pid+1,100));
+ writeConsole(ctx,null);
+ expect(existsSync(join(linkDir(ctx),"consoles","other.json"))).toBe(true);
+ expect(existsSync(consolePath(ctx))).toBe(true);
+});
+test("shutdown without a handle removes only registrations owned by this pid",()=>{
+ const ctx=fakeCtx({now:100});writeConsole(ctx,c("owned",process.pid,100));writeConsole(ctx,c("other",process.pid+1,100));
+ writeConsole(ctx,null);
+ expect(existsSync(join(linkDir(ctx),"consoles","owned.json"))).toBe(false);
+ expect(existsSync(join(linkDir(ctx),"consoles","other.json"))).toBe(true);
+ expect(existsSync(consolePath(ctx))).toBe(true);
+ writeConsole(ctx,c("owned",process.pid,100));writeConsole(ctx,null);
+ expect(existsSync(consolePath(ctx))).toBe(false);
+});
+test("registrations over ten minutes old are deleted even with a reused live pid",()=>{
+ const ctx=fakeCtx({now:1000});writeConsole(ctx,c("expired",process.pid,399));
+ const s=currentSnapshot(ctx,()=>true);
+ expect(s.consoles).toEqual([]);
+ expect(existsSync(join(linkDir(ctx),"consoles","expired.json"))).toBe(false);
+ expect(existsSync(consolePath(ctx))).toBe(false);
+ writeConsole(ctx,c("boundary",process.pid,400));expect(currentSnapshot(ctx,()=>true).consoles?.map(c=>c.handle)).toEqual(["boundary"]);
+});

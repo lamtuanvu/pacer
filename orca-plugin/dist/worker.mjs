@@ -496,7 +496,7 @@ var mark = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><
 
 // orca-plugin/src/panel/model.ts
 function initialView(s, reachable, now) {
-  return reachable && s.budget && [...s.consoles ?? [], ...s.console ? [s.console] : []].some((c) => c.handle && now - c.heartbeatAt <= 600) ? "overview" : "setup";
+  return reachable && s.budget && [...s.consoles ?? [], ...s.console ? [s.console] : []].some((c) => c.handle && now - c.heartbeatAt <= 30) ? "overview" : "setup";
 }
 var words = { ON_PACE: "Available", OK: "Available", UNMETERED: "Available", AHEAD: "Ahead of pace", BEHIND: "Behind pace", EXPIRING: "Expiring soon", EXPIRING_SOON: "Expiring soon", NEAR_LIMIT: "Near limit", EXHAUSTED: "Out of quota" };
 var verdictWords = (v) => Object.hasOwn(words, v) ? words[v] : "Unknown";
@@ -596,7 +596,7 @@ function overview(s, now, reachable, commands, text) {
     return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small></div></div><div class="actions">${commands[key] ? `<button type="button" class="${g.stuck ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `Retry on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}</div></div>`;
   }).join("")}${attention.length ? "" : "<small>Nothing needs attention.</small>"}</section>
  <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter((t) => t.state === "done").sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).map((t) => `<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0, 100))}">${h(t.goal.slice(0, 100))}</span><small>${h(t.executor ? displayName(t.executor) : "—")} · ${h(age(t.updatedAt, now))}</small></div></div>`).join("")}${s.tasks.some((t) => t.state === "done") ? "" : "<small>No completed tasks yet.</small>"}</div></section>
- ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-strategy-toggle${(s.strategies?.length ?? 1) <= 1 ? " disabled" : ""} aria-expanded="false">Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div><div class="footnote">Updated ${s.at ? h(time(s.at)) : "—"} · console connected in <span data-worktree>—</span></div></div>`;
+ ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-strategy-toggle${(s.strategies?.length ?? 1) <= 1 ? " disabled" : ""} aria-expanded="false">Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div><div class="footnote">Updated <span data-updated>—</span> · console connected in <span data-worktree>—</span></div></div>`;
 }
 
 // orca-plugin/src/panel/setup.ts
@@ -638,7 +638,7 @@ function show(view) {
   status.textContent = "";
 }
 function live(workspace) {
-  const available = data.consoles.filter(c=>c.handle && Date.now()/1000-c.heartbeatAt<=600);
+  const available = data.consoles.filter(c=>c.handle && c.live);
   const selected = workspace === undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
   if (selected) { if(workspace !== undefined) data.handle = selected.handle; document.getElementById("console-hint").hidden = true; return true; }
   status.textContent = "No pacer console in this worktree";
@@ -646,6 +646,7 @@ function live(workspace) {
   return false;
 }
 function updateFreshness() {
+  for(const el of document.querySelectorAll("[data-updated]")) el.textContent = data.updatedAt ? new Date(data.updatedAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
   const old = Date.now()/1000-data.snapshotAt>120;
   for(const el of document.querySelectorAll("[data-freshness]")) {
     el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "warn" : "good");
@@ -727,6 +728,11 @@ for (const b of document.querySelectorAll("[data-setup]")) b.addEventListener("c
   });
 });
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
+  if (!data.reachable) {
+    status.textContent = "Waiting for pacer serve. Start it, then reopen this panel.";
+    document.getElementById("console-hint").hidden = true;
+    return;
+  }
   sendCommand({cmd:"refresh"});
 });
 document.getElementById("delegate-form").addEventListener("submit", event => {
@@ -766,12 +772,12 @@ readContext(value => { live(value); });
 
 // orca-plugin/src/panel.ts
 function renderPanel(s, view) {
-  const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c, i, a) => c.handle && view.nowS - c.heartbeatAt <= 600 && a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], selected = initialView(s, view.reachable, view.nowS);
+  const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c) => c.handle && view.nowS - c.heartbeatAt <= LIMITS.heartbeatS).filter((c, i, a) => a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], selected = initialView(s, view.reachable, view.nowS);
   const commands = { refresh: { cmd: "refresh" } };
   const text = {};
   const main = overview(s, view.nowS, view.reachable, commands, text);
   const disable = (html) => console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled");
-  const payload = { consoles: consoles.map((c) => ({ handle: c.handle, heartbeatAt: c.heartbeatAt })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", snapshotAt: s.budget?.generatedAt ?? s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict) })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS) })) };
+  const payload = { consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict) })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS) })) };
   const packed = packPanelData(payload), plain = jsonForScript(packed), encoded = jsonForScript({ encoded: Buffer.from(JSON.stringify(packed), "utf8").toString("base64") });
   const data = encoded.length < plain.length ? encoded : plain;
   return `<!doctype html><html lang="en" data-transport="${h(view.transport ?? "none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style}</style></head><body>
@@ -845,13 +851,16 @@ function createPlugin(deps) {
     let active = null, reachable = false, connecting = null;
     let processing = Promise.resolve();
     let httpFailures = 0;
-    let renderedKey = null, renderedAt = -Infinity;
+    let renderedKey = null;
     const panelKey = () => JSON.stringify({
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       tasks: store.snapshot.tasks,
       alerts: store.snapshot.alerts,
-      consoles: [...new Set([...(store.snapshot.consoles ?? []).map((c) => c.handle), store.snapshot.console?.handle].filter(Boolean))].sort(),
+      consoles: [...new Set([...(store.snapshot.consoles ?? []).map((c) => c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map((handle) => ({
+        handle,
+        live: [...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS)
+      })),
       strategies: store.snapshot.strategies,
       transport: store.transport,
       reachable
@@ -866,11 +875,10 @@ function createPlugin(deps) {
           return;
         try {
           const key = panelKey(), nowS = deps.nowS();
-          if (key !== renderedKey || nowS - renderedAt >= 300) {
+          if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
               deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable }));
               renderedKey = key;
-              renderedAt = nowS;
             } else
               ctx.log("pacer: refused panel write: unmanaged root");
           }
@@ -885,7 +893,10 @@ function createPlugin(deps) {
       });
     };
     store.onChange(scheduleRender);
-    timers.every(300000, scheduleRender);
+    timers.every(15000, () => {
+      if (panelKey() !== renderedKey)
+        scheduleRender();
+    });
     const replaceSnapshot = (snapshot) => {
       if (stopped)
         return;

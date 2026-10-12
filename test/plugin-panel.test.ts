@@ -26,17 +26,18 @@ function browser(html=panel()) {
  const pages=[make({page:"overview"}),make({page:"setup"}),make({page:"delegate"})];
  const submitButton=new Node(), best=new Node();best.value="";
  const views=[make({view:"delegate"}),make({view:"overview"})], strategy=make({strategyToggle:""}), setups=[make({setup:"pacer serve"}),make({setup:"pacer console --open"}),make({setup:"pacer console"})],worktree=new Node(),selected=new Node();
+ const check=new Node(), updated=new Node();
  const strategies=[make({strategy:"0"}),make({strategy:"1"})], freshness=[new Node(),new Node()], intervals:Function[]=[];
  const sent:any[]=[];let now=100000,listener:Function=()=>{};
  const parent={postMessage:(m:any)=>sent.push(m)};
  runInNewContext(html.match(/<script>\n([\s\S]*?)<\/script>/)![1],{
   Date:class extends Date {static now(){return now;}},setInterval:(fn:Function,ms:number)=>{expect(ms).toBe(30000);intervals.push(fn);},TextEncoder,TextDecoder,Uint8Array,atob,
   document:{getElementById:(id:string)=>id==="pacer-actions"?{textContent:html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]}:ids[id],
-   querySelectorAll:(selector:string)=>selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
+   querySelectorAll:(selector:string)=>selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
   window:{parent,addEventListener:(_n:string,h:Function)=>listener=h},
  });
  const reply=(m:any,value:any,ok=true,source=parent)=>listener({source,data:{type:"orca-panel-action-result",requestId:m.requestId,ok,value}});
- return {ids,pages,views,strategy,strategies,freshness,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-form"].handlers.submit({preventDefault(){}})};
+ return {ids,pages,views,strategy,strategies,freshness,check,updated,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-form"].handlers.submit({preventDefault(){}})};
 }
 for(const [verdict,expected] of [["ON_PACE","You're on pace for the week."],["OK","You're on pace for the week."],["AHEAD","Claude is ahead of pace. Slow down planning."],["NEAR_LIMIT","Claude is ahead of pace. Slow down planning."],["BEHIND","Claude is behind pace. Room for more planning."],["UNKNOWN","Budget unknown."]]) test(`headline ${verdict}`,()=>expect(headline(provider("claude-code",verdict))).toBe(expected));
 test("exhausted and absent planner headlines and unknown detail",()=>{
@@ -60,7 +61,7 @@ test("attention groups duplicate goals, excludes failed executor, detects stuck 
  s.budget!.ranked=[{id:"cursor",verdict:"EXHAUSTED"},{id:"agy",verdict:"OK"}];expect(attentionGroups(s,100)[0].retry).toBeNull();
 });
 test("setup selection and checklist states",()=>{
- const s=snapshot();expect(initialView(s,true,100)).toBe("overview");expect(initialView(s,false,100)).toBe("setup");expect(initialView({...s,budget:null},true,100)).toBe("setup");expect(initialView(s,true,701)).toBe("setup");
+ const s=snapshot();expect(initialView(s,true,100)).toBe("overview");expect(initialView(s,false,100)).toBe("setup");expect(initialView({...s,budget:null},true,100)).toBe("setup");expect(initialView(s,true,130)).toBe("overview");expect(initialView(s,true,131)).toBe("setup");
  const html=panel(s,false);expect(html).toContain('data-page="setup">');expect(html).toContain("Last known budget");expect(html).toContain("not live");expect(html).toContain("pacer never changes Orca's settings");expect(html).toContain('step done');expect(html).toContain('data-setup="pacer serve"');
 });
 test("setup commands use focused first terminal and never enter; no-terminal result is useful",()=>{
@@ -82,9 +83,9 @@ test("delegate payload validates exact limits and oversized encoded lines withou
  b.ids.goal.value="g".repeat(2001);const count=b.sent.length;b.submit();expect(b.sent).toHaveLength(count);expect(b.ids.status.textContent).toContain("2000");
  b.ids.goal.value="goal";b.selected.disabled=true;b.submit();expect(b.sent).toHaveLength(count);
 });
-test("click-time workspace membership and ten-minute heartbeat age gate commands",()=>{
+test("client requires a console live at render and current workspace membership",()=>{
  const b=browser();b.now(700000);b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});expect(b.sent.at(-1).action).toBe("terminal.sendText");
- const expired=browser();expired.now(700001);expired.strategies[1].click();expect(expired.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(expired.ids.status.textContent).toContain("console");
+ const expired=browser(panel(snapshot(),true,131));expired.now(131000);expired.strategies[1].click();expect(expired.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(expired.ids.status.textContent).toContain("console");
  const absent=browser();absent.strategies[1].click();absent.reply(absent.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"other"}]});expect(absent.sent.some(m=>m.action==="terminal.sendText")).toBe(false);expect(absent.ids.status.textContent).toBe("No pacer console in this worktree");expect(absent.ids["console-hint"].hidden).toBe(false);
 });
 test("rate limit includes click-time context requests",()=>{
@@ -109,8 +110,10 @@ test("maximum snapshots and hostile escaping stay under 64 KiB",()=>{
 test("stale budget is amber and unknown percentages use em dash",()=>{
  const s=snapshot();s.console!.heartbeatAt=250;const html=panel(s,true,250);expect(html).toContain('name live warn');s.budget!.providers[0].usedPct=null;s.budget!.providers[0].pacePct=null;expect(panel(s)).toContain("Pace marker —");
 });
-test("expired heartbeat is checked again after an asynchronous context reply",()=>{
- const b=browser();b.ids.goal.value="fix";b.submit();const before=b.sent.length;b.now(700001);b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});expect(b.sent).toHaveLength(before);expect(b.ids.status.textContent).toContain("console");
+test("rendered live flag survives heartbeat age while current context still gates the send",()=>{
+ const b=browser();b.ids.goal.value="fix";b.submit();b.now(900000);
+ b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ expect(b.sent.at(-1).action).toBe("terminal.sendText");
 });
 test("rejected bridge send reports failure and duplicate responses cannot change status",()=>{
  const b=browser();b.strategies[1].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});const command=b.sent.at(-1);b.reply(command,{accepted:false});expect(b.ids.status.textContent).toContain("refused");b.reply(command,{accepted:true});expect(b.ids.status.textContent).toContain("refused");
@@ -193,4 +196,37 @@ test("rendered desktop panel uses Orca's compact typography and control dimensio
 test("missing-console recovery only types pacer console into the focused first terminal",()=>{
  const b=browser(panel(emptySnapshot()));b.setups[2].click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"first"}]});
  expect(b.sent.at(-1).params).toEqual({terminalId:"first",text:"pacer console",enter:false});b.reply(b.sent.at(-1),{accepted:true});expect(b.ids.status.textContent).toContain("Press Enter");
+});
+
+test("rendered console liveness includes thirty seconds and excludes thirty-one",()=>{
+ expect(payload(panel(snapshot(),true,130)).consoles).toHaveLength(1);
+ expect(payload(panel(snapshot(),true,131)).consoles).toHaveLength(0);
+});
+
+test("Check again explains an unreachable link without mentioning the console or sending",()=>{
+ const b=browser(panel(snapshot(),false));const before=b.sent.length;b.check.click();
+ expect(b.ids.status.textContent).toBe("Waiting for pacer serve. Start it, then reopen this panel.");
+ expect(b.sent).toHaveLength(before);expect(b.ids["console-hint"].hidden).toBe(true);
+});
+test("Check again explains a reachable link with no console in the active worktree",()=>{
+ const b=browser();b.check.click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"other"}]});
+ expect(b.ids.status.textContent).toBe("No pacer console in this worktree");expect(b.ids["console-hint"].hidden).toBe(false);
+ expect(b.sent.some(m=>m.action==="terminal.sendText")).toBe(false);
+});
+test("Check again refreshes a reachable console in the active worktree",()=>{
+ const b=browser();b.check.click();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data).toEqual({cmd:"refresh"});
+});
+test("client renders the snapshot update time and ages freshness without a reload",()=>{
+ const s=snapshot();const at=Date.UTC(2026,9,12,10)/1000;s.at=at;s.budget!.generatedAt=at;
+ const b=browser(panel(s,true,at));b.now(at*1000);b.tick();
+ expect(b.updated.textContent).toBe("17:00");expect(b.freshness[0].parentElement.className).toContain("good");
+ b.now((at+121)*1000);b.tick();expect(b.updated.textContent).toBe("17:00");expect(b.freshness[0].textContent).toContain("Stale");
+});
+
+test("a fresh registration remains usable when a stale duplicate precedes it",()=>{
+ const s=snapshot();s.consoles=[{...s.console!,heartbeatAt:69}];
+ const b=browser(panel(s));b.strategies[1].click();
+ b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
+ expect(b.sent.at(-1).action).toBe("terminal.sendText");
 });
