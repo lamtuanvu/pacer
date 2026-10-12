@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { PACER, recordingRun, snapshot } from "./install-helpers";
 import { runInstall } from "../src/install/txn";
-import { readManifest } from "../src/install/manifest";
+import { applyUndo, readManifest } from "../src/install/manifest";
 import { uninstallPlanner } from "../src/install/uninstall";
 import { editStatuslineScript, installClaude, resolveScript } from "../src/install/claude";
 
@@ -142,11 +142,50 @@ test("edited statusline restores both legacy blocks at their anchors and preserv
 test("edited statusline appends a legacy block and notes when its anchor disappeared", async () => {
   const f = legacyHome();
   await f.install();
-  writeFileSync(f.script, readFileSync(f.script, "utf8").replace("echo mine\n", "echo edited\n"));
+  writeFileSync(f.script, readFileSync(f.script, "utf8").replace("input=$(cat)\n", "input=other\n"));
   const report = await uninstallPlanner(f.ctx, "claude-code");
   const text = readFileSync(f.script, "utf8");
   expect(text).toContain("# Persist Claude's rate-limit windows");
-  expect(text).toContain("echo edited\n");
-  expect(text).toEndWith("# L4: cross-subscription pacing...\nif true; then\n  ~/.claude/scripts/budget/budget-status --line\nfi\n");
+  expect(text).toContain("input=other\n");
+  expect(text).toEndWith("# Persist Claude's rate-limit windows for ~/.claude/scripts/budget/budget-status\nif true; then\n  echo ~/.claude/state/budget/claude.json\nfi\n");
   expect(report!.notes.join("\n")).toContain("anchor");
+});
+
+test("realistic blank-separated statusline round-trips exactly after user edits", async () => {
+  const f = legacyHome();
+  const original = readFileSync(f.script, "utf8")
+    .replace("#!/bin/sh\n", "#!/bin/sh\n# My statusline\n\n")
+    .replace("input=$(cat)\n", "input=$(cat)\n\n")
+    .replace("echo mine\n", '[ -n "$line3" ] && printf "%s\\n" "$line3"\n\n');
+  writeFileSync(f.script, original);
+  await f.install();
+  writeFileSync(f.script, readFileSync(f.script, "utf8") + "# appended by user\n");
+  await uninstallPlanner(f.ctx, "claude-code");
+  expect(readFileSync(f.script, "utf8")).toBe(original + "# appended by user\n");
+});
+
+test("L4 restores at the pacer marker even when its preceding line changes", async () => {
+  const f = legacyHome();
+  const original = readFileSync(f.script, "utf8");
+  await f.install();
+  writeFileSync(f.script, readFileSync(f.script, "utf8").replace("echo mine\n", "echo edited\n"));
+  await uninstallPlanner(f.ctx, "claude-code");
+  expect(readFileSync(f.script, "utf8")).toBe(original.replace("echo mine\n", "echo edited\n"));
+});
+
+test("restore searches repeated anchors forward and retains block order", () => {
+  expect(applyUndo("fi\nmiddle\nfi\nend\n", [{ kind: "block", style: "hash", restore: [
+    { text: "first\n", anchor: "middle\n" },
+    { text: "second\n", anchor: "fi\n" },
+  ] }])).toBe("fi\nmiddle\nfirst\nfi\nsecond\nend\n");
+});
+
+test("L4 at end of file retains its blank separator after an earlier user edit", async () => {
+  const f = legacyHome();
+  const original = readFileSync(f.script, "utf8").replace("echo mine\n", "echo mine\n\n").replace("\nexit 0\n", "");
+  writeFileSync(f.script, original);
+  await f.install();
+  writeFileSync(f.script, readFileSync(f.script, "utf8").replace("echo mine", "echo edited"));
+  await uninstallPlanner(f.ctx, "claude-code");
+  expect(readFileSync(f.script, "utf8")).toBe(original.replace("echo mine", "echo edited"));
 });

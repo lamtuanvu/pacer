@@ -107,7 +107,7 @@ test("happy path: new-child worker, worker_done, release, orphan terminal closed
   expect(arg(a, "--from")).toBe(COORD);
   const spec = arg(a, "--spec");
   expect(spec).toContain(`# Task ${task.id}`);
-  expect(spec).toContain("PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.");
+  expect(spec.split("PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.")).toHaveLength(2);
   expect(spec).toContain("Do not edit /work/app itself.");
   expect(spec).toContain("Executor contract (from pacer)");
   expect(f.calls).toContainEqual(["orca", "orchestration", "worker-release", "--dispatch", "ctx_802297d1724f", "--json"]);

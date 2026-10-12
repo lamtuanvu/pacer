@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { KINDS, loadStrategy } from "../config/strategy";
+import { isExecutorSession } from "../install/role";
 import { makeCtx } from "../ctx";
 import { rankExecutors } from "../engine/rank";
 import { computeStatus } from "../engine/status";
@@ -70,7 +71,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     },
   }, async (a) => {
     const ctx = getCtx();
-    if (ctx.env.PACER_ROLE === "executor") throw new Error("PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.");
+    if (isExecutorSession(ctx)) throw new Error("PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.");
     const t = delegate(ctx, {
       brief: { goal: a.goal, repo: a.repo, scope: a.scope, acceptance: a.acceptance, constraints: a.constraints, context: a.context },
       kind: a.kind ?? null,

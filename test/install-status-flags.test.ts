@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { io } from "../src/install/stdin";
 import { main } from "../src/cli";
 import { fakeCtx } from "./helpers";
 
@@ -94,4 +95,22 @@ test("status validates hook arguments before fail-open strategy handling", async
   expect(r.code).toBe(2);
   expect(r.out).toBe("");
   expect(r.err).toContain("needs a planner");
+});
+
+test("status --hook on a TTY renders without reading stdin", async () => {
+  const ctx = await withStrategy();
+  const tty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  const read = io.readStdin;
+  let reads = 0;
+  try {
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    io.readStdin = async () => { reads++; return ""; };
+    const result = await main(["status", "--hook", "claude-code"], ctx);
+    expect(result.out).toContain("Subscription budget status (pacer)");
+    expect(reads).toBe(0);
+  } finally {
+    io.readStdin = read;
+    if (tty) Object.defineProperty(process.stdin, "isTTY", tty);
+    else delete (process.stdin as { isTTY?: boolean }).isTTY;
+  }
 });
