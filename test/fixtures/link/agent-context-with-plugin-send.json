@@ -1,0 +1,1 @@
+{"schemaVersion":1,"commandCount":4,"commands":[{"command":"status","path":["status"]},{"command":"terminal list","path":["terminal","list"]},{"command":"terminal send","path":["terminal","send"]},{"command":"plugin send","path":["plugin","send"]}]}
