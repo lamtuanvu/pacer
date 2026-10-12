@@ -5,6 +5,7 @@ import { connectionIndicator } from "./overview";
 export function strategyView(s:LinkSnapshot,now:number,reachable:boolean):string {
  const agents=["claude-code","codex"].filter(id=>id===s.budget?.planner||s.budget?.providers.some(p=>p.id===id));
  return `<div class="content"><header><button type="button" data-view="overview" aria-label="Back to overview">←</button><strong>Strategy</strong><span class="grow"></span>${connectionIndicator(s,now,reachable)}</header>
+ <section class="stack"><label>Notifications<select id="notification-level"><option value="important">Important</option><option value="all">All</option><option value="off">Off</option></select></label></section>
  <section class="stack"><h2>Switch to</h2><div class="list strategy-list" id="strategy-list"></div></section>
  <div id="strategy-form" role="group" class="card stack strategy-builder"><strong>Build a new strategy with an agent</strong><small>Describe what you want. The agent drafts it, shows how routing would change, and asks before saving.</small>
  <label for="strategy-brief">What should it do?</label><textarea id="strategy-brief" rows="4" maxlength="2000" placeholder="e.g. Protect Claude this week. Burn Codex before it resets on Sunday."></textarea>

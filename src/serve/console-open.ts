@@ -5,26 +5,14 @@ import { compareVersions, isVersion } from "../update/version";
 import { type ConsoleData, parseSnapshot } from "../link/envelope";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
-import { parseOrcaOutput } from "../exec/orca/client";
+import { parseOrcaOutput, sanitizedOrcaEnv } from "../exec/orca/client";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
 import { completeTerminalList, currentSnapshot, forgetConsoles } from "../link/store";
 import { publish } from "../link/publish";
 
-/** Server-local reservations also prevent concurrent requests creating duplicate terminals. */
-export function consoleOpener(serveStartedAt = Date.now() / 1000) {
-  const replacements = new Map<string, number>();
-  const lastOpen = new Map<string, number>();
-  let opens: { at: number; worktreeKey: string }[] = [];
-  const openedHandles = new Map<string, Set<string>>();
-  async function result(ctx: Ctx, argv: string[]): Promise<Record<string, unknown>> {
-    const r = await ctx.run(argv, 30_000);
-    const reply = parseOrcaOutput(r.stdout);
-    if (r.code !== 0 || !isObj(reply) || reply.ok !== true || !isObj(reply.result)) throw new Error("Orca request failed");
-    return reply.result;
-  }
-  return async (req: Request, ctx: Ctx): Promise<Response> => {
-    const json = (ok: boolean, reason?: string, status = 200, handle?: string, warning?: string) => Response.json({ ok, ...(reason ? { reason } : {}), ...(handle ? { handle } : {}), ...(warning ? { warning } : {}) }, { status, headers: { "X-Pacer": "1" } });
+export async function consoleRequestBody(req:Request):Promise<string|Response> {
+  const json=(ok:boolean,reason:string,status:number)=>Response.json({ok,reason},{status,headers:{"X-Pacer":"1"}});
     if (req.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") return json(false, "content-type", 415);
     // Read incrementally: a missing or dishonest Content-Length cannot bypass the cap.
     const reader = req.body?.getReader();
@@ -41,6 +29,32 @@ export function consoleOpener(serveStartedAt = Date.now() / 1000) {
     } catch { return json(false, "invalid-body", 400); }
     let data: unknown;
     try { data = JSON.parse(body); } catch { return json(false, "invalid-json", 400); }
+    const forget=new URL(req.url).pathname === "/console/forget";
+    if(forget) {
+      if(!isObj(data)||typeof data.worktreeId!=="string"||!/^[A-Za-z0-9_-]{1,128}(?:::[^\x00-\x1f\x7f]{1,900})?$/.test(data.worktreeId))return json(false,"invalid-selector",400);
+    } else if(!isObj(data)||(data.terminal===undefined&&data.branch===undefined)
+      ||(data.terminal!==undefined&&(typeof data.terminal!=="string"||!/^term_[A-Za-z0-9-]{1,100}$/.test(data.terminal)))
+      ||(data.branch!==undefined&&(typeof data.branch!=="string"||!/^[A-Za-z0-9._/-]{1,200}$/.test(data.branch))))return json(false,"invalid-selector",400);
+    return body;
+}
+
+/** Server-local reservations also prevent concurrent requests creating duplicate terminals. */
+export function consoleOpener(serveStartedAt = Date.now() / 1000) {
+  const replacements = new Map<string, number>();
+  const lastOpen = new Map<string, number>();
+  let opens: { at: number; worktreeKey: string }[] = [];
+  const openedHandles = new Map<string, Set<string>>();
+  async function result(ctx: Ctx, argv: string[]): Promise<Record<string, unknown>> {
+    const r = await ctx.run(argv, 30_000, {env:sanitizedOrcaEnv(ctx.env)});
+    const reply = parseOrcaOutput(r.stdout);
+    if (r.code !== 0 || !isObj(reply) || reply.ok !== true || !isObj(reply.result)) throw new Error("Orca request failed");
+    return reply.result;
+  }
+  return async (req: Request, ctx: Ctx): Promise<Response> => {
+    const json = (ok: boolean, reason?: string, status = 200, handle?: string, warning?: string) => Response.json({ ok, ...(reason ? { reason } : {}), ...(handle ? { handle } : {}), ...(warning ? { warning } : {}) }, { status, headers: { "X-Pacer": "1" } });
+    const body=await consoleRequestBody(req);
+    if(body instanceof Response)return body;
+    const data:unknown=JSON.parse(body);
     if (new URL(req.url).pathname === "/console/forget") {
       if (!isObj(data) || typeof data.worktreeId !== "string" || !/^[A-Za-z0-9_-]{1,128}(?:::[^\x00-\x1f\x7f]{1,900})?$/.test(data.worktreeId)) return json(false, "invalid-selector", 400);
       const key = `id:${data.worktreeId}`;

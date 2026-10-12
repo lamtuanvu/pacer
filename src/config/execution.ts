@@ -1,7 +1,7 @@
 import { isObj } from "../util";
 
 export const EXEC_BACKENDS = ["auto", "orca", "direct"] as const;
-export const WORKTREE_MODES = ["new-child", "current"] as const;
+export const WORKTREE_MODES = ["child-of-current", "new-child", "current"] as const;
 export type ExecBackend = (typeof EXEC_BACKENDS)[number];
 export type WorktreeMode = (typeof WORKTREE_MODES)[number];
 
@@ -9,11 +9,12 @@ export interface ExecutionCfg {
   backend: ExecBackend;
   worktree: WorktreeMode;
   baseBranch: string | null;
+  registerRepos?: boolean;
 }
 
-export const DEFAULT_EXECUTION: ExecutionCfg = { backend: "auto", worktree: "new-child", baseBranch: null };
+export const DEFAULT_EXECUTION: ExecutionCfg = { backend: "auto", worktree: "child-of-current", baseBranch: null };
 
-const KEYS = ["backend", "worktree", "base_branch"];
+const KEYS = ["backend", "worktree", "base_branch", "registerRepos", "register_repos"];
 
 export class ExecutionError extends Error {
   constructor(readonly problems: string[]) {
@@ -47,6 +48,8 @@ export function validateExecution(raw: unknown): ExecutionCfg {
       baseBranch = b;
     }
   }
+  const registerRepos=raw.registerRepos??raw.register_repos;
+  if(registerRepos!==undefined&&typeof registerRepos!=="boolean")p.push("execution.registerRepos must be a boolean");
   if (p.length) throw new ExecutionError(p);
-  return { backend: backend as ExecBackend, worktree: worktree as WorktreeMode, baseBranch };
+  return { backend: backend as ExecBackend, worktree: worktree as WorktreeMode, baseBranch, ...(registerRepos!==undefined?{registerRepos:registerRepos as boolean}:{}) };
 }

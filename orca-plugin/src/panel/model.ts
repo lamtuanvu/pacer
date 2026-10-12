@@ -9,7 +9,7 @@ export const verdictWords = (v: string) => Object.hasOwn(words,v) ? words[v] : "
 export const tone = (v: string) => v === "EXHAUSTED" ? "bad" : ["AHEAD","NEAR_LIMIT","EXPIRING","EXPIRING_SOON"].includes(v) ? "warn" : ["OK","ON_PACE","BEHIND","UNMETERED"].includes(v) ? "good" : "neutral";
 export function rankedProviders(s: LinkSnapshot): ProviderLine[] {
  const b=s.budget;
- return (b?.ranked ?? []).filter((r,i,a)=>r.id!==b?.planner && a.findIndex(x=>x.id===r.id)===i).map(r => b?.providers.find(p=>p.id===r.id) ?? { ...r, usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false }).filter(p=>p.verdict!=="EXHAUSTED");
+ return (b?.ranked ?? []).filter((r,i,a)=>r.id!==b?.planner && a.findIndex(x=>x.id===r.id)===i).map(r => b?.providers.find(p=>p.id===r.id) ?? { ...r, usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false }).filter(p=>p.verdict!=="EXHAUSTED"&&!p.brokenReason&&!p.blockedReason);
 }
 export function mutedProviders(s: LinkSnapshot): ProviderLine[] {
  const ids=new Set(rankedProviders(s).map(p=>p.id));
@@ -33,22 +33,28 @@ export function answerDetail(s: LinkSnapshot, now: number): string {
  return parts.join(" ");
 }
 export function providerDetail(p: ProviderLine, now: number): string {
+ if(p.brokenReason) return `Not working · ${p.brokenReason}`;
+ if(p.blockedReason) return "Blocked by you";
  if(p.usedPct!==null) return `${Math.round(p.usedPct)}%${p.window?` of ${p.window}`:""} used${p.resetsAt===null?"":` · resets in ${duration(p.resetsAt-now)}`}${p.stale?" · stale":""}`;
  if(p.id==="local") return "LM Studio · unmetered";
  return p.verdict==="UNKNOWN" ? "No budget reported" : "No limit reported";
 }
-export interface AttentionGroup { goal:string; tasks:TaskData[]; latest:TaskData; stuck:boolean; retry:ProviderLine|null }
+export interface AttentionGroup { goal:string; tasks:TaskData[]; latest:TaskData; stuck:boolean; retry:ProviderLine|null; brokenExecutor?:string; brokenReason?:string }
 export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] {
  const groups=new Map<string,TaskData[]>();
+ const resolved = new Set(s.tasks.filter(t=>t.state==="done"&&t.retryOf).map(t=>t.retryOf));
  for(const t of [...s.tasks].sort((a,b)=>b.updatedAt-a.updatedAt)) {
-  if(!["failed","limit"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&now-t.updatedAt>600)) continue;
-  groups.set(t.goal,[...(groups.get(t.goal)??[]),t]);
+  if(t.dismissed || (t.retriedBy && s.tasks.some(retry=>retry.id===t.retriedBy&&["queued","running","done"].includes(retry.state))) || resolved.has(t.id) || now-t.updatedAt>3*86400)continue;
+  if(!["failed","limit"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&!t.attemptStartedAt&&!t.runnerAlive&&now-t.updatedAt>600)) continue;
+  const key=t.brokenExecutor ? `broken:${t.brokenExecutor}` : t.goal;
+  groups.set(key,[...(groups.get(key)??[]),t]);
  }
- return [...groups].map(([goal,tasks])=>({goal,tasks,latest:tasks[0],stuck:["running","queued"].includes(tasks[0].state),retry:rankedProviders(s).find(p=>!tasks.some(t=>t.executor===p.id))??null}));
+ return [...groups].map(([_key,tasks])=>({goal:tasks[0].brokenExecutor?`${displayName(tasks[0].brokenExecutor)} is not working`:tasks[0].goal,tasks,latest:tasks[0],stuck:["running","queued"].includes(tasks[0].state),retry:rankedProviders(s).find(p=>!tasks.some(t=>t.executor===p.id))??null,...(tasks[0].brokenExecutor?{brokenExecutor:tasks[0].brokenExecutor,brokenReason:tasks[0].brokenReason}: {})}));
 }
 export function attentionText(g: AttentionGroup, now: number): string {
+ if(g.brokenExecutor) return `${displayName(g.brokenExecutor)} is not working: ${g.brokenReason ?? "CLI startup failed"} · ${g.tasks.length} tasks affected`;
  if(g.stuck) return `Waiting ${duration(now-g.latest.updatedAt)} with no executor picked`;
  const count=g.tasks.length, label=g.latest.state==="limit"?"Hit a limit":"Failed";
  return `${label}${count===2?" twice":count>2?` ×${count}`:""}${g.latest.executor?` on ${displayName(g.latest.executor)}`:""}`;
 }
-export const unavailableDetail = (p: ProviderLine, now:number) => p.verdict==="EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt,now)}` : "not in the queue";
+export const unavailableDetail = (p: ProviderLine, now:number) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.verdict==="EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt,now)}` : "not in the queue";

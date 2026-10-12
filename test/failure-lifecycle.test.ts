@@ -1,0 +1,58 @@
+import { expect, test } from "bun:test";
+import { emptySnapshot, parseSnapshot, parseCmd, type TaskData } from "../src/link/envelope";
+import { taskData, pumpOnce } from "../src/link/pump";
+import { writeJsonAtomic } from "../src/fsutil";
+import { latestPath } from "../src/link/paths";
+import { attentionGroups, attentionText, unavailableDetail } from "../orca-plugin/src/panel/model";
+import { overview } from "../orca-plugin/src/panel/overview";
+import { createTask } from "../src/tasks/store";
+import { taskStatus } from "../src/tasks/api";
+import { fakeCtx } from "./helpers";
+const failure = (id:string, extra:Partial<TaskData>={}):TaskData=>({id,state:"failed",goal:id,executor:"agy",backend:"direct",worktree:null,updatedAt:1000,...extra});
+test("dismissed, expired and successfully retried failures leave attention",()=>{
+  const s=emptySnapshot();
+  s.tasks=[failure("dismissed",{dismissed:true}),failure("old",{updatedAt:1}),failure("original"),failure("retry",{state:"done",retryOf:"original"})];
+  expect(attentionGroups(s,300000)).toEqual([]);
+});
+test("broken failures share one group with retry-all and dismissal commands",()=>{
+  const s=emptySnapshot();
+  s.budget={generatedAt:1000,strategy:"default",planner:"claude-code",mode:"normal",providers:[{id:"codex",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false}],ranked:[{id:"codex",verdict:"OK"}]};
+  s.tasks=[failure("t-1",{brokenExecutor:"agy",brokenReason:"bad argv"}),failure("t-2",{brokenExecutor:"agy",brokenReason:"bad argv"})];
+  const g=attentionGroups(s,1200);
+  expect(g).toHaveLength(1);expect(attentionText(g[0],1200)).toBe("Antigravity is not working: bad argv · 2 tasks affected");
+  const commands:any={},text:any={};const html=overview(s,1200,true,commands,text);
+  expect(html).toContain("Retry all on");expect(html).toContain("Dismiss");
+  expect(Object.values(commands)).toContainEqual({cmd:"retry-all",taskIds:["t-1","t-2"],executor:"codex"});
+  expect(parseCmd({v:1,type:"cmd",data:{cmd:"dismiss",taskId:"t-1"}})?.data.cmd).toBe("dismiss");
+});
+test("live runners and started attempts never appear as waiting for executor",()=>{
+  const s=emptySnapshot();
+  s.tasks=[failure("live",{state:"running",executor:null,runnerAlive:true}),failure("started",{state:"running",executor:null,attemptStartedAt:1000}),failure("stuck",{state:"queued",executor:null,runnerAlive:false})];
+  expect(attentionGroups(s,1700).map(g=>g.latest.id)).toEqual(["stuck"]);
+});
+test("queued task is not declared stuck before ten minutes",()=>{
+  const ctx=fakeCtx();const t=createTask(ctx,{brief:{goal:"g",repo:"/r"},kind:null,requestedExecutor:null,timeoutS:60});
+  expect(taskStatus({...ctx,now:ctx.now+599},t.id)?.state).toBe("queued");
+  expect(taskStatus({...ctx,now:ctx.now+601},t.id)?.state).toBe("failed");
+});
+test("snapshot roundtrip retains current attempt and dismissal",()=>{
+  const ctx=fakeCtx();const t=createTask(ctx,{brief:{goal:"g",repo:"/r"},kind:null,requestedExecutor:null,timeoutS:60});
+  Object.assign(t,{state:"running",executor:"codex",backend:"orca",attemptStartedAt:2000,runnerPid:process.pid,dismissed:true,retryOf:"previous"});
+  const d=taskData(t);const s=emptySnapshot();s.tasks=[d];
+  expect(parseSnapshot(s)?.tasks[0]).toMatchObject({executor:"codex",backend:"orca",attemptStartedAt:2000,runnerAlive:true,dismissed:true,retryOf:"previous"});
+});
+test("pump publishes dismissal even when task state has not changed",async()=>{
+  const ctx=fakeCtx();const t=createTask(ctx,{brief:{goal:"g",repo:"/r"},kind:null,requestedExecutor:null,timeoutS:60});t.state="failed";
+  const s=emptySnapshot();s.tasks=[taskData(t)];writeJsonAtomic(latestPath(ctx),s);t.dismissed=true;
+  const events=await pumpOnce(ctx,{tasks:()=>[t],status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),publish:async()=>({seq:1,transports:["outbox"],errors:[]})});
+  expect(events.find(e=>e.type==="task")?.data).toMatchObject({dismissed:true});
+});
+test("broken executor detail identifies why it is unavailable",()=>{
+  expect(unavailableDetail({id:"agy",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false,brokenReason:"bad argv"},1000)).toBe("Not working · bad argv");
+});
+
+test("an active retry clears original attention and appears in Running",()=>{
+ const s=emptySnapshot();s.tasks=[failure("old",{retriedBy:"new"}),failure("new",{state:"running",retryOf:"old",executor:"codex",attemptStartedAt:1100})];
+ expect(attentionGroups(s,1200)).toEqual([]);
+ const html=overview(s,1200,true,{},{});expect(html).toContain("Running on Codex");expect(html).toContain("Retry of old");
+});

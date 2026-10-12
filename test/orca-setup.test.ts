@@ -40,9 +40,9 @@ test("gitInfo reads the top level, branch and dirtiness", async () => {
     [["git", "-C", "/work/app", "rev-parse"], raw("/work/app\nmain\n")],
     [["git", "-C", "/work/app", "status"], raw(" M src/a.ts\n")],
   ]);
-  expect(await gitInfo(f.run, "/work/app")).toEqual({ top: "/work/app", branch: "main", sub: "", dirty: true });
+  expect(await gitInfo(f.run, "/work/app")).toEqual({ top: "/work/app", branch: "main", sub: "", main:"/work/app",linked:false, dirty: true });
   expect(f.calls).toEqual([
-    ["git", "-C", "/work/app", "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD"],
+    ["git", "-C", "/work/app", "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD", "--git-common-dir"],
     ["git", "-C", "/work/app", "status", "--porcelain"],
   ]);
 });
@@ -54,7 +54,7 @@ test("gitInfo: a repo subdirectory is reported as sub", async () => {
     [["git", "-C", join(top, "pkg"), "rev-parse"], raw(`${top}\nfeature/x\n`)],
     [["git", "-C", top, "status"], raw("")],
   ]);
-  expect(await gitInfo(f.run, join(top, "pkg"))).toEqual({ top, branch: "feature/x", sub: "pkg", dirty: false });
+  expect(await gitInfo(f.run, join(top, "pkg"))).toEqual({ top, branch: "feature/x", sub: "pkg", main:top,linked:false, dirty: false });
 });
 
 test("gitInfo: not a git repository is an error", async () => {
@@ -69,7 +69,7 @@ test("ensureRepo finds a registered repo, adds a new one, reports list errors", 
   const c = new OrcaClient(f.run);
   expect(await ensureRepo(c, MR)).toBe(REPO_ID);
   expect(f.count(O("repo", "add"))).toBe(0);
-  expect(await ensureRepo(c, "/work/app")).toBe(REPO_ID);
+  expect(await ensureRepo(c, "/work/app", {registerRepos:true})).toBe(REPO_ID);
   expect(f.calls.at(-1)).toEqual(["orca", "repo", "add", "--path", "/work/app", "--json"]);
   const broken = new OrcaClient(fakeRun([[O("repo", "list"), raw("", 127)]]).run);
   const r = await ensureRepo(broken, MR);
@@ -164,4 +164,32 @@ test("terminal create failure is an error and leaves no coordinator", async () =
   const r = await ensureCoordinator(ctx, new OrcaClient(f.run), "/work/app");
   expect("error" in r && r.error).toBe("orca terminal create failed: runtime_error no worktree");
   expect(loadOrcaState(ctx).coordinator).toBeNull();
+});
+
+for(const persistent of [false,true]) test(`consumer_fenced recovery is bounded (persistent=${persistent})`,async()=>{
+  const fenced=raw(JSON.stringify({ok:false,error:{code:"consumer_fenced",message:"This terminal is attested as term_X and cannot act as term_Y"}}),1);
+  const fresh="term_fresh";
+  const f=fakeRun([
+    [O("terminal","show"),ok("terminal-show-live.json")],
+    [O("terminal","create"),raw(JSON.stringify({ok:true,result:{terminal:{handle:fresh}}}))],
+    [O("orchestration","run-create"),[fenced,persistent?fenced:ok("run-create.json")]],
+  ]);
+  const ctx=fakeCtx({run:f.run});updateOrcaState(ctx,s=>{s.coordinator=COORD;s.run=null;});
+  const r=await ensureCoordinator(ctx,new OrcaClient(f.run),"/work/app");
+  expect(f.count(O("orchestration","run-create"))).toBe(2);
+  expect(f.count(O("terminal","create"))).toBe(1);
+  expect(f.calls.filter(a=>a[2]==="run-create")[1]).toContain(fresh);
+  if(persistent){expect("error" in r && r.error).toContain("consumer_fenced");expect(loadOrcaState(ctx).run).toBeNull();}
+  else expect(r).toEqual({coordinator:fresh,run:RUN});
+});
+
+test("linked worktree resolves its main repository and never registers the worktree",async()=>{
+ const f=fakeRun([[["git","-C","/work/child","rev-parse"],raw("/work/child\nfeature/task\n/projects/main/.git\n")],[["git","-C","/work/child","status"],raw("")],[O("repo","list"),raw(JSON.stringify({ok:true,result:{repos:[{id:"owner",path:"/projects/main"}]}}))]]);
+ const info=await gitInfo(f.run,"/work/child");expect(info).toMatchObject({main:"/projects/main",linked:true,branch:"feature/task"});expect(await ensureRepo(new OrcaClient(f.run),"/work/child",{main:"/projects/main",linked:true,registerRepos:true})).toBe("owner");expect(f.count(O("repo","add"))).toBe(0);
+});
+test("worktree ownership receipt is used and registration requires explicit opt-in for a main repo",async()=>{
+ const f=fakeRun([[O("repo","list"),raw('{"ok":true,"result":{"repos":[]}}')],[O("worktree","show"),raw('{"ok":true,"result":{"repo":{"id":"owner"},"worktree":{"path":"/work/child"}}}')]]);
+ expect(await ensureRepo(new OrcaClient(f.run),"/work/child")).toBe("owner");expect(f.count(O("repo","add"))).toBe(0);
+ const g=fakeRun([[O("repo","list"),raw('{"ok":true,"result":{"repos":[]}}')],[O("worktree","show"),raw('{"ok":false,"error":{"code":"not_found","message":"missing"}}')],[O("repo","add"),ok("repo-add.json")]]);
+ expect(await ensureRepo(new OrcaClient(g.run),"/work/child",{linked:true,registerRepos:true})).toEqual({error:"repository is not an Orca project"});expect(await ensureRepo(new OrcaClient(g.run),"/projects/main")).toEqual({error:"repository is not an Orca project"});expect(g.count(O("repo","add"))).toBe(0);
 });

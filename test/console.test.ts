@@ -62,9 +62,9 @@ test("plugin commands queue FIFO while human answers an active prompt", async ()
   expect(h.calls).toEqual(["delegate", "pump", "pump", "pump"]);
   expect(h.output().indexOf("published 0 update(s)")).toBeLessThan(h.output().indexOf("agent finished (queued-pane)"));
 });
-test("mixed plugin input discards partial human input", async () => {
+test("mixed plugin input preserves human input", async () => {
   const h = harness(); await h.run([`fix th${encodeCmdLine({ cmd: "refresh" })}`]);
-  expect(h.output()).toContain("(discarded partial input: fix th)"); expect(h.calls).toEqual(["pump"]);
+  expect(h.output()).toContain("unknown command fix"); expect(h.calls).toEqual(["pump"]);
 });
 test("malformed plugin JSON is ignored", async () => {
   const h = harness(); await h.run([": pacer '{broken}'"]);
@@ -156,7 +156,7 @@ test("retry re-delegates the stored brief with explicit executor or ranking",asy
  const h=harness({configuredExecutors:()=>["codex"]});
  const task=createTask(h.ctx,{brief:{goal:"retry me",repo:"/repo",acceptance:"bun test",scope:"src",constraints:"stay here"},kind:"code",requestedExecutor:"old",timeoutS:120});
  await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"}),encodeCmdLine({cmd:"retry",taskId:task.id})]);
- expect(h.inputs[0]).toEqual({brief:task.brief,kind:"code",timeoutMin:2,executor:"codex"});expect(h.inputs[1].executor).toBeUndefined();expect(h.inputs[1].brief).toEqual(task.brief);expect(h.calls.filter(c=>c==="pump")).toHaveLength(2);
+ expect(h.inputs[0]).toEqual({brief:task.brief,kind:"code",timeoutMin:2,retryOf:task.id,executor:"codex"});expect(h.inputs[1].executor).toBeUndefined();expect(h.inputs[1].brief).toEqual(task.brief);expect(h.calls.filter(c=>c==="pump")).toHaveLength(2);
 });
 test("stop uses the task API and unknown tasks print an error",async()=>{
  const h=harness();const task=createTask(h.ctx,{brief:{goal:"stop",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
@@ -201,7 +201,7 @@ test("console publishes strategy session success, fallback and failure to the li
   const snapshot=JSON.parse(await Bun.file(`${h.ctx.pacerHome}/link/latest.json`).text());
   const alert=snapshot.alerts.find((a:any)=>a.key==="strategy-build");
   expect(alert.level).toBe(mode==="success"?"info":"error");
-  expect(alert.title).toBe(mode==="success"?"Strategy session opened in a new terminal":"Strategy session failed");
+  expect(alert.title).toBe(mode==="success"?"Strategy session opened":"Strategy session failed");
   if(mode==="failure")expect(alert.body).toContain("Terminal creation refused");
   if(mode==="fallback")expect(alert.body).toContain("Orca unavailable");
  }
@@ -212,4 +212,27 @@ test("console advertises idle only between completed commands with no active int
  h=harness({onIdle:idle=>states.push(idle),statusText:async()=>{expect(states.at(-1)).toBe(false);await Promise.resolve();expect(states.at(-1)).toBe(false);return "status";}});
  await h.run(["status","delegate","", "use",""],i=>{if(i===0||i===1)expect(states.at(-1)).toBe(true);if(i===2||i===4)expect(states.at(-1)).toBe(false);if(i===3)expect(states.at(-1)).toBe(true);});
  expect(states.at(-1)).toBe(false);
+});
+
+test("dismiss command persists task dismissal and publishes update",async()=>{
+  const h=harness();const task=createTask(h.ctx,{brief:{goal:"fix",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
+  await h.run([encodeCmdLine({cmd:"dismiss",taskId:task.id})]);
+  const {readTask}=await import("../src/tasks/store");
+  expect(readTask(h.ctx,task.id)?.dismissed).toBe(true);expect(h.calls).toContain("pump");
+});
+
+test("concatenated panel and worker commands both execute without losing the retry",async()=>{
+ const h=harness({configuredExecutors:()=>["codex"]});
+ const task=createTask(h.ctx,{brief:{goal:"retry",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
+ await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})+encodeCmdLine({cmd:"worktree-created",branch:"pacer-task",path:"/wt/task"})]);
+ expect(h.inputs).toHaveLength(1);expect(h.output()).toContain("worktree created");expect(h.output()).not.toContain("discarded");
+});
+test("retry links both records and rejects a duplicate with an alert",async()=>{
+ const h=harness({configuredExecutors:()=>["codex"]});
+ const task=createTask(h.ctx,{brief:{goal:"retry",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
+ h.deps.delegate=(ctx,input)=>{h.inputs.push(input);return createTask(ctx,{brief:input.brief,kind:input.kind??null,requestedExecutor:input.executor??null,timeoutS:60});};
+ await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"}),encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})]);
+ const {readTask}=await import("../src/tasks/store");const {readOutboxSince}=await import("../src/link/store");
+ const old=readTask(h.ctx,task.id)!;expect(old.retriedBy).toBeDefined();expect(readTask(h.ctx,old.retriedBy!)?.retryOf).toBe(task.id);
+ expect(h.inputs).toHaveLength(1);expect(h.output()).toContain("already has an active retry");expect(readOutboxSince(h.ctx,0).some(e=>e.envelope.type==="alert")).toBe(true);
 });

@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx, UsageReading, UsageWindow } from "../types";
@@ -43,7 +44,7 @@ export async function readCodex(ctx: Ctx): Promise<UsageReading> {
   if (!existsSync(root)) return { windows: [], capturedAt: null, stale: false, error: "no Codex session logs" };
   const files: { p: string; m: number }[] = [];
   for await (const p of new Bun.Glob("**/rollout-*.jsonl").scan({ cwd: root, absolute: true })) {
-    files.push({ p, m: statSync(p).mtimeMs / 1000 });
+    files.push({ p, m: (await stat(p)).mtimeMs / 1000 });
   }
   files.sort((a, b) => b.m - a.m);
   for (const f of files.slice(0, MAX_FILES)) {

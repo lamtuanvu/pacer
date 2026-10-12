@@ -64,7 +64,7 @@ test("runtime down: nothing else is queried", async () => {
   expect(text).toContain("orca runtime: not ready (not_running (unreachable))");
   expect(text).toContain(`coordinator: ${COORD} (not checked)`);
   expect(text).toContain(`run: ${RUN} (not checked)`);
-  expect(text).toContain("execution: backend auto, worktree new-child");
+  expect(text).toContain("execution: backend auto, worktree child-of-current");
 });
 
 test("orca not installed; no state yet; no strategy", async () => {

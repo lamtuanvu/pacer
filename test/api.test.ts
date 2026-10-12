@@ -51,7 +51,7 @@ test("taskWait returns at a terminal state or at the timeout", async () => {
 test("dead runner is detected", () => {
   const ctx = fakeCtx();
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
-  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; });
+  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; x.attemptStartedAt = ctx.now; });
   const r = taskStatus(ctx, t.id);
   expect(r?.state).toBe("failed");
   expect(r?.result?.report).toBe("the pacer runner exited unexpectedly");
@@ -61,7 +61,7 @@ test("a finished task is not overwritten by dead-runner detection", () => {
   const ctx = fakeCtx();
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
   const result = { status: "done" as const, executor: "codex", model: "m", files: "a.ts", report: "finished", backend: "direct" as const };
-  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; });
+  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; x.attemptStartedAt = ctx.now; });
   const kill = process.kill;
   process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
     updateTask(ctx, t.id, (x) => { x.state = "done"; x.result = result; });
@@ -77,7 +77,7 @@ test("stop does not overwrite a finished task", () => {
   const ctx = fakeCtx();
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
   const result = { status: "done" as const, executor: "codex", model: "m", files: "a.ts", report: "finished", backend: "direct" as const };
-  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; });
+  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; x.attemptStartedAt = ctx.now; });
   const kill = process.kill;
   process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
     updateTask(ctx, t.id, (x) => { x.state = "done"; x.result = result; });
@@ -121,12 +121,12 @@ test("stopping a queued task with no live runner finalizes it; terminal tasks ar
 });
 
 
-test("a queued task without a runner fails after 60 seconds but fresh tasks stay queued", () => {
+test("a queued task without a runner fails after ten minutes but fresh tasks stay queued", () => {
   const ctx = fakeCtx();
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => undefined, s);
   expect(taskStatus(ctx, t.id)?.state).toBe("queued");
-  expect(taskStatus({ ...ctx, now: ctx.now + 60 }, t.id)?.state).toBe("queued");
-  const old = taskStatus({ ...ctx, now: ctx.now + 61 }, t.id);
+  expect(taskStatus({ ...ctx, now: ctx.now + 600 }, t.id)?.state).toBe("queued");
+  const old = taskStatus({ ...ctx, now: ctx.now + 601 }, t.id);
   expect(old?.state).toBe("failed");
   expect(old?.result).toMatchObject({ status: "failed", report: "the pacer runner never started" });
 });

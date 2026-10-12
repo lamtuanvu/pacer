@@ -146,3 +146,9 @@ test("parsePayload tolerates missing and malformed payloads", () => {
   expect(parsePayload({ id: "m", type: "heartbeat", payload: "{oops" })).toBeNull();
   expect(parsePayload({ id: "m", type: "heartbeat", payload: "[1]" })).toBeNull();
 });
+
+test("orca CLI strips inherited caller attestation but retains runtime discovery environment",async()=>{
+ const env={PATH:"/bin",HOME:"/tmp",ORCA_CLI_COMMAND:"orca",ORCA_USER_DATA_PATH:"/data",ORCA_AGENT_SESSION_ID:"caller",ORCA_AGENT_SESSION_ID_ENV:"CUSTOM_SESSION",CUSTOM_SESSION:"secret",ORCA_TERMINAL_HANDLE:"term_caller",ORCA_PANE_KEY:"pane",ORCA_TAB_ID:"tab",ORCA_WORKTREE_ID:"wt",ORCA_AGENT_LAUNCH_TOKEN:"token",ORCA_AGENT_HOOK_TEST:"hook",ORCA_SESSION_TEST:"session"};
+ let received:any;const run=async(_argv:string[],_timeout:number,options:any)=>{received=options.env;return{code:0,stdout:JSON.stringify({ok:true,result:{}}),stderr:""};};
+ await new OrcaClient(run,env).status();expect(received).toEqual({PATH:"/bin",HOME:"/tmp",ORCA_CLI_COMMAND:"orca",ORCA_USER_DATA_PATH:"/data"});expect(env.CUSTOM_SESSION).toBe("secret");
+});

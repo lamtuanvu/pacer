@@ -8,7 +8,7 @@ export function bridgeTransport(o: { host: OrcaHost; pollMs: number; timers: Tim
     id: "bridge", snapshot, probe: async () => (await snapshot()) !== null,
     watch(_onEnvelope, onSnapshot) {
       let key: string | null = null, stopped = false, busy = false;
-      const cancel = o.timers.every(o.pollMs, () => {
+      const cancel = o.timers.every(Math.min(o.pollMs,1000), () => {
         if (busy) return; busy = true;
         void snapshot().then(s => { if (s && !stopped) { const next = contentKey(s); if (next !== key) { key = next; onSnapshot(s); } } }).finally(() => { busy = false; });
       });

@@ -26,6 +26,8 @@ function fmtWindow(w: WindowStatus): string {
 export function renderText(st: Status): string {
   const lines = st.providers.map((p) => {
     const name = displayName(p.id);
+    if(p.brokenReason) return `- ${name}: Not working · ${p.brokenReason}`;
+    if(p.blockedReason) return `- ${name}: Blocked by you`;
     if (p.usage === "unmetered") return `- ${name}: local, unmetered OK`;
     if (!p.windows.length) return `- ${name}: unavailable (${p.error ?? "no data"})`;
     const stale = p.stale ? " [stale]" : "";

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
 import { io } from "./install/stdin";
@@ -24,8 +25,9 @@ const USAGE = `usage: pacer <command>
   status [--line | --json | --hook <planner>]   budget status (default: text report)
   route [kind] [--json]                          executors pacer would use, in order
   delegate --goal <text> [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
-           [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json]
+           [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
+  executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   stop <task-id>                                 stop a running task
   mcp                                            run the MCP server on stdio
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
@@ -126,7 +128,7 @@ async function route(args: string[], ctx: Ctx): Promise<Result> {
 function renderTask(t: TaskRecord): string {
   const r = t.result;
   const lines = [
-    `${t.id}  ${t.state}  executor: ${r?.executor ?? t.attempts.at(-1)?.executor ?? "-"}`,
+    `${t.id}  ${t.state}  executor: ${r?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? "-"}`,
     `goal: ${t.brief.goal}`,
     `repo: ${t.brief.repo}`,
   ];
@@ -142,10 +144,11 @@ function renderTask(t: TaskRecord): string {
 }
 
 async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts } = parseFlags(args, ["wait", "json"]);
+  const { opts } = parseFlags(args, ["wait", "json", "force"]);
   try {
     const timeout = str(opts["timeout-min"]);
     const t = delegate(ctx, {
+      force:opts.force === true,
       brief: {
         goal: str(opts.goal) ?? "",
         repo: resolve(str(opts.repo) ?? process.cwd()),
@@ -186,6 +189,7 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
   switch (cmd) {
+    case "executor": return executorCommand(rest,ctx);
     case "status":
       return status(rest, ctx);
     case "route":

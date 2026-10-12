@@ -1,3 +1,4 @@
+import { executorCliCheck } from "./cli-check";
 import { serviceBackend, type ServiceStatus } from "../service";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -37,6 +38,7 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       checks.push({ name: `Binary ${cfg.id}`, level: installed ? "ok" : "fail",
         detail: installed ? `${bin} installed` : `${bin} missing`,
         ...(!installed ? { fix: `install ${bin} or remove providers.${cfg.id}` } : {}) });
+      if(installed && cfg.id !== strategy.planner)checks.push(await executorCliCheck(ctx,cfg));
       logins.add(cfg.via === "opencode" ? "opencode" : cfg.id);
       if (cfg.quotaSource === "arkcli") logins.add("arkcli");
     }
@@ -60,6 +62,8 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       }
     }
   }
+
+  checks.push(await linkLatencyCheck(ctx));
 
   if (ctx.which("orca") === null) {
     checks.push({ name: "Orca", level: "info", detail: "not installed" });
@@ -151,4 +155,22 @@ function fileIntact(file: FileChange): boolean {
   const text = readText(file.path);
   return text !== null && ((!!file.afterHash && sha256(text) === file.afterHash)
     || (file.undo.length > 0 && piecesPresent(text, file.undo)));
+}
+
+/** Measure cached HTTP reads independently of provider and Orca diagnostics. */
+export async function linkLatencyCheck(ctx:Ctx):Promise<Check> {
+  try {
+    const token=readText(join(ctx.pacerHome,"token"))?.trim();
+    if(!token)return {name:"Link latency",level:"info",detail:"serve is not configured"};
+    const port=ctx.env.PACER_PORT ?? "4317";
+    const samples:number[]=[];
+    for(let i=0;i<3;i++) {
+      const start=performance.now();
+      const r=await fetch(`http://127.0.0.1:${port}/link`,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(5000)});
+      if(!r.ok)throw Error(`HTTP ${r.status}`);
+      await r.arrayBuffer();samples.push(performance.now()-start);
+    }
+    const max=Math.max(...samples);
+    return {name:"Link latency",level:max<50?"ok":"warn",detail:`/link max ${max.toFixed(1)} ms across 3 requests (target < 50 ms)`};
+  }catch(e){return {name:"Link latency",level:"warn",detail:`serve unavailable: ${errorText(e)}`};}
 }

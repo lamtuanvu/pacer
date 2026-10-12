@@ -1,3 +1,4 @@
+import { readBlocked } from "../executors/blocked";
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
@@ -16,7 +17,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number }
+export interface DelegateInput { brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -60,6 +61,7 @@ export function delegate(
   ctx: Ctx, input: DelegateInput, spawnFn: SpawnRunner = spawnRunner, s: Strategy = loadStrategy(ctx),
 ): TaskRecord {
   const problems = validateInput(s, input);
+  if(input.executor && readBlocked(ctx)[input.executor])problems.push(`${input.executor}: Blocked by you; run pacer executor unblock ${input.executor}`);
   if (problems.length) throw new DelegateError(problems.join("; "));
   const task = createTask(ctx, {
     brief: input.brief,
@@ -67,8 +69,10 @@ export function delegate(
     requestedExecutor: input.executor ?? null,
     timeoutS: Math.round((input.timeoutMin ?? DEFAULT_TIMEOUT_MIN) * 60),
   });
+  if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
+  if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });
   spawnFn(ctx, task.id);
-  return task;
+  return readTask(ctx,task.id)!;
 }
 
 function alive(pid: number | undefined): boolean {
@@ -87,8 +91,8 @@ const isTerminal = (t: TaskRecord) => TERMINAL_STATES.includes(t.state);
 export function taskStatus(ctx: Ctx, id: string): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
-  const neverStarted = t.state === "queued" && !t.runnerPid && ctx.now - t.createdAt > 60;
-  if (neverStarted || (t.state === "running" && !alive(t.runnerPid))) {
+  const neverStarted = ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
+  if (neverStarted || (t.state === "running" && !!t.attemptStartedAt && !alive(t.runnerPid))) {
     return updateTask(ctx, id, (x) => {
       if (TERMINAL_STATES.includes(x.state)) return;
       x.state = "failed";
