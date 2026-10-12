@@ -98,3 +98,7 @@ test("auto-created console registers exported handle and unregisters on exit",as
   child.stdin.end();await child.exited;expect(child.exitCode).toBe(0);expect(existsSync(path)).toBe(false);
  }finally{if(child.exitCode===null)child.kill("SIGKILL");}
 });
+test("console identity prefers exported worktree id over terminal-list metadata",async()=>{
+ const f=fakeRun([[["orca","terminal","list"],raw(JSON.stringify({ok:true,result:{terminals:[{handle:"term_x",tabId:"T",leafId:"L",worktreeId:"wrong"}]}}))]]);
+ expect(await selfHandle(fakeCtx({env:{ORCA_PANE_KEY:"T:L",ORCA_WORKTREE_ID:"wt-own"},run:f.run}))).toEqual({handle:"term_x",paneKey:"T:L",worktreeId:"wt-own"});
+});

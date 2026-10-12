@@ -70,7 +70,7 @@ function parseConsole(d) {
   const pid = num(d.pid), startedAt = num(d.startedAt), heartbeatAt = num(d.heartbeatAt);
   if (pid === null || startedAt === null || heartbeatAt === null)
     return null;
-  return { pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
+  return { ...optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024) } : {}, pid, startedAt, heartbeatAt, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
 }
 function parseEnvelope(raw) {
   if (!isObj(raw) || raw.v !== 1)
@@ -812,7 +812,9 @@ function renderPanel(s, view) {
   const disable = (html) => console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled");
   const payload = { buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict) })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS) })) };
   const strategy = strategyView(s, view.nowS, view.reachable);
-  const consoleHint = (view.autoConsole ?? true) && view.reachable ? `<small class="muted"><span class="console-spinner" aria-hidden="true">◐</span> Starting pacer console in this worktree...</small>` : `<button type="button" data-setup="pacer console">Start console</button><small>Press Enter in the terminal to start it.</small>`;
+  const outcome = view.autoConsoleOutcome, waiting = !outcome || outcome.status === "starting" && view.nowS - outcome.at < 15;
+  const reason = outcome ? outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
+  const consoleHint = waiting && view.transport === "http" && (view.autoConsole ?? true) && view.reachable ? `<small class="muted"><span class="console-spinner" aria-hidden="true">◐</span> Starting pacer console in this worktree...</small>` : `<button type="button" data-setup="pacer console">Start console</button><small>${h(reason)}</small>`;
   const packed = packPanelData(payload), plain = jsonForScript(packed), encoded = jsonForScript({ encoded: Buffer.from(JSON.stringify(packed), "utf8").toString("base64") });
   const data = encoded.length < plain.length ? encoded : plain;
   return `<!doctype html><html lang="en" data-transport="${h(view.transport ?? "none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style}</style></head><body>
@@ -888,6 +890,19 @@ function createPlugin(deps) {
     let processing = Promise.resolve();
     let httpFailures = 0;
     let renderedKey = null;
+    const outcomes = new Map;
+    let focusedWorktree = null, attempted = false;
+    const panelOutcome = () => (focusedWorktree ? outcomes.get(focusedWorktree) : undefined) ?? { status: "starting", at: activatedAtS };
+    const hintKey = () => {
+      if (!settings.autoConsole || active?.id !== "http" || !reachable)
+        return null;
+      const outcome = focusedWorktree ? outcomes.get(focusedWorktree) : undefined;
+      const hasLive = [...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS);
+      if ((outcome?.status === "registered" || !outcome) && hasLive)
+        return null;
+      const current = panelOutcome();
+      return { ...current, expired: current.status === "starting" && deps.nowS() - current.at >= 15 };
+    };
     const panelKey = () => JSON.stringify({
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
@@ -897,6 +912,7 @@ function createPlugin(deps) {
         handle,
         live: [...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS)
       })),
+      autoConsoleOutcome: hintKey(),
       strategies: store.snapshot.strategies,
       transport: store.transport,
       reachable
@@ -913,7 +929,7 @@ function createPlugin(deps) {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, autoConsole: settings.autoConsole }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
               renderedKey = key;
             } else
               ctx.log("pacer: refused panel write: unmanaged root");
@@ -1047,7 +1063,7 @@ function createPlugin(deps) {
         probing = false;
       });
     });
-    const requested = new Map, failureLogged = new Map;
+    const failureLogged = new Map;
     let opening = false;
     timers.every(5000, () => {
       if (stopped || opening || !settings.autoConsole || active?.id !== "http" || !reachable)
@@ -1056,15 +1072,40 @@ function createPlugin(deps) {
       let worktree = "unknown";
       (async () => {
         const context = await ctx.host.call("workspace.readContext");
-        if (stopped || !context || !context.branch)
+        if (stopped)
           return;
+        if (!context || !context.branch) {
+          focusedWorktree = null;
+          attempted = false;
+          scheduleRender();
+          return;
+        }
         worktree = context.worktreeId || context.branch;
+        if (focusedWorktree !== worktree) {
+          focusedWorktree = worktree;
+          attempted = false;
+          outcomes.delete(worktree);
+          scheduleRender();
+        }
         const now = deps.nowS(), ids = new Set(context.terminals.map((t) => t.id));
-        if ([...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS))
+        if ([...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS)) {
+          if (outcomes.get(worktree)?.status !== "registered") {
+            outcomes.set(worktree, { status: "registered", at: now });
+            scheduleRender();
+          }
           return;
-        if (now - (requested.get(worktree) ?? -Infinity) < 60)
+        }
+        if (attempted) {
+          const outcome = outcomes.get(worktree);
+          if (outcome?.status === "registered" || outcome?.status === "starting" && now - outcome.at >= 30) {
+            outcomes.set(worktree, { status: "gave-up", at: now });
+            scheduleRender();
+          }
           return;
-        requested.set(worktree, now);
+        }
+        attempted = true;
+        outcomes.set(worktree, { status: "starting", at: now });
+        scheduleRender();
         const base = `http://127.0.0.1:${settings.port}`;
         const health = await deps.http.get(`${base}/health`, "", 1500);
         if (stopped || active?.id !== "http")
@@ -1075,13 +1116,18 @@ function createPlugin(deps) {
         if (!token || !deps.http.post)
           throw new Error("HTTP console opening unavailable");
         const response = await deps.http.post(`${base}/console/open`, token, { ...context.terminals[0] ? { terminal: context.terminals[0].id } : {}, branch: context.branch }, 1500);
-        if (response.status !== 200 || response.headers?.["x-pacer"] !== "1")
+        if (response.headers?.["x-pacer"] !== "1")
           throw new Error(`HTTP ${response.status}`);
         const result = JSON.parse(response.body);
-        if (!result.ok && !["console-present", "rate-limited"].includes(result.reason))
-          throw new Error(result.reason || "console opening failed");
+        if (!result.ok) {
+          outcomes.set(worktree, { status: typeof result.reason === "string" ? result.reason : "orca-unavailable", at: deps.nowS() });
+          scheduleRender();
+        } else if (response.status !== 200)
+          throw new Error(`HTTP ${response.status}`);
       })().catch((e) => {
         const now = deps.nowS();
+        outcomes.set(worktree, { status: "orca-unavailable", at: now });
+        scheduleRender();
         if (now - (failureLogged.get(worktree) ?? -Infinity) >= 300) {
           failureLogged.set(worktree, now);
           ctx.log(`pacer: auto console in ${worktree}: ${e instanceof Error ? e.message : String(e)}`);

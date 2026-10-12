@@ -81,3 +81,23 @@ test("unresolved worktree or failed terminal listing never creates a console",as
  expect(await (await post({terminal:"term_missing"})).json()).toMatchObject({ok:false});
  expect(await (await post({branch:"missing"})).json()).toMatchObject({ok:false});expect(f.calls).toHaveLength(0);
 });
+for(const remembered of [false,true])test(`existing console terminal prevents recreate (remembered=${remembered})`,async()=>{
+ const {post,ctx,f}=fixture();
+ if(remembered){expect((await (await post()).json()).ok).toBe(true);ctx.now+=61;}
+ const scripted=fakeRun([
+ [["orca","terminal","show"],reply({terminal:{worktreeId:"wt",worktreeDisplayName:"Feature"}})],
+ [["orca","terminal","list"],reply({terminals:[remembered?{handle:"term_new",title:"renamed"}:{handle:"term_dead",title:"pacer"}]})],
+ [["orca","terminal","create"],reply({terminal:{handle:"term_duplicate"}})],
+ ]);ctx.run=scripted.run;
+ expect(await (await post()).json()).toMatchObject({ok:false,reason:"console-terminal-exists"});expect(scripted.count(["orca","terminal","create"])).toBe(0);
+});
+test("failed terminal create releases worktree and global reservations",async()=>{
+ const {post,ctx}=fixture();let attempts=0;
+ const f=fakeRun([
+ [["orca","terminal","show"],reply({terminal:{worktreeId:"wt",worktreeDisplayName:"Feature"}})],
+ [["orca","terminal","list"],reply({terminals:[]})],
+ [["orca","terminal","create"],()=>{if(++attempts<=11)throw Error("create failed");return reply({terminal:{handle:"term_recovered"}});}],
+ ]);ctx.run=f.run;
+ for(let i=0;i<11;i++)expect(await (await post()).json()).toMatchObject({ok:false,reason:"orca-unavailable"});
+ expect(await (await post()).json()).toMatchObject({ok:true,handle:"term_recovered"});
+});

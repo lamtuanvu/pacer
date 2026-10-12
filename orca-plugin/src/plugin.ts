@@ -9,7 +9,7 @@ import { bridgeTransport } from "./transports/bridge";
 import { channelTransport } from "./transports/channel";
 import { NO_CONSOLE, sendToConsole, focusedConsole } from "./console-link";
 import { notifyNewAlerts } from "./notify";
-import { renderPanel } from "./panel";
+import { renderPanel, type AutoConsoleOutcome } from "./panel";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
   nowS(): number;
@@ -58,13 +58,24 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     let processing = Promise.resolve();
     let httpFailures = 0;
     let renderedKey: string | null = null;
+    const outcomes = new Map<string, AutoConsoleOutcome>();
+    let focusedWorktree: string | null = null, attempted = false;
+    const panelOutcome = (): AutoConsoleOutcome => (focusedWorktree ? outcomes.get(focusedWorktree) : undefined) ?? { status: "starting", at: activatedAtS };
+    const hintKey = () => {
+      if (!settings.autoConsole || active?.id !== "http" || !reachable) return null;
+      const outcome = focusedWorktree ? outcomes.get(focusedWorktree) : undefined;
+      const hasLive = [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle && deps.nowS()-c.heartbeatAt <= LIMITS.heartbeatS);
+      if ((outcome?.status === "registered" || !outcome) && hasLive) return null;
+      const current = panelOutcome();
+      return { ...current, expired: current.status === "starting" && deps.nowS()-current.at >= 15 };
+    };
     const panelKey = () => JSON.stringify({
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       tasks: store.snapshot.tasks, alerts: store.snapshot.alerts,
       consoles: [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map(handle => ({
         handle, live: [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS),
-      })), strategies: store.snapshot.strategies, transport: store.transport, reachable,
+      })), autoConsoleOutcome: hintKey(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
     });
     const logError = (e: unknown) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
     const scheduleRender = () => {
@@ -76,7 +87,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, autoConsole: settings.autoConsole }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, autoConsole: settings.autoConsole, autoConsoleOutcome: panelOutcome() }));
               renderedKey = key;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
@@ -157,7 +168,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         await ensureConnected();
       })().catch(logError).finally(() => { probing = false; });
     });
-    const requested = new Map<string, number>(), failureLogged = new Map<string, number>();
+    const failureLogged = new Map<string, number>();
     let opening = false;
     timers.every(5000, () => {
       if (stopped || opening || !settings.autoConsole || active?.id !== "http" || !reachable) return;
@@ -165,12 +176,22 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       let worktree = "unknown";
       void (async () => {
         const context = await ctx.host.call("workspace.readContext");
-        if (stopped || !context || !context.branch) return;
+        if (stopped) return;
+        if (!context || !context.branch) { focusedWorktree = null; attempted = false; scheduleRender(); return; }
         worktree = context.worktreeId || context.branch;
+        if (focusedWorktree !== worktree) { focusedWorktree = worktree; attempted = false; outcomes.delete(worktree); scheduleRender(); }
         const now = deps.nowS(), ids = new Set(context.terminals.map(t => t.id));
-        if ([...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS)) return;
-        if (now - (requested.get(worktree) ?? -Infinity) < 60) return;
-        requested.set(worktree, now);
+        if ([...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS)) {
+          if (outcomes.get(worktree)?.status !== "registered") { outcomes.set(worktree, { status: "registered", at: now }); scheduleRender(); } return;
+        }
+        if (attempted) {
+          const outcome = outcomes.get(worktree);
+          if (outcome?.status === "registered" || (outcome?.status === "starting" && now-outcome.at >= 30)) {
+            outcomes.set(worktree, { status: "gave-up", at: now }); scheduleRender();
+          }
+          return;
+        }
+        attempted = true; outcomes.set(worktree, { status: "starting", at: now }); scheduleRender();
         // Verify the loopback listener's identity immediately before sending the bearer token.
         const base = `http://127.0.0.1:${settings.port}`;
         const health = await deps.http.get(`${base}/health`, "", 1500);
@@ -179,11 +200,14 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         const token = deps.fs.readText(`${settings.pacerHome}/token`)?.trim();
         if (!token || !deps.http.post) throw new Error("HTTP console opening unavailable");
         const response = await deps.http.post(`${base}/console/open`, token, { ...(context.terminals[0] ? { terminal: context.terminals[0].id } : {}), branch: context.branch }, 1500);
-        if (response.status !== 200 || response.headers?.["x-pacer"] !== "1") throw new Error(`HTTP ${response.status}`);
+        if (response.headers?.["x-pacer"] !== "1") throw new Error(`HTTP ${response.status}`);
         const result = JSON.parse(response.body);
-        if (!result.ok && !["console-present", "rate-limited"].includes(result.reason)) throw new Error(result.reason || "console opening failed");
+        if (!result.ok) {
+          outcomes.set(worktree, { status: typeof result.reason === "string" ? result.reason : "orca-unavailable", at: deps.nowS() }); scheduleRender();
+        } else if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
       })().catch(e => {
         const now = deps.nowS();
+        outcomes.set(worktree, { status: "orca-unavailable", at: now }); scheduleRender();
         if (now - (failureLogged.get(worktree) ?? -Infinity) >= 300) {
           failureLogged.set(worktree, now); ctx.log(`pacer: auto console in ${worktree}: ${e instanceof Error ? e.message : String(e)}`);
         }

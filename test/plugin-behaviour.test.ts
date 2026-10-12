@@ -284,7 +284,9 @@ test("HTTP recovery before failover restores reachable panel state",async()=>{
  }finally{await plugin.deactivate();await f.cleanup();}
 });
 test("HTTP SSE and poll generation timestamps do not trigger renders or notifications",async()=>{
- const f=fixture();let line!:(s:string)=>void;const panels:string[]=[];
+ const f=fixture();
+ const originalCall=f.ctx.host.call.bind(f.ctx.host);
+ f.ctx.host={call:((method:any,params:any)=>method==="settings.get"?Promise.resolve({settings:{autoConsole:false}}):originalCall(method,params)) as OrcaHost["call"]};let line!:(s:string)=>void;const panels:string[]=[];
  f.snapshot={...emptySnapshot(),budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:[],ranked:[]},
  alerts:[{key:"a",level:"info",title:"once",body:"",at:100}]};
  const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100,timers:f.timers,

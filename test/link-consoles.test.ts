@@ -49,3 +49,7 @@ test("registrations over ten minutes old are deleted even with a reused live pid
  expect(existsSync(consolePath(ctx))).toBe(false);
  writeConsole(ctx,c("boundary",process.pid,400));expect(currentSnapshot(ctx,()=>true).consoles?.map(c=>c.handle)).toEqual(["boundary"]);
 });
+test("console worktree identity survives snapshot registration and validation",()=>{
+ const ctx=fakeCtx({now:100});writeConsole(ctx,{...c("term_own",process.pid,100),worktreeId:"wt-own"} as any);
+ expect(parseSnapshot(currentSnapshot(ctx))?.consoles?.[0]).toHaveProperty("worktreeId","wt-own");
+});

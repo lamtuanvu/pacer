@@ -267,3 +267,13 @@ test("autoConsole panel starting state and manual fallback",()=>{
   if(starting){expect(html).toContain("◐");expect(html).toContain("prefers-reduced-motion");}
  }
 });
+
+for(const transport of ["bridge","channel"] as const)test(`manual console fallback on ${transport}`,()=>{
+ const html=renderPanel(emptySnapshot(),{nowS:100,transport,reachable:true,autoConsole:true});
+ expect(html).toContain('>Start console</button>');expect(html).not.toContain("Starting pacer console");
+});
+
+for(const [outcome,now] of [[{status:"starting",at:100},114],[{status:"starting",at:100},115],[{status:"gave-up",at:100},101],[{status:"<script>bad</script>",at:100},101]] as const)test(`bounded starting hint ${outcome.status} at ${now}`,()=>{
+ const html=renderPanel(emptySnapshot(),{nowS:now,transport:"http",reachable:true,autoConsole:true,autoConsoleOutcome:outcome} as any);
+ expect(html.includes('>Start console</button>')).toBe(now!==114);expect(html).not.toContain('<script>bad</script>');
+});

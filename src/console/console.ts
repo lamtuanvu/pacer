@@ -20,7 +20,7 @@ export interface ConsoleDeps {
   pump(ctx: Ctx): Promise<Envelope[]>;
   heartbeat(ctx: Ctx, c: ConsoleData | null): void;
   resolveWorktreePath(ctx: Ctx, branch: string, worktreeId?: string): Promise<string | null>;
-  selfHandle(ctx: Ctx): Promise<{ handle: string | null; paneKey: string | null }>;
+  selfHandle(ctx: Ctx): Promise<{ handle: string | null; paneKey: string | null; worktreeId?: string }>;
   every(ms: number, fn: () => void): () => void;
   pid: number;
   cwd: string;
