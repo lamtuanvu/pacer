@@ -98,7 +98,7 @@ test("commands deduplicate persistent undo, run undo on rollback, and note exit 
   })).rejects.toThrow("abort");
   expect(calls).toEqual([["register"], ["unregister"]]);
   ctx.run = recordingRun(calls, 127);
-  const failed = await runInstall(env, "codex", async tx => { await tx.run(["missing"], undefined, { quiet: true }); });
+  const failed = await runInstall(env, "codex", async tx => { await tx.run(["missing"]); });
   expect(failed.notes).toEqual(["`missing` failed (exit 127): not available"]);
 });
 

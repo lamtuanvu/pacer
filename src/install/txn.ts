@@ -62,9 +62,9 @@ export class Txn {
   async run(argv: string[], undo?: string[], options: { quiet?: boolean } = {}): Promise<void> {
     try {
       const result = await this.env.ctx.run(argv, 30000);
-      if (result.code !== 0) this.notes.push(`\`${shellCommand(argv)}\` failed (exit ${result.code}): ${(result.stderr || result.stdout).split(/\r?\n/)[0]}`);
+      if (!options.quiet && result.code !== 0) this.notes.push(`\`${shellCommand(argv)}\` failed (exit ${result.code}): ${(result.stderr || result.stdout).split(/\r?\n/)[0]}`);
     } catch (error) {
-      this.notes.push(`\`${shellCommand(argv)}\` failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (!options.quiet) this.notes.push(`\`${shellCommand(argv)}\` failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (undo) {
       const same = (item: string[]) => JSON.stringify(item) === JSON.stringify(undo);
@@ -83,7 +83,8 @@ export class Txn {
   }
   commit(): void {
     const manifest = readManifest(this.env.ctx);
-    this.record.notes.push(...this.notes);
+    this.record.notes = [...this.notes];
+    if (JSON.stringify(manifest.planners[this.record.planner]) === JSON.stringify(this.record)) return;
     manifest.planners[this.record.planner] = this.record;
     writeManifest(this.env.ctx, manifest);
   }

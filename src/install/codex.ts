@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { removeBlock, upsertBlock } from "./blocks";
 import { shellCommand } from "./fsx";
 import { editHooksFile, type HookSpec } from "./hookjson";
+import { removeTomlTable } from "./manifest";
 import { policyText } from "./policy";
 import type { Txn } from "./txn";
 
@@ -13,9 +14,16 @@ export function codexMcpBlock(argv: string[]): string {
 export function installCodex(tx: Txn): void {
   const dir = join(tx.env.ctx.home, ".codex");
   const argv = tx.env.pacerArgv;
-  tx.edit(join(dir, "config.toml"), old => {
+  const configPath = join(dir, "config.toml");
+  const ownsTable = tx.record.files.some(file => file.path === configPath
+    && file.undo.some(op => op.kind === "toml-table" && op.table === "mcp_servers.pacer"));
+  tx.edit(configPath, old => {
     const text = old ?? "";
     if (/^\[mcp_servers\.("pacer"|pacer)\]/m.test(removeBlock(text, "hash"))) {
+      if (ownsTable) {
+        const withoutTable = removeTomlTable(removeTomlTable(removeBlock(text, "hash"), "mcp_servers.pacer"), 'mcp_servers."pacer"');
+        return upsertBlock(withoutTable, codexMcpBlock(argv), "hash");
+      }
       tx.notes.push("already defines [mcp_servers.pacer]; left it unchanged");
       return text;
     }
