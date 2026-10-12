@@ -1,3 +1,4 @@
+import { checkDraftPath } from "./paths";
 import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -11,7 +12,7 @@ export interface Draft { from: string; set?: Record<string, JSONValue>; unset?: 
 export function checkName(name: string, writable=false): void {
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name) || writable && name === "default") throw new Error(`invalid strategy name "${name}"${writable ? "; default is protected" : ""}`);
 }
-export function pathFor(ctx: Ctx, name: string): string { checkName(name); return name === "default" ? join(ctx.pacerHome,"strategy.yaml") : join(ctx.pacerHome,"strategies",`${name}.yaml`); }
+export function pathFor(ctx: Ctx, name: string): string { if(!listStrategies(ctx).includes(name)) throw new Error(`unknown strategy "${name}"`); return name === "default" ? join(ctx.pacerHome,"strategy.yaml") : join(ctx.pacerHome,"strategies",`${name}.yaml`); }
 export function summarize(s: Strategy): string {
   const first=s.pacing.order.find(id=>id!==s.planner);
   return `${first ? displayName(first)+" first" : "Configured executors"}, ${displayName(s.planner)} keeps ${s.pacing.plannerReserve}%${s.pacing.policy === "priority" ? "" : `; ${s.pacing.policy} policy`}`;
@@ -21,7 +22,11 @@ export function show(ctx: Ctx, name: string) {
   return {yaml,summary:summarize(s),active:loadStrategy(ctx).name===name};
 }
 export function list(ctx: Ctx) {
-  return listStrategies(ctx).map(name=>{try { const r=show(ctx,name); return {name,active:r.active,summary:r.summary,description:/^#\s?(.*)/.exec(r.yaml)?.[1] ?? ""}; } catch {return {name,active:false,summary:"Invalid or missing strategy",description:""};}});
+  return listStrategies(ctx).map(name=>{try { const r=show(ctx,name); return {name,active:r.active,summary:r.summary,description:description(r.yaml)}; } catch {return {name,active:false,summary:"Invalid or missing strategy",description:""};}});
+}
+function description(yaml:string):string {
+  const first=/^#\s?(.*)/.exec(yaml)?.[1]??"";
+  return /^pacer starter strategy/i.test(first) ? "" : first;
 }
 export function applyDraft(raw: unknown, draft: Draft): unknown {
   const root=structuredClone(raw);
@@ -29,6 +34,7 @@ export function applyDraft(raw: unknown, draft: Draft): unknown {
   const change=(path:string,value:JSONValue|undefined,remove:boolean)=>{
     const keys=path.split(".");
     if(keys.some(k=>!k || ["__proto__","prototype","constructor"].includes(k))) throw new Error(`invalid dotted path "${path}"`);
+    checkDraftPath(keys,path);
     let node=root as Record<string,unknown>;
     for(const key of keys.slice(0,-1)) {
       if(node[key]===undefined) {if(remove)return; node[key]={};}
@@ -43,7 +49,7 @@ export function applyDraft(raw: unknown, draft: Draft): unknown {
 }
 function draftYaml(ctx:Ctx,draft:Draft) {
   const raw=applyDraft(Bun.YAML.parse(readFileSync(pathFor(ctx,draft.from),"utf8")),draft);
-  return {raw,yaml:Bun.YAML.stringify(raw)};
+  return {raw,yaml:Bun.YAML.stringify(raw,null,2).replace(/\n?$/, "\n")};
 }
 function materialize(ctx:Ctx,draft:Draft) {
   const {raw,yaml}=draftYaml(ctx,draft);
@@ -60,10 +66,11 @@ export async function preview(ctx:Ctx,draft:Draft) {
   } catch(e) {return {ok:false,errors:e instanceof StrategyError ? e.problems : [String((e as Error).message)],yaml,summary:"",ranking,routing:{current:current.routing,draft:[]}};}
 }
 const line=(text:string)=>text.replace(/[\r\n\x00-\x1f]/g," ");
-export function save(ctx:Ctx,name:string,draft:Draft,reason:string,opts:{overwrite?:boolean;who?:string}={}) {
+export function save(ctx:Ctx,name:string,draft:Draft,reason:string,opts:{overwrite?:boolean;activeOk?:boolean;who?:string}={}) {
   checkName(name,true); if(!reason.trim()) throw new Error("a save reason is required");
-  const {yaml,strategy}=materialize(ctx,draft), path=pathFor(ctx,name);
+  const {yaml,strategy}=materialize(ctx,draft), path=join(ctx.pacerHome,"strategies",`${name}.yaml`);
   if(existsSync(path)&&!opts.overwrite) throw new Error(`strategy "${name}" already exists; use overwrite:true to replace it`);
+  if(existsSync(path)&&loadStrategy(ctx).name===name&&!opts.activeOk) throw new Error(`strategy "${name}" is active; overwriting changes live routing; use activeOk:true to approve`);
   mkdirSync(join(ctx.pacerHome,"strategies"),{recursive:true});
   const who=line(opts.who??ctx.env.PACER_AGENT??ctx.env.ORCA_AGENT??"agent");
   const content=`# ${line(draft.description??summarize(strategy))}\n# created by ${who} on ${new Date(ctx.now*1000).toISOString()}: ${line(reason)}\n${yaml}`;

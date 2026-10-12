@@ -1,4 +1,7 @@
-import { list, show } from "../strategy/service";
+import { createHash } from "node:crypto";
+import { isObj } from "../util";
+import { statSync } from "node:fs";
+import { list, show, pathFor } from "../strategy/service";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { join } from "node:path";
 import { loadStrategy } from "../config/strategy";
@@ -25,12 +28,25 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({v:1,type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`pacer mode: ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
   for(const t of deps.tasks(ctx)){const d=taskData(t),prev=latest.tasks.find(x=>x.id===d.id);if(prev?.state===d.state)continue;out.push({v:1,type:"task",data:d});
     const terminal=TERMINAL_STATES.includes(d.state as TaskState);if(terminal&&(prev||latest.seq>0))out.push(alert({key:`task-${d.id}`,level:d.state==="failed"||d.state==="limit"?"warn":"info",title:clip(`pacer task ${d.state}: ${d.goal}`,LIMITS.title),body:clip(`${d.executor??"-"} via ${d.backend??"-"}${d.worktree?` in ${d.worktree}`:""}`,LIMITS.body),at:ctx.now}));}
-  const seenPath=join(ctx.pacerHome,"link","strategy-seen.json"), seen=readJson<string[]>(seenPath), entries=list(ctx), names=entries.map(s=>s.name);
-  if(Array.isArray(seen))for(const entry of entries)if(entry.name!=="default"&&!seen.includes(entry.name)) {
-    let who="agent";
-    try { who=/# created by (.*?) on /.exec(show(ctx,entry.name).yaml)?.[1]??who; } catch { /* A malformed new file still gets an informative alert. */ }
-    out.push(alert({key:`strategySaved-${entry.name}`,level:"info",title:`New strategy "${entry.name}" saved`,body:`${entry.summary} · by ${who}`,at:ctx.now}));
+  const seenPath=join(ctx.pacerHome,"link","strategy-seen.json"), previousSeen=readJson<unknown>(seenPath), entries=list(ctx);
+  // Accept the old name-only ledger as a baseline, then persist content fingerprints.
+  const seen:Record<string,unknown>|null=Array.isArray(previousSeen) ? Object.fromEntries(previousSeen.map(name=>[name,null])) : isObj(previousSeen) ? previousSeen : null;
+  const next:Record<string,string>={};
+  for(const entry of entries) {
+    let yaml="", revision="";
+    try {
+      const file=pathFor(ctx,entry.name), stat=statSync(file,{bigint:true});
+      // Atomic replacement changes the inode even when the bytes are identical.
+      revision=`${stat.ino}:${stat.mtimeNs}`;
+      yaml=show(ctx,entry.name).yaml;
+    }catch{ /* Keep malformed files visible. */ }
+    next[entry.name]=createHash("sha256").update(revision+"\0"+yaml).digest("hex");
+    if(entry.name==="default" || !seen || Object.hasOwn(seen,entry.name) && (seen[entry.name]===null || seen[entry.name]===next[entry.name]))continue;
+    const who=/# created by (.*?) on /.exec(yaml)?.[1]??"agent";
+    out.push(alert({key:`strategySaved-${entry.name}`,level:"info",title:Object.hasOwn(seen,entry.name)?`Strategy "${entry.name}" updated`:`New strategy "${entry.name}" saved`,body:`${entry.summary} · by ${who}`,at:ctx.now}));
   }
-  writeJsonAtomic(seenPath,names);
-  if(out.length)await deps.publish(ctx,out); return out;
+  const report=out.length ? await deps.publish(ctx,out) : null;
+  // Only acknowledge changes after the durable alert reached the link outbox.
+  if((!report || report.transports.includes("outbox")) && JSON.stringify(previousSeen)!==JSON.stringify(next))writeJsonAtomic(seenPath,next);
+  return out;
 }

@@ -117,3 +117,13 @@ test("strategy MCP schemas and structured preview/save/show/use results",async()
  expect((await call("strategy_save",{name:"../unsafe",draft,reason:"Approved"})).isError).toBe(true);
  expect((await call("strategy_preview",{draft:{...draft,set:{"pacing.policy":"invalid"}}})).structuredContent.ok).toBe(false);await client.close();
 });
+
+test("MCP active overwrite exposes approval and uses option names in errors",async()=>{
+ const {call,client}=await connect();
+ const tool=(await client.listTools()).tools.find(t=>t.name==="strategy_save")!;
+ expect(tool.description).toContain("activeOk");expect(tool.description).toContain("live routing");
+ const draft={from:"default"};await call("strategy_save",{name:"active",draft,reason:"approved"});await call("strategy_use",{name:"active"});
+ const duplicate=await call("strategy_save",{name:"active",draft,reason:"approved"});expect(duplicate.structuredContent.error).toContain("overwrite:true");
+ const refused=await call("strategy_save",{name:"active",draft,reason:"approved",overwrite:true});expect(refused.isError).toBe(true);expect(refused.structuredContent.error).toContain("activeOk:true");
+ expect((await call("strategy_save",{name:"active",draft,reason:"approved",overwrite:true,activeOk:true})).isError).toBeFalsy();await client.close();
+});

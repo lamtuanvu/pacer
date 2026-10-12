@@ -220,8 +220,8 @@ test("Check again refreshes a reachable console in the active worktree",()=>{
 test("client renders the snapshot update time and ages freshness without a reload",()=>{
  const s=snapshot();const at=Date.UTC(2026,9,12,10)/1000;s.at=at;s.budget!.generatedAt=at;
  const b=browser(panel(s,true,at));b.now(at*1000);b.tick();
- expect(b.updated.textContent).toBe("17:00");expect(b.freshness[0].parentElement.className).toContain("good");
- b.now((at+121)*1000);b.tick();expect(b.updated.textContent).toBe("17:00");expect(b.freshness[0].textContent).toContain("Stale");
+ expect(b.updated.textContent).toBe(new Date(at*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}));expect(b.freshness[0].parentElement.className).toContain("good");
+ b.now((at+121)*1000);b.tick();expect(b.updated.textContent).toBe(new Date(at*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}));expect(b.freshness[0].textContent).toContain("Stale");
 });
 
 test("a fresh registration remains usable when a stale duplicate precedes it",()=>{
@@ -235,7 +235,7 @@ test("strategy builder sends safe brief payload into current worktree and limits
  const b=browser();b.ids["strategy-brief"].value="Protect Claude";b.ids["strategy-from"].value="default";b.ids["strategy-agent"].value="codex";
  b.ids["strategy-form"].handlers.submit({preventDefault(){}});const context=b.sent.at(-1);b.reply(context,{branch:"main",displayName:"Main",worktreeId:"wt",terminals:[{id:"term_console"}]});
  expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data).toEqual({cmd:"strategy-build",agent:"codex",from:"default",brief:"Protect Claude",branch:"main",worktreeId:"wt"});
- b.reply(b.sent.at(-1),{accepted:true});expect(b.ids.status.textContent).toBe("Session opened in a new terminal");
+ b.reply(b.sent.at(-1),{accepted:true});expect(b.ids.status.textContent).toBe("Sent to the pacer console. Watch the new terminal.");
  b.ids["strategy-brief"].value="x".repeat(2001);const count=b.sent.length;b.ids["strategy-form"].handlers.submit({preventDefault(){}});expect(b.sent).toHaveLength(count);
 });
 test("strategy summaries escape and every button has nowrap and shrink protection",()=>{
@@ -246,4 +246,15 @@ test("after-session card uses newest unseen saved alert and escapes its text",()
  const s=snapshot();s.alerts=[{key:"strategySaved-new",level:"info",title:'New strategy "new" saved',body:"Codex first",at:100},{key:"strategySaved-older",level:"info",title:'<img onerror="bad">',body:"<script>bad</script>",at:90}];
  const b=browser(panel(s),["strategySaved-new:100"]);expect(b.ids["strategy-after"].hidden).toBe(false);expect(b.ids["strategy-after"].innerHTML).toContain("&lt;img");expect(b.ids["strategy-after"].innerHTML).not.toContain('<script>');
  expect(browser(panel(s),["strategySaved-new:100","strategySaved-older:90"]).ids["strategy-after"].hidden).toBe(true);
+});
+
+test("console build alerts show the actual session outcome in the panel",()=>{
+ for(const [level,title,body] of [["info","Strategy session opened in a new terminal",""],["error","Strategy session failed","Terminal creation refused <script>"]]){
+  const s=snapshot();s.alerts=[{key:"strategy-build",level:level as "info"|"error",title,body,at:100}];
+  expect(browser(panel(s)).ids.status.textContent).toBe(title+(body?": "+body:""));
+ }
+});
+test("strategy note includes the information icon and OpenCode has a readable label",()=>{
+ const s=snapshot();s.budget!.providers.push({id:"opencode",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false});s.budget!.ranked.push({id:"opencode",verdict:"OK"});
+ const b=browser(panel(s));expect(b.ids["ranked-list"].innerHTML).toContain("OpenCode");expect(panel(s)).toContain('aria-label="Information"');
 });

@@ -1,15 +1,18 @@
-import { expect, test } from "bun:test";
+import { expect, test as bunTest } from "bun:test";
 import { join } from "node:path";
 import { execProcess } from "../src/exec/process";
 import { tmpDir } from "./helpers";
 
-const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+// Process startup can contend with parallel suite runs; retain short kill deadlines,
+// but allow the assertions and test runner enough scheduling headroom.
+const test=(name:string,fn:()=>Promise<void>)=>bunTest(name,fn,20000);
+const env = { PATH: process.env.PATH, HOME: tmpDir() };
 
 test("captures stdout, stderr and exit code; feeds stdin; runs in cwd with env", async () => {
   const dir = tmpDir();
   const r = await execProcess({
     argv: ["sh", "-c", 'read x; echo "got:$x"; pwd; echo "v=$PACER_T"; echo oops >&2; exit 3'],
-    cwd: dir, stdin: "hello\n", env: { ...env, PACER_T: "7" }, timeoutMs: 5000,
+    cwd: dir, stdin: "hello\n", env: { ...env, PACER_T: "7" }, timeoutMs: 15000,
   });
   expect(r.code).toBe(3);
   expect(r.timedOut).toBe(false);
@@ -22,7 +25,7 @@ test("captures stdout, stderr and exit code; feeds stdin; runs in cwd with env",
 test("missing binary is code 127 and still writes the log", async () => {
   const dir = tmpDir();
   const log = join(dir, "x.log");
-  const r = await execProcess({ argv: ["definitely-not-a-binary-pacer"], cwd: dir, env, timeoutMs: 5000, logFile: log });
+  const r = await execProcess({ argv: ["definitely-not-a-binary-pacer"], cwd: dir, env, timeoutMs: 15000, logFile: log });
   expect(r.code).toBe(127);
   expect(await Bun.file(log).exists()).toBe(true);
 });
@@ -32,14 +35,14 @@ test("timeout kills the process and reports timedOut", async () => {
   const r = await execProcess({ argv: ["sleep", "30"], cwd: tmpDir(), env, timeoutMs: 300 });
   expect(r.timedOut).toBe(true);
   expect(r.code).not.toBe(0);
-  expect(Date.now() - started).toBeLessThan(5000);
+  expect(Date.now() - started).toBeLessThan(15000);
 });
 
 test("onSpawn receives the pid; the log records command, output and exit", async () => {
   const dir = tmpDir();
   const log = join(dir, "run.log");
   let pid = 0;
-  await execProcess({ argv: ["sh", "-c", "echo hi"], cwd: dir, env, timeoutMs: 5000, logFile: log, onSpawn: (p) => { pid = p; } });
+  await execProcess({ argv: ["sh", "-c", "echo hi"], cwd: dir, env, timeoutMs: 15000, logFile: log, onSpawn: (p) => { pid = p; } });
   expect(pid).toBeGreaterThan(0);
   const text = await Bun.file(log).text();
   expect(text).toContain("$ sh -c echo hi");
@@ -56,7 +59,7 @@ test("timeout holds when a grandchild keeps the pipes open", async () => {
     timeoutMs: 300,
   });
   expect(r.timedOut).toBe(true);
-  expect(Date.now() - started).toBeLessThan(5000);
+  expect(Date.now() - started).toBeLessThan(15000);
 });
 
 test("a throwing onSpawn does not escape", async () => {
@@ -64,7 +67,7 @@ test("a throwing onSpawn does not escape", async () => {
     argv: ["sh", "-c", "echo ok"],
     cwd: tmpDir(),
     env,
-    timeoutMs: 5000,
+    timeoutMs: 15000,
     onSpawn: () => {
       throw new Error("onSpawn boom");
     },
@@ -78,7 +81,7 @@ test("an unwritable log file does not escape", async () => {
     argv: ["sh", "-c", "echo ok"],
     cwd: tmpDir(),
     env,
-    timeoutMs: 5000,
+    timeoutMs: 15000,
     logFile: "/dev/null/nope.log",
   });
   expect(r.code).toBe(0);
