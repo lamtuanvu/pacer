@@ -33,6 +33,7 @@ export interface DecisionEntry {
   adapter: string;
   answer: Answer | null;
   acted_on: boolean;
+  shadow?: boolean;
   fallback: boolean;
   fallback_from?: string;
   fallback_reason?: string;

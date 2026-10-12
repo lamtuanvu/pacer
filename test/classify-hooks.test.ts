@@ -1,3 +1,7 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { activeHooks } from "../src/classify/active";
+import { defaultHooks } from "../src/classify/hooks";
 import { expect, test } from "bun:test";
 import { makeClassifierHooks, countRepoFiles } from "../src/classify/classifier-hooks";
 import { readDecisions } from "../src/classify/log";
@@ -125,4 +129,47 @@ test("runTask with injected classifier deps records check and logs all decisions
   });
   expect(completed.result).toMatchObject({ status: "done", check: { pass: true, adapter: "rules" } });
   expect(readDecisions(ctx).map(e => e.decision)).toEqual(["task_kind", "difficulty", "result_check"]);
+});
+
+
+for (const mode of ["observe", "filter", "shadow"] as const) test(`repo file probe only runs for difficulty filter or shadows: ${mode}`, async () => {
+  const ctx = fakeCtx();
+  let probes = 0;
+  const s = strategy(mode === "filter" ? { decisions: { difficulty: { max_for_cheap: 0.6 } } } : mode === "shadow" ? { shadow: ["ollama"] } : {});
+  const hooks = makeClassifierHooks({ loadStrategy: () => s, adapters: () => adapters(0.8), repoFiles: async () => { probes++; return 10; } });
+  await hooks.filterExecutors(ctx, task(ctx), ["cheap", "codex"], s);
+  expect(probes).toBe(mode === "observe" ? 0 : 1);
+});
+
+for (const method of ["kind", "difficulty"] as const) test(`${method} cache evicts least recently used tasks after 500`, async () => {
+  const ctx = fakeCtx(); const s = strategy({ default: "ollama" });
+  let calls = 0;
+  const set = adapters(method === "kind" ? "docs" : 0.8);
+  const ask = set.ollama.ask;
+  set.ollama.ask = async (state, q) => { calls++; return ask(state, q); };
+  const hooks = makeClassifierHooks({ loadStrategy: () => s, adapters: () => set });
+  const base = task(ctx);
+  const invoke = (id: string) => method === "kind"
+    ? hooks.taskKind(ctx, { ...base, id })
+    : hooks.filterExecutors(ctx, { ...base, id }, ["cheap", "codex"], s);
+  for (let i = 0; i < 500; i++) await invoke(String(i));
+  await invoke("0");
+  await invoke("500");
+  await invoke("0");
+  expect(calls).toBe(501);
+  await invoke("1");
+  expect(calls).toBe(502);
+});
+
+test("activeHooks without classifier preserve default kind and executor lists", async () => {
+  const ctx = fakeCtx();
+  const raw = { planner: "claude-code", providers: { codex: {}, cheap: { via: "opencode", model: "local/model", usage: "unmetered" } }, routing: [{ default: ["cheap", "codex"] }] };
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
+  const s = validateStrategy(raw, "/fake");
+  for (const kind of [null, "tests"]) {
+    const t = task(ctx, kind);
+    expect(await activeHooks.taskKind(ctx, t)).toBe(await defaultHooks.taskKind(ctx, t));
+    expect(await activeHooks.filterExecutors(ctx, t, ["cheap", "codex"], s)).toEqual(await defaultHooks.filterExecutors(ctx, t, ["cheap", "codex"], s));
+  }
 });

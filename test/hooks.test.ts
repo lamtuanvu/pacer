@@ -37,7 +37,7 @@ function deps(hooks: Partial<DecisionHooks>, picked: string[]): RunnerDeps {
 const newTask = (ctx: ReturnType<typeof fakeCtx>) =>
   createTask(ctx, { brief: { goal: "g", repo: "/r" }, kind: null, requestedExecutor: null, timeoutS: 60 });
 
-test("defaults change nothing and activeHooks starts as defaultHooks", async () => {
+test("defaults change nothing and activeHooks exposes a taskKind function", async () => {
   expect(typeof activeHooks.taskKind).toBe("function");
   const ctx = fakeCtx();
   const picked: string[] = [];

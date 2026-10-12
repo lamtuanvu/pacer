@@ -1,3 +1,4 @@
+import type { ClassifierConfig } from "../config/classifier";
 import { KINDS } from "../config/strategy";
 import { readLabels } from "../tasks/labels";
 import { listTasks } from "../tasks/store";
@@ -18,7 +19,7 @@ function validKind(value: unknown): value is Kind {
 }
 
 /** Build benchmark labels from stored outcomes and append-ordered human labels. */
-export function buildTruth(ctx: Ctx, entries: readonly DecisionEntry[]): TruthIndex {
+export function buildTruth(ctx: Ctx, entries: readonly DecisionEntry[], cfg: Pick<ClassifierConfig, "tiers"> = { tiers: {} }): TruthIndex {
   const index: TruthIndex = {
     taskKind: Object.create(null), difficulty: Object.create(null),
     resultCheck: Object.create(null), guard: Object.create(null),
@@ -54,7 +55,7 @@ export function buildTruth(ctx: Ctx, entries: readonly DecisionEntry[]): TruthIn
     if (validKind(kind)) index.taskKind[task.id] = kind;
     if (typeof review?.accepted === "boolean") index.resultCheck[task.id] = review.accepted;
     const result = task.result;
-    if (result && ["done", "partial", "failed"].includes(result.status)) {
+    if (result && result.executor !== null && cfg.tiers[result.executor] === "cheap" && ["done", "partial", "failed"].includes(result.status)) {
       index.difficulty[task.id] = {
         reliable: result.status === "done" && review?.accepted !== false,
         executor: result.executor,

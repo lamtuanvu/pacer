@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import { redactState } from "./state";
@@ -15,7 +15,13 @@ export function newDecisionId(): string {
 
 export function appendDecision(ctx: Ctx, entry: DecisionEntry): void {
   mkdirSync(ctx.pacerHome, { recursive: true });
-  appendFileSync(decisionsFile(ctx), `${JSON.stringify(entry)}\n`);
+  const path = decisionsFile(ctx);
+  try {
+    if (statSync(path).size > 10 * 1024 * 1024) renameSync(path, `${path}.1`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  appendFileSync(path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
 }
 
 export function readDecisions(ctx: Ctx, sinceTs = 0): DecisionEntry[] {

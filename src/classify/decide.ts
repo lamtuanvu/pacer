@@ -54,9 +54,9 @@ export async function decide(ctx: Ctx, cfg: ClassifierConfig, adapters: AdapterS
     .filter(id => id !== use && (!adapters[id].external || cfg.shadowExternal))
     .map(async id => {
       try {
-        log({ adapter: adapters[id].id, answer: await ask(id), acted_on: false, fallback: false });
+        log({ adapter: adapters[id].id, answer: await ask(id), acted_on: false, fallback: false, shadow: true });
       } catch (error) {
-        log({ adapter: adapters[id].id, answer: null, acted_on: false, fallback: false, error: errorMessage(error) });
+        log({ adapter: adapters[id].id, answer: null, acted_on: false, fallback: false, shadow: true, error: errorMessage(error) });
       }
     });
 
@@ -73,7 +73,7 @@ export async function decide(ctx: Ctx, cfg: ClassifierConfig, adapters: AdapterS
     }
   } catch (error) {
     if (use === "rules") {
-      await Promise.all(shadows);
+      if (input.decision !== "guard") await Promise.all(shadows);
       throw error;
     }
     fallbackReason = errorMessage(error);
@@ -87,7 +87,7 @@ export async function decide(ctx: Ctx, cfg: ClassifierConfig, adapters: AdapterS
     ...(fallback ? { fallback_from: adapters[use].id, fallback_reason: fallbackReason } : {}),
     ...(attempted ? { attempted } : {}),
   });
-  await Promise.all(shadows);
+  if (input.decision !== "guard") await Promise.all(shadows);
   return { answer: answer!, adapter, fallback };
 }
 

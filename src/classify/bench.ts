@@ -22,6 +22,7 @@ export interface BenchMetrics {
   counterfactual?: { cheapFailures: number; avoided: number; cheapSuccesses: number; diverted: number };
 }
 export interface BenchReport {
+  redacted: boolean;
   decisions: Partial<Record<DecisionName, Record<string, BenchMetrics>>>;
 }
 export interface BenchOptions {
@@ -34,16 +35,16 @@ export interface BenchOptions {
 /** Replay a bounded, deduplicated sample without changing the decision log. */
 export async function runBench(ctx: Ctx, cfg: ClassifierConfig, adapters: AdapterSet, options: BenchOptions): Promise<BenchReport> {
   const entries = readDecisions(ctx, options.sinceS > 0 ? ctx.now - options.sinceS : 0);
-  const truth = buildTruth(ctx, entries);
+  const truth = buildTruth(ctx, entries, cfg);
   const unique = new Map<string, DecisionEntry>();
   for (const entry of entries) {
-    if (!entry.acted_on || !entry.state || !DECISIONS.includes(entry.decision)
+    if (entry.shadow || !entry.state || !DECISIONS.includes(entry.decision)
       || (options.decision && options.decision !== entry.decision)) continue;
     const key = `${entry.decision}:${entry.state_hash}`;
     unique.delete(key);
     unique.set(key, entry);
   }
-  const report: BenchReport = { decisions: {} };
+  const report: BenchReport = { decisions: {}, redacted: cfg.bench.redact };
   const ids = [...new Set(options.adapters)];
   const threshold = cfg.decisions.difficulty.maxForCheap || 0.6;
   for (const decision of options.decision ? [options.decision] : DECISIONS) {
@@ -56,7 +57,7 @@ export async function runBench(ctx: Ctx, cfg: ClassifierConfig, adapters: Adapte
       for (const [id, results] of answers) {
         try {
           let state = decision === "task_kind" ? withoutPlannerKind(entry.state!) : entry.state!;
-          if (adapters[id].external && cfg.bench.redact) state = redactState(state, ctx.home);
+          if (cfg.bench.redact) state = redactState(state, ctx.home);
           results.push(await withTimeout(Promise.resolve().then(() => adapters[id].ask(state, entry.question)), cfg.bench.timeoutMs, id));
         } catch { results.push(null); }
       }
@@ -103,7 +104,7 @@ export async function runBench(ctx: Ctx, cfg: ClassifierConfig, adapters: Adapte
 
 export function renderBench(report: BenchReport): string {
   const number = (n: number | null) => n === null ? "-" : String(Number(n.toFixed(4)));
-  const lines = ["decision adapter n errors labelled accuracy auc p50(ms) p95(ms) cost/1k(USD) agreement"];
+  const lines = [`redacted: ${report.redacted}`, "decision adapter n errors labelled accuracy auc p50(ms) p95(ms) cost/1k(USD) agreement"];
   for (const decision of DECISIONS) {
     for (const [id, row] of Object.entries(report.decisions[decision] ?? {})) {
       lines.push(`${decision} ${id} ${row.n} ${row.errors} ${row.labelled} ${number(row.accuracy)} ${number(row.auc)} ${number(row.p50)} ${number(row.p95)} ${number(row.costPer1k)} ${number(row.agreement)}`);

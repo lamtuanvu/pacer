@@ -31,7 +31,7 @@ test("task_kind truth comes from a review kind, otherwise a valid task tag", () 
   const untagged = task(ctx, null);
   appendLabel(ctx, { type: "task_review", task_id: reviewed, kind: "refactor", accepted: true });
   appendLabel(ctx, { type: "task_review", task_id: tagged, kind: "invalid", accepted: true });
-  const index = buildTruth(ctx, []);
+  const index = buildTruth(ctx, [], { tiers: { codex: "cheap", opencode: "cheap" } });
   expect(index.taskKind[reviewed]).toBe("refactor");
   expect(index.taskKind[tagged]).toBe("tests");
   expect(index.taskKind[invalid]).toBeUndefined();
@@ -47,18 +47,18 @@ test("difficulty reliable/unreliable comes from result status plus review", () =
   const failed = task(ctx, "feature", "failed", null);
   appendLabel(ctx, { type: "task_review", task_id: rejected, accepted: false });
   appendLabel(ctx, { type: "task_review", task_id: partial, accepted: true });
-  const index = buildTruth(ctx, []);
+  const index = buildTruth(ctx, [], { tiers: { codex: "cheap", opencode: "cheap" } });
   expect(index.difficulty[done]).toEqual({ reliable: true, executor: "opencode" });
   expect(index.difficulty[rejected]).toEqual({ reliable: false, executor: "codex" });
   expect(index.difficulty[partial]).toEqual({ reliable: false, executor: "codex" });
-  expect(index.difficulty[failed]).toEqual({ reliable: false, executor: null });
+  expect(index.difficulty[failed]).toBeUndefined();
   expect(truthFor(index, entry("difficulty", { task_id: partial }))).toBe(false);
 });
 
 test("difficulty has no truth for queued tasks or limit/stopped outcomes", () => {
   const ctx = fakeCtx();
   const ids = [task(ctx), task(ctx, null, "limit"), task(ctx, null, "stopped")];
-  const index = buildTruth(ctx, []);
+  const index = buildTruth(ctx, [], { tiers: { codex: "cheap", opencode: "cheap" } });
   for (const id of ids) expect(index.difficulty[id]).toBeUndefined();
 });
 
@@ -69,7 +69,7 @@ test("result_check truth comes only from review.accepted, preserving false", () 
   const unreviewed = task(ctx, "feature", "done");
   appendLabel(ctx, { type: "task_review", task_id: accepted, accepted: true });
   appendLabel(ctx, { type: "task_review", task_id: rejected, accepted: false });
-  const index = buildTruth(ctx, []);
+  const index = buildTruth(ctx, [], { tiers: { codex: "cheap", opencode: "cheap" } });
   expect(truthFor(index, entry("result_check", { task_id: accepted }))).toBe(true);
   expect(truthFor(index, entry("result_check", { task_id: rejected }))).toBe(false);
   expect(index.resultCheck[unreviewed]).toBeUndefined();
@@ -103,7 +103,7 @@ test("the latest task review wins for kind, difficulty and result_check", () => 
   const id = task(ctx, "feature", "done");
   appendLabel(ctx, { type: "task_review", task_id: id, kind: "tests", accepted: false });
   appendLabel(ctx, { type: "task_review", task_id: id, kind: "docs", accepted: true });
-  const index = buildTruth(ctx, []);
+  const index = buildTruth(ctx, [], { tiers: { codex: "cheap", opencode: "cheap" } });
   expect(index.taskKind[id]).toBe("docs");
   expect(index.difficulty[id]?.reliable).toBe(true);
   expect(index.resultCheck[id]).toBe(true);
@@ -131,4 +131,16 @@ test("missing truth, unmatched feedback and non-boolean guard answers stay unlab
   for (const decision of ["task_kind", "difficulty", "result_check"] as const) {
     expect(truthFor(index, entry(decision))).toBeUndefined();
   }
+});
+
+
+test("difficulty truth is limited to configured cheap executors", () => {
+  const ctx = fakeCtx();
+  const cheap = task(ctx, "feature", "done", "cheap");
+  const capable = task(ctx, "feature", "failed", "capable");
+  const unknown = task(ctx, "feature", "done", "unknown");
+  const missing = task(ctx, "feature", "failed", null);
+  const index = buildTruth(ctx, [], { tiers: { cheap: "cheap", capable: "capable" } });
+  expect(index.difficulty[cheap]?.reliable).toBe(true);
+  for (const id of [capable, unknown, missing]) expect(truthFor(index, entry("difficulty", { task_id: id }))).toBeUndefined();
 });

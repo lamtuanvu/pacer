@@ -19,12 +19,31 @@ export async function countRepoFiles(ctx: Ctx, repo: string): Promise<number | n
   } catch { return null; }
 }
 
+/** Map insertion order tracks recency, including reads of in-flight decisions. */
+class TaskCache<T> extends Map<string, T> {
+  override get(key: string): T | undefined {
+    const value = super.get(key);
+    if (value !== undefined) {
+      super.delete(key);
+      super.set(key, value);
+    }
+    return value;
+  }
+
+  override set(key: string, value: T): this {
+    super.delete(key);
+    super.set(key, value);
+    if (this.size > 500) super.delete(this.keys().next().value!);
+    return this;
+  }
+}
+
 export function makeClassifierHooks(deps: Partial<HookDeps> = {}): DecisionHooks {
   const load = deps.loadStrategy ?? loadStrategy;
   const adapters = deps.adapters ?? ((ctx, cfg) => buildAdapters(ctx, cfg, cfg.timeoutMs));
   const repoFiles = deps.repoFiles ?? countRepoFiles;
-  const kindCache = new Map<string, Promise<string | null>>();
-  const difficultyCache = new Map<string, Promise<number | null>>();
+  const kindCache = new TaskCache<Promise<string | null>>();
+  const difficultyCache = new TaskCache<Promise<number | null>>();
   const config = (ctx: Ctx, strategy?: Strategy): ClassifierConfig => {
     let s = strategy;
     try {
@@ -59,8 +78,12 @@ export function makeClassifierHooks(deps: Partial<HookDeps> = {}): DecisionHooks
         if (!pending) {
           pending = (async () => {
             const kind = kindCache.has(task.id) ? await kindCache.get(task.id)! : task.kind;
-            const files = await repoFiles(ctx, task.brief.repo).catch(() => null);
-            const decision = await decide(ctx, cfg, adapters(ctx, cfg), {
+            const set = adapters(ctx, cfg);
+            const hasShadow = cfg.shadow.some(id => id !== cfg.decisions.difficulty.use
+              && (!set[id].external || cfg.shadowExternal));
+            const files = threshold > 0 || hasShadow
+              ? await repoFiles(ctx, task.brief.repo).catch(() => null) : null;
+            const decision = await decide(ctx, cfg, set, {
               decision: "difficulty", state: difficultyState(task, kind, files), question: QUESTIONS.difficulty,
               taskId: task.id, actedOn: threshold > 0,
             });
