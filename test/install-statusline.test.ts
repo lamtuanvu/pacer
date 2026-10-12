@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { captureClaudeRateLimits, statusLine } from "../src/install/statusline";
 import { fakeCtx } from "./helpers";
@@ -60,4 +60,19 @@ test("status line errors include only the first line of the message", async () =
   const path = join(ctx.pacerHome, "strategy.yaml");
   await Bun.write(path, "planner: invalid\nproviders: {}\n");
   expect(await statusLine(ctx, "{}")).toBe(`◆ Budget ? (invalid strategy ${path}:)`);
+});
+
+test("cache-write failure preserves the rendered budget line", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), `
+planner: claude-code
+providers:
+  claude-code: {usage: quota}
+`);
+  const expected = await statusLine(ctx, "{}");
+  writeFileSync(join(ctx.pacerHome, "cache"), "blocks cache directory creation");
+  const stdin = JSON.stringify({ rate_limits: { seven_day: { used_percentage: 40 } } });
+  expect(() => captureClaudeRateLimits(ctx, stdin)).toThrow();
+  expect(await statusLine(ctx, stdin)).toBe(expected);
 });

@@ -50,8 +50,6 @@ for (const style of styles) {
   test(`${style}: detects complete blocks and leaves unmarked text alone`, () => {
     expect(hasBlock(`${open}\nv1\n${close}`, style)).toBe(true);
     expect(removeBlock(`${open}\nv1\n${close}`, style)).toBe("");
-    expect(hasBlock(`${open}\nv1\n`, style)).toBe(false);
-    expect(hasBlock(`${close}\nv1\n${open}`, style)).toBe(false);
     expect(removeBlock("unrelated\n", style)).toBe("unrelated\n");
   });
 }
@@ -86,3 +84,18 @@ test("readText returns file contents including empty text, or null for a missing
   writeFileSync(path, "notes\n");
   expect(readText(path)).toBe("notes\n");
 });
+
+for (const [style, open, close] of [
+  ["md", "<!-- >>> pacer >>> -->", "<!-- <<< pacer <<< -->"],
+  ["hash", "# >>> pacer >>>", "# <<< pacer <<<"],
+] as const) {
+  test(`${style}: orphan open markers reject detection, upsert, and removal`, () => {
+    for (const text of [`before\n${open}\nuser text\n`, `${close}\nuser text\n${open}`]) {
+      for (const operation of [
+        () => hasBlock(text, style),
+        () => upsertBlock(text, "new", style),
+        () => removeBlock(text, style),
+      ]) expect(operation).toThrow(`unmatched open marker: ${open}`);
+    }
+  });
+}

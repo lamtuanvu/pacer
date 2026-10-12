@@ -77,7 +77,7 @@ test("removeHooks preserves surviving hooks and empty events, but drops emptied 
     EmptyGroup: [{ hooks: [] }],
   } };
   expect(removeHooks(doc, "claude", (command) => command === "remove")).toEqual({
-    doc: { hooks: { Mixed: [{ matcher: "Agent", extra: true, hooks: [{ type: "command", command: "keep" }] }], Empty: [] } },
+    doc: { hooks: { Mixed: [{ matcher: "Agent", extra: true, hooks: [{ type: "command", command: "keep" }] }], Empty: [], EmptyGroup: [{ hooks: [] }] } },
     removed: [
       { event: "Mixed", matcher: "Agent", hook: { type: "command", command: "remove" } },
       { event: "Gone", hook: { type: "command", command: "remove" } },
@@ -171,4 +171,19 @@ test("editHooksFile replaces old Cursor hooks", () => {
 
 test("editHooksFile creates a pretty-printed empty Cursor configuration with a newline", () => {
   expect(editHooksFile(null, "cursor", [], "cursor")).toBe('{\n  "version": 1,\n  "hooks": {}\n}\n');
+});
+
+test("Claude groups without a hooks array survive adding and removing hooks", () => {
+  const groups = [{ matcher: "Bash" }, { hooks: null }, { hooks: { command: "other" } }];
+  const doc = { hooks: { SessionStart: groups } };
+  const added = addHooks(doc, "claude", [SPECS[0]!]);
+  expect(added.hooks.SessionStart.slice(0, 3)).toEqual(groups);
+  expect(added.hooks.SessionStart).toHaveLength(4);
+  expect(removeHooks(added, "claude", () => true).doc).toEqual(doc);
+  expect(removeHooks(doc, "claude", () => true)).toEqual({ doc, removed: [] });
+});
+
+test("pre-existing empty Claude groups survive when another group is removed", () => {
+  const doc = { hooks: { SessionStart: [{ hooks: [] }, { hooks: [{ command: "remove" }] }] } };
+  expect(removeHooks(doc, "claude", () => true).doc).toEqual({ hooks: { SessionStart: [{ hooks: [] }] } });
 });

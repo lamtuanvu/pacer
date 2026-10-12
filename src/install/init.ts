@@ -4,6 +4,7 @@ import { PLANNERS, validateStrategy } from "../config/strategy";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
+import { backupPath } from "./fsx";
 
 const BINS = ["claude", "codex", "cursor-agent", "agy", "opencode", "arkcli", "ollama", "lms", "orca"] as const;
 const PLANNER_BINS: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", opencode: "opencode" };
@@ -70,17 +71,6 @@ export function starterStrategy(d: Detection, planner?: string): string {
   ].join("\n");
 }
 
-function backupStrategy(path: string, now: number): string {
-  const date = new Date(now * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-  const base = `${path}.pacer-bak-${stamp}`;
-  let backup = base;
-  for (let i = 2; existsSync(backup); i++) backup = `${base}-${i}`;
-  copyFileSync(path, backup);
-  return backup;
-}
-
 export async function initCmd(ctx: Ctx, options: { force?: boolean; planner?: string } = {}): Promise<Result> {
   const path = join(ctx.pacerHome, "strategy.yaml");
   if (existsSync(path) && !options.force) return { code: 1, out: "", err: `${path} already exists; use --force\n` };
@@ -91,7 +81,11 @@ export async function initCmd(ctx: Ctx, options: { force?: boolean; planner?: st
     const text = starterStrategy(d, options.planner);
     validateStrategy(Bun.YAML.parse(text), path);
     mkdirSync(ctx.pacerHome, { recursive: true });
-    if (existsSync(path)) out += `Backup: ${backupStrategy(path, ctx.now)}\n`;
+    if (existsSync(path)) {
+      const backup = backupPath(path, ctx.now);
+      copyFileSync(path, backup);
+      out += `Backup: ${backup}\n`;
+    }
     writeFileSync(path, text);
     return { code: 0, out: `${out}Wrote ${path}\n`, err: "" };
   } catch (e) {
