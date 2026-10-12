@@ -14,11 +14,12 @@ import { readTask, updateTask } from "./store";
 import { TERMINAL_STATES, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
+const safe = <T>(f: () => Promise<T>, fb: T) => Promise.resolve().then(f).catch(() => fb);
 
 export interface RunnerDeps {
   loadStrategy: (ctx: Ctx) => Strategy;
   computeStatus: (ctx: Ctx, s: Strategy) => Promise<Status>;
-  runAttempt: (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void) => Promise<AttemptOutcome>;
+  runAttempt?: (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void) => Promise<AttemptOutcome>;
   verifyRepo: (repo: string, acceptance: string | undefined, env: Ctx["env"]) => Promise<Verification>;
   hooks?: DecisionHooks;
 }
@@ -26,7 +27,6 @@ export interface RunnerDeps {
 const DEFAULTS: RunnerDeps = {
   loadStrategy,
   computeStatus: (ctx, s) => computeStatus(ctx, s),
-  runAttempt: async (ctx, cfg, task, onSpawn) => (await selectBackend(ctx, loadStrategy(ctx))).runAttempt(ctx, cfg, task, onSpawn),
   verifyRepo: (repo, acceptance, env) => verifyRepo(repo, acceptance, env),
 };
 
@@ -56,10 +56,11 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   }
   let attemptedExecutor: string | null = null;
   let attemptedModel: string | null = null;
+  let attemptedBackend = "direct";
   try {
     const s = deps.loadStrategy(ctx);
     const hooks = deps.hooks ?? activeHooks;
-    const kind = await hooks.taskKind(ctx, task).catch(() => task.kind);
+    const kind = await safe(() => hooks.taskKind(ctx, task), task.kind);
     const tried = new Set<string>();
     let excluded: Excluded[] = [];
 
@@ -73,9 +74,10 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       const ranking = rankExecutors(kind, s, byId);
       excluded = ranking.excluded;
       const rankedIds = ranking.ranked.map((e) => e.id);
-      const ids = task.requestedExecutor
+      const f = task.requestedExecutor
         ? rankedIds
-        : await hooks.filterExecutors(ctx, task, rankedIds, s).catch(() => rankedIds);
+        : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
+      const ids = Array.isArray(f) ? rankedIds.filter((x) => f.includes(x)) : rankedIds;
       const pick = task.requestedExecutor
         ? (ids.includes(task.requestedExecutor) && !tried.has(task.requestedExecutor) ? task.requestedExecutor : undefined)
         : ids.find((e) => !tried.has(e));
@@ -88,10 +90,19 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       if (stopped(ctx, id)) {
         return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
       }
-      const out = await deps.runAttempt(ctx, cfg, task, (pid) => {
+      const onSpawn = (pid: number) => {
         updateTask(ctx, id, (t) => { t.childPid = pid; });
         if (stopped(ctx, id)) killTree(pid, "SIGTERM");
-      });
+      };
+      let out: AttemptOutcome;
+      if (deps.runAttempt) {
+        out = await deps.runAttempt(ctx, cfg, task, onSpawn);
+      } else {
+        const backend = await selectBackend(ctx, s);
+        attemptedBackend = backend.id;
+        out = await backend.runAttempt(ctx, cfg, task, onSpawn);
+      }
+      attemptedBackend = out.backend ?? attemptedBackend;
       task = updateTask(ctx, id, (t) => {
         t.attempts.push(out.attempt);
         delete t.childPid;
@@ -108,7 +119,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const status = !ok ? "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
       const result: TaskResult = { status, executor: pick, model: cfg.model, ...v, report: out.report, backend: out.backend ?? "direct", ...(out.worktree ? { worktree: out.worktree } : {}) };
-      const check = await hooks.resultCheck(ctx, task, result).catch(() => undefined);
+      const check = await safe(() => hooks.resultCheck(ctx, task, result), undefined);
       return finish(ctx, id, check ? { ...result, check } : result);
     }
 
@@ -121,6 +132,6 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     return finish(ctx, id, { status: "limit", executor: null, model: null, files: "", report: why, backend: "direct" });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return finish(ctx, id, { status: "failed", executor: attemptedExecutor, model: attemptedModel, files: "", report: `pacer runner error: ${message}`, backend: "direct" });
+    return finish(ctx, id, { status: "failed", executor: attemptedExecutor, model: attemptedModel, files: "", report: `pacer runner error: ${message}`, backend: attemptedBackend });
   }
 }

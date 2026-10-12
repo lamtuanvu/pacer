@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
+import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import type { ProviderStatus } from "../src/engine/rank";
 import type { Status } from "../src/engine/status";
 import { type Backend, directBackend, selectBackend } from "../src/exec/backend";
+import { EXTRA_BACKENDS } from "../src/exec/backends-extra";
 import type { AttemptOutcome } from "../src/exec/direct";
 import { runTask } from "../src/tasks/runner";
 import { createTask } from "../src/tasks/store";
@@ -66,4 +68,19 @@ test("extra backend error finishes failed", async () => {
   });
   expect(r.result).toMatchObject({ status: "failed", executor: "codex" });
   expect(r.result?.report).toContain("orca worker failed to start");
+});
+
+test("a throwing selected extra backend is recorded", async () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief: { goal: "g", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const backend = fake("throwing-extra", async () => true, new Error("worker startup failed"));
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: unmetered }\n");
+  EXTRA_BACKENDS.unshift(backend);
+  try {
+    const r = await runTask(ctx, t.id);
+    expect(r.result).toMatchObject({ status: "failed", executor: "codex", backend: "throwing-extra" });
+    expect(r.result?.report).toContain("worker startup failed");
+  } finally {
+    EXTRA_BACKENDS.splice(EXTRA_BACKENDS.indexOf(backend), 1);
+  }
 });

@@ -78,3 +78,42 @@ test("throwing hooks fall back to defaults", async () => {
 test("the default guard hook has no opinion", async () => {
   expect(await defaultHooks.guard(fakeCtx(), { subagentType: "general-purpose", prompt: "x" })).toBeNull();
 });
+
+const syncThrow = () => { throw new Error("synchronous hook failure"); };
+for (const name of ["taskKind", "filterExecutors", "resultCheck", "all"] as const) {
+  test(`synchronously throwing ${name} hooks preserve the default result`, async () => {
+    const ctx = fakeCtx();
+    const baseline = await runTask(ctx, newTask(ctx).id, deps({}, []));
+    const hooks = name === "all"
+      ? { taskKind: syncThrow, filterExecutors: syncThrow, resultCheck: syncThrow }
+      : { [name]: syncThrow };
+    const r = await runTask(ctx, newTask(ctx).id, deps(hooks, []));
+    expect(r.state).toBe("done");
+    expect(r.result).toEqual(baseline.result);
+  });
+}
+
+test("unknown filter ids leave no executor available", async () => {
+  const ctx = fakeCtx();
+  const r = await runTask(ctx, newTask(ctx).id, deps({ filterExecutors: async () => ["unknown"] }, []));
+  expect(r.state).toBe("limit");
+  expect(r.attempts).toEqual([]);
+  expect(r.result).toMatchObject({ executor: null, backend: "direct" });
+  expect(r.result?.report).toStartWith("no executor available (");
+});
+
+test("non-array filter output preserves the default result", async () => {
+  const ctx = fakeCtx();
+  const baseline = await runTask(ctx, newTask(ctx).id, deps({}, []));
+  const filterExecutors = (async () => null) as unknown as DecisionHooks["filterExecutors"];
+  const r = await runTask(ctx, newTask(ctx).id, deps({ filterExecutors }, []));
+  expect(r.state).toBe("done");
+  expect(r.result).toEqual(baseline.result);
+});
+
+test("filter ids retain ranking order and discard unknown ids", async () => {
+  const ctx = fakeCtx();
+  const r = await runTask(ctx, newTask(ctx).id, deps({ filterExecutors: async () => ["unknown", "cursor", "codex"] }, []));
+  expect(r.state).toBe("done");
+  expect(r.result?.executor).toBe("codex");
+});

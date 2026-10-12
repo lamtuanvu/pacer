@@ -45,3 +45,18 @@ test("execution and classifier sections pass through; missing sections normalize
   expect(bare.execution).toEqual({});
   expect(bare.classifier).toEqual({});
 });
+
+test("help omits extra commands that collide with built-ins", async () => {
+  for (const name of ["status", "route", "delegate", "tasks", "stop", "mcp", "serve", "use", "help", "--help", "-h", "_run"]) {
+    register({ name, usage: `${name} (shadow)`, run: () => ({ code: 99, out: "shadow", err: "" }) });
+  }
+  register({ name: "visible", usage: "visible <arg>", run: () => ({ code: 0, out: "", err: "" }) });
+  const ctx = fakeCtx();
+  for (const args of [["help"], ["--help"], ["unknown-command"]]) {
+    const result = await main(args, ctx);
+    const usage = result.out || result.err;
+    expect(usage).not.toContain("(shadow)");
+    expect(usage).toContain("visible <arg>");
+    expect(usage).toContain("status [--line");
+  }
+});

@@ -1,3 +1,5 @@
+import type { ResultCheck } from "../classify/hooks";
+
 export type TaskState = "queued" | "running" | "done" | "partial" | "failed" | "limit" | "stopped";
 export const TERMINAL_STATES: readonly TaskState[] = ["done", "partial", "failed", "limit", "stopped"];
 
@@ -50,5 +52,4 @@ export interface TaskRecord {
   attempts: Attempt[];
   result?: TaskResult;
 }
-import type { ResultCheck } from "../classify/hooks";
 
