@@ -11,7 +11,7 @@ export const COMMANDS: Command[] = [
   { name: "--version", usage: usage("--version", "same as version"), run: printVersion },
   {
     name: "update",
-    usage: usage("update [--check] [--to <v>] [--base <url>] [--no-restart]", "replace this binary with a newer release"),
+    usage: usage("update [--check] [--to <v>] [--base <url>] [--no-restart] [--no-reinstall]", "update binary and refresh installed integrations"),
     run: async (args, ctx) => {
       const o = parseUpdateArgs(args);
       if (typeof o === "string") return { code: 2, out: "", err: o };
