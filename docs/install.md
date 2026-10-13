@@ -4,7 +4,7 @@ Install the Orca marketplace plugin; it bootstraps pacer in the background.
 
 In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
 install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.17`.
+bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.18`.
 The worker installs the binary, initializes `~/.pacer`, starts the login service,
 and keeps older binaries updated to the plugin version. It never downgrades.
 
@@ -52,6 +52,15 @@ pacer setup
 setup, `--agents claude-code,codex` to select agents, and `--json` for a summary.
 Non-TTY setup without `--yes` prints the plan and exits 2 without changes.
 
+
+## Updating
+
+For marketplace installs, open **Settings > Plugins > Refresh**, then choose
+**Update plugin** on pacer. Orca does not refresh marketplace sources or update
+plugins automatically; **Update plugin** appears after Refresh finds a newer version.
+
+For development-folder installs, `pacer update` refreshes the managed plugin
+folder. Turn pacer off and on in **Orca Settings > Plugins** to load it.
 
 ## From source
 

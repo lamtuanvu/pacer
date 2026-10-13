@@ -10,7 +10,7 @@ The marketplace plugin bootstraps pacer. It prepares the development folder and 
 In Orca Settings > Plugins, add marketplace source URL
 `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer**
 (`lamtuanvu.pacer`) and grant its declared capabilities. For a direct versioned
-install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.17`, replacing
+install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.18`, replacing
 the version with the release you want. Releases publish a root-level bundle on
 the `orca-plugin` branch, with immutable `orca-plugin-v<version>` tags.
 
@@ -93,6 +93,15 @@ Manual fallback: run `pacer console --open` to enable Delegate and Switch strate
 use only the console's advertised terminal handle while its heartbeat is at
 most 30 seconds old. Their `: pacer '<json>'` lines are inert in a POSIX shell.
 Open console reports whether a console is running; it does not spawn a process.
+
+## Updating
+
+For marketplace installs, open **Settings > Plugins > Refresh**, then choose
+**Update plugin** on pacer. Orca does not refresh marketplace sources or update
+plugins automatically; **Update plugin** appears after Refresh finds a newer version.
+
+For development-folder installs, `pacer update` refreshes the managed plugin
+folder. Turn pacer off and on in **Orca Settings > Plugins** to load it.
 
 ## Known limitations (Orca pluginApi 1, verified on Orca 1.4.224)
 

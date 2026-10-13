@@ -21,6 +21,7 @@ test("shipped bootstrap panel shows one-time steps without terminal actions",asy
  expect(panel).toContain("uninstall this pacer");expect(panel).toContain("Development");expect(panel).toContain("~/.pacer/orca-plugin");
  expect(panel).toContain("the notification shows its full path");expect(panel).toContain("Enable pacer");
  expect(panel).not.toContain("terminal.sendText");expect(panel).not.toContain("postMessage");expect(panel).not.toContain("<button");
+ expect(panel).toContain("console-spinner");expect(panel).toContain("Installing pacer in the background… 0:00");expect(panel).toContain("Taking longer than usual");
 });
 
 test("marker detection opts only pacer-managed folders into live mode", async()=>{

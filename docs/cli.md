@@ -12,9 +12,11 @@ while preserving later user edits. `pacer doctor` reports skill integrity.
 MCP is optional: `pacer install <planner> --mcp` registers it. A default reinstall
 leaves an existing pacer MCP entry unchanged; `--no-mcp` explicitly removes it.
 `pacer update` replaces the binary and refreshes every installed planner’s skill, policy and hooks
-with the new binary, preserving each planner’s MCP choice. `--no-reinstall` skips the refresh;
+with the new binary, preserving each planner’s MCP choice. It also refreshes the managed Orca
+plugin folder when installed; turn pacer off and on in Orca Settings > Plugins to load it.
+`--no-reinstall` skips both refreshes;
 `--check` only checks, and `--to <version>` forces replacement and refresh even at the same version.
-Refresh failures warn and do not stop other planners or fail the update.
+Refresh failures warn and do not stop other integrations or fail the update.
 
 Restart a running MCP client after updating pacer. CLI commands always run the current binary.
 

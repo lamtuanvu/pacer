@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-10-13
+
+### Changed
+
+- `pacer update` refreshes the managed Orca plugin folder.
+- The marketplace setup panel shows an activity indicator with elapsed time, and a hint to check the install after two minutes.
+
+### Docs
+
+- Explain how to get marketplace and development-folder plugin updates.
+
 ## [0.1.17] - 2026-10-13
 
 ### Fixed
