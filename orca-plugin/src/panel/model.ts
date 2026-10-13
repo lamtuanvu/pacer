@@ -39,22 +39,28 @@ export function providerDetail(p: ProviderLine, now: number): string {
  if(p.id==="local") return "LM Studio · unmetered";
  return p.verdict==="UNKNOWN" ? "No budget reported" : "No limit reported";
 }
-export interface AttentionGroup { goal:string; tasks:TaskData[]; latest:TaskData; stuck:boolean; retry:ProviderLine|null; brokenExecutor?:string; brokenReason?:string }
+export interface AttentionGroup { count:number; goal:string; tasks:TaskData[]; latest:TaskData; stuck:boolean; retry:ProviderLine|null; brokenExecutor?:string; brokenReason?:string }
 export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] {
  const groups=new Map<string,TaskData[]>();
  const resolved = new Set(s.tasks.filter(t=>t.state==="done"&&t.retryOf).map(t=>t.retryOf));
  for(const t of [...s.tasks].sort((a,b)=>b.updatedAt-a.updatedAt)) {
-  if(t.dismissed || (t.retriedBy && s.tasks.some(retry=>retry.id===t.retriedBy&&["queued","running","done"].includes(retry.state))) || resolved.has(t.id) || now-t.updatedAt>3*86400)continue;
-  if(!["failed","limit"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&!t.attemptStartedAt&&!t.runnerAlive&&now-t.updatedAt>600)) continue;
+  if(t.dismissed || (t.retriedBy && s.tasks.some(retry=>retry.id===t.retriedBy)) || resolved.has(t.id) || now-t.updatedAt>3*86400)continue;
+  if(!["failed","limit","partial"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&!t.attemptStartedAt&&!t.runnerAlive&&now-t.updatedAt>600)) continue;
   const key=t.brokenExecutor ? `broken:${t.brokenExecutor}` : t.goal;
   groups.set(key,[...(groups.get(key)??[]),t]);
  }
- return [...groups].map(([_key,tasks])=>({goal:tasks[0].brokenExecutor?`${displayName(tasks[0].brokenExecutor)} is not working`:tasks[0].goal,tasks,latest:tasks[0],stuck:["running","queued"].includes(tasks[0].state),retry:rankedProviders(s).find(p=>!tasks.some(t=>t.executor===p.id))??null,...(tasks[0].brokenExecutor?{brokenExecutor:tasks[0].brokenExecutor,brokenReason:tasks[0].brokenReason}: {})}));
+ const count=(tasks:TaskData[])=>{
+  const seen=new Set<string>();
+  for(const task of tasks){let t:TaskData|undefined=task;while(t&&!seen.has(t.id)){seen.add(t.id);t=s.tasks.find(p=>p.id===t!.retryOf);}}
+  return seen.size;
+ };
+ return [...groups].map(([_key,tasks])=>({count:count(tasks),goal:tasks[0].brokenExecutor?`${displayName(tasks[0].brokenExecutor)} is not working`:tasks[0].goal,tasks,latest:tasks[0],stuck:["running","queued"].includes(tasks[0].state),retry:rankedProviders(s).find(p=>!tasks.some(t=>t.executor===p.id))??null,...(tasks[0].brokenExecutor?{brokenExecutor:tasks[0].brokenExecutor,brokenReason:tasks[0].brokenReason}: {})}));
 }
 export function attentionText(g: AttentionGroup, now: number): string {
  if(g.brokenExecutor) return `${displayName(g.brokenExecutor)} is not working: ${g.brokenReason ?? "CLI startup failed"} · ${g.tasks.length} tasks affected`;
  if(g.stuck) return `Waiting ${duration(now-g.latest.updatedAt)} with no executor picked`;
- const count=g.tasks.length, label=g.latest.state==="limit"?"Hit a limit":"Failed";
+ if(g.latest.state==="partial") return `Needs review${g.latest.executor?` on ${displayName(g.latest.executor)}`:""}`;
+ const count=g.count, label=g.latest.state==="limit"?"Hit a limit":"Failed";
  return `${label}${count===2?" twice":count>2?` ×${count}`:""}${g.latest.executor?` on ${displayName(g.latest.executor)}`:""}`;
 }
 export const unavailableDetail = (p: ProviderLine, now:number) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.verdict==="EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt,now)}` : "not in the queue";

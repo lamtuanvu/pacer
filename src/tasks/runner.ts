@@ -92,6 +92,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     const tried = new Set<string>();
     let excluded: Excluded[] = [];
     let lastLimitReport: string | undefined;
+    let requestedUnavailable: string | undefined;
     let lastBroken: { brokenExecutor: string; brokenReason: string } | undefined;
 
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -106,13 +107,15 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       const ranking = rankExecutors(kind, s, byId);
       excluded = ranking.excluded;
       const rankedIds = ranking.ranked.map((e) => e.id);
-      const f = task.requestedExecutor
+      const req = task.requestedExecutor;
+      const requested = req && !tried.has(req) && rankedIds.includes(req);
+      if (req && !requested && !requestedUnavailable) requestedUnavailable = excluded.find(e => e.id === req)?.reason ?? "not in the routing list";
+      const f = requested
         ? rankedIds
         : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
       const ids = Array.isArray(f) ? rankedIds.filter((x) => f.includes(x)) : rankedIds;
-      const requested = task.requestedExecutor && !lastBroken;
       const pick = requested
-        ? (ids.includes(task.requestedExecutor!) && !tried.has(task.requestedExecutor!) ? task.requestedExecutor! : undefined)
+        ? req!
         : ids.find((e) => !tried.has(e));
       if (!pick) break;
       tried.add(pick);
@@ -163,19 +166,23 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       if (out.attempt.brokenReason) {
         markBroken({ ...ctx, now: Date.now()/1000 }, pick, out.attempt.brokenReason);
         lastBroken = { brokenExecutor: pick, brokenReason: out.attempt.brokenReason };
+        if (pick === task.requestedExecutor) requestedUnavailable = `broken: ${out.attempt.brokenReason}`;
         continue;
       }
       lastBroken = undefined;
       if (out.attempt.limitHit) {
         lastLimitReport = out.report;
         markExhausted(ctx, pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000));
-        if (task.requestedExecutor) break;
+        if (pick === task.requestedExecutor) requestedUnavailable = "limit";
         continue;
       }
       const v = await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
-      const status = !ok ? "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
-      const result: TaskResult = { status, executor: pick, model: cfg.model, ...v, report: out.report, backend: out.backend ?? "direct", ...(out.worktree ? { worktree: out.worktree } : {}) };
+      const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());
+      const review = changed && !out.exec.timedOut && out.exec.code > 0 && out.exec.code < 126;
+      const status = !ok ? review ? "partial" : "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
+      const report = requestedUnavailable ? `requested ${task.requestedExecutor} unavailable (${requestedUnavailable}); ran on ${pick}\n\n${out.report}` : out.report;
+      const result: TaskResult = { status, executor: pick, model: cfg.model, ...v, report, backend: out.backend ?? "direct", ...(out.worktree ? { worktree: out.worktree } : {}) };
       const check = await safe(() => hooks.resultCheck(ctx, task, result), undefined);
       return finish(ctx, id, check ? { ...result, check } : result);
     }

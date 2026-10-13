@@ -37,3 +37,8 @@ test("not a git repo and no acceptance command", async () => {
   const v = await verifyRepo(tmpDir(), undefined, env);
   expect(v).toEqual({ files: "(not a git repository)" });
 });
+
+test("pipeline failure fails acceptance even when the final command succeeds", async () => {
+  const v = await verifyRepo(await gitRepo(), "false | cat", env);
+  expect(v.acceptance?.passed).toBe(false);
+});

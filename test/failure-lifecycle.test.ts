@@ -56,3 +56,31 @@ test("an active retry clears original attention and appears in Running",()=>{
  expect(attentionGroups(s,1200)).toEqual([]);
  const html=overview(s,1200,true,{},{});expect(html).toContain("Running on Codex");expect(html).toContain("Retry of old");
 });
+
+test("partial work appears for review with worktree and primary dismissal",()=>{
+ const s=emptySnapshot();
+ s.budget={generatedAt:1000,strategy:"default",planner:"claude-code",mode:"normal",providers:[{id:"codex",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false}],ranked:[{id:"codex",verdict:"OK"}]};
+ s.tasks=[failure("review",{state:"partial",worktree:"/work/review"})];
+ const groups=attentionGroups(s,1200);expect(groups).toHaveLength(1);
+ expect(attentionText(groups[0],1200)).toBe("Needs review on Antigravity");
+ const commands:any={},text:any={},html=overview(s,1200,true,commands,text);
+ expect(html).toContain("/work/review");
+ expect(html).toContain('class="primary" data-command="attention-0-dismiss"');
+ expect(html).toContain('class="" data-command="attention-0"');
+ expect(commands["attention-0-dismiss"]).toEqual({cmd:"dismiss",taskId:"review"});
+ expect(commands["attention-0"]).toEqual({cmd:"retry",taskId:"review",executor:"codex"});
+});
+
+for(const state of ["partial","failed","limit","stopped"] as const) test(`retry ending ${state} keeps original hidden and chain count`,()=>{
+ const s=emptySnapshot();s.tasks=[failure("old",{goal:"fix",retriedBy:"new"}),failure("new",{goal:"fix",state,retryOf:"old",updatedAt:1100})];
+ const groups=attentionGroups(s,1200);
+ if(state==="stopped")expect(groups).toEqual([]);
+ else {expect(groups).toHaveLength(1);expect(groups[0].latest.id).toBe("new");expect(groups[0].tasks.map(t=>t.id)).toEqual(["new"]);if(state!=="partial")expect(attentionText(groups[0],1200)).toContain("twice");}
+});
+
+test("retry chains keep xN counts and tolerate cycles",()=>{
+ const s=emptySnapshot();s.tasks=[failure("a",{goal:"fix",retriedBy:"b"}),failure("b",{goal:"fix",retryOf:"a",retriedBy:"c"}),failure("c",{goal:"fix",retryOf:"b",updatedAt:1100})];
+ expect(attentionText(attentionGroups(s,1200)[0],1200)).toBe("Failed ×3 on Antigravity");
+ s.tasks[0].retryOf="c";
+ expect(attentionText(attentionGroups(s,1200)[0],1200)).toBe("Failed ×3 on Antigravity");
+});
