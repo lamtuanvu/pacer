@@ -38,7 +38,7 @@ bun run typecheck
 bun run test
 ```
 
-The preparation script updates `package.json`, rebuilds the bundled Orca plugin assets, and moves the Unreleased changelog content into a dated release section while leaving a fresh empty Unreleased section. Review and include the generated plugin files. Submit a PR with a DCO-signed commit titled `chore: release x.y.z`; merge it before tagging the resulting `main` commit:
+The preparation script updates `package.json` and the marketplace ref in `orca-marketplace.json` to `orca-plugin-v<x.y.z>`, rebuilds the bundled Orca plugin assets, and moves the Unreleased changelog content into a dated release section while leaving a fresh empty Unreleased section. Review and include the generated plugin files. Submit a PR with a DCO-signed commit titled `chore: release x.y.z`; merge it before tagging the resulting `main` commit:
 
 ```sh
 git commit -s -m "chore: release x.y.z"
@@ -47,7 +47,7 @@ git tag -s vX.Y.Z -m "pacer X.Y.Z" # or -a for an annotated tag
 git push origin vX.Y.Z
 ```
 
-The tag must match `v` plus the package version. The release workflow verifies the tag, typechecks and tests, then builds macOS and Linux binaries for arm64 and x64 on their respective runners. Each runner smoke-tests its native binary. The publish job writes SHA256SUMS, manifest.json and latest.json, attests all four binaries, extracts the version's changelog notes, and uploads the seven flat assets to GitHub Releases. Workflow artifacts expire after one day. Stable releases become latest; versions containing `-` are marked prerelease and do not become latest.
+The tag must match `v` plus the package version. The release workflow verifies the tag, typechecks and tests, then builds macOS and Linux binaries for arm64 and x64 on their respective runners. Each runner smoke-tests its native binary. The publish job writes SHA256SUMS, manifest.json and latest.json, attests all four binaries, extracts the version's changelog notes, and uploads the seven flat assets to GitHub Releases. After creating the GitHub release, the publish job replaces the `orca-plugin` branch tree with the bundled plugin plus LICENSE and NOTICE, preserving the branch history, and creates an annotated `orca-plugin-v<x.y.z>` tag. The plugin manifest sits at that branch and tag's repository root so Orca can install it from GitHub. Existing plugin tags cause a failure and are never moved; pushes use the job token without force. Workflow artifacts expire after one day. Stable releases become latest; versions containing `-` are marked prerelease and do not become latest.
 
 The public installer works once the repository is public and the first release exists:
 

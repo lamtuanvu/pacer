@@ -6,11 +6,26 @@ This dependency-free plugin targets Orca >=1.4.224 and pluginApi 1. Build it wit
 `bun run plugin:build`; the committed `dist/` worker runs in Electron's Node,
 without Bun at runtime. The generated assets are consumed by `pacer plugin install`.
 
-Add the pacer-managed development directory printed by `pacer plugin install`
-to Orca Settings > Plugins, enable the plugin system and grant the six declared
-capabilities. Do not add `dist/` as an installed, integrity-checked copy: only a
-managed development path with `.pacer-managed` allows the worker to update
-`panel/live.html`. Orca settings and installed plugin trees are never edited.
+Install the pacer CLI too: the plugin talks to the CLI's local service (`pacer serve`).
+In Orca Settings > Plugins, add marketplace source URL
+`https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer**
+(`lamtuanvu.pacer`) and grant its declared capabilities. For a direct versioned
+install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.14`, replacing
+the version with the release you want. Releases publish a root-level bundle on
+the `orca-plugin` branch, with immutable `orca-plugin-v<version>` tags.
+
+For local development, run `pacer plugin install`, add the pacer-managed
+development directory it prints to Orca Settings > Plugins, enable the plugin
+system and grant the six declared capabilities. Reinstalling migrates an older
+`pacer.pacer` development install in place and clears its old storage bridge;
+reload and enable `lamtuanvu.pacer` in Orca. `pacer plugin status` detects older
+installs, and `pacer plugin uninstall` can remove either tracked identity.
+Orca settings and installed plugin trees are never edited by these CLI commands.
+
+Only a managed development path with `.pacer-managed` allows the worker to update
+`panel/live.html`. Marketplace and direct installs retain the bundled placeholder
+panel; worker commands and notifications still run. Use the local development
+install for a current budget snapshot, then reopen the panel to refresh it.
 
 Transport selection is HTTP on loopback (default port 4317, bearer token read
 from `<pacerHome>/token`), a future `plugin.message` channel, then the storage

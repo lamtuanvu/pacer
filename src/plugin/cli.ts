@@ -5,6 +5,7 @@ import { linkCli } from "../link/cli";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { installPlugin, uninstallPlugin } from "./install";
+import { legacyPluginInstalled } from "./migration";
 
 const USAGE = "usage: pacer plugin install|uninstall|status|set <transport|port|pacerHome|pollSeconds|autoConsole|notifications> <value>";
 const err = (code: number, e: unknown): Result => ({ code, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` });
@@ -47,8 +48,11 @@ export async function pluginCli(args: string[], ctx: Ctx): Promise<Result> {
         const r = await uninstallPlugin(ctx);
         return r ? { code: 0, out: renderUninstall(r), err: "" } : { code: 1, out: "", err: "pacer: the Orca plugin is not installed" };
       }
-      case "status":
-        return linkCli(["status"], ctx);
+      case "status": {
+        const result = await linkCli(["status"], ctx);
+        if (legacyPluginInstalled(ctx)) result.out += "\nlegacy plugin installed; run pacer plugin install to migrate to lamtuanvu.pacer";
+        return result;
+      }
       case "set": {
         if (rest.length !== 2) return { code: 2, out: "", err: USAGE };
         let v: unknown;

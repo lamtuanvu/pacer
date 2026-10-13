@@ -19,6 +19,7 @@ function fixture(): string {
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "0.1.0", scripts: { "plugin:build": "bun scripts/plugin.ts" } }));
   writeFileSync(join(root, "scripts", "plugin.ts"), 'await Bun.write("built-version", (await Bun.file("package.json").json()).version);');
   writeFileSync(join(root, "CHANGELOG.md"), changelog);
+  writeFileSync(join(root, "orca-marketplace.json"), JSON.stringify({ plugins: [{ id: "lamtuanvu.pacer", source: { kind: "git", url: "https://github.com/lamtuanvu/pacer.git", ref: "orca-plugin-v0.1.0" } }] }));
   return root;
 }
 
@@ -26,6 +27,7 @@ test("prepareRelease updates the package and changelog before rebuilding plugin 
   const root = fixture();
   await prepareRelease(root, "0.2.0");
   expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version).toBe("0.2.0");
+  expect(JSON.parse(readFileSync(join(root, "orca-marketplace.json"), "utf8")).plugins[0].source.ref).toBe("orca-plugin-v0.2.0");
   expect(readFileSync(join(root, "built-version"), "utf8")).toBe("0.2.0");
   expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toContain(`## [0.2.0] - ${new Date().toISOString().slice(0, 10)}`);
 });

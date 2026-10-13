@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { readJson } from "../fsutil";
 import { readManifest } from "../install/manifest";
 import type { Ctx } from "../types";
+import { PLUGIN_KEY } from "./envelope";
 import type { LinkSnapshot } from "./envelope";
 import { PLUGIN_RECORD, pluginDataDir } from "./paths";
 export const BRIDGE_KEY="link";
@@ -21,8 +22,8 @@ export function writeBridge(ctx:Ctx,snap:LinkSnapshot,platform?:NodeJS.Platform)
   if(!pluginInstalled(ctx))return "skipped"; if(Buffer.byteLength(JSON.stringify(snap),"utf8")>VALUE_MAX)return `snapshot exceeds ${VALUE_MAX} bytes`;
   return updateStore(join(pluginDataDir(ctx,platform),"storage.json"),o=>{o[BRIDGE_KEY]=snap;})??"written";
 }
-export function clearBridge(ctx:Ctx,platform?:NodeJS.Platform):"cleared"|"skipped"|string {
-  const file=join(pluginDataDir(ctx,platform),"storage.json"); if(!existsSync(file))return "skipped"; return updateStore(file,o=>{delete o[BRIDGE_KEY];})??"cleared";
+export function clearBridge(ctx:Ctx,platform?:NodeJS.Platform,key = PLUGIN_KEY):"cleared"|"skipped"|string {
+  const file=join(pluginDataDir(ctx,platform,key),"storage.json"); if(!existsSync(file))return "skipped"; return updateStore(file,o=>{delete o[BRIDGE_KEY];})??"cleared";
 }
 export function writePluginSetting(ctx:Ctx,key:string,value:unknown,platform?:NodeJS.Platform):void {
   const err=updateStore(join(pluginDataDir(ctx,platform),"settings.json"),o=>{o[key]=value;}); if(err)throw new Error(err);
