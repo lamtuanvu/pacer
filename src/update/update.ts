@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { refreshIntegrations } from "../commands/update-refresh";
 import { restartConsoles } from "../console/restart";
 import { restartAfterUpdate } from "../service";
 import type { Result } from "../commands/types";
@@ -9,9 +10,9 @@ import { type Platform, hostPlatform, latestUrl, parseLatest, parseManifest, par
 import { type SmokeFn, replaceBinary, runVersion } from "./replace";
 import { compareVersions, currentVersion, isVersion } from "./version";
 
-export const UPDATE_USAGE = "usage: pacer update [--check] [--to <version>] [--base <url>] [--no-restart]";
+export const UPDATE_USAGE = "usage: pacer update [--check] [--to <version>] [--base <url>] [--no-restart] [--no-reinstall]";
 
-export interface UpdateOptions { check: boolean; noRestart?: boolean; to?: string; base?: string }
+export interface UpdateOptions { check: boolean; noRestart?: boolean; noReinstall?: boolean; to?: string; base?: string }
 
 export interface UpdateDeps {
   env: Record<string, string | undefined>;
@@ -21,6 +22,7 @@ export interface UpdateDeps {
   version: string;
   platform: Platform | null;
   smoke?: SmokeFn;
+  refreshIntegrations?: (path: string) => Promise<string[]>;
   restartService?: (path: string) => Promise<boolean | { restarted: boolean; consoles: number; warning?: string }>;
 }
 
@@ -32,6 +34,8 @@ export function parseUpdateArgs(args: string[]): UpdateOptions | string {
       o.check = true;
     } else if (a === "--no-restart") {
       o.noRestart = true;
+    } else if (a === "--no-reinstall") {
+      o.noReinstall = true;
     } else if (a === "--to" || a === "--base") {
       const v = args[i + 1];
       if (v === undefined || v.startsWith("--")) return `pacer update: ${a} needs a value\n${UPDATE_USAGE}`;
@@ -54,6 +58,7 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
     standalone: Bun.isStandaloneExecutable,
     version: currentVersion(),
     platform: hostPlatform(),
+    refreshIntegrations: path => refreshIntegrations(ctx, path),
     restartService: async path => {
       let restarted = false, warning: string | undefined;
       try { restarted = await restartAfterUpdate(ctx, path); } catch (e) { warning = `could not restart pacer serve: ${(e as Error).message}`; }
@@ -101,7 +106,7 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
     const target = o.to ?? parseLatest(JSON.parse(await fetchText(d.fetch, latestUrl(base))));
     const cmp = compareVersions(target, d.version);
     if (!o.to && cmp <= 0) return checked(cmp === 0 ? `pacer ${d.version} is up to date` : `pacer ${d.version} is up to date (latest release: ${target})`);
-    if (o.to && cmp === 0) return checked(`pacer ${d.version} is already installed`);
+    if (o.check && o.to && cmp === 0) return checked(`pacer ${d.version} is already installed`);
     const manifest = parseManifest(JSON.parse(await fetchText(d.fetch, releaseUrl(base, target, "manifest.json"))));
     if (manifest.version !== target) throw new ReleaseError(`manifest.json is for ${manifest.version}, not ${target}`);
     const asset = manifest.assets.find((a) => a.os === plat.os && a.arch === plat.arch);
@@ -119,6 +124,13 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
       throw new ReleaseError(`checksum mismatch for ${asset.file} (expected ${asset.sha256}, got ${got}); nothing was changed`);
     }
     const r = await replaceBinary(d.execPath, bytes, target, d.smoke ?? runVersion);
+    let refreshNote = "";
+    if (!o.noReinstall && d.refreshIntegrations) {
+      try {
+        const lines = await d.refreshIntegrations(r.path);
+        if (lines.length) refreshNote = "\n" + lines.join("\n");
+      } catch (e) { refreshNote = `\nWARNING: could not refresh integrations: ${(e as Error).message}`; }
+    }
     let serviceNote = "";
     if (!o.noRestart && d.restartService) {
       try { const result = await d.restartService(r.path);
@@ -127,7 +139,7 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
       }
       catch (e) { serviceNote = `\nWARNING: could not restart pacer serve: ${(e as Error).message}`; }
     }
-    return ok([`updated pacer ${d.version} -> ${target}`, `binary: ${r.path}`, `previous binary: ${r.backup}`].join("\n") + serviceNote);
+    return ok([`updated pacer ${d.version} -> ${target}`, `binary: ${r.path}`, `previous binary: ${r.backup}`].join("\n") + refreshNote + serviceNote);
   } catch (e) {
     if (e instanceof SyntaxError) return fail(1, `release metadata is not valid JSON (${e.message})`);
     return fail(1, (e as Error).message);

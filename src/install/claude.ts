@@ -1,3 +1,4 @@
+import type { Ctx } from "../types";
 import { installSkill } from "./skill";
 import { existsSync, readdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -111,11 +112,12 @@ export async function installClaude(tx: Txn): Promise<void> {
   if (claude && tx.env.mcp===true) {
     const remove = [claude, "mcp", "remove", "-s", "user", "pacer"];
     await tx.run(remove, undefined, { quiet: true });
-    await tx.run([claude, "mcp", "add", "-s", "user", "pacer", "--", ...pacerArgv, "mcp"], remove);
+    const add = [claude, "mcp", "add", "-s", "user", "pacer", "--", ...pacerArgv, "mcp"];
+    await tx.run(add, remove, { successNote: `registered MCP server pacer (${shellCommand(add)})` });
   } else if(tx.env.mcp===true)tx.notes.push(`claude CLI not found: register the MCP server yourself with \`claude mcp add -s user pacer -- ${command} mcp\``);
   // ~/.claude.json is rewritten by running Claude sessions; let the claude CLI remove the entry.
   if(tx.env.mcp===false){
-    if(claude)await tx.run([claude, "mcp", "remove", "-s", "user", "pacer"], undefined, { quiet: true });
+    if(claude) await removeClaudeMcp(ctx, [claude, "mcp", "remove", "-s", "user", "pacer"], tx.notes);
     else tx.notes.push("claude CLI not found: remove the MCP server yourself with `claude mcp remove -s user pacer`");
   }
   for (const path of claudeLegacyFiles(ctx.home)) if (existsSync(path)) tx.moveAside(path);
@@ -142,4 +144,16 @@ export async function installClaude(tx: Txn): Promise<void> {
     else tx.edit(settings.scriptPath, () => next, [statuslineUndo(old!)]);
   }
   if (needsPipe) tx.notes.push(`Pipe your status-line JSON to \`${command} statusline\` to include pacer budgets.`);
+}
+
+/** Probe before removing so an absent server is not reported as a change. */
+export async function removeClaudeMcp(ctx: Ctx, argv: string[], notes: string[]): Promise<void> {
+  let registered = false;
+  try { registered = (await ctx.run([argv[0]!, "mcp", "get", "pacer"], 30000)).code === 0; } catch {}
+  try {
+    const result = await ctx.run(argv, 30000);
+    if (!registered) notes.push("MCP server pacer was not registered");
+    if (result.code !== 0 && registered) notes.push(`\`${shellCommand(argv)}\` failed (exit ${result.code}): ${(result.stderr || result.stdout).split(/\r?\n/)[0]}`);
+    else if (result.code === 0 && registered) notes.push(`removed MCP server pacer (${shellCommand(argv)})`);
+  } catch (error) { notes.push(`\`${shellCommand(argv)}\` failed: ${error instanceof Error ? error.message : String(error)}`); }
 }

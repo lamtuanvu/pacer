@@ -17,3 +17,11 @@ test("version needs no strategy file and help lists it", async () => {
   expect((await main(["version"], ctx)).code).toBe(0);
   expect((await main(["help"], ctx)).out).toContain("print the pacer version");
 });
+
+test("help explains refresh and shared skill directories", async () => {
+  const out = (await main(["help"], fakeCtx())).out;
+  expect(out).toContain("--no-reinstall");
+  expect(out).toContain("update refreshes installed skills, policy and hooks");
+  expect(out).toContain("Cursor and OpenCode also read ~/.claude/skills");
+  expect(out).toContain("Cursor also reads ~/.codex/skills");
+});

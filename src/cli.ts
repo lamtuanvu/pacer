@@ -45,7 +45,10 @@ JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, prov
 route: kind, ranked, excluded. delegate: TaskRecord (id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields).
 tasks <id>, wait, stop: task_id, state, kind, requested_executor, placement, attempts, result, review, resolved.
 tasks: array of those task summaries. review: recorded. Flags override brief-file fields; repo defaults to cwd.
-install <planner> [--mcp|--no-mcp]: skill and hooks; MCP is optional.`;
+install <planner> [--mcp|--no-mcp]: skill and hooks; MCP is optional.
+update refreshes installed skills, policy and hooks; --no-reinstall skips refresh.
+Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skills.
+Identical pacer skill copies may appear; update refresh keeps them identical.`;
 
 function help(): string {
   const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
