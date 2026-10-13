@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeRelease } from "../scripts/release/build";
@@ -251,4 +251,40 @@ test("update reports service and console restart counts and retains warning with
   const result=await runUpdate({check:false},deps(root,exec,{restartService:async()=>({restarted:!warning,consoles:2,warning})}));
   expect(result.code).toBe(0);expect(result.out).toContain("restarted 2 pacer consoles");if(warning)expect(result.out).toContain(`WARNING: ${warning}`);else expect(result.out).toContain("restarted pacer serve");
  }
+});
+
+
+test("npm installations refuse replacement and --check reports the package-manager hint", async () => {
+  const root = tmpDir(); release(root, "0.2.0"); const exec = installed();
+  const d = deps(root, exec, { env: { PACER_INSTALL_METHOD: "npm", PACER_RELEASE_BASE: pathToFileURL(root).href } });
+  const hint = "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest";
+  expect(await runUpdate({ check: false }, { ...d, fetch: async () => { throw Error("must not fetch"); } })).toEqual({ code: 2, out: "", err: `pacer update: ${hint}` });
+  expect(await runUpdate({ check: true }, d)).toEqual({ code: 0, out: `update available: 0.1.0 -> 0.2.0\n${hint}`, err: "" });
+  expect((await runUpdate({ check: true }, { ...d, version: "0.2.0" })).out).toBe(`pacer 0.2.0 is up to date\n${hint}`);
+  expect(readFileSync(exec, "utf8")).toBe(script("0.1.0"));
+});
+
+test("Homebrew detection follows executable symlinks and honors configured prefixes", async () => {
+  const root = tmpDir(); release(root, "0.2.0");
+  for (const mode of ["cellar", "prefix", "custom-cellar"]) {
+    const installRoot = tmpDir();
+    const real = join(installRoot, mode === "cellar" ? "Cellar/pacer/0.1.0/bin/pacer" : "custom/bin/pacer");
+    mkdirSync(dirname(real), { recursive: true }); writeFileSync(real, script("0.1.0"));
+    const exec = join(tmpDir(), "pacer"); symlinkSync(real, exec);
+    const env: Record<string, string> = { PACER_RELEASE_BASE: pathToFileURL(root).href };
+    if (mode === "prefix") env.HOMEBREW_PREFIX = join(installRoot, "custom");
+    if (mode === "custom-cellar") env.HOMEBREW_CELLAR = join(installRoot, "custom") + "/";
+    const d = deps(root, exec, { env });
+    const hint = "pacer was installed with Homebrew; update with: brew upgrade pacer";
+    expect(await runUpdate({ check: false }, d)).toEqual({ code: 2, out: "", err: `pacer update: ${hint}` });
+    expect(await runUpdate({ check: true }, d)).toEqual({ code: 0, out: `update available: 0.1.0 -> 0.2.0\n${hint}`, err: "" });
+    expect(readFileSync(real, "utf8")).toBe(script("0.1.0"));
+  }
+});
+
+test("a sibling of a Homebrew prefix keeps the default update behavior", async () => {
+  const root = tmpDir(); release(root, "0.2.0"); const exec = installed();
+  const d = deps(root, exec, { env: { PACER_RELEASE_BASE: pathToFileURL(root).href, HOMEBREW_PREFIX: dirname(exec) + "-other" } });
+  expect((await runUpdate({ check: false }, d)).code).toBe(0);
+  expect(readFileSync(exec, "utf8")).toBe(script("0.2.0"));
 });
