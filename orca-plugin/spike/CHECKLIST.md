@@ -3,7 +3,7 @@
 Target: Orca 1.4.224, pluginApi 1. This is a throwaway development-path plugin.
 Only a human enables the plugin and grants consent in Orca's UI. Preparation
 does not establish a live result: all results start as `PENDING` in
-[the decision record](../../docs/superpowers/decisions/2026-10-12-orca-link-transport.md).
+[the decision record](../../docs/decisions/2026-10-12-orca-link-transport.md).
 Record the Orca version, time, actual output, and any discrepancy there after
 each step. Keep unrelated commands and events quiet during the lifecycle test.
 
