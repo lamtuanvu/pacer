@@ -1,0 +1,1 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="pacer" viewBox="0 0 48 48"><style>.lane{fill:#52525B}.used{fill:#FFFFFF}.tick{fill:#A3E635}</style><rect class="lane" x="4" y="20" width="40" height="8" rx="4"/><rect class="used" x="4" y="20" width="22" height="8" rx="4"/><rect class="tick" x="29" y="12" width="4" height="24" rx="2"/></svg>

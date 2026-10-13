@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Delegate a task</title>
+<style>
+body{margin:0}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+</style>
+</head>
+<body>
+<div style="width: 400px; height: 1180px; box-sizing: border-box; background: #FFFFFF; color: #18181B; font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; font-variant-numeric: tabular-nums">
+
+<div style="display: flex; flex-direction: column; gap: 20px; padding: 16px 16px 20px; flex-grow: 1">
+
+<div style="display: flex; align-items: center; gap: 8px">
+<a href="overview.html" aria-label="Back to overview" style="min-width: 32px; min-height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #18181B; text-decoration: none; font-size: 16px">←</a>
+<span style="font-weight: 650; font-size: 14px">Delegate a task</span>
+<span style="flex-grow: 1"></span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #52525B"><span style="width: 8px; height: 8px; border-radius: 999px; background: #16A34A"></span>Live</span>
+</div>
+
+<div style="color: #52525B">Write it the way you'd brief a colleague who can't see this chat. Claude plans; the task runs on an executor.</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="goal" style="font-weight: 600">What should be done?</label>
+<textarea id="goal" rows="5" placeholder="e.g. Fix flaky retry test in the payments client" style="font: inherit; resize: vertical; padding: 10px 12px; border-radius: 10px; border: 1px solid #D4D4D8; background: #FFFFFF; color: #18181B; line-height: 1.45"></textarea>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-weight: 600">Where</span>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #F4F4F5">
+<div style="display: flex; flex-direction: column; flex-grow: 1">
+<span style="font-weight: 600">acme / api</span>
+<span style="font-size: 12px; color: #71717A">Branch main · focused worktree</span>
+</div>
+<button type="button" style="font: inherit; font-size: 12px; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #E4E4E7; background: #FFFFFF; color: #18181B; cursor: pointer">Change</button>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="done" style="font-weight: 600">Done when</label>
+<input id="done" type="text" placeholder="A command that passes, e.g. bun test payments" style="font: inherit; min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid #D4D4D8; background: #FFFFFF; color: #18181B">
+<span style="font-size: 12px; color: #71717A">pacer runs it after the executor finishes and only reports done if it passes.</span>
+</div>
+
+<fieldset style="display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0">
+<legend style="font-weight: 600; padding: 0; margin-bottom: 6px">Runs on</legend>
+<label style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 2px solid #18181B; cursor: pointer">
+<input type="radio" name="exec" checked style="margin: 0; width: 16px; height: 16px">
+<div style="display: flex; flex-direction: column; flex-grow: 1">
+<span style="font-weight: 600">Best available</span>
+<span style="font-size: 12px; color: #71717A">Antigravity now, falls back to Local, then Codex</span>
+</div>
+<span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #F4F4F5; color: #3F3F46">Recommended</span>
+</label>
+<label style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid #E4E4E7; cursor: pointer">
+<input type="radio" name="exec" style="margin: 0; width: 16px; height: 16px">
+<div style="display: flex; flex-direction: column; flex-grow: 1">
+<span style="font-weight: 600; display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 4px; background: #18181B; color: #FFFFFF; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center">Cx</span>Codex</span>
+<span style="font-size: 12px; color: #71717A">For tricky work · ahead of pace this week</span>
+</div>
+<span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #FEF3C7; color: #92400E">Ahead</span>
+</label>
+<label style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid #E4E4E7; color: #A1A1AA">
+<input type="radio" name="exec" disabled style="margin: 0; width: 16px; height: 16px">
+<div style="display: flex; flex-direction: column; flex-grow: 1">
+<span style="font-weight: 600; display: flex; align-items: center; gap: 6px"><svg role="img" aria-label="Cursor" width="16" height="16" viewBox="0 0 24 24" fill="#A1A1AA"><path d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23"></path></svg>Cursor</span>
+<span style="font-size: 12px">Out of quota · back in 5h 24m</span>
+</div>
+</label>
+</fieldset>
+
+<div style="display: flex; gap: 10px; padding: 12px; border-radius: 10px; background: #F4F4F5; color: #52525B">
+<span aria-hidden="true" style="font-weight: 700">i</span>
+<span style="font-size: 12px">Runs in its own worktree. You'll get a notification when it finishes, and it shows under Needs attention if it fails.</span>
+</div>
+
+</div>
+
+<div style="display: flex; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid #E4E4E7; background: #FFFFFF">
+<a href="overview.html" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #E4E4E7; background: #FFFFFF; color: #18181B; text-decoration: none; display: flex; align-items: center">Cancel</a>
+<a href="overview.html" style="flex-grow: 1; min-height: 44px; border-radius: 10px; border: 1px solid #18181B; background: #18181B; color: #FFFFFF; text-decoration: none; font-weight: 600; display: flex; align-items: center; justify-content: center">Delegate</a>
+</div>
+
+</div>
+</body>
+</html>
