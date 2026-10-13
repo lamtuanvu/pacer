@@ -1,5 +1,5 @@
 import type { Ctx } from "../../types";
-import { detectLimit } from "../limits";
+import { detectLimit, detectTransient } from "../limits";
 import { type CheckResult, type OrcaClient, parsePayload } from "./client";
 import { hasInbox, putInbox, takeInbox } from "./state";
 
@@ -8,6 +8,7 @@ export const NO_ANSWER =
   "If you cannot finish without an answer, send worker_done with --outcome failed and say what you need.";
 export const SETTLED_STATES = ["succeeded", "failed", "stopped"];
 const SUCCEEDED_GRACE_PASSES = 2;
+export const IDLE_PROMPT = /(?:^|\n)\s*(?:[›❯>]\s*(?:$|Try |Implement |Summarize |Find |Write |Run |Explain )|(?:codex|claude|opencode)>|Ask (?:anything|a question)|What would you like|Type a message)/i;
 const WORKING_INDICATOR = /(?:esc\s+to\s+interrupt|ctrl\s*\+\s*c\s+to\s+stop)/i;
 
 export interface WaitOpts {
@@ -69,6 +70,9 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
   let pendingAck: string | null = null;
   let nudged = false;
   let succeededPasses = 0;
+  let lastTail = "", idleAt: number | null = null, idleNudged = false;
+  let busyAt: number | null = null, busyResends = 0;
+  const backoff = [60_000, 120_000, 240_000, 60_000];
   try {
     for (;;) {
       const mail = takeInbox(ctx, o.dispatchId);
@@ -103,7 +107,31 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
       const lines = rd.ok ? (rd.result.terminal?.tail ?? []) : [];
       // Only recent worker output counts: the echoed task can itself discuss limits.
       const recent = withoutPrompt(lines.slice(-15)).join("\n");
-      if (!WORKING_INDICATOR.test(withoutPrompt(lines).join("\n")) &&
+      const working = WORKING_INDICATOR.test(withoutPrompt(lines).join("\n"));
+      const tail = withoutPrompt(lines).join("\n");
+      if (o.terminal && !working && detectTransient(recent)) {
+        busyAt ??= now();
+        if (now() - busyAt >= backoff[busyResends]) {
+          if (busyResends >= 3) return { kind: "settled", state: "failed", error: "transient provider busy after three retries", tail: recent, needsStop: true };
+          const sent = await c.terminalSend(o.terminal, "Continue the assigned task.\n" + (o.prompt ?? "Report worker_done when finished."));
+          log(`transient provider busy: resend ${++busyResends}/3 in ${o.terminal} (${sent.ok ? "ok" : sent.error.code})`);
+          busyAt = now();
+        }
+      } else {
+        busyAt = null;
+        if (tail !== lastTail || working || !IDLE_PROMPT.test(tail)) { idleAt = null; idleNudged = false; }
+        else if (o.terminal) {
+          idleAt ??= now();
+          if (now() - idleAt >= 600_000) {
+            if (idleNudged) return { kind: "settled", state: "failed", error: "worker idle with no progress", tail: recent, needsStop: true };
+            const sent = await c.terminalSend(o.terminal, "continue the assigned task; report when done");
+            log(`worker idle: nudge in ${o.terminal} (${sent.ok ? "ok" : sent.error.code})`);
+            idleNudged = true; idleAt = now();
+          }
+        }
+      }
+      lastTail = tail;
+      if (!detectTransient(recent) && !WORKING_INDICATOR.test(withoutPrompt(lines).join("\n")) &&
           detectLimit(o.providerId ?? "", { code: 1, stdout: "", stderr: recent, timedOut: false })) {
         const t = o.terminal ? await c.terminalShow(o.terminal) : null;
         const preview = t?.ok ? withoutPrompt((t.result.terminal?.preview ?? "").split(/\r?\n/)).join("\n") : "";

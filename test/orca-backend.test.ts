@@ -593,3 +593,21 @@ test("a live task isolated elsewhere or a dead runner does not occupy current",a
  expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe(`path:${REPO}`);
  }
 });
+
+test("busy retry exhaustion records the attempt, temporarily skips the executor and falls back without marking quota",async()=>{
+ let t=0,finished=false;
+ const {f,ctx,task,backend}=setup(()=>[
+  [O("orchestration","check"),()=>{t+=30000;return finished?ok("check-1.ndjson"):raw('{"ok":true,"result":{"messages":[]}}');}],
+  [O("orchestration","worker-read"),()=>raw(JSON.stringify({ok:true,result:{terminal:{tail:finished?["Working"]:["Selected model is at capacity","› "]}}}))],
+  [O("orchestration","worker-show"),ok("worker-show-ready.json")],
+  [O("orchestration","worker-stop"),()=>{finished=true;return ok("worker-stop-t8-cursor-limit.json");}],
+ ],{timeoutS:1800,deps:{now:()=>t}});
+ const st=statusFor("codex");st.providers.push(...statusFor("cursor").providers);
+ const rec=await runTask(ctx,task.id,{
+  loadStrategy:()=>validateStrategy({planner:"claude-code",providers:{"claude-code":{},codex:{},cursor:{}},pacing:{policy:"priority"}},"/x"),
+  computeStatus:async()=>st,runAttempt:backend.runAttempt,verifyRepo:async()=>({files:""}),
+ });
+ expect(rec.result).toMatchObject({status:"done",executor:"cursor"});expect(rec.attempts).toHaveLength(2);
+ expect(rec.attempts[0]).toMatchObject({executor:"codex",limitHit:false,brokenReason:"transient provider busy after three retries"});
+ expect(readMarks(ctx).codex).toBeUndefined();expect(readFileSync(rec.attempts[0].log,"utf8").match(/transient provider busy: resend/g)).toHaveLength(3);expect(f.count(O("orchestration","worker-stop"))).toBe(1);
+});

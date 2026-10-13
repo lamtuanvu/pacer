@@ -1,10 +1,11 @@
 export type OrcaEventName = "worktree.created" | "worktree.removed" | "agent.status.changed";
-export interface WorkspaceContext { worktreeId?: string; branch: string; displayName: string; terminals: { id: string }[] }
+export interface WorkspaceContext { worktreeId?: string; branch: string; displayName: string; terminals: { id: string; writable?: boolean; agent?: unknown; title?: string }[] }
 export interface HostParams {
   "workspace.readContext": undefined;
   "terminal.sendText": { terminalId: string; text: string; enter?: boolean };
   "notifications.show": { title: string; body?: string };
   "storage.get": { key: string };
+  "storage.set": { key: string; value: unknown };
   "settings.get": undefined;
   "settings.set": { key: string; value: unknown };
   "events.subscribe": { events: string[] };
@@ -14,6 +15,7 @@ export interface HostResults {
   "terminal.sendText": { accepted: boolean };
   "notifications.show": { delivered: boolean };
   "storage.get": { value: unknown };
+  "storage.set": { ok: true };
   "settings.get": { settings: Record<string, unknown> };
   "settings.set": { ok: true };
   "events.subscribe": { subscribed: OrcaEventName[] };

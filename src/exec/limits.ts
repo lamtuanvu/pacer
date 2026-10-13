@@ -12,6 +12,17 @@ const GENERIC: RegExp[] = [
   /out of (?:credits|quota)/i,
   /insufficient (?:quota|credits|balance)/i,
 ];
+/** Provider overload is transient; never mark the subscription exhausted. */
+export const TRANSIENT_PROVIDER_PATTERNS = [
+  /selected model is at capacity/i,
+  /(?:model|provider|server) (?:is )?(?:at capacity|overloaded|busy|temporarily unavailable)/i,
+  /overloaded_error/i,
+  /service unavailable/i,
+];
+export function detectTransient(text: string): boolean {
+  return TRANSIENT_PROVIDER_PATTERNS.some(pattern => pattern.test(text.slice(-8000)));
+}
+
 const SPECIFIC: Record<string, RegExp[]> = {
   codex: [/rate_limit_reached/i, /hit your usage limit/i],
 };

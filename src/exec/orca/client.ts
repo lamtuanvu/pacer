@@ -132,6 +132,7 @@ export class OrcaClient {
   }
   terminalShow(handle: string) { return this.call<{ terminal?: TerminalRow }>(["terminal", "show", "--terminal", handle]); }
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
+  terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }
   terminalEnter(handle: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--enter"]); }
   runCreate(objective: string, from: string) {
     return this.call<{ run: RunRow }>(["orchestration", "run-create", "--objective", objective, "--from", from]);

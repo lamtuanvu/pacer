@@ -142,6 +142,17 @@ for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"t
     request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup",()=>restoreAction(key),()=>restoreAction(key));
   },()=>restoreAction(key));
 });}
+for (const b of document.querySelectorAll("[data-connect-agents]")) b.addEventListener("click", () => {
+ b.disabled=true;
+ readContext(value => {
+  const terminal=value?.terminals?.find(t=>t.id===data.setupTerminal);
+  if(!terminal){b.disabled=false;status.textContent="Opening a terminal… Reopen the panel shortly.";return;}
+  request("terminal.sendText",{terminalId:terminal.id,text:data.setupCommand || "pacer setup --yes",enter:true},"connect",()=>{status.textContent="Connecting your agents…";},()=>{b.disabled=false;});
+ },()=>{b.disabled=false;});
+});
+for (const b of document.querySelectorAll("[data-bootstrap-retry]")) b.addEventListener("click", () => {
+ show("setup"); status.textContent="pacer will retry automatically. Reopen the panel shortly.";
+});
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
   if (!data.reachable) {
     status.textContent = "Waiting for pacer serve. Start it, then reopen this panel.";

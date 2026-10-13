@@ -6,7 +6,7 @@ import type { Ctx } from "../types";
 import { isObj } from "../util";
 import { backupPath } from "./fsx";
 
-const BINS = ["claude", "codex", "cursor-agent", "agy", "opencode", "arkcli", "ollama", "lms", "orca"] as const;
+const BINS = ["claude", "codex", "cursor-agent", "cursor", "agy", "opencode", "arkcli", "ollama", "lms", "orca"] as const;
 const PLANNER_BINS: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", opencode: "opencode" };
 
 export interface Detection {
@@ -17,6 +17,7 @@ export interface Detection {
 
 export async function detect(ctx: Ctx): Promise<Detection> {
   const clis = Object.fromEntries(BINS.map((bin) => [bin, ctx.which(bin)]));
+  clis["cursor-agent"] ??= clis.cursor;
   const d: Detection = { clis, ollamaModel: null, lmstudioModel: null };
   if (clis.ollama) {
     try {
