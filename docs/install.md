@@ -15,9 +15,23 @@ pacer --version
 
 Without compiling, run `bun src/cli.ts --help` or replace `pacer` in examples with `bun src/cli.ts`. The compiled binary runs without Bun; development and the current source entry point require Bun.
 
-## Binary installer and release status
+## Binary installer
 
-[GitHub Releases](https://github.com/lamtuanvu/pacer/releases) are planned but not published yet. [install.sh](../install.sh) has no public default: `PACER_RELEASE_BASE` is required. It expects this layout:
+Install from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
+```
+
+This works once the repository is public and the first release exists. [install.sh](../install.sh) and `pacer update` default to GitHub: `releases/latest/download/latest.json` selects the version, and `releases/download/v<version>/<file>` serves its assets. Downloads follow at most five redirects, each to HTTPS.
+
+Verify a downloaded binary's build provenance before running it:
+
+```sh
+gh attestation verify <file> -R lamtuanvu/pacer
+```
+
+`PACER_RELEASE_BASE` remains an override for another HTTPS or local `file://` release root; `pacer update --base <url>` overrides the environment. Explicit release roots keep this layout:
 
 ```text
 latest.json
@@ -35,7 +49,7 @@ bun run release:host
 PACER_RELEASE_BASE="file://$PWD/dist/release" sh install.sh
 ```
 
-The installer detects OS/CPU, verifies SHA-256 checksums, checks the staged binary version and installs to `$HOME/.local/bin`. `PACER_INSTALL_DIR` changes the destination; `PACER_INSTALL_VERSION` selects a version instead of reading `latest.json`. macOS and Linux support arm64/x64; musl-based Linux is not supported. The current layout cannot be assumed to match ordinary GitHub Release URLs until publishing is configured.
+The installer detects OS/CPU, verifies SHA-256 checksums, checks the staged binary version and installs to `$HOME/.local/bin`. `PACER_INSTALL_DIR` changes the destination; `PACER_INSTALL_VERSION` selects a version instead of reading `latest.json`. macOS and Linux support arm64/x64; musl-based Linux is not supported. Run `pacer update --check` to check for updates, or `pacer update` to install the latest release. `pacer update --to <version>` selects a specific release, including prereleases.
 
 The npm name `@lamtuanvu/pacer` is reserved by project decision but is not published. The planned Homebrew tap `lamtuanvu/homebrew-tap` has not been created.
 

@@ -171,11 +171,15 @@ test("refuses to replace a source checkout, but --check still works", async () =
   expect((await runUpdate({ check: true }, deps(root, exec, { standalone: false }))).out).toContain("update available: 0.1.0 -> 0.2.0");
 });
 
-test("missing or insecure release base is refused", async () => {
+test("defaults to GitHub and refuses an insecure explicit base", async () => {
   const exec = installed();
-  const none = await runUpdate({ check: false }, deps(tmpDir(), exec, { env: {} }));
-  expect(none.code).toBe(2);
-  expect(none.err).toContain("PACER_RELEASE_BASE");
+  const urls: string[] = [];
+  const none = await runUpdate({ check: true }, deps(tmpDir(), exec, { env: {}, fetch: async url => {
+    urls.push(url);
+    return new Response(JSON.stringify({ version: "0.1.0" }));
+  } }));
+  expect(none.code).toBe(0);
+  expect(urls).toEqual(["https://github.com/lamtuanvu/pacer/releases/latest/download/latest.json"]);
   const http = await runUpdate({ check: false }, deps(tmpDir(), exec, { env: { PACER_RELEASE_BASE: "http://example.com/r" } }));
   expect(http.code).toBe(2);
   expect(http.err).toContain("must start with https://");

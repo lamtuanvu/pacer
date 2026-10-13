@@ -188,3 +188,34 @@ test.skipIf(process.getuid?.() === 0)("an unwritable directory fails cleanly", a
   expect(readFileSync(p, "utf8")).toBe(script("0.1.0"));
   expect(readdirSync(dir)).toEqual(["pacer"]);
 });
+
+test("download follows HTTPS redirects across hosts and resolves relative locations", async () => {
+  const seen: string[] = [];
+  const download = async (url: string) => {
+    seen.push(url);
+    if (url === "https://github.com/start") return new Response(null, { status: 302, headers: { location: "https://assets.example/path/file" } });
+    if (url === "https://assets.example/path/file") return new Response(null, { status: 307, headers: { location: "../binary?token=1" } });
+    return new Response("binary");
+  };
+  expect(await fetchText(download, "https://github.com/start")).toBe("binary");
+  expect(seen).toEqual(["https://github.com/start", "https://assets.example/path/file", "https://assets.example/binary?token=1"]);
+});
+
+test("download rejects non-HTTPS and credentialed redirects before fetching the next hop", async () => {
+  for (const location of ["http://example.com/file", "file:///tmp/file", "ftp://example.com/file", "https://user:password@example.com/file"]) {
+    let calls = 0;
+    await expect(fetchBytes(async () => { calls++; return new Response(null, { status: 301, headers: { location } }); }, "https://example.com/start")).rejects.toThrow("redirect must target https://");
+    expect(calls).toBe(1);
+  }
+});
+
+test("download allows five redirects, rejects a sixth and rejects missing Location", async () => {
+  let calls = 0;
+  const download = async () => { calls++; return calls <= 5 ? new Response(null, { status: 308, headers: { location: "/next" } }) : new Response("done"); };
+  expect(await fetchText(download, "https://example.com/start")).toBe("done");
+  expect(calls).toBe(6);
+  calls = 0;
+  await expect(fetchText(async () => { calls++; return new Response(null, { status: 302, headers: { location: "/loop" } }); }, "https://example.com/start")).rejects.toThrow("redirect limit (5) exceeded");
+  expect(calls).toBe(6);
+  await expect(fetchText(async () => new Response(null, { status: 302 }), "https://example.com/start")).rejects.toThrow("has no Location");
+});

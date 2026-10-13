@@ -95,10 +95,13 @@ export function parseManifest(raw: unknown): Manifest {
   return { version: version as string, assets };
 }
 
-export function latestUrl(base: string): string {
-  return `${base}/latest.json`;
+export const GITHUB_REPO = "lamtuanvu/pacer";
+export const GITHUB_RELEASE_BASE = `https://github.com/${GITHUB_REPO}/releases`;
+
+export function latestUrl(base?: string): string {
+  return base === undefined ? `https://github.com/${GITHUB_REPO}/releases/latest/download/latest.json` : `${base}/latest.json`;
 }
 
-export function releaseUrl(base: string, version: string, file: string): string {
-  return `${base}/${version}/${file}`;
+export function releaseUrl(base: string | undefined, version: string, file: string): string {
+  return base === undefined ? `${GITHUB_RELEASE_BASE}/download/v${version}/${file}` : `${base}/${version}/${file}`;
 }

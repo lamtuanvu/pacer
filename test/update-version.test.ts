@@ -90,3 +90,11 @@ test("release URLs follow the documented layout", () => {
   expect(latestUrl("file:///r")).toBe("file:///r/latest.json");
   expect(releaseUrl("https://h/p", "0.2.0", "SHA256SUMS")).toBe("https://h/p/0.2.0/SHA256SUMS");
 });
+
+test("GitHub URLs are the default; explicit bases keep their original layout", () => {
+  expect(latestUrl()).toBe("https://github.com/lamtuanvu/pacer/releases/latest/download/latest.json");
+  expect(releaseUrl(undefined, "0.2.0", "pacer-linux-x64")).toBe("https://github.com/lamtuanvu/pacer/releases/download/v0.2.0/pacer-linux-x64");
+  expect(releaseUrl(undefined, "0.2.0-rc.1", "manifest.json")).toContain("/v0.2.0-rc.1/manifest.json");
+  expect(latestUrl("file:///tmp/releases")).toBe("file:///tmp/releases/latest.json");
+  expect(releaseUrl("https://github.com/lamtuanvu/pacer/releases", "0.2.0", "SHA256SUMS")).toBe("https://github.com/lamtuanvu/pacer/releases/0.2.0/SHA256SUMS");
+});
