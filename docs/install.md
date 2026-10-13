@@ -1,14 +1,33 @@
 # Install pacer
 
-Install the Orca plugin; it installs pacer. Click **Connect my agents**.
+Install the Orca marketplace plugin; it bootstraps pacer in the background.
 
 In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
 install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.16`.
+bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.17`.
 The worker installs the binary, initializes `~/.pacer`, starts the login service,
 and keeps older binaries updated to the plugin version. It never downgrades.
 
-The live checklist shows **Install pacer**, **Start pacer**, and **Connect your
+The marketplace panel is a static **Set up pacer** page. Wait for the ready
+notification. The worker runs `pacer plugin install` itself once per plugin
+version to prepare `~/.pacer/orca-plugin`.
+
+In Orca Settings > Plugins:
+
+1. Uninstall the marketplace pacer.
+2. Under **Development**, add the absolute folder shown in the notification
+   (normally `~/.pacer/orca-plugin`).
+3. Enable pacer.
+
+Orca only refreshes plugin panels added as a development folder, so the live
+budget panel runs from there: [Orca #26951](https://github.com/stablyai/orca/issues/26951).
+The marketplace worker never changes its integrity-checked folder. Progress
+notifications persist across restarts. Bootstrap mode creates no terminals or
+consoles. Agent configs still require a click.
+`pacer plugin status` reports both marketplace and development copies. pacer
+never edits Orca settings to add the development folder.
+
+In the development panel, the live checklist shows **Install pacer**, **Start pacer**, and **Connect your
 agents**. Connecting is your consent to modify the displayed skills, rules and
 hooks in detected agent configs. The worker never edits those configs by itself.
 The button runs `pacer setup --yes`; no MCP servers are added. Afterwards the
@@ -18,8 +37,8 @@ Set **releaseBase** in the plugin's own settings while GitHub releases are
 unpublished, or for a private release folder. It accepts HTTPS, `file://`, or
 HTTP on `127.0.0.1`/`localhost`. Environment fallback: `PACER_RELEASE_BASE`.
 The layout is `latest.json`, `<version>/SHA256SUMS`, and
-`<version>/pacer-<os>-<arch>`. Every download is checksum verified. A 404 displays
-an unpublished notice and retries after ten minutes; other failures get bounded
+`<version>/pacer-<os>-<arch>`. Every download is checksum verified. A 404 sends
+an unpublished notification in bootstrap mode and retries after ten minutes; other failures get bounded
 60-second retries. **Try again** refreshes the panel; the worker owns retry timing.
 
 For a CLI-only installation or manual fallback:
