@@ -7,7 +7,7 @@ var package_default = {
     "@types/bun": "^1.4.2",
     typescript: "^7.0.2"
   },
-  version: "0.1.16",
+  version: "0.1.17",
   bin: {
     pacer: "src/cli.ts"
   },
@@ -54,46 +54,52 @@ var package_default = {
   }
 };
 
+// orca-plugin/src/mode.ts
+import { join } from "node:path";
+function pluginMode(pluginRoot, fs) {
+  return fs.exists(join(pluginRoot, ".pacer-managed")) ? "live" : "bootstrap";
+}
+
 // orca-plugin/src/bootstrap.ts
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { accessSync, constants, existsSync as existsSync2, mkdirSync, renameSync, chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join as join2, delimiter } from "node:path";
+import { join as join3, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/install/detection.ts
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join as join2 } from "node:path";
 var AGENT_BINS = { "claude-code": ["claude"], codex: ["codex"], cursor: ["cursor-agent", "cursor"], opencode: ["opencode"] };
 var names = { "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode" };
 function agentPlans(home, pacerHome, which, env = {}) {
   let installed = {};
   try {
-    installed = JSON.parse(readFileSync(join(pacerHome, "install-manifest.json"), "utf8")).planners ?? {};
+    installed = JSON.parse(readFileSync(join2(pacerHome, "install-manifest.json"), "utf8")).planners ?? {};
   } catch {}
   return Object.keys(AGENT_BINS).filter((id) => AGENT_BINS[id].some((bin) => which(bin))).map((id) => {
-    const root = id === "opencode" ? join(env.XDG_CONFIG_HOME || join(home, ".config"), "opencode") : join(home, id === "claude-code" ? ".claude" : `.${id}`);
+    const root = id === "opencode" ? join2(env.XDG_CONFIG_HOME || join2(home, ".config"), "opencode") : join2(home, id === "claude-code" ? ".claude" : `.${id}`);
     const skillRoot = id === "codex" ? env.CODEX_HOME || root : root;
-    const files = [join(skillRoot, "skills/pacer/SKILL.md"), ...{
-      "claude-code": [join(root, "rules/pacer.md"), join(root, "settings.json")],
-      codex: [join(root, "AGENTS.md"), join(root, "hooks.json")],
-      cursor: [join(root, "hooks.json")],
-      opencode: [join(root, "AGENTS.md")]
+    const files = [join2(skillRoot, "skills/pacer/SKILL.md"), ...{
+      "claude-code": [join2(root, "rules/pacer.md"), join2(root, "settings.json")],
+      codex: [join2(root, "AGENTS.md"), join2(root, "hooks.json")],
+      cursor: [join2(root, "hooks.json")],
+      opencode: [join2(root, "AGENTS.md")]
     }[id]];
     if (id === "claude-code") {
       try {
-        const command = JSON.parse(readFileSync(join(root, "settings.json"), "utf8")).statusLine?.command;
+        const command = JSON.parse(readFileSync(join2(root, "settings.json"), "utf8")).statusLine?.command;
         if (typeof command === "string" && !/\s/.test(command)) {
           const path = command.replace(/^~(?=\/)/, home).replace(/^\$HOME(?=\/)/, home);
           if (path.startsWith("/") && existsSync(path) && /^input=\$\(cat\)\s*$/m.test(readFileSync(path, "utf8")))
             files.push(path);
         }
       } catch {}
-      files.push(...["scripts/budget/budget_status.py", "scripts/budget/subagent_guard.py", "scripts/budget/budget-status", "rules/model-delegation.md"].map((p) => join(root, p)).filter(existsSync));
-      const delegation = join(root, "agents/delegation");
+      files.push(...["scripts/budget/budget_status.py", "scripts/budget/subagent_guard.py", "scripts/budget/budget-status", "rules/model-delegation.md"].map((p) => join2(root, p)).filter(existsSync));
+      const delegation = join2(root, "agents/delegation");
       if (existsSync(delegation))
-        files.push(...readdirSync(delegation).filter((p) => p.endsWith(".md")).sort().map((p) => join(delegation, p)));
+        files.push(...readdirSync(delegation).filter((p) => p.endsWith(".md")).sort().map((p) => join2(delegation, p)));
     }
     return { id, name: names[id], installed: !!installed[id], files, undo: `pacer uninstall ${id}` };
   });
@@ -198,7 +204,7 @@ function runFile(bin, args, env, timeout) {
 }
 function which(bin, env) {
   for (const dir of (env.PATH || "").split(delimiter).filter(Boolean)) {
-    const path = join2(dir, bin);
+    const path = join3(dir, bin);
     try {
       accessSync(path, constants.X_OK);
       return path;
@@ -208,10 +214,23 @@ function which(bin, env) {
 }
 function createBootstrap(d) {
   const now = d.now ?? (() => Date.now() / 1000), exec = d.exec ?? runFile, env = cleanEnv(d.env);
-  const home = d.home, pacerHome = join2(home, ".pacer"), platform = d.platform ?? process.platform;
+  const home = d.home, pacerHome = join3(home, ".pacer"), platform = d.platform ?? process.platform;
   let state = { install: { status: "pending" }, start: { status: "pending" }, agents: [] };
   let running = null, terminalRunning = false, stopped = false, probedAt = -Infinity;
   const changed = async (ctx, onChange) => {
+    if (d.mode === "bootstrap") {
+      const failed = state.install.status === "failed" ? state.install.detail === UNPUBLISHED ? UNPUBLISHED : "pacer couldn't install. Try again shortly." : state.start.status === "failed" ? "pacer couldn't start. Try again shortly." : undefined;
+      const message = failed || (state.start.status === "done" && state.handoffVersion === d.version ? `pacer is ready. Last step: in Orca Settings > Plugins, uninstall this pacer and add ${join3(pacerHome, "orca-plugin")} under Development.` : state.install.status === "pending" ? "Installing pacer…" : null);
+      if (message && !state.notifications?.includes(message)) {
+        state.notifications = [...state.notifications ?? [], message];
+        try {
+          await ctx.host.call("storage.set", { key: "bootstrap", value: state });
+        } catch {}
+        try {
+          await ctx.host.call("notifications.show", { title: message });
+        } catch {}
+      }
+    }
     onChange();
     try {
       await ctx.host.call("storage.set", { key: "bootstrap", value: state });
@@ -221,8 +240,8 @@ function createBootstrap(d) {
     stopped = false;
     try {
       const saved = (await ctx.host.call("storage.get", { key: "bootstrap" })).value;
-      if (saved && Array.isArray(saved.failures) && Array.isArray(saved.restarts))
-        state = { ...state, install: saved.install ?? state.install, start: saved.start ?? state.start, binary: saved.binary, agents: saved.agents ?? [], nextAt: saved.nextAt, failures: saved.failures, restarts: saved.restarts, terminalAttempts: saved.terminalAttempts };
+      if (saved && saved.install && saved.start)
+        state = { ...state, install: saved.install ?? state.install, start: saved.start ?? state.start, binary: saved.binary, agents: saved.agents ?? [], nextAt: saved.nextAt, failures: saved.failures, restarts: saved.restarts, terminalAttempts: saved.terminalAttempts, notifications: saved.notifications, handoffVersion: saved.handoffVersion };
     } catch {}
   }
   async function cycle(ctx, onChange) {
@@ -233,8 +252,9 @@ function createBootstrap(d) {
     try {
       const settings = await ctx.host.call("settings.get").catch(() => ({ settings: {} }));
       const base = releaseBase(settings.settings.releaseBase, env);
-      let binary = env.PACER_BIN || (existsSync2(join2(home, ".local/bin/pacer")) ? join2(home, ".local/bin/pacer") : which("pacer", env));
+      let binary = env.PACER_BIN || (existsSync2(join3(home, ".local/bin/pacer")) ? join3(home, ".local/bin/pacer") : which("pacer", env));
       state.install = { status: "pending" };
+      state.start = { status: "pending" };
       await changed(ctx, onChange);
       if (!binary) {
         if (!["darwin", "linux"].includes(platform) || !["arm64", "x64"].includes(d.arch ?? process.arch))
@@ -247,19 +267,19 @@ function createBootstrap(d) {
         const bytes = await download(releaseURL(base, d.version, name), d.fetch, signal);
         if (createHash("sha256").update(bytes).digest("hex") !== match[1].toLowerCase())
           throw new Error("The pacer download failed its checksum check.");
-        const dir = join2(home, ".local/bin");
+        const dir = join3(home, ".local/bin");
         mkdirSync(dir, { recursive: true });
-        const temporary = join2(dir, `.pacer-${randomUUID()}.tmp`);
+        const temporary = join3(dir, `.pacer-${randomUUID()}.tmp`);
         try {
           writeFileSync(temporary, bytes, { flag: "wx", mode: 384 });
           chmodSync(temporary, 493);
-          renameSync(temporary, join2(dir, "pacer"));
+          renameSync(temporary, join3(dir, "pacer"));
         } finally {
           try {
             unlinkSync(temporary);
           } catch {}
         }
-        binary = join2(dir, "pacer");
+        binary = join3(dir, "pacer");
       } else {
         const output = (await exec(binary, ["--version"], env, 30000)).trim().replace(/^pacer\s+/, "");
         if (isVersion(output) && !output.includes("dev") && compareVersions(output, d.version) < 0) {
@@ -271,7 +291,7 @@ function createBootstrap(d) {
       step = "start";
       state.start = { status: "pending" };
       await changed(ctx, onChange);
-      if (!existsSync2(join2(pacerHome, "strategy.yaml")))
+      if (!existsSync2(join3(pacerHome, "strategy.yaml")))
         await exec(binary, ["init"], env, 30000);
       const status = JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30000));
       if (!status.installed)
@@ -301,13 +321,18 @@ function createBootstrap(d) {
         }
       }
       state.start = { status: "done" };
+      if (d.mode === "bootstrap" && state.handoffVersion !== d.version) {
+        step = "install";
+        await exec(binary, ["plugin", "install"], env, 30000);
+        state.handoffVersion = d.version;
+      }
     } catch (e) {
       const message = e.message;
       const unpublished = message.includes("HTTP 404");
       state[step] = { status: "failed", detail: unpublished ? UNPUBLISHED : step === "install" ? message.split(/\r?\n/)[0].slice(0, 160) : "pacer couldn't start. Try again shortly." };
       state.failures = (state.failures ?? []).filter((at) => now() - at < 3600);
       state.failures.push(now());
-      state.nextAt = now() + (unpublished || state.failures.length >= 5 ? 600 : 60);
+      state.nextAt = d.mode === "bootstrap" && state.failures.length >= 5 ? state.failures[0] + 3600 : now() + (unpublished || state.failures.length >= 5 ? 600 : 60);
       ctx.log(`pacer bootstrap: ${message}`);
     } finally {
       state.agents = agentPlans(home, pacerHome, (bin) => which(bin, env), env);
@@ -328,6 +353,8 @@ function createBootstrap(d) {
     },
     async refreshAgents(ctx, onChange) {
       if (stopped)
+        return;
+      if (d.mode === "bootstrap")
         return;
       const agents = agentPlans(home, pacerHome, (bin) => which(bin, env), env);
       if (JSON.stringify(agents) !== JSON.stringify(state.agents)) {
@@ -393,7 +420,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // orca-plugin/src/plugin.ts
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 
 // src/link/envelope.ts
 var LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 };
@@ -1537,6 +1564,22 @@ function createPlugin(deps) {
   };
   async function activate(ctx) {
     stopped = false;
+    if (pluginMode(deps.pluginRoot, deps.fs) === "bootstrap") {
+      const logError = (e) => ctx.log(`pacer bootstrap: ${e instanceof Error ? e.message : String(e)}`);
+      if (deps.bootstrap) {
+        const ready = deps.bootstrap.activate(ctx);
+        const run = async () => {
+          await ready;
+          if (!stopped)
+            await deps.bootstrap.run(ctx, () => {});
+        };
+        run().catch(logError);
+        timers.every(60000, () => {
+          run().catch(logError);
+        });
+      }
+      return;
+    }
     const activatedAtS = deps.nowS();
     let raw = {};
     let settingsReady = false;
@@ -1625,8 +1668,8 @@ function createPlugin(deps) {
         try {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
-            if (deps.ownPanel || deps.fs.exists(join3(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join3(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state }));
+            if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
+              deps.fs.writeTextAtomic(join4(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state }));
               renderedKey = key;
               lastRenderAt = nowS;
               userOutcome = false;
@@ -2134,8 +2177,7 @@ var pluginRoot = dirname(fileURLToPath2(import.meta.url));
 var PLUGIN_VERSION = package_default.version;
 var log = (message) => {};
 var plugin = createPlugin({
-  ownPanel: true,
-  bootstrap: createBootstrap({ home: process.env.HOME ?? process.env.USERPROFILE ?? "", env: process.env, version: PLUGIN_VERSION }),
+  bootstrap: createBootstrap({ home: process.env.HOME ?? process.env.USERPROFILE ?? "", env: process.env, version: PLUGIN_VERSION, mode: pluginMode(pluginRoot, { exists: existsSync3 }) }),
   nowS: () => Date.now() / 1000,
   timers,
   http,
@@ -2151,7 +2193,7 @@ var plugin = createPlugin({
     },
     exists: existsSync3,
     writeTextAtomic(path, text) {
-      if (resolve(path) !== resolve(pluginRoot, "panel", "live.html")) {
+      if (pluginMode(pluginRoot, { exists: existsSync3 }) !== "live" || resolve(path) !== resolve(pluginRoot, "panel", "live.html")) {
         log("pacer: refused panel write: unexpected path");
         return;
       }
