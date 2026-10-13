@@ -14,6 +14,16 @@ select{height:28px;background:var(--background);border:1px solid var(--border);b
 </style></head><body><main class="view"><div class="content">
  <header class="brand"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><rect x="4" y="20" width="40" height="8" rx="4" fill="var(--border)"></rect><rect x="4" y="20" width="22" height="8" rx="4" fill="currentColor"></rect><rect class="brand-tick" x="29" y="12" width="4" height="24" rx="2"></rect></svg><strong>Set up pacer</strong></header>
  <p>pacer installs and starts in the background. A notification says when it is ready.</p>
+ <p id="activity" role="status"><span class="console-spinner" aria-hidden="true">◐</span> <span id="activity-text">Installing pacer in the background… 0:00</span></p>
  <section><h2>One-time setup</h2><ol><li>In Orca Settings &gt; Plugins, uninstall this pacer (installed from the marketplace).</li><li>Under Development, add <code>~/.pacer/orca-plugin</code>, the folder pacer prepared for you; the notification shows its full path.</li><li>Enable pacer.</li></ol></section>
  <p class="muted">Orca only refreshes plugin panels added as a development folder, so the live budget panel runs from there.</p>
- </div></main></body></html>
+ </div></main><script>
+// The panel can't see the worker's progress; this only shows that work is under way since the panel opened.
+const opened = Date.now(), text = document.getElementById("activity-text"), spinner = document.querySelector("#activity .console-spinner");
+const timer = setInterval(() => {
+ const s = Math.floor((Date.now() - opened) / 1000);
+ if (s < 120) { text.textContent = "Installing pacer in the background… " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); return; }
+ clearInterval(timer); spinner.hidden = true;
+ text.textContent = "Taking longer than usual. If no notification appeared, run ~/.local/bin/pacer --version in a terminal to check.";
+}, 1000);
+</script></body></html>
