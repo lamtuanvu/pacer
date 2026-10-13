@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { markExhausted } from "./usage/reactive";
 import { readFileSync } from "node:fs";
 import { isExecutorSession } from "./install/role";
@@ -40,6 +41,7 @@ const USAGE = `usage: pacer <command>
   mcp                                            run the MCP server on stdio
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
+  ${SETUP_USAGE}                connect detected agent CLIs
   help                                           this message
 JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors.
 route: kind, ranked, excluded. delegate: TaskRecord (id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields).
@@ -202,6 +204,7 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
   switch (cmd) {
+    case "setup": return setupCmd(rest, ctx);
     case "report-limit": {
       const {opts,pos}=parseFlags(rest,[]);
       try{const cfg=loadStrategy(ctx).providers[pos[0]];if(!cfg)throw new Error(`unknown provider "${pos[0]}"`);

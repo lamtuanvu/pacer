@@ -143,3 +143,50 @@ test("a failing check backs off and keeps waiting", async () => {
   expect((await waitForWorker(ctx, c, opts)).kind).toBe("done");
   expect(sleeps).toEqual([5_000]);
 });
+
+function monitor(tail: (at:number) => string[], over: Partial<WaitOpts> = {}) {
+ let at=0;const logs:string[]=[];
+ const f=fakeRun([
+  [O("orchestration","check"),()=>{at+=30000;return raw(JSON.stringify({ok:true,result:{messages:[]}}));}],
+  [O("orchestration","worker-read"),()=>raw(JSON.stringify({ok:true,result:{terminal:{tail:tail(at)}}}))],
+  [O("orchestration","worker-show"),ok("worker-show-ready.json")],
+  [O("terminal","show"),raw(JSON.stringify({ok:true,result:{terminal:{preview:"› "}}}))],
+  [O("terminal","send"),raw(JSON.stringify({ok:true,result:{accepted:true}}))],
+ ]);
+ const ctx=fakeCtx({run:f.run}),c=new OrcaClient(f.run);
+ const opts:WaitOpts={coordinator:COORD,run:RUN,dispatchId:"ctx_busy",terminal:"term_busy",deadlineMs:2000000,isStopped:()=>false,now:()=>at,sleep:async ms=>{at+=ms;},log:l=>logs.push(l),prompt:"Complete the assigned brief",...over};
+ return {ctx,c,opts,f,logs,at:()=>at};
+}
+test("capacity errors resend the brief to the same terminal with 60/120/240 backoff, then fail transiently",async()=>{
+ const h=monitor(()=>["■ Selected model is at capacity. Please try a different model.","› "]);
+ const r=await waitForWorker(h.ctx,h.c,h.opts);expect(r).toMatchObject({kind:"settled",state:"failed",error:"transient provider busy after three retries",needsStop:true});
+ const sends=h.f.calls.filter(a=>a[1]==="terminal"&&a[2]==="send");expect(sends).toHaveLength(3);
+ for(const send of sends){expect(arg(send,"--terminal")).toBe("term_busy");expect(arg(send,"--text")).toContain("Complete the assigned brief");expect(send).toContain("--enter");}
+ expect(h.logs.filter(l=>l.includes("resend"))).toHaveLength(3);expect(h.at()).toBe(510000);
+});
+test("idle prompt gets one nudge after ten minutes then fails after ten more",async()=>{
+ const h=monitor(()=>["› "]);const r=await waitForWorker(h.ctx,h.c,h.opts);
+ expect(r).toMatchObject({kind:"settled",error:"worker idle with no progress",needsStop:true});
+ const sends=h.f.calls.filter(a=>a[1]==="terminal"&&a[2]==="send");expect(sends).toHaveLength(1);expect(arg(sends[0],"--text")).toBe("continue the assigned task; report when done");expect(h.logs[0]).toContain("worker idle: nudge");
+ expect(h.at()).toBe(1260000);
+});
+test("new output and active working indicator reset idle observation; absent tail never proves idle",async()=>{
+ for(const tail of [(_at:number)=>["Working · esc to interrupt","› "],(at:number)=>[`output ${at}`,"› "],(_at:number)=>[]]){
+  const h=monitor(tail,{deadlineMs:1400000});expect(await waitForWorker(h.ctx,h.c,h.opts)).toEqual({kind:"timeout"});expect(h.logs).toHaveLength(0);
+ }
+});
+test("working output does not trigger busy retries; echoed busy brief text is excluded",async()=>{
+ for(const [tail,prompt] of [[["Selected model is at capacity","esc to interrupt"],"task"],[["The task tests Selected model is at capacity","Working"],"The task tests Selected model is at capacity"]] as [string[],string][]){
+  const h=monitor(()=>tail,{deadlineMs:800000,prompt});expect(await waitForWorker(h.ctx,h.c,h.opts)).toEqual({kind:"timeout"});expect(h.logs).toHaveLength(0);
+ }
+});
+test("busy worker may recover and report before retries are exhausted",async()=>{
+ const h=monitor(at=>at<120000?["Selected model is at capacity","› "]:["Working"]);
+ const original=h.ctx.run;h.ctx.run=async(argv,timeout)=>{const r=await original(argv,timeout);if(h.at()>=120000&&argv[2]==="check")putInbox(h.ctx,"ctx_busy",{outcome:"succeeded",subject:"done",body:"done",filesModified:[],messageId:"msg_done"});return r;};
+ const r=await waitForWorker(h.ctx,new OrcaClient(h.ctx.run),h.opts);expect(r).toMatchObject({kind:"done",outcome:"succeeded"});expect(h.logs.filter(l=>l.includes("resend"))).toHaveLength(1);
+});
+
+test("provider overload with a 429 is transient rather than quota exhaustion",async()=>{
+ const h=monitor(()=>["429: model is overloaded", "› "]);const r=await waitForWorker(h.ctx,h.c,h.opts);
+ expect(r).toMatchObject({kind:"settled",error:"transient provider busy after three retries"});expect(h.logs).toHaveLength(3);
+});

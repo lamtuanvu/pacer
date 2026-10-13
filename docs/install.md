@@ -1,4 +1,38 @@
-# Installation
+# Install pacer
+
+Install the Orca plugin; it installs pacer. Click **Connect my agents**.
+
+In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
+install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
+bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.16`.
+The worker installs the binary, initializes `~/.pacer`, starts the login service,
+and keeps older binaries updated to the plugin version. It never downgrades.
+
+The live checklist shows **Install pacer**, **Start pacer**, and **Connect your
+agents**. Connecting is your consent to modify the displayed skills, rules and
+hooks in detected agent configs. The worker never edits those configs by itself.
+The button runs `pacer setup --yes`; no MCP servers are added. Afterwards the
+manifest shows connected agents. Use `pacer uninstall <agent>` to undo one.
+
+Set **releaseBase** in the plugin's own settings while GitHub releases are
+unpublished, or for a private release folder. It accepts HTTPS, `file://`, or
+HTTP on `127.0.0.1`/`localhost`. Environment fallback: `PACER_RELEASE_BASE`.
+The layout is `latest.json`, `<version>/SHA256SUMS`, and
+`<version>/pacer-<os>-<arch>`. Every download is checksum verified. A 404 displays
+an unpublished notice and retries after ten minutes; other failures get bounded
+60-second retries. **Try again** refreshes the panel; the worker owns retry timing.
+
+For a CLI-only installation or manual fallback:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
+pacer setup
+```
+
+`pacer setup` previews changes and asks y/N in a TTY. Use `--yes` for unattended
+setup, `--agents claude-code,codex` to select agents, and `--json` for a summary.
+Non-TTY setup without `--yes` prints the plan and exits 2 without changes.
+
 
 ## From source
 
@@ -76,4 +110,4 @@ pacer status --json
 
 `install` adds the pacer skill and planner policy/hooks with tracked backups. MCP is optional: use `pacer install claude-code --mcp` to register the stdio server, or `--no-mcp` to remove an existing entry. A plain reinstall leaves an existing MCP entry unchanged. Restart an MCP client after updating. `pacer uninstall <planner>` reverses the integration while preserving later user edits.
 
-For Orca, run `pacer plugin install` and add the printed managed directory in Settings > Plugins; see the [plugin guide](../orca-plugin/README.md). `pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
+For local Orca development, run `pacer plugin install` and add the printed managed directory in Settings > Plugins; see the [plugin guide](../orca-plugin/README.md). `pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
