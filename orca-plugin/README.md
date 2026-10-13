@@ -1,5 +1,7 @@
 # pacer Orca plugin
 
+Planner setup uses the [pacer CLI and installed skill](../docs/cli.md); MCP is optional.
+
 This dependency-free plugin targets Orca >=1.4.224 and pluginApi 1. Build it with
 `bun run plugin:build`; the committed `dist/` worker runs in Electron's Node,
 without Bun at runtime. The generated assets are consumed by `pacer plugin install`.

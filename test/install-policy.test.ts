@@ -19,14 +19,10 @@ for (const [planner, name] of planners) {
     for (const mode of ["strict/emergency", "normal", "relaxed"]) {
       expect(text).toMatch(new RegExp(`\\| ${mode} \\|`));
     }
-    for (const tool of ["route", "delegate", "task_wait", "task_status", "task_stop", "report_limit"]) {
-      expect(text).toContain(`\`${tool}\``);
-    }
-    for (const field of ["goal", "repo", "scope", "acceptance", "constraints/context", "kind"]) {
-      expect(text).toContain(field);
-    }
+    for (const command of ["pacer route <kind> --json", "pacer delegate --brief-file <path|-> --json", "pacer review <id> --accept|--reject"])expect(text).toContain(command);
+    expect(text).toContain("installed `pacer` skill");
     expect(text).toContain("verify before reporting done");
-    expect(text).toContain("call `task_review(task_id, accepted, kind?)`");
+    expect(text).toContain("run `pacer review <id> --accept|--reject [--kind <k>]`");
     expect(text).toContain("PACER=off");
     expect(text).not.toMatch(/\p{Extended_Pictographic}|\p{Regional_Indicator}|\uFE0F|\u20E3/u);
   });
@@ -36,7 +32,7 @@ for (const [planner, name] of planners) {
     if (planner === "claude-code" || planner === "codex") {
       expect(text).toContain("block arrives at session start");
     } else {
-      expect(text).toContain("At the start of every session, call the pacer MCP tool `budget_status`");
+      expect(text).toContain("At the start of every session, run `pacer status --json`");
     }
     const subagents = planner === "claude-code"
       ? "Claude-model subagents (general-purpose, Sonnet, Haiku, …)"
@@ -89,7 +85,7 @@ test("transient worktree commands are refused unless PACER_BIN overrides them", 
   expect(() => validateInstallArgv(pinned, pacerArgv(pinned, ["/bun", "/repo/.worktrees/fix/src/cli.ts"], "/bun"))).not.toThrow();
 });
 
-test("placement guidance covers current, new and automatic decisions",()=>{
- const text=policyText("codex");
- for(const hint of ["worktree: current","uncommitted work","research/review","installed dependencies/build output","small follow-up","worktree: new","the user is editing","parallel tasks","exploratory/risky","worktree_reason","auto"])expect(text).toContain(hint);
+test("placement guidance lives in the installed skill",async()=>{
+ const {PACER_SKILL}=await import("../src/install/skill");
+ for(const phrase of ["uncommitted", "read-only", "installed dependencies", "parallel", "exploratory/risky", "worktree_reason", "auto"])expect(PACER_SKILL).toContain(phrase);
 });

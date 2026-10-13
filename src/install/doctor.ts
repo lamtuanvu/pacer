@@ -95,6 +95,7 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     const records = Object.values(readManifest(ctx).planners);
     if (!records.length) checks.push({ name: "Installs", level: "warn", detail: "no install records" });
     for (const record of records) {
+      for(const skill of record.files.filter(f=>f.path.endsWith("/skills/pacer/SKILL.md")))checks.push({name:`Skill ${record.planner}`,level:fileIntact(skill)?"ok":"warn",detail:skill.path,...(!fileIntact(skill)?{fix:`pacer install ${record.planner}`}:{})});
       const broken = record.files.filter(file => !fileIntact(file));
       checks.push({ name: `Install ${record.planner}`, level: broken.length ? "warn" : "ok",
         detail: broken.length ? `missing or changed: ${broken.map(file => file.path).join(", ")}` : "installed files intact",

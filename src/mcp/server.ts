@@ -6,7 +6,7 @@ import { isExecutorSession } from "../install/role";
 import { makeCtx } from "../ctx";
 import { rankExecutors } from "../engine/rank";
 import { computeStatus } from "../engine/status";
-import { type SpawnRunner, delegate, spawnRunner, taskStatus, taskStop, taskWait } from "../tasks/api";
+import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, taskReview, summarizeTask, delegate, spawnRunner, taskStatus, taskStop, taskWait } from "../tasks/api";
 import { appendLabel } from "../tasks/labels";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -19,17 +19,7 @@ const json = (value: Record<string, unknown>) => ({
   structuredContent: value,
 });
 
-export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return {
-    task_id: t.id,
-    state: t.state,
-    kind: t.kind,
-    requested_executor: t.requestedExecutor,
-    placement: t.placement ?? null,
-    attempts: t.attempts.map((a) => ({ executor: a.executor, exit_code: a.exitCode, limit_hit: a.limitHit, timed_out: a.timedOut, log: a.log })),
-    result: t.result ?? null,
-  };
-}
+export { summarizeTask } from "../tasks/api";
 
 function mustTask(t: TaskRecord | null, id: string): TaskRecord {
   if (!t) throw new Error(`unknown task ${id}`);
@@ -37,7 +27,7 @@ function mustTask(t: TaskRecord | null, id: string): TaskRecord {
 }
 
 export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRunner } = {}): McpServer {
-  const server = new McpServer({ name: "pacer", version: "0.1.6" });
+  const server = new McpServer({ name: "pacer", version: "0.1.14" });
   const spawnFn = opts.spawnRunner ?? spawnRunner;
 
   server.registerTool("budget_status", {
@@ -61,30 +51,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
 
   server.registerTool("delegate", {
     description: "Hand an execution task to an executor (chosen by budget and priority unless `executor` is given). Returns a task_id immediately; poll with task_status or block with task_wait. Review the diff yourself before reporting done, then call task_review.",
-    inputSchema: {
-      goal: z.string().min(1).describe("One or two sentences on the outcome"),
-      repo: z.string().min(1).describe("Absolute path of the repository to work in"),
-      scope: z.string().optional().describe("Files or areas that may change, and what must not"),
-      acceptance: z.string().optional().describe("Shell command that proves the task is done, run in repo"),
-      constraints: z.string().optional(),
-      context: z.string().optional(),
-      kind: z.enum(KINDS).optional(),
-      executor: z.string().optional().describe("Force a specific executor id"),
-      worktree: z.enum(["current","new","auto"]).optional().describe("Run in the current worktree or a new one; omitted means auto"),
-      worktree_reason: z.string().max(200).optional().describe("One-line reason for the placement choice"),
-      timeout_min: z.number().min(1).max(240).optional(),
-    },
+    inputSchema: delegateSchema,
   }, async (a) => {
     const ctx = getCtx();
-    if (isExecutorSession(ctx)) throw new Error("PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.");
-    const t = delegate(ctx, {
-      brief: { goal: a.goal, repo: a.repo, scope: a.scope, acceptance: a.acceptance, constraints: a.constraints, context: a.context },
-      kind: a.kind ?? null,
-      executor: a.executor ?? null,
-      timeoutMin: a.timeout_min,
-      worktree: a.worktree,
-      worktree_reason: a.worktree_reason,
-    }, spawnFn);
+    if (isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
+    const t = delegate(ctx, parseDelegateBrief(a, process.cwd()), spawnFn);
     return json(summarizeTask(t));
   });
 
@@ -120,9 +91,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     inputSchema: { task_id: z.string(), accepted: z.boolean(), kind: z.enum(KINDS).optional(), note: z.string().optional() },
   }, async ({ task_id, accepted, kind, note }) => {
     const ctx = getCtx();
-    const t = mustTask(taskStatus(ctx, task_id), task_id);
-    appendLabel(ctx, { type: "task_review", task_id, accepted, kind: kind ?? t.kind, note: note ?? null, executor: t.result?.executor ?? null });
-    return json({ recorded: true });
+    return json(taskReview(ctx, task_id, accepted, kind, note));
   });
 
   server.registerTool("guard_feedback", {

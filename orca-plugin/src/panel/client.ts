@@ -120,6 +120,12 @@ for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("cl
     readContext(value => { updateContext(value); if(!live(value)) return; show(b.dataset.view); document.getElementById(b.dataset.view === "delegate" ? "goal" : "strategy-brief").focus(); });
   } else show(b.dataset.view);
 });
+for(const card of document.querySelectorAll("[data-focus]")) {
+ const command=data.commands[card.dataset.focus];if(!command)continue;
+ bindAction(card,command);
+ card.addEventListener("click",event=>{if(event.target.closest("button,input,select,a"))return;pendingSend(card,command);});
+ card.addEventListener("keydown",event=>{if(event.target!==card || !["Enter"," "].includes(event.key))return;event.preventDefault();pendingSend(card,command);});
+}
 for (const b of document.querySelectorAll("[data-command]")) {
  if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
  b.addEventListener("click", () => {

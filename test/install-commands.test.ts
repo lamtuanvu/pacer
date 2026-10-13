@@ -11,13 +11,13 @@ test("install codex then uninstall codex restores the original files", async () 
   mkdirSync(dir);
   const original = "# user's config\nmodel = \"example\"\n";
   writeFileSync(join(dir, "config.toml"), original);
-  const installed = await main(["install", "codex"], ctx);
+  const installed = await main(["install", "codex", "--mcp"], ctx);
   expect(installed.code).toBe(0);
   expect(installed.out).toContain("edited " + join(dir, "config.toml"));
   expect(installed.out).toContain(".pacer-bak-");
   expect(installed.out).toContain("Undo with: pacer uninstall codex");
   expect(readFileSync(join(dir, "config.toml"), "utf8")).toContain("[mcp_servers.pacer]");
-  const again = await main(["install", "codex"], ctx);
+  const again = await main(["install", "codex", "--mcp"], ctx);
   expect(again.code).toBe(0);
   expect(again.out).toContain("already installed, nothing changed");
   expect(again.out).not.toContain("edited ");
@@ -44,7 +44,7 @@ test("install and uninstall reject an unknown or missing planner with code 2", a
 test("help lists install, uninstall, init and doctor", async () => {
   const result = await main(["help"], fakeCtx());
   expect(result.code).toBe(0);
-  for (const usage of ["install <planner>", "uninstall <planner>", "init [--force] [--planner <p>]", "doctor [--json]"]) {
+  for (const usage of ["install <planner> [--mcp|--no-mcp]", "uninstall <planner>", "init [--force] [--planner <p>]", "doctor [--json]"]) {
     expect(result.out).toContain(usage.padEnd(47));
   }
 });
@@ -55,7 +55,7 @@ test("install errors return code 1 and roll back earlier edits", async () => {
   const dir = join(ctx.home, ".codex");
   mkdirSync(dir);
   writeFileSync(join(dir, "hooks.json"), "broken JSON");
-  const result = await main(["install", "codex"], ctx);
+  const result = await main(["install", "codex", "--mcp"], ctx);
   expect(result.code).toBe(1);
   expect(result.err).toContain(join(dir, "hooks.json"));
   expect(existsSync(join(dir, "config.toml"))).toBe(false);

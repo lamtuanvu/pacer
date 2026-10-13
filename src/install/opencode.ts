@@ -1,8 +1,10 @@
 import { existsSync } from "node:fs";
+import { installSkill } from "./skill";
+import { readText } from "./fsx";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import { upsertBlock } from "./blocks";
-import { getMember, setMember } from "./jsonc";
+import { getMember, removeMember, setMember } from "./jsonc";
 import type { UndoOp } from "./manifest";
 import { policyText } from "./policy";
 import { runInstall, type InstallEnv } from "./txn";
@@ -23,9 +25,11 @@ export async function installOpencode(env: InstallEnv) {
       old => upsertBlock(old ?? "", policyText("opencode"), "md"),
       [{ kind: "block", style: "md" }]);
 
+    installSkill(tx,opencodeDir(env.ctx));
     const pacer = { type: "local", command: [...env.pacerArgv, "mcp"], enabled: true };
     const undo: UndoOp = { kind: "json-member", path: ["mcp", "pacer"] };
-    tx.edit(opencodeConfigPath(env.ctx), old => {
+    if(tx.env.mcp===false && readText(opencodeConfigPath(env.ctx))!==null)tx.edit(opencodeConfigPath(env.ctx),old=>removeMember(old!,["mcp","pacer"]),[]);
+  if(tx.env.mcp===true)tx.edit(opencodeConfigPath(env.ctx), old => {
       if (!old?.trim()) {
         undo.dropEmpty = ["mcp"];
         return JSON.stringify({ $schema: "https://opencode.ai/config.json", mcp: { pacer } }, null, 2) + "\n";
@@ -33,6 +37,6 @@ export async function installOpencode(env: InstallEnv) {
       if (getMember(old, ["mcp"]) === undefined) undo.dropEmpty = ["mcp"];
       return setMember(old, ["mcp", "pacer"], pacer);
     }, [undo]);
-    tx.notes.push("OpenCode guard is policy-only; policy and MCP installed.");
+    tx.notes.push("OpenCode guard is policy-only; policy and skill installed; MCP is optional.");
   });
 }

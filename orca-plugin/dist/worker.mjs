@@ -54,6 +54,9 @@ function parseTask(d) {
     backend: optStr(d.backend, 32),
     worktree: optStr(d.worktree, 4096),
     ...isObj(d.placement) && ["current", "new"].includes(String(d.placement.mode)) && typeof d.placement.why === "string" ? { placement: { mode: d.placement.mode, why: d.placement.why.slice(0, 240) } } : {},
+    ...typeof d.terminalPresent === "boolean" ? { terminalPresent: d.terminalPresent } : {},
+    ...optStr(d.resolved, 240) ? { resolved: optStr(d.resolved, 240) } : {},
+    ...isObj(d.review) && typeof d.review.accepted === "boolean" && num(d.review.at) !== null ? { review: { accepted: d.review.accepted, kind: optStr(d.review.kind, 64), note: optStr(d.review.note, 1000), at: num(d.review.at) } } : {},
     ...d.dismissed === true ? { dismissed: true } : {},
     ...optStr(d.retriedBy, 128) ? { retriedBy: optStr(d.retriedBy, 128) } : {},
     ...optStr(d.retryOf, 128) ? { retryOf: optStr(d.retryOf, 128) } : {},
@@ -666,7 +669,7 @@ function attentionGroups(s, now) {
   const groups = new Map;
   const resolved = new Set(s.tasks.filter((t) => t.state === "done" && t.retryOf).map((t) => t.retryOf));
   for (const t of [...s.tasks].sort((a, b) => b.updatedAt - a.updatedAt)) {
-    if (t.dismissed || t.retriedBy && s.tasks.some((retry) => retry.id === t.retriedBy) || resolved.has(t.id) || now - t.updatedAt > 3 * 86400)
+    if (t.resolved || t.review || t.dismissed || t.retriedBy && s.tasks.some((retry) => retry.id === t.retriedBy) || resolved.has(t.id) || now - t.updatedAt > 3 * 86400)
       continue;
     if (!["failed", "limit", "partial"].includes(t.state) && !(["running", "queued"].includes(t.state) && !t.executor && !t.attemptStartedAt && !t.runnerAlive && now - t.updatedAt > 600))
       continue;
@@ -699,6 +702,13 @@ function attentionText(g, now) {
 var unavailableDetail = (p, now) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.verdict === "EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt, now)}` : "not in the queue";
 
 // orca-plugin/src/panel/overview.ts
+function focusAttrs(t, commands) {
+  if (!t.terminalPresent || !/^[A-Za-z0-9_-]{1,128}$/.test(t.id))
+    return "";
+  const key = `focus-${t.id}`;
+  commands[key] = { cmd: "focus", taskId: t.id };
+  return ` role="button" tabindex="0" data-focus="${h(key)}" aria-label="Open task session"`;
+}
 function placementLine(t) {
   return t.placement ? `<small class="muted">${h(`${t.placement.mode} worktree${t.placement.mode === "new" && t.worktree ? ` ${t.worktree}` : ""} (${t.placement.why})`)}</small>` : "";
 }
@@ -735,9 +745,9 @@ function overview(s, now, reachable, commands, text) {
       commands[key] = g.brokenExecutor ? { cmd: "retry-all", taskIds: g.tasks.map((t) => t.id), executor: g.retry.id } : { cmd: "retry", taskId: g.latest.id, executor: g.retry.id };
     if (!g.stuck)
       commands[key + "-dismiss"] = { cmd: "dismiss", ...g.tasks.length > 1 ? { taskIds: g.tasks.map((t) => t.id) } : { taskId: g.latest.id } };
-    return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small>${placementLine(g.latest)}${review && g.latest.worktree ? `<small>${h(g.latest.worktree)}</small>` : ""}</div></div><div class="actions">${review ? `<button type="button" class="primary" data-command="${key}-dismiss">Dismiss</button>` : ""}${commands[key] ? `<button type="button" class="${g.stuck || review ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `${g.brokenExecutor ? "Retry all" : "Retry"} on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}${!g.stuck && !review ? `<button type="button" data-command="${key}-dismiss">Dismiss</button>` : ""}</div></div>`;
+    return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"${focusAttrs(g.latest, commands)}><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small>${placementLine(g.latest)}${review && g.latest.worktree ? `<small>${h(g.latest.worktree)}</small>` : ""}</div></div><div class="actions">${review ? `<button type="button" class="primary" data-command="${key}-dismiss">Dismiss</button>` : ""}${commands[key] ? `<button type="button" class="${g.stuck || review ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `${g.brokenExecutor ? "Retry all" : "Retry"} on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}${!g.stuck && !review ? `<button type="button" data-command="${key}-dismiss">Dismiss</button>` : ""}</div></div>`;
   }).join("")}${attention.length > 10 ? `<small>${attention.length - 10} more groups need attention. View all with pacer tasks.</small>` : ""}${attention.length ? "" : "<small>Nothing needs attention.</small>"}</section>
- <section class="stack section"><h2>Running</h2>${s.tasks.filter((t) => ["running", "queued"].includes(t.state)).map((t) => `<div class="card stack"><span>${h(t.goal)}</span><small>${t.executor ? `Running on ${h(displayName(t.executor))} · started <span data-age-at="${t.attemptStartedAt ?? t.updatedAt}">${Math.max(0, Math.floor(now - (t.attemptStartedAt ?? t.updatedAt)))}s ago</span>` : "Queued"}${t.retryOf ? ` · Retry of ${h(t.retryOf)}` : ""}</small>${placementLine(t)}</div>`).join("") || "<small>No tasks running.</small>"}</section>
+ <section class="stack section"><h2>Running</h2>${s.tasks.filter((t) => ["running", "queued"].includes(t.state)).map((t) => `<div class="card stack"${focusAttrs(t, commands)}><span>${h(t.goal)}</span><small>${t.executor ? `Running on ${h(displayName(t.executor))} · started <span data-age-at="${t.attemptStartedAt ?? t.updatedAt}">${Math.max(0, Math.floor(now - (t.attemptStartedAt ?? t.updatedAt)))}s ago</span>` : "Queued"}${t.retryOf ? ` · Retry of ${h(t.retryOf)}` : ""}</small>${placementLine(t)}</div>`).join("") || "<small>No tasks running.</small>"}</section>
  <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter((t) => t.state === "done").sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).map((t) => `<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0, 100))}">${h(t.goal.slice(0, 100))}</span><small>${h(t.executor ? displayName(t.executor) : "—")} · ${h(age(t.updatedAt, now))}</small></div></div>`).join("")}${s.tasks.some((t) => t.state === "done") ? "" : "<small>No completed tasks yet.</small>"}</div></section>
  ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-view="strategy" data-live>Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div>${actionStatus}<div class="footnote">Updated <span data-updated>—</span> · <span data-console-connection>Checking console...</span></div></div>`;
 }
@@ -756,6 +766,8 @@ function delegateView(s, now, reachable) {
 
 // orca-plugin/src/panel/style.ts
 var style = `
+[data-focus]{cursor:pointer;transition:background .12s}[data-focus]:hover{background:var(--hover,rgba(128,128,128,.08))}[data-focus]:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+
 .action-spinner{display:inline-block;animation:console-spin 1s linear infinite}@media(prefers-reduced-motion:reduce){.action-spinner{animation:none}}
 .action-status{margin:4px 0;color:var(--muted-foreground);white-space:pre-wrap;overflow-wrap:anywhere}.action-status:empty{display:none}
 
@@ -786,10 +798,11 @@ try {const saved=JSON.parse(sessionStorage.getItem(actionStorage)||"{}");if(save
 const actionButtons=new Map();
 function saveActions(){try{sessionStorage.setItem(actionStorage,JSON.stringify(actionStates));}catch{}}
 function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.level||c.goal||c.from||c.text||"");}
-function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
+function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({focus:"Opening session...",retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
 function outcome(a){
  const c=a.action,t=data.tasks||[],ids=c.taskIds||[c.taskId],p=[...data.rows,...data.muted].find(p=>p.id===c.executor);
  if(c.cmd==="retry"||c.cmd==="retry-all")return ids.every(id=>t.some(x=>x.retryOf===id)||t.find(x=>x.id===id)?.retriedBy);
+ if(c.cmd==="focus")return (data.focusAlerts||[]).some(e=>e.key==="focus-"+c.taskId && e.level==="info" && e.at>=a.startedAt);
  if(c.cmd==="stop")return ids.every(id=>t.some(x=>x.id===id&&!["queued","running"].includes(x.state)));
  if(c.cmd==="dismiss")return ids.every(id=>!t.some(x=>x.id===id)||t.find(x=>x.id===id)?.dismissed);
  if(c.cmd==="delegate")return t.some(x=>!a.known.includes(x.id)&&(x.goal===c.goal||x.goal===c.goal.slice(0,197)+"..."));
@@ -801,11 +814,11 @@ function outcome(a){
  if(c.cmd==="type")return a.accepted;
  return false;
 }
-function restoreAction(key){const entry=actionButtons.get(key);if(entry){entry.button.disabled=entry.disabled;entry.button.innerHTML=entry.html;entry.card?.removeAttribute?.("aria-busy");}actionButtons.delete(key);delete actionStates[key];saveActions();}
+function restoreAction(key){const entry=actionButtons.get(key);if(entry){entry.button.disabled=entry.disabled;if(actionStates[key]?.action.cmd!=="focus")entry.button.innerHTML=entry.html;entry.card?.removeAttribute?.("aria-busy");}actionButtons.delete(key);delete actionStates[key];saveActions();}
 function paintAction(key,button){
  const a=actionStates[key];if(!a)return;
  if(!actionButtons.has(key))actionButtons.set(key,{button,disabled:button.disabled,html:button.innerHTML,card:button.closest?.(".card,.row,.actionbar")});
- button.disabled=true;if(a.action.cmd!=="notify-level")button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
+ button.disabled=true;if(a.action.cmd!=="notify-level"&&a.action.cmd!=="focus")button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
  actionButtons.get(key).card?.setAttribute?.("aria-busy","true");
 }
 function beginAction(button,action){
@@ -820,12 +833,12 @@ function pendingSend(button,command,after,workspace){
 function recoverActions(){
  for(const [key,a] of Object.entries(actionStates)){
   if(!a||typeof a.startedAt!=="number"||!a.action){delete actionStates[key];continue;}
-  const rejection=(data.actionErrors||[]).find(e=>e.key==="retry-"+a.action.taskId&&e.at>=a.startedAt);
+  const rejection=(data.actionErrors||[]).find(e=>e.key===(a.action.cmd==="focus"?"focus-":"retry-")+a.action.taskId&&e.at>=a.startedAt);
   if(rejection){restoreAction(key);status.textContent=rejection.body;continue;}
   if(outcome(a)){restoreAction(key);if(a.action.cmd==="notify-level")status.textContent="Notification preference saved.";continue;}
   const button=actionButtons.get(key)?.button;
   if(Date.now()/1000-a.startedAt>=60){
-   if(button){button.disabled=false;button.innerHTML=actionButtons.get(key).html;}
+   if(button){button.disabled=false;if(a.action.cmd!=="focus")button.innerHTML=actionButtons.get(key).html;}
    restoreAction(key);
    status.textContent="Still waiting for the pacer console. Check the pacer tab in this worktree.";
   }else if(button)paintAction(key,button);
@@ -956,6 +969,12 @@ for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("cl
     readContext(value => { updateContext(value); if(!live(value)) return; show(b.dataset.view); document.getElementById(b.dataset.view === "delegate" ? "goal" : "strategy-brief").focus(); });
   } else show(b.dataset.view);
 });
+for(const card of document.querySelectorAll("[data-focus]")) {
+ const command=data.commands[card.dataset.focus];if(!command)continue;
+ bindAction(card,command);
+ card.addEventListener("click",event=>{if(event.target.closest("button,input,select,a"))return;pendingSend(card,command);});
+ card.addEventListener("keydown",event=>{if(event.target!==card || !["Enter"," "].includes(event.key))return;event.preventDefault();pendingSend(card,command);});
+}
 for (const b of document.querySelectorAll("[data-command]")) {
  if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
  b.addEventListener("click", () => {
@@ -1054,7 +1073,7 @@ function renderPanel(s, view) {
   const main = overview(s, view.nowS, view.reachable, commands, text);
   const reasonText = view.autoConsole ?? true ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
   const disable = (html) => (console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label) => `<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
-  const payload = { notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => a.key.startsWith("retry-") && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
+  const payload = { focusAlerts: s.alerts.filter((a) => a.key.startsWith("focus-")), notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => (a.key.startsWith("retry-") || a.key.startsWith("focus-")) && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
   const strategy = strategyView(s, view.nowS, view.reachable, view.notifications ?? "important");
   const outcome = view.autoConsoleOutcome, waiting = !outcome || outcome.status === "starting" && view.nowS - outcome.at < 15;
   const reason = outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";

@@ -1,4 +1,6 @@
 <!doctype html><html lang="en" data-transport="none"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>
+[data-focus]{cursor:pointer;transition:background .12s}[data-focus]:hover{background:var(--hover,rgba(128,128,128,.08))}[data-focus]:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+
 .action-spinner{display:inline-block;animation:console-spin 1s linear infinite}@media(prefers-reduced-motion:reduce){.action-spinner{animation:none}}
 .action-status{margin:4px 0;color:var(--muted-foreground);white-space:pre-wrap;overflow-wrap:anywhere}.action-status:empty{display:none}
 
@@ -25,7 +27,7 @@ select{height:28px;background:var(--background);border:1px solid var(--border);b
  <div class="note row"><svg role="img" aria-label="Information" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="flex-shrink:0"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7v1"></path></svg><small>Opens a new terminal in this worktree with the agent already briefed. You chat with it there; nothing changes until you approve the save. Switching stays a separate click here.</small></div></div>
  <section id="strategy-after" class="stack" hidden></section></div><div class="actionbar"><div class="actions"><button type="button" data-view="overview">Done</button><button type="button" id="strategy-send" class="primary grow" data-live disabled disabled title="The pacer console for this worktree is starting. Try again in a few seconds.">Start session</button><small class="muted">The pacer console for this worktree is starting. Try again in a few seconds.</small></div><p data-status role="status" aria-live="polite" class="action-status"></p></div></main>
  <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong><button type="button" data-setup="pacer console">Start console</button><small>Press Enter in the terminal to start it.</small></div>
- <script type="application/json" id="pacer-actions">{"notifications":"important","actionErrors":[],"sequence":0,"tasks":[],"autoConsole":true,"buildAlert":null,"consoles":[],"strategies":["default"],"strategy":"default","savedAlerts":[],"snapshotAt":0,"updatedAt":0,"reachable":false,"commands":{"refresh":{"cmd":"refresh"}},"text":{},"paths":{},"rows":[],"muted":[]}</script><script>
+ <script type="application/json" id="pacer-actions">{"focusAlerts":[],"notifications":"important","actionErrors":[],"sequence":0,"tasks":[],"autoConsole":true,"buildAlert":null,"consoles":[],"strategies":["default"],"strategy":"default","savedAlerts":[],"snapshotAt":0,"updatedAt":0,"reachable":false,"commands":{"refresh":{"cmd":"refresh"}},"text":{},"paths":{},"rows":[],"muted":[]}</script><script>
 
 const embedded = JSON.parse(document.getElementById("pacer-actions").textContent);
 function unpack(value) {
@@ -104,10 +106,11 @@ try {const saved=JSON.parse(sessionStorage.getItem(actionStorage)||"{}");if(save
 const actionButtons=new Map();
 function saveActions(){try{sessionStorage.setItem(actionStorage,JSON.stringify(actionStates));}catch{}}
 function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.level||c.goal||c.from||c.text||"");}
-function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
+function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({focus:"Opening session...",retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
 function outcome(a){
  const c=a.action,t=data.tasks||[],ids=c.taskIds||[c.taskId],p=[...data.rows,...data.muted].find(p=>p.id===c.executor);
  if(c.cmd==="retry"||c.cmd==="retry-all")return ids.every(id=>t.some(x=>x.retryOf===id)||t.find(x=>x.id===id)?.retriedBy);
+ if(c.cmd==="focus")return (data.focusAlerts||[]).some(e=>e.key==="focus-"+c.taskId && e.level==="info" && e.at>=a.startedAt);
  if(c.cmd==="stop")return ids.every(id=>t.some(x=>x.id===id&&!["queued","running"].includes(x.state)));
  if(c.cmd==="dismiss")return ids.every(id=>!t.some(x=>x.id===id)||t.find(x=>x.id===id)?.dismissed);
  if(c.cmd==="delegate")return t.some(x=>!a.known.includes(x.id)&&(x.goal===c.goal||x.goal===c.goal.slice(0,197)+"..."));
@@ -119,11 +122,11 @@ function outcome(a){
  if(c.cmd==="type")return a.accepted;
  return false;
 }
-function restoreAction(key){const entry=actionButtons.get(key);if(entry){entry.button.disabled=entry.disabled;entry.button.innerHTML=entry.html;entry.card?.removeAttribute?.("aria-busy");}actionButtons.delete(key);delete actionStates[key];saveActions();}
+function restoreAction(key){const entry=actionButtons.get(key);if(entry){entry.button.disabled=entry.disabled;if(actionStates[key]?.action.cmd!=="focus")entry.button.innerHTML=entry.html;entry.card?.removeAttribute?.("aria-busy");}actionButtons.delete(key);delete actionStates[key];saveActions();}
 function paintAction(key,button){
  const a=actionStates[key];if(!a)return;
  if(!actionButtons.has(key))actionButtons.set(key,{button,disabled:button.disabled,html:button.innerHTML,card:button.closest?.(".card,.row,.actionbar")});
- button.disabled=true;if(a.action.cmd!=="notify-level")button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
+ button.disabled=true;if(a.action.cmd!=="notify-level"&&a.action.cmd!=="focus")button.innerHTML='<span class="action-spinner" aria-hidden="true">◐</span> '+h(actionLabel(a.action));
  actionButtons.get(key).card?.setAttribute?.("aria-busy","true");
 }
 function beginAction(button,action){
@@ -138,12 +141,12 @@ function pendingSend(button,command,after,workspace){
 function recoverActions(){
  for(const [key,a] of Object.entries(actionStates)){
   if(!a||typeof a.startedAt!=="number"||!a.action){delete actionStates[key];continue;}
-  const rejection=(data.actionErrors||[]).find(e=>e.key==="retry-"+a.action.taskId&&e.at>=a.startedAt);
+  const rejection=(data.actionErrors||[]).find(e=>e.key===(a.action.cmd==="focus"?"focus-":"retry-")+a.action.taskId&&e.at>=a.startedAt);
   if(rejection){restoreAction(key);status.textContent=rejection.body;continue;}
   if(outcome(a)){restoreAction(key);if(a.action.cmd==="notify-level")status.textContent="Notification preference saved.";continue;}
   const button=actionButtons.get(key)?.button;
   if(Date.now()/1000-a.startedAt>=60){
-   if(button){button.disabled=false;button.innerHTML=actionButtons.get(key).html;}
+   if(button){button.disabled=false;if(a.action.cmd!=="focus")button.innerHTML=actionButtons.get(key).html;}
    restoreAction(key);
    status.textContent="Still waiting for the pacer console. Check the pacer tab in this worktree.";
   }else if(button)paintAction(key,button);
@@ -200,6 +203,12 @@ for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("cl
     readContext(value => { updateContext(value); if(!live(value)) return; show(b.dataset.view); document.getElementById(b.dataset.view === "delegate" ? "goal" : "strategy-brief").focus(); });
   } else show(b.dataset.view);
 });
+for(const card of document.querySelectorAll("[data-focus]")) {
+ const command=data.commands[card.dataset.focus];if(!command)continue;
+ bindAction(card,command);
+ card.addEventListener("click",event=>{if(event.target.closest("button,input,select,a"))return;pendingSend(card,command);});
+ card.addEventListener("keydown",event=>{if(event.target!==card || !["Enter"," "].includes(event.key))return;event.preventDefault();pendingSend(card,command);});
+}
 for (const b of document.querySelectorAll("[data-command]")) {
  if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
  b.addEventListener("click", () => {

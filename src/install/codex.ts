@@ -1,3 +1,5 @@
+import { installSkill } from "./skill";
+import { readText } from "./fsx";
 import { join } from "node:path";
 import { removeBlock, upsertBlock } from "./blocks";
 import { shellCommand } from "./fsx";
@@ -17,7 +19,8 @@ export function installCodex(tx: Txn): void {
   const configPath = join(dir, "config.toml");
   const ownsTable = tx.record.files.some(file => file.path === configPath
     && file.undo.some(op => op.kind === "toml-table" && op.table === "mcp_servers.pacer"));
-  tx.edit(configPath, old => {
+  if(tx.env.mcp===false && readText(configPath)!==null)tx.edit(configPath,old=>removeTomlTable(removeTomlTable(removeBlock(old!,"hash"),"mcp_servers.pacer"),'mcp_servers."pacer"'),[]);
+  if(tx.env.mcp===true)tx.edit(configPath, old => {
     const text = old ?? "";
     if (/^\[mcp_servers\.("pacer"|pacer)\]/m.test(removeBlock(text, "hash"))) {
       if (ownsTable) {
@@ -30,6 +33,7 @@ export function installCodex(tx: Txn): void {
     return upsertBlock(text, codexMcpBlock(argv), "hash");
   }, [{ kind: "block", style: "hash" }, { kind: "toml-table", table: "mcp_servers.pacer" }]);
 
+  installSkill(tx,join(tx.env.ctx.env.CODEX_HOME || dir));
   tx.edit(join(dir, "AGENTS.md"), old => upsertBlock(old ?? "", policyText("codex"), "md"),
     [{ kind: "block", style: "md" }]);
 

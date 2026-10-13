@@ -21,7 +21,7 @@ function setup() {
   const hooks = join(dir, "hooks.json");
   writeFileSync(mcp, MCP);
   writeFileSync(hooks, HOOKS);
-  return { ctx, mcp, hooks, env: { ctx, pacerArgv: PACER } };
+  return { ctx, mcp, hooks, env: { ctx, mcp: true, pacerArgv: PACER } };
 }
 
 test("Cursor install preserves inline GitKraken config, is idempotent, and uninstalls byte-exactly", async () => {
@@ -66,7 +66,7 @@ test("Cursor creates pretty MCP config for missing and empty files and removes f
     const mcp = join(ctx.home, ".cursor", "mcp.json");
     if (old !== null) { mkdirSync(join(ctx.home, ".cursor")); writeFileSync(mcp, old); }
     const original = snapshot(ctx.home);
-    await runInstall({ ctx, pacerArgv: PACER }, "cursor", installCursor);
+    await runInstall({ ctx, mcp: true, pacerArgv: PACER }, "cursor", installCursor);
     expect(readFileSync(mcp, "utf8")).toBe('{\n  "mcpServers": {\n    "pacer": {\n      "command": "/opt/pacer/bin/pacer",\n      "args": [\n        "mcp"\n      ]\n    }\n  }\n}\n');
     await uninstallPlanner(ctx, "cursor");
     expect(snapshot(ctx.home)).toEqual(original);
