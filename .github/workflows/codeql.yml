@@ -15,6 +15,8 @@ permissions:
 jobs:
   analyze:
     name: Analyze JavaScript and TypeScript
+    # Code scanning and Scorecard need a public repo on a free account.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
