@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-10-13
+
+### Added
+
+- `pacer dashboard`: live terminal budgets, ranked executors, attention groups and tasks, with keyboard delegation, retry, stop, focus, dismiss, blocking and strategy switching.
+
+### Changed
+
+- Marketplace installs open the dashboard in a **pacer** terminal once per Orca session instead of requiring a manual development-folder handoff. The sidebar folder is still prepared as an optional alternative.
+- The static bootstrap panel shows installation progress and elapsed time, dashboard reopening instructions and collapsed sidebar setup steps.
+
 ## [0.1.18] - 2026-10-13
 
 ### Changed

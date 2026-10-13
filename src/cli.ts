@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { markExhausted } from "./usage/reactive";
 import { readFileSync } from "node:fs";
@@ -26,6 +27,7 @@ import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
 
 const USAGE = `usage: pacer <command>
+  dashboard                                      live interactive terminal dashboard
   status [--line | --json | --hook <planner>]   budget status (default: text report)
   route [kind] [--json]                          executors pacer would use, in order
   delegate [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
@@ -204,6 +206,7 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
   switch (cmd) {
+    case "dashboard": return runDashboard(rest, ctx);
     case "setup": return setupCmd(rest, ctx);
     case "report-limit": {
       const {opts,pos}=parseFlags(rest,[]);
