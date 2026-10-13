@@ -7,7 +7,8 @@
 </p>
 <p align="center">Subscription budgets for AI coding agents</p>
 <p align="center">
-  <a href="https://github.com/lamtuanvu/pacer/actions/workflows/ci.yml"><img src="https://github.com/lamtuanvu/pacer/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/lamtuanvu/pacer/actions/workflows/ci.yml"><img src="https://github.com/lamtuanvu/pacer/actions/workflows/ci.yml/badge.svg?branch=main" alt="Build status"></a>
+  <a href="https://github.com/lamtuanvu/pacer/stargazers"><img src="https://img.shields.io/github/stars/lamtuanvu/pacer?color=52525B" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-52525B" alt="License Apache-2.0"></a>
   <a href="https://github.com/lamtuanvu/pacer/releases/latest"><img src="https://img.shields.io/github/v/release/lamtuanvu/pacer?color=52525B" alt="Latest GitHub release"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/lamtuanvu/pacer"><img src="https://api.scorecard.dev/projects/github.com/lamtuanvu/pacer/badge" alt="OpenSSF Scorecard"></a>
@@ -135,6 +136,16 @@ pacer sends no telemetry. Its budget and activity readers use these local source
 BytePlus usage is read through `arkcli usage plan --product coding-plan`; metered OpenCode usage through `opencode stats --models --json --days 7`. Setup detects installed CLIs and may list local models with `ollama list` or `lms ls --json`. Integration commands inspect and edit planner configuration, skills and hooks, keeping backups. Delegation reads the supplied brief, repository Git state and executor reports; verification runs your acceptance command. Orca integration reads local runtime/worktree state and the bearer token for loopback HTTP.
 
 Executors receive your brief and can access the selected repository under their CLI permissions; their services have their own data policies. Optional `ollama` and `jev` classifier adapters send decision state to their configured endpoints. The default classifier is local rules; external shadow calls require `classifier.shadow_external: true`. Classifier keys may be read from environment variables or `~/.pacer/secrets`. Release install/update commands download from GitHub Releases by default, or from your `PACER_RELEASE_BASE` override. No usage logs are uploaded for analytics.
+
+## Star history
+
+<a href="https://star-history.com/#lamtuanvu/pacer&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=lamtuanvu/pacer&type=Date&theme=dark">
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=lamtuanvu/pacer&type=Date">
+    <img alt="Star history chart for lamtuanvu/pacer" src="https://api.star-history.com/svg?repos=lamtuanvu/pacer&type=Date">
+  </picture>
+</a>
 
 ## Community
 
