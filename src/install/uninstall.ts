@@ -1,3 +1,4 @@
+import { removeClaudeMcp } from "./claude";
 import { copyFileSync, existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import type { Ctx } from "../types";
 import { readText, sha256, shellCommand } from "./fsx";
@@ -34,6 +35,10 @@ export async function uninstallPlanner(ctx: Ctx, planner: string): Promise<Unins
     }
   }
   for (const { undo } of [...record.commands].reverse()) {
+    if (planner === "claude-code" && undo[1] === "mcp" && undo[2] === "remove") {
+      await removeClaudeMcp(ctx, undo, report.notes);
+      continue;
+    }
     try {
       const result = await ctx.run(undo, 30000);
       if (result.code !== 0) report.notes.push(`\`${shellCommand(undo)}\` failed (exit ${result.code}): ${(result.stderr || result.stdout).split(/\r?\n/)[0]}`);

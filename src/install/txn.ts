@@ -61,9 +61,10 @@ export class Txn {
     this.record.files.push({ path, action: "moved", backup, undo: [] });
     this.touched.push(path);
   }
-  async run(argv: string[], undo?: string[], options: { quiet?: boolean } = {}): Promise<void> {
+  async run(argv: string[], undo?: string[], options: { quiet?: boolean; successNote?: string } = {}): Promise<void> {
     try {
       const result = await this.env.ctx.run(argv, 30000);
+      if (result.code === 0 && options.successNote) this.notes.push(options.successNote);
       if (!options.quiet && result.code !== 0) this.notes.push(`\`${shellCommand(argv)}\` failed (exit ${result.code}): ${(result.stderr || result.stdout).split(/\r?\n/)[0]}`);
     } catch (error) {
       if (!options.quiet) this.notes.push(`\`${shellCommand(argv)}\` failed: ${error instanceof Error ? error.message : String(error)}`);

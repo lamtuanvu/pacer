@@ -103,7 +103,8 @@ test("--to installs a specific version, including a downgrade; an unknown versio
   expect(down.out).toContain("updated pacer 0.2.0 -> 0.1.0");
   expect(readFileSync(exec, "utf8")).toBe(script("0.1.0"));
   const same = await runUpdate({ check: false, to: "0.1.0" }, deps(root, exec, { version: "0.1.0" }));
-  expect(same).toEqual({ code: 0, out: "pacer 0.1.0 is already installed", err: "" });
+  expect(same.code).toBe(0);
+  expect(same.out).toContain("updated pacer 0.1.0 -> 0.1.0");
   const older = await runUpdate({ check: true, to: "0.1.0" }, deps(root, exec, { version: "0.2.0" }));
   expect(older.out).toBe("0.1.0 is older than the installed 0.2.0; run pacer update --to 0.1.0 to downgrade");
   const missing = await runUpdate({ check: false, to: "9.9.9" }, deps(root, exec, { version: "0.1.0" }));
@@ -251,4 +252,29 @@ test("update reports service and console restart counts and retains warning with
   const result=await runUpdate({check:false},deps(root,exec,{restartService:async()=>({restarted:!warning,consoles:2,warning})}));
   expect(result.code).toBe(0);expect(result.out).toContain("restarted 2 pacer consoles");if(warning)expect(result.out).toContain(`WARNING: ${warning}`);else expect(result.out).toContain("restarted pacer serve");
  }
+});
+
+test("update refreshes only after replacement and --to forces same-version refresh", async () => {
+  expect(parseUpdateArgs(["--no-reinstall"])).toEqual({ check: false, noReinstall: true });
+  for (const mode of ["update", "check", "unchanged", "forced", "skip", "failure", "tampered"]) {
+    const root = tmpDir();
+    const target = mode === "unchanged" || mode === "forced" ? "0.1.0" : "0.2.0";
+    release(root, target);
+    if (mode === "tampered") writeFileSync(join(root, target, assetFile(MAC)), "bad download");
+    const exec = installed(); let calls = 0;
+    const result = await runUpdate({ check: mode === "check", to: mode === "forced" ? target : undefined, noReinstall: mode === "skip", noRestart: true }, deps(root, exec, {
+      refreshIntegrations: async path => {
+        calls++; expect(path).toBe(realpathSync(exec));
+        expect(readFileSync(path, "utf8")).toBe(script(target));
+        if (mode === "failure") throw Error("broken manifest");
+        return ["claude-code: refreshed", "codex: unchanged", "WARNING: cursor: failed: bad config"];
+      },
+    }));
+    const refreshed = ["update", "forced", "failure"].includes(mode);
+    expect(calls).toBe(refreshed ? 1 : 0);
+    expect(result.code).toBe(mode === "tampered" ? 1 : 0);
+    if (mode === "failure") expect(result.out).toContain("WARNING: could not refresh integrations: broken manifest");
+    else if (refreshed) expect(result.out).toContain("claude-code: refreshed\ncodex: unchanged\nWARNING: cursor: failed: bad config");
+    else expect(result.out).not.toContain("refreshed");
+  }
 });

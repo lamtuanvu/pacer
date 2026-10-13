@@ -133,3 +133,42 @@ test("installer refuses transient worktree argv before writing files", async () 
   await expect(installPlanner({ ctx, pacerArgv: ["/bun", "/repo/.worktrees/fix/src/cli.ts"] }, "codex")).rejects.toThrow("PACER_BIN");
   expect(existsSync(join(ctx.home, ".codex"))).toBe(false);
 });
+
+test("Claude command-only MCP changes appear in install and uninstall summaries", async () => {
+  let registered = false;
+  const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer/bin/pacer" }, which: () => "claude", run: async argv => {
+    const verb = argv[2];
+    const code = verb === "get" && !registered ? 1 : 0;
+    if (verb === "add") registered = true;
+    if (verb === "remove") registered = false;
+    return { code, stdout: "", stderr: "" };
+  } });
+  await main(["install", "claude-code"], ctx);
+  const added = await main(["install", "claude-code", "--mcp"], ctx);
+  expect(added.out).toContain("registered MCP server pacer (claude mcp add -s user pacer -- /opt/pacer/bin/pacer mcp)");
+  expect(added.out).not.toContain("nothing changed");
+  const removed = await main(["install", "claude-code", "--no-mcp"], ctx);
+  expect(removed.out).toContain("removed MCP server pacer (claude mcp remove -s user pacer)");
+  expect(removed.out).not.toContain("nothing changed");
+  expect((await main(["install", "claude-code", "--no-mcp"], ctx)).out).toContain("MCP server pacer was not registered");
+  await main(["install", "claude-code", "--mcp"], ctx);
+  expect((await main(["uninstall", "claude-code"], ctx)).out).toContain("removed MCP server pacer (claude mcp remove -s user pacer)");
+});
+
+test("failed Claude MCP removal never claims success or nothing changed", async () => {
+  const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer/bin/pacer" }, which: () => "claude", run: async argv => ({ code: argv[2] === "get" ? 0 : 1, stdout: "", stderr: "permission denied" }) });
+  await main(["install", "claude-code"], ctx);
+  const report = await main(["install", "claude-code", "--no-mcp"], ctx);
+  expect(report.out).toContain("failed (exit 1): permission denied");
+  expect(report.out).not.toContain("removed MCP server");
+  expect(report.out).not.toContain("nothing changed");
+});
+
+test("failed Claude MCP registration is reported without a success claim", async () => {
+  const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer/bin/pacer" }, which: () => "claude", run: async argv => ({ code: argv[2] === "add" ? 1 : 0, stdout: "", stderr: "registration denied" }) });
+  await main(["install", "claude-code"], ctx);
+  const report = await main(["install", "claude-code", "--mcp"], ctx);
+  expect(report.out).toContain("failed (exit 1): registration denied");
+  expect(report.out).not.toContain("registered MCP server");
+  expect(report.out).not.toContain("nothing changed");
+});
