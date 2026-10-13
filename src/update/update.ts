@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { restartConsoles } from "../console/restart";
 import { restartAfterUpdate } from "../service";
 import type { Result } from "../commands/types";
@@ -66,7 +67,24 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
 const ok = (out: string): Result => ({ code: 0, out, err: "" });
 const fail = (code: number, msg: string): Result => ({ code, out: "", err: `pacer update: ${msg}` });
 
+function installHint(d: UpdateDeps): string | undefined {
+  if (d.env.PACER_INSTALL_METHOD === "npm") return "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest";
+  let real: string;
+  try { real = realpathSync(d.execPath); } catch { return undefined; }
+  const prefixes = [d.env.HOMEBREW_PREFIX, d.env.HOMEBREW_CELLAR].filter((p): p is string => !!p);
+  if (real.includes("/Cellar/pacer/") || prefixes.some(p => {
+    try { p = realpathSync(p); } catch { /* A configured prefix may not exist on this host. */ }
+    return real.startsWith(`${p.replace(/\/+$/, "")}/`);
+  })) {
+    return "pacer was installed with Homebrew; update with: brew upgrade pacer";
+  }
+  return undefined;
+}
+
 export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result> {
+  const hint = installHint(d);
+  if (hint && !o.check) return fail(2, hint);
+  const checked = (out: string): Result => ok(out + (hint ? `\n${hint}` : ""));
   const raw = o.base ?? (d.env.PACER_RELEASE_BASE || undefined);
   let base: string | undefined;
   try {
@@ -82,16 +100,16 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
   try {
     const target = o.to ?? parseLatest(JSON.parse(await fetchText(d.fetch, latestUrl(base))));
     const cmp = compareVersions(target, d.version);
-    if (!o.to && cmp <= 0) return ok(cmp === 0 ? `pacer ${d.version} is up to date` : `pacer ${d.version} is up to date (latest release: ${target})`);
-    if (o.to && cmp === 0) return ok(`pacer ${d.version} is already installed`);
+    if (!o.to && cmp <= 0) return checked(cmp === 0 ? `pacer ${d.version} is up to date` : `pacer ${d.version} is up to date (latest release: ${target})`);
+    if (o.to && cmp === 0) return checked(`pacer ${d.version} is already installed`);
     const manifest = parseManifest(JSON.parse(await fetchText(d.fetch, releaseUrl(base, target, "manifest.json"))));
     if (manifest.version !== target) throw new ReleaseError(`manifest.json is for ${manifest.version}, not ${target}`);
     const asset = manifest.assets.find((a) => a.os === plat.os && a.arch === plat.arch);
     if (!asset) throw new ReleaseError(`release ${target} has no build for ${plat.os}-${plat.arch}`);
     if (o.check) {
-      return ok(cmp > 0
-        ? `update available: ${d.version} -> ${target}\nrun: pacer update${o.to ? ` --to ${target}` : ""}`
-        : `${target} is older than the installed ${d.version}; run pacer update --to ${target} to downgrade`);
+      return checked(cmp > 0
+        ? `update available: ${d.version} -> ${target}${hint ? "" : `\nrun: pacer update${o.to ? ` --to ${target}` : ""}`}`
+        : `${target} is older than the installed ${d.version}${hint ? "" : `; run pacer update --to ${target} to downgrade`}`);
     }
     const sums = parseSha256Sums(await fetchText(d.fetch, releaseUrl(base, target, "SHA256SUMS")));
     if (sums.get(asset.file) !== asset.sha256) throw new ReleaseError(`SHA256SUMS and manifest.json disagree about ${asset.file}; refusing to install`);

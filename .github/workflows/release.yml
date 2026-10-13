@@ -3,6 +3,20 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version to validate and build
+        required: true
+        type: string
+      dry_run:
+        description: Validate publishing without releasing (must be true)
+        type: boolean
+        default: true
+
+env:
+  VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
 
 permissions: {}
 
@@ -11,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -18,14 +34,25 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
-      - name: Verify tag
-        run: test "$GITHUB_REF_NAME" = "v$(bun -p 'require("./package.json").version')"
+      - name: Verify release request
+        run: |
+          version=$(bun -p 'require("./package.json").version')
+          if test "$GITHUB_EVENT_NAME" = workflow_dispatch; then
+            test "$DRY_RUN" = true || { echo '::error::Non-dry dispatch refused; release with a version tag'; exit 1; }
+            test "$VERSION" = "$version"
+          else
+            test "$GITHUB_REF_NAME" = "v$version"
+          fi
+      - id: version
+        run: echo "version=$(bun -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run test
 
   build:
     needs: verify
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -51,7 +78,7 @@ jobs:
         run: bun scripts/release/build.ts --targets "$TARGETS"
       - name: Smoke test native binary
         run: |
-          version=$(bun -p 'require("./package.json").version')
+          version="$VERSION"
           case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) exit 1 ;; esac
           case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) exit 1 ;; esac
           test "$("./dist/release/$version/pacer-$os-$arch" --version)" = "pacer $version"
@@ -63,7 +90,10 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [verify, build]
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TAG: v${{ needs.verify.outputs.version }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -83,46 +113,62 @@ jobs:
           merge-multiple: true
       - name: Write checksums and metadata
         run: bun scripts/release/build.ts --write-only
-      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
-        with:
-          subject-path: dist/release/*/pacer-*
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Extract release notes
         run: |
-          version=$(bun -p 'require("./package.json").version')
-          awk -v heading="## [$version]" '
+          awk -v heading="## [$VERSION]" '
             /^## / { if (found) exit; if ($0 == heading || index($0, heading " - ") == 1) { found=1; next } }
             found { print }
             END { if (!found) exit 1 }
           ' CHANGELOG.md > release-notes.md
+      - name: Preview release assets and notes
+        if: env.DRY_RUN == 'true'
+        run: |
+          sha256sum dist/release/"$VERSION"/* dist/release/latest.json
+          cat release-notes.md
+          echo "Plugin tag: orca-plugin-v$VERSION"
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        if: env.DRY_RUN != 'true'
+        with:
+          subject-path: dist/release/*/pacer-*
+      - name: Publish release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$VERSION"
           case "$version" in
             *-*) set -- --prerelease --latest=false ;;
             *) set -- --latest ;;
           esac
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "pacer $version" \
+          gh release create "$TAG" --verify-tag --title "pacer $version" \
             --notes-file release-notes.md "$@" \
             dist/release/"$version"/pacer-* \
             dist/release/"$version"/SHA256SUMS \
             dist/release/"$version"/manifest.json dist/release/latest.json
       - name: Publish Orca plugin bundle
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
           set -euo pipefail
-          version=$(bun -p 'require("./package.json").version')
+          version="$VERSION"
           tag="orca-plugin-v$version"
           test "$(bun -p 'require("./orca-plugin/dist/orca-plugin.json").version')" = "$version"
           test "$(bun -p 'require("./orca-marketplace.json").plugins.find(p => p.id === "lamtuanvu.pacer").source.ref')" = "$tag"
           bundle="$PWD/orca-plugin/dist"
           license="$PWD/LICENSE"
           notice="$PWD/NOTICE"
-          repository="https://github.com/$GITHUB_REPOSITORY.git"
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          if test "$DRY_RUN" = true; then
+            dry_remote=$(mktemp -d)
+            git init --bare "$dry_remote"
+            repository="$dry_remote"
+          else
+            repository="https://github.com/$GITHUB_REPOSITORY.git"
+          fi
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${GH_TOKEN:-}" | base64 | tr -d '\n')"
           git_auth() { git -c "http.extraheader=$auth" "$@"; }
           # A fresh repo keeps the release checkout and its untracked artifacts intact.
           publish_dir=$(mktemp -d)
-          trap 'command rm -rf "$publish_dir"' EXIT
+          trap 'command rm -rf "$publish_dir" "${dry_remote:-}"' EXIT
           git init "$publish_dir"
           cd "$publish_dir"
           git remote add origin "$repository"
@@ -145,3 +191,127 @@ jobs:
           git tag -a "$tag" -m "pacer Orca plugin $version"
           # Atomic, non-forced push: a concurrent release cannot move either ref.
           git_auth push --atomic origin refs/heads/orca-plugin "refs/tags/$tag"
+
+  npm:
+    needs: [verify, publish]
+    if: >-
+      always() && needs.publish.result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.dry_run) ||
+      (github.event_name == 'push' && vars.NPM_TRUSTED_PUBLISHING == 'true'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TAG: v${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.x
+          check-latest: true
+      - run: npm install -g npm@11
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: env.DRY_RUN == 'true'
+        with:
+          pattern: binaries-*
+          path: dist/release
+          merge-multiple: true
+      - name: Write dry-run metadata
+        if: env.DRY_RUN == 'true'
+        run: bun scripts/release/build.ts --write-only
+      - name: Download published binaries
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$TAG" --dir "dist/release/$VERSION" \
+            --pattern 'pacer-*' --pattern manifest.json
+      - run: bun run release:npm --release-dir "dist/release/$VERSION" --out dist/npm
+      - name: Publish npm packages in dependency order
+        run: |
+          set -euo pipefail
+          case "$VERSION" in *-*) tag=next ;; *) tag=latest ;; esac
+          while IFS= read -r package; do
+            dir="$PWD/dist/npm/$package"
+            name=$(bun -p 'require(process.argv[1]).name' "$dir/package.json")
+            if test "$DRY_RUN" = true; then
+              (cd "$dir" && npm publish --dry-run --access public --tag "$tag")
+            elif npm view "$name@$VERSION" version > /dev/null 2>&1; then
+              echo "skipped: $name@$VERSION already published"
+            else
+              (cd "$dir" && npm publish --provenance --access public --tag "$tag")
+            fi
+          done < dist/npm/publish-order.txt
+
+  homebrew:
+    needs: [verify, publish]
+    if: >-
+      always() && needs.publish.result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.dry_run) ||
+      (github.event_name == 'push' && !contains(needs.verify.outputs.version, '-')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TAG: v${{ needs.verify.outputs.version }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Check tap publishing configuration
+        id: tap
+        run: |
+          if test "$DRY_RUN" = true || test -n "$HOMEBREW_TAP_TOKEN"; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::skipped: HOMEBREW_TAP_TOKEN not set'
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.tap.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: steps.tap.outputs.enabled == 'true'
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: env.DRY_RUN == 'true'
+        with:
+          pattern: binaries-*
+          path: dist/release
+          merge-multiple: true
+      - name: Write dry-run metadata
+        if: env.DRY_RUN == 'true'
+        run: bun scripts/release/build.ts --write-only
+      - name: Download published manifest
+        if: steps.tap.outputs.enabled == 'true' && env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --dir "dist/release/$VERSION" --pattern manifest.json
+      - name: Generate and publish Homebrew formula
+        if: steps.tap.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          if test "$DRY_RUN" = true; then
+            bun run release:homebrew --manifest "dist/release/$VERSION/manifest.json" --out Formula/pacer.rb
+            ruby -c Formula/pacer.rb
+            cat Formula/pacer.rb
+            exit 0
+          fi
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')"
+          git_auth() { git -c "http.extraheader=$auth" "$@"; }
+          git_auth clone --branch main --single-branch https://github.com/lamtuanvu/homebrew-tap tap
+          bun run release:homebrew --manifest "dist/release/$VERSION/manifest.json" --out tap/Formula/pacer.rb
+          cd tap
+          git add Formula/pacer.rb
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -s -m "pacer $VERSION"
+          git_auth push origin HEAD:main

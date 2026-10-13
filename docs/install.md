@@ -51,7 +51,17 @@ PACER_RELEASE_BASE="file://$PWD/dist/release" sh install.sh
 
 The installer detects OS/CPU, verifies SHA-256 checksums, checks the staged binary version and installs to `$HOME/.local/bin`. `PACER_INSTALL_DIR` changes the destination; `PACER_INSTALL_VERSION` selects a version instead of reading `latest.json`. macOS and Linux support arm64/x64; musl-based Linux is not supported. Run `pacer update --check` to check for updates, or `pacer update` to install the latest release. `pacer update --to <version>` selects a specific release, including prereleases.
 
-The npm name `@lamtuanvu/pacer` is reserved by project decision but is not published. The planned Homebrew tap `lamtuanvu/homebrew-tap` has not been created.
+## npm and Homebrew
+
+Once the channels are bootstrapped (see [distribution](distribution.md)), install with:
+
+```sh
+npm install -g @lamtuanvu/pacer
+# Or:
+brew install lamtuanvu/tap/pacer
+```
+
+For npm installs, update with `npm install -g @lamtuanvu/pacer@latest`; for Homebrew installs, use `brew upgrade pacer`. `pacer update` detects these install methods and exits with code 2 and the matching command instead of replacing a managed binary. `pacer update --check` still reports the available release and the same update hint.
 
 ## Connect a planner
 
