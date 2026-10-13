@@ -40,7 +40,8 @@ test("npm publishing respects package order, skips exact published versions and 
   writeFileSync(log, "");
   expect(run(step("Publish npm packages in dependency order"), root, { ...env, DRY_RUN: "true", VERSION: "1.2.3-beta.1" }).exitCode).toBe(0);
   expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
-    "publish --dry-run --access public --tag next", "publish --dry-run --access public --tag next",
+    "view @lamtuanvu/platform@1.2.3-beta.1 version",
+    "view @lamtuanvu/pacer@1.2.3-beta.1 version", "publish --dry-run --access public --tag next",
   ]);
 });
 
