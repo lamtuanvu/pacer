@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible problem with pacer.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities, use Security > Report a vulnerability. Remove secrets and private paths from diagnostics."
+  - type: input
+    id: version
+    attributes:
+      label: pacer version
+      description: "Output of pacer --version, or version in package.json for a source checkout."
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: OS version and CPU architecture.
+    validations:
+      required: true
+  - type: textarea
+    id: agents
+    attributes:
+      label: Planner and executors involved
+      description: Include CLI versions and execution backend if known.
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: pacer status --json output
+      description: Review and redact private information before pasting. Explain if the command fails.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include relevant errors or logs with secrets removed.
+    validations:
+      required: true
