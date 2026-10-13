@@ -21,3 +21,4 @@ Test fixtures that are needed go in `test/fixtures/` and use `$HOME` or temp-dir
 ## Commits
 
 Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`). PRs are squash-merged, so the PR title becomes the commit on `main`.
+Sign off every commit (`git commit -s`); the DCO check rejects PRs with unsigned commits. See CONTRIBUTING.md.
