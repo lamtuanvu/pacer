@@ -1,11 +1,399 @@
-// orca-plugin/src/worker.ts
-import { get, request } from "node:http";
-import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
-import { dirname, join as join2, resolve } from "node:path";
+// package.json
+var package_default = {
+  name: "pacer",
+  type: "module",
+  private: true,
+  devDependencies: {
+    "@types/bun": "^1.4.2",
+    typescript: "^7.0.2"
+  },
+  version: "0.1.16",
+  bin: {
+    pacer: "src/cli.ts"
+  },
+  scripts: {
+    test: "TZ=Asia/Ho_Chi_Minh bun test",
+    typecheck: "tsc --noEmit",
+    build: "bun build --compile src/cli.ts --outfile dist/pacer",
+    release: "bun scripts/release/build.ts",
+    "release:prepare": "bun scripts/release/prepare.ts",
+    "release:host": "bun scripts/release/build.ts --host",
+    "plugin:build": "bun orca-plugin/build.ts",
+    "release:npm": "bun scripts/release/npm.ts",
+    "release:homebrew": "bun scripts/release/homebrew.ts",
+    "brand:render": "bun scripts/brand/render.ts"
+  },
+  dependencies: {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    zod: "4.6.5"
+  },
+  license: "Apache-2.0",
+  description: "Subscription-budget-aware delegation for AI coding agents through a CLI, MCP server and Orca plugin.",
+  author: "Vu Lam",
+  repository: {
+    type: "git",
+    url: "git+https://github.com/lamtuanvu/pacer.git"
+  },
+  homepage: "https://github.com/lamtuanvu/pacer#readme",
+  bugs: {
+    url: "https://github.com/lamtuanvu/pacer/issues"
+  },
+  keywords: [
+    "ai-agents",
+    "subscription-budgets",
+    "delegation",
+    "cli",
+    "mcp",
+    "claude-code",
+    "codex",
+    "orca",
+    "bun"
+  ],
+  engines: {
+    bun: ">=1.4.2"
+  }
+};
+
+// orca-plugin/src/bootstrap.ts
+import { execFile } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { accessSync, constants, existsSync as existsSync2, mkdirSync, renameSync, chmodSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join as join2, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// orca-plugin/src/plugin.ts
+// src/install/detection.ts
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+var AGENT_BINS = { "claude-code": ["claude"], codex: ["codex"], cursor: ["cursor-agent", "cursor"], opencode: ["opencode"] };
+var names = { "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode" };
+function agentPlans(home, pacerHome, which, env = {}) {
+  let installed = {};
+  try {
+    installed = JSON.parse(readFileSync(join(pacerHome, "install-manifest.json"), "utf8")).planners ?? {};
+  } catch {}
+  return Object.keys(AGENT_BINS).filter((id) => AGENT_BINS[id].some((bin) => which(bin))).map((id) => {
+    const root = id === "opencode" ? join(env.XDG_CONFIG_HOME || join(home, ".config"), "opencode") : join(home, id === "claude-code" ? ".claude" : `.${id}`);
+    const skillRoot = id === "codex" ? env.CODEX_HOME || root : root;
+    const files = [join(skillRoot, "skills/pacer/SKILL.md"), ...{
+      "claude-code": [join(root, "rules/pacer.md"), join(root, "settings.json")],
+      codex: [join(root, "AGENTS.md"), join(root, "hooks.json")],
+      cursor: [join(root, "hooks.json")],
+      opencode: [join(root, "AGENTS.md")]
+    }[id]];
+    if (id === "claude-code") {
+      try {
+        const command = JSON.parse(readFileSync(join(root, "settings.json"), "utf8")).statusLine?.command;
+        if (typeof command === "string" && !/\s/.test(command)) {
+          const path = command.replace(/^~(?=\/)/, home).replace(/^\$HOME(?=\/)/, home);
+          if (path.startsWith("/") && existsSync(path) && /^input=\$\(cat\)\s*$/m.test(readFileSync(path, "utf8")))
+            files.push(path);
+        }
+      } catch {}
+      files.push(...["scripts/budget/budget_status.py", "scripts/budget/subagent_guard.py", "scripts/budget/budget-status", "rules/model-delegation.md"].map((p) => join(root, p)).filter(existsSync));
+      const delegation = join(root, "agents/delegation");
+      if (existsSync(delegation))
+        files.push(...readdirSync(delegation).filter((p) => p.endsWith(".md")).sort().map((p) => join(delegation, p)));
+    }
+    return { id, name: names[id], installed: !!installed[id], files, undo: `pacer uninstall ${id}` };
+  });
+}
+
+// src/update/errors.ts
+class ReleaseError extends Error {
+  name = "ReleaseError";
+}
+
+// src/update/version.ts
+var SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+function isVersion(v) {
+  return SEMVER.test(v);
+}
+function compareVersions(a, b) {
+  const pa = SEMVER.exec(a);
+  const pb = SEMVER.exec(b);
+  if (!pa || !pb)
+    throw new ReleaseError(`invalid version: ${pa ? b : a}`);
+  for (let i = 1;i <= 3; i++) {
+    const d = Number(pa[i]) - Number(pb[i]);
+    if (d !== 0)
+      return Math.sign(d);
+  }
+  const ra = pa[4];
+  const rb = pb[4];
+  if (ra === rb)
+    return 0;
+  if (ra === undefined)
+    return 1;
+  if (rb === undefined)
+    return -1;
+  const xa = ra.split(".");
+  const xb = rb.split(".");
+  for (let i = 0;i < Math.max(xa.length, xb.length); i++) {
+    const x = xa[i];
+    const y = xb[i];
+    if (x === undefined)
+      return -1;
+    if (y === undefined)
+      return 1;
+    if (x === y)
+      continue;
+    const nx = /^\d+$/.test(x);
+    const ny = /^\d+$/.test(y);
+    if (nx && ny)
+      return Math.sign(Number(x) - Number(y));
+    if (nx)
+      return -1;
+    if (ny)
+      return 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+// orca-plugin/src/bootstrap.ts
+var GITHUB_RELEASES = "https://github.com/lamtuanvu/pacer/releases";
+var UNPUBLISHED = "pacer isn't published yet. Set the release folder in plugin settings or install pacer manually";
+var MANUAL_INSTALL = "curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh";
+function cleanEnv(env) {
+  const result = { ...env };
+  delete result.ORCA_AGENT_SESSION_ID;
+  delete result.ORCA_TERMINAL_HANDLE;
+  return result;
+}
+function releaseBase(setting, env) {
+  const base = (typeof setting === "string" && setting.trim() ? setting.trim() : env.PACER_RELEASE_BASE || GITHUB_RELEASES).replace(/\/+$/, "");
+  const u = new URL(base);
+  if (u.username || u.password || u.search || u.hash || !(u.protocol === "https:" || u.protocol === "file:" && (!u.hostname || u.hostname === "localhost") || u.protocol === "http:" && ["127.0.0.1", "localhost"].includes(u.hostname)))
+    throw new Error("Use an HTTPS, file:// or localhost release folder.");
+  return base;
+}
+function releaseURL(base, version, name) {
+  return base === GITHUB_RELEASES ? name === "latest.json" ? `${base}/latest/download/latest.json` : `${base}/download/v${version}/${name}` : name === "latest.json" ? `${base}/latest.json` : `${base}/${version}/${name}`;
+}
+async function download(url, fetcher = fetch, signal = AbortSignal.timeout(120000)) {
+  releaseBase(url, {});
+  if (url.startsWith("file:"))
+    return readFile(fileURLToPath(url), { signal });
+  for (let hops = 0;; hops++) {
+    const response = await fetcher(url, { redirect: "manual", signal });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location || hops >= 5)
+        throw new Error("Release redirect limit exceeded.");
+      const next = new URL(location, url);
+      if (next.protocol !== "https:" || next.username || next.password)
+        throw new Error("Release redirects must use HTTPS.");
+      await response.body?.cancel();
+      url = next.href;
+      continue;
+    }
+    if (!response.ok)
+      throw new Error(`Release download HTTP ${response.status}`);
+    return Buffer.from(await response.arrayBuffer());
+  }
+}
+function runFile(bin, args, env, timeout) {
+  return new Promise((resolve, reject) => execFile(bin, args, { env, timeout, maxBuffer: 1024 * 1024 }, (err, stdout) => err ? reject(err) : resolve(stdout)));
+}
+function which(bin, env) {
+  for (const dir of (env.PATH || "").split(delimiter).filter(Boolean)) {
+    const path = join2(dir, bin);
+    try {
+      accessSync(path, constants.X_OK);
+      return path;
+    } catch {}
+  }
+  return null;
+}
+function createBootstrap(d) {
+  const now = d.now ?? (() => Date.now() / 1000), exec = d.exec ?? runFile, env = cleanEnv(d.env);
+  const home = d.home, pacerHome = join2(home, ".pacer"), platform = d.platform ?? process.platform;
+  let state = { install: { status: "pending" }, start: { status: "pending" }, agents: [] };
+  let running = null, terminalRunning = false, stopped = false, probedAt = -Infinity;
+  const changed = async (ctx, onChange) => {
+    onChange();
+    try {
+      await ctx.host.call("storage.set", { key: "bootstrap", value: state });
+    } catch {}
+  };
+  async function activate(ctx) {
+    stopped = false;
+    try {
+      const saved = (await ctx.host.call("storage.get", { key: "bootstrap" })).value;
+      if (saved && Array.isArray(saved.failures) && Array.isArray(saved.restarts))
+        state = { ...state, install: saved.install ?? state.install, start: saved.start ?? state.start, binary: saved.binary, agents: saved.agents ?? [], nextAt: saved.nextAt, failures: saved.failures, restarts: saved.restarts, terminalAttempts: saved.terminalAttempts };
+    } catch {}
+  }
+  async function cycle(ctx, onChange) {
+    if (stopped || now() < (state.nextAt ?? 0))
+      return;
+    state.nextAt = now() + 600;
+    let step = "install";
+    try {
+      const settings = await ctx.host.call("settings.get").catch(() => ({ settings: {} }));
+      const base = releaseBase(settings.settings.releaseBase, env);
+      let binary = env.PACER_BIN || (existsSync2(join2(home, ".local/bin/pacer")) ? join2(home, ".local/bin/pacer") : which("pacer", env));
+      state.install = { status: "pending" };
+      await changed(ctx, onChange);
+      if (!binary) {
+        if (!["darwin", "linux"].includes(platform) || !["arm64", "x64"].includes(d.arch ?? process.arch))
+          throw new Error("This platform needs a manual pacer install.");
+        const name = `pacer-${platform}-${d.arch ?? process.arch}`, signal = AbortSignal.timeout(120000);
+        const sums = (await download(releaseURL(base, d.version, "SHA256SUMS"), d.fetch, signal)).toString();
+        const match = sums.split(/\r?\n/).map((line) => /^([a-fA-F0-9]{64})\s+\*?(.+)$/.exec(line)).find((m) => m?.[2] === name);
+        if (!match)
+          throw new Error("The release checksum is missing.");
+        const bytes = await download(releaseURL(base, d.version, name), d.fetch, signal);
+        if (createHash("sha256").update(bytes).digest("hex") !== match[1].toLowerCase())
+          throw new Error("The pacer download failed its checksum check.");
+        const dir = join2(home, ".local/bin");
+        mkdirSync(dir, { recursive: true });
+        const temporary = join2(dir, `.pacer-${randomUUID()}.tmp`);
+        try {
+          writeFileSync(temporary, bytes, { flag: "wx", mode: 384 });
+          chmodSync(temporary, 493);
+          renameSync(temporary, join2(dir, "pacer"));
+        } finally {
+          try {
+            unlinkSync(temporary);
+          } catch {}
+        }
+        binary = join2(dir, "pacer");
+      } else {
+        const output = (await exec(binary, ["--version"], env, 30000)).trim().replace(/^pacer\s+/, "");
+        if (isVersion(output) && !output.includes("dev") && compareVersions(output, d.version) < 0) {
+          await exec(binary, ["update", "--to", d.version], base === GITHUB_RELEASES ? { ...env, PACER_RELEASE_BASE: undefined } : { ...env, PACER_RELEASE_BASE: base }, 120000);
+        }
+      }
+      state.binary = binary;
+      state.install = { status: "done" };
+      step = "start";
+      state.start = { status: "pending" };
+      await changed(ctx, onChange);
+      if (!existsSync2(join2(pacerHome, "strategy.yaml")))
+        await exec(binary, ["init"], env, 30000);
+      const status = JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30000));
+      if (!status.installed)
+        await exec(binary, ["service", "install"], env, 30000);
+      const port = typeof settings.settings.port === "number" ? settings.settings.port : 4317;
+      const health = async () => {
+        try {
+          const r = await (d.fetch ?? fetch)(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1500) });
+          return r.ok && r.headers.get("x-pacer") === "1";
+        } catch {
+          return false;
+        }
+      };
+      if (!await health()) {
+        await (d.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(15000);
+        if (stopped)
+          return;
+        if (!await health()) {
+          state.restarts = (state.restarts ?? []).filter((at) => now() - at < 3600);
+          if (status.installed && state.restarts.length < 5 && now() - (state.restarts.at(-1) ?? -Infinity) >= 60) {
+            state.restarts.push(now());
+            await changed(ctx, onChange);
+            await exec(binary, ["service", "restart"], env, 30000);
+          }
+          if (!await health())
+            throw new Error("pacer is starting. Try again shortly.");
+        }
+      }
+      state.start = { status: "done" };
+    } catch (e) {
+      const message = e.message;
+      const unpublished = message.includes("HTTP 404");
+      state[step] = { status: "failed", detail: unpublished ? UNPUBLISHED : step === "install" ? message.split(/\r?\n/)[0].slice(0, 160) : "pacer couldn't start. Try again shortly." };
+      state.failures = (state.failures ?? []).filter((at) => now() - at < 3600);
+      state.failures.push(now());
+      state.nextAt = now() + (unpublished || state.failures.length >= 5 ? 600 : 60);
+      ctx.log(`pacer bootstrap: ${message}`);
+    } finally {
+      state.agents = agentPlans(home, pacerHome, (bin) => which(bin, env), env);
+      await changed(ctx, onChange);
+    }
+  }
+  return {
+    activate,
+    get state() {
+      return state;
+    },
+    run(ctx, onChange) {
+      if (!running)
+        running = cycle(ctx, onChange).finally(() => {
+          running = null;
+        });
+      return running;
+    },
+    async refreshAgents(ctx, onChange) {
+      if (stopped)
+        return;
+      const agents = agentPlans(home, pacerHome, (bin) => which(bin, env), env);
+      if (JSON.stringify(agents) !== JSON.stringify(state.agents)) {
+        state.agents = agents;
+        await changed(ctx, onChange);
+      }
+      if (terminalRunning || state.start.status !== "done" || !state.agents.some((a) => !a.installed) || now() - probedAt < 30)
+        return;
+      terminalRunning = true;
+      probedAt = now();
+      try {
+        const context = await ctx.host.call("workspace.readContext");
+        if (!context)
+          return;
+        let available = context.terminals.find((t) => t.writable === true && !t.agent && !/^pacer(?: console)?$/.test(t.title ?? ""));
+        for (const candidate of context.terminals) {
+          if (available)
+            break;
+          if (candidate.writable === false || candidate.agent || /^pacer(?: console)?$/.test(candidate.title ?? ""))
+            continue;
+          try {
+            const reply = JSON.parse(await exec(env.ORCA_CLI_COMMAND || "orca", ["terminal", "show", "--terminal", candidate.id, "--json"], env, 30000));
+            const terminal = reply.result?.terminal;
+            if (reply.ok && terminal?.connected && terminal.writable && !terminal.agent && !terminal.agentSessionId && !/^pacer(?: console)?$/.test(terminal.title ?? ""))
+              available = candidate;
+          } catch {}
+        }
+        if (available) {
+          if (state.terminal !== available.id || state.opening) {
+            state.terminal = available.id;
+            state.opening = false;
+            await changed(ctx, onChange);
+          }
+          return;
+        }
+        state.terminal = undefined;
+        const id = context.worktreeId || context.branch;
+        state.terminalAttempts ??= {};
+        if (now() - (state.terminalAttempts[id] ?? -Infinity) < 600)
+          return;
+        state.terminalAttempts[id] = now();
+        state.opening = true;
+        await changed(ctx, onChange);
+        await exec(env.ORCA_CLI_COMMAND || "orca", ["terminal", "create", "--worktree", "active", "--title", "pacer setup", "--json"], env, 30000);
+      } catch (e) {
+        state.opening = false;
+        ctx.log(`pacer setup terminal: ${e.message}`);
+        await changed(ctx, onChange);
+      } finally {
+        terminalRunning = false;
+      }
+    },
+    stop() {
+      stopped = true;
+    }
+  };
+}
+
+// orca-plugin/src/worker.ts
+import { get, request } from "node:http";
+import { existsSync as existsSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync2, renameSync as renameSync2, unlinkSync as unlinkSync2 } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
+
+// orca-plugin/src/plugin.ts
+import { join as join3 } from "node:path";
 
 // src/link/envelope.ts
 var LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 };
@@ -563,6 +951,14 @@ ${a.notification?.nextExecutor ? `Moved to ${executorName(a.notification.nextExe
   return settings.lastAlertAt;
 }
 
+// src/install/fsx.ts
+function shq(s) {
+  return /^[A-Za-z0-9_\/.:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+}
+function shellCommand(argv) {
+  return argv.map(shq).join(" ");
+}
+
 // orca-plugin/src/panel/shared.ts
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -603,8 +999,8 @@ var actionStatus = '<p data-status role="status" aria-live="polite" class="actio
 
 // orca-plugin/src/panel/icons.ts
 var paths = { "claude-code": "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z", cursor: "M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23", agy: "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81", byteplus: "M19.8772 1.4685L24 2.5326v18.9426l-4.1228 1.0563V1.4685zm-13.3481 9.428l4.115 1.0641v8.9786l-4.115 1.0642v-11.107zM0 2.572l4.115 1.0642v16.7354L0 21.428V2.572zm17.4553 5.6205v11.107l-4.1228-1.0642V9.2568l4.1228-1.0642z", local: "M14.025 0c3.492 0 5.237 0 6.571.68a6.24 6.24 0 0 1 2.725 2.724C24 4.738 24 6.484 24 9.975v4.05c0 3.492 0 5.237-.68 6.571a6.24 6.24 0 0 1-2.724 2.725c-1.334.679-3.08.679-6.571.679h-4.05c-3.492 0-5.237 0-6.571-.68A6.24 6.24 0 0 1 .68 20.597C0 19.262 0 17.516 0 14.025v-4.05c0-3.492 0-5.237.68-6.571A6.23 6.23 0 0 1 3.404.68C4.738 0 6.484 0 9.975 0zM7.688 16.313a1.313 1.313 0 0 0 0 2.625h11.625a1.313 1.313 0 0 0 0-2.625zm-3-3.75a1.313 1.313 0 0 0 0 2.624h11.625a1.313 1.313 0 0 0 0-2.624zm3-3.75a1.313 1.313 0 0 0 0 2.624h11.625a1.313 1.313 0 0 0 0-2.624zm-3-3.75a1.313 1.313 0 0 0 0 2.625h11.625a1.313 1.313 0 0 0 0-2.625z" };
-var names = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", local: "Local model", opencode: "OpenCode" };
-var displayName = (id) => Object.hasOwn(names, id) ? names[id] : id;
+var names2 = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", local: "Local model", opencode: "OpenCode" };
+var displayName = (id) => Object.hasOwn(names2, id) ? names2[id] : id;
 function icon(id, size = 16) {
   const name = escapeHtml(displayName(id));
   return Object.hasOwn(paths, id) ? `<svg role="img" aria-label="${name}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor"><path d="${paths[id]}"></path></svg>` : `<span class="monogram" role="img" aria-label="${name}" style="width:${size}px;height:${size}px">${escapeHtml(id === "codex" ? "Cx" : id.slice(0, 2))}</span>`;
@@ -753,10 +1149,15 @@ function overview(s, now, reachable, commands, text) {
 }
 
 // orca-plugin/src/panel/setup.ts
-function setup(s, now, reachable) {
-  const consoleLive = !!liveConsole(s, now), planner = s.budget?.providers.find((p) => p.id === s.budget?.planner);
-  const step = (n, done, title, detail, command) => `<div class="step ${done ? "done" : n === 1 || reachable ? "current" : ""}"><span class="step-num" aria-hidden="true">${done ? "✓" : n}</span><div class="stack grow"><strong>${title}</strong><small>${detail}</small>${command ? `<div class="row command"><code class="grow">${command}</code><button type="button" data-setup="${command}">Type command</button></div>` : ""}</div></div>`;
-  return `<div class="content">${header(s, now, reachable)}<div class="stack"><div class="headline">Connect pacer</div><div class="muted">The plugin is on. It needs pacer running on this machine to show your budget and send work.</div></div><div class="list">${step(1, reachable, s.serviceInstalled ? "pacer link is restarting" : "Start pacer in the background", s.serviceInstalled ? "pacer runs as a background service and restarts on its own within a few seconds. If it stays down, run:" : "Installs pacer as a login service so this panel always connects.", s.serviceInstalled ? "pacer service restart" : "pacer service install")}${step(2, consoleLive, "Open the pacer console", "Lets the buttons here delegate and switch strategy. Runs in this worktree.", "pacer console --open")}</div>${!s.budget && reachable ? "<small>Waiting for the first budget snapshot. Check again after pacer refreshes.</small>" : ""}${planner ? `<section class="stack section"><h2>Last known budget · ${h(age(s.budget.generatedAt, now))} · not live</h2><div class="card stack last-known"><div class="row"><span class="name">${icon(planner.id)}${h(displayName(planner.id))}</span><span class="grow"></span><strong>${planner.usedPct === null ? "—" : `${Math.round(planner.usedPct)}%`} used</strong></div>${meter({ ...planner, pacePct: null })}<small>Shown greyed until pacer reconnects. Nothing here is live.</small></div></section>` : ""}<div class="row note info"><strong aria-hidden="true">i</strong><small>pacer never changes Orca's settings. Everything runs on 127.0.0.1 and only on this machine.</small></div></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" disabled>Delegate a task</button><button type="button" data-check>Check again</button></div>${actionStatus}<div class="footnote">Delegating needs the console from step 2</div></div>`;
+function setup(s, now, reachable, bootstrap) {
+  const planner = s.budget?.providers.find((p) => p.id === s.budget?.planner);
+  const agents = bootstrap?.agents ?? [], pending = agents.filter((a) => !a.installed), connected = agents.filter((a) => a.installed);
+  const step = (state, title, detail) => `<div class="step ${state.status === "done" ? "done" : state.status === "pending" ? "current" : "failed"}"><span class="step-num ${state.status === "pending" ? "console-spinner" : ""}" aria-hidden="true">${state.status === "done" ? "✓" : state.status === "pending" ? "◐" : "!"}</span><div class="stack grow"><strong>${title}</strong><small>${h(state.detail ?? detail)}</small>${state.status === "failed" ? '<button type="button" data-bootstrap-retry>Try again</button>' : ""}</div></div>`;
+  const install = bootstrap?.install ?? { status: "pending" }, start = bootstrap?.start ?? { status: "pending" };
+  const agentState = { status: pending.length || !bootstrap ? "pending" : "done" };
+  const ready = install.status === "done" && start.status === "done" && agentState.status === "done";
+  return `<div class="content">${header(s, now, reachable)}${ready ? connected.length ? `<small>Connected: ${h(connected.map((a) => a.name).join(", "))}</small>` : "" : `<div class="stack"><div class="headline">Connect pacer</div><div class="muted">pacer installs and starts automatically. Choose when to connect your agents.</div></div><div class="list">${step(install, "Install pacer", "Checking the pacer binary…")}${install.detail === UNPUBLISHED ? `<small class="muted">${h(MANUAL_INSTALL)}</small>` : ""}${step(start, "Start pacer", "Starting the login service…")}${step(agentState, "Connect your agents", connected.length ? "Connected: " + connected.map((a) => a.name).join(", ") : "Your click installs pacer's skills, rules and hooks. No MCP servers are added.")}</div>${pending.map((a) => `<div class="stack"><strong>${h(a.name)}</strong>${a.files.map((path) => `<small><code>${h(path)}</code></small>`).join("")}</div>`).join("")}${start.status === "done" && pending.length ? `<button type="button" class="primary" data-connect-agents${!bootstrap?.terminal ? " disabled" : ""}>${!bootstrap?.terminal ? "Opening a terminal…" : "Connect my agents"}</button>` : ""}`}
+ ${planner ? `<section class="stack section"><h2>Last known budget · ${h(age(s.budget.generatedAt, now))} · not live</h2><div class="card stack last-known"><div class="row"><span class="name">${icon(planner.id)}${h(displayName(planner.id))}</span><span class="grow"></span><strong>${planner.usedPct === null ? "—" : `${Math.round(planner.usedPct)}%`} used</strong></div>${meter({ ...planner, pacePct: null })}<small>Shown greyed until pacer reconnects. Nothing here is live.</small></div></section>` : ""}<div class="row note info"><strong aria-hidden="true">i</strong><small>pacer never changes Orca's settings. Everything runs on 127.0.0.1 and only on this machine.</small></div></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" disabled>Delegate a task</button><button type="button" data-check>Check again</button></div>${actionStatus}</div>`;
 }
 
 // orca-plugin/src/panel/delegate.ts
@@ -766,6 +1167,8 @@ function delegateView(s, now, reachable) {
 
 // orca-plugin/src/panel/style.ts
 var style = `
+.step.failed .step-num{color:var(--bad)}
+
 [data-focus]{cursor:pointer;transition:background .12s}[data-focus]:hover{background:var(--hover,rgba(128,128,128,.08))}[data-focus]:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 
 .action-spinner{display:inline-block;animation:console-spin 1s linear infinite}@media(prefers-reduced-motion:reduce){.action-spinner{animation:none}}
@@ -992,6 +1395,17 @@ for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"t
     request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup",()=>restoreAction(key),()=>restoreAction(key));
   },()=>restoreAction(key));
 });}
+for (const b of document.querySelectorAll("[data-connect-agents]")) b.addEventListener("click", () => {
+ b.disabled=true;
+ readContext(value => {
+  const terminal=value?.terminals?.find(t=>t.id===data.setupTerminal);
+  if(!terminal){b.disabled=false;status.textContent="Opening a terminal… Reopen the panel shortly.";return;}
+  request("terminal.sendText",{terminalId:terminal.id,text:data.setupCommand || "pacer setup --yes",enter:true},"connect",()=>{status.textContent="Connecting your agents…";},()=>{b.disabled=false;});
+ },()=>{b.disabled=false;});
+});
+for (const b of document.querySelectorAll("[data-bootstrap-retry]")) b.addEventListener("click", () => {
+ show("setup"); status.textContent="pacer will retry automatically. Reopen the panel shortly.";
+});
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
   if (!data.reachable) {
     status.textContent = "Waiting for pacer serve. Start it, then reopen this panel.";
@@ -1068,13 +1482,14 @@ readContext(value => { live(value); });
 // orca-plugin/src/panel.ts
 function renderPanel(s, view) {
   const reconnecting = !view.reachable && !!s.budget && view.lastSeenAt !== undefined && view.nowS - view.lastSeenAt >= 0 && view.nowS - view.lastSeenAt < 20;
-  const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c) => c.handle && view.nowS - c.heartbeatAt <= LIMITS.heartbeatS).filter((c, i, a) => a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], selected = reconnecting ? "overview" : initialView(s, view.reachable, view.nowS);
+  const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c) => c.handle && view.nowS - c.heartbeatAt <= LIMITS.heartbeatS).filter((c, i, a) => a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], selected = view.bootstrap && (view.bootstrap.install.status !== "done" || view.bootstrap.start.status !== "done" || view.bootstrap.agents.some((a) => !a.installed)) ? "setup" : reconnecting ? "overview" : initialView(s, view.reachable, view.nowS);
   const commands = { refresh: { cmd: "refresh" } };
   const text = {};
-  const main = overview(s, view.nowS, view.reachable, commands, text);
+  const connected = view.bootstrap?.agents.filter((a) => a.installed).map((a) => a.name) ?? [];
+  const main = overview(s, view.nowS, view.reachable, commands, text) + (connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
   const reasonText = view.autoConsole ?? true ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
   const disable = (html) => (console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label) => `<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
-  const payload = { focusAlerts: s.alerts.filter((a) => a.key.startsWith("focus-")), notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => (a.key.startsWith("retry-") || a.key.startsWith("focus-")) && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
+  const payload = { setupCommand: view.bootstrap?.binary ? shellCommand([view.bootstrap.binary, "setup", "--yes"]) : undefined, setupTerminal: view.bootstrap?.terminal, focusAlerts: s.alerts.filter((a) => a.key.startsWith("focus-")), notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => (a.key.startsWith("retry-") || a.key.startsWith("focus-")) && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
   const strategy = strategyView(s, view.nowS, view.reachable, view.notifications ?? "important");
   const outcome = view.autoConsoleOutcome, waiting = !outcome || outcome.status === "starting" && view.nowS - outcome.at < 15;
   const reason = outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
@@ -1083,12 +1498,12 @@ function renderPanel(s, view) {
   const data = encoded.length < plain.length ? encoded : plain;
   return `<!doctype html><html lang="en" data-transport="${h(view.transport ?? "none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style}</style></head><body>
  <main class="view" data-page="overview"${selected === "overview" ? "" : " hidden"}>${reconnecting ? '<div role="status" class="note">Reconnecting...</div><div style="opacity:.45;pointer-events:none" inert>' + disable(main) + "</div>" : disable(main)}</main>
- <main class="view" data-page="setup"${selected === "setup" ? "" : " hidden"}>${setup(s, view.nowS, view.reachable)}</main>
+ <main class="view" data-page="setup"${selected === "setup" ? "" : " hidden"}>${setup(s, view.nowS, view.reachable, view.bootstrap)}</main>
  <main class="view" data-page="delegate" hidden>${disable(delegateView(s, view.nowS, view.reachable))}</main>
  <main class="view" data-page="strategy" hidden>${disable(strategy)}</main>
  <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong>${consoleHint}</div>
  <script type="application/json" id="pacer-actions">${data}</script><script>
-${client}</script></body></html>`;
+${client.replace(/^ *\/\/[^\n]*\n/gm, "").replace(/^ +/gm, "")}</script></body></html>`;
 }
 
 // orca-plugin/src/plugin.ts
@@ -1177,6 +1592,7 @@ function createPlugin(deps) {
       return { ...current, expired: current.status === "starting" && deps.nowS() - current.at >= 15 };
     };
     const panelKey = () => JSON.stringify({
+      bootstrap: deps.bootstrap?.state,
       notifications: settings.notifications,
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
@@ -1209,8 +1625,8 @@ function createPlugin(deps) {
         try {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
-            if (deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome() }));
+            if (deps.ownPanel || deps.fs.exists(join3(deps.pluginRoot, ".pacer-managed"))) {
+              deps.fs.writeTextAtomic(join3(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state }));
               renderedKey = key;
               lastRenderAt = nowS;
               userOutcome = false;
@@ -1227,6 +1643,17 @@ function createPlugin(deps) {
         }).catch(logError);
       });
     };
+    if (deps.bootstrap) {
+      deps.bootstrap.activate(ctx).then(() => deps.bootstrap.run(ctx, () => scheduleRender(true))).catch(logError);
+      timers.every(60000, () => {
+        if (!stopped)
+          deps.bootstrap.run(ctx, () => scheduleRender(true)).catch(logError);
+      });
+      timers.every(5000, () => {
+        if (!stopped)
+          deps.bootstrap.refreshAgents(ctx, () => scheduleRender(true)).catch(logError);
+      });
+    }
     let refreshingSettings = false;
     timers.every(30000, () => {
       if (stopped || refreshingSettings)
@@ -1590,6 +2017,7 @@ function createPlugin(deps) {
     activate,
     async deactivate() {
       stopped = true;
+      deps.bootstrap?.stop();
       stopWatch?.();
       stopWatch = null;
       cancelRender?.();
@@ -1702,9 +2130,12 @@ var http = {
     };
   }
 };
-var pluginRoot = dirname(fileURLToPath(import.meta.url));
+var pluginRoot = dirname(fileURLToPath2(import.meta.url));
+var PLUGIN_VERSION = package_default.version;
 var log = (message) => {};
 var plugin = createPlugin({
+  ownPanel: true,
+  bootstrap: createBootstrap({ home: process.env.HOME ?? process.env.USERPROFILE ?? "", env: process.env, version: PLUGIN_VERSION }),
   nowS: () => Date.now() / 1000,
   timers,
   http,
@@ -1713,24 +2144,24 @@ var plugin = createPlugin({
   fs: {
     readText(path) {
       try {
-        return readFileSync(path, "utf8");
+        return readFileSync3(path, "utf8");
       } catch {
         return null;
       }
     },
-    exists: existsSync,
+    exists: existsSync3,
     writeTextAtomic(path, text) {
-      if (resolve(path) !== resolve(pluginRoot, "panel", "live.html") || !existsSync(join2(pluginRoot, ".pacer-managed"))) {
-        log("pacer: refused panel write: unmanaged root or unexpected path");
+      if (resolve(path) !== resolve(pluginRoot, "panel", "live.html")) {
+        log("pacer: refused panel write: unexpected path");
         return;
       }
       const temporary = `${path}.${process.pid}.tmp`;
       try {
-        writeFileSync(temporary, text, "utf8");
-        renameSync(temporary, path);
+        writeFileSync2(temporary, text, "utf8");
+        renameSync2(temporary, path);
       } finally {
         try {
-          unlinkSync(temporary);
+          unlinkSync2(temporary);
         } catch {}
       }
     }
