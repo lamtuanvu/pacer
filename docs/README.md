@@ -10,3 +10,7 @@ pacer delegates coding work according to subscription usage and pace. Start with
 
 `pacer --help` lists commands. `pacer doctor` checks local setup. The [design spec](specs/2026-10-11-pacer-design.md) records architecture and historical design intent; use these user docs and CLI help for current behavior.
 - [Distribution channels](distribution.md): GitHub Releases, install.sh, npm, Homebrew and the Orca plugin
+
+- [Design system](../design/README.md): identity, tokens and standalone reference boards.
+- [Roadmap](../ROADMAP.md): launch intentions and upstream API dependencies.
+- [Orca limitations](../orca-plugin/README.md#known-limitations-orca-pluginapi-1-verified-on-orca-14224): current host restrictions and workarounds.

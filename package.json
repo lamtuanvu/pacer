@@ -19,7 +19,8 @@
     "release:host": "bun scripts/release/build.ts --host",
     "plugin:build": "bun orca-plugin/build.ts",
     "release:npm": "bun scripts/release/npm.ts",
-    "release:homebrew": "bun scripts/release/homebrew.ts"
+    "release:homebrew": "bun scripts/release/homebrew.ts",
+    "brand:render": "bun scripts/brand/render.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

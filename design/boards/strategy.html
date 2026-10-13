@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Strategy picker and agent builder</title>
+<style>
+body{margin:0}
+</style>
+</head>
+<body>
+<div style="width: 400px; height: 1180px; box-sizing: border-box; background: #FFFFFF; color: #18181B; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; line-height: 1.4; letter-spacing: 0.01em; display: flex; flex-direction: column">
+
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 12px; flex-grow: 1">
+
+<div style="display: flex; align-items: center; gap: 8px">
+<a href="overview.html" aria-label="Back to overview" style="min-width: 28px; min-height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #18181B; text-decoration: none; font-size: 14px">←</a>
+<span style="font-weight: 600; font-size: 13px">Strategy</span>
+<span style="flex-grow: 1"></span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #52525B"><span style="width: 8px; height: 8px; border-radius: 999px; background: #16A34A"></span>Live · 17:22</span>
+</div>
+
+<span style="font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #71717A">Switch to</span>
+<div style="display: flex; flex-direction: column; border: 1px solid #E4E4E7; border-radius: 8px">
+<button type="button" style="font: inherit; text-align: left; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; border-bottom: 1px solid #F4F4F5; background: #FFFFFF; color: #18181B; cursor: pointer">
+<span style="width: 14px; text-align: center; font-weight: 700">✓</span>
+<span style="display: flex; flex-direction: column; flex-grow: 1"><span style="font-weight: 500">default</span><span style="font-size: 11px; color: #71717A">Codex first, Claude keeps 15%</span></span>
+<span style="font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 6px; background: #F4F4F5; color: #3F3F46">Active</span>
+</button>
+<button type="button" style="font: inherit; text-align: left; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; border-bottom: 1px solid #F4F4F5; background: #FFFFFF; color: #18181B; cursor: pointer">
+<span style="width: 14px"></span>
+<span style="display: flex; flex-direction: column; flex-grow: 1"><span style="font-weight: 500">save-claude</span><span style="font-size: 11px; color: #71717A">Claude keeps 30%, stricter pacing</span></span>
+</button>
+<button type="button" style="font: inherit; text-align: left; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; border-bottom: 1px solid #F4F4F5; background: #FFFFFF; color: #18181B; cursor: pointer">
+<span style="width: 14px"></span>
+<span style="display: flex; flex-direction: column; flex-grow: 1"><span style="font-weight: 500">burn-codex</span><span style="font-size: 11px; color: #71717A">Use Codex up before it resets</span></span>
+</button>
+<button type="button" style="font: inherit; text-align: left; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; background: #FFFFFF; color: #18181B; cursor: pointer">
+<span style="width: 14px"></span>
+<span style="display: flex; flex-direction: column; flex-grow: 1"><span style="font-weight: 500">cheap-first</span><span style="font-size: 11px; color: #71717A">Local and BytePlus before subscriptions</span></span>
+</button>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid #E4E4E7; border-radius: 8px; background: #FAFAFA">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-weight: 600; font-size: 13px">Build a new strategy with an agent</span>
+<span style="color: #71717A">Describe what you want. The agent drafts it, shows how routing would change, and asks before saving.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="want" style="font-weight: 500">What should it do?</label>
+<textarea id="want" rows="4" placeholder="e.g. Protect Claude this week. Burn Codex before it resets on Sunday. Never use BytePlus for refactors." style="font: inherit; resize: vertical; padding: 6px 10px; border-radius: 8px; border: 1px solid #D4D4D8; background: #FFFFFF; color: #18181B"></textarea>
+</div>
+<div style="display: flex; gap: 8px">
+<div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1">
+<label for="from" style="font-weight: 500">Start from</label>
+<select id="from" style="font: inherit; height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid #D4D4D8; background: #FFFFFF; color: #18181B">
+<option>default</option><option>save-claude</option><option>burn-codex</option><option>cheap-first</option>
+</select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1">
+<label for="agent" style="font-weight: 500">Agent</label>
+<select id="agent" style="font: inherit; height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid #D4D4D8; background: #FFFFFF; color: #18181B">
+<option>Claude Code (planner)</option><option>Codex</option>
+</select>
+</div>
+</div>
+<div style="display: flex; gap: 8px; padding: 8px 10px; border-radius: 8px; background: #F4F4F5; color: #52525B">
+<span aria-hidden="true" style="font-weight: 700">i</span>
+<span style="font-size: 11px">Opens a new terminal in this worktree with the agent already briefed. You chat with it there; nothing changes until you approve the save. Switching stays a separate click here.</span>
+</div>
+<button type="button" style="font: inherit; height: 32px; border-radius: 8px; border: 1px solid #18181B; background: #18181B; color: #FFFFFF; font-weight: 500; cursor: pointer">Start session</button>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #71717A">After the session</span>
+<div style="display: flex; gap: 8px; align-items: flex-start; padding: 10px; border-radius: 8px; border: 1px solid #BBF7D0; background: #F7FEF9">
+<span aria-hidden="true" style="color: #15803D; font-weight: 700">✓</span>
+<div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1">
+<span style="font-weight: 500">New strategy "codex-sprint" saved by Claude</span>
+<span style="font-size: 11px; color: #71717A">Codex first, Claude keeps 25%, BytePlus off for refactors</span>
+</div>
+<button type="button" style="font: inherit; font-size: 11px; height: 28px; padding: 0 10px; flex-shrink: 0; white-space: nowrap; border-radius: 8px; border: 1px solid #E4E4E7; background: #FFFFFF; color: #18181B; cursor: pointer">Switch</button>
+</div>
+</div>
+
+</div>
+
+<div style="display: flex; gap: 8px; padding: 8px 12px 10px; border-top: 1px solid #E4E4E7; background: #FFFFFF">
+<a href="overview.html" style="height: 32px; flex-grow: 1; border-radius: 8px; border: 1px solid #E4E4E7; background: #FFFFFF; color: #18181B; text-decoration: none; display: flex; align-items: center; justify-content: center">Done</a>
+</div>
+
+</div>
+</body>
+</html>

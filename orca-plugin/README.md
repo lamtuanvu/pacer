@@ -22,11 +22,6 @@ reload and enable `lamtuanvu.pacer` in Orca. `pacer plugin status` detects older
 installs, and `pacer plugin uninstall` can remove either tracked identity.
 Orca settings and installed plugin trees are never edited by these CLI commands.
 
-Only a managed development path with `.pacer-managed` allows the worker to update
-`panel/live.html`. Marketplace and direct installs retain the bundled placeholder
-panel; worker commands and notifications still run. Use the local development
-install for a current budget snapshot, then reopen the panel to refresh it.
-
 Transport selection is HTTP on loopback (default port 4317, bearer token read
 from `<pacerHome>/token`), a future `plugin.message` channel, then the storage
 bridge. The channel is unavailable in current Orca and is probed safely.
@@ -36,8 +31,7 @@ persisted `lastAlertAt` watermark. Orca filters `PACER_HOME` out of worker env;
 set the plugin's `pacerHome` setting for a custom location.
 
 With `pacer serve` running, the HTTP worker checks the active worktree every five
-seconds and opens its own pacer console automatically. Orca 1.4.224 only accepts
-terminal typing in the active worktree, so each worktree needs a console.
+seconds and opens its own pacer console automatically.
 Use `pacer plugin set autoConsole off` (or `on`) and reload the plugin to change
 this default; bridge/channel transports never open consoles. The panel shows
 “Starting pacer console in this worktree...” while connected with autoConsole on;
@@ -54,11 +48,17 @@ use only the console's advertised terminal handle while its heartbeat is at
 most 30 seconds old. Their `: pacer '<json>'` lines are inert in a POSIX shell.
 Open console reports whether a console is running; it does not spawn a process.
 
-The budget panel is a snapshot. Reopen it to refresh; alerts arrive through
-Orca notifications. PluginApi 1 provides no push to an open panel. The worker
-uses only loopback HTTP, token reads, and atomic writes to the managed panel.
-No agent profiles, keybindings, subprocesses, external URLs, or dependencies
-are included. Live verification is tracked by the separate spike checklist.
+## Known limitations (Orca pluginApi 1, verified on Orca 1.4.224)
+
+| Limitation | What pacer does today | Upstream |
+| --- | --- | --- |
+| No panel → worker messaging | Panel buttons type shell-inert commands into a pacer console with a fresh heartbeat; each worktree needs its own console. The prospective channel transport is probed safely but unavailable. | [#25129 comment](https://github.com/stablyai/orca/issues/25129#issuecomment-6126817756) |
+| `terminal.sendText` only reaches the active worktree; plugins cannot create terminals | The HTTP service opens a console in the focused worktree. Commands only target a console whose heartbeat is at most 30 seconds old. Manual fallback remains `pacer console --open`. | [#28008](https://github.com/stablyai/orca/issues/28008) |
+| No worker → panel push | The panel is a snapshot: reopen it to refresh. Only a managed development path marked `.pacer-managed` permits `panel/live.html` rewrites when visible content changes. Marketplace and direct installed copies retain the bundled placeholder and have no live panel; worker commands and notifications still run. | [#26951 comment](https://github.com/stablyai/orca/issues/26951#issuecomment-6126818405), related [#15638](https://github.com/stablyai/orca/issues/15638) |
+| Forms do not submit inside panels | Use `type="button"` controls and click handlers, with Enter handled in script. Native form submission and validation cannot be relied on. | [#28009](https://github.com/stablyai/orca/issues/28009) |
+| No plugin exec / declared command API | Route panel actions through the terminal console and local service rather than executing a subprocess from the plugin. | [#18214 comment](https://github.com/stablyai/orca/issues/18214#issuecomment-6126819013) |
+
+The worker uses loopback HTTP, token reads and atomic writes to the managed panel. It includes no agent profiles, keybindings, subprocesses, external URLs or dependencies. See the [upstream evidence](../docs/upstream/orca/README.md) and [roadmap](../ROADMAP.md) for the API changes that would remove these workarounds.
 
 Run `bun run test && bun run typecheck` and `bunx tsc --noEmit -p orca-plugin`
 after changes. Bundle freshness tests require rebuilding generated artifacts.

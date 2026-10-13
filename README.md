@@ -1,8 +1,31 @@
-# pacer
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/pacer-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/pacer-logo-light.svg">
+    <img src=".github/assets/pacer-logo-light.svg" alt="pacer" width="240" height="64">
+  </picture>
+</p>
+<p align="center">Subscription budgets for AI coding agents</p>
+<p align="center">
+  <a href="https://github.com/lamtuanvu/pacer/actions/workflows/ci.yml"><img src="https://github.com/lamtuanvu/pacer/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-52525B" alt="License Apache-2.0"></a>
+  <a href="https://github.com/lamtuanvu/pacer/releases/latest"><img src="https://img.shields.io/github/v/release/lamtuanvu/pacer?color=52525B" alt="Latest GitHub release"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/lamtuanvu/pacer"><img src="https://api.scorecard.dev/projects/github.com/lamtuanvu/pacer/badge" alt="OpenSSF Scorecard"></a>
+</p>
 
 Subscription budgets for AI coding agents: route and delegate coding work according to usage, pace and available executors.
 
 A planner can spend its subscription too quickly while other coding agents have unused capacity. pacer compares usage against time until reset, learns your active hours from local session logs, and helps the planner reserve capacity for decisions and review. Claude Code can plan while Codex, Cursor, agy, BytePlus or local models execute; Codex, Cursor and OpenCode can also be planners.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/panel-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/panel-light.png">
+    <img src=".github/assets/panel-light.png" alt="Orca budget panel showing provider usage, executor ranking, a task needing review and a running task" width="360">
+  </picture>
+</p>
+
+Rendered from the current plugin with sample data. [Roadmap](ROADMAP.md) · [Orca limitations](orca-plugin/README.md#known-limitations-orca-pluginapi-1-verified-on-orca-14224) · [Design system](design/README.md).
 
 ## Features
 
@@ -98,7 +121,7 @@ pacer plugin install
 pacer serve
 ```
 
-Add the managed development directory printed by the installer to Orca Settings > Plugins and enable its declared capabilities. Re-running `pacer plugin install` migrates an older `pacer.pacer` development install in the same directory; reload and enable the new identity in Orca. The plugin targets Orca >=1.4.224 and shows a budget snapshot, task cards and notifications. The live budget snapshot requires the managed development path; marketplace and direct installs keep the bundled placeholder panel, while worker commands and notifications still run. With the HTTP service running, it can open a pacer console in the focused worktree. Run `pacer console` manually when needed. See the [plugin guide](orca-plugin/README.md); reopen the managed panel to refresh its snapshot.
+Add the managed development directory printed by the installer to Orca Settings > Plugins and enable its declared capabilities. Re-running `pacer plugin install` migrates an older `pacer.pacer` development install in the same directory; reload and enable the new identity in Orca. The plugin targets Orca >=1.4.224 and shows a budget snapshot, task cards and notifications. With the HTTP service running, it can open a pacer console in the focused worktree. Run `pacer console` manually when needed. See the [plugin guide](orca-plugin/README.md) and its [known limitations](orca-plugin/README.md#known-limitations-orca-pluginapi-1-verified-on-orca-14224).
 
 ## Privacy
 
