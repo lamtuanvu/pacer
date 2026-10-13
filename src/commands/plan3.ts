@@ -28,13 +28,13 @@ const badPlanner = (p: string | undefined): Result => error(2,
 export const COMMANDS: Command[] = [
   {
     name: "install",
-    usage: usage("install <planner>", "wire pacer into claude-code, codex, cursor or opencode"),
+    usage: usage("install <planner> [--mcp|--no-mcp]", "wire pacer into claude-code, codex, cursor or opencode"),
     async run(args, ctx) {
       const [planner] = args;
       if (!isPlanner(planner)) return badPlanner(planner);
-      if (args.length !== 1) return error(2, "usage: pacer install <planner>");
+      if (args.slice(1).some(a=>!["--mcp","--no-mcp"].includes(a)) || args.includes("--mcp")&&args.includes("--no-mcp")) return error(2, "usage: pacer install <planner> [--mcp|--no-mcp]");
       try {
-        return ok(renderInstall(await installPlanner({ ctx, pacerArgv: pacerArgv(ctx.env) }, planner)));
+        return ok(renderInstall(await installPlanner({ ctx, pacerArgv: pacerArgv(ctx.env), ...(args.includes("--mcp")?{mcp:true}:args.includes("--no-mcp")?{mcp:false}:{}) }, planner)));
       } catch (e) {
         if (e instanceof InstallError) return error(1, `pacer: ${e.message}`);
         return error(1, `pacer: ${message(e)}`);

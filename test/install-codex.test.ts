@@ -23,7 +23,7 @@ function setup(existing = true) {
     writeFileSync(agents, "");
     writeFileSync(hooks, JSON.stringify({ hooks: { SessionStart: [gkStart], PreToolUse: [gkGuard] } }));
   }
-  return { ctx, config, agents, hooks, gkStart, gkGuard, env: { ctx, pacerArgv: PACER } };
+  return { ctx, config, agents, hooks, gkStart, gkGuard, env: { ctx, mcp: true, pacerArgv: PACER } };
 }
 
 test("Codex writes exact MCP block and parseable argv, including dev paths", async () => {
@@ -52,7 +52,7 @@ test("Codex install is idempotent and uninstall restores every original byte", a
   const { ctx, env } = setup();
   const original = snapshot(ctx.home);
   const first = await runInstall(env, "codex", installCodex);
-  expect(first.touched).toHaveLength(3);
+  expect(first.touched).toHaveLength(4);
   const installed = snapshot(ctx.home);
   const again = await runInstall(env, "codex", installCodex);
   expect(again.touched).toEqual([]);
@@ -93,7 +93,7 @@ test("Codex fresh-home uninstall deletes all created files", async () => {
   await runInstall(env, "codex", installCodex);
   for (const path of [config, agents, hooks]) expect(existsSync(path)).toBe(true);
   const result = await uninstallPlanner(ctx, "codex");
-  expect(result!.removed.sort()).toEqual([config, agents, hooks].sort());
+  expect(result!.removed.sort()).toEqual([config, agents, hooks, join(ctx.home,".codex/skills/pacer/SKILL.md")].sort());
   for (const path of [config, agents, hooks]) expect(existsSync(path)).toBe(false);
 });
 

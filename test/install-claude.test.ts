@@ -27,7 +27,7 @@ function legacyHome() {
     statusLine: { type: "command", command: script },
   };
   const settings = put("settings.json", JSON.stringify(original, null, 2) + "\n");
-  return { ctx, calls, legacy, script, settings, original, install: (argv = PACER) => runInstall({ ctx, pacerArgv: argv }, "claude-code", installClaude) };
+  return { ctx, calls, legacy, script, settings, original, install: (argv = PACER) => runInstall({ ctx, mcp: true, pacerArgv: argv }, "claude-code", installClaude) };
 }
 
 test("Claude migration replaces legacy hooks and scripts and registers MCP", async () => {
@@ -84,7 +84,7 @@ test("Claude rewritten settings keep theme while restoring legacy hooks and reta
 
 test("fresh Claude home creates statusLine without CLI and round-trips", async () => {
   const ctx = fakeCtx({ which: () => null }); const original = snapshot(ctx.home);
-  const result = await runInstall({ ctx, pacerArgv: PACER }, "claude-code", installClaude);
+  const result = await runInstall({ ctx, mcp: true, pacerArgv: PACER }, "claude-code", installClaude);
   const settings = JSON.parse(readFileSync(join(ctx.home, ".claude/settings.json"), "utf8"));
   expect(settings.statusLine).toEqual({ type: "command", command: "/opt/pacer/bin/pacer statusline" });
   expect(result.notes.join("\n")).toContain("claude CLI not found: register the MCP server yourself");

@@ -174,7 +174,7 @@ async function runOrcaAttempt(
     return fallback(deps, ctx, cfg, task, onSpawn, p.reason);
   }
 
-  updateTask(ctx,task.id,t=>{t.placement={requested:task.placement?.requested??"auto",...task.placement,...p.resolved};delete t.worktree;});
+  updateTask(ctx,task.id,t=>{t.baseBranch=p.base;t.placement={requested:task.placement?.requested??"auto",...task.placement,...p.resolved};delete t.worktree;});
   let startedAt = deps.now() / 1000;
   const lines: string[] = [];
   const log = (line: string) => { lines.push(line); };

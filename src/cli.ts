@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+import { markExhausted } from "./usage/reactive";
+import { readFileSync } from "node:fs";
+import { isExecutorSession } from "./install/role";
 import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
@@ -6,7 +9,7 @@ import { io } from "./install/stdin";
 import { resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
-import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, useStrategy } from "./config/strategy";
+import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy } from "./config/strategy";
 import { makeCtx } from "./ctx";
 import { rankExecutors } from "./engine/rank";
 import { computeStatus, displayName } from "./engine/status";
@@ -15,25 +18,34 @@ import { renderHook } from "./render/hook";
 import { renderLine } from "./render/line";
 import { renderText } from "./render/text";
 import { DEFAULT_PORT, startServer } from "./serve/http";
-import { DelegateError, delegate, taskStatus, taskStop, taskWait } from "./tasks/api";
+import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskReview, taskDismiss, delegate, taskStatus, taskStop, taskWait } from "./tasks/api";
 import { runTask } from "./tasks/runner";
 import { listTasks } from "./tasks/store";
-import type { TaskRecord, WorktreeRequest } from "./tasks/types";
+import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
 
 const USAGE = `usage: pacer <command>
   status [--line | --json | --hook <planner>]   budget status (default: text report)
   route [kind] [--json]                          executors pacer would use, in order
-  delegate --goal <text> [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
+  delegate [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-reason <text>]
+  wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
+  review <task-id> --accept|--reject [--kind <k>] [--json] record review
+  dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
-  stop <task-id>                                 stop a running task
+  stop <task-id> [--json]                         stop a running task
+  report-limit <provider> [--until <unix-seconds>] record an executor limit
   mcp                                            run the MCP server on stdio
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
-  help                                           this message`;
+  help                                           this message
+JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors.
+route: kind, ranked, excluded. delegate: TaskRecord (id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields).
+tasks <id>, wait, stop: task_id, state, kind, requested_executor, placement, attempts, result, review, resolved.
+tasks: array of those task summaries. review: recorded. Flags override brief-file fields; repo defaults to cwd.
+install <planner> [--mcp|--no-mcp]: skill and hooks; MCP is optional.`;
 
 function help(): string {
   const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
@@ -116,7 +128,7 @@ async function route(args: string[], ctx: Ctx): Promise<Result> {
     const s = loadStrategy(ctx);
     const st = await computeStatus(ctx, s);
     const r = rankExecutors(pos[0] ?? null, s, Object.fromEntries(st.providers.map((p) => [p.id, p])));
-    if (opts.json) return { code: 0, out: JSON.stringify(r, null, 1), err: "" };
+    if (opts.json) return { code: 0, out: JSON.stringify({kind:pos[0]??null,...r}, null, 1), err: "" };
     const lines = r.ranked.map((e, i) => `${i + 1}. ${e.id} (${displayName(e.id)}): ${e.reason}`);
     if (!lines.length) lines.push("no executor available");
     if (r.excluded.length) lines.push(`excluded: ${r.excluded.map((e) => `${e.id} (${e.reason})`).join(", ")}`);
@@ -148,23 +160,17 @@ function renderTask(t: TaskRecord): string {
 async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
   const { opts } = parseFlags(args, ["wait", "json", "force"]);
   try {
-    const timeout = str(opts["timeout-min"]);
-    const t = delegate(ctx, {
-      force:opts.force === true,
-      worktree: str(opts.worktree) as WorktreeRequest | undefined,
-      worktree_reason: str(opts["worktree-reason"]),
-      brief: {
-        goal: str(opts.goal) ?? "",
-        repo: resolve(str(opts.repo) ?? process.cwd()),
-        scope: str(opts.scope),
-        acceptance: str(opts.acceptance),
-        constraints: str(opts.constraints),
-        context: str(opts.context),
-      },
-      kind: str(opts.kind) ?? null,
-      executor: str(opts.executor) ?? null,
-      timeoutMin: timeout === undefined ? undefined : Number(timeout),
-    });
+    if(isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
+    if(opts["brief-file"]===true)throw new DelegateError("--brief-file needs a path or -");
+    const file=str(opts["brief-file"]);
+    let raw:Record<string,unknown>={};
+    if(file){const parsed=JSON.parse(file==="-" ? await io.readBriefStdin() : readFileSync(file,"utf8"));
+      if(!parsed || typeof parsed!=="object" || Array.isArray(parsed))throw new DelegateError("brief must be a JSON object");raw=parsed;}
+    for(const key of ["goal","repo","scope","acceptance","constraints","context","kind","executor","worktree"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
+    if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
+    if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
+    if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
+    const t=delegate(ctx,{...parseDelegateBrief(raw,process.cwd()),force:opts.force===true});
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
@@ -178,10 +184,10 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
   if (pos[0]) {
     const t = taskStatus(ctx, pos[0]);
     if (!t) return { code: 2, out: "", err: `pacer: unknown task ${pos[0]}` };
-    return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : renderTask(t), err: "" };
+    return { code: 0, out: opts.json ? JSON.stringify(summarizeTask(t), null, 1) : renderTask(t), err: "" };
   }
   const list = listTasks(ctx).map((t) => taskStatus(ctx, t.id) ?? t);
-  if (opts.json) return { code: 0, out: JSON.stringify(list, null, 1), err: "" };
+  if (opts.json) return { code: 0, out: JSON.stringify(list.map(summarizeTask), null, 1), err: "" };
   if (!list.length) return { code: 0, out: "no tasks yet", err: "" };
   return {
     code: 0,
@@ -193,6 +199,13 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
   switch (cmd) {
+    case "report-limit": {
+      const {opts,pos}=parseFlags(rest,[]);
+      try{const cfg=loadStrategy(ctx).providers[pos[0]];if(!cfg)throw new Error(`unknown provider "${pos[0]}"`);
+        const until=Number(str(opts.until)??ctx.now+cfg.cooldownS);if(!Number.isFinite(until))throw new Error("until must be unix seconds");
+        markExhausted(ctx,pos[0],until);return {code:0,out:`${pos[0]} exhausted until ${until}`,err:""};
+      }catch(e){return {code:2,out:"",err:explain(e)};}
+    }
     case "executor": return executorCommand(rest,ctx);
     case "status":
       return status(rest, ctx);
@@ -202,10 +215,28 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       return delegateCmd(rest, ctx);
     case "tasks":
       return tasksCmd(rest, ctx);
+    case "wait":
+    case "review":
+    case "dismiss":
     case "stop": {
-      if (!rest[0]) return { code: 2, out: "", err: USAGE };
-      const t = taskStop(ctx, rest[0]);
-      return t ? { code: 0, out: `${t.id} ${t.state}`, err: "" } : { code: 2, out: "", err: `pacer: unknown task ${rest[0]}` };
+      const {opts,pos}=parseFlags(rest,["json","accept","reject"]);
+      if(!pos[0])return {code:2,out:"",err:USAGE};
+      try {
+        if(cmd==="review") {
+          if(!!opts.accept===!!opts.reject)throw new Error("give exactly one of --accept or --reject");
+          const result=taskReview(ctx,pos[0],!!opts.accept,str(opts.kind));
+          return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
+        }
+        if(cmd==="dismiss") {
+          for(const id of pos)if(!taskDismiss(ctx,id))throw new Error(`unknown task ${id}`);
+          return {code:0,out:pos.map(id=>`${id} dismissed`).join("\n"),err:""};
+        }
+        const timeout=Number(str(opts.timeout)??600);
+        if(cmd==="wait" && (!Number.isInteger(timeout)||timeout<1||timeout>3000))throw new Error("timeout must be between 1 and 3000 seconds");
+        const t=cmd==="wait" ? await taskWait(ctx,pos[0],timeout) : taskStop(ctx,pos[0]);
+        if(!t)throw new Error(`unknown task ${pos[0]}`);
+        return {code:cmd==="wait"&&!TERMINAL_STATES.includes(t.state)?2:0,out:opts.json?JSON.stringify(summarizeTask(t),null,1):cmd==="stop"?`${t.id} ${t.state}`:renderTask(t),err:""};
+      }catch(e){return {code:2,out:"",err:explain(e)};}
     }
     case "mcp":
       await runMcpStdio(() => fresh(ctx));

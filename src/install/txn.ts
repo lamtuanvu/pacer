@@ -8,7 +8,7 @@ import { mergeUndo, readManifest, writeManifest, type PlannerRecord, type UndoOp
 export class InstallError extends Error {
   constructor(message: string) { super(message); this.name = "InstallError"; }
 }
-export interface InstallEnv { ctx: Ctx; pacerArgv: string[] }
+export interface InstallEnv { ctx: Ctx; pacerArgv: string[]; mcp?: boolean }
 export class Txn {
   readonly record: PlannerRecord;
   readonly touched: string[] = [];

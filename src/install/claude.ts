@@ -1,3 +1,4 @@
+import { installSkill } from "./skill";
 import { existsSync, readdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { blockText, hasBlock, upsertBlock } from "./blocks";
@@ -107,13 +108,19 @@ export async function installClaude(tx: Txn): Promise<void> {
   const { ctx, pacerArgv } = tx.env;
   const command = shellCommand(pacerArgv);
   const claude = ctx.which("claude");
-  if (claude) {
+  if (claude && tx.env.mcp===true) {
     const remove = [claude, "mcp", "remove", "-s", "user", "pacer"];
     await tx.run(remove, undefined, { quiet: true });
     await tx.run([claude, "mcp", "add", "-s", "user", "pacer", "--", ...pacerArgv, "mcp"], remove);
-  } else tx.notes.push(`claude CLI not found: register the MCP server yourself with \`claude mcp add -s user pacer -- ${command} mcp\``);
+  } else if(tx.env.mcp===true)tx.notes.push(`claude CLI not found: register the MCP server yourself with \`claude mcp add -s user pacer -- ${command} mcp\``);
+  // ~/.claude.json is rewritten by running Claude sessions; let the claude CLI remove the entry.
+  if(tx.env.mcp===false){
+    if(claude)await tx.run([claude, "mcp", "remove", "-s", "user", "pacer"], undefined, { quiet: true });
+    else tx.notes.push("claude CLI not found: remove the MCP server yourself with `claude mcp remove -s user pacer`");
+  }
   for (const path of claudeLegacyFiles(ctx.home)) if (existsSync(path)) tx.moveAside(path);
   const root = join(ctx.home, ".claude");
+  installSkill(tx,root);
   tx.edit(join(root, "rules/pacer.md"), () => policyText("claude-code"), []);
   const settingsPath = join(root, "settings.json");
   let settings: ReturnType<typeof editClaudeSettings>;

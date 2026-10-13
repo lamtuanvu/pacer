@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../src/mcp/server";
 import { readLabels } from "../src/tasks/labels";
-import { updateTask } from "../src/tasks/store";
+import { readTask, updateTask } from "../src/tasks/store";
 import { readMarks } from "../src/usage/reactive";
 import { fakeCtx, tmpDir } from "./helpers";
 
@@ -74,6 +74,7 @@ test("report_limit marks exhaustion; task_review and guard_feedback record label
   const d = await call("delegate", { goal: "g", repo: tmpDir() });
   await call("task_review", { task_id: d.structuredContent.task_id, accepted: false, kind: "refactor", note: "wrong file" });
   await call("guard_feedback", { event_id: "e-1", correct: true });
+  expect(readTask(ctx,d.structuredContent.task_id)).toMatchObject({resolved:"reviewed",review:{accepted:false,kind:"refactor",note:"wrong file"}});
   const labels = readLabels(ctx);
   expect(labels[0]).toMatchObject({ type: "task_review", task_id: d.structuredContent.task_id, accepted: false, kind: "refactor", note: "wrong file" });
   expect(labels[1]).toMatchObject({ type: "guard_feedback", event_id: "e-1", correct: true });

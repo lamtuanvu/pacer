@@ -44,7 +44,7 @@ export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] 
  const groups=new Map<string,TaskData[]>();
  const resolved = new Set(s.tasks.filter(t=>t.state==="done"&&t.retryOf).map(t=>t.retryOf));
  for(const t of [...s.tasks].sort((a,b)=>b.updatedAt-a.updatedAt)) {
-  if(t.dismissed || (t.retriedBy && s.tasks.some(retry=>retry.id===t.retriedBy)) || resolved.has(t.id) || now-t.updatedAt>3*86400)continue;
+  if(t.resolved || t.review || t.dismissed || (t.retriedBy && s.tasks.some(retry=>retry.id===t.retriedBy)) || resolved.has(t.id) || now-t.updatedAt>3*86400)continue;
   if(!["failed","limit","partial"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&!t.attemptStartedAt&&!t.runnerAlive&&now-t.updatedAt>600)) continue;
   const key=t.brokenExecutor ? `broken:${t.brokenExecutor}` : t.goal;
   groups.set(key,[...(groups.get(key)??[]),t]);

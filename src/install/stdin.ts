@@ -14,4 +14,4 @@ async function readStdinBounded(ms = STDIN_TIMEOUT_MS): Promise<string> {
   }
 }
 
-export const io = { readStdin: (): Promise<string> => readStdinBounded() };
+export const io = { readStdin: (): Promise<string> => readStdinBounded(), readBriefStdin: (): Promise<string> => Bun.stdin.text() };

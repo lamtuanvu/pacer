@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { appendLabel } from "./labels";
 import { readBlocked } from "../executors/blocked";
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
@@ -7,6 +9,37 @@ import { killTree } from "../exec/process";
 import type { Ctx } from "../types";
 import { createTask, readTask, updateTask } from "./store";
 import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
+
+export const EXECUTOR_DELEGATE_ERROR = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
+export const delegateSchema = {
+  goal: z.string().min(1), repo: z.string().min(1),
+  scope: z.string().optional(), acceptance: z.string().optional(), constraints: z.string().optional(), context: z.string().optional(),
+  kind: z.enum(KINDS).optional(), executor: z.string().optional(),
+  worktree: z.enum(["current", "new", "auto"]).optional(), worktree_reason: z.string().max(200).optional(),
+  timeout_min: z.number().min(1).max(240).optional(),
+};
+export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateInput {
+  const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
+  if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
+  const a=parsed.data;
+  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, constraints:a.constraints, context:a.context },
+    kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
+}
+export function summarizeTask(t: TaskRecord): Record<string, unknown> {
+  return { task_id:t.id, state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null,
+    attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
+    result:t.result??null, review:t.review??null, resolved:t.resolved??null };
+}
+export function taskReview(ctx: Ctx, id: string, accepted: boolean, kind?: string, note?: string): {recorded:true} {
+  const t=taskStatus(ctx,id); if(!t)throw new Error(`unknown task ${id}`);
+  if(kind && !(KINDS as readonly string[]).includes(kind))throw new Error(`unknown kind "${kind}"`);
+  appendLabel(ctx,{type:"task_review",task_id:id,accepted,kind:kind??t.kind,note:note??null,executor:t.result?.executor??null});
+  updateTask(ctx,id,x=>{x.review={accepted,kind:kind??t.kind,note:note??null,at:ctx.now};x.resolved="reviewed";});
+  return {recorded:true};
+}
+export function taskDismiss(ctx: Ctx, id: string): TaskRecord | null {
+  return readTask(ctx,id) ? updateTask(ctx,id,t=>{t.dismissed=true;}) : null;
+}
 
 export const DEFAULT_TIMEOUT_MIN = 30;
 
@@ -109,9 +142,9 @@ export function taskStatus(ctx: Ctx, id: string): TaskRecord | null {
 }
 
 export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 1000): Promise<TaskRecord | null> {
-  const deadline = Date.now() + timeoutS * 1000;
+  const started = Date.now(), deadline = started + timeoutS * 1000;
   for (;;) {
-    const t = taskStatus(ctx, id);
+    const t = taskStatus({...ctx,now:ctx.now+(Date.now()-started)/1000}, id);
     if (!t || isTerminal(t) || Date.now() >= deadline) return t;
     await Bun.sleep(pollMs);
   }

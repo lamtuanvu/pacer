@@ -1,3 +1,6 @@
+import { resolveTask } from "../tasks/resolution";
+import { loadOrcaState } from "../exec/orca/state";
+import { OrcaClient, isLiveTerminal } from "../exec/orca/client";
 import { executorName, shortGoal } from "./notification";
 import { createHash } from "node:crypto";
 import { isObj } from "../util";
@@ -20,6 +23,7 @@ export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrateg
 export function taskData(t:TaskRecord):TaskData {
   const last=t.attempts.at(-1); return {id:t.id,state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0),
     ...(t.placement?.mode && t.placement.why!==undefined ? {placement:{mode:t.placement.mode,why:t.placement.why}} : {}),
+    ...(t.review?{review:t.review}:{}),...(t.resolved?{resolved:t.resolved}:{}),
     ...(t.dismissed ? {dismissed:true} : {}), ...(t.retryOf ? {retryOf:t.retryOf} : {}), ...(t.retriedBy ? {retriedBy:t.retriedBy} : {}),
     ...(t.result?.brokenReason ? {brokenExecutor:t.result.brokenExecutor,brokenReason:t.result.brokenReason} : {}),
     ...(t.attemptStartedAt ? {attemptStartedAt:t.attemptStartedAt} : {}),
@@ -37,7 +41,10 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   const statesPath=join(ctx.pacerHome,"link","task-states.json"),knownRaw=readJson<unknown>(statesPath);
   const known:Record<string,string>=isObj(knownRaw)?Object.fromEntries(Object.entries(knownRaw).filter(([,v])=>typeof v==="string")) as Record<string,string>:{};
   let statesChanged=false;
-  for(const t of deps.tasks(ctx)){const d=taskData(t),prev=latest.tasks.find(x=>x.id===d.id),before=known[d.id]??prev?.state;
+  const workers=Object.values(loadOrcaState(ctx).workers), client=new OrcaClient(ctx.run,ctx.env);
+  const records=deps.tasks(ctx).map(t=>resolveTask(ctx,t));
+  const terminals=await Promise.all(records.map(async t=>{const handle=workers.find(w=>w.taskId===t.id)?.terminal;if(!handle)return false;try{return isLiveTerminal(await client.terminalShow(handle));}catch{return false;}}));
+  for(const [index,t] of records.entries()){const d={...taskData(t),terminalPresent:terminals[index]},prev=latest.tasks.find(x=>x.id===d.id),before=known[d.id]??prev?.state;
     if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;}
     if(!prev&&before===d.state)continue;
     if(prev && Object.keys({...prev,...d}).every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])))continue;out.push({v:1,type:"task",data:d});

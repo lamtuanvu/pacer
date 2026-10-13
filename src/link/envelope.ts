@@ -5,14 +5,14 @@ export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 
 export type Level = "info" | "warn" | "error";
 export interface ProviderLine { id: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
-export interface TaskData { id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
+export interface TaskData { terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
-export const CMD_NAMES = ["delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build", "notify-level"] as const;
+export const CMD_NAMES = ["focus", "delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build", "notify-level"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
 export interface CmdData { cmd: CmdName; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
 export interface Cmd { v: 1; type: "cmd"; data: CmdData }
@@ -40,6 +40,9 @@ function parseTask(d: unknown): TaskData | null {
   if (!id || !state || updatedAt === null) return null;
   return { id, state, updatedAt, goal: str(d.goal, LIMITS.goal) ?? "", executor: optStr(d.executor, 64), backend: optStr(d.backend, 32), worktree: optStr(d.worktree, 4096),
     ...(isObj(d.placement) && ["current","new"].includes(String(d.placement.mode)) && typeof d.placement.why==="string" ? {placement:{mode:d.placement.mode as "current"|"new",why:d.placement.why.slice(0,240)}} : {}),
+    ...(typeof d.terminalPresent==="boolean"?{terminalPresent:d.terminalPresent}:{}),
+    ...(optStr(d.resolved,240)?{resolved:optStr(d.resolved,240)!}:{}),
+    ...(isObj(d.review)&&typeof d.review.accepted==="boolean"&&num(d.review.at)!==null?{review:{accepted:d.review.accepted,kind:optStr(d.review.kind,64),note:optStr(d.review.note,1000),at:num(d.review.at)!}}:{}),
     ...(d.dismissed === true ? {dismissed:true} : {}),
     ...(optStr(d.retriedBy,128) ? {retriedBy:optStr(d.retriedBy,128)!} : {}),
     ...(optStr(d.retryOf,128) ? {retryOf:optStr(d.retryOf,128)!} : {}),
@@ -107,6 +110,7 @@ export function parseCmd(raw: unknown): Cmd | null {
     if (d[k] !== undefined && (typeof d[k] !== "string" || !pattern.test(d[k] as string))) return null;
     const v=optStr(d[k],max); if(v) data[k]=v;
   }
+  if(data.cmd==="focus" && !data.taskId)return null;
   if(data.cmd==="notify-level") {
     if(typeof d.level!=="string" || !["off","important","all"].includes(d.level))return null;
     data.level=d.level as CmdData["level"];

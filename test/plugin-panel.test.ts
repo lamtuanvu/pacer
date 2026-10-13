@@ -27,6 +27,7 @@ function browser(html=panel(),seen:string[]=[]) {
  const submitButton=ids["delegate-send"], best=new Node();best.value="";
  const views=[make({view:"delegate"}),make({view:"overview"})], strategy=make({strategyToggle:""}), setups=[make({setup:"pacer service install"}),make({setup:"pacer console --open"}),make({setup:"pacer console"})],worktree=new Node(),selected=new Node();
  const check=new Node(), updated=new Node(), connection=new Node(), feedback=Array.from({length:4},()=>new Node());
+ const focusCards=[...html.matchAll(/data-focus="([^"]+)"/g)].map(m=>make({focus:m[1]}));
  const strategies=[make({strategy:"0"}),make({strategy:"1"})], freshness=[new Node(),new Node()], intervals:Function[]=[];
  const sent:any[]=[];let now=100000,listener:Function=()=>{};
  const parent={postMessage:(m:any)=>sent.push(m)};
@@ -34,11 +35,11 @@ function browser(html=panel(),seen:string[]=[]) {
   sessionStorage:{getItem:()=>JSON.stringify(seen),setItem:(_key:string,value:string)=>{seen=JSON.parse(value);}},
   Date:class extends Date {static now(){return now;}},setInterval:(fn:Function,ms:number)=>{expect(ms).toBe(30000);intervals.push(fn);},TextEncoder,TextDecoder,Uint8Array,atob,
   document:{getElementById:(id:string)=>id==="pacer-actions"?{textContent:html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]}:ids[id],
-   querySelectorAll:(selector:string)=>selector==="[data-status]"?feedback:selector==="[data-console-connection]"?[connection]:selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
+   querySelectorAll:(selector:string)=>selector==="[data-focus]"?focusCards:selector==="[data-status]"?feedback:selector==="[data-console-connection]"?[connection]:selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
   window:{parent,addEventListener:(n:string,h:Function)=>{if(n==="message")listener=h;}},
  });
  const reply=(m:any,value:any,ok=true,source=parent)=>listener({source,data:{type:"orca-panel-action-result",requestId:m.requestId,ok,value}});
- return {ids,pages,feedback,connection,views,strategy,strategies,freshness,check,updated,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-send"].click()};
+ return {focusCards,ids,pages,feedback,connection,views,strategy,strategies,freshness,check,updated,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-send"].click()};
 }
 for(const [verdict,expected] of [["ON_PACE","You're on pace for the week."],["OK","You're on pace for the week."],["AHEAD","Claude is ahead of pace. Slow down planning."],["NEAR_LIMIT","Claude is ahead of pace. Slow down planning."],["BEHIND","Claude is behind pace. Room for more planning."],["UNKNOWN","Budget unknown."]]) test(`headline ${verdict}`,()=>expect(headline(provider("claude-code",verdict))).toBe(expected));
 test("exhausted and absent planner headlines and unknown detail",()=>{
@@ -367,4 +368,24 @@ test("notification send refusal restores select and reports failure",()=>{
 test("running and needs-attention cards show muted escaped placement",()=>{
  const s=snapshot();s.tasks=[{id:"run",state:"running",goal:"running",executor:"codex",backend:"orca",worktree:"/new/path",updatedAt:100,runnerAlive:true,placement:{mode:"new",why:"agent: <risky>"}},{id:"fail",state:"failed",goal:"failed",executor:"codex",backend:"orca",worktree:"/repo",updatedAt:100,placement:{mode:"current",why:"read-only kind"}}];
  const html=panel(s);expect(html).toContain('<small class="muted">new worktree /new/path (agent: &lt;risky&gt;)</small>');expect(html).toContain('<small class="muted">current worktree (read-only kind)</small>');
+});
+
+test("focus command validation and cards require a live terminal",()=>{
+ const {parseCmd}=require("../src/link/envelope");
+ expect(parseCmd({v:1,type:"cmd",data:{cmd:"focus",taskId:"t_123"}})?.data).toEqual({cmd:"focus",taskId:"t_123"});
+ for(const taskId of [undefined,"", "../bad",123])expect(parseCmd({v:1,type:"cmd",data:{cmd:"focus",taskId}})).toBeNull();
+ const s=snapshot();s.tasks=[{id:"running_1",state:"running",goal:"run",executor:"codex",backend:"orca",worktree:null,updatedAt:100,terminalPresent:true},{id:"failed_1",state:"failed",goal:"fail",executor:"codex",backend:"orca",worktree:null,updatedAt:99,terminalPresent:true},{id:"direct_1",state:"running",goal:"direct",executor:"codex",backend:"direct",worktree:null,updatedAt:98}];
+ const html=panel(s),data=payload(html);expect(html).toContain('role="button" tabindex="0" data-focus="focus-running_1"');expect(html).toContain('data-focus="focus-failed_1"');expect(html).not.toContain('data-focus="focus-direct_1"');
+ expect(data.commands['focus-running_1']).toEqual({cmd:"focus",taskId:"running_1"});expect(html).toContain('["Enter"," "].includes(event.key)');expect(html).toContain('event.target.closest("button,input,select,a")');expect(html).not.toContain('<form');
+ s.tasks[1].resolved="reviewed";expect(attentionGroups(s,100)).toEqual([]);
+});
+test("focus card mouse and keyboard actions keep child controls and send focus commands",()=>{
+ const s=snapshot();s.tasks=[{id:"run_1",state:"running",goal:"run",executor:"codex",backend:"orca",worktree:null,updatedAt:100,terminalPresent:true}];
+ for(const key of [null,"Enter"," "]){const b=browser(panel(s)),card=b.focusCards[0];card.innerHTML='<button>Retry</button>';
+  const count=b.sent.length;card.handlers.click({target:{closest:()=>({})}});expect(b.sent.length).toBe(count);
+  let prevented=false;if(key)card.handlers.keydown({target:card,key,preventDefault:()=>{prevented=true;}});else card.handlers.click({target:{closest:()=>null}});
+  if(key)expect(prevented).toBe(true);expect(card.innerHTML).toBe('<button>Retry</button>');
+  const context=b.sent.at(-1);b.reply(context,{branch:"main",displayName:"Main",terminals:[{id:"term_console"}]});
+  const command=b.sent.at(-1);expect(command.action).toBe("terminal.sendText");expect(command.params.text).toContain('"cmd":"focus","taskId":"run_1"');
+ }
 });

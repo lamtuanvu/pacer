@@ -58,6 +58,10 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
 }
 
 export interface TaskRecord {
+  review?: {accepted:boolean; kind:string|null; note:string|null; at:number};
+  resolved?: string;
+  resolutionCheckedAt?: number;
+  baseBranch?: string;
   placement?: TaskPlacement;
   worktree?: string;
   id: string;

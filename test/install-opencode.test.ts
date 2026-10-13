@@ -17,7 +17,7 @@ function setup() {
   mkdirSync(dir, { recursive: true });
   const agentsPath = join(dir, "AGENTS.md");
   writeFileSync(agentsPath, agents);
-  return { ctx, dir, agentsPath, env: { ctx, pacerArgv: PACER } };
+  return { ctx, dir, agentsPath, env: { ctx, mcp: true, pacerArgv: PACER } };
 }
 
 test("JSONC comments and context7 survive install; reinstall is idle and uninstall restores exact bytes", async () => {
@@ -36,9 +36,9 @@ test("JSONC comments and context7 survive install; reinstall is idle and uninsta
   });
   expect(readFileSync(agentsPath, "utf8")).toStartWith(agents);
   expect(readFileSync(agentsPath, "utf8")).toContain("<!-- >>> pacer >>> -->");
-  expect(readFileSync(agentsPath, "utf8")).toContain("budget_status");
+  expect(readFileSync(agentsPath, "utf8")).toContain("pacer status --json");
   expect(result.notes.join("\n")).toContain("policy-only");
-  expect(result.touched).toEqual([agentsPath, path]);
+  expect(result.touched).toEqual([agentsPath, join(dir,"skills/pacer/SKILL.md"), path]);
   const installedSnapshot = snapshot(ctx.home);
   expect((await installOpencode(env)).touched).toEqual([]);
   expect(snapshot(ctx.home)).toEqual(installedSnapshot);
@@ -65,7 +65,7 @@ test("XDG_CONFIG_HOME contains the policy and newly created schema config", asyn
   expect(opencodeDir(ctx)).toBe(dir);
   expect(opencodeConfigPath(ctx)).toBe(join(dir, "opencode.json"));
   const before = snapshot(ctx.home);
-  await installOpencode({ ctx, pacerArgv: ["/usr/bin/bun", "/work/pacer/src/cli.ts"] });
+  await installOpencode({ ctx, mcp: true, pacerArgv: ["/usr/bin/bun", "/work/pacer/src/cli.ts"] });
   expect(existsSync(join(dir, "opencode.json"))).toBe(true);
   expect(JSON.parse(readFileSync(join(dir, "opencode.json"), "utf8"))).toEqual({
     $schema: "https://opencode.ai/config.json",

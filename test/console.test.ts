@@ -256,3 +256,19 @@ test("notify-level failure prints error and console remains usable",async()=>{
  const h=harness();await h.run([encodeCmdLine({cmd:"notify-level",level:"all"}),"status"]);
  expect(h.output()).toContain("plugin is not installed");expect(h.output()).toContain("STATUS TEXT");
 });
+
+test("focus finds the task worker terminal and switches with sanitized environment",async()=>{
+ const h=harness(), {updateOrcaState}=await import("../src/exec/orca/state");
+ const calls:any[]=[];h.ctx.env={ORCA_AGENT_SESSION_ID:"secret",ORCA_TERMINAL_HANDLE:"caller",KEEP:"yes"};
+ h.ctx.run=async(argv,_timeout,options)=>{calls.push({argv,env:options?.env});return {code:0,stdout:JSON.stringify({ok:true,result:{focus:{navigated:true}}}),stderr:""};};
+ updateOrcaState(h.ctx,s=>{s.workers.d={dispatchId:"d",taskId:"task_a",terminal:"term_worker",executor:"codex",worktree:"/wt",startedAt:0};});
+ await h.run([encodeCmdLine({cmd:"focus",taskId:"task_a"})]);
+ expect(calls[0]).toEqual({argv:["orca","terminal","switch","--terminal","term_worker","--json"],env:{KEEP:"yes"}});
+ expect(h.output()).toContain("Opened task session.");
+});
+test("focus missing and stale worker terminals report friendly panel errors",async()=>{
+ const {updateOrcaState}=await import("../src/exec/orca/state"), {readLatest}=await import("../src/link/store");
+ for(const terminal of [null,"closed"]){const h=harness();updateOrcaState(h.ctx,s=>{s.workers.d={dispatchId:"d",taskId:"task_a",terminal,executor:"codex",worktree:null,startedAt:0};});
+ await h.run([encodeCmdLine({cmd:"focus",taskId:"task_a"})]);
+ expect(h.output()).toContain(terminal?"Could not open":"no longer has");expect(readLatest(h.ctx).alerts.find(a=>a.key==="focus-task_a")?.level).toBe("warn");}
+});

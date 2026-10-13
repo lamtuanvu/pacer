@@ -1,3 +1,5 @@
+import { loadOrcaState } from "../exec/orca/state";
+import { OrcaClient } from "../exec/orca/client";
 import { pluginCli } from "../plugin/cli";
 import { withLock } from "../exec/orca/state";
 import { blockExecutor, unblockExecutor } from "../executors/blocked";
@@ -81,6 +83,16 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
   };
   const plugin = async (data: CmdData) => {
     switch (data.cmd) {
+      case "focus": {
+        const handle=Object.values(loadOrcaState(fresh()).workers).find(w=>w.taskId===data.taskId)?.terminal;
+        let message="This task no longer has an Orca terminal.";
+        if(handle){try{const result=await new OrcaClient(ctx.run,ctx.env).call<{focus?:{navigated?:boolean}}>(["terminal","switch","--terminal",handle]);
+          if(result.ok){print("Opened task session.");await publish(fresh(),[{v:1,type:"alert",data:{key:`focus-${data.taskId}`,level:"info",title:"Task session opened",body:"Opened task session.",at:fresh().now}}]);break;}
+          message="Could not open this task session; its terminal may have closed.";
+        }catch{message="Could not open this task session; try again.";}}
+        print(message);
+        await publish(fresh(),[{v:1,type:"alert",data:{key:`focus-${data.taskId}`,level:"warn",title:"Task session unavailable",body:message,at:fresh().now}}]);break;
+      }
       case "delegate": {
         if (!validExecutor(data.executor)) return;
         const repo = data.worktreeId || data.branch ? await deps.resolveWorktreePath(fresh(), data.branch ?? "", data.worktreeId) : null;
