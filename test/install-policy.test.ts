@@ -88,3 +88,8 @@ test("transient worktree commands are refused unless PACER_BIN overrides them", 
   const pinned = { PACER_BIN: "/opt/pacer" };
   expect(() => validateInstallArgv(pinned, pacerArgv(pinned, ["/bun", "/repo/.worktrees/fix/src/cli.ts"], "/bun"))).not.toThrow();
 });
+
+test("placement guidance covers current, new and automatic decisions",()=>{
+ const text=policyText("codex");
+ for(const hint of ["worktree: current","uncommitted work","research/review","installed dependencies/build output","small follow-up","worktree: new","the user is editing","parallel tasks","exploratory/risky","worktree_reason","auto"])expect(text).toContain(hint);
+});

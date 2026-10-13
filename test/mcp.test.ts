@@ -127,3 +127,15 @@ test("MCP active overwrite exposes approval and uses option names in errors",asy
  const refused=await call("strategy_save",{name:"active",draft,reason:"approved",overwrite:true});expect(refused.isError).toBe(true);expect(refused.structuredContent.error).toContain("activeOk:true");
  expect((await call("strategy_save",{name:"active",draft,reason:"approved",overwrite:true,activeOk:true})).isError).toBeFalsy();await client.close();
 });
+
+test("delegate placement schema validates and task_status exposes resolution",async()=>{
+ const {ctx,call,client}=await connect();
+ const tools=(await client.listTools()).tools, schema=tools.find(t=>t.name==="delegate")!.inputSchema;
+ expect(schema.properties).toHaveProperty("worktree");expect(schema.properties).toHaveProperty("worktree_reason");
+ for(const args of [{worktree:"bad"},{worktree_reason:"x".repeat(201)}])expect((await call("delegate",{goal:"g",repo:tmpDir(),...args})).isError).toBe(true);
+ const queued=await call("delegate",{goal:"g",repo:tmpDir(),worktree:"current",worktree_reason:"follow-up"});
+ const id=queued.structuredContent.task_id;expect(queued.structuredContent.placement).toEqual({requested:"current",reason:"follow-up"});
+ updateTask(ctx,id,t=>{t.placement={...t.placement!,mode:"current",why:"agent: follow-up"};});
+ expect((await call("task_status",{task_id:id})).structuredContent.placement).toMatchObject({mode:"current",why:"agent: follow-up"});
+ await client.close();
+});

@@ -35,7 +35,7 @@ test("delegate --wait runs codex through a detached runner and verifies the resu
   const r = delegateWait(env, repo);
   expect(r.code).toBe(0);
   expect(r.task.state).toBe("done");
-  expect(r.task.result).toMatchObject({ status: "done", executor: "codex", report: "Created fixed.txt; acceptance passes.", backend: "direct" });
+  expect(r.task.result).toMatchObject({ status: "done", executor: "codex", report: "ran in current worktree (strategy default)\n\nran in place: worktree isolation needs the Orca backend\n\nCreated fixed.txt; acceptance passes.", backend: "direct" });
   expect(r.task.result.files).toContain("untracked: fixed.txt");
   expect(r.task.result.acceptance.passed).toBe(true);
 }, 30_000);
@@ -50,3 +50,13 @@ test("codex limit falls back to cursor and marks codex exhausted", () => {
   expect(r.task.attempts.map((a: { executor: string }) => a.executor)).toEqual(["codex", "cursor"]);
   expect(JSON.parse(readFileSync(join(pacerHome, "exhausted.json"), "utf8")).codex).toBeGreaterThan(Date.now() / 1000);
 }, 30_000);
+
+ test("CLI placement flags reach the detached runner",()=>{
+ for(const worktree of ["current","new"]){
+ const {repo,env}=setup({codex:CODEX_OK},"planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+ const r=delegateWait(env,repo,["--worktree",worktree,"--worktree-reason","installed dependencies"]);
+ expect(r.code).toBe(0);expect(r.task.placement).toEqual({requested:worktree,reason:"installed dependencies",mode:"current",why:"agent: installed dependencies"});
+ expect(r.task.result.report).toStartWith("ran in current worktree (agent: installed dependencies)");
+ expect(r.task.result.report.includes("worktree isolation needs the Orca backend")).toBe(worktree==="new");
+ }
+ },30000);

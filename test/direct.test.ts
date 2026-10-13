@@ -30,7 +30,7 @@ test("codex: report comes from the -o last-message file; attempt recorded", asyn
   const o = await runAttempt(ctx, s.providers.codex, task, (pid) => { spawned = pid; });
   expect(spawned).toBeGreaterThan(0);
   expect(o.exec.code).toBe(0);
-  expect(o.report).toBe("FINAL REPORT");
+  expect(o.report).toBe("ran in place: worktree isolation needs the Orca backend\n\nFINAL REPORT");
   expect(o.attempt).toMatchObject({ executor: "codex", model: null, exitCode: 0, timedOut: false, limitHit: false });
   expect(await Bun.file(o.attempt.log).exists()).toBe(true);
 });
@@ -60,6 +60,22 @@ test("executor launch sets its role while preserving the caller environment", as
   ctx.env.HOME = ctx.home;
   ctx.env.PACER_ROLE = "planner";
   ctx.env.CUSTOM_VALUE = "kept";
-  expect((await runAttempt(ctx, s.providers.cursor, task)).report).toBe("executor:kept");
+  expect((await runAttempt(ctx, s.providers.cursor, task)).report).toBe("ran in place: worktree isolation needs the Orca backend\n\nexecutor:kept");
   expect(ctx.env.PACER_ROLE).toBe("planner");
+});
+
+ test("explicit current runs in place without the isolation note",async()=>{
+ const {ctx,task}=await setup("cursor-agent","echo report");task.placement={requested:"current",reason:"installed dependencies"};
+ const out=await runAttempt(ctx,s.providers.cursor,task);expect(out.report).toBe("report");
+ expect((await import("../src/tasks/store")).readTask(ctx,task.id)?.placement).toMatchObject({mode:"current",why:"agent: installed dependencies"});
+ });
+
+test("explicit new records actual in-place placement and isolation note",async()=>{
+ const {ctx,task}=await setup("cursor-agent","echo report");task.placement={requested:"new",reason:"isolation"};
+ const out=await runAttempt(ctx,s.providers.cursor,task);expect(out.report).toStartWith("ran in place: worktree isolation needs the Orca backend");
+ expect((await import("../src/tasks/store")).readTask(ctx,task.id)).toMatchObject({worktree:task.brief.repo,placement:{requested:"new",mode:"current",why:"agent: isolation"}});
+});
+test("direct fallback remains available when git inspection throws",async()=>{
+ const {ctx,task}=await setup("cursor-agent","echo report");ctx.run=async()=>{throw Error("git unavailable");};
+ expect((await runAttempt(ctx,s.providers.cursor,task)).exec.code).toBe(0);
 });
