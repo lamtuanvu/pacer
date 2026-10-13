@@ -15,7 +15,7 @@ test("agent context detection is cached for an hour", async () => {
 });
 test("plugin send fixture enables channel, argv matches proposed shape and missing Orca skips", async () => {
   const { readFileSync } = await import("node:fs"); const f = fakeRun([[ ["orca", "agent-context"], raw(readFileSync("test/fixtures/link/agent-context-with-plugin-send.json", "utf8")) ]]); expect(await detectChannel(fakeCtx({ run: f.run }))).toBe(true);
-  expect(channelArgv(env)).toEqual(["orca", "plugin", "send", "pacer.pacer", "--data", JSON.stringify(env), "--json"]);
+  expect(channelArgv(env)).toEqual(["orca", "plugin", "send", "lamtuanvu.pacer", "--data", JSON.stringify(env), "--json"]);
   const missing = fakeRun([]); const c = fakeCtx({ which: () => null, run: missing.run }); expect(await detectChannel(c)).toBe(false); expect(missing.calls).toHaveLength(0);
 });
 test("refreshBridge rewrites console heartbeat without changing latest or outbox", async () => {

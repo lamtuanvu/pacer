@@ -17,9 +17,15 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   if (compareVersions(version, pkg.version) <= 0) throw new Error(`version must be greater than ${pkg.version}`);
   const changelogPath = join(root, "CHANGELOG.md");
   const changelog = prepareChangelog(readFileSync(changelogPath, "utf8"), version, new Date().toISOString().slice(0, 10));
+  const marketplacePath = join(root, "orca-marketplace.json");
+  const marketplace = JSON.parse(readFileSync(marketplacePath, "utf8"));
+  const plugin = marketplace.plugins.find((p: { id: string }) => p.id === "lamtuanvu.pacer");
+  if (!plugin) throw new Error("orca-marketplace.json has no lamtuanvu.pacer entry");
+  plugin.source.ref = `orca-plugin-v${version}`;
   pkg.version = version;
   writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
   writeFileSync(changelogPath, changelog);
+  writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`);
   const p = Bun.spawn([process.execPath, "run", "plugin:build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
   if (await p.exited !== 0) throw new Error("plugin:build failed; fix the build and rerun bun run plugin:build before committing");
 }

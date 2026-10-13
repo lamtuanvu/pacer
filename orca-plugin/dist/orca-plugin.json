@@ -1,7 +1,8 @@
 {
   "manifestVersion": 1,
   "id": "pacer",
-  "publisher": "pacer",
+  "publisher": "lamtuanvu",
+  "repository": "https://github.com/lamtuanvu/pacer",
   "name": "pacer",
   "version": "0.1.14",
   "description": "Budget-aware delegation: pacer's budget panel, delegate and strategy commands, and worker-finished signals.",

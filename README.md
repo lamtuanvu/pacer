@@ -89,12 +89,16 @@ The CLI is the primary agent interface. `pacer install <planner> --mcp` optional
 
 ## Orca plugin
 
+Install the pacer CLI as well: the plugin talks to its local service. In Orca Settings > Plugins, add marketplace source URL `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer** (`lamtuanvu.pacer`). To install a specific release directly, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.14` (replace the version with the release you want).
+
+For local development:
+
 ```sh
 pacer plugin install
 pacer serve
 ```
 
-Add the managed development directory printed by the installer to Orca Settings > Plugins and enable its declared capabilities. The plugin targets Orca >=1.4.224 and shows a budget snapshot, task cards and notifications. It can open a pacer console in the focused worktree when the HTTP service is running. Run `pacer console` manually when needed. See the [plugin guide](orca-plugin/README.md); reopen the panel to refresh its snapshot.
+Add the managed development directory printed by the installer to Orca Settings > Plugins and enable its declared capabilities. Re-running `pacer plugin install` migrates an older `pacer.pacer` development install in the same directory; reload and enable the new identity in Orca. The plugin targets Orca >=1.4.224 and shows a budget snapshot, task cards and notifications. The live budget snapshot requires the managed development path; marketplace and direct installs keep the bundled placeholder panel, while worker commands and notifications still run. With the HTTP service running, it can open a pacer console in the focused worktree. Run `pacer console` manually when needed. See the [plugin guide](orca-plugin/README.md); reopen the managed panel to refresh its snapshot.
 
 ## Privacy
 

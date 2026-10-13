@@ -1,6 +1,6 @@
 import type { NotificationData } from "./notification";
 /** pacer brain <-> Orca plugin link. Dependency-free: the Orca plugin bundles this file. */
-export const PLUGIN_KEY = "pacer.pacer";
+export const PLUGIN_KEY = "lamtuanvu.pacer";
 export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 } as const;
 export type Level = "info" | "warn" | "error";
 export interface ProviderLine { id: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }

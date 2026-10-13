@@ -49,7 +49,7 @@ test("plugin uninstall removes generated files, bridge key and empty directories
   const { ctx, userData, fake } = setup();
   const root = join(ctx.pacerHome, "orca-plugin");
   await pluginCli(["install"], ctx);
-  const data = join(userData, "plugins-data", "pacer.pacer");
+  const data = join(userData, "plugins-data", "lamtuanvu.pacer");
   mkdirSync(data, { recursive: true });
   writeFileSync(join(data, "storage.json"), '{"link":{"v":1},"other":"keep"}');
   const r = await pluginCli(["uninstall"], ctx);
@@ -69,10 +69,10 @@ test("plugin set validates values and writes isolated Orca settings", async () =
   const { ctx, userData } = setup();
   await pluginCli(["install"], ctx);
   expect(await pluginCli(["set", "transport", "http"], ctx)).toMatchObject({ code: 0 });
-  expect(JSON.parse(readFileSync(join(userData, "plugins-data", "pacer.pacer", "settings.json"), "utf8"))).toEqual({ transport: "http" });
+  expect(JSON.parse(readFileSync(join(userData, "plugins-data", "lamtuanvu.pacer", "settings.json"), "utf8"))).toEqual({ transport: "http" });
   expect((await pluginCli(["set", "transport", "ftp"], ctx)).code).toBe(2);
   expect((await pluginCli(["set", "port", "0"], ctx)).code).toBe(2);
-  const settings = join(userData, "plugins-data", "pacer.pacer", "settings.json");
+  const settings = join(userData, "plugins-data", "lamtuanvu.pacer", "settings.json");
   writeFileSync(settings, "unreadable");
   expect((await pluginCli(["set", "transport", "bridge"], ctx)).code).toBe(1);
   expect(readFileSync(settings, "utf8")).toBe("unreadable");
@@ -106,4 +106,46 @@ test("plugin status probes configured port and home",async()=>{
   expect(result.out).toContain("serve: reachable");
   expect(requests).toEqual([{path:"/health",auth:null},{path:"/link",auth:"Bearer alternate-token"}]);
  }finally{server.stop(true);}
+});
+
+async function installLegacy(ctx: ReturnType<typeof setup>["ctx"]) {
+  const { runInstall } = await import("../src/install/txn");
+  await runInstall({ ctx, pacerArgv: ["/opt/pacer"] }, "orca-plugin", tx => {
+    const root = join(ctx.pacerHome, "orca-plugin");
+    for (const f of PLUGIN_FILES) {
+      const text = f.rel === "orca-plugin.json" ? JSON.stringify({ ...JSON.parse(f.text), publisher: "pacer" }) : f.text;
+      tx.edit(join(root, f.rel), () => text, []);
+    }
+    tx.edit(join(root, ".pacer-managed"), () => "pacer.pacer\n", []);
+  });
+}
+
+test("legacy plugin status detects the old identity and install migrates the tracked folder", async () => {
+  const { ctx, userData } = setup();
+  await installLegacy(ctx);
+  const root = join(ctx.pacerHome, "orca-plugin");
+  const data = join(userData, "plugins-data", "pacer.pacer");
+  mkdirSync(data, { recursive: true });
+  writeFileSync(join(data, "storage.json"), JSON.stringify({ link: { v: 1 }, other: "keep" }));
+  expect((await pluginCli(["status"], ctx)).out).toContain("legacy plugin installed");
+  const result = await pluginCli(["install"], ctx);
+  expect(result.code).toBe(0);
+  expect(result.out).toContain("migrated the previous plugin identity");
+  expect(JSON.parse(readFileSync(join(root, "orca-plugin.json"), "utf8")).publisher).toBe("lamtuanvu");
+  expect(readFileSync(join(root, ".pacer-managed"), "utf8")).toBe("lamtuanvu.pacer\n");
+  expect(JSON.parse(readFileSync(join(data, "storage.json"), "utf8"))).toEqual({ other: "keep" });
+  expect((await pluginCli(["status"], ctx)).out).not.toContain("legacy plugin installed");
+  expect((await pluginCli(["uninstall"], ctx)).code).toBe(0);
+  expect(existsSync(root)).toBe(false);
+});
+
+test("uninstall recognizes a legacy tracked plugin and preserves unrelated legacy storage", async () => {
+  const { ctx, userData } = setup();
+  await installLegacy(ctx);
+  const data = join(userData, "plugins-data", "pacer.pacer");
+  mkdirSync(data, { recursive: true });
+  writeFileSync(join(data, "storage.json"), '{"link":{},"other":1}');
+  expect((await pluginCli(["uninstall"], ctx)).code).toBe(0);
+  expect(existsSync(join(ctx.pacerHome, "orca-plugin"))).toBe(false);
+  expect(JSON.parse(readFileSync(join(data, "storage.json"), "utf8"))).toEqual({ other: 1 });
 });

@@ -2,7 +2,8 @@ export function pluginManifest(version: string) {
   return {
     manifestVersion: 1,
     id: "pacer",
-    publisher: "pacer",
+    publisher: "lamtuanvu",
+    repository: "https://github.com/lamtuanvu/pacer",
     name: "pacer",
     version,
     description: "Budget-aware delegation: pacer's budget panel, delegate and strategy commands, and worker-finished signals.",

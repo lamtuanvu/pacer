@@ -15,4 +15,4 @@ export function orcaUserDataDir(ctx: Pick<Ctx,"home"|"env">, platform: NodeJS.Pl
   if(platform==="win32") return join(ctx.env.APPDATA??join(ctx.home,"AppData","Roaming"),"orca");
   return join(ctx.env.XDG_CONFIG_HOME??join(ctx.home,".config"),"orca");
 }
-export const pluginDataDir = (ctx: Pick<Ctx,"home"|"env">, platform?: NodeJS.Platform) => join(orcaUserDataDir(ctx,platform),"plugins-data",PLUGIN_KEY);
+export const pluginDataDir = (ctx: Pick<Ctx,"home"|"env">, platform?: NodeJS.Platform, key = PLUGIN_KEY) => join(orcaUserDataDir(ctx,platform),"plugins-data",key);
