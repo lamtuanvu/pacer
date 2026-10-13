@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-10-13
+
+### Fixed
+
+- Marketplace installs no longer modify Orca's integrity-checked plugin folder.
+
+### Changed
+
+- A static bootstrap panel and persisted progress notifications install and start pacer, prepare the managed development folder automatically, then show the one-time Orca settings steps for the live budget panel.
+- `pacer plugin install` writes a versioned marker and prints the one-time Orca steps; `pacer plugin status` reports marketplace and development copies.
+
 ## [0.1.16] - 2026-10-13
 
 ### Added
