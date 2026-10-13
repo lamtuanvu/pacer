@@ -21,5 +21,30 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "zod": "4.6.5"
+  },
+  "license": "Apache-2.0",
+  "description": "Subscription-budget-aware delegation for AI coding agents through a CLI, MCP server and Orca plugin.",
+  "author": "Vu Lam",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lamtuanvu/pacer.git"
+  },
+  "homepage": "https://github.com/lamtuanvu/pacer#readme",
+  "bugs": {
+    "url": "https://github.com/lamtuanvu/pacer/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "subscription-budgets",
+    "delegation",
+    "cli",
+    "mcp",
+    "claude-code",
+    "codex",
+    "orca",
+    "bun"
+  ],
+  "engines": {
+    "bun": ">=1.4.2"
   }
 }
