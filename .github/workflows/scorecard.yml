@@ -14,6 +14,8 @@ permissions:
 jobs:
   analysis:
     name: Analyze supply chain security
+    # Code scanning and Scorecard need a public repo on a free account.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
       security-events: write

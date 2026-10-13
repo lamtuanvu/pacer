@@ -56,3 +56,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Keep scanning compatible with read-only tokens, including fork PRs.
           GITLEAKS_ENABLE_COMMENTS: "false"
+          # The job log is the report; artifacts count against the account storage quota.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
