@@ -241,10 +241,10 @@ jobs:
           while IFS= read -r package; do
             dir="$PWD/dist/npm/$package"
             name=$(bun -p 'require(process.argv[1]).name' "$dir/package.json")
-            if test "$DRY_RUN" = true; then
-              (cd "$dir" && npm publish --dry-run --access public --tag "$tag")
-            elif npm view "$name@$VERSION" version > /dev/null 2>&1; then
+            if npm view "$name@$VERSION" version > /dev/null 2>&1; then
               echo "skipped: $name@$VERSION already published"
+            elif test "$DRY_RUN" = true; then
+              (cd "$dir" && npm publish --dry-run --access public --tag "$tag")
             else
               (cd "$dir" && npm publish --provenance --access public --tag "$tag")
             fi
@@ -272,6 +272,13 @@ jobs:
           else
             echo '::notice::skipped: HOMEBREW_TAP_TOKEN not set'
           fi
+      - name: Check tap token can push
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.HOMEBREW_TAP_TOKEN }}
+        run: |
+          push=$(gh api repos/lamtuanvu/homebrew-tap --jq .permissions.push)
+          test "$push" = true || { echo '::error::HOMEBREW_TAP_TOKEN cannot push to lamtuanvu/homebrew-tap'; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.tap.outputs.enabled == 'true'
         with:
