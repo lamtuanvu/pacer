@@ -1,4 +1,5 @@
 import pkg from "../../package.json";
+import { pluginMode } from "./mode";
 import { createBootstrap } from "./bootstrap";
 import { get, request } from "node:http";
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
@@ -71,8 +72,7 @@ const pluginRoot = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_VERSION = pkg.version;
 let log = (message: string) => {};
 const plugin = createPlugin({
-  ownPanel: true,
-  bootstrap: createBootstrap({ home: process.env.HOME ?? process.env.USERPROFILE ?? "", env: process.env, version: PLUGIN_VERSION }),
+  bootstrap: createBootstrap({ home: process.env.HOME ?? process.env.USERPROFILE ?? "", env: process.env, version: PLUGIN_VERSION, mode: pluginMode(pluginRoot, { exists: existsSync }) }),
   nowS: () => Date.now() / 1000,
   timers, http,
   home: process.env.HOME ?? process.env.USERPROFILE ?? "",
@@ -81,8 +81,8 @@ const plugin = createPlugin({
     readText(path) { try { return readFileSync(path, "utf8"); } catch { return null; } },
     exists: existsSync,
     writeTextAtomic(path, text) {
-      // Write only this plugin bundle's panel, including marketplace installs.
-      if (resolve(path) !== resolve(pluginRoot, "panel", "live.html")) { log("pacer: refused panel write: unexpected path"); return; }
+      // Never mutate an integrity-checked marketplace folder.
+      if (pluginMode(pluginRoot, { exists: existsSync }) !== "live" || resolve(path) !== resolve(pluginRoot, "panel", "live.html")) { log("pacer: refused panel write: unexpected path"); return; }
       const temporary = `${path}.${process.pid}.tmp`;
       try { writeFileSync(temporary, text, "utf8"); renameSync(temporary, path); }
       finally { try { unlinkSync(temporary); } catch { /* renamed, or never written */ } }

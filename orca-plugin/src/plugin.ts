@@ -1,3 +1,4 @@
+import { pluginMode } from "./mode";
 import type { Bootstrap } from "./bootstrap";
 import { join } from "node:path";
 import { clip, LIMITS, liveConsole, summaryLine, type CmdData } from "../../src/link/envelope";
@@ -14,7 +15,6 @@ import { renderPanel, type AutoConsoleOutcome } from "./panel";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
   bootstrap?: Bootstrap;
-  ownPanel?: boolean;
   nowS(): number;
   timers: Timers;
   http: HttpPort;
@@ -34,6 +34,16 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
   };
   async function activate(ctx: OrcaWorkerContext): Promise<void> {
     stopped = false;
+    if (pluginMode(deps.pluginRoot, deps.fs) === "bootstrap") {
+      const logError = (e: unknown) => ctx.log(`pacer bootstrap: ${e instanceof Error ? e.message : String(e)}`);
+      if (deps.bootstrap) {
+        const ready = deps.bootstrap.activate(ctx);
+        const run = async () => { await ready; if (!stopped) await deps.bootstrap!.run(ctx, () => {}); };
+        void run().catch(logError);
+        timers.every(60000, () => { void run().catch(logError); });
+      }
+      return;
+    }
     const activatedAtS = deps.nowS();
     let raw: Record<string, unknown> = {};
     let settingsReady=false;
@@ -97,7 +107,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         try {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
-            if (deps.ownPanel || deps.fs.exists(join(deps.pluginRoot, ".pacer-managed"))) {
+            if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
               deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state }));
               renderedKey = key; lastRenderAt=nowS; userOutcome=false;
             } else ctx.log("pacer: refused panel write: unmanaged root");

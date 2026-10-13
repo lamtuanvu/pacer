@@ -6,6 +6,7 @@ import { join, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { agentPlans, type AgentPlan } from "../../src/install/detection";
 import { compareVersions, isVersion } from "../../src/update/version";
+import type { PluginMode } from "./mode";
 import type { OrcaWorkerContext } from "./orca-api";
 export const GITHUB_RELEASES = "https://github.com/lamtuanvu/pacer/releases";
 export const UNPUBLISHED = "pacer isn't published yet. Set the release folder in plugin settings or install pacer manually";
@@ -13,7 +14,7 @@ export const MANUAL_INSTALL = "curl -fsSL https://raw.githubusercontent.com/lamt
 export interface Step { status: "pending" | "done" | "failed"; detail?: string }
 export interface BootstrapState {
   install: Step; start: Step; agents: AgentPlan[]; binary?: string; opening?: boolean; terminal?: string;
-  nextAt?: number; failures?: number[]; restarts?: number[]; terminalAttempts?: Record<string, number>;
+  nextAt?: number; failures?: number[]; restarts?: number[]; terminalAttempts?: Record<string, number>; notifications?: string[]; handoffVersion?: string;
 }
 export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const result = { ...env }; delete result.ORCA_AGENT_SESSION_ID; delete result.ORCA_TERMINAL_HANDLE; return result;
@@ -44,6 +45,7 @@ export async function download(url: string, fetcher: typeof fetch = fetch, signa
   }
 }
 export interface BootstrapDeps {
+  mode?: PluginMode;
   home: string; env: NodeJS.ProcessEnv; version: string; platform?: string; arch?: string;
   now?: () => number; fetch?: typeof fetch;
   exec?: (bin: string, args: string[], env: NodeJS.ProcessEnv, timeout: number) => Promise<string>;
@@ -65,13 +67,24 @@ export function createBootstrap(d: BootstrapDeps) {
   // Each orca CLI call starts an Electron runtime: probe terminals at most every 30 s.
   let running: Promise<void> | null = null, terminalRunning = false, stopped = false, probedAt = -Infinity;
   const changed = async (ctx: OrcaWorkerContext, onChange: () => void) => {
+    if (d.mode === "bootstrap") {
+      const failed = state.install.status === "failed" ? (state.install.detail === UNPUBLISHED ? UNPUBLISHED : "pacer couldn't install. Try again shortly.") : state.start.status === "failed" ? "pacer couldn't start. Try again shortly." : undefined;
+      const message = failed || (state.start.status === "done" && state.handoffVersion === d.version ? `pacer is ready. Last step: in Orca Settings > Plugins, uninstall this pacer and add ${join(pacerHome, "orca-plugin")} under Development.` : state.install.status === "pending" ? "Installing pacer…" : null);
+      if (message && !state.notifications?.includes(message)) {
+        state.notifications = [...(state.notifications ?? []), message];
+        // Reserve durably before showing: a worker restart must not repeat a milestone.
+        try { await ctx.host.call("storage.set", { key: "bootstrap", value: state }); }
+        catch { /* in-memory deduplication when host storage is unavailable */ }
+        try { await ctx.host.call("notifications.show", { title: message }); } catch { /* optional notification capability */ }
+      }
+    }
     onChange(); try { await ctx.host.call("storage.set", { key: "bootstrap", value: state }); } catch { /* optional host storage */ }
   };
   async function activate(ctx: OrcaWorkerContext) {
     stopped = false;
     try {
       const saved = (await ctx.host.call("storage.get", { key: "bootstrap" })).value as BootstrapState | null;
-      if (saved && Array.isArray(saved.failures) && Array.isArray(saved.restarts)) state = { ...state, install: saved.install ?? state.install, start: saved.start ?? state.start, binary: saved.binary, agents: saved.agents ?? [], nextAt: saved.nextAt, failures: saved.failures, restarts: saved.restarts, terminalAttempts: saved.terminalAttempts };
+      if (saved && saved.install && saved.start) state = { ...state, install: saved.install ?? state.install, start: saved.start ?? state.start, binary: saved.binary, agents: saved.agents ?? [], nextAt: saved.nextAt, failures: saved.failures, restarts: saved.restarts, terminalAttempts: saved.terminalAttempts, notifications: saved.notifications, handoffVersion: saved.handoffVersion };
     } catch { /* fresh install */ }
   }
   async function cycle(ctx: OrcaWorkerContext, onChange: () => void) {
@@ -82,7 +95,7 @@ export function createBootstrap(d: BootstrapDeps) {
       const settings = await ctx.host.call("settings.get").catch(() => ({ settings: {} as Record<string, unknown> }));
       const base = releaseBase(settings.settings.releaseBase, env);
       let binary = env.PACER_BIN || (existsSync(join(home, ".local/bin/pacer")) ? join(home, ".local/bin/pacer") : which("pacer", env));
-      state.install = { status: "pending" }; await changed(ctx, onChange);
+      state.install = { status: "pending" }; state.start = { status: "pending" }; await changed(ctx, onChange);
       if (!binary) {
         if (!["darwin", "linux"].includes(platform) || !["arm64", "x64"].includes(d.arch ?? process.arch)) throw new Error("This platform needs a manual pacer install.");
         const name = `pacer-${platform}-${d.arch ?? process.arch}`, signal = AbortSignal.timeout(120_000);
@@ -124,13 +137,18 @@ export function createBootstrap(d: BootstrapDeps) {
         }
       }
       state.start = { status: "done" };
+      if (d.mode === "bootstrap" && state.handoffVersion !== d.version) {
+        step = "install";
+        await exec(binary, ["plugin", "install"], env, 30_000);
+        state.handoffVersion = d.version;
+      }
     } catch (e) {
       const message = (e as Error).message;
       const unpublished = message.includes("HTTP 404");
       state[step] = { status: "failed", detail: unpublished ? UNPUBLISHED : step === "install" ? message.split(/\r?\n/)[0].slice(0,160) : "pacer couldn't start. Try again shortly." };
       state.failures = (state.failures ?? []).filter(at => now() - at < 3600);
       state.failures.push(now());
-      state.nextAt = now() + (unpublished || state.failures.length >= 5 ? 600 : 60);
+      state.nextAt = d.mode === "bootstrap" && state.failures.length >= 5 ? state.failures[0] + 3600 : now() + (unpublished || state.failures.length >= 5 ? 600 : 60);
       ctx.log(`pacer bootstrap: ${message}`);
     } finally {
       state.agents = agentPlans(home, pacerHome, bin => which(bin, env), env);
@@ -145,6 +163,7 @@ export function createBootstrap(d: BootstrapDeps) {
     },
     async refreshAgents(ctx: OrcaWorkerContext, onChange: () => void) {
       if (stopped) return;
+      if (d.mode === "bootstrap") return;
       const agents = agentPlans(home, pacerHome, bin => which(bin, env), env);
       if (JSON.stringify(agents) !== JSON.stringify(state.agents)) { state.agents = agents; await changed(ctx, onChange); }
       // Pre-create only while the consent button is visible. The panel cannot ask the worker.

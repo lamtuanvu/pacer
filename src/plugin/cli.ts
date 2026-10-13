@@ -1,10 +1,12 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { renderUninstall } from "../install/index";
 import { pacerArgv } from "../install/self";
 import { pluginInstalled, writePluginSetting } from "../link/bridge";
 import { linkCli } from "../link/cli";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
-import { installPlugin, uninstallPlugin } from "./install";
+import { installPlugin, uninstallPlugin, marketplacePluginInstalled, marketplacePluginDir, pluginDir, MANAGED_MARKER } from "./install";
 import { legacyPluginInstalled } from "./migration";
 
 const USAGE = "usage: pacer plugin install|uninstall|status|set <transport|port|pacerHome|pollSeconds|autoConsole|notifications> <value>";
@@ -50,6 +52,7 @@ export async function pluginCli(args: string[], ctx: Ctx): Promise<Result> {
       }
       case "status": {
         const result = await linkCli(["status"], ctx);
+        result.out += `\nmarketplace: ${marketplacePluginInstalled(ctx) ? "installed" : "not installed"} (${marketplacePluginDir(ctx)})\ndevelopment: ${existsSync(join(pluginDir(ctx), MANAGED_MARKER)) ? "installed" : "not installed"} (${pluginDir(ctx)})`;
         if (legacyPluginInstalled(ctx)) result.out += "\nlegacy plugin installed; run pacer plugin install to migrate to lamtuanvu.pacer";
         return result;
       }

@@ -9,14 +9,15 @@ import { renderPanel } from "../orca-plugin/src/panel";
 import { emptySnapshot } from "../src/link/envelope";
 import { tmpDir } from "./helpers";
 function harness(options: Partial<BootstrapDeps> = {}, settings: Record<string, unknown> = {}) {
- const home=options.home ?? tmpDir(); let at=0, installed=true, healthy=true, version="pacer 0.1.16", stored:unknown=null;
+ const home=options.home ?? tmpDir(); let at=0, installed=true, healthy=true, version="pacer 0.1.16", stored:unknown=null; const notifications:string[]=[]; const saved=new Map<string,unknown>();
  let context:any={worktreeId:"wt",branch:"main",terminals:[{id:"shell",writable:true}]};
  const calls:{bin:string;args:string[];env:NodeJS.ProcessEnv;timeout:number;at:number}[]=[], storage:BootstrapState[]=[];
  const env={HOME:home,PATH:join(home,"bin"),ORCA_AGENT_SESSION_ID:"agent",ORCA_TERMINAL_HANDLE:"terminal"};
  const ctx={host:{call:async(method:string,params:any)=>{
   if(method==="settings.get") return {settings};
-  if(method==="storage.get")return {value:stored};
-  if(method==="storage.set"){stored=structuredClone(params.value);storage.push(stored as BootstrapState);return {ok:true};}
+  if(method==="notifications.show"){notifications.push(params.title);return {delivered:true};}
+  if(method==="storage.get")return {value:params.key==="bootstrap"?stored:saved.get(params.key)};
+  if(method==="storage.set"){saved.set(params.key,structuredClone(params.value));if(params.key==="bootstrap"){stored=structuredClone(params.value);storage.push(stored as BootstrapState);}return {ok:true};}
   if(method==="workspace.readContext")return context;
   throw new Error(method);
  }},log:()=>{},commands:{register(){}},events:{on(){}},grantedCapabilities:[]} as OrcaWorkerContext;
@@ -32,7 +33,7 @@ function harness(options: Partial<BootstrapDeps> = {}, settings: Record<string, 
   fetch:(async()=>new Response("{}",{status:healthy?200:503,headers:{"x-pacer":"1"}})) as unknown as typeof fetch,sleep:async ms=>{at+=ms/1000;},...options};
  const b=createBootstrap(d);
  const put=(path:string,text="fake")=>{mkdirSync(join(home,path,".."),{recursive:true});writeFileSync(join(home,path),text);chmodSync(join(home,path),0o755);};
- return {home,b,ctx,calls,storage,d,put,run:()=>b.run(ctx,()=>{}),time:(n:number)=>{at=n;},setVersion:(v:string)=>{version=v;},setInstalled:(v:boolean)=>{installed=v;},setHealthy:(v:boolean)=>{healthy=v;},setContext:(v:any)=>{context=v;},setStored:(v:unknown)=>{stored=v;}};
+ return {home,b,ctx,calls,storage,notifications,d,put,run:()=>b.run(ctx,()=>{}),time:(n:number)=>{at=n;},setVersion:(v:string)=>{version=v;},setInstalled:(v:boolean)=>{installed=v;},setHealthy:(v:boolean)=>{healthy=v;},setContext:(v:any)=>{context=v;},setStored:(v:unknown)=>{stored=v;}};
 }
 function release(home:string, checksum?:string) {
  const root=join(home,"release"),dir=join(root,"0.1.16"),name="pacer-darwin-arm64",bytes=Buffer.from("verified fixture");
@@ -133,4 +134,50 @@ test("terminal discovery uses CLI writability when panel workspace returns only 
  const b=createBootstrap({...h.d,exec:async(bin,args,env,timeout)=>args[1]==="show"?JSON.stringify({ok:true,result:{terminal:{connected:true,writable:args[3]==="shell",title:"shell"}}}):h.d.exec!(bin,args,env,timeout)});
  await b.run(h.ctx,()=>{});h.setContext({branch:"main",terminals:[{id:"readonly",writable:false},{id:"shell"}]});await b.refreshAgents(h.ctx,()=>{});expect(b.state.terminal).toBe("shell");
  expect(h.calls.some(c=>c.args[1]==="create")).toBe(false);
+});
+
+
+test("marketplace bootstrap persists milestone notifications across retries and worker restarts",async()=>{
+ const h=harness({mode:"bootstrap"} as Partial<BootstrapDeps>);h.put(".local/bin/pacer");
+ await h.b.activate(h.ctx);await h.run();expect(h.notifications).toEqual(["Installing pacer…",`pacer is ready. Last step: in Orca Settings > Plugins, uninstall this pacer and add ${join(h.home,".pacer/orca-plugin")} under Development.`]);
+ h.time(600);await h.run();expect(h.notifications).toHaveLength(2);expect(h.calls.filter(c=>c.args[0]==="plugin")).toHaveLength(1);
+ const restarted=createBootstrap(h.d);await restarted.activate(h.ctx);h.time(1200);await restarted.run(h.ctx,()=>{});expect(h.notifications).toHaveLength(2);expect(h.calls.filter(c=>c.args[0]==="plugin")).toHaveLength(1);
+});
+test("marketplace failure notification is friendly and deduplicated after restart",async()=>{
+ const h=harness({mode:"bootstrap",fetch:(async()=>new Response("",{status:404})) as unknown as typeof fetch} as Partial<BootstrapDeps>);
+ await h.b.activate(h.ctx);await h.run();expect(h.notifications).toEqual(["Installing pacer…",UNPUBLISHED]);
+ h.time(600);await h.run();const restarted=createBootstrap(h.d);await restarted.activate(h.ctx);h.time(1200);await restarted.run(h.ctx,()=>{});expect(h.notifications).toHaveLength(2);
+});
+test("marketplace prepares its folder once per version without probing or creating terminals",async()=>{
+ const h=harness({mode:"bootstrap"});h.put(".local/bin/pacer");
+ await h.b.activate(h.ctx);await h.run();await h.b.refreshAgents(h.ctx,()=>{});
+ expect(h.b.state.handoffVersion).toBe(h.d.version);
+ expect(h.calls.filter(c=>c.args[0]==="plugin")).toHaveLength(1);
+ const prepared=h.calls.find(c=>c.args[0]==="plugin")!;
+ expect(prepared.args).toEqual(["plugin","install"]);expect(prepared.bin).toBe(join(h.home,".local/bin/pacer"));
+ expect(prepared.env.ORCA_AGENT_SESSION_ID).toBeUndefined();expect(prepared.env.ORCA_TERMINAL_HANDLE).toBeUndefined();
+ expect(h.storage.at(-1)?.handoffVersion).toBe(h.d.version);
+ const upgraded=createBootstrap({...h.d,version:"0.1.17"});await upgraded.activate(h.ctx);h.time(600);await upgraded.run(h.ctx,()=>{});
+ expect(h.calls.filter(c=>c.args[0]==="plugin")).toHaveLength(2);expect(upgraded.state.handoffVersion).toBe("0.1.17");
+ expect(h.calls.some(c=>c.bin==="orca"||c.args[0]==="terminal"||c.args[0]==="console"||c.args[0]==="setup")).toBe(false);
+});
+test("marketplace handoff retries failures at most five per hour and persists success",async()=>{
+ const h=harness({mode:"bootstrap"});h.put(".local/bin/pacer");let attempts=0,fail=true;
+ const b=createBootstrap({...h.d,exec:async(bin,args,env,timeout)=>{
+  if(args[0]==="plugin"){attempts++;if(fail)throw new Error("copy failed");return "";}
+  return h.d.exec!(bin,args,env,timeout);
+ }});
+ await b.activate(h.ctx);
+ for(const at of [0,60,120,180,240]){h.time(at);await b.run(h.ctx,()=>{});}
+ expect(attempts).toBe(5);expect(b.state.handoffVersion).toBeUndefined();expect(b.state.nextAt).toBe(3600);
+ expect(h.notifications).toEqual(["Installing pacer…","pacer couldn't install. Try again shortly."]);
+ h.time(3599);await b.run(h.ctx,()=>{});expect(attempts).toBe(5);
+ fail=false;h.time(3600);await b.run(h.ctx,()=>{});expect(attempts).toBe(6);expect(b.state.handoffVersion).toBe(h.d.version);
+ const restarted=createBootstrap(h.d);await restarted.activate(h.ctx);h.time(4200);await restarted.run(h.ctx,()=>{});
+ expect(h.calls.some(c=>c.args[0]==="plugin")).toBe(false);expect(h.notifications).toHaveLength(3);
+});
+
+test("marketplace install errors show a friendly line rather than subprocess diagnostics",async()=>{
+ const h=harness({mode:"bootstrap",exec:async()=>{throw new Error("spawn /private/fixture/pacer EACCES\ninternal details");}});h.put(".local/bin/pacer");await h.b.activate(h.ctx);await h.run();
+ expect(h.notifications).toEqual(["Installing pacer…","pacer couldn't install. Try again shortly."]);
 });
