@@ -1,12 +1,21 @@
 # Changelog
 
-Notable changes are recorded here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/). These entries summarize local release commits; public release artifacts are not published yet.
+Notable changes are recorded here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/). Releases from 0.1.15 on are published on GitHub Releases, npm and Homebrew.
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-10-13
+
 ### Added
 
-- Apache-2.0 license, community policies, contribution guidance, GitHub templates and user documentation.
+- First public release: Apache-2.0 license, community policies, contribution guidance, GitHub templates, user documentation, design system and roadmap.
+- Release pipeline: binaries for macOS and Linux on GitHub Releases with checksums and build provenance, `install.sh`, npm (`@lamtuanvu/pacer`) and Homebrew (`lamtuanvu/tap/pacer`).
+- Orca plugin published as `lamtuanvu.pacer`, installable from the pacer repository as a marketplace source.
+
+### Changed
+
+- `pacer update` refreshes agent integrations, and points npm and Homebrew installs to their package manager.
+- Install summaries report Claude MCP changes.
 
 ## [0.1.14] - 2026-10-13
 
