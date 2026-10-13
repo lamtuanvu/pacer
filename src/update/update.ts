@@ -67,11 +67,10 @@ const ok = (out: string): Result => ({ code: 0, out, err: "" });
 const fail = (code: number, msg: string): Result => ({ code, out: "", err: `pacer update: ${msg}` });
 
 export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result> {
-  const raw = o.base ?? d.env.PACER_RELEASE_BASE;
-  if (!raw) return fail(2, "no release host is configured yet. Set PACER_RELEASE_BASE (for example file:///path/to/pacer/dist/release) or pass --base <url>");
-  let base: string;
+  const raw = o.base ?? (d.env.PACER_RELEASE_BASE || undefined);
+  let base: string | undefined;
   try {
-    base = normalizeBase(raw);
+    base = raw === undefined ? undefined : normalizeBase(raw);
   } catch (e) {
     return fail(2, (e as Error).message);
   }

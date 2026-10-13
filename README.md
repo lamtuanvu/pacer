@@ -15,7 +15,13 @@ A planner can spend its subscription too quickly while other coding agents have 
 
 ## Install
 
-Public GitHub Releases are not published yet. The planned binary channel is [GitHub Releases](https://github.com/lamtuanvu/pacer/releases) using [install.sh](install.sh), which verifies SHA-256 checksums. Today the installer requires `PACER_RELEASE_BASE` and a release root containing `latest.json`, `<version>/SHA256SUMS` and `<version>/pacer-<os>-<arch>`; it has no default public host. See [installation](docs/install.md) for the current installer contract.
+Install the latest binary from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
+```
+
+This works once the repository is public and its first release exists. The installer verifies SHA-256 checksums; verify a downloaded binary's build provenance with `gh attestation verify <file> -R lamtuanvu/pacer`. `PACER_RELEASE_BASE` remains an override for another HTTPS or local `file://` release host. See [installation](docs/install.md) for source builds and installer options.
 
 From a source checkout, use Bun 1.4.2 or newer:
 
@@ -101,7 +107,7 @@ pacer sends no telemetry. Its budget and activity readers use these local source
 
 BytePlus usage is read through `arkcli usage plan --product coding-plan`; metered OpenCode usage through `opencode stats --models --json --days 7`. Setup detects installed CLIs and may list local models with `ollama list` or `lms ls --json`. Integration commands inspect and edit planner configuration, skills and hooks, keeping backups. Delegation reads the supplied brief, repository Git state and executor reports; verification runs your acceptance command. Orca integration reads local runtime/worktree state and the bearer token for loopback HTTP.
 
-Executors receive your brief and can access the selected repository under their CLI permissions; their services have their own data policies. Optional `ollama` and `jev` classifier adapters send decision state to their configured endpoints. The default classifier is local rules; external shadow calls require `classifier.shadow_external: true`. Classifier keys may be read from environment variables or `~/.pacer/secrets`. Release install/update commands download from the release base you supply. No usage logs are uploaded for analytics.
+Executors receive your brief and can access the selected repository under their CLI permissions; their services have their own data policies. Optional `ollama` and `jev` classifier adapters send decision state to their configured endpoints. The default classifier is local rules; external shadow calls require `classifier.shadow_external: true`. Classifier keys may be read from environment variables or `~/.pacer/secrets`. Release install/update commands download from GitHub Releases by default, or from your `PACER_RELEASE_BASE` override. No usage logs are uploaded for analytics.
 
 ## Community
 

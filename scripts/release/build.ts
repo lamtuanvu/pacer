@@ -7,9 +7,9 @@ import {
 } from "../../src/update/manifest";
 import { compareVersions, isVersion } from "../../src/update/version";
 
-export const BUILD_USAGE = "usage: bun run release [--host] [--out <dir>] [--version <x.y.z>]";
+export const BUILD_USAGE = "usage: bun run release [--host | --targets <os-arch,...>] [--write-only] [--out <dir>] [--version <x.y.z>]";
 
-export interface BuildArgs { host: boolean; out?: string; version?: string }
+export interface BuildArgs { host: boolean; out?: string; version?: string; targets?: Target[]; writeOnly?: boolean }
 
 export interface BuildOptions {
   root: string;
@@ -26,16 +26,25 @@ export function parseBuildArgs(argv: string[]): BuildArgs | string {
     const x = argv[i];
     if (x === "--host") {
       a.host = true;
-    } else if (x === "--out" || x === "--version") {
+    } else if (x === "--write-only") {
+      a.writeOnly = true;
+    } else if (x === "--out" || x === "--version" || x === "--targets") {
       const v = argv[i + 1];
       if (v === undefined || v.startsWith("--")) return `release: ${x} needs a value\n${BUILD_USAGE}`;
       if (x === "--out") a.out = v;
-      else a.version = v;
+      else if (x === "--version") a.version = v;
+      else {
+        const names = v.split(",");
+        const targets = names.map(name => TARGETS.find(t => `${t.os}-${t.arch}` === name));
+        if (targets.some(t => !t) || new Set(names).size !== names.length) return `release: invalid --targets "${v}"`;
+        a.targets = targets as Target[];
+      }
       i++;
     } else {
       return `release: unknown argument "${x}"\n${BUILD_USAGE}`;
     }
   }
+  if (a.host && a.targets) return "release: --host and --targets cannot be combined";
   return a;
 }
 
@@ -121,13 +130,14 @@ if (import.meta.main) {
     process.exit(2);
   }
   try {
-    const { dir, manifest } = await buildRelease({
-      root: resolve(import.meta.dir, "..", ".."),
-      outRoot: a.out ? resolve(a.out) : undefined,
-      version: a.version,
-      targets: a.host && host ? [host] : TARGETS,
-      log: (line) => console.log(line),
-    });
+    const root = resolve(import.meta.dir, "..", "..");
+    const outRoot = a.out ? resolve(a.out) : join(root, "dist", "release");
+    const version = a.version ?? readPackageVersion(root);
+    if (!isVersion(version)) throw new Error(`invalid version "${version}"`);
+    const targets = a.targets ?? (a.host && host ? [host] : TARGETS);
+    const { dir, manifest } = a.writeOnly
+      ? { dir: join(outRoot, version), manifest: writeRelease(outRoot, version, targets) }
+      : await buildRelease({ root, outRoot, version: a.version, targets, log: line => console.log(line) });
     console.log(`release ${manifest.version}: ${dir}`);
     for (const x of manifest.assets) console.log(`  ${x.file}  ${x.size} bytes  sha256 ${x.sha256}`);
   } catch (e) {

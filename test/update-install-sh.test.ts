@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { buildRelease, writeRelease } from "../scripts/release/build";
 import { type Platform, assetFile, hostTarget } from "../src/update/manifest";
@@ -123,17 +123,13 @@ test("installer rejects bases with query or fragment components", async () => {
   }
 });
 
-test("downloader arguments forbid unsafe curl redirect schemes and wget redirects", () => {
+test("downloader arguments bound redirects and forbid unsafe schemes", () => {
   const script = readFileSync(INSTALL_SH, "utf8");
-  expect(script).toContain("curl --proto '=https,http,file' --proto-redir '=https' -fsSL");
+  expect(script).toContain("curl --proto '=https,http,file' --proto-redir '=https' --max-redirs 5 -fsSL");
   expect(script).toContain("wget --max-redirect=0");
 });
 
-test("missing or insecure base is refused", async () => {
-  const none = await runInstall({});
-  expect(none.code).toBe(1);
-  expect(none.err).toContain("PACER_RELEASE_BASE is not set");
-  expect(none.err).toContain("file:///path/to/pacer/dist/release");
+test("insecure base is refused", async () => {
   const http = await runInstall({ PACER_RELEASE_BASE: "http://example.com/pacer" });
   expect(http.code).toBe(1);
   expect(http.err).toContain("must start with https://");
@@ -210,3 +206,95 @@ test.skipIf(!hostTarget())("installs a real compiled host build", async () => {
   expect(r.out).toContain(`installed: pacer ${PKG_VERSION} (${dir}/pacer)`);
   expect(Bun.spawnSync([join(dir, "pacer"), "--version"]).stdout.toString().trim()).toBe(`pacer ${PKG_VERSION}`);
 }, 180_000);
+
+test("installer defaults to GitHub latest and versioned asset URLs", async () => {
+  const root = tmpDir();
+  release(root, "0.2.0");
+  const bin = fakeBin("Darwin", "arm64");
+  const log = join(tmpDir(), "urls");
+  writeFileSync(join(bin, "curl"), `#!/bin/sh
+url= dest=
+while [ "$#" -gt 0 ]; do
+  case $1 in https://*) url=$1 ;; -o) shift; dest=$1 ;; esac
+  shift
+done
+printf '%s\\n' "$url" >> "$DOWNLOAD_LOG"
+case $url in
+  https://github.com/lamtuanvu/pacer/releases/latest/download/latest.json) cp "$RELEASE_FIXTURE/latest.json" "$dest" ;;
+  https://github.com/lamtuanvu/pacer/releases/download/v0.2.0/*) cp "$RELEASE_FIXTURE/0.2.0/\${url##*/}" "$dest" ;;
+  *) exit 1 ;;
+esac
+`);
+  chmodSync(join(bin, "curl"), 0o755);
+  const dir = join(tmpDir(), "bin");
+  const r = await runInstall({ RELEASE_FIXTURE: root, DOWNLOAD_LOG: log, PACER_INSTALL_DIR: dir }, bin);
+  expect(r.err).toBe("");
+  expect(r.code).toBe(0);
+  expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+    "https://github.com/lamtuanvu/pacer/releases/latest/download/latest.json",
+    "https://github.com/lamtuanvu/pacer/releases/download/v0.2.0/SHA256SUMS",
+    "https://github.com/lamtuanvu/pacer/releases/download/v0.2.0/pacer-darwin-arm64",
+  ]);
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body("0.2.0", MAC));
+});
+
+test.skipIf(!Bun.which("curl"))("curl refuses an HTTP redirect before requesting its target", async () => {
+  let requests = 0;
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) {
+    if (new URL(req.url).pathname === "/latest.json") return new Response(null, { status: 302, headers: { location: new URL("/target", req.url).href } });
+    requests++;
+    return new Response("unsafe");
+  } });
+  servers.push(server);
+  const r = await runInstall({ PACER_RELEASE_BASE: String(server.url) });
+  expect(r.code).toBe(1);
+  expect(r.err).toContain("download failed");
+  expect(requests).toBe(0);
+});
+
+test("wget follows only HTTPS redirects and bounds the hop count", async () => {
+  const root = tmpDir();
+  release(root, "0.2.0");
+  const bin = fakeBin("Darwin", "arm64");
+  for (const tool of ["mktemp", "sed", "tr", "head", "cp", "mkdir", "awk", "chmod", "mv", "rm", "cut", "shasum"]) {
+    const path = Bun.which(tool);
+    if (!path) throw new Error(`missing test utility ${tool}`);
+    symlinkSync(path, join(bin, tool));
+  }
+  writeFileSync(join(bin, "wget"), `#!/bin/sh
+url= dest=
+while [ "$#" -gt 0 ]; do
+  case $1 in https://*) url=$1 ;; -O) shift; dest=$1 ;; esac
+  shift
+done
+printf '%s\\n' "$url" >> "$DOWNLOAD_LOG"
+case $REDIRECT_MODE in
+  unsafe) printf '  HTTP/1.1 302 Found\\n  Location: http://unsafe.example/file\\n' >&2; exit 8 ;;
+  loop) printf '  HTTP/1.1 302 Found\\n  Location: https://assets.example/loop\\n' >&2; exit 8 ;;
+esac
+case $url in
+  https://github.com/*) printf '  HTTP/1.1 302 Found\\n  Location: https://assets.example/%s\\n' "\${url##*/}" >&2; exit 8 ;;
+  https://assets.example/latest.json) cp "$RELEASE_FIXTURE/latest.json" "$dest" ;;
+  https://assets.example/*) cp "$RELEASE_FIXTURE/0.2.0/\${url##*/}" "$dest" ;;
+  *) exit 1 ;;
+esac
+`);
+  chmodSync(join(bin, "wget"), 0o755);
+  for (const mode of ["safe", "unsafe", "loop"]) {
+    const log = join(tmpDir(), "urls");
+    const dir = join(tmpDir(), "bin");
+    const r = await runInstall({ PATH: bin, REDIRECT_MODE: mode, RELEASE_FIXTURE: root, DOWNLOAD_LOG: log, PACER_INSTALL_DIR: dir }, bin);
+    const urls = readFileSync(log, "utf8").trim().split("\n");
+    if (mode === "safe") {
+      expect(r.err).toBe("");
+      expect(r.code).toBe(0);
+      expect(urls).toHaveLength(6);
+      expect(urls[1]).toBe("https://assets.example/latest.json");
+      expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body("0.2.0", MAC));
+    } else {
+      expect(r.code).toBe(1);
+      expect(r.err).toContain(mode === "unsafe" ? "redirect must target https://" : "redirect limit (5) exceeded");
+      expect(urls).toHaveLength(mode === "unsafe" ? 1 : 6);
+    }
+  }
+});

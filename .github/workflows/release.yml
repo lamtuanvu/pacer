@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Verify tag
+        run: test "$GITHUB_REF_NAME" = "v$(bun -p 'require("./package.json").version')"
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+
+  build:
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            targets: darwin-arm64,darwin-x64
+          - runner: ubuntu-latest
+            targets: linux-x64,linux-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Build runner targets
+        env:
+          TARGETS: ${{ matrix.targets }}
+        run: bun scripts/release/build.ts --targets "$TARGETS"
+      - name: Smoke test native binary
+        run: |
+          version=$(bun -p 'require("./package.json").version')
+          case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) exit 1 ;; esac
+          case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) exit 1 ;; esac
+          test "$("./dist/release/$version/pacer-$os-$arch" --version)" = "pacer $version"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: binaries-${{ matrix.runner }}
+          path: dist/release/*/pacer-*
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: binaries-*
+          path: dist/release
+          merge-multiple: true
+      - name: Write checksums and metadata
+        run: bun scripts/release/build.ts --write-only
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: dist/release/*/pacer-*
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(bun -p 'require("./package.json").version')
+          awk -v heading="## [$version]" '
+            /^## / { if (found) exit; if ($0 == heading || index($0, heading " - ") == 1) { found=1; next } }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+          case "$version" in
+            *-*) set -- --prerelease --latest=false ;;
+            *) set -- --latest ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "pacer $version" \
+            --notes-file release-notes.md "$@" \
+            dist/release/"$version"/pacer-* \
+            dist/release/"$version"/SHA256SUMS \
+            dist/release/"$version"/manifest.json dist/release/latest.json

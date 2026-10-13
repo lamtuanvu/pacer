@@ -25,14 +25,26 @@ export const releaseFetch: FetchFn = async (url) => {
   return fetch(url, { redirect: "manual", signal: AbortSignal.timeout(300_000) });
 };
 
+export const MAX_REDIRECTS = 5;
+
 export async function fetchBytes(fetchFn: FetchFn, url: string, maxBytes = Number.POSITIVE_INFINITY): Promise<Uint8Array> {
   let res: Response;
+  let current = url;
   try {
-    res = await fetchFn(url);
+    for (let hops = 0; ; hops++) {
+      res = await fetchFn(current);
+      if (res.status < 300 || res.status >= 400) break;
+      await res.body?.cancel();
+      const location = res.headers.get("location");
+      if (!location) throw new Error(`redirect HTTP ${res.status} has no Location`);
+      if (hops >= MAX_REDIRECTS) throw new Error(`redirect limit (${MAX_REDIRECTS}) exceeded`);
+      const next = new URL(location, current);
+      if (next.protocol !== "https:" || next.username || next.password) throw new Error("redirect must target https:// without user info");
+      current = next.href;
+    }
   } catch (e) {
     throw new ReleaseError(`download failed: ${url} (${(e as Error).message})`);
   }
-  if (res.status >= 300 && res.status < 400) throw new ReleaseError(`download failed: ${url} (redirect HTTP ${res.status})`);
   if (!res.ok) throw new ReleaseError(`download failed: ${url} (HTTP ${res.status})`);
   const declaredLength = res.headers.get("content-length");
   if (declaredLength !== null && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {

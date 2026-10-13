@@ -81,3 +81,20 @@ test.skipIf(!HOST)("bun run release --host compiles a working binary with the ve
   const v = Bun.spawnSync([join(dir, file), "--version"], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: tmpDir() } });
   expect(v.stdout.toString().trim()).toBe(`pacer ${PKG_VERSION}`);
 }, 180_000);
+
+test("release CLI selects runner targets and can write metadata without rebuilding", () => {
+  const parsed = parseBuildArgs(["--targets", "linux-x64,linux-arm64", "--write-only"]);
+  expect(typeof parsed).toBe("object");
+  if (typeof parsed !== "string") {
+    expect(parsed.targets?.map(t => assetFile(t))).toEqual(["pacer-linux-x64", "pacer-linux-arm64"]);
+    expect(parsed.writeOnly).toBe(true);
+  }
+  for (const names of ["windows-x64", "linux-x64,linux-x64", ""]) expect(parseBuildArgs(["--targets", names])).toContain("invalid --targets");
+  expect(parseBuildArgs(["--host", "--targets", "linux-x64"])).toContain("cannot be combined");
+  const out = tmpDir();
+  const platforms: Platform[] = [{ os: "linux", arch: "x64" }, { os: "linux", arch: "arm64" }];
+  fakeBinaries(out, "0.2.0", platforms);
+  const r = Bun.spawnSync([process.execPath, "scripts/release/build.ts", "--write-only", "--out", out, "--version", "0.2.0", "--targets", "linux-x64,linux-arm64"], { cwd: ROOT });
+  expect(r.exitCode).toBe(0);
+  expect(parseManifest(JSON.parse(readFileSync(join(out, "0.2.0", "manifest.json"), "utf8"))).assets).toHaveLength(2);
+});
