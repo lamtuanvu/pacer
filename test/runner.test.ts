@@ -67,10 +67,10 @@ test("limit falls back and marks exhausted", async () => {
   expect(readMarks(ctx).codex).toBeGreaterThan(Date.now() / 1000);
 });
 
-test("non-limit failure stops without fallback; failing acceptance is partial", async () => {
+test("non-limit failure with changes needs review without fallback; failing acceptance is partial", async () => {
   const ctx = fakeCtx();
   const failed = await runTask(ctx, newTask(ctx).id, deps({ codex: outcomeFor("codex", 2) }));
-  expect(failed.result).toMatchObject({ status: "failed", executor: "codex" });
+  expect(failed.result).toMatchObject({ status: "partial", executor: "codex" });
   const partial = await runTask(ctx, newTask(ctx, { acceptance: "x" }).id, deps({ codex: outcomeFor("codex", 0) }, status(), false));
   expect(partial.result?.status).toBe("partial");
 });
@@ -90,11 +90,11 @@ test("requested executor is used alone; unavailable requested executor explains 
   const r = await runTask(ctx, newTask(ctx, { requestedExecutor: "agy" }).id, d);
   expect(d.calls).toEqual(["agy"]);
   expect(r.result?.executor).toBe("agy");
-  const exhausted = deps({}, status({ codex: { verdict: "EXHAUSTED" } }));
+  const exhausted = deps({ cursor: outcomeFor("cursor", 0) }, status({ codex: { verdict: "EXHAUSTED" } }));
   const r2 = await runTask(ctx, newTask(ctx, { requestedExecutor: "codex" }).id, exhausted);
-  expect(exhausted.calls).toEqual([]);
-  expect(r2.result).toMatchObject({ status: "limit", executor: null });
-  expect(r2.result?.report).toContain('requested executor "codex" is unavailable (exhausted)');
+  expect(exhausted.calls).toEqual(["cursor"]);
+  expect(r2.result).toMatchObject({ status: "done", executor: "cursor" });
+  expect(r2.result?.report).toContain("requested codex unavailable (exhausted); ran on cursor");
 });
 
 test("no executor available at all reports the exclusions; the planner is never used", async () => {
@@ -263,7 +263,7 @@ test("usage-like failure after work or after ten seconds is not retried", async 
     const out=launchFailure("codex","error: unknown option --bad");
     if(!changed) out.attempt.endedAt=12;
     const d=deps({codex:out});
-    expect((await runTask(ctx,newTask(ctx).id,d)).state).toBe("failed");
+    expect((await runTask(ctx,newTask(ctx).id,d)).state).toBe("partial");
     expect(d.calls).toEqual(["codex"]);
   }
 });
@@ -313,14 +313,53 @@ test("concurrent identical briefs launch only one executor unless forced",async(
  const r=await runTask(ctx,newTask(ctx).id,d);expect(r.state).toBe("done");expect(r.attempts[0].brokenReason).toBeTruthy();expect(d.calls).toEqual(["codex","cursor"]);
  });
 
- test("requested broken executor is reported even when another broken mark was inserted first",async()=>{
+ test("requested broken executor falls back even when another broken mark was inserted first",async()=>{
  const {markBroken}=await import("../src/exec/broken");const ctx=fakeCtx();const at={...ctx,now:Date.now()/1000};
  markBroken(at,"agy","agy usage error");markBroken(at,"codex","codex usage error");
- const r=await runTask(ctx,newTask(ctx,{requestedExecutor:"codex"}).id,deps({}));
- expect(r.result?.brokenExecutor).toBe("codex");expect(r.result?.report).toContain("codex usage error");
+ const d=deps({cursor:outcomeFor("cursor",0)});
+ const r=await runTask(ctx,newTask(ctx,{requestedExecutor:"codex"}).id,d);
+ expect(d.calls).toEqual(["cursor"]);expect(r.state).toBe("done");expect(r.result?.report).toContain("codex usage error");
  });
  test("later limit report is retained when an earlier executor was broken",async()=>{
  const ctx=fakeCtx({run:async()=>({code:0,stdout:"",stderr:""})});
  const d=deps({codex:launchFailure("codex","unknown option --bad"),cursor:outcomeFor("cursor",1,true,"ActionRequiredError: You've hit your usage limit")},status({agy:{installed:false}}));
  const r=await runTask(ctx,newTask(ctx).id,d);expect(r.result?.report).toContain("ActionRequiredError");
  });
+
+for (const unavailable of ["blocked", "broken", "not in the routing list"] as const) test(`requested executor falls back when ${unavailable}`, async () => {
+  const ctx = fakeCtx();
+  const requestedExecutor = unavailable === "not in the routing list" ? "missing" : "cursor";
+  const d = deps({ codex: outcomeFor("codex", 0) }, status({ cursor: unavailable === "blocked" ? { blockedReason: "manual" } : { brokenReason: "bad CLI" } }));
+  const r = await runTask(ctx, newTask(ctx, { requestedExecutor }).id, d);
+  expect(d.calls).toEqual(["codex"]);
+  expect(r.state).toBe("done");
+  expect(r.result?.report).toContain(`requested ${requestedExecutor} unavailable (`);
+  expect(r.result?.report).toContain("; ran on codex");
+});
+
+test("requested executor limit falls back without trying it twice", async () => {
+  const ctx = fakeCtx();
+  const d = deps({ cursor: outcomeFor("cursor", 1, true), codex: outcomeFor("codex", 0) });
+  const r = await runTask(ctx, newTask(ctx, { requestedExecutor: "cursor" }).id, d);
+  expect(d.calls).toEqual(["cursor", "codex"]);
+  expect(r.state).toBe("done");
+  expect(r.result?.report).toContain("requested cursor unavailable (limit); ran on codex");
+});
+
+for (const files of ["", "(no changes)", "(not a git repository)"]) test(`nonzero exit without work stays failed: ${files}`, async () => {
+  const ctx = fakeCtx(), d = deps({ codex: outcomeFor("codex", 1) });
+  d.verifyRepo = async () => ({ files });
+  expect((await runTask(ctx, newTask(ctx).id, d)).state).toBe("failed");
+});
+
+for (const code of [137, 139]) test(`crash exit ${code} with changes stays failed`, async () => {
+  const ctx = fakeCtx(), d = deps({ codex: outcomeFor("codex", code) });
+  expect((await runTask(ctx, newTask(ctx).id, d)).state).toBe("failed");
+});
+
+test("timed out executor with changes stays failed", async () => {
+ const ctx=fakeCtx(), out=outcomeFor("codex",1);
+ out.exec.timedOut=true;out.attempt.timedOut=true;
+ const d=deps({codex:out});
+ expect((await runTask(ctx,newTask(ctx).id,d)).state).toBe("failed");
+});

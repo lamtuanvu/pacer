@@ -665,21 +665,34 @@ function attentionGroups(s, now) {
   const groups = new Map;
   const resolved = new Set(s.tasks.filter((t) => t.state === "done" && t.retryOf).map((t) => t.retryOf));
   for (const t of [...s.tasks].sort((a, b) => b.updatedAt - a.updatedAt)) {
-    if (t.dismissed || t.retriedBy && s.tasks.some((retry) => retry.id === t.retriedBy && ["queued", "running", "done"].includes(retry.state)) || resolved.has(t.id) || now - t.updatedAt > 3 * 86400)
+    if (t.dismissed || t.retriedBy && s.tasks.some((retry) => retry.id === t.retriedBy) || resolved.has(t.id) || now - t.updatedAt > 3 * 86400)
       continue;
-    if (!["failed", "limit"].includes(t.state) && !(["running", "queued"].includes(t.state) && !t.executor && !t.attemptStartedAt && !t.runnerAlive && now - t.updatedAt > 600))
+    if (!["failed", "limit", "partial"].includes(t.state) && !(["running", "queued"].includes(t.state) && !t.executor && !t.attemptStartedAt && !t.runnerAlive && now - t.updatedAt > 600))
       continue;
     const key = t.brokenExecutor ? `broken:${t.brokenExecutor}` : t.goal;
     groups.set(key, [...groups.get(key) ?? [], t]);
   }
-  return [...groups].map(([_key, tasks]) => ({ goal: tasks[0].brokenExecutor ? `${displayName(tasks[0].brokenExecutor)} is not working` : tasks[0].goal, tasks, latest: tasks[0], stuck: ["running", "queued"].includes(tasks[0].state), retry: rankedProviders(s).find((p) => !tasks.some((t) => t.executor === p.id)) ?? null, ...tasks[0].brokenExecutor ? { brokenExecutor: tasks[0].brokenExecutor, brokenReason: tasks[0].brokenReason } : {} }));
+  const count = (tasks) => {
+    const seen = new Set;
+    for (const task of tasks) {
+      let t = task;
+      while (t && !seen.has(t.id)) {
+        seen.add(t.id);
+        t = s.tasks.find((p) => p.id === t.retryOf);
+      }
+    }
+    return seen.size;
+  };
+  return [...groups].map(([_key, tasks]) => ({ count: count(tasks), goal: tasks[0].brokenExecutor ? `${displayName(tasks[0].brokenExecutor)} is not working` : tasks[0].goal, tasks, latest: tasks[0], stuck: ["running", "queued"].includes(tasks[0].state), retry: rankedProviders(s).find((p) => !tasks.some((t) => t.executor === p.id)) ?? null, ...tasks[0].brokenExecutor ? { brokenExecutor: tasks[0].brokenExecutor, brokenReason: tasks[0].brokenReason } : {} }));
 }
 function attentionText(g, now) {
   if (g.brokenExecutor)
     return `${displayName(g.brokenExecutor)} is not working: ${g.brokenReason ?? "CLI startup failed"} · ${g.tasks.length} tasks affected`;
   if (g.stuck)
     return `Waiting ${duration(now - g.latest.updatedAt)} with no executor picked`;
-  const count = g.tasks.length, label = g.latest.state === "limit" ? "Hit a limit" : "Failed";
+  if (g.latest.state === "partial")
+    return `Needs review${g.latest.executor ? ` on ${displayName(g.latest.executor)}` : ""}`;
+  const count = g.count, label = g.latest.state === "limit" ? "Hit a limit" : "Failed";
   return `${label}${count === 2 ? " twice" : count > 2 ? ` ×${count}` : ""}${g.latest.executor ? ` on ${displayName(g.latest.executor)}` : ""}`;
 }
 var unavailableDetail = (p, now) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.verdict === "EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt, now)}` : "not in the queue";
@@ -707,7 +720,7 @@ function overview(s, now, reachable, commands, text) {
  <div class="card stack answer"><div class="stack"><div class="headline">${h(headline(p, now))}</div><div class="muted">${h(answerDetail(s, now))}</div></div>${p ? `<div class="stack"><div class="row"><span class="name">${icon(p.id, 14)}${h(displayName(p.id))}</span><small>planner</small><span class="grow"></span><span class="percent">${p.usedPct === null ? "—" : `${Math.round(p.usedPct)}%`}</span><small>used</small></div>${meter(p)}<div class="row"><small>Pace marker ${p.pacePct == null ? "—" : `${p.pacePct}%`}</small><span class="grow"></span><small>${p.resetsAt === null ? "Reset unknown" : `Resets ${h(new Date(p.resetsAt * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }))}`}</small></div></div>` : ""}</div>
  <section class="stack section"><div class="row"><h2>Who runs next</h2><span class="grow"></span><small>in this order</small></div><div class="list" id="ranked-list"></div><div class="stack unavailable" id="unavailable-list"></div></section>
  <section class="stack section"><div class="row"><h2>Needs attention</h2>${attention.length ? `<span class="pill bad">${attention.length}</span>` : ""}</div>${attention.slice(0, 10).map((g, i) => {
-    const key = `attention-${i}`;
+    const key = `attention-${i}`, review = g.latest.state === "partial";
     text[key + "-goal"] = g.goal.length > 96 ? g.goal.slice(0, 93) + "…" : g.goal;
     text[key + "-detail"] = attentionText(g, now) + (g.stuck ? "" : ` · ${age(g.latest.updatedAt, now)}`);
     if (g.retry)
@@ -718,7 +731,7 @@ function overview(s, now, reachable, commands, text) {
       commands[key] = g.brokenExecutor ? { cmd: "retry-all", taskIds: g.tasks.map((t) => t.id), executor: g.retry.id } : { cmd: "retry", taskId: g.latest.id, executor: g.retry.id };
     if (!g.stuck)
       commands[key + "-dismiss"] = { cmd: "dismiss", ...g.tasks.length > 1 ? { taskIds: g.tasks.map((t) => t.id) } : { taskId: g.latest.id } };
-    return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small></div></div><div class="actions">${commands[key] ? `<button type="button" class="${g.stuck ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `${g.brokenExecutor ? "Retry all" : "Retry"} on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}${!g.stuck ? `<button type="button" data-command="${key}-dismiss">Dismiss</button>` : ""}</div></div>`;
+    return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small>${review && g.latest.worktree ? `<small>${h(g.latest.worktree)}</small>` : ""}</div></div><div class="actions">${review ? `<button type="button" class="primary" data-command="${key}-dismiss">Dismiss</button>` : ""}${commands[key] ? `<button type="button" class="${g.stuck || review ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `${g.brokenExecutor ? "Retry all" : "Retry"} on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}${!g.stuck && !review ? `<button type="button" data-command="${key}-dismiss">Dismiss</button>` : ""}</div></div>`;
   }).join("")}${attention.length > 10 ? `<small>${attention.length - 10} more groups need attention. View all with pacer tasks.</small>` : ""}${attention.length ? "" : "<small>Nothing needs attention.</small>"}</section>
  <section class="stack section"><h2>Running</h2>${s.tasks.filter((t) => ["running", "queued"].includes(t.state)).map((t) => `<div class="card stack"><span>${h(t.goal)}</span><small>${t.executor ? `Running on ${h(displayName(t.executor))} · started <span data-age-at="${t.attemptStartedAt ?? t.updatedAt}">${Math.max(0, Math.floor(now - (t.attemptStartedAt ?? t.updatedAt)))}s ago</span>` : "Queued"}${t.retryOf ? ` · Retry of ${h(t.retryOf)}` : ""}</small></div>`).join("") || "<small>No tasks running.</small>"}</section>
  <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter((t) => t.state === "done").sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).map((t) => `<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0, 100))}">${h(t.goal.slice(0, 100))}</span><small>${h(t.executor ? displayName(t.executor) : "—")} · ${h(age(t.updatedAt, now))}</small></div></div>`).join("")}${s.tasks.some((t) => t.state === "done") ? "" : "<small>No completed tasks yet.</small>"}</div></section>

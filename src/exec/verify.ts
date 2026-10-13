@@ -18,7 +18,10 @@ export async function verifyRepo(
       .join("\n") || "(no changes)";
   }
   if (!acceptance?.trim()) return { files };
-  const r = await execProcess({ argv: ["sh", "-c", acceptance], cwd: repo, env, timeoutMs });
+  const bash = Bun.which("bash", { PATH: env.PATH ?? process.env.PATH });
+  const pipefail = bash ? true : (await execProcess({ argv: ["sh", "-c", "set -o pipefail"], cwd: repo, env, timeoutMs: 30_000 })).code === 0;
+  const argv = bash ? [bash, "-o", "pipefail", "-c", acceptance] : ["sh", "-c", `${pipefail ? "set -o pipefail; " : ""}${acceptance}`];
+  const r = await execProcess({ argv, cwd: repo, env, timeoutMs });
   const tail = `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-TAIL_LINES).join("\n");
   return { files, acceptance: { cmd: acceptance, passed: r.code === 0 && !r.timedOut, tail } };
 }
