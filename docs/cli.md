@@ -4,11 +4,18 @@
 planners are claude-code, codex, cursor and opencode. Skills live at
 `~/.claude/skills/pacer/SKILL.md`, `${CODEX_HOME:-~/.codex}/skills/pacer/SKILL.md`,
 `~/.cursor/skills/pacer/SKILL.md`, or `${XDG_CONFIG_HOME:-~/.config}/opencode/skills/pacer/SKILL.md`.
+Cursor and OpenCode also read `~/.claude/skills`; Cursor also reads `~/.codex/skills`.
+Identical pacer skill copies may appear in their skill lists; update refresh keeps the installed copies identical.
 The install manifest tracks files and backups; `pacer uninstall <planner>` reverses the install
 while preserving later user edits. `pacer doctor` reports skill integrity.
 
 MCP is optional: `pacer install <planner> --mcp` registers it. A default reinstall
 leaves an existing pacer MCP entry unchanged; `--no-mcp` explicitly removes it.
+`pacer update` replaces the binary and refreshes every installed planner’s skill, policy and hooks
+with the new binary, preserving each planner’s MCP choice. `--no-reinstall` skips the refresh;
+`--check` only checks, and `--to <version>` forces replacement and refresh even at the same version.
+Refresh failures warn and do not stop other planners or fail the update.
+
 Restart a running MCP client after updating pacer. CLI commands always run the current binary.
 
 Read `pacer status --json`, choose an executor with `pacer route <kind> --json`, then

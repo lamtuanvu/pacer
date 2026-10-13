@@ -54,7 +54,7 @@ test("Claude reinstall is byte-idempotent and uninstall after two installs resto
   expect(snapshot(f.ctx.home)).toEqual(installed);
   const report = await uninstallPlanner(f.ctx, "claude-code");
   expect(snapshot(f.ctx.home)).toEqual(original);
-  expect(report!.notes).toEqual([]);
+  expect(report!.notes).toEqual(["removed MCP server pacer (/usr/bin/claude mcp remove -s user pacer)"]);
   expect(f.calls.at(-1)).toEqual(["/usr/bin/claude", "mcp", "remove", "-s", "user", "pacer"]);
 });
 

@@ -20,7 +20,7 @@ export function renderInstall(report: Awaited<ReturnType<typeof installPlanner>>
   const lines = report.touched.length
     ? report.record.files.filter(file => report.touched.includes(file.path))
       .map(file => `${file.action} ${file.path}${file.backup ? ` (backup: ${file.backup})` : ""}`)
-    : ["already installed, nothing changed"];
+    : report.notes.some(note => /MCP server|failed/.test(note)) ? [] : ["already installed, nothing changed"];
   lines.push(...report.notes, `Undo with: pacer uninstall ${report.record.planner}`);
   return lines.join("\n");
 }
