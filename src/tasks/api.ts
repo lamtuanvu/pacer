@@ -6,7 +6,7 @@ import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
 import { killTree } from "../exec/process";
 import type { Ctx } from "../types";
 import { createTask, readTask, updateTask } from "./store";
-import { type Brief, TERMINAL_STATES, type TaskRecord } from "./types";
+import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
 
 export const DEFAULT_TIMEOUT_MIN = 30;
 
@@ -17,7 +17,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean }
+export interface DelegateInput { brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -54,6 +54,8 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   if (input.timeoutMin !== undefined && !(input.timeoutMin >= 1 && input.timeoutMin <= 240)) {
     p.push("timeout_min must be between 1 and 240");
   }
+  if(input.worktree!==undefined && !["current","new","auto"].includes(input.worktree))p.push("worktree must be one of current, new, auto");
+  if(input.worktree_reason!==undefined && (typeof input.worktree_reason!=="string" || input.worktree_reason.length>200))p.push("worktree_reason must be a string of at most 200 characters");
   return p;
 }
 
@@ -69,6 +71,7 @@ export function delegate(
     requestedExecutor: input.executor ?? null,
     timeoutS: Math.round((input.timeoutMin ?? DEFAULT_TIMEOUT_MIN) * 60),
   });
+  updateTask(ctx,task.id,t=>{t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};});
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
   if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });
   spawnFn(ctx, task.id);

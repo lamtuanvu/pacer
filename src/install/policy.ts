@@ -37,6 +37,9 @@ ${budget}
 Use the pacer MCP tool \`route\` with a kind tag to choose an available executor, then \`delegate\` to start the task.
 Give each task a brief with goal, repo (absolute path), scope, acceptance (a verification command), and constraints/context. Include a kind tag alongside the brief.
 Use \`task_wait\` to wait for a result, \`task_status\` to inspect progress, and \`task_stop\` to stop a task when needed.
+Choose \`worktree: current\` for uncommitted work, read-only research/review, installed dependencies/build output, or a small follow-up there.
+Choose \`worktree: new\` when another task or the user is editing there, for parallel tasks on the same repo, or exploratory/risky work.
+Give a one-line \`worktree_reason\`; omit the choice to let pacer decide (auto).
 If an executor hits a provider limit, use \`report_limit\` so subsequent routing can account for it.
 
 ## Subagents

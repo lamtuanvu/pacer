@@ -38,6 +38,11 @@ const DEFAULTS: RunnerDeps = {
 
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
   const finished = updateTask(ctx, id, (t) => {
+    if(t.placement?.mode) {
+      const p=t.placement;
+      const line=p.mode==="new"?`ran in new worktree ${t.worktree??result.worktree??"(unknown)"} (${p.why})`:`ran in current worktree (${p.why})`;
+      result={...result,report:`${line}\n\n${result.report}`};
+    }
     t.result = t.state === "stopped" ? { ...result, status: "stopped" } : result;
     t.state = t.result.status;
     delete t.childPid;

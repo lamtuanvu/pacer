@@ -363,3 +363,8 @@ test("notification send refusal restores select and reports failure",()=>{
  control.handlers.change!();b.reply(b.sent.at(-1),{branch:"x",displayName:"X",terminals:[{id:"term_console"}]});
  b.reply(b.sent.at(-1),{accepted:false});expect(control.disabled).toBe(false);expect(b.ids.status.textContent).toContain("refused");
 });
+
+test("running and needs-attention cards show muted escaped placement",()=>{
+ const s=snapshot();s.tasks=[{id:"run",state:"running",goal:"running",executor:"codex",backend:"orca",worktree:"/new/path",updatedAt:100,runnerAlive:true,placement:{mode:"new",why:"agent: <risky>"}},{id:"fail",state:"failed",goal:"failed",executor:"codex",backend:"orca",worktree:"/repo",updatedAt:100,placement:{mode:"current",why:"read-only kind"}}];
+ const html=panel(s);expect(html).toContain('<small class="muted">new worktree /new/path (agent: &lt;risky&gt;)</small>');expect(html).toContain('<small class="muted">current worktree (read-only kind)</small>');
+});

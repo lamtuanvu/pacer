@@ -1,3 +1,4 @@
+import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
 
 export type TaskState = "queued" | "running" | "done" | "partial" | "failed" | "limit" | "stopped";
@@ -42,7 +43,23 @@ export interface TaskResult extends Verification {
   check?: ResultCheck;
 }
 
+export type WorktreeRequest = "current" | "new" | "auto";
+export interface ResolvedPlacement { mode: "current" | "new"; why: string }
+export interface TaskPlacement extends Partial<ResolvedPlacement> { requested: WorktreeRequest; reason?: string }
+
+/** Pure placement choice; callers veto explicit current when the worktree is busy. The uncommitted-work hint only counts when the worktree is actually dirty. */
+export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement">, strategy: WorktreeMode, busy: boolean, dirty = false): ResolvedPlacement {
+  const requested=task.placement?.requested;
+  if(requested==="current"||requested==="new")return {mode:requested,why:`agent: ${task.placement?.reason?.trim() || "no reason given"}`};
+  if(busy)return {mode:"new",why:"another task is writing there"};
+  if(task.kind==="research")return {mode:"current",why:"read-only kind"};
+  if(dirty&&/uncommitted|in[ -]progress|working[ -]tree|unstaged/i.test([task.brief.goal,task.brief.context,task.brief.scope].join("\n")))return {mode:"current",why:"builds on uncommitted work"};
+  return {mode:strategy==="current"?"current":"new",why:"strategy default"};
+}
+
 export interface TaskRecord {
+  placement?: TaskPlacement;
+  worktree?: string;
   id: string;
   createdAt: number;
   kind: string | null;

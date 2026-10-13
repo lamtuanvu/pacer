@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../../fsutil";
 import { type ExecutionCfg, validateExecution } from "../../config/execution";
 import { type ProviderCfg, loadStrategy } from "../../config/strategy";
-import { readTask, tasksDir, listTasks } from "../../tasks/store";
-import type { TaskRecord } from "../../tasks/types";
+import { readTask, tasksDir, listTasks, updateTask } from "../../tasks/store";
+import { resolvePlacement, type ResolvedPlacement, type TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { Backend } from "../backend";
 import { type AttemptOutcome, REPORT_CHARS, runAttempt as directAttempt, tail } from "../direct";
@@ -46,23 +46,30 @@ interface Ready {
   base: string;
   sub: string;
   notes: string[];
+  resolved: ResolvedPlacement;
 }
 type Prepared = { ok: false; reason: string; refuse?:boolean } | Ready;
 interface Mapped { code: number; timedOut: boolean; settled: boolean; summary: string; tail?: string }
 
 async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskRecord, ex: ExecutionCfg): Promise<Prepared> {
-  const pick = orcaAgentFor(cfg, ex.worktree);
+  const preliminary=resolvePlacement(task,ex.worktree,false);
+  const pick = orcaAgentFor(cfg, preliminary.mode==="current"?"current":ex.worktree==="current"?"new-child":ex.worktree);
   if ("skip" in pick) return { ok: false, reason: pick.skip };
   if (!isReady(await c.status())) return { ok: false, reason: "the Orca runtime is not ready (orca status)" };
   const git = await gitInfo(ctx.run, task.brief.repo);
   if ("error" in git) return { ok: false, reason: git.error };
-  if(ex.worktree==="current") {
-    if(git.dirty)return {ok:false,reason:"current worktree has uncommitted changes",refuse:true};
-    const active=listTasks(ctx,Infinity).some(t=>t.id!==task.id&&t.state==="running"&&t.runnerPid&&pidAlive(t.runnerPid)&&(realpathSafe(t.brief.repo)===realpathSafe(git.top)||realpathSafe(t.brief.repo).startsWith(realpathSafe(git.top)+"/")));
-    if(active)return {ok:false,reason:"another pacer task is running in the current worktree",refuse:true};
-  }
+  const active=listTasks(ctx,Infinity).some(t=>{
+    if(t.id===task.id||t.state!=="running"||!t.runnerPid||!pidAlive(t.runnerPid))return false;
+    const path=realpathSafe(t.worktree??t.result?.worktree??t.brief.repo), top=realpathSafe(git.top);
+    return path===top||path.startsWith(top+"/");
+  });
+  if(active&&task.placement?.requested==="current")return {ok:false,reason:"another pacer task is running in the current worktree; requested current placement refused",refuse:true};
+  const resolved=resolvePlacement(task,ex.worktree,active,git.dirty);
+  if(resolved.mode==="current"&&resolved.why==="strategy default"&&git.dirty)return {ok:false,reason:"current worktree has uncommitted changes",refuse:true};
+  const mapped=orcaAgentFor(cfg,resolved.mode==="current"?"current":"new-child");
+  if("skip" in mapped)return {ok:false,reason:mapped.skip};
   const base = ex.worktree==="child-of-current"?git.branch:ex.baseBranch ?? git.branch;
-  if (ex.worktree !== "current" && base === "HEAD") {
+  if (resolved.mode !== "current" && base === "HEAD") {
     return { ok: false, reason: `${git.top} has a detached HEAD; check out a branch or set execution.base_branch` };
   }
   const repoId = await ensureRepo(c, git.top, {main:git.main,linked:git.linked,registerRepos:ex.registerRepos});
@@ -70,16 +77,16 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   const coord = await ensureCoordinator(ctx, c, git.top);
   if ("error" in coord) return { ok: false, reason: coord.error };
   const notes: string[] = [];
-  if (ex.worktree !== "current" && git.dirty) {
+  if (resolved.mode !== "current" && git.dirty) {
     notes.push(`note: ${git.top} has uncommitted changes; the worker's new worktree starts from ${base} without them`);
   }
   // New-child worktree names pacer-<taskId>-<providerId> also identify executor hook sessions.
-  const placement: Placement = ex.worktree !== "current"
+  const placement: Placement = resolved.mode !== "current"
     ? { kind: "new-child", repoId, baseBranch: base, name: `pacer-${task.id}-${cfg.id}` }
     : { kind: "existing", selector: `path:${git.top}` };
   return {
-    ok: true, agent: pick.agent, model: pick.model, coordinator: coord.coordinator, run: coord.run,
-    placement, top: git.top, base, sub: git.sub, notes,
+    ok: true, agent: mapped.agent, model: mapped.model, coordinator: coord.coordinator, run: coord.run,
+    placement, top: git.top, base, sub: git.sub, notes, resolved,
   };
 }
 
@@ -167,6 +174,7 @@ async function runOrcaAttempt(
     return fallback(deps, ctx, cfg, task, onSpawn, p.reason);
   }
 
+  updateTask(ctx,task.id,t=>{t.placement={requested:task.placement?.requested??"auto",...task.placement,...p.resolved};delete t.worktree;});
   let startedAt = deps.now() / 1000;
   const lines: string[] = [];
   const log = (line: string) => { lines.push(line); };
@@ -201,6 +209,7 @@ async function runOrcaAttempt(
   const dispatchId = r.dispatchId;
   const root = worktreePathOf(r.effects);
   const worktree = p.placement.kind === "existing" ? task.brief.repo : root ? (p.sub ? join(root, p.sub) : root) : null;
+  if(worktree)updateTask(ctx,task.id,t=>{t.worktree=worktree;});
   const terminal = agentTerminalOf(r.effects);
   log(`worker-start ${dispatchId}: ${r.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
   const forget = async () => {

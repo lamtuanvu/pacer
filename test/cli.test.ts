@@ -70,3 +70,19 @@ test("route prints the priority order and help lists the new commands", async ()
   expect(bad.code).toBe(2);
   expect(bad.err).toContain("repo does not exist");
 });
+
+test("delegate help and validation include task worktree choices",async()=>{
+ const ctx=await withStrategy(OK_STRATEGY);
+ expect((await main(["help"],ctx)).out).toContain("--worktree current|new|auto");
+ for(const flags of [["--worktree","bad"],["--worktree-reason","x".repeat(201)]]){
+ const r=await main(["delegate","--goal","test","--repo",ctx.home,...flags],ctx);
+ expect(r.code).toBe(2);expect(r.err).toContain(flags[0]==="--worktree"?"worktree must be one of":"worktree_reason must be a string");
+ }
+});
+test("pacer tasks displays resolved placement in detail and list",async()=>{
+ const ctx=await withStrategy(OK_STRATEGY), {createTask,updateTask}=await import("../src/tasks/store");
+ const task=createTask(ctx,{brief:{goal:"fix",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+ updateTask(ctx,task.id,t=>{t.placement={requested:"current",mode:"current",why:"agent: follow-up"};});
+ for(const args of [["tasks"],["tasks",task.id]])expect((await main(args,ctx)).out).toContain("current (agent: follow-up)");
+ expect(JSON.parse((await main(["tasks",task.id,"--json"],ctx)).out).placement).toMatchObject({mode:"current",why:"agent: follow-up"});
+});

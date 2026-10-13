@@ -287,6 +287,8 @@ test("through the runner: the result records backend orca and verification runs 
   });
   expect(verified).toEqual([WT1]);
   expect(rec.result).toMatchObject({ status: "done", executor: "cursor", backend: "orca", worktree: WT1 });
+  expect(rec.result?.report).toStartWith(`ran in new worktree ${WT1} (strategy default)`);
+  expect(rec.placement).toMatchObject({mode:"new",why:"strategy default"});
   expect(rec.attempts).toHaveLength(1);
 });
 
@@ -536,7 +538,7 @@ test("child-of-current branches from the current worktree and ignores a global b
 test("current placement refuses dirty and already occupied worktrees without direct execution",async()=>{
  const dirty=setup(()=>[[["git","-C",REPO,"status"],raw(" M file\n")]],{exec:{worktree:"current"}});
  const out=await dirty.backend.runAttempt(dirty.ctx,dirty.cfg,dirty.task);expect(out.exec.code).toBe(1);expect(out.report).toContain("uncommitted changes");expect(out.backend).toBe("orca");expect(dirty.f.count(O("orchestration","worker-start"))).toBe(0);
- const busy=setup(()=>[],{exec:{worktree:"current"}});const other=createTask(busy.ctx,{brief:{goal:"other",repo:REPO},kind:null,requestedExecutor:null,timeoutS:600});updateTask(busy.ctx,other.id,t=>{t.state="running";t.runnerPid=process.pid;});const refused=await busy.backend.runAttempt(busy.ctx,busy.cfg,busy.task);expect(refused.exec.code).toBe(1);expect(refused.report).toContain("another pacer task");expect(busy.f.count(O("orchestration","worker-start"))).toBe(0);
+ const busy=setup(()=>[],{exec:{worktree:"current"}});const other=createTask(busy.ctx,{brief:{goal:"other",repo:REPO},kind:null,requestedExecutor:null,timeoutS:600});updateTask(busy.ctx,other.id,t=>{t.state="running";t.runnerPid=process.pid;});busy.task.placement={requested:"current"};const refused=await busy.backend.runAttempt(busy.ctx,busy.cfg,busy.task);expect(refused.exec.code).toBe(1);expect(refused.report).toContain("another pacer task");expect(busy.f.count(O("orchestration","worker-start"))).toBe(0);
 });
 
  test("Orca launch classification fingerprints the worker path and starts timing at readiness",async()=>{
@@ -559,3 +561,35 @@ test("current placement refuses dirty and already occupied worktrees without dir
  const {ctx,task,backend,cfg}=setup(()=>[[O("orchestration","worker-start"),raw(JSON.stringify(receipt),1)]]);
  const out=await backend.runAttempt(ctx,cfg,task);expect(out.attempt.brokenReason).toContain("agent launch failed");
  });
+
+for(const choice of ["agent","research","uncommitted"] as const)test(`dirty current allowed for ${choice}`,async()=>{
+ const {ctx,task,backend,cfg,f}=setup(()=>[[["git","-C",REPO,"status"],raw(" M file\n")]]);
+ if(choice==="agent")task.placement={requested:"current",reason:"follow-up"};
+ if(choice==="research")task.kind="research";
+ if(choice==="uncommitted")task.brief.context="build on UNSTAGED changes";
+ const out=await backend.runAttempt(ctx,cfg,task);expect(out.exec.code).toBe(0);expect(out.worktree).toBe(REPO);expect(arg(startArgs(f),"--worktree")).toBe(`path:${REPO}`);
+});
+for(const hint of ["research","uncommitted","default"] as const)test(`busy auto ${hint} uses new`,async()=>{
+ const {ctx,task,backend,cfg,f}=setup(()=>[],{exec:{worktree:"current"}});
+ if(hint==="research")task.kind="research";
+ if(hint==="uncommitted")task.brief.scope="in-progress changes";
+ const other=createTask(ctx,{brief:{goal:"other",repo:REPO+"/src"},kind:null,requestedExecutor:null,timeoutS:600});
+ updateTask(ctx,other.id,t=>{t.state="running";t.runnerPid=process.pid;});
+ expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe("new-child");
+ expect((await import("../src/tasks/store")).readTask(ctx,task.id)?.placement).toMatchObject({mode:"new",why:"another task is writing there"});
+});
+test("explicit new preserves each strategy base branch rule",async()=>{
+ for(const mode of ["child-of-current","new-child","current"] as const){
+ const {ctx,task,backend,cfg,f}=setup(()=>[[["git","-C",REPO,"rev-parse"],raw(`${REPO}\nfeature/current\n`)]],{exec:{worktree:mode,baseBranch:"main"}});
+ task.placement={requested:"new",reason:"risky"};task.kind="research";
+ expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe("new-child");expect(arg(startArgs(f),"--base-branch")).toBe(mode==="child-of-current"?"feature/current":"main");
+ }
+});
+test("a live task isolated elsewhere or a dead runner does not occupy current",async()=>{
+ for(const alive of [true,false]){
+ const {ctx,task,backend,cfg,f}=setup();task.placement={requested:"current"};
+ const other=createTask(ctx,{brief:{goal:"other",repo:REPO},kind:null,requestedExecutor:null,timeoutS:600});
+ updateTask(ctx,other.id,t=>{t.state="running";t.runnerPid=alive?process.pid:999999;if(alive)t.worktree="/work/isolated";});
+ expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe(`path:${REPO}`);
+ }
+});

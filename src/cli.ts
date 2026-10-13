@@ -18,7 +18,7 @@ import { DEFAULT_PORT, startServer } from "./serve/http";
 import { DelegateError, delegate, taskStatus, taskStop, taskWait } from "./tasks/api";
 import { runTask } from "./tasks/runner";
 import { listTasks } from "./tasks/store";
-import type { TaskRecord } from "./tasks/types";
+import type { TaskRecord, WorktreeRequest } from "./tasks/types";
 import type { Ctx } from "./types";
 
 const USAGE = `usage: pacer <command>
@@ -26,6 +26,7 @@ const USAGE = `usage: pacer <command>
   route [kind] [--json]                          executors pacer would use, in order
   delegate --goal <text> [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
+           [--worktree current|new|auto] [--worktree-reason <text>]
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   stop <task-id>                                 stop a running task
@@ -132,6 +133,7 @@ function renderTask(t: TaskRecord): string {
     `goal: ${t.brief.goal}`,
     `repo: ${t.brief.repo}`,
   ];
+  if(t.placement?.mode)lines.push(`placement: ${t.placement.mode} (${t.placement.why})`);
   if (t.attempts.length) {
     lines.push(`attempts: ${t.attempts.map((a) => `${a.executor} (exit ${a.exitCode}${a.limitHit ? ", limit" : ""}${a.timedOut ? ", timed out" : ""})`).join(" > ")}`);
   }
@@ -149,6 +151,8 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     const timeout = str(opts["timeout-min"]);
     const t = delegate(ctx, {
       force:opts.force === true,
+      worktree: str(opts.worktree) as WorktreeRequest | undefined,
+      worktree_reason: str(opts["worktree-reason"]),
       brief: {
         goal: str(opts.goal) ?? "",
         repo: resolve(str(opts.repo) ?? process.cwd()),
@@ -181,7 +185,7 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
   if (!list.length) return { code: 0, out: "no tasks yet", err: "" };
   return {
     code: 0,
-    out: list.map((t) => `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}`).join("\n"),
+    out: list.map((t) => `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}`).join("\n"),
     err: "",
   };
 }

@@ -79,3 +79,12 @@ test("a finished task that dropped out of the capped snapshot does not re-alert 
  await notifyNewAlerts(host,snap,readSettings({notifications:"important"},c.home),c.now,c.now+31);
  expect(notes).toHaveLength(1);expect(notes[0].body).toContain("2 tasks affected");
  });
+
+test("resolved placement changes publish once while unchanged objects stay quiet",async()=>{
+ const ctx=fakeCtx();let why="strategy default";
+ const deps:PumpDeps={status:async()=>status(),tasks:()=>[{...task("running"),placement:{requested:"new",mode:"new",why},worktree:"/isolated"}],publish:async(c,events)=>{let s=(await import("../src/link/store")).readLatest(c);for(const e of events)s=reduce(s,e,c.now);writeJsonAtomic(latestPath(c),s);return{seq:s.seq,transports:["outbox"],errors:[]};}};
+ expect((await pumpOnce(ctx,deps)).find(e=>e.type==="task")).toMatchObject({data:{placement:{mode:"new",why},worktree:"/isolated"}});
+ expect(await pumpOnce(ctx,deps)).toEqual([]);
+ why="agent: exploratory";expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="task")).toHaveLength(1);
+ expect(await pumpOnce(ctx,deps)).toEqual([]);
+});

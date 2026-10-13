@@ -25,6 +25,7 @@ export function summarizeTask(t: TaskRecord): Record<string, unknown> {
     state: t.state,
     kind: t.kind,
     requested_executor: t.requestedExecutor,
+    placement: t.placement ?? null,
     attempts: t.attempts.map((a) => ({ executor: a.executor, exit_code: a.exitCode, limit_hit: a.limitHit, timed_out: a.timedOut, log: a.log })),
     result: t.result ?? null,
   };
@@ -69,6 +70,8 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
       context: z.string().optional(),
       kind: z.enum(KINDS).optional(),
       executor: z.string().optional().describe("Force a specific executor id"),
+      worktree: z.enum(["current","new","auto"]).optional().describe("Run in the current worktree or a new one; omitted means auto"),
+      worktree_reason: z.string().max(200).optional().describe("One-line reason for the placement choice"),
       timeout_min: z.number().min(1).max(240).optional(),
     },
   }, async (a) => {
@@ -79,6 +82,8 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
       kind: a.kind ?? null,
       executor: a.executor ?? null,
       timeoutMin: a.timeout_min,
+      worktree: a.worktree,
+      worktree_reason: a.worktree_reason,
     }, spawnFn);
     return json(summarizeTask(t));
   });
