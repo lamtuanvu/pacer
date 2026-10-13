@@ -62,7 +62,7 @@ test("init omits missing CLIs and reports both detected and missing including or
   expect(Object.keys(s.providers)).toEqual(["codex", "cursor"]);
   expect(s.routing[0].executors).toEqual(["cursor"]);
   expect(result.out).toContain("Detected: codex, cursor-agent");
-  expect(result.out).toContain("Missing: claude, agy, opencode, arkcli, ollama, lms, orca");
+  expect(result.out).toContain("Missing: claude, cursor, agy, opencode, arkcli, ollama, lms, orca");
 });
 
 test("explicit planner overrides discovery priority and is excluded from routing", async () => {

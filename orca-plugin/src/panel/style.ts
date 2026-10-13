@@ -1,4 +1,6 @@
 export const style = `
+.step.failed .step-num{color:var(--bad)}
+
 [data-focus]{cursor:pointer;transition:background .12s}[data-focus]:hover{background:var(--hover,rgba(128,128,128,.08))}[data-focus]:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 
 .action-spinner{display:inline-block;animation:console-spin 1s linear infinite}@media(prefers-reduced-motion:reduce){.action-spinner{animation:none}}

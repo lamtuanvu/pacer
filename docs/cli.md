@@ -60,3 +60,17 @@ tip. The brain checks at most once per task per minute and exposes `resolved` wi
 `reviewed`, `worktree removed`, or `already on <branch>`. Running and attention cards with
 live Orca terminals open their session on click or Enter/Space; unavailable sessions show a
 short action error.
+
+## Connect agents
+
+`pacer setup [--yes] [--agents claude-code,codex,cursor,opencode] [--json]`
+ensures a strategy and login service, detects installed agent CLIs on PATH, and
+installs missing integrations. Cursor detection accepts `cursor-agent` or `cursor`.
+Already connected agents are skipped. No MCP servers are added.
+
+Without `--yes`, setup lists the file changes and asks y/N on a TTY. On non-TTY
+input it prints the plan and exits 2 without changes. `--agents` restricts the
+selection; an unknown or missing CLI is an error. The summary includes one line
+per agent and `pacer uninstall <agent>` to undo it. `--json` returns the same
+summary as data. The Orca plugin's **Connect my agents** button runs this command
+with `--yes` after showing the consent preview.

@@ -277,7 +277,8 @@ async function runOrcaAttempt(
 
   const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };
   const after = await repoFingerprint(ctx, worktree ?? task.brief.repo);
-  const reason = launchBroken ?? brokenReason(exec, endedAt - startedAt, before === null && after === null ? null : before !== null && before === after);
+  const transient = m.summary.includes("transient provider busy after three retries") ? "transient provider busy after three retries" : null;
+  const reason = transient ?? launchBroken ?? brokenReason(exec, endedAt - startedAt, before === null && after === null ? null : before !== null && before === after);
   const dir = tasksDir(ctx);
   mkdirSync(dir, { recursive: true });
   const logFile = join(dir, `${task.id}.${cfg.id}.log`);
@@ -290,7 +291,7 @@ async function runOrcaAttempt(
     attempt: {
       executor: cfg.id, model: cfg.model, startedAt, endedAt,
       ...(reason ? { brokenReason: reason } : {}),
-      exitCode: m.code, timedOut: m.timedOut, limitHit: detectLimit(cfg.id, exec), log: logFile,
+      exitCode: m.code, timedOut: m.timedOut, limitHit: !transient && detectLimit(cfg.id, exec), log: logFile,
     },
   };
 }

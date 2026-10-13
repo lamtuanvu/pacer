@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-10-13
+
+### Added
+
+- The Orca plugin installs pacer itself: it downloads the checksum-verified binary for its own version, creates a starter strategy and installs the login service, then keeps the service running and the binary in step with the plugin.
+- A live setup checklist in the plugin (install, start, connect) and a one-click **Connect my agents** button, backed by the new `pacer setup` command. Agent configuration is only changed after that click.
+
+### Fixed
+
+- Orca workers stuck on a provider's "model at capacity" message are resent the task with backoff and then handed to the next executor; workers idle without progress are nudged, then failed.
+
 ## [0.1.15] - 2026-10-13
 
 ### Added
