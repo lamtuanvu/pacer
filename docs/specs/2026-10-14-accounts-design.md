@@ -30,7 +30,27 @@ Three separate things:
 
 - **Account**: one budget and the credentials or endpoint behind it. Usage is tracked per account. Examples: a Claude subscription, a second Claude subscription, a ChatGPT/Codex plan, a Cursor plan, a BytePlus coding plan, a local Ollama, a company endpoint.
 - **Agent**: the program that does the work: `claude-code`, `codex`, `cursor`, `agy`, `opencode` (more later). Decides how a task is launched and which planner integration (skill, hooks, status line) applies.
-- **Runner**: an agent paired with an account, plus a model where the agent needs one. The **planner is one runner**; **executors are runners**. Routing and pacing choose runners.
+- **Runner**: an agent on an account, on a host. The **planner is one runner**; **executors are runners**. Routing and pacing choose runners.
+- **Host**: the machine a runner executes on: this machine by default, or an Orca host (SSH host or paired Orca server). The account is the budget and is global: the same account used on two hosts is one budget.
+
+### Runner ids: `agent#account@host`
+
+A runner is identified by what runs, on which budget, where. Its id spells that out:
+
+| Id | Meaning |
+|---|---|
+| `claude-code` | Claude Code on its default account, this machine |
+| `claude-code#work` | Claude Code on account `work`, this machine |
+| `codex#team@vudesktop` | Codex on account `team`, running on host `vudesktop` |
+| `opencode#byteplus` | OpenCode on account `byteplus`, this machine |
+| `opencode#byteplus@vudesktop` | OpenCode on account `byteplus`, running on `vudesktop` (same budget as the line above) |
+
+- Grammar: `<agent>[#<account>][@<host>]`; each part `[a-z0-9][a-z0-9-]*`; `@<host>` is an Orca host id or name from `orca host list`.
+- `#account` omitted: the agent's default account (the one account of its kind with no `home` / `orca_account`; at most one per kind). `@host` omitted: this machine.
+- The same id is used everywhere: `planner`, `routing`, `pacing.order`, `pacer delegate --executor`, `pacer config set planner`, status, dashboard and panel.
+- The model is not part of the id. An account may set `model` (its default); a runner entry may override it.
+- In YAML the ids need no quotes (`#` starts a comment only after whitespace); the same holds for shell arguments.
+- **Remote hosts are reserved, not built in this version**: an id with `@host` parses but is refused with "remote runners aren't supported yet" until the remote-runners design lands (it needs code transfer, remote usage and Orca dispatch tracking).
 
 Two runners may share an account (for example OpenCode and Claude Code both using one API account); they then share that account's budget. Pacing charges usage to the account, not the runner.
 
@@ -56,34 +76,31 @@ pacer validates every runner against this table. Pairings outside it (for exampl
 
 ```yaml
 accounts:
-  claude:        { kind: claude }                                   # default ~/.claude
-  claude-work:   { kind: claude, home: ~/.claude-work }             # pacer-managed
-  codex:         { kind: codex }
-  codex-team:    { kind: codex, orca_account: <orca account id> }   # Orca-managed
-  cursor:        { kind: cursor, usage: reactive, cooldown: 6h }
-  byteplus:      { kind: endpoint, usage: quota, quota_source: arkcli }
-  ollama:        { kind: endpoint, usage: unmetered }
-  acme:          { kind: endpoint, usage: metered, budget: { weekly_tokens: 50M } }
+  claude:      { kind: claude }                                   # default ~/.claude
+  work:        { kind: claude, home: ~/.claude-work }             # pacer-managed
+  codex:       { kind: codex }
+  team:        { kind: codex, orca_account: <orca account id> }   # Orca-managed
+  cursor:      { kind: cursor, usage: reactive, cooldown: 6h, model: auto }
+  byteplus:    { kind: endpoint, usage: quota, quota_source: arkcli, model: coding-plan/dola-seed-2.0-code }
+  ollama:      { kind: endpoint, usage: unmetered, model: ollama/qwen3 }
+  acme:        { kind: endpoint, usage: metered, budget: { weekly_tokens: 50M }, model: acme/gpt-x }
 
-planner: { agent: claude-code, account: claude-work }
+planner: claude-code#work
 
-runners:
-  codex-team: { agent: codex, account: codex-team }
-  cursor:     { agent: cursor, account: cursor, model: auto }
-  seed:       { agent: opencode, account: byteplus, model: coding-plan/dola-seed-2.0-code }
-  local:      { agent: opencode, account: ollama, model: ollama/qwen3 }
-  acme:       { agent: opencode, account: acme, model: acme/gpt-x }
+runners:                       # optional: only for per-runner settings
+  opencode#ollama: { model: ollama/qwen3-coder }   # override the account's default model
 
-pacing:  { policy: priority, order: [codex-team, cursor, seed, local], planner_reserve: 15 }
-routing: [ { default: [codex-team, cursor, seed, local] } ]
+pacing:  { policy: priority, order: [codex#team, cursor, opencode#byteplus, opencode#ollama], planner_reserve: 15 }
+routing: [ { default: [codex#team, cursor, opencode#byteplus, opencode#ollama, opencode#acme] } ]
 ```
 
 Rules:
 
-- `planner` is `{agent, account}`; `planner: <string>` (today's form) still loads and means the agent on its default account.
-- `runners` keys are what routing, pacing, `delegate --executor`, status and the panel name. A runner's `account` must exist and be allowed for its `agent` (table above); `model` is required for OpenCode.
-- `home` is valid for `claude` and `codex` accounts; `orca_account` for kinds Orca manages; usage settings (`usage`, `quota_source`, `budget`, `cooldown`, `allow_paid`) live on the account.
-- **Backward compatibility**: a strategy with today's `providers:` and no `accounts:`/`runners:` loads by mapping each provider to one account plus one runner of the same name (native ids to their agent and default account; `via: opencode` entries to an endpoint account and an OpenCode runner). `pacer config migrate` rewrites a strategy into the new form, keeping comments where it can; nothing is rewritten without that command.
+- A runner exists when its id appears in `planner`, `routing` or `runners`; there is no separate list to keep in sync. Its agent/account pair must be allowed (table above); OpenCode needs a model from the runner entry or the account.
+- `planner` is a runner id; `planner: { agent, account }` is accepted too. Today's `planner: <agent>` is already a valid id (default account).
+- `home` is valid for `claude` and `codex` accounts; `orca_account` for kinds Orca manages; usage settings (`usage`, `quota_source`, `budget`, `cooldown`, `allow_paid`) and the default `model` live on the account.
+- `opencode` alone in `pacing.order` keeps meaning every OpenCode runner, in routing order.
+- **Backward compatibility**: a strategy with today's `providers:` loads by mapping each provider to an account and a runner (native ids → that agent on its default account, e.g. `codex`; `via: opencode` entries → an endpoint account of the same name and the runner `opencode#<name>`). Old provider names stay valid as aliases in `--executor`, routing and pacing (`byteplus` → `opencode#byteplus`). Migration (during `pacer init` / `pacer update`, or `pacer config migrate`) rewrites the file with runner ids and a backup.
 
 ## Usage per account
 
@@ -109,7 +126,7 @@ Decided (see Decisions): Orca's rate limits also cover Cursor, Gemini, Kimi, Ope
 
 ## Planner runner
 
-The planner is one runner: an agent and the account it runs on. pacer installs the planner integration for that agent (skill, hooks, status line) into that account's config folder when the account is pacer-managed. In a planner session, the hook reports the budget of the account the session actually runs on, found from `CLAUDE_CONFIG_DIR` / `CODEX_HOME` in the hook's environment; a folder that matches no account falls back to the default account with a warning in `pacer status`. Changing the planner (`pacer config set planner <agent>:<account>`) moves the integration: installs it for the new runner and offers to remove it from the old one.
+The planner is one runner: an agent and the account it runs on. pacer installs the planner integration for that agent (skill, hooks, status line) into that account's config folder when the account is pacer-managed. In a planner session, the hook reports the budget of the account the session actually runs on, found from `CLAUDE_CONFIG_DIR` / `CODEX_HOME` in the hook's environment; a folder that matches no account falls back to the default account with a warning in `pacer status`. Changing the planner (`pacer config set planner <runner id>`, e.g. `claude-code#work`) moves the integration: installs it for the new runner and offers to remove it from the old one.
 
 ## Commands
 
@@ -118,13 +135,13 @@ The planner is one runner: an agent and the account it runs on. pacer installs t
 - `pacer account add <kind> <name> --orca <orca account id>`: links an account Orca already manages.
 - `pacer account add endpoint <name> --usage <quota|metered|unmetered> [...]`: an API, local or company endpoint.
 - `pacer account rm <name> [--delete-home]`: refuses while the planner or any runner uses it; deletes a folder only with `--delete-home` and a y/N confirmation.
-- `pacer runner list [--json]`, `pacer runner add <name> --agent <agent> --account <account> [--model <m>]` (validated against the agent/account table), `pacer runner rm <name>` (refuses for the last runner; removes it from routing and pacing order).
-- `pacer config set planner <agent>:<account>`: picks the planner runner and moves the planner integration (see Planner runner).
+- `pacer runner list [--json]`; `pacer runner add <agent#account> [--model <m>]` (validated against the agent/account table; adds it to routing's default rule); `pacer runner rm <agent#account>` (refuses for the planner and the last runner; removes it from routing, pacing order and `runners`).
+- `pacer config set planner <runner id>`: picks the planner runner and moves the planner integration (see Planner runner).
 - `pacer init` lists the accounts it finds (pacer-managed folders in the strategy, Orca-managed accounts) and offers to add Orca's.
 
 ## Where accounts show
 
-`pacer status`, `pacer route`, the dashboard and the panel show one row per runner with its account's usage (`codex-team · Codex on codex-team · 34% · on pace`); runners that share an account show the same budget and are grouped under it. Routing between runners uses the same pacing policy whatever their agent or account.
+`pacer status`, `pacer route`, the dashboard and the panel show one row per runner with its account's usage (`codex#team · 34% · on pace`); runners that share an account show the same budget and are grouped under it. Routing between runners uses the same pacing policy whatever their agent or account.
 
 ## Settings
 
@@ -142,14 +159,14 @@ Settings today are spread across `strategy.yaml`, CLI flags and Orca's per-plugi
 
 | Area | Setting | Panel | Dashboard | Command |
 |---|---|---|---|---|
-| Planner | Which agent and account plan | Agent picker, then the accounts that agent can use; "Use" button | `,` → Planner | `pacer config set planner <agent>:<account>` (new) |
+| Planner | Which agent and account plan | Agent picker, then the accounts that agent can use; "Use" button | `,` → Planner | `pacer config set planner <runner id>` (new) |
 | Accounts | List with usage, source, signed-in state, runners using it | Card per account | `,` → Accounts | `pacer account list` (new) |
 | | Add a pacer-managed account | "Add account" → agent and name chosen in the terminal | `a` | `pacer account add <agent> <name>` (new, runs the login) |
 | | Link an Orca-managed account | "Link" next to each Orca account not yet in the strategy | `l` | `pacer account add <agent> <name> --orca <id>` (new) |
 | | Remove | "Remove" with a confirm step (second click within 5 s); disabled while in use | `x` + y/N | `pacer account rm <name>` (new) |
 | Runners | List: agent, account, model | Row per runner | `,` → Runners | `pacer runner list` (new) |
-| | Add | "Add runner" → agent, then the accounts it can use, then model (OpenCode); typing opens the terminal | `a` | `pacer runner add …` (new) |
-| | Remove | "Remove" with a confirm step | `x` + y/N | `pacer runner rm <name>` (new) |
+| | Add | "Add runner" → agent, then the accounts it can use, then model (OpenCode); typing opens the terminal | `a` | `pacer runner add <agent#account>` (new) |
+| | Remove | "Remove" with a confirm step | `x` + y/N | `pacer runner rm <agent#account>` (new) |
 | Executors | On or off | Toggle per runner | `b` (exists) | `block` / `unblock` console commands (exist) |
 | | Order | Up / down buttons | `[` / `]` | `pacer config set pacing.order <a,b,…>` (new) |
 | | Which kinds go where | Read-only summary; "Edit routing" opens the strategy builder | `r` → builder | `strategy-build` console command (exists) |
@@ -162,7 +179,7 @@ Settings today are spread across `strategy.yaml`, CLI flags and Orca's per-plugi
 | Plugin | Notification level | Three-button switch | — | `notify-level` console command (exists) |
 | | Update checks on/off | Toggle | — | `pacer config set update_check <true\|false>` (new) |
 
-New console commands: `config-set` (`{key, value}`, allow-listed keys only: `planner` (`<agent>:<account>`), `pacing.order`, `pacing.policy`, `pacing.planner_reserve`, `pacing.accounts`, `pacing.fill_threshold`, `update_check`), `account-remove`, `runner-remove`, and `open-terminal` (`{command}` from a fixed list: `account add`, `account add --orca`, `runner add`, `init`), which opens or reuses the pacer terminal in the focused worktree and runs the command there. The panel never sends free text to a shell.
+New console commands: `config-set` (`{key, value}`, allow-listed keys only: `planner` (a runner id), `pacing.order`, `pacing.policy`, `pacing.planner_reserve`, `pacing.accounts`, `pacing.fill_threshold`, `update_check`), `account-remove`, `runner-remove`, and `open-terminal` (`{command}` from a fixed list: `account add`, `account add --orca`, `runner add`, `init`), which opens or reuses the pacer terminal in the focused worktree and runs the command there. The panel never sends free text to a shell.
 
 ### `pacer config`
 
@@ -203,6 +220,7 @@ The marketplace (static) panel has no settings page; it links to the dashboard's
 
 1. **Account sources: both.** pacer-managed folders and Orca-managed accounts. Running a task on a non-active Orca account stays behind the spike in "Running a task on an account".
 2. **Orca rate limits: yes, when Orca is present.** `usage_source: orca` is the default for accounts Orca reports (including Cursor, Gemini, Kimi, OpenCode Go); without Orca those fall back to today's tracking.
-3. **Routing between accounts of one agent: configurable per strategy.** `pacing.accounts: spread | fill` (default `spread`: by headroom, same policy as between agents). `fill` uses accounts in `pacing.order` until the current one is behind pace or any window reaches `pacing.fill_threshold` (percent, default 90), then moves to the next.
+3. **Routing between accounts of one agent: configurable per strategy.** `pacing.accounts: spread | fill` (default `spread`: by headroom, same policy as between agents). `fill` uses accounts in `pacing.order` until the current one is behind pace or any window reaches `pacing.fill_threshold` (percent, default 90), then moves to the next. Account ordering applies only to runners with the same agent and account kind, excludes endpoint accounts, and treats `BEHIND` literally as a reason to yield in `fill` while retaining the `AHEAD` guardrail.
 4. **Migration: during `pacer init` and `pacer update`.** A strategy in the old `providers:` form is rewritten into `accounts:`/`planner:`/`runners:`, keeping comments where possible, after saving the original as `<file>.pre-accounts.bak`; the command prints what changed and how to restore. Loading the old form still works in the meantime (and for strategies switched to later); `pacer config migrate` does the same on request.
 5. **Settings list: complete as listed.** Every item gets a panel control and a dashboard key; the CLI covers all of it. Added keys: `pacing.accounts`, `pacing.fill_threshold`.
+6. **Runner ids are `agent#account@host`** (owner's proposal). No invented runner names; `#account` and `@host` optional; the account is the global budget, the host only where it runs. `@host` is reserved and refused until remote runners are designed.
