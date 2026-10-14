@@ -1,3 +1,231 @@
+// src/update/check.ts
+import { mkdirSync, readFileSync as readFileSync2, writeFileSync, renameSync } from "node:fs";
+import { join as join2 } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// src/update/errors.ts
+class ReleaseError extends Error {
+  name = "ReleaseError";
+}
+
+// src/update/version.ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+var DEV_VERSION = "0.0.0-dev";
+var SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+function currentVersion() {
+  if (typeof PACER_BUILD_VERSION === "string")
+    return PACER_BUILD_VERSION;
+  try {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "package.json"), "utf8"));
+    return typeof pkg.version === "string" && SEMVER.test(pkg.version) ? pkg.version : DEV_VERSION;
+  } catch {
+    return DEV_VERSION;
+  }
+}
+function isVersion(v) {
+  return SEMVER.test(v);
+}
+function compareVersions(a, b) {
+  const pa = SEMVER.exec(a);
+  const pb = SEMVER.exec(b);
+  if (!pa || !pb)
+    throw new ReleaseError(`invalid version: ${pa ? b : a}`);
+  for (let i = 1;i <= 3; i++) {
+    const d = Number(pa[i]) - Number(pb[i]);
+    if (d !== 0)
+      return Math.sign(d);
+  }
+  const ra = pa[4];
+  const rb = pb[4];
+  if (ra === rb)
+    return 0;
+  if (ra === undefined)
+    return 1;
+  if (rb === undefined)
+    return -1;
+  const xa = ra.split(".");
+  const xb = rb.split(".");
+  for (let i = 0;i < Math.max(xa.length, xb.length); i++) {
+    const x = xa[i];
+    const y = xb[i];
+    if (x === undefined)
+      return -1;
+    if (y === undefined)
+      return 1;
+    if (x === y)
+      continue;
+    const nx = /^\d+$/.test(x);
+    const ny = /^\d+$/.test(y);
+    if (nx && ny)
+      return Math.sign(Number(x) - Number(y));
+    if (nx)
+      return -1;
+    if (ny)
+      return 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+// src/update/manifest.ts
+function parseLatest(raw) {
+  const v = typeof raw === "object" && raw !== null ? raw.version : undefined;
+  const s = typeof v === "string" ? v.replace(/^v/, "") : "";
+  if (!isVersion(s))
+    throw new ReleaseError(`latest.json has no valid "version" (got ${JSON.stringify(v ?? null)})`);
+  return s;
+}
+var GITHUB_REPO = "lamtuanvu/pacer";
+var GITHUB_RELEASE_BASE = `https://github.com/${GITHUB_REPO}/releases`;
+function latestUrl(base) {
+  return base === undefined ? `https://github.com/${GITHUB_REPO}/releases/latest/download/latest.json` : `${base}/latest.json`;
+}
+
+// src/update/fetch.ts
+var ALLOWED_BASE = /^(https:\/\/|file:\/\/|http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$))/;
+function normalizeBase(base) {
+  const b = base.trim().replace(/\/+$/, "");
+  if (!ALLOWED_BASE.test(b) || b.includes("@") || b.includes("?") || b.includes("#")) {
+    throw new ReleaseError(`release base must start with https://, file://, or http://127.0.0.1 / http://localhost (got "${base}")`);
+  }
+  return b;
+}
+var MAX_REDIRECTS = 5;
+async function fetchBytes(fetchFn, url, maxBytes = Number.POSITIVE_INFINITY) {
+  let res;
+  let current = url;
+  try {
+    for (let hops = 0;; hops++) {
+      res = await fetchFn(current);
+      if (res.status < 300 || res.status >= 400)
+        break;
+      await res.body?.cancel();
+      const location = res.headers.get("location");
+      if (!location)
+        throw new Error(`redirect HTTP ${res.status} has no Location`);
+      if (hops >= MAX_REDIRECTS)
+        throw new Error(`redirect limit (${MAX_REDIRECTS}) exceeded`);
+      const next = new URL(location, current);
+      if (next.protocol !== "https:" || next.username || next.password)
+        throw new Error("redirect must target https:// without user info");
+      current = next.href;
+    }
+  } catch (e) {
+    throw new ReleaseError(`download failed: ${url} (${e.message})`);
+  }
+  if (!res.ok)
+    throw new ReleaseError(`download failed: ${url} (HTTP ${res.status})`);
+  const declaredLength = res.headers.get("content-length");
+  if (declaredLength !== null && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+    await res.body?.cancel();
+    throw new ReleaseError(`download failed: ${url} (exceeds ${maxBytes} byte limit)`);
+  }
+  try {
+    if (!res.body)
+      return new Uint8Array;
+    const reader = res.body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done)
+        break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new ReleaseError(`download failed: ${url} (exceeds ${maxBytes} byte limit)`);
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  } catch (e) {
+    if (e instanceof ReleaseError)
+      throw e;
+    throw new ReleaseError(`download failed: ${url} (${e.message})`);
+  }
+}
+async function fetchText(fetchFn, url) {
+  return new TextDecoder().decode(await fetchBytes(fetchFn, url, 1024 * 1024));
+}
+
+// src/update/check.ts
+var UPDATE_CACHE_S = 86400;
+var UPDATE_TIMEOUT_MS = 3000;
+function updateChecksEnabled(ctx) {
+  if (ctx.env.PACER_NO_UPDATE_CHECK === "1")
+    return false;
+  try {
+    let active = "";
+    try {
+      active = readFileSync2(join2(ctx.pacerHome, "active"), "utf8").trim();
+    } catch {}
+    const path = active && /^[\w-]+$/.test(active) ? join2(ctx.pacerHome, "strategies", `${active}.yaml`) : join2(ctx.pacerHome, "strategy.yaml");
+    return !/^update_check:\s*false\s*(?:#.*)?$/m.test(readFileSync2(path, "utf8"));
+  } catch {
+    return true;
+  }
+}
+function readUpdateCheck(ctx, current = currentVersion()) {
+  if (!updateChecksEnabled(ctx))
+    return null;
+  try {
+    const v = JSON.parse(readFileSync2(join2(ctx.pacerHome, "update-check.json"), "utf8"));
+    if (!Number.isFinite(v.checkedAt) || v.latest !== null && !isVersion(v.latest))
+      return null;
+    return { ...v, current };
+  } catch {
+    return null;
+  }
+}
+function updateAvailable(check) {
+  return !!check?.latest && isVersion(check.current) && compareVersions(check.latest, check.current) > 0;
+}
+async function checkForUpdate(ctx, options = {}) {
+  if (!updateChecksEnabled(ctx))
+    return null;
+  const current = options.current ?? currentVersion(), cached = readUpdateCheck(ctx, current);
+  if (!options.force && cached && ctx.now >= cached.checkedAt && ctx.now - cached.checkedAt < UPDATE_CACHE_S)
+    return cached;
+  const result = { checkedAt: ctx.now, latest: cached?.latest ?? null, current };
+  const controller = new AbortController;
+  let timer;
+  try {
+    const raw = options.base ?? ctx.env.PACER_RELEASE_BASE;
+    const url = latestUrl(raw ? normalizeBase(raw) : undefined);
+    const fetcher = options.fetch ?? (async (url) => url.startsWith("file://") ? new Response(await import("node:fs/promises").then((fs) => fs.readFile(fileURLToPath(url)))) : fetch(url, { signal: controller.signal, redirect: "manual" }));
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("update check timed out"));
+      }, options.timeoutMs ?? UPDATE_TIMEOUT_MS);
+    });
+    result.latest = await Promise.race([fetchText(fetcher, url).then((text) => parseLatest(JSON.parse(text))), timeout]);
+  } catch (e) {
+    result.error = e instanceof Error ? e.message : String(e);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!(("readOnly" in ctx) && ctx.readOnly))
+    try {
+      mkdirSync(ctx.pacerHome, { recursive: true });
+      const path = join2(ctx.pacerHome, "update-check.json"), temp = `${path}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+      writeFileSync(temp, JSON.stringify(result) + `
+`);
+      renameSync(temp, path);
+    } catch {}
+  return result;
+}
+
+// orca-plugin/src/worker.ts
+import { execFile as execFile2 } from "node:child_process";
+import { mkdirSync as mkdirSync3 } from "node:fs";
 // package.json
 var package_default = {
   name: "pacer",
@@ -7,7 +235,7 @@ var package_default = {
     "@types/bun": "^1.4.2",
     typescript: "^7.0.2"
   },
-  version: "0.1.20",
+  version: "0.1.21",
   bin: {
     pacer: "src/cli.ts"
   },
@@ -55,9 +283,9 @@ var package_default = {
 };
 
 // orca-plugin/src/mode.ts
-import { join } from "node:path";
+import { join as join3 } from "node:path";
 function pluginMode(pluginRoot, fs) {
-  return fs.exists(join(pluginRoot, ".pacer-managed")) ? "live" : "bootstrap";
+  return fs.exists(join3(pluginRoot, ".pacer-managed")) ? "live" : "bootstrap";
 }
 
 // src/install/fsx.ts
@@ -71,98 +299,46 @@ function shellCommand(argv) {
 // orca-plugin/src/bootstrap.ts
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { accessSync, constants, existsSync as existsSync2, mkdirSync, renameSync, chmodSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync as existsSync2, mkdirSync as mkdirSync2, renameSync as renameSync2, chmodSync, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join as join3, delimiter } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join as join5, delimiter } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/install/detection.ts
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join as join2 } from "node:path";
+import { existsSync, readdirSync, readFileSync as readFileSync3 } from "node:fs";
+import { join as join4 } from "node:path";
 var AGENT_BINS = { "claude-code": ["claude"], codex: ["codex"], cursor: ["cursor-agent", "cursor"], opencode: ["opencode"] };
 var names = { "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode" };
 function agentPlans(home, pacerHome, which, env = {}) {
   let installed = {};
   try {
-    installed = JSON.parse(readFileSync(join2(pacerHome, "install-manifest.json"), "utf8")).planners ?? {};
+    installed = JSON.parse(readFileSync3(join4(pacerHome, "install-manifest.json"), "utf8")).planners ?? {};
   } catch {}
   return Object.keys(AGENT_BINS).filter((id) => AGENT_BINS[id].some((bin) => which(bin))).map((id) => {
-    const root = id === "opencode" ? join2(env.XDG_CONFIG_HOME || join2(home, ".config"), "opencode") : join2(home, id === "claude-code" ? ".claude" : `.${id}`);
+    const root = id === "opencode" ? join4(env.XDG_CONFIG_HOME || join4(home, ".config"), "opencode") : join4(home, id === "claude-code" ? ".claude" : `.${id}`);
     const skillRoot = id === "codex" ? env.CODEX_HOME || root : root;
-    const files = [join2(skillRoot, "skills/pacer/SKILL.md"), ...{
-      "claude-code": [join2(root, "rules/pacer.md"), join2(root, "settings.json")],
-      codex: [join2(root, "AGENTS.md"), join2(root, "hooks.json")],
-      cursor: [join2(root, "hooks.json")],
-      opencode: [join2(root, "AGENTS.md")]
+    const files = [join4(skillRoot, "skills/pacer/SKILL.md"), ...{
+      "claude-code": [join4(root, "rules/pacer.md"), join4(root, "settings.json")],
+      codex: [join4(root, "AGENTS.md"), join4(root, "hooks.json")],
+      cursor: [join4(root, "hooks.json")],
+      opencode: [join4(root, "AGENTS.md")]
     }[id]];
     if (id === "claude-code") {
       try {
-        const command = JSON.parse(readFileSync(join2(root, "settings.json"), "utf8")).statusLine?.command;
+        const command = JSON.parse(readFileSync3(join4(root, "settings.json"), "utf8")).statusLine?.command;
         if (typeof command === "string" && !/\s/.test(command)) {
           const path = command.replace(/^~(?=\/)/, home).replace(/^\$HOME(?=\/)/, home);
-          if (path.startsWith("/") && existsSync(path) && /^input=\$\(cat\)\s*$/m.test(readFileSync(path, "utf8")))
+          if (path.startsWith("/") && existsSync(path) && /^input=\$\(cat\)\s*$/m.test(readFileSync3(path, "utf8")))
             files.push(path);
         }
       } catch {}
-      files.push(...["scripts/budget/budget_status.py", "scripts/budget/subagent_guard.py", "scripts/budget/budget-status", "rules/model-delegation.md"].map((p) => join2(root, p)).filter(existsSync));
-      const delegation = join2(root, "agents/delegation");
+      files.push(...["scripts/budget/budget_status.py", "scripts/budget/subagent_guard.py", "scripts/budget/budget-status", "rules/model-delegation.md"].map((p) => join4(root, p)).filter(existsSync));
+      const delegation = join4(root, "agents/delegation");
       if (existsSync(delegation))
-        files.push(...readdirSync(delegation).filter((p) => p.endsWith(".md")).sort().map((p) => join2(delegation, p)));
+        files.push(...readdirSync(delegation).filter((p) => p.endsWith(".md")).sort().map((p) => join4(delegation, p)));
     }
     return { id, name: names[id], installed: !!installed[id], files, undo: `pacer uninstall ${id}` };
   });
-}
-
-// src/update/errors.ts
-class ReleaseError extends Error {
-  name = "ReleaseError";
-}
-
-// src/update/version.ts
-var SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
-function isVersion(v) {
-  return SEMVER.test(v);
-}
-function compareVersions(a, b) {
-  const pa = SEMVER.exec(a);
-  const pb = SEMVER.exec(b);
-  if (!pa || !pb)
-    throw new ReleaseError(`invalid version: ${pa ? b : a}`);
-  for (let i = 1;i <= 3; i++) {
-    const d = Number(pa[i]) - Number(pb[i]);
-    if (d !== 0)
-      return Math.sign(d);
-  }
-  const ra = pa[4];
-  const rb = pb[4];
-  if (ra === rb)
-    return 0;
-  if (ra === undefined)
-    return 1;
-  if (rb === undefined)
-    return -1;
-  const xa = ra.split(".");
-  const xb = rb.split(".");
-  for (let i = 0;i < Math.max(xa.length, xb.length); i++) {
-    const x = xa[i];
-    const y = xb[i];
-    if (x === undefined)
-      return -1;
-    if (y === undefined)
-      return 1;
-    if (x === y)
-      continue;
-    const nx = /^\d+$/.test(x);
-    const ny = /^\d+$/.test(y);
-    if (nx && ny)
-      return Math.sign(Number(x) - Number(y));
-    if (nx)
-      return -1;
-    if (ny)
-      return 1;
-    return x < y ? -1 : 1;
-  }
-  return 0;
 }
 
 // orca-plugin/src/bootstrap.ts
@@ -189,7 +365,7 @@ function releaseURL(base, version, name) {
 async function download(url, fetcher = fetch, signal = AbortSignal.timeout(120000)) {
   releaseBase(url, {});
   if (url.startsWith("file:"))
-    return readFile(fileURLToPath(url), { signal });
+    return readFile(fileURLToPath2(url), { signal });
   for (let hops = 0;; hops++) {
     const response = await fetcher(url, { redirect: "manual", signal });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -213,7 +389,7 @@ function runFile(bin, args, env, timeout) {
 }
 function which(bin, env) {
   for (const dir of (env.PATH || "").split(delimiter).filter(Boolean)) {
-    const path = join3(dir, bin);
+    const path = join5(dir, bin);
     try {
       accessSync(path, constants.X_OK);
       return path;
@@ -223,7 +399,7 @@ function which(bin, env) {
 }
 function createBootstrap(d) {
   const now = d.now ?? (() => Date.now() / 1000), exec = d.exec ?? runFile, env = cleanEnv(d.env);
-  const home = d.home, pacerHome = join3(home, ".pacer"), platform = d.platform ?? process.platform;
+  const home = d.home, pacerHome = join5(home, ".pacer"), platform = d.platform ?? process.platform;
   let state = { install: { status: "pending" }, start: { status: "pending" }, agents: [] };
   let running = null, terminalRunning = false, stopped = false, probedAt = -Infinity;
   const changed = async (ctx, onChange) => {
@@ -261,7 +437,7 @@ function createBootstrap(d) {
     try {
       const settings = await ctx.host.call("settings.get").catch(() => ({ settings: {} }));
       const base = releaseBase(settings.settings.releaseBase, env);
-      let binary = env.PACER_BIN || (existsSync2(join3(home, ".local/bin/pacer")) ? join3(home, ".local/bin/pacer") : which("pacer", env));
+      let binary = env.PACER_BIN || (existsSync2(join5(home, ".local/bin/pacer")) ? join5(home, ".local/bin/pacer") : which("pacer", env));
       state.install = { status: "pending" };
       state.start = { status: "pending" };
       await changed(ctx, onChange);
@@ -276,19 +452,19 @@ function createBootstrap(d) {
         const bytes = await download(releaseURL(base, d.version, name), d.fetch, signal);
         if (createHash("sha256").update(bytes).digest("hex") !== match[1].toLowerCase())
           throw new Error("The pacer download failed its checksum check.");
-        const dir = join3(home, ".local/bin");
-        mkdirSync(dir, { recursive: true });
-        const temporary = join3(dir, `.pacer-${randomUUID()}.tmp`);
+        const dir = join5(home, ".local/bin");
+        mkdirSync2(dir, { recursive: true });
+        const temporary = join5(dir, `.pacer-${randomUUID()}.tmp`);
         try {
-          writeFileSync(temporary, bytes, { flag: "wx", mode: 384 });
+          writeFileSync2(temporary, bytes, { flag: "wx", mode: 384 });
           chmodSync(temporary, 493);
-          renameSync(temporary, join3(dir, "pacer"));
+          renameSync2(temporary, join5(dir, "pacer"));
         } finally {
           try {
             unlinkSync(temporary);
           } catch {}
         }
-        binary = join3(dir, "pacer");
+        binary = join5(dir, "pacer");
       } else {
         const output = (await exec(binary, ["--version"], env, 30000)).trim().replace(/^pacer\s+/, "");
         if (isVersion(output) && !output.includes("dev") && compareVersions(output, d.version) < 0) {
@@ -300,7 +476,7 @@ function createBootstrap(d) {
       step = "start";
       state.start = { status: "pending" };
       await changed(ctx, onChange);
-      if (!existsSync2(join3(pacerHome, "strategy.yaml")))
+      if (!existsSync2(join5(pacerHome, "strategy.yaml")))
         await exec(binary, ["init"], env, 30000);
       const status = JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30000));
       if (!status.installed)
@@ -456,12 +632,31 @@ function createBootstrap(d) {
 
 // orca-plugin/src/worker.ts
 import { get, request } from "node:http";
-import { existsSync as existsSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync2, renameSync as renameSync2, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { existsSync as existsSync3, readFileSync as readFileSync5, writeFileSync as writeFileSync3, renameSync as renameSync3, unlinkSync as unlinkSync2 } from "node:fs";
+import { dirname, join as join7, resolve } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+
+// orca-plugin/src/updates.ts
+var UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+var updateInstruction = (mode) => mode === "bootstrap" ? "In Orca Settings > Plugins, click Refresh, then Update plugin." : "Click Update in the pacer panel.";
+async function notifyUpdates(host, mode, plugin, check, cli) {
+  const newer = (v) => !!v && isVersion(v) && isVersion(plugin) && compareVersions(v, plugin) > 0;
+  for (const [kind, version] of [["release", check?.latest ?? null], ["cli", cli]]) {
+    if (!newer(version))
+      continue;
+    const key = `pacer-update-${kind}-${version}`;
+    if ((await host.call("storage.get", { key })).value === true)
+      continue;
+    const message = kind === "release" ? `pacer ${version} is available. ${updateInstruction(mode)}` : `The pacer CLI ${version} is newer than the Orca plugin ${plugin}. ${mode === "live" ? "Run pacer plugin install, then turn pacer off and on in Orca Settings > Plugins." : updateInstruction(mode)}`;
+    const sent = await host.call("notifications.show", { title: "pacer update", body: message });
+    if (sent.delivered)
+      await host.call("storage.set", { key, value: true });
+  }
+  return { plugin, cli, latest: check?.latest ?? null, available: newer(check?.latest ?? null) || !!check?.latest && !!cli && isVersion(cli) && compareVersions(check.latest, cli) > 0 };
+}
 
 // orca-plugin/src/plugin.ts
-import { join as join4 } from "node:path";
+import { join as join6 } from "node:path";
 
 // src/link/envelope.ts
 var LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 };
@@ -1314,88 +1509,88 @@ function bindAction(button,action){const key=actionKey(action);if(actionStates[k
 
 // orca-plugin/src/panel/client.ts
 var client = `
-const embedded = JSON.parse(document.getElementById("pacer-actions").textContent);
+const embedded=JSON.parse(document.getElementById("pacer-actions").textContent);
 function unpack(value) {
  if(Array.isArray(value)) return value.map(unpack);
- if(value && typeof value === "object") return Object.hasOwn(value,"$runs") ? value.$runs.map(([c,n])=>c.repeat(n)).join("") : Object.fromEntries(Object.entries(value).map(([k,v])=>[k,unpack(v)]));
+ if(value && typeof value==="object") return Object.hasOwn(value,"$runs") ? value.$runs.map(([c,n])=>c.repeat(n)).join("") : Object.fromEntries(Object.entries(value).map(([k,v])=>[k,unpack(v)]));
  return value;
 }
-const data = unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(embedded.encoded), c=>c.charCodeAt(0)))) : embedded);
-const providerNames = {"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model",opencode:"OpenCode"};
-for (const p of [...data.rows,...data.muted]) p.name = Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
-data.executors = data.rows.map(p=>p.id);
-const statusNode = document.getElementById("status");
-const status = { get textContent() { return statusNode.textContent; }, set textContent(value) {
- statusNode.textContent = value;
- for (const el of document.querySelectorAll("[data-status]")) el.textContent = value;
+const data=unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(embedded.encoded), c=>c.charCodeAt(0)))) : embedded);
+const providerNames={"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model",opencode:"OpenCode"};
+for (const p of [...data.rows,...data.muted]) p.name=Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
+data.executors=data.rows.map(p=>p.id);
+const statusNode=document.getElementById("status");
+const status={ get textContent() { return statusNode.textContent; }, set textContent(value) {
+ statusNode.textContent=value;
+ for (const el of document.querySelectorAll("[data-status]")) el.textContent=value;
 } };
 if(data.buildAlert) status.textContent=data.buildAlert.title+(data.buildAlert.body?": "+data.buildAlert.body:"");
-const sentAt = [], pending = new Map();
-let sequence = 0, context = null, sending = false;
-const submitButton = document.getElementById("delegate-send");
-function finishSending() { sending = false; submitButton.disabled = false; }
+const sentAt=[], pending=new Map();
+let sequence=0, context=null, sending=false;
+const submitButton=document.getElementById("delegate-send");
+function finishSending() { sending=false; submitButton.disabled=false; }
 function show(view) {
-  if(view === "strategy" && savedStrategy) {try {sessionStorage.setItem("pacer-seen-strategies",JSON.stringify([...seenStrategies,savedStrategy.key+":"+savedStrategy.at].slice(-100)));}catch {}}
-  for (const el of document.querySelectorAll("[data-page]")) el.hidden = el.dataset.page !== view;
-  status.textContent = "";
+  if(view==="strategy" && savedStrategy) {try {sessionStorage.setItem("pacer-seen-strategies",JSON.stringify([...seenStrategies,savedStrategy.key+":"+savedStrategy.at].slice(-100)));}catch {}}
+  for (const el of document.querySelectorAll("[data-page]")) el.hidden=el.dataset.page!==view;
+  status.textContent="";
 }
 function live(workspace) {
-  const available = data.consoles.filter(c=>c.handle && c.live);
-  const selected = workspace === undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
-  if (selected) { if(workspace !== undefined) data.handle = selected.handle; document.getElementById("console-hint").hidden = true; return true; }
-  status.textContent = workspace !== undefined && Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>typeof t.title === "string" && /^pacer(?: console)?$/.test(t.title)) ? "Reopen the panel to connect to the new console." : data.autoConsole ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
-  document.getElementById("console-hint").hidden = false;
+  const available=data.consoles.filter(c=>c.handle && c.live);
+  const selected=workspace===undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
+  if (selected) { if(workspace!==undefined) data.handle=selected.handle; document.getElementById("console-hint").hidden=true; return true; }
+  status.textContent=workspace!==undefined && Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>typeof t.title==="string" && /^pacer(?: console)?$/.test(t.title)) ? "Reopen the panel to connect to the new console." : data.autoConsole ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
+  document.getElementById("console-hint").hidden=false;
   return false;
 }
 function updateFreshness() {
   for(const el of document.querySelectorAll("[data-age-at]"))el.textContent=Math.max(0,Math.floor(Date.now()/1000-Number(el.dataset.ageAt)))+"s ago";
-  for(const el of document.querySelectorAll("[data-updated]")) el.textContent = data.updatedAt ? new Date(data.updatedAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
-  const old = Date.now()/1000-data.snapshotAt>120;
+  for(const el of document.querySelectorAll("[data-updated]")) el.textContent=data.updatedAt ? new Date(data.updatedAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
+  const old=Date.now()/1000-data.snapshotAt>120;
   for(const el of document.querySelectorAll("[data-freshness]")) {
     // Unchanged data is not re-rendered (Orca reloads the panel on every write), so age alone is not a fault: show it neutrally.
-    el.parentElement.className = "name live " + (!data.reachable ? "bad" : old ? "muted" : "good");
-    el.textContent = !data.reachable ? "Not connected" : (old ? "Updated " : "Live · ") + new Date(data.snapshotAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
+    el.parentElement.className="name live " + (!data.reachable ? "bad" : old ? "muted" : "good");
+    el.textContent=!data.reachable ? "Not connected" : (old ? "Updated " : "Live · ") + new Date(data.snapshotAt*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
   }
 }
 updateFreshness(); setInterval(()=>{updateFreshness();recoverActions();},30000);
 function request(action, params, purpose, after, onFailure) {
-  const now = Date.now();
+  const now=Date.now();
   while (sentAt.length && now - sentAt[0] >= 10000) sentAt.shift();
-  if (sentAt.length >= 30) { status.textContent = "Please wait before sending another command."; return false; }
-  const requestId = "pacer-" + (++sequence), message = {type:"orca-panel-action",requestId,action,params};
-  if (new TextEncoder().encode(JSON.stringify(message)).length > 65536) { status.textContent = "Panel message exceeds 64 KiB."; return false; }
+  if (sentAt.length >= 30) { status.textContent="Please wait before sending another command."; return false; }
+  const requestId="pacer-" + (++sequence), message={type:"orca-panel-action",requestId,action,params};
+  if (new TextEncoder().encode(JSON.stringify(message)).length > 65536) { status.textContent="Panel message exceeds 64 KiB."; return false; }
   pending.set(requestId,{purpose,after,onFailure}); sentAt.push(now);
   window.parent.postMessage(message,"*"); return true;
 }
 function readContext(after, onFailure) { return request("workspace.readContext",{},"context",after,onFailure); }
 function sendCommand(command, after, onFailure, workspace) {
-  const fail = () => { if(onFailure) onFailure(); return false; };
-  if (Object.values(command).some(value => typeof value === "string" && /[\\x7f-\\x9f]/.test(value))) { status.textContent = "Input contains unsupported control characters."; return fail(); }
+  const fail=()=>{ if(onFailure) onFailure(); return false; };
+  if (Object.values(command).some(value=>typeof value==="string" && /[\\x7f-\\x9f]/.test(value))) { status.textContent="Input contains unsupported control characters."; return fail(); }
   if (!live()) return fail();
-  const send = value => {
+  const send=value=>{
     updateContext(value);
     if (!live(value)) return fail();
-    const text = ": pacer '" + JSON.stringify({v:1,type:"cmd",data:command}).replace(/'/g,"\\\\u0027") + "'";
-    if (text.length > 4096) { status.textContent = "pacer command line exceeds 4096 characters. Shorten your brief and try again."; return fail(); }
+    const text=": pacer '" + JSON.stringify({v:1,type:"cmd",data:command}).replace(/'/g,"\\\\u0027") + "'";
+    if (text.length > 4096) { status.textContent="pacer command line exceeds 4096 characters. Shorten your brief and try again."; return fail(); }
     if (!request("terminal.sendText",{terminalId:data.handle,text,enter:true},"console",after,onFailure)) return fail();
     return true;
   };
-  if (workspace !== undefined) return send(workspace);
+  if (workspace!==undefined) return send(workspace);
   if (!readContext(send,onFailure)) return fail();
   return true;
 }
 ${pendingClient}
 function updateContext(value) {
-  context = value && typeof value.branch === "string" && typeof value.displayName === "string" ? value : null;
-  for (const el of document.querySelectorAll("[data-worktree]")) el.textContent = context ? context.displayName : "—";
-  document.getElementById("worktree-branch").textContent = context ? context.branch : "—";
-  const connected = context && data.consoles.some(c=>c.live && Array.isArray(context.terminals) && context.terminals.some(t=>t.id===c.handle));
-  for (const el of document.querySelectorAll("[data-console-connection]")) el.textContent = context ? (connected ? "console connected in " : "console not connected in ") + context.displayName : "console not connected";
+  context=value && typeof value.branch==="string" && typeof value.displayName==="string" ? value : null;
+  for (const el of document.querySelectorAll("[data-worktree]")) el.textContent=context ? context.displayName : "—";
+  document.getElementById("worktree-branch").textContent=context ? context.branch : "—";
+  const connected=context && data.consoles.some(c=>c.live && Array.isArray(context.terminals) && context.terminals.some(t=>t.id===c.handle));
+  for (const el of document.querySelectorAll("[data-console-connection]")) el.textContent=context ? (connected ? "console connected in " : "console not connected in ") + context.displayName : "console not connected";
 }
 // Escape data before creating local provider rows; the same nodes populate the radio list.
 function h(value) { return String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
-for (const el of document.querySelectorAll("[data-text]")) el.innerHTML = h(data.text[el.dataset.text]);
-const strategyEntries=data.strategies.map(e=>typeof e === "string"?{name:e,summary:"",active:e===data.strategy}:e);
+for (const el of document.querySelectorAll("[data-text]")) el.innerHTML=h(data.text[el.dataset.text]);
+const strategyEntries=data.strategies.map(e=>typeof e==="string"?{name:e,summary:"",active:e===data.strategy}:e);
 document.getElementById("strategy-list").innerHTML=strategyEntries.map((e,i)=>'<button type="button" class="row" data-strategy="'+i+'"'+(e.active?' disabled title="This strategy is already active."':'')+'><span>'+(e.active?'✓':'')+'</span><span class="stack grow"><strong>'+h(e.name)+'</strong><small>'+h(e.summary)+'</small></span>'+(e.active?'<span class="pill">Active</span>':'')+'</button>').join("");
 document.getElementById("strategy-from").innerHTML=strategyEntries.map(e=>'<option value="'+h(e.name)+'"'+(e.active?' selected':'')+'>'+h(e.name)+'</option>').join("");
 for(const b of document.querySelectorAll("[data-strategy]")) {const entry=strategyEntries[Number(b.dataset.strategy)];if(!entry)continue;const command={cmd:"use",strategy:entry.name};bindAction(b,command);b.addEventListener("click",()=>pendingSend(b,command));}
@@ -1408,29 +1603,29 @@ if(savedStrategy) {
  afterSession.innerHTML='<h2>After the session</h2><div class="card row strategy-saved"><span class="good">✓</span><div class="stack grow"><strong>'+h(savedStrategy.title)+'</strong><small>'+h(savedStrategy.body)+'</small></div><button type="button" data-saved-switch>Switch</button></div>';
  document.querySelector("[data-saved-switch]")?.addEventListener("click",event=>pendingSend(event.currentTarget,{cmd:"use",strategy:savedStrategy.key.slice("strategySaved-".length)}));
 }
-document.getElementById("ranked-order").innerHTML = h(data.rows.map(p=>p.name).join(" → ") || "No executor available");
+document.getElementById("ranked-order").innerHTML=h(data.rows.map(p=>p.name).join(" → ") || "No executor available");
 function icon(p,size) {
-  return Object.hasOwn(data.paths,p.id) ? '<svg role="img" aria-label="'+h(p.name)+'" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="currentColor"><path d="'+data.paths[p.id]+'"></path></svg>' : '<span class="monogram" role="img" aria-label="'+h(p.name)+'" style="width:'+size+'px;height:'+size+'px">'+h(p.id === "codex" ? "Cx" : p.id.slice(0,2))+'</span>';
+  return Object.hasOwn(data.paths,p.id) ? '<svg role="img" aria-label="'+h(p.name)+'" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="currentColor"><path d="'+data.paths[p.id]+'"></path></svg>' : '<span class="monogram" role="img" aria-label="'+h(p.name)+'" style="width:'+size+'px;height:'+size+'px">'+h(p.id==="codex" ? "Cx" : p.id.slice(0,2))+'</span>';
 }
 function meter(p) {
  if(p.usedPct===null) return "";
  const used=Math.max(0,Math.min(100,p.usedPct)), pace=p.pacePct===null?null:Math.max(0,Math.min(100,p.pacePct));
  return '<div class="meter slim '+p.tone+'" role="progressbar" aria-label="'+h(p.name)+' usage" aria-valuenow="'+used+'" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:'+used+'%"></div>'+(pace===null?'':'<div class="pace" style="left:'+pace+'%"></div>')+'</div>';
 }
-const rankedList = document.getElementById("ranked-list"), mutedList = document.getElementById("unavailable-list"), options = document.getElementById("executor-options");
-rankedList.innerHTML = data.rows.map((p,i) => '<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span><button type="button" data-executor-action="'+i+'">Block</button></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
-mutedList.innerHTML = data.muted.map((p,i)=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span><button type="button" data-executor-action="'+(data.rows.length+i)+'">'+(p.blocked?'Unblock':'Block')+'</button></div>').join("");
-options.innerHTML = data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict === "EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
+const rankedList=document.getElementById("ranked-list"), mutedList=document.getElementById("unavailable-list"), options=document.getElementById("executor-options");
+rankedList.innerHTML=data.rows.map((p,i)=>'<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span><button type="button" data-executor-action="'+i+'">Block</button></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
+mutedList.innerHTML=data.muted.map((p,i)=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span><button type="button" data-executor-action="'+(data.rows.length+i)+'">'+(p.blocked?'Unblock':'Block')+'</button></div>').join("");
+options.innerHTML=data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict==="EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
 for(const b of document.querySelectorAll("[data-executor-action]")) {
  const provider=[...data.rows,...data.muted][Number(b.dataset.executorAction)];if(provider)bindAction(b,{cmd:provider.blocked?"unblock":"block",executor:provider.id});
  b.addEventListener("click",()=>{
  const p=[...data.rows,...data.muted][Number(b.dataset.executorAction)];
  if(p && /^[a-z0-9-]{1,64}$/.test(p.id))pendingSend(b,{cmd:p.blocked?"unblock":"block",executor:p.id});
 });}
-for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => {
+for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", ()=>{
   if (["delegate","strategy"].includes(b.dataset.view)) {
     if (!live()) return;
-    readContext(value => { updateContext(value); if(!live(value)) return; show(b.dataset.view); document.getElementById(b.dataset.view === "delegate" ? "goal" : "strategy-brief").focus(); });
+    readContext(value=>{ updateContext(value); if(!live(value)) return; show(b.dataset.view); document.getElementById(b.dataset.view==="delegate" ? "goal" : "strategy-brief").focus(); });
   } else show(b.dataset.view);
 });
 for(const card of document.querySelectorAll("[data-focus]")) {
@@ -1441,64 +1636,64 @@ for(const card of document.querySelectorAll("[data-focus]")) {
 }
 for (const b of document.querySelectorAll("[data-command]")) {
  if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
- b.addEventListener("click", () => {
-  const command = data.commands[b.dataset.command];
-  if (command) pendingSend(b,command); else status.textContent = "Reopen the panel to load this action.";
+ b.addEventListener("click", ()=>{
+  const command=data.commands[b.dataset.command];
+  if (command) pendingSend(b,command); else status.textContent="Reopen the panel to load this action.";
 });
 }
-for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"type",text:b.dataset.setup});b.addEventListener("click", () => {
+for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"type",text:b.dataset.setup});b.addEventListener("click", ()=>{
   const key=beginAction(b,{cmd:"type",text:b.dataset.setup});if(!key)return;
-  readContext(value => {
+  readContext(value=>{
     updateContext(value);
-    const terminal = context && Array.isArray(context.terminals) && context.terminals[0];
-    if (!terminal || typeof terminal.id !== "string") { status.textContent = "Open a terminal in this worktree first"; restoreAction(key);return; }
+    const terminal=context && Array.isArray(context.terminals) && context.terminals[0];
+    if (!terminal || typeof terminal.id!=="string") { status.textContent="Open a terminal in this worktree first"; restoreAction(key);return; }
     request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup",()=>restoreAction(key),()=>restoreAction(key));
   },()=>restoreAction(key));
 });}
-for (const b of document.querySelectorAll("[data-connect-agents]")) b.addEventListener("click", () => {
+for (const b of document.querySelectorAll("[data-connect-agents]")) b.addEventListener("click", ()=>{
  b.disabled=true;
- readContext(value => {
+ readContext(value=>{
   const terminal=value?.terminals?.find(t=>t.id===data.setupTerminal);
   if(!terminal){b.disabled=false;status.textContent="Opening a terminal… Reopen the panel shortly.";return;}
   request("terminal.sendText",{terminalId:terminal.id,text:data.setupCommand || "pacer setup --yes",enter:true},"connect",()=>{status.textContent="Connecting your agents…";},()=>{b.disabled=false;});
  },()=>{b.disabled=false;});
 });
-for (const b of document.querySelectorAll("[data-bootstrap-retry]")) b.addEventListener("click", () => {
+for (const b of document.querySelectorAll("[data-bootstrap-retry]")) b.addEventListener("click", ()=>{
  show("setup"); status.textContent="pacer will retry automatically. Reopen the panel shortly.";
 });
-for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", () => {
+for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", ()=>{
   if (!data.reachable) {
-    status.textContent = "Waiting for pacer serve. Start it, then reopen this panel.";
-    document.getElementById("console-hint").hidden = true;
+    status.textContent="Waiting for pacer serve. Start it, then reopen this panel.";
+    document.getElementById("console-hint").hidden=true;
     return;
   }
   pendingSend(b,{cmd:"refresh"});
 });
-document.getElementById("delegate-send").addEventListener("click", () => {
-  if (sending) { status.textContent = "A command is already being sent. Please wait."; return; }
+document.getElementById("delegate-send").addEventListener("click", ()=>{
+  if (sending) { status.textContent="A command is already being sent. Please wait."; return; }
   if (!live()) return;
-  const goal = document.getElementById("goal").value, acceptance = document.getElementById("done").value;
-  const selected = document.querySelector('input[name="executor"]:checked');
-  if (!goal.trim()) { status.textContent = "What should be done is required."; return; }
-  if (goal.length > 2000 || acceptance.length > 500) { status.textContent = "Goal must be at most 2000 characters; Done when at most 500."; return; }
-  if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !/^[a-z0-9-]{1,64}$/.test(data.executors[Number(selected.value)]))) { status.textContent = "Choose an available executor."; return; }
+  const goal=document.getElementById("goal").value, acceptance=document.getElementById("done").value;
+  const selected=document.querySelector('input[name="executor"]:checked');
+  if (!goal.trim()) { status.textContent="What should be done is required."; return; }
+  if (goal.length > 2000 || acceptance.length > 500) { status.textContent="Goal must be at most 2000 characters; Done when at most 500."; return; }
+  if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !/^[a-z0-9-]{1,64}$/.test(data.executors[Number(selected.value)]))) { status.textContent="Choose an available executor."; return; }
   const command={cmd:"delegate",goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})};
   const action=beginAction(submitButton,command);if(!action)return;
-  sending = true;
+  sending=true;
   const failDelegate=()=>{restoreAction(action);finishSending();};
-  if (!readContext(value => {
+  if (!readContext(value=>{
     updateContext(value);
-    if (!context || !context.branch) { status.textContent = "Focus a worktree first."; failDelegate(); return; }
-    if (!sendCommand({cmd:"delegate",branch:context.branch,displayName:context.displayName,...(typeof context.worktreeId === "string" && context.worktreeId ? {worktreeId:context.worktreeId} : {}),goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})}, () => {
-      document.getElementById("goal").value = "";
-      document.getElementById("done").value = "";
-      document.querySelector('input[name="executor"][value=""]').checked = true;
+    if (!context || !context.branch) { status.textContent="Focus a worktree first."; failDelegate(); return; }
+    if (!sendCommand({cmd:"delegate",branch:context.branch,displayName:context.displayName,...(typeof context.worktreeId==="string" && context.worktreeId ? {worktreeId:context.worktreeId} : {}),goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})}, ()=>{
+      document.getElementById("goal").value="";
+      document.getElementById("done").value="";
+      document.querySelector('input[name="executor"][value=""]').checked=true;
       sending=false; show("overview");
-      status.textContent = "Sent. The task id appears in the pacer console.";
+      status.textContent="Sent. The task id appears in the pacer console.";
     }, failDelegate, value)) failDelegate();
   }, failDelegate)) failDelegate();
 });
-document.getElementById("strategy-send").addEventListener("click", () => { if(sending){status.textContent="A command is already being sent. Please wait.";return;} if(!live())return;
+document.getElementById("strategy-send").addEventListener("click", ()=>{ if(sending){status.textContent="A command is already being sent. Please wait.";return;} if(!live())return;
  const brief=document.getElementById("strategy-brief").value, from=document.getElementById("strategy-from").value, agent=document.getElementById("strategy-agent").value;
  if(!brief.trim() || brief.length>2000 || !["claude-code","codex"].includes(agent)) {status.textContent="Enter a brief of at most 2000 characters and choose a configured agent.";return;}
  const button=document.getElementById("strategy-send");const action=beginAction(button,{cmd:"strategy-build",agent,from,brief});if(!action)return;sending=true;
@@ -1507,17 +1702,17 @@ document.getElementById("strategy-send").addEventListener("click", () => { if(se
  sendCommand({cmd:"strategy-build",agent,from,brief,branch:context.branch,...(context.worktreeId?{worktreeId:context.worktreeId}:{})},()=>{sending=false;status.textContent="Sent to the pacer console. Watch the new terminal.";},finish,value);
  },finish))finish();
 });
-document.getElementById("done").addEventListener("keydown", event => {
- if(event.key === "Enter") {event.preventDefault();document.getElementById("delegate-send").click();}
+document.getElementById("done").addEventListener("keydown", event=>{
+ if(event.key==="Enter") {event.preventDefault();document.getElementById("delegate-send").click();}
 });
-window.addEventListener("message", event => {
-  const r = event.data;
-  if (event.source !== window.parent || !r || r.type !== "orca-panel-action-result" || !pending.has(r.requestId)) return;
-  const item = pending.get(r.requestId); pending.delete(r.requestId);
-  if (!r.ok) { status.textContent = typeof r.error === "string" ? r.error : "Orca refused this request."; if (item.onFailure) item.onFailure(); return; }
-  if (item.purpose === "context") { updateContext(r.value); if (item.after) item.after(r.value); return; }
-  const accepted = r.value && r.value.accepted;
-  status.textContent = accepted ? item.purpose === "setup" ? "Typed into your terminal. Press Enter to run it." : "Sent to pacer console" : "Orca refused to type into the terminal.";
+window.addEventListener("message", event=>{
+  const r=event.data;
+  if (event.source!==window.parent || !r || r.type!=="orca-panel-action-result" || !pending.has(r.requestId)) return;
+  const item=pending.get(r.requestId); pending.delete(r.requestId);
+  if (!r.ok) { status.textContent=typeof r.error==="string" ? r.error : "Orca refused this request."; if (item.onFailure) item.onFailure(); return; }
+  if (item.purpose==="context") { updateContext(r.value); if (item.after) item.after(r.value); return; }
+  const accepted=r.value && r.value.accepted;
+  status.textContent=accepted ? item.purpose==="setup" ? "Typed into your terminal. Press Enter to run it." : "Sent to pacer console" : "Orca refused to type into the terminal.";
   if (accepted && item.after) item.after(r.value);
   if (!accepted && item.onFailure) item.onFailure();
 });
@@ -1536,17 +1731,18 @@ if(notificationControl){
 recoverActions();
 try {const saved=Number(sessionStorage.getItem("pacer-panel-scroll"));if(Number.isFinite(saved)&&saved>=0)window.scrollTo?.(0,saved);}catch{}
 window.addEventListener("scroll",()=>{try{sessionStorage.setItem("pacer-panel-scroll",String(window.scrollY));}catch{}},{passive:true});
-readContext(value => { live(value); });
+readContext(value=>{ live(value); });
 `;
 
 // orca-plugin/src/panel.ts
 function renderPanel(s, view) {
   const reconnecting = !view.reachable && !!s.budget && view.lastSeenAt !== undefined && view.nowS - view.lastSeenAt >= 0 && view.nowS - view.lastSeenAt < 20;
   const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c) => c.handle && view.nowS - c.heartbeatAt <= LIMITS.heartbeatS).filter((c, i, a) => a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], selected = view.bootstrap && (view.bootstrap.install.status !== "done" || view.bootstrap.start.status !== "done" || view.bootstrap.agents.some((a) => !a.installed)) ? "setup" : reconnecting ? "overview" : initialView(s, view.reachable, view.nowS);
-  const commands = { refresh: { cmd: "refresh" } };
+  const commands = { refresh: { cmd: "refresh" }, c: { cmd: "check-updates" }, u: { cmd: "update" } };
   const text = {};
   const connected = view.bootstrap?.agents.filter((a) => a.installed).map((a) => a.name) ?? [];
-  const main = overview(s, view.nowS, view.reachable, commands, text) + (connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
+  const updates = `<aside>Updates · CLI: ${h(view.updates?.cli ?? s.console?.version ?? "?")} · Plugin: ${h(view.updates?.plugin ?? "?")} · Latest: ${h(view.updates?.latest ?? "?")}<button data-command="c">Check for updates</button>${view.updates?.available ? '<button data-command="u">Update</button>' : ""}</aside>`;
+  const main = updates + overview(s, view.nowS, view.reachable, commands, text) + (connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
   const reasonText = view.autoConsole ?? true ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
   const disable = (html) => (console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label) => `<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
   const payload = { setupCommand: view.bootstrap?.binary ? shellCommand([view.bootstrap.binary, "setup", "--yes"]) : undefined, setupTerminal: view.bootstrap?.terminal, focusAlerts: s.alerts.filter((a) => a.key.startsWith("focus-")), notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => (a.key.startsWith("retry-") || a.key.startsWith("focus-")) && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
@@ -1597,6 +1793,32 @@ function createPlugin(deps) {
   };
   async function activate(ctx) {
     stopped = false;
+    const mode = pluginMode(deps.pluginRoot, deps.fs);
+    let updates;
+    let updateBusy = false;
+    const runUpdateCheck = async () => {
+      if (stopped || updateBusy || !deps.checkUpdates || !deps.version)
+        return;
+      updateBusy = true;
+      try {
+        try {
+          deps.reportVersion?.(mode, deps.version);
+        } catch (e) {
+          ctx.log(`pacer plugin version: ${String(e)}`);
+        }
+        const { check, cli } = await deps.checkUpdates();
+        if (!stopped)
+          updates = await notifyUpdates(ctx.host, mode, deps.version, check, cli);
+      } catch (e) {
+        ctx.log(`pacer update check: ${String(e)}`);
+      } finally {
+        updateBusy = false;
+      }
+    };
+    runUpdateCheck();
+    timers.every(UPDATE_INTERVAL_MS, () => {
+      runUpdateCheck();
+    });
     if (pluginMode(deps.pluginRoot, deps.fs) === "bootstrap") {
       const logError = (e) => ctx.log(`pacer bootstrap: ${e instanceof Error ? e.message : String(e)}`);
       if (deps.bootstrap) {
@@ -1667,7 +1889,17 @@ function createPlugin(deps) {
       const current = panelOutcome();
       return { ...current, expired: current.status === "starting" && deps.nowS() - current.at >= 15 };
     };
+    const panelUpdates = () => {
+      if (!deps.version)
+        return updates;
+      const cached = deps.cachedUpdate?.();
+      const latest = cached?.latest ?? updates?.latest ?? null;
+      const cli = store.snapshot.console?.version ?? updates?.cli ?? null;
+      const check = { checkedAt: deps.nowS(), latest, current: deps.version };
+      return { plugin: deps.version, cli, latest, available: updateAvailable(check) || !!cli && updateAvailable({ ...check, current: cli }) };
+    };
     const panelKey = () => JSON.stringify({
+      updates: panelUpdates(),
       bootstrap: deps.bootstrap?.state,
       notifications: settings.notifications,
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
@@ -1702,7 +1934,7 @@ function createPlugin(deps) {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
-              deps.fs.writeTextAtomic(join4(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state }));
+              deps.fs.writeTextAtomic(join6(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
               renderedKey = key;
               lastRenderAt = nowS;
               userOutcome = false;
@@ -2206,10 +2438,33 @@ var http = {
     };
   }
 };
-var pluginRoot = dirname(fileURLToPath2(import.meta.url));
-var PLUGIN_VERSION = package_default.version;
+var pluginRoot = dirname(fileURLToPath3(import.meta.url));
+var PLUGIN_VERSION = (() => {
+  try {
+    const version = JSON.parse(readFileSync5(join7(pluginRoot, "orca-plugin.json"), "utf8")).version;
+    if (isVersion(version))
+      return version;
+  } catch {}
+  return package_default.version;
+})();
 var log = (message) => {};
+var workerEnv = { ...process.env };
+var pacerHome = workerEnv.PACER_HOME || join7(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
 var plugin = createPlugin({
+  version: PLUGIN_VERSION,
+  cachedUpdate: () => readUpdateCheck({ pacerHome, env: workerEnv }, PLUGIN_VERSION),
+  reportVersion(mode, version) {
+    mkdirSync3(pacerHome, { recursive: true });
+    const path = join7(pacerHome, "plugin-version.json"), temp = `${path}.${process.pid}.tmp`;
+    writeFileSync3(temp, JSON.stringify({ mode, version }));
+    renameSync3(temp, path);
+  },
+  async checkUpdates() {
+    const check = await checkForUpdate({ pacerHome, env: workerEnv, now: Date.now() / 1000 }, { force: true, current: PLUGIN_VERSION });
+    const binary = workerEnv.PACER_BIN || (existsSync3(join7(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join7(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+    const cli = await new Promise((resolve) => execFile2(binary, ["--version"], { timeout: 3000, env: workerEnv }, (error, stdout) => resolve(error ? null : stdout.trim().replace(/^pacer\s+/, ""))));
+    return { check, cli };
+  },
   bootstrap: createBootstrap({ home: process.env.HOME ?? process.env.USERPROFILE ?? "", env: process.env, version: PLUGIN_VERSION, mode: pluginMode(pluginRoot, { exists: existsSync3 }) }),
   nowS: () => Date.now() / 1000,
   timers,
@@ -2219,7 +2474,7 @@ var plugin = createPlugin({
   fs: {
     readText(path) {
       try {
-        return readFileSync3(path, "utf8");
+        return readFileSync5(path, "utf8");
       } catch {
         return null;
       }
@@ -2232,8 +2487,8 @@ var plugin = createPlugin({
       }
       const temporary = `${path}.${process.pid}.tmp`;
       try {
-        writeFileSync2(temporary, text, "utf8");
-        renameSync2(temporary, path);
+        writeFileSync3(temporary, text, "utf8");
+        renameSync3(temporary, path);
       } finally {
         try {
           unlinkSync2(temporary);
