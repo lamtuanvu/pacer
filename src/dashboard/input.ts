@@ -24,3 +24,9 @@ export function selectionAction(key:Key,card?:Card):CmdData|undefined {
 export function moveSelection(key:Key,selected:number,count:number):number {
  return key==="up"||key==="k"?Math.max(0,selected-1):key==="down"||key==="j"?Math.min(Math.max(0,count-1),selected+1):selected;
 }
+
+export const UPDATE_PROMPT = "Run pacer update? (y/n)";
+export function updateKey(key: Key, confirming = false): "confirm" | "cancel" | CmdData | undefined {
+ if(confirming) return key.toLowerCase()==="y" ? {cmd:"update"} : ["n","N","enter","escape"].includes(key) ? "cancel" : undefined;
+ return key==="c" ? {cmd:"check-updates"} : key==="u" ? "confirm" : undefined;
+}

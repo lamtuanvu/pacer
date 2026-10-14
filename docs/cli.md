@@ -96,3 +96,29 @@ The planner bar shows `#` for usage and `|` for pace. Small terminals use a
 compact view with scrolling lists. `NO_COLOR` disables highlighting; the dashboard
 uses no animated spinners, including when `PACER_NO_ANIM` is set. Exiting,
 Ctrl-C, SIGTERM and errors restore the normal screen, cursor and input mode.
+
+### Update checks
+
+`pacer update --check [--json]` checks `latest.json` and reports the current CLI,
+latest release, availability, and installed Orca plugin version and update instructions.
+It exits successfully even when offline and never installs anything. Checks time out
+after three seconds; failures are recorded in `~/.pacer/update-check.json`.
+The shared check caches results for 24 hours; explicit checks force a refresh.
+Text `pacer status` displays a cached update notice; `--line`, `--json`, and `--hook`
+never check or display update notices.
+
+Set `PACER_NO_UPDATE_CHECK=1` or add top-level `update_check: false` to the active
+strategy YAML to disable checks (including explicit checks). No telemetry is sent:
+the only release request is a GET of `latest.json`. `PACER_RELEASE_BASE`, including
+`file://` bases, works as it does for `pacer update`.
+
+The live panel's Updates card sends `check-updates` and `update` through the pacer
+console. The console also accepts these commands directly. In the dashboard, `c`
+checks immediately and `u` asks `Run pacer update? (y/n)` before updating; Escape or
+`n` cancels. After an update, turn pacer off and on in Orca Settings > Plugins.
+Marketplace plugins check on startup and every six hours, notifying once per new
+version: use Orca Settings > Plugins > Refresh, then Update plugin. Live plugins
+show the panel Update instruction. The worker also warns if the CLI is newer than
+the running plugin. These checks never install a newer release automatically;
+bootstrap installation still only installs/updates the CLI version shipped with
+that plugin.

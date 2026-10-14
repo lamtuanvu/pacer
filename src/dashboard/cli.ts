@@ -1,3 +1,4 @@
+import { readUpdateCheck, updateLine } from "../update/check";
 import { StringDecoder } from "node:string_decoder";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
@@ -14,7 +15,7 @@ import { selfHandle, resolveWorktreePath } from "../console/cli";
 import { consoleCommands, type ConsoleDeps } from "../console/console";
 import { cards } from "./model";
 import { renderDashboard } from "./render";
-import { Keys, moveSelection, selectionAction } from "./input";
+import { Keys, moveSelection, selectionAction, updateKey, UPDATE_PROMPT } from "./input";
 export const ENTER_SCREEN="\x1b[?1049h\x1b[?25l";
 export const LEAVE_SCREEN="\x1b[0m\x1b[?25h\x1b[?1049l";
 export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
@@ -22,11 +23,11 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  if(!process.stdin.isTTY||!process.stdout.isTTY)return {code:2,out:"",err:"pacer dashboard needs an interactive terminal\n"};
  let selected=0,help=false,message="",messageUntil=0,busy=false,closed=false,exitError="";
  let statusTimer:ReturnType<typeof setTimeout>|undefined;
- let prompt:null|{type:"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
+ let prompt:null|{type:"update"|"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
  let snapshot=readLatest(ctx),refreshing=false;
  let computed: typeof snapshot.budget=null;
  const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
- const draw=()=>{if(closed)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
+ const draw=()=>{if(closed)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
  const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
  const refresh=()=>{
   const c=fresh(),selectedId=cards(snapshot,c.now).flatMap(g=>g.cards)[selected]?.id; snapshot=readLatest(c);
@@ -48,6 +49,12 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   if(key==="interrupt"){quit(130);return;}
   if(prompt){
    if(key==="escape"){prompt=null;draw();return;}
+   if(prompt.type==="update") {
+    const action=updateKey(key,true);
+    if(action && typeof action!=="string"){prompt=null;await command(action);}
+    else if(action==="cancel"){prompt=null;report("Update cancelled");}
+    draw();return;
+   }
    if(key==="backspace")prompt.value=Array.from(prompt.value).slice(0,-1).join("");
    else if(key==="enter"){
     const p=prompt,value=p.value.trim();p.value="";
@@ -65,6 +72,8 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   else if(key==="d")startDelegate(process.cwd());
   else if(key==="s")chooseStrategy();
   else if(key==="r")refresh();
+  else if(key==="c")await command(updateKey(key) as import("../link/envelope").CmdData);
+  else if(updateKey(key)==="confirm")prompt={type:"update",step:0,value:"",goal:"",repo:"",names:[]};
   else {const action=selectionAction(key,card);if(action)await command(action);}
   draw();
  };
