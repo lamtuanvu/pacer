@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { realpathSafe } from "../core/git";
+import { worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
 import { pidAlive } from "../link/store";
 import { readBlocked } from "../executors/blocked";
@@ -155,8 +157,11 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
       if (out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
-        const after = await repoFingerprint(ctx, out.worktree ?? task.brief.repo);
-        const reason = brokenReason(out.exec, duration, before === null && after === null ? null : before !== null && before === after);
+        const isolated = !!out.worktree && realpathSafe(out.worktree) !== realpathSafe(task.brief.repo);
+        let unchanged: boolean | null;
+        if (isolated) unchanged = await worktreeUnchanged(ctx, out.worktree!, readTask(ctx, id)?.baseBranch);
+        else { const after = await repoFingerprint(ctx, out.worktree ?? task.brief.repo); unchanged = before === null && after === null ? null : before !== null && before === after; }
+        const reason = brokenReason(out.exec, duration, unchanged);
         if (reason) out.attempt.brokenReason = reason;
       }
       attemptedBackend = out.backend ?? attemptedBackend;

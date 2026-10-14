@@ -33,3 +33,13 @@ export async function removeTaskWorktree(ctx: Ctx, top: string, path: string, o:
   const r = await ctx.run(["git", "-C", top, "worktree", "remove", ...(o.force ? ["--force"] : []), path], 60_000);
   return r.code === 0 ? { ok: true } : { error: `git worktree remove failed: ${firstLine(r.stderr) || `exit ${r.code}`}` };
 }
+
+/** True when the task worktree has no uncommitted changes and no commits beyond base; null when git fails. */
+export async function worktreeUnchanged(ctx: Ctx, path: string, base: string | undefined): Promise<boolean | null> {
+  const dirty = await worktreeDirty(ctx, path);
+  if (dirty === null) return null;
+  if (dirty) return false;
+  if (!base) return true;
+  const c = await ctx.run(["git", "-C", path, "rev-list", "--count", `${base}..HEAD`], 15_000);
+  return c.code === 0 ? Number(c.stdout.trim()) === 0 : null;
+}
