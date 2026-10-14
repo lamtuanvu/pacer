@@ -18,7 +18,7 @@ export function isExecutorSession(ctx: Ctx, input?: unknown): boolean {
 
 export function plannerPolicyApplies(ctx: Ctx, planner: string, input?: unknown): boolean {
   if (isExecutorSession(ctx, input)) return false;
-  try { return loadStrategy(ctx).planner === planner; }
+  try { return loadStrategy(ctx).planner.agent === planner; }
   catch { return true; } // Preserve existing missing-strategy/fail-open behavior.
 }
 

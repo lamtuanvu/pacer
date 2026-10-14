@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.23] - 2026-10-14
+
+- Add accounts and runners to the strategy model, with validated agent/account pairings and a compatibility loader for existing provider strategies.
+- Add account spread/fill settings and a validated fill threshold (default 90%).
+
 ## [0.1.22] - 2026-10-14
 
 - Make `pacer init` the complete, consent-based setup flow with planner selection, agent connections and live panel guidance; `setup` is an alias.

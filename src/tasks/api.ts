@@ -81,7 +81,7 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   }
   if (input.executor && !s.providers[input.executor]) {
     p.push(`unknown executor "${input.executor}" (configured: ${Object.keys(s.providers).join(", ")})`);
-  } else if (input.executor && input.executor === s.planner) {
+  } else if (input.executor && input.executor === s.planner.agent) {
     p.push(`"${input.executor}" is the planner; pick an executor`);
   }
   if (input.timeoutMin !== undefined && !(input.timeoutMin >= 1 && input.timeoutMin <= 240)) {

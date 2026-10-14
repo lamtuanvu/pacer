@@ -37,14 +37,14 @@ test("parseSize and parseDuration", () => {
 
 test("a valid strategy normalizes defaults", () => {
   const s = validateStrategy(VALID, "/x.yaml");
-  expect(s.planner).toBe("claude-code");
+  expect(s.planner.agent).toBe("claude-code");
   expect(s.providers["claude-code"].usage).toBe("quota");
   expect(s.providers.cursor.usage).toBe("reactive");
   expect(s.providers.cursor.cooldownS).toBe(21600);
   expect(s.providers.codex.allowPaid).toBe(false);
   expect(s.providers["opencode-go"].weeklyTokens).toBe(20_000_000);
   expect(s.providers.byteplus.quotaSource).toBe("arkcli");
-  expect(s.pacing).toEqual({ policy: "even", order: ["codex", "cursor", "opencode"], plannerReserve: 15, aheadThreshold: 10, behindThreshold: -10 });
+  expect(s.pacing).toEqual({ policy: "even", order: ["codex", "cursor", "opencode"], plannerReserve: 15, aheadThreshold: 10, behindThreshold: -10, accounts: "spread", fillThreshold: 90 });
   expect(s.routing).toEqual([
     { kinds: ["tests", "docs"], executors: ["byteplus", "local"] },
     { kinds: null, executors: ["byteplus", "codex"] },
@@ -91,7 +91,7 @@ test("loadStrategy reads ~/.pacer/strategy.yaml; YAML errors become StrategyErro
   expect(() => loadStrategy(ctx)).toThrow(MissingStrategyError);
   mkdirSync(ctx.pacerHome, { recursive: true });
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: codex\nproviders:\n  codex: {}\n");
-  expect(loadStrategy(ctx).planner).toBe("codex");
+  expect(loadStrategy(ctx).planner.agent).toBe("codex");
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: [unclosed\n");
   expect(() => loadStrategy(ctx)).toThrow(StrategyError);
 });
@@ -106,10 +106,10 @@ test("useStrategy validates, switches the active strategy, and 'default' switche
   useStrategy(ctx, "offline");
   expect(readFileSync(join(ctx.pacerHome, "active"), "utf8").trim()).toBe("offline");
   expect(strategyPath(ctx)).toBe(join(ctx.pacerHome, "strategies", "offline.yaml"));
-  expect(loadStrategy(ctx)).toMatchObject({ name: "offline", planner: "opencode" });
+  expect(loadStrategy(ctx)).toMatchObject({ name: "offline", planner: { agent: "opencode", account: "opencode" } });
   useStrategy(ctx, "default");
   expect(existsSync(join(ctx.pacerHome, "active"))).toBe(false);
-  expect(loadStrategy(ctx).planner).toBe("codex");
+  expect(loadStrategy(ctx).planner.agent).toBe("codex");
 });
 
 test("examples/strategy.yaml is valid", async () => {

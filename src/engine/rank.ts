@@ -64,7 +64,7 @@ export function rankExecutors(
   [...new Set(executorsFor(kind, s))].forEach((id, order) => {
     const st = statuses[id];
     const cfg = s.providers[id];
-    if (id === s.planner) return excluded.push({ id, reason: "planner" });
+    if (id === s.planner.agent) return excluded.push({ id, reason: "planner" });
     if (!st || !cfg) return excluded.push({ id, reason: "not configured" });
     if (st.blockedReason) return excluded.push({id,reason:"Blocked by you"});
     if (st.brokenReason) return excluded.push({ id, reason: `Not working · ${st.brokenReason}` });

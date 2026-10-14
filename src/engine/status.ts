@@ -46,7 +46,7 @@ export async function computeStatus(
     const th = {
       ahead: s.pacing.aheadThreshold,
       behind: s.pacing.behindThreshold,
-      paceScale: cfg.id === s.planner ? 1 - s.pacing.plannerReserve / 100 : 1,
+      paceScale: cfg.id === s.planner.agent ? 1 - s.pacing.plannerReserve / 100 : 1,
     };
     const windows = reading.windows.map((w) => evaluateWindow(w, ctx.now, profile, th));
     const binding = bindingWindow(windows);
@@ -61,11 +61,11 @@ export async function computeStatus(
     };
   }));
   const byId = Object.fromEntries(providers.map((p) => [p.id, p]));
-  const planner = byId[s.planner];
+  const planner = byId[s.planner.agent];
   return {
     generatedAt: ctx.now,
     strategy: s.name,
-    planner: s.planner,
+    planner: s.planner.agent,
     mode: planner ? plannerMode(planner.verdict) : "normal",
     disabled: (ctx.env.PACER ?? "").toLowerCase() === "off",
     calendarPace: isCalendar(profile),
