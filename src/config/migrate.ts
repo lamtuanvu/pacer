@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { isMap, isScalar, Pair, parseDocument, type Node, YAMLMap } from "yaml";
+import { isMap, isScalar, Pair, parseDocument, type Node, YAMLMap, Document } from "yaml";
 import { isObj } from "../util";
 import { atomicStrategyWrite, StrategyDoc } from "./edit";
 import { validateStrategy } from "./strategy";
@@ -46,10 +46,27 @@ export function migrateStrategy(path: string): MigrationResult {
   doc.setIn(["planner"], strategy.planner);
   // Retain the legacy default order, including its OpenCode group shorthand.
   if (!isObj(raw) || !isObj(raw.pacing) || raw.pacing.order === undefined) doc.setList(["pacing", "order"], strategy.pacing.order);
-  // Insert runners as a block mapping, rather than rewriting the document.
-  doc.setIn(["runners"], {});
-  doc.replaceNode(["runners"], runners);
-  const after = doc.toString(); validateStrategy(Bun.YAML.parse(after), path);
+  // Insert directly after accounts, keeping the subsequent pacing/routing bytes.
+  let after = doc.toString();
+  const updated = parseDocument(after);
+  const accountNode = updated.get("accounts", true) as Node;
+  const root = updated.contents;
+  const runnerDoc = new Document();
+  const section = new YAMLMap(runnerDoc.schema);
+  section.set("runners", runners);
+  runnerDoc.contents = section;
+  if (isMap(root) && root.flow) {
+    section.flow = true; runners.flow = true;
+    const value = runnerDoc.toString({ lineWidth: 0 }).trim().slice(1, -1).trim();
+    const at = accountNode.range![1];
+    after = after.slice(0, at) + `, ${value}` + after.slice(at);
+  } else {
+    const at = accountNode.range![2];
+    const value = runnerDoc.toString({ lineWidth: 0 });
+    after = after.slice(0, at) + (after[at - 1] === "\n" ? "" : "\n") + value + after.slice(at);
+  }
+  after = after.replace(/[ \t]+(?=\r?$)/gm, "");
+  validateStrategy(Bun.YAML.parse(after), path);
   const backup = `${path}.pre-accounts.bak`;
   if (existsSync(backup)) {
     if (readFileSync(backup, "utf8") !== before) throw Error(`migration backup already exists: ${backup}; preserve or move it before retrying`);

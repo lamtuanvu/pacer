@@ -1,0 +1,40 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`starter route JSON retains its pre-accounts output, including after migration 1`] = `
+{
+  "excluded": [],
+  "kind": null,
+  "ranked": [
+    {
+      "id": "cursor",
+      "reason": "ok, used 0%",
+      "score": 5,
+      "verdict": "OK",
+    },
+    {
+      "id": "codex",
+      "reason": "unknown",
+      "score": 4,
+      "verdict": "UNKNOWN",
+    },
+    {
+      "id": "agy",
+      "reason": "ok, used 0%",
+      "score": 3,
+      "verdict": "OK",
+    },
+    {
+      "id": "local",
+      "reason": "ok",
+      "score": 2,
+      "verdict": "OK",
+    },
+    {
+      "id": "byteplus",
+      "reason": "unknown",
+      "score": 1,
+      "verdict": "UNKNOWN",
+    },
+  ],
+}
+`;

@@ -47,7 +47,7 @@ test("executorsFor uses the kind rule, then default", () => {
 test("planner is never its own executor", () => {
   const r = rankExecutors("tests", strategy(), statuses());
   expect(r.ranked.map((e) => e.id)).not.toContain("claude-code");
-  expect(r.excluded).toContainEqual({ id: "claude-code", reason: "planner" });
+  expect(r.excluded).toContainEqual({ id: "claude-code", account: "claude-code", reason: "planner" });
 });
 
 test("even: furthest behind pace first; EXPIRING gets a boost", () => {
@@ -62,8 +62,8 @@ test("exhausted, not installed and paid-overflow rules exclude with reasons", ()
   s.codex = st("codex", "EXHAUSTED", { used: 100, pace: 30 });
   s.cursor = { ...st("cursor", "OK"), installed: false };
   const r = rankExecutors(null, strategy(), s);
-  expect(r.excluded).toContainEqual({ id: "codex", reason: "exhausted" });
-  expect(r.excluded).toContainEqual({ id: "cursor", reason: "not installed" });
+  expect(r.excluded).toContainEqual({ id: "codex", account: "codex", reason: "exhausted" });
+  expect(r.excluded).toContainEqual({ id: "cursor", account: "cursor", reason: "not installed" });
   const paid = rankExecutors(null, strategy("even", { codex: { allow_paid: true } }), s);
   expect(paid.ranked.map((e) => e.id)).toContain("codex");
 });
@@ -106,7 +106,7 @@ const priorityStatuses = (): Record<string, ProviderStatus> => Object.fromEntrie
 test("priority: normal candidates follow executor preferences and exclude the planner", () => {
   const r = rankExecutors(null, priorityStrategy(), priorityStatuses());
   expect(r.ranked.map((e) => e.id)).toEqual(["codex", "cursor", "agy", "byteplus", "local"]);
-  expect(r.excluded).toContainEqual({ id: "claude-code", reason: "planner" });
+  expect(r.excluded).toContainEqual({ id: "claude-code", account: "claude-code", reason: "planner" });
 });
 
 test("priority: exhausted providers are excluded", () => {
@@ -114,7 +114,7 @@ test("priority: exhausted providers are excluded", () => {
   statuses.codex = st("codex", "EXHAUSTED");
   const r = rankExecutors(null, priorityStrategy(), statuses);
   expect(r.ranked.map((e) => e.id)).toEqual(["cursor", "agy", "byteplus", "local"]);
-  expect(r.excluded).toContainEqual({ id: "codex", reason: "exhausted" });
+  expect(r.excluded).toContainEqual({ id: "codex", account: "codex", reason: "exhausted" });
 });
 
 test("priority: EXPIRING goes first", () => {
@@ -179,13 +179,13 @@ test("priority: installation, configuration and paid-overflow exclusions are pre
   const s = priorityStrategy();
   const statuses = priorityStatuses();
   statuses.codex = st("codex", "EXHAUSTED");
-  s.providers.codex.allowPaid = true;
+  s.accounts.codex.allowPaid = true;
   statuses.cursor.installed = false;
   delete statuses.agy;
   s.routing[0].executors.push("missing");
   const r = rankExecutors(null, s, statuses);
   expect(r.ranked.map((e) => e.id)).toEqual(["codex", "byteplus", "local"]);
-  expect(r.excluded).toContainEqual({ id: "cursor", reason: "not installed" });
-  expect(r.excluded).toContainEqual({ id: "agy", reason: "not configured" });
+  expect(r.excluded).toContainEqual({ id: "cursor", account: "cursor", reason: "not installed" });
+  expect(r.excluded).toContainEqual({ id: "agy", account: "agy", reason: "not configured" });
   expect(r.excluded).toContainEqual({ id: "missing", reason: "not configured" });
 });
