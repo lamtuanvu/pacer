@@ -272,3 +272,19 @@ test("focus missing and stale worker terminals report friendly panel errors",asy
  await h.run([encodeCmdLine({cmd:"focus",taskId:"task_a"})]);
  expect(h.output()).toContain(terminal?"Could not open":"no longer has");expect(readLatest(h.ctx).alerts.find(a=>a.key==="focus-task_a")?.level).toBe("warn");}
 });
+
+test("human and panel update commands share handlers and show the toggle hint only on success",async()=>{
+ const calls:string[]=[];
+ const h=harness({checkUpdates:async()=>{calls.push("check");return {code:0,out:"Current: 1.0.0",err:""};},update:async()=>{calls.push("update");return {code:0,out:"updated",err:""};}});
+ await h.run(["check-updates",encodeCmdLine({cmd:"check-updates"}),"update",encodeCmdLine({cmd:"update"})]);
+ expect(calls).toEqual(["check","check","update","update"]);expect(h.output()).toContain("Turn pacer off and on in Orca Settings > Plugins.");
+ const failed=harness({update:async()=>({code:1,out:"",err:"offline"})});await failed.run(["update"]);expect(failed.output()).toContain("offline");expect(failed.output()).not.toContain("Turn pacer off");
+});
+
+test("update refreshes an older live plugin even when the CLI is already current",async()=>{
+ const {mkdirSync,writeFileSync,readFileSync}=await import("node:fs");const {join}=await import("node:path");
+ const h=harness({update:async()=>({code:0,out:`pacer ${currentVersion()} is up to date`,err:""})});
+ const marker=join(h.ctx.pacerHome,"orca-plugin/.pacer-managed");mkdirSync(join(h.ctx.pacerHome,"orca-plugin"),{recursive:true});writeFileSync(marker,JSON.stringify({version:"0.0.1"}));
+ await h.run(["update"]);
+ expect(JSON.parse(readFileSync(marker,"utf8")).version).toBe(currentVersion());expect(h.output()).toContain("Turn pacer off and on");
+});

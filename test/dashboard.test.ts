@@ -30,3 +30,12 @@ test("terminal keys support split arrows, escape, control-C, paste and navigatio
 test("dashboard command is advertised and rejects invalid args without touching state",async()=>{
  expect((await main(["help"],fakeCtx())).out).toContain("dashboard");expect(await main(["dashboard","--bad"],fakeCtx())).toEqual({code:2,out:"",err:"usage: pacer dashboard\n"});
 });
+
+test("dashboard update keys require explicit confirmation and header/help show updates",async()=>{
+ const {updateKey,UPDATE_PROMPT}=await import("../src/dashboard/input");
+ expect(updateKey("c")).toEqual({cmd:"check-updates"});expect(updateKey("u")).toBe("confirm");
+ expect(UPDATE_PROMPT).toContain("(y/n)");expect(updateKey("y",true)).toEqual({cmd:"update"});
+ for(const key of ["n","escape","enter"])expect(updateKey(key,true)).toBe("cancel");expect(updateKey("u",true)).toBeUndefined();
+ const output=renderDashboard(snapshot(),120,20,1005,{selected:0,help:true,updateLine:"Update available: pacer 1.2.0"});
+ expect(output).toContain("Update available: pacer 1.2.0");expect(output).toContain("c: check updates");expect(output).toContain("u: update");
+});

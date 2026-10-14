@@ -1,3 +1,5 @@
+import { notifyUpdates, UPDATE_INTERVAL_MS, type PluginUpdates } from "./updates";
+import { updateAvailable, type UpdateCheck } from "../../src/update/check";
 import { pluginMode } from "./mode";
 import type { Bootstrap } from "./bootstrap";
 import { join } from "node:path";
@@ -14,6 +16,10 @@ import { notifyNewAlerts, deliverNotification } from "./notify";
 import { renderPanel, type AutoConsoleOutcome } from "./panel";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
+  version?: string;
+  cachedUpdate?(): UpdateCheck | null;
+  checkUpdates?(): Promise<{check: UpdateCheck | null; cli: string | null}>;
+  reportVersion?(mode: "live" | "bootstrap", version: string): void;
   bootstrap?: Bootstrap;
   nowS(): number;
   timers: Timers;
@@ -34,6 +40,21 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
   };
   async function activate(ctx: OrcaWorkerContext): Promise<void> {
     stopped = false;
+    const mode = pluginMode(deps.pluginRoot, deps.fs);
+    let updates: PluginUpdates | undefined;
+    let updateBusy = false;
+    const runUpdateCheck = async () => {
+      if (stopped || updateBusy || !deps.checkUpdates || !deps.version) return;
+      updateBusy = true;
+      try {
+        try { deps.reportVersion?.(mode, deps.version); } catch (e) { ctx.log(`pacer plugin version: ${String(e)}`); }
+        const {check, cli} = await deps.checkUpdates();
+        if (!stopped) updates = await notifyUpdates(ctx.host, mode, deps.version, check, cli);
+      } catch (e) { ctx.log(`pacer update check: ${String(e)}`); }
+      finally { updateBusy = false; }
+    };
+    void runUpdateCheck();
+    timers.every(UPDATE_INTERVAL_MS, () => { void runUpdateCheck(); });
     if (pluginMode(deps.pluginRoot, deps.fs) === "bootstrap") {
       const logError = (e: unknown) => ctx.log(`pacer bootstrap: ${e instanceof Error ? e.message : String(e)}`);
       if (deps.bootstrap) {
@@ -88,8 +109,16 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       const current = panelOutcome();
       return { ...current, expired: current.status === "starting" && deps.nowS()-current.at >= 15 };
     };
+    const panelUpdates = (): PluginUpdates | undefined => {
+      if (!deps.version) return updates;
+      const cached = deps.cachedUpdate?.();
+      const latest = cached?.latest ?? updates?.latest ?? null;
+      const cli = store.snapshot.console?.version ?? updates?.cli ?? null;
+      const check = { checkedAt: deps.nowS(), latest, current: deps.version };
+      return { plugin: deps.version, cli, latest, available: updateAvailable(check) || (!!cli && updateAvailable({...check,current:cli})) };
+    };
     const panelKey = () => JSON.stringify({
-      bootstrap: deps.bootstrap?.state, notifications:settings.notifications,
+      updates: panelUpdates(), bootstrap: deps.bootstrap?.state, notifications:settings.notifications,
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       serviceInstalled: store.snapshot.serviceInstalled, reconnecting: reconnecting(), tasks: store.snapshot.tasks.map(({updatedAt,...task})=>task), alerts: store.snapshot.alerts,
@@ -108,7 +137,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
               renderedKey = key; lastRenderAt=nowS; userOutcome=false;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
