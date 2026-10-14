@@ -3,10 +3,11 @@ import {
   type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
-import { listTasks } from "../tasks/store";
+import { listTasks, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
+import { withLock } from "./lock";
 
 export const WAIT_MIN_S = 1;
 export const WAIT_MAX_S = 3000;
@@ -63,4 +64,32 @@ export function dismiss(ctx: Ctx, ids: string[]): { dismissed: TaskRecord[]; unk
     if (t) dismissed.push(t); else missing.push(id);
   }
   return { dismissed, unknown: missing };
+}
+
+/** Re-delegates a task's stored brief. One active retry per task: a second call gets `conflict`. */
+export async function retry(
+  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean } = {},
+  deps: { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord } = {},
+): Promise<{ retry: TaskRecord; of: TaskRecord }> {
+  return withLock(ctx, `retry-${id}`, async () => {
+    const task = readTask(ctx, id);
+    if (!task) throw unknown(id);
+    const prior = task.retriedBy ? readTask(ctx, task.retriedBy) : null;
+    if (prior && ["queued", "running"].includes(prior.state)) {
+      throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
+    }
+    const input: DelegateInput = {
+      brief: { ...task.brief }, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      ...(o.executor ? { executor: o.executor } : {}),
+    };
+    let next: TaskRecord;
+    try {
+      next = (deps.delegate ?? ((c, i) => apiDelegate(c, i)))(ctx, input);
+    } catch (e) {
+      throw toCoreError(e);
+    }
+    if (readTask(ctx, next.id)) updateTask(ctx, next.id, (t) => { t.retryOf = task.id; if (o.fromPanel) t.fromPanel = true; });
+    const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; });
+    return { retry: readTask(ctx, next.id) ?? next, of };
+  });
 }

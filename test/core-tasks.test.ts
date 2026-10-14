@@ -54,3 +54,33 @@ test("dismiss reports unknown ids and still dismisses known ones", () => {
   expect(r.unknown).toEqual(["missing-1", "missing-2"]);
   expect(readTask(ctx, t.id)?.dismissed).toBe(true);
 });
+
+test("retry re-delegates the stored brief, links both tasks, and passes the executor", async () => {
+  const { ctx, t } = mk();
+  const inputs: unknown[] = [];
+  const r = await tasks.retry(ctx, t.id, { executor: "codex" }, { delegate: (c, input) => { inputs.push(input); return tasks.delegate(c, input, () => 1, s); } });
+  expect(inputs[0]).toMatchObject({ brief: t.brief, kind: t.kind, timeoutMin: t.timeoutS / 60, retryOf: t.id, executor: "codex" });
+  expect(readTask(ctx, t.id)?.retriedBy).toBe(r.retry.id);
+  expect(readTask(ctx, r.retry.id)?.retryOf).toBe(t.id);
+});
+
+test("retry without executor lets routing choose", async () => {
+  const { ctx, t } = mk();
+  const inputs: Parameters<typeof tasks.delegate>[1][] = [];
+  await tasks.retry(ctx, t.id, {}, { delegate: (c, input) => { inputs.push(input); return tasks.delegate(c, input, () => 1, s); } });
+  expect(inputs[0].executor).toBeUndefined();
+});
+
+test("concurrent retries create exactly one retry", async () => {
+  const { ctx, t } = mk();
+  let created = 0;
+  const d = (c: typeof ctx, input: Parameters<typeof tasks.delegate>[1]) => { created++; return tasks.delegate(c, input, () => 1, s); };
+  const results = await Promise.allSettled([tasks.retry(ctx, t.id, {}, { delegate: d }), tasks.retry(ctx, t.id, {}, { delegate: d })]);
+  expect(created).toBe(1);
+  expect(results.filter((r) => r.status === "rejected").map((r) => (r as PromiseRejectedResult).reason.code)).toEqual(["conflict"]);
+});
+
+test("retry of an unknown task is unknown_task", async () => {
+  const ctx = fakeCtx();
+  await expect(tasks.retry(ctx, "missing")).rejects.toMatchObject({ code: "unknown_task" });
+});
