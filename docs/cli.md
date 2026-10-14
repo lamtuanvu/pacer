@@ -49,6 +49,14 @@ Use `pacer report-limit <provider>` to record a quota limit, and
 `pacer dismiss <id...>` to hide cards. Unknown ids are reported and the command
 exits 2; known ids are still dismissed.
 
+`pacer limits check [--json]` shows where each account's usage comes from,
+when it was captured, its age and freshness, and its verdict and usage window.
+Text output lists one line per account, with `no data` and `never` for missing
+readings and a `stale` marker for old readings. An indented second line shows
+an error or a hint when available. JSON returns an array with `account`, `kind`,
+`source`, `capturedAt`, `ageS`, `stale`, `verdict`, `usedPct`, `window`, `resetsAt`,
+`runners`, `error` and `hint`. A successful check exits 0.
+
 `pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees of
 terminal tasks that have been reviewed, dismissed or resolved. Only tasks run
 in a new worktree under pacer's worktrees directory are eligible. Dirty worktrees
@@ -63,6 +71,7 @@ JSON contracts:
 | --- | --- |
 | status | generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors |
 | route | kind, ranked, excluded |
+| limits check | Array of per-account usage, source, capture time, freshness, runners, error and hint rows |
 | delegate | id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields |
 | tasks id, wait, stop, retry | task_id, state, kind, requested_executor, placement, attempts, result, review, resolved |
 | tasks | Array of task summaries |

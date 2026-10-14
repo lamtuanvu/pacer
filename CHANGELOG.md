@@ -6,11 +6,15 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- `pacer limits check [--json]` shows each account's usage source, capture time, age, freshness and guidance.
 - `pacer retry <task-id> [--executor <id>] [--json]` re-delegates a task's stored brief, refusing an already queued or running retry.
 - `pacer clean [--dry-run] [--force] [--json]` removes settled, reviewed, dismissed or resolved tasks' pacer-owned worktrees and run directories; dirty worktrees require `--force`, and branches stay.
 
 ### Changed
 
+- Stale usage no longer decides routing verdicts: accounts with only stale readings show their last numbers marked stale with verdict `UNKNOWN`.
+- Orca's `account list` is never read for usage. Orca-linked Claude and Codex accounts read their own data (Claude status-line caches or reactive limits, Codex session logs in the account folder); Cursor, Antigravity and endpoint accounts no longer try Orca first. Explicit `usage_source: orca` remains accepted but is ignored with a status warning.
+- `pacer report-limit <runner>` exhausts the runner's whole account, including every runner sharing it.
 - `pacer dismiss` reports unknown ids and exits 2 while still dismissing known ids.
 - `execution.backend: auto` uses pacer's own supervisor through the direct backend; Orca is opt-in with `execution.backend: orca`.
 - Direct execution honors new placement with a pacer-owned worktree; task reports begin `ran in new worktree <path> (<why>)`.

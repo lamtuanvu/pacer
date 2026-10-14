@@ -50,3 +50,18 @@ test("report-limit marks the runner's account", () => {
     expect(readMarks(ctx)).toEqual({ local: ctx.now + 60 });
   }
 });
+
+test("limits check reports source, age, staleness and a hint per account", async () => {
+  const ctx = fakeCtx({ now: 2_000_000 });
+  const st = validateStrategy({ accounts: { claude: { kind: "claude" }, team: { kind: "codex" } }, planner: "claude-code", routing: [{ default: ["codex#team"] }] }, "test");
+  const rows = await limits.check(ctx, st);
+  expect(rows.map((r) => r.account).sort()).toEqual(Object.keys(st.accounts).sort());
+  expect(rows.find((r) => r.account === "claude")).toMatchObject({
+    kind: "claude", source: null, capturedAt: null, ageS: null, stale: false,
+    hint: "start a Claude Code session with pacer's status line, or rely on limit errors",
+  });
+  expect(rows.find((r) => r.account === "team")).toMatchObject({
+    kind: "codex", source: null, capturedAt: null, ageS: null, stale: false,
+    hint: "run codex once with this account so it writes session logs",
+  });
+});
