@@ -6,6 +6,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [0.1.24] - 2026-10-14
 
+- Add live panel Settings with planner, accounts, runners, executor controls, pacing, strategies, updates and plugin preferences; retain values without a console, confirm removals on a second click, and refresh changed settings without flashing unchanged panels. Show selected choices as segmented controls, explain unavailable actions and pacing policies, and hide the fill threshold in spread mode.
+- Reject malformed account names and runner ids before console removal commands reach shared writers.
+
 - Add validated console settings commands for planner and pacing changes, account and runner removal, and fixed terminal actions in the focused worktree.
 - Collect account and runner add arguments in the terminal while keeping the shared CLI write path.
 

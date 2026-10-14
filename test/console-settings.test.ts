@@ -2,7 +2,7 @@ import {expect,test} from 'bun:test';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {fakeCtx} from './helpers';
-import {runConsole,type ConsoleDeps} from '../src/console/console';
+import {runConsole,consoleCommands,type ConsoleDeps} from '../src/console/console';
 import {parseCmd,type CmdData} from '../src/link/envelope';
 import {loadStrategy} from '../src/config/strategy';
 
@@ -14,7 +14,7 @@ function harness() {
  ctx.run=async argv=>{calls.push(argv);return {code:0,stderr:'',stdout:JSON.stringify({ok:true,result:{terminal:{handle:'term_settings'}}})};};
  const deps:ConsoleDeps={delegate:()=>{throw Error('unexpected');},useStrategy:()=>'',listStrategies:()=>[],statusText:async()=>'',pump:async()=>[],heartbeat:()=>{},resolveWorktreePath:async()=>'/focused',selfHandle:async()=>({handle:null,paneKey:null}),every:()=>()=>{},pid:1,cwd:'/worker'};
  const run=async(data:Record<string,unknown>)=>{async function* lines(){yield `: pacer '${JSON.stringify({v:1,type:'cmd',data})}'`;}await runConsole(ctx,{lines:lines(),write:s=>{output+=s;}},deps);};
- return {ctx,path,calls,run,output:()=>output};
+ return {ctx,path,calls,run,deps,output:()=>output};
 }
 for(const [key,value,want] of [['pacing.policy','even','even'],['pacing.accounts','fill','fill'],['pacing.fill_threshold','95',95],['pacing.planner_reserve','25',25],['pacing.order','codex,claude-code',['codex','claude-code']],['update_check','false',false]] as const) test(`console writes ${key} through validated config`,async()=>{
  const h=harness();await h.run({cmd:'config-set',key,value});
@@ -48,3 +48,5 @@ test('fixed Orca link command prompts for label-safe identity and writes the lin
 test('interactive endpoint add collects usage settings for the shared validator',async()=>{const {accountCmd}=await import('../src/commands/accounts');const h=harness(),answers=['endpoint','metered-api','metered','1M'];const r=await accountCmd(['add'],h.ctx,{prompt:async()=>answers.shift()!});expect(r.code).toBe(0);expect(loadStrategy(h.ctx).accounts['metered-api'].weeklyTokens).toBe(1_000_000);});
 
 test('command-only terminal actions resolve Orca focus rather than the worker directory',async()=>{const h=harness();h.ctx.run=async argv=>{h.calls.push(argv);return {code:0,stderr:'',stdout:JSON.stringify({ok:true,result:argv[1]==='worktree'?{worktree:{id:'repo::/focused'}}:{terminal:{handle:'term_settings'}}})};};await h.run({cmd:'open-terminal',command:'init'});expect(h.calls).toEqual([['orca','worktree','show','--worktree','active','--json'],['orca','terminal','create','--worktree','id:repo::/focused','--title','pacer settings','--command','pacer init','--json']]);expect(h.output()).toContain('term_settings');});
+
+for(const cmd of ['account-remove','runner-remove'] as const)for(const name of ['--help','-x','foo bar','foo#-bar'])test(`direct console ${cmd} rejects malformed name ${name}`,async()=>{const h=harness(),messages:string[]=[],before=readFileSync(h.path,'utf8');let refreshed=false;await consoleCommands(h.ctx,h.deps,s=>messages.push(s),{startDelegate(){},chooseStrategy(){},use:async()=>{},refresh:async()=>{refreshed=true;}})({cmd,name});expect(messages.join(' ')).toContain('invalid');expect(refreshed).toBe(false);expect(readFileSync(h.path,'utf8')).toBe(before);});

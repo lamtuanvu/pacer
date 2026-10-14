@@ -19,6 +19,7 @@ import type { DelegateInput } from "../tasks/api";
 import type { TaskRecord } from "../tasks/types";
 import { decodeCmdLine, splitCmdLines, summaryLine, type CmdData, type ConsoleData, type Envelope } from "../link/envelope";
 import { currentSnapshot } from "../link/store";
+import { parseRunnerId } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { taskStop } from "../tasks/api";
 import { readTask, updateTask, isTaskId, listTasks } from "../tasks/store";
@@ -69,8 +70,9 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
       }
       case "account-remove":
       case "runner-remove": {
-        if(!data.name) {print("pacer: name is required");break;}
-        const result=await (data.cmd==="account-remove"?accountCmd:runnerCmd)(["rm",data.name],fresh());
+        const validName=typeof data.name==="string" && data.name.length<=128 && (data.cmd==="account-remove" ? /^[a-z0-9][a-z0-9-]*$/.test(data.name) : !!parseRunnerId(data.name));
+        if(!validName) {print("pacer: invalid account name or runner id");break;}
+        const result=await (data.cmd==="account-remove"?accountCmd:runnerCmd)(["rm",data.name!],fresh());
         print(result.out || result.err);await refresh();break;
       }
       case "open-terminal": {
