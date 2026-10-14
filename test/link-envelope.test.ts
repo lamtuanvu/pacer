@@ -64,3 +64,10 @@ for(const level of ["off","important","all"] as const) test(`notify-level valida
 for(const level of [undefined,null,"", "ALL", "off; touch /tmp/x", 1,{},["all"]]) test(`notify-level rejects ${JSON.stringify(level)}`,()=>{
  expect(parseCmd({v:1,type:"cmd",data:{cmd:"notify-level",level}})).toBeNull();
 });
+
+test("task progress round-trips and is validated", () => {
+  const data = { id: "t-1", state: "running", goal: "g", executor: "codex", backend: "direct", worktree: null, updatedAt: 1,
+    progress: { phase: "working", lastOutputAt: 5, files: 2, commits: 1, logBytes: 300 } };
+  expect(parseEnvelope({ v: 1, type: "task", data })).toMatchObject({ data: { progress: data.progress } });
+  expect(parseEnvelope({ v: 1, type: "task", data: { ...data, progress: { phase: 3 } } })?.data).not.toHaveProperty("progress");
+});
