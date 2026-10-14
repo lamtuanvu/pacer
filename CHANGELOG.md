@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-10-14
+
+### Fixed
+
+- Marketplace installs open the pacer terminal again. 0.1.19 looked for an Orca session id that the plugin worker never has, so the dashboard never opened; it now keys on the Orca app process.
+
+### Changed
+
+- The marketplace setup panel always lists the manual setup commands (install script, `pacer setup`, `pacer dashboard`) under "Setup not finishing?", and opens them after two minutes. Failure notifications point there.
+- If Orca can't open the pacer terminal, the plugin now says pacer is running and how to open the dashboard, instead of reporting that pacer couldn't start.
+
 ## [0.1.19] - 2026-10-13
 
 ### Added
