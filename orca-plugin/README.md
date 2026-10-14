@@ -6,28 +6,31 @@ This dependency-free plugin targets Orca >=1.4.224 and pluginApi 1. Build it wit
 `bun run plugin:build`; the committed `dist/` worker runs in Electron's Node,
 without Bun at runtime. The generated assets are consumed by `pacer plugin install`.
 
-The marketplace plugin bootstraps pacer. It prepares the development folder and sends a ready notification.
+The marketplace plugin bootstraps pacer. It opens a live terminal dashboard and prepares the optional development folder.
 In Orca Settings > Plugins, add marketplace source URL
 `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer**
 (`lamtuanvu.pacer`) and grant its declared capabilities. For a direct versioned
-install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.18`, replacing
+install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.19`, replacing
 the version with the release you want. Releases publish a root-level bundle on
 the `orca-plugin` branch, with immutable `orca-plugin-v<version>` tags.
 
-The worker runs `pacer plugin install` once per plugin version. When the ready
-notification appears, in Orca Settings > Plugins:
+The worker installs and starts pacer, then opens one **pacer** terminal running
+`pacer dashboard` in the active worktree. Notifications show **Installing
+pacer…**, then **pacer is running in the pacer terminal tab.** It reserves the
+launch durably using the Orca session ID, so worker restarts and closing the tab
+do not create duplicates. Closed it? Run `pacer dashboard` in any terminal.
 
-1. Uninstall the marketplace pacer.
-2. Under **Development**, add the absolute folder shown in the notification
-   (normally `~/.pacer/orca-plugin`).
-3. Enable pacer.
+The static marketplace panel shows an installation spinner and elapsed timer.
+After two minutes it suggests checking `~/.local/bin/pacer --version` if no
+notification appeared. It makes no host calls and never rewrites the verified
+marketplace folder.
 
-Orca only refreshes plugin panels added as a development folder, so the live
-budget panel runs from there. Marketplace content is integrity checked and must
-never be rewritten: [Orca #26951](https://github.com/stablyai/orca/issues/26951).
-pacer never edits Orca settings to perform the handoff. The marketplace panel
-stays static; the worker sends persisted progress notifications and prepares
-`~/.pacer/orca-plugin` itself. Bootstrap mode does not create terminals or consoles.
+The worker also runs `pacer plugin install` once per plugin version in the
+background. Prefer the sidebar panel? In Orca Settings > Plugins, uninstall the
+marketplace pacer, add `~/.pacer/orca-plugin` under **Development**, then enable
+pacer. This optional copy reloads live; marketplace panels stay static:
+[Orca #26951](https://github.com/stablyai/orca/issues/26951).
+pacer never edits Orca settings to perform this switch.
 
 The development folder has a JSON `.pacer-managed` marker (`version`,
 `installedAt`). Without it the worker stays in bootstrap mode and never mutates
@@ -93,15 +96,6 @@ Manual fallback: run `pacer console --open` to enable Delegate and Switch strate
 use only the console's advertised terminal handle while its heartbeat is at
 most 30 seconds old. Their `: pacer '<json>'` lines are inert in a POSIX shell.
 Open console reports whether a console is running; it does not spawn a process.
-
-## Updating
-
-For marketplace installs, open **Settings > Plugins > Refresh**, then choose
-**Update plugin** on pacer. Orca does not refresh marketplace sources or update
-plugins automatically; **Update plugin** appears after Refresh finds a newer version.
-
-For development-folder installs, `pacer update` refreshes the managed plugin
-folder. Turn pacer off and on in **Orca Settings > Plugins** to load it.
 
 ## Known limitations (Orca pluginApi 1, verified on Orca 1.4.224)
 

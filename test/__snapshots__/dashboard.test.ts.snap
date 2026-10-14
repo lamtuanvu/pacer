@@ -1,0 +1,39 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`dashboard fixed-size rendering 1`] = `
+"◆ pacer · normal · default
+Live · 00:16:40
+Planner claude-code: 25% [######------|-----------]
+Who runs next
+> codex: Available · 25% used
+Unavailable executors
+  (none)
+Needs attention
+  (none)
+Running tasks
+  (none)
+Recently done
+  (none)
+
+
+
+
+
+
+↑/↓/j/k select · Enter action · d x b s r ? q"
+`;
+
+exports[`dashboard fixed-size rendering 2`] = `
+"◆ pacer · normal · default
+Live · 00:16:40
+Planner claude-code: 25% [###---|-----]
+Who runs next
+> codex: Available · 25% used
+Unavailable executors
+  (none)
+Needs attention
+  (none)
+Running tasks
+
+j/k Enter d x b s r ? q"
+`;

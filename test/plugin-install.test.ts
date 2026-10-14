@@ -1,3 +1,4 @@
+import pkg from "../package.json";
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -132,7 +133,7 @@ test("legacy plugin status detects the old identity and install migrates the tra
   expect(result.code).toBe(0);
   expect(result.out).toContain("migrated the previous plugin identity");
   expect(JSON.parse(readFileSync(join(root, "orca-plugin.json"), "utf8")).publisher).toBe("lamtuanvu");
-  expect(JSON.parse(readFileSync(join(root, ".pacer-managed"), "utf8")).version).toBe("0.1.18");
+  expect(JSON.parse(readFileSync(join(root, ".pacer-managed"), "utf8")).version).toBe(pkg.version);
   expect(JSON.parse(readFileSync(join(data, "storage.json"), "utf8"))).toEqual({ other: "keep" });
   expect((await pluginCli(["status"], ctx)).out).not.toContain("legacy plugin installed");
   expect((await pluginCli(["uninstall"], ctx)).code).toBe(0);
@@ -153,7 +154,7 @@ test("uninstall recognizes a legacy tracked plugin and preserves unrelated legac
 test("managed marker is versioned JSON and repeated install preserves its timestamp", async()=>{
  const {ctx}=setup();await pluginCli(["install"],ctx);const path=join(ctx.pacerHome,"orca-plugin/.pacer-managed");
  const first=readFileSync(path,"utf8"), marker=JSON.parse(first);
- expect(marker.version).toBe("0.1.18");expect(Number.isNaN(Date.parse(marker.installedAt))).toBe(false);
+ expect(marker.version).toBe(pkg.version);expect(Number.isNaN(Date.parse(marker.installedAt))).toBe(false);
  await pluginCli(["install"],ctx);expect(readFileSync(path,"utf8")).toBe(first);
 });
 test("install and status report marketplace and managed copies without editing Orca",async()=>{

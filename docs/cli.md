@@ -76,3 +76,23 @@ selection; an unknown or missing CLI is an error. The summary includes one line
 per agent and `pacer uninstall <agent>` to undo it. `--json` returns the same
 summary as data. The Orca plugin's **Connect my agents** button runs this command
 with `--yes` after showing the consent preview.
+
+## Terminal dashboard
+
+`pacer dashboard` opens a full-screen live budget and task dashboard. Marketplace
+Orca installs open it automatically in the **pacer** terminal tab. It reads the
+local link snapshot and refreshes every two seconds; status computation runs in
+the background so network requests never block the display. An interactive TTY
+is required.
+
+- Arrows or j/k select a card; Enter retries on the suggested executor, stops a
+  stalled task, or focuses a running task's Orca terminal.
+- d prompts for a goal, repo (defaults to cwd), and optional kind.
+- x dismisses an attention group or completed task; b blocks/unblocks an executor.
+- s lists strategies to switch; r refreshes; ? toggles help; q quits.
+- Escape cancels a prompt. Action results appear for five seconds.
+
+The planner bar shows `#` for usage and `|` for pace. Small terminals use a
+compact view with scrolling lists. `NO_COLOR` disables highlighting; the dashboard
+uses no animated spinners, including when `PACER_NO_ANIM` is set. Exiting,
+Ctrl-C, SIGTERM and errors restore the normal screen, cursor and input mode.

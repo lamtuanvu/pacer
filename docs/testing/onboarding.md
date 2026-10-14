@@ -8,29 +8,34 @@ Install agent CLIs separately if testing agent connections.
 
 1. In Orca Settings > Plugins, add `https://github.com/lamtuanvu/pacer.git`
    as a marketplace and install pacer (`lamtuanvu.pacer`). Enable it and grant
-   its capabilities. For the versioned bundle, use ref `orca-plugin-v0.1.17`.
-2. Open the panel. It shows **Set up pacer** and numbered one-time setup
-   instructions. This static page has no buttons or live checklist.
-3. Without clicking, check for **Installing pacer…**, then **pacer is ready. Last step:**
-   with the absolute development-folder path and Orca settings instructions.
-   The worker prepares that folder once per plugin version; no terminal,
-   pacer console or agent config should appear yet.
+   its capabilities. For the versioned bundle, use ref `orca-plugin-v0.1.19`.
+2. Open the static panel. It shows **Set up pacer**, an installation spinner
+   and elapsed timer, dashboard instructions, and collapsed **Prefer the sidebar
+   panel?** steps. After two minutes it shows the terminal version check hint.
+3. Without clicking, check for **Installing pacer…**, then **pacer is running
+   in the pacer terminal tab.** One **pacer** terminal should open in the active
+   worktree with the live dashboard. No agent configs should change.
 4. Check `pacer --version`, `pacer service status --json`, and `pacer status`.
-   The binary, strategy and service should be installed. Before the release
-   is published, set the plugin's **releaseBase** to a staged HTTPS, file://
-   or localhost release folder containing `0.1.17/SHA256SUMS` and the binary.
-   A missing release produces one friendly notification and bounded retries.
-5. Reopen the panel and restart Orca. The marketplace folder must be unchanged,
-   the static panel must still open without “failed integrity verification”,
-   and previously delivered milestones must not repeat.
+   For staged releases, set **releaseBase** to a folder containing
+   `0.1.19/SHA256SUMS` and the binary. Missing releases get friendly failures.
+5. Restart only the plugin worker: no duplicate terminal should appear. Close
+   the dashboard and restart the worker again: it must stay closed. Run
+   `pacer dashboard` to reopen it yourself. A new Orca session may open one tab.
+6. Exercise j/k or arrows, Enter retry/focus/stop, d delegate (repo defaults to
+   cwd, optional kind), x dismiss, b block/unblock, s strategy, r refresh, ? help
+   and q quit. Resize below 60 columns and shorten the terminal: selection
+   remains visible. Check NO_COLOR and PACER_NO_ANIM, Ctrl-C and SIGTERM; the
+   cursor, normal screen and cooked input must be restored.
+7. Reopen the panel and restart Orca. The marketplace folder stays unchanged
+   and opens without “failed integrity verification”. Milestone notifications
+   must not repeat. Check the optional managed folder was prepared.
 
-## Finish setup and live panel
+## Optional sidebar panel
 
 1. Check that the worker prepared `~/.pacer/orca-plugin` without typing into
    any terminal. Restarting the worker must not repeat the copy or notification.
-2. Read the absolute folder path in the ready notification. In Orca Settings >
-   Plugins, uninstall the marketplace pacer; under **Development**, add that
-   folder (normally `~/.pacer/orca-plugin`), then enable pacer.
+2. In Orca Settings > Plugins, uninstall the marketplace pacer; under
+   **Development**, add `~/.pacer/orca-plugin`, then enable pacer.
 3. Run `pacer plugin status`: marketplace should be absent and development
    installed. The managed folder has a JSON `.pacer-managed` marker with
    `version` and `installedAt`; the published bundle must not contain it.
@@ -42,16 +47,15 @@ Install agent CLIs separately if testing agent connections.
    changes. Confirm the connected labels and the printed undo commands.
 
 Orca verifies marketplace content hashes and does not reload those panels on
-file changes. Only development-folder panels reload, which is why this one-time
-handoff is required: [Orca #26951](https://github.com/stablyai/orca/issues/26951).
+file changes. Only development-folder panels reload, which is why the sidebar uses an optional
+development folder: [Orca #26951](https://github.com/stablyai/orca/issues/26951).
 pacer never edits Orca settings to add a development folder.
 
 ## Recovery and cleanup
 
 In the disposable account, stop the pacer service and verify the worker restarts
 it with bounded retries. After the development handoff, close a pacer console
-and confirm autoConsole reopens it in the focused worktree. Bootstrap mode must
-never open a console.
+and confirm autoConsole reopens it in the focused worktree. Bootstrap mode opens only the dashboard, once per Orca session.
 
 Undo connected agents with `pacer uninstall <agent>`, run `pacer service
 uninstall` and `pacer plugin uninstall`, then remove the development folder
@@ -60,5 +64,5 @@ entry from Orca Settings > Plugins. Remove the disposable account or VM.
 ## Report
 
 Record Orca and pacer versions, install source, notification timings, unchanged
-marketplace folder after restart, automatic folder preparation, absence of terminal actions,
+marketplace folder after restart, automatic folder preparation, dashboard launch deduplication,
 marketplace/development status, agent consent, self-heal and any error output.

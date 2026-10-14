@@ -19,7 +19,7 @@ test("shipped bootstrap panel shows one-time steps without terminal actions",asy
  const {panel}=await buildPluginAssets("0.1.17");
  expect(panel).toContain("Set up pacer");expect(panel).not.toContain("Not connected");expect(panel).toContain("connect-src 'none'");
  expect(panel).toContain("uninstall this pacer");expect(panel).toContain("Development");expect(panel).toContain("~/.pacer/orca-plugin");
- expect(panel).toContain("the notification shows its full path");expect(panel).toContain("Enable pacer");
+ expect(panel).toContain("pacer dashboard");expect(panel).toContain("Prefer the sidebar panel?");expect(panel).toContain("Installing pacer in the background…");expect(panel).toContain("Taking longer than usual.");expect(panel).toContain("Enable pacer");
  expect(panel).not.toContain("terminal.sendText");expect(panel).not.toContain("postMessage");expect(panel).not.toContain("<button");
  expect(panel).toContain("console-spinner");expect(panel).toContain("Installing pacer in the background… 0:00");expect(panel).toContain("Taking longer than usual");
 });

@@ -4,28 +4,25 @@ Install the Orca marketplace plugin; it bootstraps pacer in the background.
 
 In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
 install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.18`.
+bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.19`.
 The worker installs the binary, initializes `~/.pacer`, starts the login service,
 and keeps older binaries updated to the plugin version. It never downgrades.
 
-The marketplace panel is a static **Set up pacer** page. Wait for the ready
-notification. The worker runs `pacer plugin install` itself once per plugin
-version to prepare `~/.pacer/orca-plugin`.
+The marketplace panel is a static **Set up pacer** page with an installation
+spinner and elapsed timer. Wait for **Installing pacer…**, then **pacer is
+running in the pacer terminal tab.** The worker opens `pacer dashboard` in a
+terminal titled **pacer** in the active worktree. No manual setup is needed.
+It opens at most once per Orca session, including worker restarts. If you close
+it, run `pacer dashboard` in any terminal to reopen it.
 
-In Orca Settings > Plugins:
-
-1. Uninstall the marketplace pacer.
-2. Under **Development**, add the absolute folder shown in the notification
-   (normally `~/.pacer/orca-plugin`).
-3. Enable pacer.
-
-Orca only refreshes plugin panels added as a development folder, so the live
-budget panel runs from there: [Orca #26951](https://github.com/stablyai/orca/issues/26951).
-The marketplace worker never changes its integrity-checked folder. Progress
-notifications persist across restarts. Bootstrap mode creates no terminals or
-consoles. Agent configs still require a click.
-`pacer plugin status` reports both marketplace and development copies. pacer
-never edits Orca settings to add the development folder.
+The worker also runs `pacer plugin install` once per plugin version to prepare
+`~/.pacer/orca-plugin`. For the optional sidebar panel, uninstall the marketplace
+pacer in Orca Settings > Plugins, add that folder under **Development**, then
+enable pacer. Only development-folder panels reload live; marketplace content
+stays integrity checked: [Orca #26951](https://github.com/stablyai/orca/issues/26951).
+The worker never edits Orca settings. `pacer plugin status` reports both copies.
+Agent configurations require explicit consent through the development panel or
+`pacer setup`.
 
 In the development panel, the live checklist shows **Install pacer**, **Start pacer**, and **Connect your
 agents**. Connecting is your consent to modify the displayed skills, rules and
@@ -52,15 +49,6 @@ pacer setup
 setup, `--agents claude-code,codex` to select agents, and `--json` for a summary.
 Non-TTY setup without `--yes` prints the plan and exits 2 without changes.
 
-
-## Updating
-
-For marketplace installs, open **Settings > Plugins > Refresh**, then choose
-**Update plugin** on pacer. Orca does not refresh marketplace sources or update
-plugins automatically; **Update plugin** appears after Refresh finds a newer version.
-
-For development-folder installs, `pacer update` refreshes the managed plugin
-folder. Turn pacer off and on in **Orca Settings > Plugins** to load it.
 
 ## From source
 
