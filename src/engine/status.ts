@@ -6,7 +6,8 @@ import { readBroken } from "../exec/broken";
 import type { ProviderCfg, Strategy } from "../config/strategy";
 import { type ActivityProfile, loadActivity } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
-import type { Ctx, UsageReading, Verdict } from "../types";
+import type { Ctx, UsageReading, UsageSource, Verdict } from "../types";
+import { markFreshness } from "../usage/freshness";
 import { readAccountUsage } from "../usage/index";
 import { limitWindow } from "../usage/reactive";
 import { type Mode, plannerMode } from "./mode";
@@ -22,6 +23,8 @@ export interface AccountStatus {
   resetsAt: number | null;
   window: string | null;
   stale: boolean;
+  source: UsageSource | null;
+  capturedAt: number | null;
   runners: string[];
 }
 
@@ -71,11 +74,13 @@ export async function computeStatus(
       const limit = limitWindow(ctx, id); return limit ? [limit] : [];
     });
     const limit = limits.sort((a, b) => (b.resetsAt ?? 0) - (a.resetsAt ?? 0))[0];
-    const usageWindows = limit ? [...reading.windows.filter(w => w.name !== "limit"), limit] : reading.windows;
+    const fresh = markFreshness(reading, ctx.now);
+    const usageWindows = limit ? [...fresh.windows.filter(w => w.name !== "limit"), { ...limit, stale: false }] : fresh.windows;
     const windows = usageWindows.map(w => evaluateWindow(w, ctx.now, profile, th));
-    const binding = bindingWindow(windows);
-    const verdict: Verdict = account.usage === "unmetered" && !windows.length ? "OK" : binding?.verdict ?? "UNKNOWN";
-    return { account, runners, reading, windows, binding, verdict };
+    const live = windows.filter(w => !w.stale);
+    const binding = bindingWindow(live) ?? bindingWindow(windows);
+    const verdict: Verdict = account.usage === "unmetered" && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
+    return { account, runners, reading: fresh, windows, binding, verdict };
   }));
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
@@ -105,6 +110,7 @@ export async function computeStatus(
       usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
       resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
       stale: reading.stale, runners: runners.map(r => r.name),
+      source: reading.source ?? null, capturedAt: reading.capturedAt,
     })),
     providers,
     executors: rankExecutors(null, s, byId),

@@ -32,7 +32,7 @@ export async function readClaude(ctx: Ctx, account?: AccountCfg): Promise<UsageR
   return {
     source: "status-line",
     capturedAt,
-    stale: capturedAt !== null && ctx.now - capturedAt > 86400,
+    stale: false,
     windows: [
       { name: "weekly", usedPct: toNum(wk.used_percentage), resetsAt: parseTs(wk.resets_at), lengthS: 7 * 86400, paced: true },
       { name: "5h", usedPct: toNum(fh.used_percentage), resetsAt: parseTs(fh.resets_at), lengthS: 5 * 3600, paced: false },

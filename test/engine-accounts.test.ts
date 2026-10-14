@@ -6,6 +6,7 @@ import { migrateStrategy } from "../src/config/migrate";
 import { validateStrategy } from "../src/config/strategy";
 import { computeStatus } from "../src/engine/status";
 import type { UsageReading } from "../src/types";
+import { markExhausted } from "../src/usage/reactive";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const strategy = (accountsMode = "spread", policy = "priority") => validateStrategy({
@@ -152,4 +153,40 @@ test("paid overflow is controlled by the shared account", async () => {
   const s = strategy(); s.accounts.a.allowPaid = true;
   const result = await status(s, 100, 40);
   expect(result.executors.ranked.map(r => r.id)).toContain("opencode#a");
+});
+
+test("a stale short window does not hide a fresh weekly verdict", async () => {
+  const now = 2_000_000, ctx = fakeCtx({ now });
+  const r: UsageReading = { windows: [
+    { name: "weekly", usedPct: 20, resetsAt: now + 3 * 86400, lengthS: 7 * 86400, paced: true },
+    { name: "5h", usedPct: 99, resetsAt: now + 3600, lengthS: 5 * 3600, paced: false },
+  ], capturedAt: now - 3 * 3600, stale: false, source: "status-line" };
+  const st = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["plan", r]]) });
+  const acct = st.accounts.find(a => a.name === "plan")!;
+  expect(acct.verdict).not.toBe("UNKNOWN");
+  expect(acct.verdict).not.toBe("EXHAUSTED");
+  expect(acct).toMatchObject({ source: "status-line", capturedAt: now - 3 * 3600, stale: false });
+  const provider = st.providers.find(p => p.account === "plan")!;
+  expect(provider.stale).toBe(false);
+  expect(provider.windows.map(w => [w.name, w.stale])).toEqual([["weekly", false], ["5h", true]]);
+});
+
+test("an old near-exhausted snapshot no longer blocks the account", async () => {
+  const now = 2_000_000, ctx = fakeCtx({ now });
+  const r: UsageReading = { windows: [
+    { name: "weekly", usedPct: 95, resetsAt: now + 2 * 86400, lengthS: 7 * 86400, paced: true },
+  ], capturedAt: now - 3 * 86400, stale: false, source: "session-log" };
+  const st = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["plan", r]]) });
+  expect(st.accounts.find(a => a.name === "plan")!).toMatchObject({ verdict: "UNKNOWN", stale: true, usedPct: 95 });
+  expect(st.providers.find(p => p.account === "plan")!).toMatchObject({ verdict: "UNKNOWN", stale: true });
+});
+
+test("a limit mark beats staleness", async () => {
+  const now = 2_000_000, ctx = fakeCtx({ now });
+  markExhausted(ctx, "plan", now + 3600);
+  const r: UsageReading = { windows: [
+    { name: "weekly", usedPct: 10, resetsAt: now + 2 * 86400, lengthS: 7 * 86400, paced: true },
+  ], capturedAt: now - 3 * 86400, stale: false, source: "session-log" };
+  const st = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["plan", r]]) });
+  expect(st.accounts.find(a => a.name === "plan")!.verdict).toBe("EXHAUSTED");
 });
