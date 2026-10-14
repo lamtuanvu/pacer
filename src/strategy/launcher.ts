@@ -10,8 +10,8 @@ import { show } from "./service";
 import type { Ctx } from "../types";
 export async function build(ctx:Ctx,opts:{agent?:string;from?:string;brief?:string;worktree?:string}={}) {
   if(!/^[A-Za-z0-9/._-]+$/.test(ctx.pacerHome))throw new Error("brief path contains unsafe characters; use a safe pacerHome");
-  const strategy=loadStrategy(ctx), agent=opts.agent??strategy.planner;
-  if(!["claude-code","codex"].includes(agent) || !(agent===strategy.planner || Object.hasOwn(strategy.providers,agent))) throw new Error("agent must be a configured planner: claude-code or codex");
+  const strategy=loadStrategy(ctx), agent=opts.agent??strategy.planner.agent;
+  if(!["claude-code","codex"].includes(agent) || !(agent===strategy.planner.agent || Object.hasOwn(strategy.providers,agent))) throw new Error("agent must be a configured planner: claude-code or codex");
   if((opts.brief?.length??0)>2000) throw new Error("brief must be at most 2000 characters");
   const base=show(ctx,opts.from??strategy.name), id=`${Math.floor(ctx.now*1000)}-${randomBytes(2).toString("hex")}`, path=join(ctx.pacerHome,"link","sessions",`${id}.md`);
   if(!/^[A-Za-z0-9/._-]+$/.test(path))throw new Error("brief path contains unsafe characters; use a pacerHome containing only A-Za-z0-9/._-");

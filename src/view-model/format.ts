@@ -1,5 +1,7 @@
-const names: Record<string, string> = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", local: "Local model", opencode: "OpenCode" };
-export const displayName = (id: string) => Object.hasOwn(names, id) ? names[id] : id;
+import { parseRunnerId } from "../config/runner-id";
+import { displayName as runnerName, names } from "../render/accounts";
+/** Runner ids and known provider ids get their friendly name; anything else is shown as given. */
+export const displayName = (id: string) => parseRunnerId(id) || Object.hasOwn(names, id) ? runnerName(id) : id;
 export function duration(seconds: number, long = false): string {
   const minutes = Math.max(0, Math.floor(seconds / 60)), hours = Math.floor(minutes / 60), days = Math.floor(hours / 24);
   if (long) return days ? `${days} ${days === 1 ? "day" : "days"} ${hours % 24} ${hours % 24 === 1 ? "hour" : "hours"}` : `${hours} ${hours === 1 ? "hour" : "hours"}`;

@@ -363,3 +363,14 @@ test("timed out executor with changes stays failed", async () => {
  const d=deps({codex:out});
  expect((await runTask(ctx,newTask(ctx).id,d)).state).toBe("failed");
 });
+
+test('limit marks the account and carries the reset reported by a named runner',async()=>{
+ const ctx=fakeCtx(),s=validateStrategy({accounts:{plan:{kind:'claude'},team:{kind:'codex',home:'~/.codex-team'}},planner:'claude-code',routing:[{default:['codex#team']}]},'test');
+ const st={...status(),providers:[{id:'codex#team',usage:'quota',windows:[],binding:null,verdict:'ON_PACE',installed:true,stale:false}]} as Status;
+ const report="You've hit your weekly limit · resets Oct 18 at 1pm (Asia/Saigon)";
+ await runTask(ctx,newTask(ctx).id,{...deps({}),loadStrategy:()=>s,computeStatus:async()=>st,runAttempt:async()=>outcomeFor('codex#team',1,true,report)});
+ const until=readMarks(ctx).team;
+ expect(until).toBeGreaterThan(Date.now()/1000);
+ const reset=new Date(until*1000);expect(reset.getUTCMonth()).toBe(9);expect(reset.getUTCDate()).toBe(18);expect(reset.getUTCHours()).toBe(6);
+ expect(readMarks(ctx)['codex#team']).toBeUndefined();
+});

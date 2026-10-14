@@ -8,9 +8,9 @@ import type { ProviderCfg } from "../config/strategy";
 import { tasksDir, listTasks, updateTask } from "../tasks/store";
 import { resolvePlacement, type Attempt, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { type Launch, launchFor } from "./launch";
+import { type Launch, launchFor, providerEnv } from "./launch";
 import { detectLimit } from "./limits";
-import { type ExecResult, execProcess } from "./process";
+import { type ExecResult, execProcess, executorEnv } from "./process";
 import { buildPrompt } from "./prompt";
 
 export const REPORT_CHARS = 4000;
@@ -53,7 +53,9 @@ export async function runAttempt(
   updateTask(ctx,task.id,t=>{t.placement={requested:task.placement?.requested??"auto",...task.placement,mode:"current",why:resolved.why};t.worktree=task.brief.repo;});
   const note=resolved.mode==="new"?"ran in place: worktree isolation needs the Orca backend\n\n":"";
   let launch: Launch;
+  let env: Record<string, string | undefined>;
   try {
+    env = executorEnv(ctx.env, providerEnv(ctx, cfg));
     launch = launchFor(cfg, buildPrompt(task.brief, task.id), task.brief.repo, dir, task.id);
   } catch (e) {
     const exec = { code: 127, stdout: "", stderr: (e as Error).message, timedOut: false };
@@ -61,7 +63,7 @@ export async function runAttempt(
     return outcome(cfg, startedAt, exec, log, note+exec.stderr);
   }
   const exec = await execProcess({
-    argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env: { ...ctx.env, PACER_ROLE: "executor" },
+    argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env,
     timeoutMs: task.timeoutS * 1000, logFile: log, onSpawn,
   });
   let report = tail(exec.stdout.trim() || exec.stderr.trim(), REPORT_CHARS);

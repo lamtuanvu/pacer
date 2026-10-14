@@ -20,7 +20,7 @@ test("status --json prints the full status object", async () => {
   expect(r.code).toBe(0);
   const st = JSON.parse(r.out);
   expect(st.planner).toBe("claude-code");
-  expect(st.providers.map((p: { id: string }) => p.id)).toEqual(["claude-code", "local"]);
+  expect(st.providers.map((p: { id: string }) => p.id)).toEqual(["claude-code", "opencode#local"]);
   expect(typeof st.calendarPace).toBe("boolean");
 });
 
@@ -103,7 +103,7 @@ test("retry queues a retry of a task and links them", async () => {
     const next = readTask(ctx, t.id)!.retriedBy!;
     expect(r.out).toBe(`${next} queued (retry of ${t.id})`);
     expect(spawned).toEqual([next]);
-    expect(readTask(ctx, next)?.requestedExecutor).toBe("local");
+    expect(readTask(ctx, next)?.requestedExecutor).toBe("opencode#local"); // legacy alias resolved to its runner id
   });
 });
 

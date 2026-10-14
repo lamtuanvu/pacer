@@ -137,3 +137,60 @@ show the panel Update instruction. The worker also warns if the CLI is newer tha
 the running plugin. These checks never install a newer release automatically;
 bootstrap installation still only installs/updates the CLI version shipped with
 that plugin.
+
+## Accounts, runners and configuration
+
+See [Accounts and runners](accounts.md) for sign-in, endpoint budgets, Orca
+links and account folder behavior.
+
+```text
+pacer account list [--json]
+pacer account add <claude|codex> <name> [--home <dir>] [--no-login]
+pacer account add <claude|codex> <name> --orca <id>
+pacer account add endpoint <name> --usage <quota|metered|unmetered> [--quota-source arkcli] [--weekly-tokens <n>]
+pacer account rm <name> [--delete-home]
+pacer runner list [--json]
+pacer runner add <agent#account> [--model <m>]
+pacer runner rm <agent#account>
+pacer config get [key] [--json]
+pacer config set <key> <value>
+pacer config migrate
+```
+
+Commands write the active strategy and validate the whole result. Refused edits
+leave its bytes unchanged; successful edits preserve comments and untouched
+layout. Legacy provider strategies load unchanged until migration; account and
+runner edits ask you to run `pacer config migrate` first. Migration saves the
+original as `<file>.pre-accounts.bak` and prints how to restore it.
+
+`config get` returns each effective value and its source: the strategy filename
+or `default`. With a key, JSON is `{value, source}`; without a key, JSON maps
+setting names to those objects. `config set` prints the change and an undo
+command. Account and runner list JSON are arrays (see the accounts guide).
+
+| Key | Value |
+| --- | --- |
+| planner | A runner id, such as `claude-code#work` or `codex`; moves the installed planner integration |
+| pacing.order | Comma-separated runner ids; `opencode` means the OpenCode group; `''` clears the order |
+| pacing.policy | Existing engine policies: `priority`, `even`, `burn-before-reset`, `cheapest-first` |
+| pacing.planner_reserve | Percent, 0–99 (default 15) |
+| pacing.accounts | `spread` or `fill` (default `spread`) |
+| pacing.fill_threshold | Percent, 50–100 (default 90) |
+| update_check | `true` or `false` (default `true`) |
+
+For example:
+
+```sh
+pacer config get pacing.accounts --json
+pacer config set pacing.accounts fill
+pacer config set pacing.order codex#team,claude-code,opencode
+pacer config set planner claude-code#work
+```
+
+`runner add` uses the id itself, rather than a nickname, and adds the runner to
+the default routing rule. Remote `@host` ids are reserved and refused for now.
+Account removal refuses accounts used by a runner or planner; runner removal
+refuses the planner and the last runner. Homes are retained unless
+`--delete-home` is supplied and its y/N prompt confirmed. Logins inherit the
+terminal and are started only for newly created pacer-managed accounts unless
+`--no-login` is given.

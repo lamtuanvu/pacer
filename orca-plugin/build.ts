@@ -12,7 +12,10 @@ export function assertPublishedBundle(root: string): void {
 }
 export async function buildPluginAssets(version: string): Promise<{ manifest: string; worker: string; panel: string; mark: string; generated: string }> {
   assertPublishedBundle(new URL("./dist", import.meta.url).pathname);
-  const result = await Bun.build({ entrypoints: [new URL("./src/worker.ts", import.meta.url).pathname], target: "node", format: "esm", minify: false });
+  const result = await Bun.build({ entrypoints: [new URL("./src/worker.ts", import.meta.url).pathname], target: "node", plugins: [{name:"yaml-esm", setup(build) {
+    // The worker is ESM-only; use YAML's published ESM implementation.
+    build.onResolve({filter:/^yaml$/},()=>({path:new URL("../node_modules/yaml/browser/index.js",import.meta.url).pathname}));
+  }}], format: "esm", minify: false });
   if (!result.success) throw new AggregateError(result.logs, "pacer plugin build failed");
   const worker = await result.outputs[0].text();
   const manifest = `${JSON.stringify(pluginManifest(version), null, 2)}\n`;
