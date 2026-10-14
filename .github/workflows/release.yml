@@ -126,7 +126,7 @@ jobs:
           sha256sum dist/release/"$VERSION"/* dist/release/latest.json
           cat release-notes.md
           echo "Plugin tag: orca-plugin-v$VERSION"
-      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         if: env.DRY_RUN != 'true'
         with:
           subject-path: dist/release/*/pacer-*
