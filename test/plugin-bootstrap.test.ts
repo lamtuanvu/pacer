@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createBootstrap, download, releaseBase, releaseURL, GITHUB_RELEASES, UNPUBLISHED, cleanEnv, type BootstrapDeps, type BootstrapState } from "../orca-plugin/src/bootstrap";
+import { createBootstrap, download, releaseBase, releaseURL, GITHUB_RELEASES, UNPUBLISHED, MANUAL_HINT, cleanEnv, type BootstrapDeps, type BootstrapState } from "../orca-plugin/src/bootstrap";
 import type { OrcaWorkerContext } from "../orca-plugin/src/orca-api";
 import { renderPanel } from "../orca-plugin/src/panel";
 import { emptySnapshot } from "../src/link/envelope";
@@ -23,7 +23,7 @@ function harness(options: Partial<BootstrapDeps> = {}, settings: Record<string, 
  }},log:()=>{},commands:{register(){}},events:{on(){}},grantedCapabilities:[]} as OrcaWorkerContext;
  const exec:BootstrapDeps["exec"]=async(bin,args,env,timeout)=>{
   calls.push({bin,args,env,timeout,at});
-  if(args[0]==="status")return JSON.stringify({caller:{orcaSessionId:"session-one"}});
+  if(args[0]==="status")return JSON.stringify({ok:true,result:{app:{running:true,pid:111},runtime:{runtimeId:"r"}}});
   if(args[0]==="terminal"&&args[1]==="create")return JSON.stringify({ok:true,result:{terminal:{handle:"dashboard"}}});
   if(args[0]==="--version")return version;
   if(args[0]==="init"){mkdirSync(join(home,".pacer"),{recursive:true});writeFileSync(join(home,".pacer/strategy.yaml"),"strategy");}
@@ -183,20 +183,20 @@ test("marketplace handoff retries failures at most five per hour and persists su
 
 test("marketplace install errors show a friendly line rather than subprocess diagnostics",async()=>{
  const h=harness({mode:"bootstrap",exec:async()=>{throw new Error("spawn /private/fixture/pacer EACCES\ninternal details");}});h.put(".local/bin/pacer");await h.b.activate(h.ctx);await h.run();
- expect(h.notifications).toEqual(["Installing pacer…","pacer couldn't install. Try again shortly."]);
+ expect(h.notifications).toEqual(["Installing pacer…",`pacer couldn't install. It retries shortly; ${MANUAL_HINT}`]);
 });
 
 
 test("dashboard stays closed in the same session and opens once in a new session",async()=>{
  const h=harness({mode:"bootstrap"});h.put(".local/bin/pacer");await h.b.activate(h.ctx);await h.run();
- const restarted=createBootstrap({...h.d,exec:async(bin,args,env,timeout)=>args[0]==="status"?JSON.stringify({caller:{orcaSessionId:"session-two"}}):h.d.exec!(bin,args,env,timeout)});
+ const restarted=createBootstrap({...h.d,exec:async(bin,args,env,timeout)=>args[0]==="status"?JSON.stringify({ok:true,result:{app:{running:true,pid:222},runtime:{runtimeId:"r"}}}):h.d.exec!(bin,args,env,timeout)});
  await restarted.activate(h.ctx);h.time(600);await restarted.run(h.ctx,()=>{});h.time(1200);await restarted.run(h.ctx,()=>{});
  expect(h.calls.filter(c=>c.args[0]==="terminal")).toHaveLength(2);
- expect(restarted.state.dashboardSessions).toEqual(["session-one","session-two"]);
+ expect(restarted.state.dashboardSessions).toEqual(["pid:111","pid:222"]);
 });
 test("dashboard launch failure is reserved durably and never reported as running",async()=>{
  const h=harness({mode:"bootstrap"});h.put(".local/bin/pacer");let launches=0;
  const d={...h.d,exec:async(bin:string,args:string[],env:NodeJS.ProcessEnv,timeout:number)=>{if(args[0]==="terminal"){launches++;return JSON.stringify({ok:false,error:{message:"closed"}});}return h.d.exec!(bin,args,env,timeout);}};
  const b=createBootstrap(d);await b.activate(h.ctx);await b.run(h.ctx,()=>{});const restarted=createBootstrap(d);await restarted.activate(h.ctx);h.time(60);await restarted.run(h.ctx,()=>{});
- expect(launches).toBe(1);expect(h.notifications).not.toContain("pacer is running in the pacer terminal tab.");expect(restarted.state.start.status).toBe("failed");
+ expect(launches).toBe(1);expect(h.notifications).not.toContain("pacer is running in the pacer terminal tab.");expect(restarted.state.start.status).toBe("done");expect(h.notifications).toContain("pacer is running, but Orca couldn't open its terminal. Run ~/.local/bin/pacer dashboard in any terminal.");
 });

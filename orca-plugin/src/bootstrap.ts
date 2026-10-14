@@ -10,12 +10,14 @@ import { compareVersions, isVersion } from "../../src/update/version";
 import type { PluginMode } from "./mode";
 import type { OrcaWorkerContext } from "./orca-api";
 export const GITHUB_RELEASES = "https://github.com/lamtuanvu/pacer/releases";
+/** Failure notifications point here; the setup panel always lists the manual commands. */
+export const MANUAL_HINT = "to set it up by hand, open the pacer panel and expand \"Setup not finishing?\"";
 export const UNPUBLISHED = "pacer isn't published yet. Set the release folder in plugin settings or install pacer manually";
 export const MANUAL_INSTALL = "curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh";
 export interface Step { status: "pending" | "done" | "failed"; detail?: string }
 export interface BootstrapState {
   install: Step; start: Step; agents: AgentPlan[]; binary?: string; opening?: boolean; terminal?: string;
-  nextAt?: number; failures?: number[]; restarts?: number[]; terminalAttempts?: Record<string, number>; notifications?: string[]; handoffVersion?: string; dashboardSessions?: string[]; dashboardReadySessions?: string[]; dashboardOpened?: boolean;
+  nextAt?: number; failures?: number[]; restarts?: number[]; terminalAttempts?: Record<string, number>; notifications?: string[]; handoffVersion?: string; dashboardSessions?: string[]; dashboardReadySessions?: string[]; dashboardOpened?: boolean; dashboardFailed?: boolean;
 }
 export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const result = { ...env }; delete result.ORCA_AGENT_SESSION_ID; delete result.ORCA_TERMINAL_HANDLE; return result;
@@ -69,8 +71,8 @@ export function createBootstrap(d: BootstrapDeps) {
   let running: Promise<void> | null = null, terminalRunning = false, stopped = false, probedAt = -Infinity;
   const changed = async (ctx: OrcaWorkerContext, onChange: () => void) => {
     if (d.mode === "bootstrap") {
-      const failed = state.install.status === "failed" ? (state.install.detail === UNPUBLISHED ? UNPUBLISHED : "pacer couldn't install. Try again shortly.") : state.start.status === "failed" ? "pacer couldn't start. Try again shortly." : undefined;
-      const message = failed || (state.start.status === "done" && state.dashboardOpened ? "pacer is running in the pacer terminal tab." : state.install.status === "pending" ? "Installing pacer…" : null);
+      const failed = state.install.status === "failed" ? (state.install.detail === UNPUBLISHED ? UNPUBLISHED : `pacer couldn't install. It retries shortly; ${MANUAL_HINT}`) : state.start.status === "failed" ? `pacer couldn't start. It retries shortly; ${MANUAL_HINT}` : undefined;
+      const message = failed || (state.start.status === "done" && state.dashboardOpened ? "pacer is running in the pacer terminal tab." : state.start.status === "done" && state.dashboardFailed ? "pacer is running, but Orca couldn't open its terminal. Run ~/.local/bin/pacer dashboard in any terminal." : state.install.status === "pending" ? "Installing pacer…" : null);
       if (message && !state.notifications?.includes(message)) {
         state.notifications = [...(state.notifications ?? []), message];
         // Reserve durably before showing: a worker restart must not repeat a milestone.
@@ -138,10 +140,12 @@ export function createBootstrap(d: BootstrapDeps) {
         }
       }
       state.start = { status: "done" };
-      if (d.mode === "bootstrap") {
+      if (d.mode === "bootstrap") try {
         const cli = env.ORCA_CLI_COMMAND || "orca";
         const status = JSON.parse(await exec(cli, ["status", "--json"], env, 30_000));
-        const session = status.caller?.orcaSessionId || status.result?.caller?.orcaSessionId;
+        // The worker has no terminal caller, so key "once per Orca session" on the app process, which changes every launch.
+        const pid = status.result?.app?.pid ?? status.app?.pid;
+        const session = typeof pid === "number" ? `pid:${pid}` : status.result?.runtime?.runtimeId;
         if (typeof session !== "string" || !session) throw new Error("Could not identify the Orca session to open the dashboard.");
         if (!state.dashboardSessions?.includes(session)) {
           // Reserve before IPC: closing the tab or restarting a worker cannot reopen it.
@@ -152,7 +156,7 @@ export function createBootstrap(d: BootstrapDeps) {
           state.dashboardReadySessions = [...(state.dashboardReadySessions ?? []), session].slice(-20);
         }
         if (!state.dashboardReadySessions?.includes(session)) throw new Error("The pacer terminal could not open. Run pacer dashboard in a terminal.");
-        state.dashboardOpened = true;
+        state.dashboardOpened = true; state.dashboardFailed = false;
         await changed(ctx, onChange);
         if (state.handoffVersion !== d.version) {
           // Sidebar preparation is optional and must not prevent the terminal dashboard.
@@ -163,6 +167,11 @@ export function createBootstrap(d: BootstrapDeps) {
             state.failures.push(now()); state.nextAt = state.failures.length >= 5 ? state.failures[0] + 3600 : now() + 60;
           }
         }
+      } catch (e) {
+        // pacer itself is installed and running: report the terminal problem without marking setup failed.
+        ctx.log(`pacer dashboard: ${(e as Error).message}`);
+        state.dashboardFailed = true;
+        await changed(ctx, onChange);
       }
     } catch (e) {
       const message = (e as Error).message;
