@@ -4,6 +4,14 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- `pacer retry <task-id> [--executor <id>] [--json]` re-delegates a task's stored brief, refusing an already queued or running retry.
+
+### Changed
+
+- `pacer dismiss` reports unknown ids and exits 2 while still dismissing known ids.
+
 ## [0.1.22] - 2026-10-14
 
 - Make `pacer init` the complete, consent-based setup flow with planner selection, agent connections and live panel guidance; `setup` is an alias.

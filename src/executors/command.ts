@@ -1,32 +1,27 @@
 import {loadStrategy} from "../config/strategy";
-import {computeStatus} from "../engine/status";
-import {readBroken} from "../exec/broken";
-import {readMarks} from "../usage/reactive";
+import * as core from "../core";
+import type {RunnerRow} from "../core/runners";
 import type {Result} from "../commands/types";
 import type {Ctx} from "../types";
-import {blockExecutor,readBlocked,unblockExecutor} from "./blocked";
 export async function executorCommand(args:string[],ctx:Ctx):Promise<Result> {
  try {
   const s=loadStrategy(ctx),[cmd,id,...flags]=args;
   if(cmd==="list") {
-   const blocked=readBlocked(ctx),broken=readBroken(ctx),marks=readMarks(ctx);
-   const st=await computeStatus(ctx,s);
-   const lines=Object.keys(s.providers).filter(id=>id!==s.planner).map(id=>{
-    const block=blocked[id],bad=broken[id],p=st.providers.find(p=>p.id===id);
-    const until=marks[id]>ctx.now?marks[id]:p?.binding?.resetsAt;
-    const state=block?`blocked by user until ${block.until===null?"unblocked":new Date(block.until*1000).toISOString()} · ${block.reason}`:bad?`not working until ${new Date(bad.until*1000).toISOString()} · ${bad.reason}`:marks[id]>ctx.now||p?.verdict==="EXHAUSTED"?`out of quota until ${until?new Date(until*1000).toISOString():"next reset"}`:"ok";
-    return `${id}: ${state}`;
-   });
+   const iso=(t:number|null)=>t===null?"unblocked":new Date(t*1000).toISOString();
+   const line=(r:RunnerRow)=>r.state==="blocked"?`${r.id}: blocked by user until ${iso(r.until)} · ${r.reason}`
+    :r.state==="broken"?`${r.id}: not working until ${iso(r.until)} · ${r.reason}`
+    :r.state==="exhausted"?`${r.id}: out of quota until ${r.until?new Date(r.until*1000).toISOString():"next reset"}`
+    :`${r.id}: ok`;
+   const lines=(await core.runners.list(ctx,s)).map(line);
    return {code:0,out:lines.join("\n"),err:""};
   }
   if(!["block","unblock"].includes(cmd)||!id)throw new Error("usage: pacer executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list");
-  if(!s.providers[id]||id===s.planner)throw new Error(`unknown executor ${id}`);
   let duration:string|undefined,reason:string|undefined;
   for(let i=0;i<flags.length;i+=2) {
    if(!flags[i+1]||!["--for","--reason"].includes(flags[i])||cmd==="unblock")throw new Error(`unknown or incomplete option ${flags[i]}`);
    if(flags[i]==="--for")duration=flags[i+1];else reason=flags[i+1];
   }
-  if(cmd==="block")blockExecutor(ctx,id,duration,reason);else unblockExecutor(ctx,id);
+  if(cmd==="block")core.runners.block(ctx,id,{for:duration,reason},s);else core.runners.unblock(ctx,id,s);
   return {code:0,out:`${id}: ${cmd==="block"?"Blocked by you":"unblocked"}`,err:""};
  }catch(e){return {code:2,out:"",err:`pacer: ${(e as Error).message}`};}
 }

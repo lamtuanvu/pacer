@@ -2,7 +2,8 @@
 import { readUpdateCheck, updateLine } from "./update/check";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
-import { markExhausted } from "./usage/reactive";
+import * as core from "./core";
+import { CoreError } from "./core/errors";
 import { readFileSync } from "node:fs";
 import { isExecutorSession } from "./install/role";
 import { executorCommand } from "./executors/command";
@@ -21,11 +22,13 @@ import { renderHook } from "./render/hook";
 import { renderLine } from "./render/line";
 import { renderText } from "./render/text";
 import { DEFAULT_PORT, startServer } from "./serve/http";
-import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskReview, taskDismiss, delegate, taskStatus, taskStop, taskWait } from "./tasks/api";
+import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskWait, type SpawnRunner, spawnRunner } from "./tasks/api";
 import { runTask } from "./tasks/runner";
-import { listTasks } from "./tasks/store";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
+
+/** Test seam: how the CLI starts a task runner. Tests swap it so they never spawn `pacer _run`. */
+export const cliDeps: { spawnRunner: SpawnRunner } = { spawnRunner };
 
 const USAGE = `usage: pacer <command>
   dashboard                                      live interactive terminal dashboard
@@ -40,6 +43,7 @@ const USAGE = `usage: pacer <command>
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   stop <task-id> [--json]                         stop a running task
+  retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   report-limit <provider> [--until <unix-seconds>] record an executor limit
   mcp                                            run the MCP server on stdio
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
@@ -48,7 +52,7 @@ const USAGE = `usage: pacer <command>
   help                                           this message
 JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors.
 route: kind, ranked, excluded. delegate: TaskRecord (id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields).
-tasks <id>, wait, stop: task_id, state, kind, requested_executor, placement, attempts, result, review, resolved.
+tasks <id>, wait, stop, retry: task_id, state, kind, requested_executor, placement, attempts, result, review, resolved.
 tasks: array of those task summaries. review: recorded. Flags override brief-file fields; repo defaults to cwd.
 install <planner> [--mcp|--no-mcp]: skill and hooks; MCP is optional.
 update refreshes installed skills, policy and hooks; --no-reinstall skips refresh.
@@ -56,7 +60,7 @@ Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skill
 Identical pacer skill copies may appear; update refresh keeps them identical.`;
 
 function help(): string {
-  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
+  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
   const extras = EXTRA_COMMANDS.filter((c) => !builtins.has(c.name));
   return extras.length ? `${USAGE}\n${extras.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
 }
@@ -65,7 +69,7 @@ function explain(e: unknown): string {
   if (e instanceof MissingStrategyError) {
     return `pacer: ${e.message}\nCopy examples/strategy.yaml from the pacer repo to ${e.path} and edit it.`;
   }
-  if (e instanceof StrategyError || e instanceof DelegateError) return `pacer: ${e.message}`;
+  if (e instanceof StrategyError || e instanceof DelegateError || e instanceof CoreError) return `pacer: ${e.message}`;
   return `pacer: ${(e as Error).message ?? String(e)}`;
 }
 
@@ -178,7 +182,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
-    const t=delegate(ctx,{...parseDelegateBrief(raw,process.cwd()),force:opts.force===true});
+    const t=core.tasks.delegate(ctx,{...parseDelegateBrief(raw,process.cwd()),force:opts.force===true},cliDeps.spawnRunner);
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
@@ -190,11 +194,12 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
 function tasksCmd(args: string[], ctx: Ctx): Result {
   const { opts, pos } = parseFlags(args, ["json"]);
   if (pos[0]) {
-    const t = taskStatus(ctx, pos[0]);
-    if (!t) return { code: 2, out: "", err: `pacer: unknown task ${pos[0]}` };
-    return { code: 0, out: opts.json ? JSON.stringify(summarizeTask(t), null, 1) : renderTask(t), err: "" };
+    try {
+      const t = core.tasks.get(ctx, pos[0]);
+      return { code: 0, out: opts.json ? JSON.stringify(summarizeTask(t), null, 1) : renderTask(t), err: "" };
+    } catch (e) { return { code: 2, out: "", err: explain(e) }; }
   }
-  const list = listTasks(ctx).map((t) => taskStatus(ctx, t.id) ?? t);
+  const list = core.tasks.list(ctx);
   if (opts.json) return { code: 0, out: JSON.stringify(list.map(summarizeTask), null, 1), err: "" };
   if (!list.length) return { code: 0, out: "no tasks yet", err: "" };
   return {
@@ -211,9 +216,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "setup": return setupCmd(rest, ctx);
     case "report-limit": {
       const {opts,pos}=parseFlags(rest,[]);
-      try{const cfg=loadStrategy(ctx).providers[pos[0]];if(!cfg)throw new Error(`unknown provider "${pos[0]}"`);
-        const until=Number(str(opts.until)??ctx.now+cfg.cooldownS);if(!Number.isFinite(until))throw new Error("until must be unix seconds");
-        markExhausted(ctx,pos[0],until);return {code:0,out:`${pos[0]} exhausted until ${until}`,err:""};
+      try{const raw=str(opts.until);const r=core.limits.report(ctx,pos[0],raw===undefined?undefined:Number(raw));
+        return {code:0,out:`${r.provider} exhausted until ${r.exhaustedUntil}`,err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
     }
     case "executor": return executorCommand(rest,ctx);
@@ -228,23 +232,26 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "wait":
     case "review":
     case "dismiss":
+    case "retry":
     case "stop": {
       const {opts,pos}=parseFlags(rest,["json","accept","reject"]);
       if(!pos[0])return {code:2,out:"",err:USAGE};
       try {
         if(cmd==="review") {
           if(!!opts.accept===!!opts.reject)throw new Error("give exactly one of --accept or --reject");
-          const result=taskReview(ctx,pos[0],!!opts.accept,str(opts.kind));
+          const result=core.tasks.review(ctx,pos[0],{accepted:!!opts.accept,kind:str(opts.kind)});
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
         }
         if(cmd==="dismiss") {
-          for(const id of pos)if(!taskDismiss(ctx,id))throw new Error(`unknown task ${id}`);
-          return {code:0,out:pos.map(id=>`${id} dismissed`).join("\n"),err:""};
+          const r=core.tasks.dismiss(ctx,pos);
+          return {code:r.unknown.length?2:0,out:r.dismissed.map(t=>`${t.id} dismissed`).join("\n"),err:r.unknown.map(id=>`pacer: unknown task ${id}`).join("\n")};
         }
-        const timeout=Number(str(opts.timeout)??600);
-        if(cmd==="wait" && (!Number.isInteger(timeout)||timeout<1||timeout>3000))throw new Error("timeout must be between 1 and 3000 seconds");
-        const t=cmd==="wait" ? await taskWait(ctx,pos[0],timeout) : taskStop(ctx,pos[0]);
-        if(!t)throw new Error(`unknown task ${pos[0]}`);
+        if(cmd==="retry") {
+          if(isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
+          const r=await core.tasks.retry(ctx,pos[0],{executor:str(opts.executor)},{delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner)});
+          return {code:0,out:opts.json?JSON.stringify(summarizeTask(r.retry),null,1):`${r.retry.id} queued (retry of ${r.of.id})`,err:""};
+        }
+        const t=cmd==="wait" ? await core.tasks.wait(ctx,pos[0],Number(str(opts.timeout)??600)) : core.tasks.stop(ctx,pos[0]);
         return {code:cmd==="wait"&&!TERMINAL_STATES.includes(t.state)?2:0,out:opts.json?JSON.stringify(summarizeTask(t),null,1):cmd==="stop"?`${t.id} ${t.state}`:renderTask(t),err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
     }
