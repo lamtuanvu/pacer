@@ -171,7 +171,7 @@ Settings today are spread across `strategy.yaml`, CLI flags and Orca's per-plugi
 | Executors | On or off | Toggle per runner | `b` (exists) | `block` / `unblock` console commands (exist) |
 | | Order | Up / down buttons | `[` / `]` | `pacer config set pacing.order <a,b,…>` (new) |
 | | Which kinds go where | Read-only summary; "Edit routing" opens the strategy builder | `r` → builder | `strategy-build` console command (exists) |
-| Pacing | Policy (priority or spread) | Two-button switch | `,` → Pacing | `pacer config set pacing.policy <priority\|spread>` (new) |
+| Pacing | Policy (`priority`, `even`, `burn-before-reset`, `cheapest-first`) | Four-option switch | `,` → Pacing | `pacer config set pacing.policy <priority\|even\|burn-before-reset\|cheapest-first>` (new) |
 | | Planner reserve | − / + buttons in 5-point steps (0–50) | `,` → Pacing | `pacer config set pacing.planner_reserve <n>` (new) |
 | | Accounts of one agent: spread or fill-first | Two-button switch; fill threshold − / + in 5-point steps (50–100) | `,` → Pacing | `pacer config set pacing.accounts <spread\|fill>` / `pacing.fill_threshold <n>` (new) |
 | Strategies | Switch | List with "Use" | `s` (exists) | `use` console command / `pacer use <strategy>` (exist) |
