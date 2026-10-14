@@ -30,6 +30,7 @@ export async function readClaude(ctx: Ctx, account?: AccountCfg): Promise<UsageR
   const fh = isObj(data.five_hour) ? data.five_hour : {};
   const capturedAt = parseTs(data.captured_at);
   return {
+    source: "status-line",
     capturedAt,
     stale: capturedAt !== null && ctx.now - capturedAt > 86400,
     windows: [

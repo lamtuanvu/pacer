@@ -18,9 +18,9 @@ async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg): Promise<U
     case "metered":
       return readMetered(ctx, cfg);
     case "reactive":
-      return { windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }], capturedAt: ctx.now, stale: false };
+      return { windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }], capturedAt: ctx.now, stale: false, source: "reactive" };
     case "unmetered":
-      return { windows: [], capturedAt: ctx.now, stale: false };
+      return { windows: [], capturedAt: ctx.now, stale: false, source: "unmetered" };
   }
 }
 

@@ -21,6 +21,7 @@ test("reads weekly (paced) and 5h (unpaced) windows", async () => {
   await put(claudeCachePaths(ctx)[0], SAMPLE, 1791633891);
   const r = await readClaude(ctx);
   expect(r.error).toBeUndefined();
+  expect(r.source).toBe("status-line");
   expect(r.stale).toBe(false);
   expect(r.capturedAt).toBeCloseTo(1791633891.03);
   expect(r.windows).toEqual([
