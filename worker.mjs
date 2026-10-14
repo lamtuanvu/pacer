@@ -7,7 +7,7 @@ var package_default = {
     "@types/bun": "^1.4.2",
     typescript: "^7.0.2"
   },
-  version: "0.1.19",
+  version: "0.1.20",
   bin: {
     pacer: "src/cli.ts"
   },
@@ -167,6 +167,7 @@ function compareVersions(a, b) {
 
 // orca-plugin/src/bootstrap.ts
 var GITHUB_RELEASES = "https://github.com/lamtuanvu/pacer/releases";
+var MANUAL_HINT = 'to set it up by hand, open the pacer panel and expand "Setup not finishing?"';
 var UNPUBLISHED = "pacer isn't published yet. Set the release folder in plugin settings or install pacer manually";
 var MANUAL_INSTALL = "curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh";
 function cleanEnv(env) {
@@ -227,8 +228,8 @@ function createBootstrap(d) {
   let running = null, terminalRunning = false, stopped = false, probedAt = -Infinity;
   const changed = async (ctx, onChange) => {
     if (d.mode === "bootstrap") {
-      const failed = state.install.status === "failed" ? state.install.detail === UNPUBLISHED ? UNPUBLISHED : "pacer couldn't install. Try again shortly." : state.start.status === "failed" ? "pacer couldn't start. Try again shortly." : undefined;
-      const message = failed || (state.start.status === "done" && state.dashboardOpened ? "pacer is running in the pacer terminal tab." : state.install.status === "pending" ? "Installing pacer…" : null);
+      const failed = state.install.status === "failed" ? state.install.detail === UNPUBLISHED ? UNPUBLISHED : `pacer couldn't install. It retries shortly; ${MANUAL_HINT}` : state.start.status === "failed" ? `pacer couldn't start. It retries shortly; ${MANUAL_HINT}` : undefined;
+      const message = failed || (state.start.status === "done" && state.dashboardOpened ? "pacer is running in the pacer terminal tab." : state.start.status === "done" && state.dashboardFailed ? "pacer is running, but Orca couldn't open its terminal. Run ~/.local/bin/pacer dashboard in any terminal." : state.install.status === "pending" ? "Installing pacer…" : null);
       if (message && !state.notifications?.includes(message)) {
         state.notifications = [...state.notifications ?? [], message];
         try {
@@ -329,36 +330,43 @@ function createBootstrap(d) {
         }
       }
       state.start = { status: "done" };
-      if (d.mode === "bootstrap") {
-        const cli = env.ORCA_CLI_COMMAND || "orca";
-        const status = JSON.parse(await exec(cli, ["status", "--json"], env, 30000));
-        const session = status.caller?.orcaSessionId || status.result?.caller?.orcaSessionId;
-        if (typeof session !== "string" || !session)
-          throw new Error("Could not identify the Orca session to open the dashboard.");
-        if (!state.dashboardSessions?.includes(session)) {
-          state.dashboardSessions = [...state.dashboardSessions ?? [], session].slice(-20);
-          await ctx.host.call("storage.set", { key: "bootstrap", value: state });
-          const result = JSON.parse(await exec(cli, ["terminal", "create", "--worktree", "active", "--title", "pacer", "--command", shellCommand([binary, "dashboard"]), "--json"], env, 30000));
-          if (result.ok !== true)
-            throw new Error(result.error?.message || "Could not open the pacer terminal.");
-          state.dashboardReadySessions = [...state.dashboardReadySessions ?? [], session].slice(-20);
-        }
-        if (!state.dashboardReadySessions?.includes(session))
-          throw new Error("The pacer terminal could not open. Run pacer dashboard in a terminal.");
-        state.dashboardOpened = true;
-        await changed(ctx, onChange);
-        if (state.handoffVersion !== d.version) {
-          try {
-            await exec(binary, ["plugin", "install"], env, 30000);
-            state.handoffVersion = d.version;
-          } catch (e) {
-            ctx.log(`pacer sidebar preparation: ${e.message}`);
-            state.failures = (state.failures ?? []).filter((at) => now() - at < 3600);
-            state.failures.push(now());
-            state.nextAt = state.failures.length >= 5 ? state.failures[0] + 3600 : now() + 60;
+      if (d.mode === "bootstrap")
+        try {
+          const cli = env.ORCA_CLI_COMMAND || "orca";
+          const status = JSON.parse(await exec(cli, ["status", "--json"], env, 30000));
+          const pid = status.result?.app?.pid ?? status.app?.pid;
+          const session = typeof pid === "number" ? `pid:${pid}` : status.result?.runtime?.runtimeId;
+          if (typeof session !== "string" || !session)
+            throw new Error("Could not identify the Orca session to open the dashboard.");
+          if (!state.dashboardSessions?.includes(session)) {
+            state.dashboardSessions = [...state.dashboardSessions ?? [], session].slice(-20);
+            await ctx.host.call("storage.set", { key: "bootstrap", value: state });
+            const result = JSON.parse(await exec(cli, ["terminal", "create", "--worktree", "active", "--title", "pacer", "--command", shellCommand([binary, "dashboard"]), "--json"], env, 30000));
+            if (result.ok !== true)
+              throw new Error(result.error?.message || "Could not open the pacer terminal.");
+            state.dashboardReadySessions = [...state.dashboardReadySessions ?? [], session].slice(-20);
           }
+          if (!state.dashboardReadySessions?.includes(session))
+            throw new Error("The pacer terminal could not open. Run pacer dashboard in a terminal.");
+          state.dashboardOpened = true;
+          state.dashboardFailed = false;
+          await changed(ctx, onChange);
+          if (state.handoffVersion !== d.version) {
+            try {
+              await exec(binary, ["plugin", "install"], env, 30000);
+              state.handoffVersion = d.version;
+            } catch (e) {
+              ctx.log(`pacer sidebar preparation: ${e.message}`);
+              state.failures = (state.failures ?? []).filter((at) => now() - at < 3600);
+              state.failures.push(now());
+              state.nextAt = state.failures.length >= 5 ? state.failures[0] + 3600 : now() + 60;
+            }
+          }
+        } catch (e) {
+          ctx.log(`pacer dashboard: ${e.message}`);
+          state.dashboardFailed = true;
+          await changed(ctx, onChange);
         }
-      }
     } catch (e) {
       const message = e.message;
       const unpublished = message.includes("HTTP 404");
