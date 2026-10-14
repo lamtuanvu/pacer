@@ -70,7 +70,7 @@ test("explicit planner overrides discovery priority and is excluded from routing
   const s = validateStrategy(Bun.YAML.parse(starterStrategy(d, "codex")), "/test");
   expect(s.planner).toBe("codex");
   expect(s.routing[0].executors).toEqual(["claude-code"]);
-  expect(() => starterStrategy(d, "cursor")).toThrow();
+  expect(validateStrategy(Bun.YAML.parse(starterStrategy(d, "cursor")), "/test").planner).toBe("cursor");
 });
 
 test("LM Studio falls back to first llm and local providers require opencode and a model", async () => {
@@ -107,22 +107,12 @@ test("existing strategy is unchanged without force and force creates collision-s
   expect(readFileSync(join(ctx.pacerHome, `${backup}-2`), "utf8")).toBe(generated);
 });
 
-test("no planner and planner-only detection fail without writing or backing up", async () => {
-  for (const [bins, error] of [
-    [["agy"], "no planner CLI"], [["claude"], "install at least one executor CLI"], [["opencode"], "install at least one executor CLI"],
-  ] as const) {
-    const ctx = detectedCtx([...bins]);
-    const result = await initCmd(ctx, {});
-    expect(result.code).toBe(1);
-    expect(result.err).toContain(error);
-    expect(existsSync(join(ctx.pacerHome, "strategy.yaml"))).toBe(false);
+test("no planner and planner-only detection write valid starters", async () => {
+  for (const bins of [[], ["agy"], ["claude"], ["opencode"]]) {
+    const ctx = detectedCtx(bins);
+    expect((await initCmd(ctx)).code).toBe(0);
+    validateStrategy(Bun.YAML.parse(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")), "/test");
   }
-  const ctx = detectedCtx(["claude"]);
-  mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "old");
-  expect((await initCmd(ctx, { force: true })).code).toBe(1);
-  expect(readdirSync(ctx.pacerHome)).toEqual(["strategy.yaml"]);
-  expect(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")).toBe("old");
 });
 
 test("forced init copies the original to the shared backup helper destination", async () => {

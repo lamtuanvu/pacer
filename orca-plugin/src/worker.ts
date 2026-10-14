@@ -1,3 +1,4 @@
+import { writeLiveHeartbeat, removeLiveHeartbeat } from "../../src/plugin/live";
 import { checkForUpdate, readUpdateCheck } from "../../src/update/check";
 import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -107,5 +108,13 @@ const plugin = createPlugin({
     },
   },
 });
-export default async function activate(ctx: OrcaWorkerContext): Promise<void> { log = message => ctx.log(message); await plugin.activate(ctx); }
-export async function deactivate(): Promise<void> { await plugin.deactivate(); }
+let liveTimer: ReturnType<typeof setInterval> | undefined;
+export default async function activate(ctx: OrcaWorkerContext): Promise<void> {
+  log = message => ctx.log(message);
+  if (pluginMode(pluginRoot, { exists: existsSync }) === "live") {
+    const heartbeat = () => { try { writeLiveHeartbeat(pacerHome, { version: PLUGIN_VERSION, pid: process.pid, at: Date.now() / 1000 }); } catch (e) { log(`pacer heartbeat: ${e}`); } };
+    heartbeat(); liveTimer = setInterval(heartbeat, 30_000);
+  }
+  await plugin.activate(ctx);
+}
+export async function deactivate(): Promise<void> { clearInterval(liveTimer); removeLiveHeartbeat(pacerHome, process.pid); await plugin.deactivate(); }

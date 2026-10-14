@@ -23,7 +23,7 @@ test("shipped bootstrap panel shows one-time steps without terminal actions",asy
  expect(panel).not.toContain("terminal.sendText");expect(panel).not.toContain("postMessage");expect(panel).not.toContain("<button");
  expect(panel).toContain("console-spinner");expect(panel).toContain("Installing pacer in the background… 0:00");expect(panel).toContain("Taking longer than usual");
  // A manual CLI path is always on the page, and opens itself when setup takes too long.
- expect(panel).toContain("Setup not finishing? Do it by hand");expect(panel).toContain("install.sh | sh");expect(panel).toContain("~/.local/bin/pacer setup");expect(panel).toContain("~/.local/bin/pacer dashboard");expect(panel).toContain('getElementById("manual").open = true');
+ expect(panel).toContain("Setup not finishing? Do it by hand");expect(panel).toContain("install.sh | sh");expect(panel).toContain("~/.local/bin/pacer init");expect(panel).toContain("~/.local/bin/pacer dashboard");expect(panel).toContain('getElementById("manual").open = true');
 });
 
 test("marker detection opts only pacer-managed folders into live mode", async()=>{

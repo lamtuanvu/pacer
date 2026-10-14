@@ -44,7 +44,7 @@ test("install and uninstall reject an unknown or missing planner with code 2", a
 test("help lists install, uninstall, init and doctor", async () => {
   const result = await main(["help"], fakeCtx());
   expect(result.code).toBe(0);
-  for (const usage of ["install <planner> [--mcp|--no-mcp]", "uninstall <planner>", "init [--force] [--planner <p>]", "doctor [--json]"]) {
+  for (const usage of ["install <planner> [--mcp|--no-mcp]", "uninstall <planner>", "init [--planner <id>] [--yes] [--agents a,b] [--no-dashboard] [--json]", "doctor [--json]"]) {
     expect(result.out).toContain(usage.padEnd(47));
   }
 });
@@ -74,7 +74,12 @@ test("doctor reports failed checks with exit 1 in text and JSON", async () => {
 
 test("init and internal activity dispatch write their outputs in the context home", async () => {
   const ctx = fakeCtx();
-  expect((await main(["init", "--planner", "codex"], ctx)).code).toBe(0);
+  // Service is already installed in this isolated fixture; no manager registration.
+  mkdirSync(join(ctx.home, "Library/LaunchAgents"), { recursive: true });
+  mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
+  writeFileSync(join(ctx.home, "Library/LaunchAgents/com.pacer.serve.plist"), "fixture");
+  writeFileSync(join(ctx.home, ".config/systemd/user/pacer-serve.service"), "fixture");
+  expect((await main(["init", "--planner", "codex", "--no-dashboard"], ctx)).code).toBe(0);
   expect(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")).toContain("planner: codex");
   expect((await main(["_activity"], ctx)).code).toBe(0);
   expect(existsSync(join(ctx.pacerHome, "activity.json"))).toBe(true);

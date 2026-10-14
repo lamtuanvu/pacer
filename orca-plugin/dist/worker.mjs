@@ -1,6 +1,37 @@
+// src/plugin/live.ts
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+function readLiveHeartbeat(pacerHome, now = Date.now() / 1000) {
+  try {
+    const value = JSON.parse(readFileSync(join(pacerHome, "plugin-live.json"), "utf8"));
+    return typeof value.version === "string" && Number.isInteger(value.pid) && typeof value.at === "number" && now >= value.at && now - value.at < 90 ? value : null;
+  } catch {
+    return null;
+  }
+}
+function writeLiveHeartbeat(pacerHome, heartbeat) {
+  mkdirSync(pacerHome, { recursive: true });
+  const path = join(pacerHome, "plugin-live.json"), temp = `${path}.${heartbeat.pid}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(heartbeat));
+    renameSync(temp, path);
+  } finally {
+    try {
+      unlinkSync(temp);
+    } catch {}
+  }
+}
+function removeLiveHeartbeat(pacerHome, pid) {
+  try {
+    const path = join(pacerHome, "plugin-live.json");
+    if (JSON.parse(readFileSync(path, "utf8")).pid === pid)
+      unlinkSync(path);
+  } catch {}
+}
+
 // src/update/check.ts
-import { mkdirSync, readFileSync as readFileSync2, writeFileSync, renameSync } from "node:fs";
-import { join as join2 } from "node:path";
+import { mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2, renameSync as renameSync2 } from "node:fs";
+import { join as join3 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/update/errors.ts
@@ -9,15 +40,15 @@ class ReleaseError extends Error {
 }
 
 // src/update/version.ts
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync as readFileSync2 } from "node:fs";
+import { join as join2 } from "node:path";
 var DEV_VERSION = "0.0.0-dev";
 var SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 function currentVersion() {
   if (typeof PACER_BUILD_VERSION === "string")
     return PACER_BUILD_VERSION;
   try {
-    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync2(join2(import.meta.dir, "..", "..", "package.json"), "utf8"));
     return typeof pkg.version === "string" && SEMVER.test(pkg.version) ? pkg.version : DEV_VERSION;
   } catch {
     return DEV_VERSION;
@@ -164,10 +195,10 @@ function updateChecksEnabled(ctx) {
   try {
     let active = "";
     try {
-      active = readFileSync2(join2(ctx.pacerHome, "active"), "utf8").trim();
+      active = readFileSync3(join3(ctx.pacerHome, "active"), "utf8").trim();
     } catch {}
-    const path = active && /^[\w-]+$/.test(active) ? join2(ctx.pacerHome, "strategies", `${active}.yaml`) : join2(ctx.pacerHome, "strategy.yaml");
-    return !/^update_check:\s*false\s*(?:#.*)?$/m.test(readFileSync2(path, "utf8"));
+    const path = active && /^[\w-]+$/.test(active) ? join3(ctx.pacerHome, "strategies", `${active}.yaml`) : join3(ctx.pacerHome, "strategy.yaml");
+    return !/^update_check:\s*false\s*(?:#.*)?$/m.test(readFileSync3(path, "utf8"));
   } catch {
     return true;
   }
@@ -176,7 +207,7 @@ function readUpdateCheck(ctx, current = currentVersion()) {
   if (!updateChecksEnabled(ctx))
     return null;
   try {
-    const v = JSON.parse(readFileSync2(join2(ctx.pacerHome, "update-check.json"), "utf8"));
+    const v = JSON.parse(readFileSync3(join3(ctx.pacerHome, "update-check.json"), "utf8"));
     if (!Number.isFinite(v.checkedAt) || v.latest !== null && !isVersion(v.latest))
       return null;
     return { ...v, current };
@@ -214,18 +245,18 @@ async function checkForUpdate(ctx, options = {}) {
   }
   if (!(("readOnly" in ctx) && ctx.readOnly))
     try {
-      mkdirSync(ctx.pacerHome, { recursive: true });
-      const path = join2(ctx.pacerHome, "update-check.json"), temp = `${path}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
-      writeFileSync(temp, JSON.stringify(result) + `
+      mkdirSync2(ctx.pacerHome, { recursive: true });
+      const path = join3(ctx.pacerHome, "update-check.json"), temp = `${path}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+      writeFileSync2(temp, JSON.stringify(result) + `
 `);
-      renameSync(temp, path);
+      renameSync2(temp, path);
     } catch {}
   return result;
 }
 
 // orca-plugin/src/worker.ts
 import { execFile as execFile2 } from "node:child_process";
-import { mkdirSync as mkdirSync3 } from "node:fs";
+import { mkdirSync as mkdirSync4 } from "node:fs";
 // package.json
 var package_default = {
   name: "pacer",
@@ -235,7 +266,7 @@ var package_default = {
     "@types/bun": "^1.4.2",
     typescript: "^7.0.2"
   },
-  version: "0.1.21",
+  version: "0.1.22",
   bin: {
     pacer: "src/cli.ts"
   },
@@ -283,11 +314,26 @@ var package_default = {
 };
 
 // orca-plugin/src/mode.ts
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 function pluginMode(pluginRoot, fs) {
-  return fs.exists(join3(pluginRoot, ".pacer-managed")) ? "live" : "bootstrap";
+  return fs.exists(join4(pluginRoot, ".pacer-managed")) ? "live" : "bootstrap";
 }
 
+// orca-plugin/src/worktree.ts
+async function resolveFocusedWorktree(host, exec, cli) {
+  const context = await host.call("workspace.readContext");
+  if (!context?.branch)
+    return null;
+  if (context.worktreeId)
+    return { id: context.worktreeId };
+  const reply = JSON.parse(await exec(cli, ["worktree", "list", "--json"]));
+  if (reply.ok === false)
+    throw new Error(reply.error?.message || "Could not list Orca worktrees");
+  const matches = (reply.result?.worktrees ?? []).filter((w) => typeof w.id === "string" && w.branch === context.branch && w.displayName === context.displayName);
+  const activity = (at) => typeof at === "number" ? at : typeof at === "string" ? Date.parse(at) || 0 : 0;
+  matches.sort((a, b) => activity(b.lastActivityAt) - activity(a.lastActivityAt));
+  return matches.length ? { id: matches[0].id } : null;
+}
 // src/install/fsx.ts
 function shq(s) {
   return /^[A-Za-z0-9_\/.:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
@@ -299,43 +345,43 @@ function shellCommand(argv) {
 // orca-plugin/src/bootstrap.ts
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { accessSync, constants, existsSync as existsSync2, mkdirSync as mkdirSync2, renameSync as renameSync2, chmodSync, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { accessSync, constants, existsSync as existsSync2, mkdirSync as mkdirSync3, renameSync as renameSync3, chmodSync, unlinkSync as unlinkSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join as join5, delimiter } from "node:path";
+import { join as join6, delimiter } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/install/detection.ts
-import { existsSync, readdirSync, readFileSync as readFileSync3 } from "node:fs";
-import { join as join4 } from "node:path";
+import { existsSync, readdirSync, readFileSync as readFileSync4 } from "node:fs";
+import { join as join5 } from "node:path";
 var AGENT_BINS = { "claude-code": ["claude"], codex: ["codex"], cursor: ["cursor-agent", "cursor"], opencode: ["opencode"] };
 var names = { "claude-code": "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode" };
 function agentPlans(home, pacerHome, which, env = {}) {
   let installed = {};
   try {
-    installed = JSON.parse(readFileSync3(join4(pacerHome, "install-manifest.json"), "utf8")).planners ?? {};
+    installed = JSON.parse(readFileSync4(join5(pacerHome, "install-manifest.json"), "utf8")).planners ?? {};
   } catch {}
   return Object.keys(AGENT_BINS).filter((id) => AGENT_BINS[id].some((bin) => which(bin))).map((id) => {
-    const root = id === "opencode" ? join4(env.XDG_CONFIG_HOME || join4(home, ".config"), "opencode") : join4(home, id === "claude-code" ? ".claude" : `.${id}`);
+    const root = id === "opencode" ? join5(env.XDG_CONFIG_HOME || join5(home, ".config"), "opencode") : join5(home, id === "claude-code" ? ".claude" : `.${id}`);
     const skillRoot = id === "codex" ? env.CODEX_HOME || root : root;
-    const files = [join4(skillRoot, "skills/pacer/SKILL.md"), ...{
-      "claude-code": [join4(root, "rules/pacer.md"), join4(root, "settings.json")],
-      codex: [join4(root, "AGENTS.md"), join4(root, "hooks.json")],
-      cursor: [join4(root, "hooks.json")],
-      opencode: [join4(root, "AGENTS.md")]
+    const files = [join5(skillRoot, "skills/pacer/SKILL.md"), ...{
+      "claude-code": [join5(root, "rules/pacer.md"), join5(root, "settings.json")],
+      codex: [join5(root, "AGENTS.md"), join5(root, "hooks.json")],
+      cursor: [join5(root, "hooks.json")],
+      opencode: [join5(root, "AGENTS.md")]
     }[id]];
     if (id === "claude-code") {
       try {
-        const command = JSON.parse(readFileSync3(join4(root, "settings.json"), "utf8")).statusLine?.command;
+        const command = JSON.parse(readFileSync4(join5(root, "settings.json"), "utf8")).statusLine?.command;
         if (typeof command === "string" && !/\s/.test(command)) {
           const path = command.replace(/^~(?=\/)/, home).replace(/^\$HOME(?=\/)/, home);
-          if (path.startsWith("/") && existsSync(path) && /^input=\$\(cat\)\s*$/m.test(readFileSync3(path, "utf8")))
+          if (path.startsWith("/") && existsSync(path) && /^input=\$\(cat\)\s*$/m.test(readFileSync4(path, "utf8")))
             files.push(path);
         }
       } catch {}
-      files.push(...["scripts/budget/budget_status.py", "scripts/budget/subagent_guard.py", "scripts/budget/budget-status", "rules/model-delegation.md"].map((p) => join4(root, p)).filter(existsSync));
-      const delegation = join4(root, "agents/delegation");
+      files.push(...["scripts/budget/budget_status.py", "scripts/budget/subagent_guard.py", "scripts/budget/budget-status", "rules/model-delegation.md"].map((p) => join5(root, p)).filter(existsSync));
+      const delegation = join5(root, "agents/delegation");
       if (existsSync(delegation))
-        files.push(...readdirSync(delegation).filter((p) => p.endsWith(".md")).sort().map((p) => join4(delegation, p)));
+        files.push(...readdirSync(delegation).filter((p) => p.endsWith(".md")).sort().map((p) => join5(delegation, p)));
     }
     return { id, name: names[id], installed: !!installed[id], files, undo: `pacer uninstall ${id}` };
   });
@@ -343,7 +389,6 @@ function agentPlans(home, pacerHome, which, env = {}) {
 
 // orca-plugin/src/bootstrap.ts
 var GITHUB_RELEASES = "https://github.com/lamtuanvu/pacer/releases";
-var MANUAL_HINT = 'to set it up by hand, open the pacer panel and expand "Setup not finishing?"';
 var UNPUBLISHED = "pacer isn't published yet. Set the release folder in plugin settings or install pacer manually";
 var MANUAL_INSTALL = "curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh";
 function cleanEnv(env) {
@@ -389,7 +434,7 @@ function runFile(bin, args, env, timeout) {
 }
 function which(bin, env) {
   for (const dir of (env.PATH || "").split(delimiter).filter(Boolean)) {
-    const path = join5(dir, bin);
+    const path = join6(dir, bin);
     try {
       accessSync(path, constants.X_OK);
       return path;
@@ -397,30 +442,32 @@ function which(bin, env) {
   }
   return null;
 }
+function resolveOrcaCli(env) {
+  return env.ORCA_CLI_COMMAND || which("orca", env) || (existsSync2("/Applications/Orca.app/Contents/Resources/bin/orca") ? "/Applications/Orca.app/Contents/Resources/bin/orca" : "orca");
+}
 function createBootstrap(d) {
   const now = d.now ?? (() => Date.now() / 1000), exec = d.exec ?? runFile, env = cleanEnv(d.env);
-  const home = d.home, pacerHome = join5(home, ".pacer"), platform = d.platform ?? process.platform;
+  const home = d.home, pacerHome = join6(home, ".pacer"), platform = d.platform ?? process.platform;
   let state = { install: { status: "pending" }, start: { status: "pending" }, agents: [] };
   let running = null, terminalRunning = false, stopped = false, probedAt = -Infinity;
   const changed = async (ctx, onChange) => {
     if (d.mode === "bootstrap") {
-      const failed = state.install.status === "failed" ? state.install.detail === UNPUBLISHED ? UNPUBLISHED : `pacer couldn't install. It retries shortly; ${MANUAL_HINT}` : state.start.status === "failed" ? `pacer couldn't start. It retries shortly; ${MANUAL_HINT}` : undefined;
-      const message = failed || (state.start.status === "done" && state.dashboardOpened ? "pacer is running in the pacer terminal tab." : state.start.status === "done" && state.dashboardFailed ? "pacer is running, but Orca couldn't open its terminal. Run ~/.local/bin/pacer dashboard in any terminal." : state.install.status === "pending" ? "Installing pacer…" : null);
-      if (message && !state.notifications?.includes(message)) {
-        state.notifications = [...state.notifications ?? [], message];
-        try {
-          await ctx.host.call("storage.set", { key: "bootstrap", value: state });
-        } catch {}
-        try {
-          await ctx.host.call("notifications.show", { title: message });
-        } catch {}
-      }
+      const message = state.install.status === "failed" || state.start.status === "failed" ? `pacer setup couldn't open. Run ${state.binary || "~/.local/bin/pacer"} init in a terminal. ${state.install.detail || ""}` : null;
+      if (message)
+        await notify(ctx, message, `failure:${d.version}`);
     }
     onChange();
     try {
       await ctx.host.call("storage.set", { key: "bootstrap", value: state });
     } catch {}
   };
+  async function notify(ctx, message, key = message) {
+    if (state.notifications?.includes(key))
+      return;
+    state.notifications = [...state.notifications ?? [], key];
+    await ctx.host.call("storage.set", { key: "bootstrap", value: state });
+    await ctx.host.call("notifications.show", { title: message }).catch(() => {});
+  }
   async function activate(ctx) {
     stopped = false;
     try {
@@ -430,14 +477,41 @@ function createBootstrap(d) {
     } catch {}
   }
   async function cycle(ctx, onChange) {
-    if (stopped || now() < (state.nextAt ?? 0))
+    if (stopped)
+      return;
+    if (d.mode === "live") {
+      if (now() < (state.nextAt ?? 0))
+        return;
+      state.nextAt = now() + 30;
+      const binary = env.PACER_BIN || (existsSync2(join6(home, ".local/bin/pacer")) ? join6(home, ".local/bin/pacer") : which("pacer", env));
+      state.binary = binary ?? undefined;
+      state.install = { status: binary ? "done" : "pending" };
+      try {
+        const service = binary ? JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30000)) : null;
+        state.start = { status: existsSync2(join6(pacerHome, "strategy.yaml")) && service?.installed ? "done" : "pending" };
+      } catch {
+        state.start = { status: "pending", detail: "Run pacer init to finish setup." };
+      }
+      await changed(ctx, onChange);
+      return;
+    }
+    if (readLiveHeartbeat(pacerHome, now())) {
+      state.nextAt = now() + 30;
+      if (state.handoffVersion !== d.version) {
+        state.handoffVersion = d.version;
+        await notify(ctx, "pacer now runs from its live panel. You can uninstall the marketplace copy in Orca Settings > Plugins.", `live:${d.version}`);
+      }
+      await changed(ctx, onChange);
+      return;
+    }
+    if (now() < (state.nextAt ?? 0))
       return;
     state.nextAt = now() + 600;
     let step = "install";
     try {
       const settings = await ctx.host.call("settings.get").catch(() => ({ settings: {} }));
       const base = releaseBase(settings.settings.releaseBase, env);
-      let binary = env.PACER_BIN || (existsSync2(join5(home, ".local/bin/pacer")) ? join5(home, ".local/bin/pacer") : which("pacer", env));
+      let binary = env.PACER_BIN || (existsSync2(join6(home, ".local/bin/pacer")) ? join6(home, ".local/bin/pacer") : which("pacer", env));
       state.install = { status: "pending" };
       state.start = { status: "pending" };
       await changed(ctx, onChange);
@@ -452,19 +526,19 @@ function createBootstrap(d) {
         const bytes = await download(releaseURL(base, d.version, name), d.fetch, signal);
         if (createHash("sha256").update(bytes).digest("hex") !== match[1].toLowerCase())
           throw new Error("The pacer download failed its checksum check.");
-        const dir = join5(home, ".local/bin");
-        mkdirSync2(dir, { recursive: true });
-        const temporary = join5(dir, `.pacer-${randomUUID()}.tmp`);
+        const dir = join6(home, ".local/bin");
+        mkdirSync3(dir, { recursive: true });
+        const temporary = join6(dir, `.pacer-${randomUUID()}.tmp`);
         try {
-          writeFileSync2(temporary, bytes, { flag: "wx", mode: 384 });
+          writeFileSync3(temporary, bytes, { flag: "wx", mode: 384 });
           chmodSync(temporary, 493);
-          renameSync2(temporary, join5(dir, "pacer"));
+          renameSync3(temporary, join6(dir, "pacer"));
         } finally {
           try {
-            unlinkSync(temporary);
+            unlinkSync2(temporary);
           } catch {}
         }
-        binary = join5(dir, "pacer");
+        binary = join6(dir, "pacer");
       } else {
         const output = (await exec(binary, ["--version"], env, 30000)).trim().replace(/^pacer\s+/, "");
         if (isVersion(output) && !output.includes("dev") && compareVersions(output, d.version) < 0) {
@@ -476,73 +550,30 @@ function createBootstrap(d) {
       step = "start";
       state.start = { status: "pending" };
       await changed(ctx, onChange);
-      if (!existsSync2(join5(pacerHome, "strategy.yaml")))
-        await exec(binary, ["init"], env, 30000);
-      const status = JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30000));
-      if (!status.installed)
-        await exec(binary, ["service", "install"], env, 30000);
-      const port = typeof settings.settings.port === "number" ? settings.settings.port : 4317;
-      const health = async () => {
-        try {
-          const r = await (d.fetch ?? fetch)(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1500) });
-          return r.ok && r.headers.get("x-pacer") === "1";
-        } catch {
-          return false;
-        }
-      };
-      if (!await health()) {
-        await (d.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(15000);
-        if (stopped)
-          return;
-        if (!await health()) {
-          state.restarts = (state.restarts ?? []).filter((at) => now() - at < 3600);
-          if (status.installed && state.restarts.length < 5 && now() - (state.restarts.at(-1) ?? -Infinity) >= 60) {
-            state.restarts.push(now());
-            await changed(ctx, onChange);
-            await exec(binary, ["service", "restart"], env, 30000);
-          }
-          if (!await health())
-            throw new Error("pacer is starting. Try again shortly.");
-        }
+      const cli = resolveOrcaCli(env);
+      const focused = await resolveFocusedWorktree(ctx.host, (bin, args) => exec(bin, args, env, 30000), cli);
+      if (!focused) {
+        state.nextAt = now() + 30;
+        return;
+      }
+      const service = JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30000));
+      const command = existsSync2(join6(pacerHome, "strategy.yaml")) && service.installed ? "dashboard" : "init";
+      const status = JSON.parse(await exec(cli, ["status", "--json"], env, 30000));
+      const pid = status.result?.app?.pid ?? status.app?.pid;
+      if (typeof pid !== "number")
+        throw new Error("Could not identify the Orca launch.");
+      const session = `pid:${pid}`;
+      if (!state.dashboardSessions?.includes(session)) {
+        state.dashboardSessions = [...state.dashboardSessions ?? [], session].slice(-20);
+        await ctx.host.call("storage.set", { key: "bootstrap", value: state });
+        const result = JSON.parse(await exec(cli, ["terminal", "create", "--worktree", `id:${focused.id}`, "--title", "pacer", "--command", shellCommand([binary, command]), "--json"], env, 30000));
+        if (result.ok !== true)
+          throw new Error(result.error?.message || "Could not open the pacer terminal.");
+        state.dashboardReadySessions = [...state.dashboardReadySessions ?? [], session].slice(-20);
       }
       state.start = { status: "done" };
-      if (d.mode === "bootstrap")
-        try {
-          const cli = env.ORCA_CLI_COMMAND || "orca";
-          const status = JSON.parse(await exec(cli, ["status", "--json"], env, 30000));
-          const pid = status.result?.app?.pid ?? status.app?.pid;
-          const session = typeof pid === "number" ? `pid:${pid}` : status.result?.runtime?.runtimeId;
-          if (typeof session !== "string" || !session)
-            throw new Error("Could not identify the Orca session to open the dashboard.");
-          if (!state.dashboardSessions?.includes(session)) {
-            state.dashboardSessions = [...state.dashboardSessions ?? [], session].slice(-20);
-            await ctx.host.call("storage.set", { key: "bootstrap", value: state });
-            const result = JSON.parse(await exec(cli, ["terminal", "create", "--worktree", "active", "--title", "pacer", "--command", shellCommand([binary, "dashboard"]), "--json"], env, 30000));
-            if (result.ok !== true)
-              throw new Error(result.error?.message || "Could not open the pacer terminal.");
-            state.dashboardReadySessions = [...state.dashboardReadySessions ?? [], session].slice(-20);
-          }
-          if (!state.dashboardReadySessions?.includes(session))
-            throw new Error("The pacer terminal could not open. Run pacer dashboard in a terminal.");
-          state.dashboardOpened = true;
-          state.dashboardFailed = false;
-          await changed(ctx, onChange);
-          if (state.handoffVersion !== d.version) {
-            try {
-              await exec(binary, ["plugin", "install"], env, 30000);
-              state.handoffVersion = d.version;
-            } catch (e) {
-              ctx.log(`pacer sidebar preparation: ${e.message}`);
-              state.failures = (state.failures ?? []).filter((at) => now() - at < 3600);
-              state.failures.push(now());
-              state.nextAt = state.failures.length >= 5 ? state.failures[0] + 3600 : now() + 60;
-            }
-          }
-        } catch (e) {
-          ctx.log(`pacer dashboard: ${e.message}`);
-          state.dashboardFailed = true;
-          await changed(ctx, onChange);
-        }
+      state.dashboardOpened = state.dashboardReadySessions?.includes(session);
+      state.dashboardFailed = !state.dashboardOpened;
     } catch (e) {
       const message = e.message;
       const unpublished = message.includes("HTTP 404");
@@ -593,7 +624,7 @@ function createBootstrap(d) {
           if (candidate.writable === false || candidate.agent || /^pacer(?: console)?$/.test(candidate.title ?? ""))
             continue;
           try {
-            const reply = JSON.parse(await exec(env.ORCA_CLI_COMMAND || "orca", ["terminal", "show", "--terminal", candidate.id, "--json"], env, 30000));
+            const reply = JSON.parse(await exec(resolveOrcaCli(env), ["terminal", "show", "--terminal", candidate.id, "--json"], env, 30000));
             const terminal = reply.result?.terminal;
             if (reply.ok && terminal?.connected && terminal.writable && !terminal.agent && !terminal.agentSessionId && !/^pacer(?: console)?$/.test(terminal.title ?? ""))
               available = candidate;
@@ -608,14 +639,17 @@ function createBootstrap(d) {
           return;
         }
         state.terminal = undefined;
-        const id = context.worktreeId || context.branch;
+        const focused = await resolveFocusedWorktree(ctx.host, (bin, args) => exec(bin, args, env, 30000), resolveOrcaCli(env));
+        if (!focused)
+          return;
+        const id = focused.id;
         state.terminalAttempts ??= {};
         if (now() - (state.terminalAttempts[id] ?? -Infinity) < 600)
           return;
         state.terminalAttempts[id] = now();
         state.opening = true;
         await changed(ctx, onChange);
-        await exec(env.ORCA_CLI_COMMAND || "orca", ["terminal", "create", "--worktree", "active", "--title", "pacer setup", "--json"], env, 30000);
+        await exec(resolveOrcaCli(env), ["terminal", "create", "--worktree", `id:${id}`, "--title", "pacer setup", "--json"], env, 30000);
       } catch (e) {
         state.opening = false;
         ctx.log(`pacer setup terminal: ${e.message}`);
@@ -632,8 +666,8 @@ function createBootstrap(d) {
 
 // orca-plugin/src/worker.ts
 import { get, request } from "node:http";
-import { existsSync as existsSync3, readFileSync as readFileSync5, writeFileSync as writeFileSync3, renameSync as renameSync3, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname, join as join7, resolve } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync6, writeFileSync as writeFileSync4, renameSync as renameSync4, unlinkSync as unlinkSync3 } from "node:fs";
+import { dirname, join as join8, resolve } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // orca-plugin/src/updates.ts
@@ -656,7 +690,7 @@ async function notifyUpdates(host, mode, plugin, check, cli) {
 }
 
 // orca-plugin/src/plugin.ts
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 
 // src/link/envelope.ts
 var LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 };
@@ -1829,7 +1863,7 @@ function createPlugin(deps) {
             await deps.bootstrap.run(ctx, () => {});
         };
         run().catch(logError);
-        timers.every(60000, () => {
+        timers.every(30000, () => {
           run().catch(logError);
         });
       }
@@ -1934,7 +1968,7 @@ function createPlugin(deps) {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
-              deps.fs.writeTextAtomic(join6(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
+              deps.fs.writeTextAtomic(join7(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
               renderedKey = key;
               lastRenderAt = nowS;
               userOutcome = false;
@@ -2441,7 +2475,7 @@ var http = {
 var pluginRoot = dirname(fileURLToPath3(import.meta.url));
 var PLUGIN_VERSION = (() => {
   try {
-    const version = JSON.parse(readFileSync5(join7(pluginRoot, "orca-plugin.json"), "utf8")).version;
+    const version = JSON.parse(readFileSync6(join8(pluginRoot, "orca-plugin.json"), "utf8")).version;
     if (isVersion(version))
       return version;
   } catch {}
@@ -2449,19 +2483,19 @@ var PLUGIN_VERSION = (() => {
 })();
 var log = (message) => {};
 var workerEnv = { ...process.env };
-var pacerHome = workerEnv.PACER_HOME || join7(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
+var pacerHome = workerEnv.PACER_HOME || join8(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
 var plugin = createPlugin({
   version: PLUGIN_VERSION,
   cachedUpdate: () => readUpdateCheck({ pacerHome, env: workerEnv }, PLUGIN_VERSION),
   reportVersion(mode, version) {
-    mkdirSync3(pacerHome, { recursive: true });
-    const path = join7(pacerHome, "plugin-version.json"), temp = `${path}.${process.pid}.tmp`;
-    writeFileSync3(temp, JSON.stringify({ mode, version }));
-    renameSync3(temp, path);
+    mkdirSync4(pacerHome, { recursive: true });
+    const path = join8(pacerHome, "plugin-version.json"), temp = `${path}.${process.pid}.tmp`;
+    writeFileSync4(temp, JSON.stringify({ mode, version }));
+    renameSync4(temp, path);
   },
   async checkUpdates() {
     const check = await checkForUpdate({ pacerHome, env: workerEnv, now: Date.now() / 1000 }, { force: true, current: PLUGIN_VERSION });
-    const binary = workerEnv.PACER_BIN || (existsSync3(join7(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join7(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+    const binary = workerEnv.PACER_BIN || (existsSync3(join8(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join8(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
     const cli = await new Promise((resolve) => execFile2(binary, ["--version"], { timeout: 3000, env: workerEnv }, (error, stdout) => resolve(error ? null : stdout.trim().replace(/^pacer\s+/, ""))));
     return { check, cli };
   },
@@ -2474,7 +2508,7 @@ var plugin = createPlugin({
   fs: {
     readText(path) {
       try {
-        return readFileSync5(path, "utf8");
+        return readFileSync6(path, "utf8");
       } catch {
         return null;
       }
@@ -2487,21 +2521,35 @@ var plugin = createPlugin({
       }
       const temporary = `${path}.${process.pid}.tmp`;
       try {
-        writeFileSync3(temporary, text, "utf8");
-        renameSync3(temporary, path);
+        writeFileSync4(temporary, text, "utf8");
+        renameSync4(temporary, path);
       } finally {
         try {
-          unlinkSync2(temporary);
+          unlinkSync3(temporary);
         } catch {}
       }
     }
   }
 });
+var liveTimer;
 async function activate(ctx) {
   log = (message) => ctx.log(message);
+  if (pluginMode(pluginRoot, { exists: existsSync3 }) === "live") {
+    const heartbeat = () => {
+      try {
+        writeLiveHeartbeat(pacerHome, { version: PLUGIN_VERSION, pid: process.pid, at: Date.now() / 1000 });
+      } catch (e) {
+        log(`pacer heartbeat: ${e}`);
+      }
+    };
+    heartbeat();
+    liveTimer = setInterval(heartbeat, 30000);
+  }
   await plugin.activate(ctx);
 }
 async function deactivate() {
+  clearInterval(liveTimer);
+  removeLiveHeartbeat(pacerHome, process.pid);
   await plugin.deactivate();
 }
 export {

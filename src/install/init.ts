@@ -42,9 +42,9 @@ export async function detect(ctx: Ctx): Promise<Detection> {
 }
 
 export function starterStrategy(d: Detection, planner?: string): string {
-  const selected = planner ?? PLANNERS.find((p) => d.clis[PLANNER_BINS[p]]);
+  const selected = planner ?? PLANNERS.find((p) => d.clis[PLANNER_BINS[p]]) ?? "claude-code";
   if (!selected) throw new Error("no planner CLI detected; install claude, codex, cursor-agent or opencode");
-  if (!(PLANNERS as readonly string[]).includes(selected) || !d.clis[PLANNER_BINS[selected]]) {
+  if (!(PLANNERS as readonly string[]).includes(selected)) {
     throw new Error(`planner ${selected} is unknown or its CLI is missing`);
   }
   const providers: Record<string, string> = {};
@@ -58,7 +58,12 @@ export function starterStrategy(d: Detection, planner?: string): string {
     if (d.clis.lms && d.lmstudioModel) providers.lmstudio = `{via: opencode, model: ${JSON.stringify(`lmstudio/${d.lmstudioModel}`)}, usage: unmetered}`;
   }
   const executors = ["codex", "cursor", "agy", "byteplus", "ollama", "lmstudio", "claude-code"].filter((p) => p !== selected && Object.hasOwn(providers, p));
-  if (!executors.length) throw new Error("install at least one executor CLI");
+  // Keep a valid editable starter even before an executor is installed.
+  if (!executors.length) {
+    const fallback = selected === "codex" ? "claude-code" : "codex";
+    providers[fallback] = fallback === "codex" ? "{usage: quota, allow_paid: false}" : "{usage: quota}";
+    executors.push(fallback);
+  }
   return [
     `planner: ${selected}`,
     "providers:",

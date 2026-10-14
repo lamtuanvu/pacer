@@ -4,6 +4,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.22] - 2026-10-14
+
+- Make `pacer init` the complete, consent-based setup flow with planner selection, agent connections and live panel guidance; `setup` is an alias.
+- Open setup or dashboard in the focused Orca worktree once per launch, and retire marketplace automation when the live panel connects.
+- Add a live heartbeat and a real-Orca bootstrap release harness.
+
 ## [0.1.21] - 2026-10-14
 
 ### Added

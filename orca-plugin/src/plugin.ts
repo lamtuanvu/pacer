@@ -61,7 +61,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         const ready = deps.bootstrap.activate(ctx);
         const run = async () => { await ready; if (!stopped) await deps.bootstrap!.run(ctx, () => {}); };
         void run().catch(logError);
-        timers.every(60000, () => { void run().catch(logError); });
+        timers.every(30000, () => { void run().catch(logError); });
       }
       return;
     }

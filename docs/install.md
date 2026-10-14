@@ -4,50 +4,59 @@ Install the Orca marketplace plugin; it bootstraps pacer in the background.
 
 In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
 install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.21`.
-The worker installs the binary, initializes `~/.pacer`, starts the login service,
-and keeps older binaries updated to the plugin version. It never downgrades.
+bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.22`.
+The worker installs a checksum-verified binary and keeps older binaries updated to
+its version. It never downgrades. Once per Orca launch it opens a terminal titled
+**pacer** in the focused worktree: `pacer init` if strategy or login service setup
+is missing, otherwise `pacer dashboard`. If nothing is focused, it checks again
+every 30 seconds without reserving a terminal. Closing the tab does not reopen it;
+run `pacer init` or `pacer dashboard` manually.
 
-The marketplace panel is a static **Set up pacer** page with an installation
-spinner and elapsed timer. Wait for **Installing pacer…**, then **pacer is
-running in the pacer terminal tab.** The worker opens `pacer dashboard` in a
-terminal titled **pacer** in the active worktree. No manual setup is needed.
-It opens at most once per Orca session, including worker restarts. If you close
-it, run `pacer dashboard` in any terminal to reopen it.
+`pacer init` is the complete setup command. It runs these steps in order:
 
-The worker also runs `pacer plugin install` once per plugin version to prepare
-`~/.pacer/orca-plugin`. For the optional sidebar panel, uninstall the marketplace
-pacer in Orca Settings > Plugins, add that folder under **Development**, then
-enable pacer. Only development-folder panels reload live; marketplace content
-stays integrity checked: [Orca #26951](https://github.com/stablyai/orca/issues/26951).
-The worker never edits Orca settings. `pacer plugin status` reports both copies.
-Agent configurations require explicit consent through the development panel or
-`pacer setup`.
+1. Detect planner CLIs and offer a numbered choice when several are installed.
+   The default is your existing planner, otherwise the first detected. Use
+   `--planner claude-code|codex|cursor|opencode` to choose directly. No agent CLI
+   is required to create a valid starter strategy; the default is claude-code.
+2. Create `~/.pacer/strategy.yaml` if missing. Changing planner updates only its
+   planner line; existing strategy settings are preserved.
+3. Install the login service if missing.
+4. Show each unconnected agent's files and undo command, then ask y/N separately.
+   No agent configuration changes without consent; no MCP servers are added.
+5. If Orca is installed, prepare `~/.pacer/orca-plugin`. Add that folder in Orca
+   **Settings > Plugins > Development > Add folder**, then enable pacer. Init
+   prints the path, copies it on macOS when pbcopy is available, and waits up to
+   five minutes for the live heartbeat. Enter or Ctrl-C skips this wait; finish
+   later with `pacer init`.
+6. Print a summary and open the dashboard in an interactive terminal, unless
+   `--no-dashboard` is supplied.
 
-In the development panel, the live checklist shows **Install pacer**, **Start pacer**, and **Connect your
-agents**. Connecting is your consent to modify the displayed skills, rules and
-hooks in detected agent configs. The worker never edits those configs by itself.
-The button runs `pacer setup --yes`; no MCP servers are added. Afterwards the
-manifest shows connected agents. Use `pacer uninstall <agent>` to undo one.
+Rerunning init skips completed steps. `--yes` consents to all detected agents;
+`--agents claude-code,codex` limits agent selection. Non-TTY runs do not prompt,
+wait or open a dashboard; they set up strategy/service, and connect agents only
+with `--yes` or `--agents`. `--json` returns a machine summary without prompts.
+`pacer setup` remains an alias of `pacer init`.
 
-Set **releaseBase** in the plugin's own settings while GitHub releases are
-unpublished, or for a private release folder. It accepts HTTPS, `file://`, or
-HTTP on `127.0.0.1`/`localhost`. Environment fallback: `PACER_RELEASE_BASE`.
-The layout is `latest.json`, `<version>/SHA256SUMS`, and
-`<version>/pacer-<os>-<arch>`. Every download is checksum verified. A 404 sends
-an unpublished notification in bootstrap mode and retries after ten minutes; other failures get bounded
-60-second retries. **Try again** refreshes the panel; the worker owns retry timing.
+Only development-folder panels refresh live. Once that panel is running, the
+marketplace worker becomes dormant and sends one notification per version:
+“pacer now runs from its live panel. You can uninstall the marketplace copy in
+Orca Settings > Plugins.” Pacer never edits Orca settings or disables a plugin.
+`pacer plugin status` reports both copies. Undo an agent with
+`pacer uninstall <agent>`.
+
+Set **releaseBase** in the plugin settings for a private or unpublished release
+folder. It accepts HTTPS, `file://`, or HTTP on `127.0.0.1`/`localhost`, with
+`PACER_RELEASE_BASE` as fallback. The layout is `latest.json`,
+`<version>/SHA256SUMS`, and `<version>/pacer-<os>-<arch>`. Failures show a manual
+`pacer init` command and use bounded retries. Before a plugin release, run the
+[real-Orca harness](testing/orca-e2e.md).
 
 For a CLI-only installation or manual fallback:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
-pacer setup
+pacer init
 ```
-
-`pacer setup` previews changes and asks y/N in a TTY. Use `--yes` for unattended
-setup, `--agents claude-code,codex` to select agents, and `--json` for a summary.
-Non-TTY setup without `--yes` prints the plan and exits 2 without changes.
 
 
 ## From source
@@ -117,12 +126,11 @@ For npm installs, update with `npm install -g @lamtuanvu/pacer@latest`; for Home
 
 ```sh
 pacer init --planner claude-code
-pacer install claude-code
 pacer doctor
 pacer status --json
 ```
 
-`init` detects tools and requires a supported planner plus at least one executor. It refuses to overwrite an existing strategy unless passed `--force`. Planner choices are `claude-code`, `codex`, `cursor` and `opencode`.
+`init` sets up all components with agent consent. Planner choices are `claude-code`, `codex`, `cursor` and `opencode`; a valid starter can be created before CLIs are installed.
 
 `install` adds the pacer skill and planner policy/hooks with tracked backups. MCP is optional: use `pacer install claude-code --mcp` to register the stdio server, or `--no-mcp` to remove an existing entry. A plain reinstall leaves an existing MCP entry unchanged. Restart an MCP client after updating. `pacer uninstall <planner>` reverses the integration while preserving later user edits.
 

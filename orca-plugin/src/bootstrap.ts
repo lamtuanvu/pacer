@@ -1,3 +1,6 @@
+import { readLiveHeartbeat } from "../../src/plugin/live";
+import { resolveFocusedWorktree } from "./worktree";
+export { resolveFocusedWorktree } from "./worktree";
 import { shellCommand } from "../../src/install/fsx";
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -63,6 +66,9 @@ export function which(bin: string, env: NodeJS.ProcessEnv): string | null {
   }
   return null;
 }
+export function resolveOrcaCli(env: NodeJS.ProcessEnv): string {
+  return env.ORCA_CLI_COMMAND || which("orca", env) || (existsSync("/Applications/Orca.app/Contents/Resources/bin/orca") ? "/Applications/Orca.app/Contents/Resources/bin/orca" : "orca");
+}
 export function createBootstrap(d: BootstrapDeps) {
   const now = d.now ?? (() => Date.now() / 1000), exec = d.exec ?? runFile, env = cleanEnv(d.env);
   const home = d.home, pacerHome = join(home, ".pacer"), platform = d.platform ?? process.platform;
@@ -71,18 +77,17 @@ export function createBootstrap(d: BootstrapDeps) {
   let running: Promise<void> | null = null, terminalRunning = false, stopped = false, probedAt = -Infinity;
   const changed = async (ctx: OrcaWorkerContext, onChange: () => void) => {
     if (d.mode === "bootstrap") {
-      const failed = state.install.status === "failed" ? (state.install.detail === UNPUBLISHED ? UNPUBLISHED : `pacer couldn't install. It retries shortly; ${MANUAL_HINT}`) : state.start.status === "failed" ? `pacer couldn't start. It retries shortly; ${MANUAL_HINT}` : undefined;
-      const message = failed || (state.start.status === "done" && state.dashboardOpened ? "pacer is running in the pacer terminal tab." : state.start.status === "done" && state.dashboardFailed ? "pacer is running, but Orca couldn't open its terminal. Run ~/.local/bin/pacer dashboard in any terminal." : state.install.status === "pending" ? "Installing pacer…" : null);
-      if (message && !state.notifications?.includes(message)) {
-        state.notifications = [...(state.notifications ?? []), message];
-        // Reserve durably before showing: a worker restart must not repeat a milestone.
-        try { await ctx.host.call("storage.set", { key: "bootstrap", value: state }); }
-        catch { /* in-memory deduplication when host storage is unavailable */ }
-        try { await ctx.host.call("notifications.show", { title: message }); } catch { /* optional notification capability */ }
-      }
+      const message = state.install.status === "failed" || state.start.status === "failed" ? `pacer setup couldn't open. Run ${state.binary || "~/.local/bin/pacer"} init in a terminal. ${state.install.detail || ""}` : null;
+      if (message) await notify(ctx, message, `failure:${d.version}`);
     }
     onChange(); try { await ctx.host.call("storage.set", { key: "bootstrap", value: state }); } catch { /* optional host storage */ }
   };
+  async function notify(ctx: OrcaWorkerContext, message: string, key = message) {
+    if (state.notifications?.includes(key)) return;
+    state.notifications = [...(state.notifications ?? []), key];
+    await ctx.host.call("storage.set", { key: "bootstrap", value: state });
+    await ctx.host.call("notifications.show", { title: message }).catch(() => {});
+  }
   async function activate(ctx: OrcaWorkerContext) {
     stopped = false;
     try {
@@ -91,7 +96,28 @@ export function createBootstrap(d: BootstrapDeps) {
     } catch { /* fresh install */ }
   }
   async function cycle(ctx: OrcaWorkerContext, onChange: () => void) {
-    if (stopped || now() < (state.nextAt ?? 0)) return;
+    if (stopped) return;
+    if (d.mode === "live") {
+      if (now() < (state.nextAt ?? 0)) return;
+      state.nextAt = now() + 30;
+      const binary = env.PACER_BIN || (existsSync(join(home, ".local/bin/pacer")) ? join(home, ".local/bin/pacer") : which("pacer", env));
+      state.binary = binary ?? undefined;
+      state.install = { status: binary ? "done" : "pending" };
+      try {
+        const service = binary ? JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30_000)) : null;
+        state.start = { status: existsSync(join(pacerHome, "strategy.yaml")) && service?.installed ? "done" : "pending" };
+      } catch { state.start = { status: "pending", detail: "Run pacer init to finish setup." }; }
+      await changed(ctx, onChange); return;
+    }
+    if (readLiveHeartbeat(pacerHome, now())) {
+      state.nextAt = now() + 30;
+      if (state.handoffVersion !== d.version) {
+        state.handoffVersion = d.version;
+        await notify(ctx, "pacer now runs from its live panel. You can uninstall the marketplace copy in Orca Settings > Plugins.", `live:${d.version}`);
+      }
+      await changed(ctx, onChange); return;
+    }
+    if (now() < (state.nextAt ?? 0)) return;
     state.nextAt = now() + 600;
     let step: "install" | "start" = "install";
     try {
@@ -120,59 +146,26 @@ export function createBootstrap(d: BootstrapDeps) {
       }
       state.binary = binary; state.install = { status: "done" }; step = "start";
       state.start = { status: "pending" }; await changed(ctx, onChange);
-      if (!existsSync(join(pacerHome, "strategy.yaml"))) await exec(binary, ["init"], env, 30_000);
-      const status = JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30_000));
-      if (!status.installed) await exec(binary, ["service", "install"], env, 30_000);
-      const port = typeof settings.settings.port === "number" ? settings.settings.port : 4317;
-      const health = async () => {
-        try { const r = await (d.fetch ?? fetch)(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1500) }); return r.ok && r.headers.get("x-pacer") === "1"; } catch { return false; }
-      };
-      if (!await health()) {
-        await (d.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))))(15_000);
-        if (stopped) return;
-        if (!await health()) {
-          state.restarts = (state.restarts ?? []).filter(at => now() - at < 3600);
-          if (status.installed && state.restarts.length < 5 && now() - (state.restarts.at(-1) ?? -Infinity) >= 60) {
-            state.restarts.push(now()); await changed(ctx, onChange);
-            await exec(binary, ["service", "restart"], env, 30_000);
-          }
-          if (!await health()) throw new Error("pacer is starting. Try again shortly.");
-        }
+      const cli = resolveOrcaCli(env);
+      const focused = await resolveFocusedWorktree(ctx.host, (bin, args) => exec(bin, args, env, 30_000), cli);
+      if (!focused) { state.nextAt = now() + 30; return; }
+      const service = JSON.parse(await exec(binary, ["service", "status", "--json"], env, 30_000));
+      const command = existsSync(join(pacerHome, "strategy.yaml")) && service.installed ? "dashboard" : "init";
+      const status = JSON.parse(await exec(cli, ["status", "--json"], env, 30_000));
+      const pid = status.result?.app?.pid ?? status.app?.pid;
+      if (typeof pid !== "number") throw new Error("Could not identify the Orca launch.");
+      const session = `pid:${pid}`;
+      if (!state.dashboardSessions?.includes(session)) {
+        state.dashboardSessions = [...(state.dashboardSessions ?? []), session].slice(-20);
+        await ctx.host.call("storage.set", { key: "bootstrap", value: state });
+        const result = JSON.parse(await exec(cli, ["terminal", "create", "--worktree", `id:${focused.id}`, "--title", "pacer", "--command", shellCommand([binary, command]), "--json"], env, 30_000));
+        if (result.ok !== true) throw new Error(result.error?.message || "Could not open the pacer terminal.");
+        state.dashboardReadySessions = [...(state.dashboardReadySessions ?? []), session].slice(-20);
       }
       state.start = { status: "done" };
-      if (d.mode === "bootstrap") try {
-        const cli = env.ORCA_CLI_COMMAND || "orca";
-        const status = JSON.parse(await exec(cli, ["status", "--json"], env, 30_000));
-        // The worker has no terminal caller, so key "once per Orca session" on the app process, which changes every launch.
-        const pid = status.result?.app?.pid ?? status.app?.pid;
-        const session = typeof pid === "number" ? `pid:${pid}` : status.result?.runtime?.runtimeId;
-        if (typeof session !== "string" || !session) throw new Error("Could not identify the Orca session to open the dashboard.");
-        if (!state.dashboardSessions?.includes(session)) {
-          // Reserve before IPC: closing the tab or restarting a worker cannot reopen it.
-          state.dashboardSessions = [...(state.dashboardSessions ?? []), session].slice(-20);
-          await ctx.host.call("storage.set", { key: "bootstrap", value: state });
-          const result = JSON.parse(await exec(cli, ["terminal", "create", "--worktree", "active", "--title", "pacer", "--command", shellCommand([binary, "dashboard"]), "--json"], env, 30_000));
-          if (result.ok !== true) throw new Error(result.error?.message || "Could not open the pacer terminal.");
-          state.dashboardReadySessions = [...(state.dashboardReadySessions ?? []), session].slice(-20);
-        }
-        if (!state.dashboardReadySessions?.includes(session)) throw new Error("The pacer terminal could not open. Run pacer dashboard in a terminal.");
-        state.dashboardOpened = true; state.dashboardFailed = false;
-        await changed(ctx, onChange);
-        if (state.handoffVersion !== d.version) {
-          // Sidebar preparation is optional and must not prevent the terminal dashboard.
-          try { await exec(binary, ["plugin", "install"], env, 30_000); state.handoffVersion = d.version; }
-          catch (e) {
-            ctx.log(`pacer sidebar preparation: ${(e as Error).message}`);
-            state.failures = (state.failures ?? []).filter(at => now() - at < 3600);
-            state.failures.push(now()); state.nextAt = state.failures.length >= 5 ? state.failures[0] + 3600 : now() + 60;
-          }
-        }
-      } catch (e) {
-        // pacer itself is installed and running: report the terminal problem without marking setup failed.
-        ctx.log(`pacer dashboard: ${(e as Error).message}`);
-        state.dashboardFailed = true;
-        await changed(ctx, onChange);
-      }
+      state.dashboardOpened = state.dashboardReadySessions?.includes(session);
+      state.dashboardFailed = !state.dashboardOpened;
+
     } catch (e) {
       const message = (e as Error).message;
       const unpublished = message.includes("HTTP 404");
@@ -208,18 +201,20 @@ export function createBootstrap(d: BootstrapDeps) {
           if (available) break;
           if (candidate.writable === false || candidate.agent || /^pacer(?: console)?$/.test(candidate.title ?? "")) continue;
           try {
-            const reply = JSON.parse(await exec(env.ORCA_CLI_COMMAND || "orca", ["terminal", "show", "--terminal", candidate.id, "--json"], env, 30_000));
+            const reply = JSON.parse(await exec(resolveOrcaCli(env), ["terminal", "show", "--terminal", candidate.id, "--json"], env, 30_000));
             const terminal = reply.result?.terminal;
             if (reply.ok && terminal?.connected && terminal.writable && !terminal.agent && !terminal.agentSessionId && !/^pacer(?: console)?$/.test(terminal.title ?? "")) available = candidate;
           } catch { /* not a writable shell */ }
         }
         if (available) { if (state.terminal !== available.id || state.opening) { state.terminal = available.id; state.opening = false; await changed(ctx, onChange); } return; }
         state.terminal = undefined;
-        const id = context.worktreeId || context.branch;
+        const focused = await resolveFocusedWorktree(ctx.host, (bin, args) => exec(bin, args, env, 30_000), resolveOrcaCli(env));
+        if (!focused) return;
+        const id = focused.id;
         state.terminalAttempts ??= {};
         if (now() - (state.terminalAttempts[id] ?? -Infinity) < 600) return;
         state.terminalAttempts[id] = now(); state.opening = true; await changed(ctx, onChange);
-        await exec(env.ORCA_CLI_COMMAND || "orca", ["terminal", "create", "--worktree", "active", "--title", "pacer setup", "--json"], env, 30_000);
+        await exec(resolveOrcaCli(env), ["terminal", "create", "--worktree", `id:${id}`, "--title", "pacer setup", "--json"], env, 30_000);
       } catch (e) { state.opening = false; ctx.log(`pacer setup terminal: ${(e as Error).message}`); await changed(ctx, onChange); }
       finally { terminalRunning = false; }
     },
