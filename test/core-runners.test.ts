@@ -30,7 +30,7 @@ test("block refuses a malformed duration as invalid_input", () => {
 
 test("report marks the provider until the given time or its cooldown", () => {
   const ctx = fakeCtx();
-  expect(limits.report(ctx, "codex", ctx.now + 60, s)).toEqual({ provider: "codex", exhaustedUntil: ctx.now + 60 });
+  expect(limits.report(ctx, "codex", ctx.now + 60, s)).toEqual({ provider: "codex", account: "codex", exhaustedUntil: ctx.now + 60 });
   expect(readMarks(ctx).codex).toBe(ctx.now + 60);
   expect(limits.report(ctx, "cursor", undefined, s).exhaustedUntil).toBe(ctx.now + s.providers.cursor.cooldownS);
 });
@@ -39,4 +39,14 @@ test("report refuses a non-numeric until and unknown providers", () => {
   const ctx = fakeCtx();
   expect(codeOf(() => limits.report(ctx, "codex", Number.NaN, s))).toBe("invalid_input");
   expect(codeOf(() => limits.report(ctx, "gemini", undefined, s))).toBe("unknown_executor");
+});
+
+test("report-limit marks the runner's account", () => {
+  const st = validateStrategy({ accounts: { claude: { kind: "claude" }, local: { kind: "endpoint", usage: "unmetered", model: "lmstudio/q" } }, planner: "claude-code", routing: [{ default: ["opencode#local"] }] }, "test");
+  for (const provider of ["opencode#local", "local"]) {
+    const ctx = fakeCtx();
+    const r = limits.report(ctx, provider, ctx.now + 60, st);
+    expect(r).toMatchObject({ provider, account: "local", exhaustedUntil: ctx.now + 60 });
+    expect(readMarks(ctx)).toEqual({ local: ctx.now + 60 });
+  }
 });
