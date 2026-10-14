@@ -9,6 +9,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Make `pacer init` the complete, consent-based setup flow with planner selection, agent connections and live panel guidance; `setup` is an alias.
 - Open setup or dashboard in the focused Orca worktree once per launch, and retire marketplace automation when the live panel connects.
 - Add a live heartbeat and a real-Orca bootstrap release harness.
+- Show real setup checks in the live panel and dashboard, with manual re-checks and automatic operations view once required checks pass; agent connections remain optional.
+- Make the marketplace panel static setup guidance with manual install commands and live-panel instructions.
 
 ## [0.1.21] - 2026-10-14
 

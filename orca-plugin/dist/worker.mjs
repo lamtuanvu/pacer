@@ -319,6 +319,21 @@ function pluginMode(pluginRoot, fs) {
   return fs.exists(join4(pluginRoot, ".pacer-managed")) ? "live" : "bootstrap";
 }
 
+// src/setup/checklist.ts
+function setupChecklist(f, checkedAt) {
+  const item = (id, title, done, detail) => ({ id, title, required: true, status: f.errors?.[id] ? "failed" : done ? "done" : "pending", detail: f.errors?.[id] ?? detail, ...!done || f.errors?.[id] ? { command: "pacer init" } : {} });
+  const items = [
+    item("binary", "Binary", !!f.version, f.version ?? undefined),
+    item("strategy", "Strategy", !!f.planner, f.planner ? `Planner: ${f.planner}` : undefined),
+    item("service", "Login service", f.service.installed && f.service.running),
+    item("link", "Link", f.link),
+    { id: "live", title: "Live plugin", required: false, status: f.live ? "done" : "pending", ...!f.live ? { command: "pacer init" } : {} },
+    ...f.agents.map((a) => ({ id: `agent:${a.id}`, title: a.name, required: false, status: a.installed ? "done" : "pending", detail: a.installed ? "Connected" : "Optional · not connected", ...!a.installed ? { command: "pacer init" } : {} }))
+  ];
+  return { checkedAt, complete: items.filter((i) => i.required).every((i) => i.status === "done"), items };
+}
+var setupKey = (s) => JSON.stringify(s.items);
+
 // orca-plugin/src/worktree.ts
 async function resolveFocusedWorktree(host, exec, cli) {
   const context = await host.call("workspace.readContext");
@@ -345,7 +360,7 @@ function shellCommand(argv) {
 // orca-plugin/src/bootstrap.ts
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { accessSync, constants, existsSync as existsSync2, mkdirSync as mkdirSync3, renameSync as renameSync3, chmodSync, unlinkSync as unlinkSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { accessSync, constants, existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync5, renameSync as renameSync3, chmodSync, unlinkSync as unlinkSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join as join6, delimiter } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
@@ -390,7 +405,6 @@ function agentPlans(home, pacerHome, which, env = {}) {
 // orca-plugin/src/bootstrap.ts
 var GITHUB_RELEASES = "https://github.com/lamtuanvu/pacer/releases";
 var UNPUBLISHED = "pacer isn't published yet. Set the release folder in plugin settings or install pacer manually";
-var MANUAL_INSTALL = "curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh";
 function cleanEnv(env) {
   const result = { ...env };
   delete result.ORCA_AGENT_SESSION_ID;
@@ -657,6 +671,41 @@ function createBootstrap(d) {
       } finally {
         terminalRunning = false;
       }
+    },
+    async checkSetup(reachable, stateHome = pacerHome) {
+      const binary = env.PACER_BIN || (existsSync2(join6(home, ".local/bin/pacer")) ? join6(home, ".local/bin/pacer") : which("pacer", env));
+      const errors = {};
+      let version = null, planner = null, service = { installed: false, running: false };
+      if (binary)
+        try {
+          const value = (await exec(binary, ["--version"], env, 3000)).trim().replace(/^pacer\s+/, "");
+          if (isVersion(value))
+            version = value;
+          else
+            errors.binary = "Could not read pacer version.";
+        } catch {
+          errors.binary = "Could not run pacer --version.";
+        }
+      try {
+        let active = "";
+        try {
+          active = readFileSync5(join6(stateHome, "active"), "utf8").trim();
+        } catch {}
+        const text = readFileSync5(active ? join6(stateHome, "strategies", `${active}.yaml`) : join6(stateHome, "strategy.yaml"), "utf8");
+        const value = text.trim().startsWith("{") ? JSON.parse(text).planner : text.match(/^planner\s*:\s*(["']?)([a-z][a-z0-9-]*)\1\s*(?:#.*)?$/m)?.[2];
+        if (["claude-code", "codex", "cursor", "opencode"].includes(value))
+          planner = value;
+        else
+          errors.strategy = "Strategy needs a supported planner.";
+      } catch {}
+      if (binary)
+        try {
+          service = JSON.parse(await exec(binary, ["service", "status", "--json"], { ...env, PACER_HOME: stateHome }, 3000));
+        } catch {
+          errors.service = "Could not check the login service.";
+        }
+      state.agents = agentPlans(home, stateHome, (bin) => which(bin, env), env);
+      return setupChecklist({ version, planner, service, link: reachable, live: true, agents: state.agents, errors }, now());
     },
     stop() {
       stopped = true;
@@ -1413,9 +1462,9 @@ function header(s, now, reachable) {
 function strategyPicker(_s) {
   return `<section id="strategy-picker" hidden></section>`;
 }
-function overview(s, now, reachable, commands, text) {
+function overview(s, now, reachable, commands, text, rows = "", feedback = "") {
   const p = s.budget?.providers.find((p) => p.id === s.budget?.planner), attention = attentionGroups(s, now);
-  return `<div class="content">${header(s, now, reachable)}
+  return `<div class="content">${header(s, now, reachable)}${rows}
  <div class="card stack answer"><div class="stack"><div class="headline">${h(headline(p, now))}</div><div class="muted">${h(answerDetail(s, now))}</div></div>${p ? `<div class="stack"><div class="row"><span class="name">${icon(p.id, 14)}${h(displayName(p.id))}</span><small>planner</small><span class="grow"></span><span class="percent">${p.usedPct === null ? "—" : `${Math.round(p.usedPct)}%`}</span><small>used</small></div>${meter(p)}<div class="row"><small>Pace marker ${p.pacePct == null ? "—" : `${p.pacePct}%`}</small><span class="grow"></span><small>${p.resetsAt === null ? "Reset unknown" : `Resets ${h(new Date(p.resetsAt * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }))}`}</small></div></div>` : ""}</div>
  <section class="stack section"><div class="row"><h2>Who runs next</h2><span class="grow"></span><small>in this order</small></div><div class="list" id="ranked-list"></div><div class="stack unavailable" id="unavailable-list"></div></section>
  <section class="stack section"><div class="row"><h2>Needs attention</h2>${attention.length ? `<span class="pill bad">${attention.length}</span>` : ""}</div>${attention.slice(0, 10).map((g, i) => {
@@ -1434,19 +1483,29 @@ function overview(s, now, reachable, commands, text) {
   }).join("")}${attention.length > 10 ? `<small>${attention.length - 10} more groups need attention. View all with pacer tasks.</small>` : ""}${attention.length ? "" : "<small>Nothing needs attention.</small>"}</section>
  <section class="stack section"><h2>Running</h2>${s.tasks.filter((t) => ["running", "queued"].includes(t.state)).map((t) => `<div class="card stack running-task"${focusAttrs(t, commands)}><span>${h(t.goal)}</span><small>${t.executor ? `Running on ${h(displayName(t.executor))} · started <span data-age-at="${t.attemptStartedAt ?? t.updatedAt}">${Math.max(0, Math.floor(now - (t.attemptStartedAt ?? t.updatedAt)))}s ago</span>` : "Queued"}${t.retryOf ? ` · Retry of ${h(t.retryOf)}` : ""}</small>${placementLine(t)}</div>`).join("") || "<small>No tasks running.</small>"}</section>
  <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter((t) => t.state === "done").sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).map((t) => `<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0, 100))}">${h(t.goal.slice(0, 100))}</span><small>${h(t.executor ? displayName(t.executor) : "—")} · ${h(age(t.updatedAt, now))}</small></div></div>`).join("")}${s.tasks.some((t) => t.state === "done") ? "" : "<small>No completed tasks yet.</small>"}</div></section>
- ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-view="strategy" data-live>Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div>${actionStatus}<div class="footnote">Updated <span data-updated>—</span> · <span data-console-connection>Checking console...</span></div></div>`;
+ ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-view="strategy" data-live>Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div>${feedback || actionStatus}<div class="footnote">Updated <span data-updated>—</span> · <span data-console-connection>Checking console...</span></div></div>`;
 }
 
 // orca-plugin/src/panel/setup.ts
-function setup(s, now, reachable, bootstrap) {
-  const planner = s.budget?.providers.find((p) => p.id === s.budget?.planner);
-  const agents = bootstrap?.agents ?? [], pending = agents.filter((a) => !a.installed), connected = agents.filter((a) => a.installed);
-  const step = (state, title, detail) => `<div class="step ${state.status === "done" ? "done" : state.status === "pending" ? "current" : "failed"}"><span class="step-num ${state.status === "pending" ? "console-spinner" : ""}" aria-hidden="true">${state.status === "done" ? "✓" : state.status === "pending" ? "◐" : "!"}</span><div class="stack grow"><strong>${title}</strong><small>${h(state.detail ?? detail)}</small>${state.status === "failed" ? '<button type="button" data-bootstrap-retry>Try again</button>' : ""}</div></div>`;
-  const install = bootstrap?.install ?? { status: "pending" }, start = bootstrap?.start ?? { status: "pending" };
-  const agentState = { status: pending.length || !bootstrap ? "pending" : "done" };
-  const ready = install.status === "done" && start.status === "done" && agentState.status === "done";
-  return `<div class="content">${header(s, now, reachable)}${ready ? connected.length ? `<small>Connected: ${h(connected.map((a) => a.name).join(", "))}</small>` : "" : `<div class="stack"><div class="headline">Connect pacer</div><div class="muted">pacer installs and starts automatically. Choose when to connect your agents.</div></div><div class="list">${step(install, "Install pacer", "Checking the pacer binary…")}${install.detail === UNPUBLISHED ? `<small class="muted">${h(MANUAL_INSTALL)}</small>` : ""}${step(start, "Start pacer", "Starting the login service…")}${step(agentState, "Connect your agents", connected.length ? "Connected: " + connected.map((a) => a.name).join(", ") : "Your click installs pacer's skills, rules and hooks. No MCP servers are added.")}</div>${pending.map((a) => `<div class="stack"><strong>${h(a.name)}</strong>${a.files.map((path) => `<small><code>${h(path)}</code></small>`).join("")}</div>`).join("")}${start.status === "done" && pending.length ? `<button type="button" class="primary" data-connect-agents${!bootstrap?.terminal ? " disabled" : ""}>${!bootstrap?.terminal ? "Opening a terminal…" : "Connect my agents"}</button>` : ""}`}
- ${planner ? `<section class="stack section"><h2>Last known budget · ${h(age(s.budget.generatedAt, now))} · not live</h2><div class="card stack last-known"><div class="row"><span class="name">${icon(planner.id)}${h(displayName(planner.id))}</span><span class="grow"></span><strong>${planner.usedPct === null ? "—" : `${Math.round(planner.usedPct)}%`} used</strong></div>${meter({ ...planner, pacePct: null })}<small>Shown greyed until pacer reconnects. Nothing here is live.</small></div></section>` : ""}<div class="row note info"><strong aria-hidden="true">i</strong><small>pacer never changes Orca's settings. Everything runs on 127.0.0.1 and only on this machine.</small></div></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" disabled>Delegate a task</button><button type="button" data-check>Check again</button></div>${actionStatus}</div>`;
+function legacyChecklist(s, now, reachable, bootstrap) {
+  return setupChecklist({ version: bootstrap?.install.status === "done" ? s.console?.version ?? "installed" : null, planner: s.budget?.planner ?? null, service: { installed: bootstrap?.start.status === "done" || !!s.serviceInstalled, running: reachable }, link: reachable, live: true, agents: bootstrap?.agents ?? [] }, now);
+}
+function detail(i) {
+  if (i.detail)
+    return i.detail.replace(/^Optional · /, "").replace(/^not connected$/, "Not connected");
+  if (i.status === "failed")
+    return "Needs attention";
+  if (i.status === "done")
+    return i.id === "service" ? "Running" : i.id === "strategy" ? "Configured" : "Connected";
+  return i.id === "service" ? "Not running yet" : i.id === "binary" ? "Not installed yet" : i.id === "strategy" ? "Not configured yet" : "Not connected";
+}
+function checklist(s, consoleLive) {
+  const rows = (required) => s.items.filter((i) => i.required === required).map((i) => `<div class="step ${i.status}"><span class="step-num" aria-hidden="true">${i.status === "done" ? "✓" : i.status === "failed" ? "!" : "·"}</span><div class="stack grow"><strong>${h(i.title)}</strong><small>${h(detail(i))}</small></div></div>`).join("");
+  const optional = rows(false);
+  return `<div class="stack"><div class="list">${rows(true)}</div>${optional ? `<section class="stack optional"><h2>Optional</h2><div class="list">${optional}</div></section>` : ""}<small data-setup-checked="${s.checkedAt}">Checked 0 s ago</small>${consoleLive ? '<button type="button" data-command="checkSetup" data-setup-check>Check now</button>' : ""}<small data-setup-auto${consoleLive ? " hidden" : ""}>Re-checks every 5 seconds</small></div>`;
+}
+function setup(s, now, reachable, bootstrap, state, consoleLive = false, consoleHint = "") {
+  return `<div class="content"><header class="brand">${mark}<strong>pacer</strong></header><h1 class="headline">Setup</h1><div class="note stack"><strong>Finish setup in a terminal:</strong><code class="command" style="user-select:all">pacer init</code></div>${checklist(state ?? legacyChecklist(s, now, reachable, bootstrap), consoleLive)}${consoleHint}</div><div class="actionbar">${actionStatus}</div>`;
 }
 
 // orca-plugin/src/panel/delegate.ts
@@ -1456,6 +1515,8 @@ function delegateView(s, now, reachable) {
 
 // orca-plugin/src/panel/style.ts
 var style = `
+.content{overflow-wrap:anywhere}header{flex-wrap:wrap}.updates,.setup-summary{padding:10px}.optional{margin-top:8px;color:var(--muted-foreground)}.optional .list{background:none}.optional .step-num{background:var(--muted);border-color:var(--border);color:var(--muted-foreground)}.actions{flex-wrap:wrap}.actionbar .actions{flex-wrap:nowrap}#delegate-form{display:flex;flex-direction:column;flex:1;min-width:0}
+
 .step.failed .step-num{color:var(--bad)}
 
 [data-focus]{cursor:pointer;transition:background .12s}[data-focus]:hover{background:var(--hover,rgba(128,128,128,.08))}[data-focus]:focus-visible{outline:2px solid currentColor;outline-offset:2px}
@@ -1466,7 +1527,7 @@ var style = `
 
 .console-spinner{display:inline-block;animation:console-spin 1s linear infinite}@keyframes console-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.console-spinner{animation:none}}
 
-*{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);font-size:12px;font-family:var(--app-font-family,'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);line-height:1.4;letter-spacing:.01em;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;--good:color-mix(in srgb,seagreen 90%,var(--background));--warn:color-mix(in srgb,darkorange 90%,var(--background));--bad:color-mix(in srgb,crimson 90%,var(--background))}[hidden]{display:none!important}.view{min-height:100vh;display:flex;flex-direction:column}form{display:flex;flex-direction:column;flex:1}.content{padding:12px;display:flex;flex-direction:column;gap:12px;flex:1;min-width:0}.row,.name,header,.actions{display:flex;align-items:center;gap:8px}.grow{flex:1;min-width:0}.stack{display:flex;flex-direction:column;gap:6px;min-width:0}.brand{font-weight:600;font-size:14px;letter-spacing:.01em}.brand-tick{fill:#65A30D}@media(prefers-color-scheme:dark){.brand-tick{fill:#A3E635}body{--good:color-mix(in srgb,mediumseagreen 90%,var(--background));--warn:color-mix(in srgb,orange 90%,var(--background));--bad:color-mix(in srgb,lightcoral 90%,var(--background))}}.muted,small{color:var(--muted-foreground)}small{font-size:11px}.pill{font-size:10px;font-weight:500;padding:2px 6px;border-radius:6px;background:var(--muted);white-space:nowrap}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.pill.good{background:color-mix(in srgb,green 12%,var(--background))}.pill.warn{background:color-mix(in srgb,orange 16%,var(--background))}.pill.bad{background:color-mix(in srgb,crimson 12%,var(--background))}.dot{width:8px;height:8px;border-radius:50%;background:currentColor}.live{font-size:11px;white-space:nowrap}.card,.list{border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);background:var(--card)}.answer{padding:12px;gap:8px}.headline{font-size:13px;font-weight:600}h2{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;margin:0;color:var(--muted-foreground)}.section{gap:8px}.provider{padding:8px 10px;gap:6px}.provider+.provider,.step+.step{border-top:1px solid var(--border)}.rank{width:18px;height:18px;flex-shrink:0;background:var(--muted);border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:600}.provider:first-child .rank{background:var(--foreground);color:var(--background)}.name{font-weight:500;gap:6px;overflow-wrap:anywhere}.name svg,.monogram{flex-shrink:0}.monogram{border-radius:4px;background:var(--foreground);color:var(--background);display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:600}.meter{position:relative;height:6px;background:var(--border);border-radius:999px;margin:4px 0}.meter.slim{height:3px;margin-left:26px}.meter .fill{height:100%;border-radius:999px;background:currentColor}.pace{position:absolute;width:2px;top:-4px;bottom:-4px;background:var(--foreground);border-radius:2px}.percent{font-size:18px;font-weight:600}.unavailable{font-size:11px;padding:0 4px;gap:4px}.attention{padding:10px;gap:8px;border-color:color-mix(in srgb,crimson 25%,var(--background));background:color-mix(in srgb,crimson 2%,var(--card))}.attention.stuck{border-color:color-mix(in srgb,orange 35%,var(--background));background:color-mix(in srgb,orange 3%,var(--card))}.task-goal{font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent{gap:8px}button,input,textarea,select{font:inherit;color:var(--foreground)}button{white-space:nowrap;flex-shrink:0;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);background:var(--background);cursor:pointer}button.primary{min-height:32px;background:var(--primary);color:var(--background);font-weight:500;border-color:var(--primary)}button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--primary);outline-offset:2px}.actionbar{position:sticky;bottom:0;padding:8px 12px 10px;border-top:1px solid var(--border);background:var(--background);display:flex;flex-direction:column;gap:8px}.actionbar button,.actionbar button.primary{height:32px;min-height:32px}.actionbar .refresh{width:32px;min-width:32px;padding:0}.footnote{font-size:11px;text-align:center;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#status{margin:0;padding:0 12px 8px;color:var(--muted-foreground);white-space:pre-wrap;overflow-wrap:anywhere}#status:empty{display:none}.step{padding:10px;display:flex;gap:8px}.step-num{width:22px;height:22px;border:2px solid var(--border);border-radius:50%;display:grid;place-items:center;flex-shrink:0;font-size:11px;font-weight:600}.step.done .step-num{background:var(--good);border-color:var(--good);color:var(--background)}.step.current .step-num{border-color:var(--foreground)}.command,.where{padding:6px 6px 6px 10px;border-radius:calc(var(--radius,10px) - 2px);background:var(--muted)}code{font:11px ui-monospace,monospace;overflow-wrap:anywhere}.last-known{padding:10px;border-style:dashed;color:var(--muted-foreground)}.last-known .fill{background:var(--muted-foreground)}.note{padding:10px;background:var(--muted);border-radius:calc(var(--radius,10px) - 2px);color:var(--muted-foreground)}.note.info{background:color-mix(in srgb,dodgerblue 9%,var(--background))}textarea,input[type=text]{background:var(--background);border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);padding:6px 10px;width:100%}textarea{resize:vertical}input[type=text]{min-height:28px}strong,label,legend{font-weight:500}header>strong{font-weight:600}.where{padding:8px 10px}fieldset{border:0;padding:0;margin:0;min-width:0}legend{margin-bottom:6px}.radio{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);font-weight:400;cursor:pointer;min-height:32px}.radio:has(input:checked){outline:1px solid var(--foreground);border-color:var(--foreground)}.radio:has(input:disabled){color:var(--muted-foreground);cursor:default}.radio input{margin:0;width:14px;height:14px}.radio strong{font-weight:500}
+*{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);font-size:12px;font-family:var(--app-font-family,'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);line-height:1.4;letter-spacing:.01em;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;--good:color-mix(in srgb,seagreen 90%,var(--background));--warn:color-mix(in srgb,darkorange 90%,var(--background));--bad:color-mix(in srgb,crimson 90%,var(--background))}[hidden]{display:none!important}.view{min-height:100vh;display:flex;flex-direction:column}.content{padding:12px;display:flex;flex-direction:column;gap:12px;flex:1;min-width:0}.row,.name,header,.actions{display:flex;align-items:center;gap:8px}.grow{flex:1;min-width:0}.stack{display:flex;flex-direction:column;gap:6px;min-width:0}.brand{font-weight:600;font-size:14px;letter-spacing:.01em}.brand-tick{fill:#65A30D}@media(prefers-color-scheme:dark){.brand-tick{fill:#A3E635}body{--good:color-mix(in srgb,mediumseagreen 90%,var(--background));--warn:color-mix(in srgb,orange 90%,var(--background));--bad:color-mix(in srgb,lightcoral 90%,var(--background))}}.muted,small{color:var(--muted-foreground)}small{font-size:11px}.pill{font-size:10px;font-weight:500;padding:2px 6px;border-radius:6px;background:var(--muted);white-space:nowrap}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.pill.good{background:color-mix(in srgb,green 12%,var(--background))}.pill.warn{background:color-mix(in srgb,orange 16%,var(--background))}.pill.bad{background:color-mix(in srgb,crimson 12%,var(--background))}.dot{width:8px;height:8px;border-radius:50%;background:currentColor}.live{font-size:11px;white-space:nowrap}.card,.list{border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);background:var(--card)}.answer{padding:12px;gap:8px}.headline{font-size:13px;font-weight:600}h2{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;margin:0;color:var(--muted-foreground)}.section{gap:8px}.provider{padding:8px 10px;gap:6px}.provider+.provider,.step+.step{border-top:1px solid var(--border)}.rank{width:18px;height:18px;flex-shrink:0;background:var(--muted);border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:600}.provider:first-child .rank{background:var(--foreground);color:var(--background)}.name{font-weight:500;gap:6px;overflow-wrap:anywhere}.name svg,.monogram{flex-shrink:0}.monogram{border-radius:4px;background:var(--foreground);color:var(--background);display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:600}.meter{position:relative;height:6px;background:var(--border);border-radius:999px;margin:4px 0}.meter.slim{height:3px;margin-left:26px}.meter .fill{height:100%;border-radius:999px;background:currentColor}.pace{position:absolute;width:2px;top:-4px;bottom:-4px;background:var(--foreground);border-radius:2px}.percent{font-size:18px;font-weight:600}.unavailable{font-size:11px;padding:0 4px;gap:4px}.attention{padding:10px;gap:8px;border-color:color-mix(in srgb,crimson 25%,var(--background));background:color-mix(in srgb,crimson 2%,var(--card))}.attention.stuck{border-color:color-mix(in srgb,orange 35%,var(--background));background:color-mix(in srgb,orange 3%,var(--card))}.task-goal{font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent{gap:8px}button,input,textarea,select{font:inherit;color:var(--foreground)}button{white-space:nowrap;flex-shrink:0;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);background:var(--background);cursor:pointer}button.primary{min-height:32px;background:var(--primary);color:var(--background);font-weight:500;border-color:var(--primary)}button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--primary);outline-offset:2px}.actionbar{position:sticky;bottom:0;padding:8px 12px 10px;border-top:1px solid var(--border);background:var(--background);display:flex;flex-direction:column;gap:8px}.actionbar button,.actionbar button.primary{height:32px;min-height:32px}.actionbar .refresh{width:32px;min-width:32px;padding:0}.footnote{font-size:11px;text-align:center;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.step{padding:10px;display:flex;gap:8px}.step-num{width:22px;height:22px;border:2px solid var(--border);border-radius:50%;display:grid;place-items:center;flex-shrink:0;font-size:11px;font-weight:600}.step.done .step-num{background:var(--good);border-color:var(--good);color:var(--background)}.command,.where{padding:6px 6px 6px 10px;border-radius:calc(var(--radius,10px) - 2px);background:var(--muted)}code{font:11px ui-monospace,monospace;overflow-wrap:anywhere}.last-known{padding:10px;border-style:dashed;color:var(--muted-foreground)}.last-known .fill{background:var(--muted-foreground)}.note{padding:10px;background:var(--muted);border-radius:calc(var(--radius,10px) - 2px);color:var(--muted-foreground)}.note.info{background:color-mix(in srgb,dodgerblue 9%,var(--background))}textarea,input[type=text]{background:var(--background);border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);padding:6px 10px;width:100%}textarea{resize:vertical}input[type=text]{min-height:28px}strong,label,legend{font-weight:500}header>strong{font-weight:600}.where{padding:8px 10px}fieldset{border:0;padding:0;margin:0;min-width:0}legend{margin-bottom:6px}.radio{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:calc(var(--radius,10px) - 2px);font-weight:400;cursor:pointer;min-height:32px}.radio:has(input:checked){outline:1px solid var(--foreground);border-color:var(--foreground)}.radio:has(input:disabled){color:var(--muted-foreground);cursor:default}.radio input{margin:0;width:14px;height:14px}.radio strong{font-weight:500}
 select{height:28px;background:var(--background);border:1px solid var(--border);border-radius:8px;padding:0 8px;min-width:0}.strategy-list{overflow:hidden}.strategy-list button{width:100%;border:0;border-radius:0;padding:8px 10px;text-align:left}.strategy-list button+button{border-top:1px solid var(--border)}.strategy-list small{white-space:normal}.strategy-builder{padding:12px;gap:10px;flex:0;background:var(--muted)}.strategy-saved{padding:10px;background:color-mix(in srgb,green 3%,var(--card));border-color:color-mix(in srgb,green 25%,var(--background))}
 `;
 
@@ -1573,7 +1634,7 @@ function live(workspace) {
   const selected=workspace===undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
   if (selected) { if(workspace!==undefined) data.handle=selected.handle; document.getElementById("console-hint").hidden=true; return true; }
   status.textContent=workspace!==undefined && Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>typeof t.title==="string" && /^pacer(?: console)?$/.test(t.title)) ? "Reopen the panel to connect to the new console." : data.autoConsole ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
-  document.getElementById("console-hint").hidden=false;
+  document.getElementById("console-hint").hidden=!document.querySelector('[data-page="setup"]:not([hidden])');
   return false;
 }
 function updateFreshness() {
@@ -1619,6 +1680,8 @@ function updateContext(value) {
   for (const el of document.querySelectorAll("[data-worktree]")) el.textContent=context ? context.displayName : "—";
   document.getElementById("worktree-branch").textContent=context ? context.branch : "—";
   const connected=context && data.consoles.some(c=>c.live && Array.isArray(context.terminals) && context.terminals.some(t=>t.id===c.handle));
+  for(const el of document.querySelectorAll("[data-setup-check]"))el.hidden=!connected;
+  for(const el of document.querySelectorAll("[data-setup-auto]"))el.hidden=!!connected;
   for (const el of document.querySelectorAll("[data-console-connection]")) el.textContent=context ? (connected ? "console connected in " : "console not connected in ") + context.displayName : "console not connected";
 }
 // Escape data before creating local provider rows; the same nodes populate the radio list.
@@ -1672,7 +1735,7 @@ for (const b of document.querySelectorAll("[data-command]")) {
  if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
  b.addEventListener("click", ()=>{
   const command=data.commands[b.dataset.command];
-  if (command) pendingSend(b,command); else status.textContent="Reopen the panel to load this action.";
+  if (command) pendingSend(b,command,command.cmd==="check-setup"?()=>{restoreAction(actionKey(command));status.textContent="Setup check requested. The checklist updates when a check changes.";}:undefined); else status.textContent="Reopen the panel to load this action.";
 });
 }
 for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"type",text:b.dataset.setup});b.addEventListener("click", ()=>{
@@ -1684,17 +1747,10 @@ for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"t
     request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup",()=>restoreAction(key),()=>restoreAction(key));
   },()=>restoreAction(key));
 });}
-for (const b of document.querySelectorAll("[data-connect-agents]")) b.addEventListener("click", ()=>{
- b.disabled=true;
- readContext(value=>{
-  const terminal=value?.terminals?.find(t=>t.id===data.setupTerminal);
-  if(!terminal){b.disabled=false;status.textContent="Opening a terminal… Reopen the panel shortly.";return;}
-  request("terminal.sendText",{terminalId:terminal.id,text:data.setupCommand || "pacer setup --yes",enter:true},"connect",()=>{status.textContent="Connecting your agents…";},()=>{b.disabled=false;});
- },()=>{b.disabled=false;});
-});
-for (const b of document.querySelectorAll("[data-bootstrap-retry]")) b.addEventListener("click", ()=>{
- show("setup"); status.textContent="pacer will retry automatically. Reopen the panel shortly.";
-});
+function setupAge() {
+ for(const el of document.querySelectorAll("[data-setup-checked]"))el.textContent="Checked "+Math.max(0,Math.floor(Date.now()/1000-Number(el.dataset.setupChecked)))+" s ago";
+}
+setupAge();setInterval(setupAge,1000);
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", ()=>{
   if (!data.reachable) {
     status.textContent="Waiting for pacer serve. Start it, then reopen this panel.";
@@ -1771,29 +1827,33 @@ readContext(value=>{ live(value); });
 // orca-plugin/src/panel.ts
 function renderPanel(s, view) {
   const reconnecting = !view.reachable && !!s.budget && view.lastSeenAt !== undefined && view.nowS - view.lastSeenAt >= 0 && view.nowS - view.lastSeenAt < 20;
-  const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c) => c.handle && view.nowS - c.heartbeatAt <= LIMITS.heartbeatS).filter((c, i, a) => a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], selected = view.bootstrap && (view.bootstrap.install.status !== "done" || view.bootstrap.start.status !== "done" || view.bootstrap.agents.some((a) => !a.installed)) ? "setup" : reconnecting ? "overview" : initialView(s, view.reachable, view.nowS);
-  const commands = { refresh: { cmd: "refresh" }, c: { cmd: "check-updates" }, u: { cmd: "update" } };
+  const consoles = [...s.consoles ?? [], ...s.console ? [s.console] : []].filter((c) => c.handle && view.nowS - c.heartbeatAt <= LIMITS.heartbeatS).filter((c, i, a) => a.findIndex((x) => x.handle === c.handle) === i), console = consoles[0], setupState = view.setup ?? (view.bootstrap ? legacyChecklist(s, view.nowS, view.reachable, view.bootstrap) : undefined), selected = setupState ? setupState.complete ? "overview" : "setup" : reconnecting ? "overview" : initialView(s, view.reachable, view.nowS);
+  const commands = { checkSetup: { cmd: "check-setup" }, refresh: { cmd: "refresh" }, c: { cmd: "check-updates" }, u: { cmd: "update" } };
   const text = {};
   const connected = view.bootstrap?.agents.filter((a) => a.installed).map((a) => a.name) ?? [];
-  const updates = `<aside>Updates · CLI: ${h(view.updates?.cli ?? s.console?.version ?? "?")} · Plugin: ${h(view.updates?.plugin ?? "?")} · Latest: ${h(view.updates?.latest ?? "?")}<button data-command="c">Check for updates</button>${view.updates?.available ? '<button data-command="u">Update</button>' : ""}</aside>`;
-  const main = updates + overview(s, view.nowS, view.reachable, commands, text) + (connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
+  const knownVersion = view.updates?.cli || view.updates?.plugin || s.console?.version;
+  const updates = knownVersion || view.updates?.latest || view.updates?.available ? `<section class="card stack updates" data-updates><strong>${view.updates?.available ? `Update available${view.updates.latest ? `: ${h(view.updates.latest)}` : ""}` : knownVersion ? `pacer ${h(knownVersion)}${view.updates?.latest ? " · up to date" : ""}` : `Latest pacer ${h(view.updates?.latest)}`}</strong><div class="actions"><button data-command="c">Check for updates</button>${view.updates?.available ? '<button data-command="u">Update</button>' : ""}</div></section>` : "";
+  const rows = (setupState?.complete ? `<details class="card stack setup-summary"><summary>Setup ✓</summary>${checklist(setupState, !!console)}</details>` : "") + updates + (connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
   const reasonText = view.autoConsole ?? true ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
-  const disable = (html) => (console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g, "$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label) => `<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
-  const payload = { setupCommand: view.bootstrap?.binary ? shellCommand([view.bootstrap.binary, "setup", "--yes"]) : undefined, setupTerminal: view.bootstrap?.terminal, focusAlerts: s.alerts.filter((a) => a.key.startsWith("focus-")), notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => (a.key.startsWith("retry-") || a.key.startsWith("focus-")) && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
+  const feedback = console ? "" : `<p data-status role="status" aria-live="polite" class="action-status">${h(reasonText)}</p>`;
+  const main = overview(s, view.nowS, view.reachable, commands, text, rows, feedback);
+  const disable = (html) => console ? html : html.replace(/(data-command="[^\"]+"|data-live)(?=[ >])/g, "$1 disabled");
+  const payload = { focusAlerts: s.alerts.filter((a) => a.key.startsWith("focus-")), notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => (a.key.startsWith("retry-") || a.key.startsWith("focus-")) && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
   const strategy = strategyView(s, view.nowS, view.reachable, view.notifications ?? "important");
   const outcome = view.autoConsoleOutcome, waiting = !outcome || outcome.status === "starting" && view.nowS - outcome.at < 15;
   const reason = outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
   const consoleHint = waiting && view.transport === "http" && (view.autoConsole ?? true) && view.reachable ? `<small class="muted"><span class="console-spinner" aria-hidden="true">◐</span> Starting pacer console in this worktree...</small>` : `<button type="button" data-setup="pacer console">Start console</button><small>${h(reason)}</small>`;
   const packed = packPanelData(payload), plain = jsonForScript(packed), encoded = jsonForScript({ encoded: Buffer.from(JSON.stringify(packed), "utf8").toString("base64") });
   const data = encoded.length < plain.length ? encoded : plain;
-  return `<!doctype html><html lang="en" data-transport="${h(view.transport ?? "none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style}</style></head><body>
+  return `<!doctype html><html lang="en" data-transport="${h(view.transport ?? "none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style.replace(/;}/g, "}").replace(/\n+/g, "")}</style></head><body>
  <main class="view" data-page="overview"${selected === "overview" ? "" : " hidden"}>${reconnecting ? '<div role="status" class="note">Reconnecting...</div><div style="opacity:.45;pointer-events:none" inert>' + disable(main) + "</div>" : disable(main)}</main>
- <main class="view" data-page="setup"${selected === "setup" ? "" : " hidden"}>${setup(s, view.nowS, view.reachable, view.bootstrap)}</main>
+ <main class="view" data-page="setup"${selected === "setup" ? "" : " hidden"}>${setup(s, view.nowS, view.reachable, view.bootstrap, setupState, !!console, `<div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong>${consoleHint}</div>`)}</main>
  <main class="view" data-page="delegate" hidden>${disable(delegateView(s, view.nowS, view.reachable))}</main>
  <main class="view" data-page="strategy" hidden>${disable(strategy)}</main>
- <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong>${consoleHint}</div>
+ <p id="status" role="status" aria-live="polite" hidden></p>
  <script type="application/json" id="pacer-actions">${data}</script><script>
-${client.replace(/^ *\/\/[^\n]*\n/gm, "").replace(/^ +/gm, "")}</script></body></html>`;
+${client.replace(/^ *\/\/[^\n]*\n/gm, "").replace(/^ +/gm, "").replace(/\n\s*\n/g, `
+`).replace(/^ *\/\/[^\n]*$/gm, "")}</script></body></html>`;
 }
 
 // orca-plugin/src/plugin.ts
@@ -1907,6 +1967,7 @@ function createPlugin(deps) {
     const reconnecting = () => !reachable && lastSeenAt !== undefined && deps.nowS() - lastSeenAt < 20;
     let processing = Promise.resolve();
     let httpFailures = 0;
+    let setup;
     let renderedKey = null;
     let lastRenderAt = -Infinity;
     let userOutcome = false;
@@ -1932,9 +1993,13 @@ function createPlugin(deps) {
       const check = { checkedAt: deps.nowS(), latest, current: deps.version };
       return { plugin: deps.version, cli, latest, available: updateAvailable(check) || !!cli && updateAvailable({ ...check, current: cli }) };
     };
-    const panelKey = () => JSON.stringify({
+    const consoleKey = () => [...new Set([...(store.snapshot.consoles ?? []).map((c) => c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map((handle) => ({
+      handle,
+      live: [...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS)
+    }));
+    const panelKey = () => setup && !setup.complete ? JSON.stringify({ setup: setupKey(setup), consoles: consoleKey() }) : JSON.stringify({
       updates: panelUpdates(),
-      bootstrap: deps.bootstrap?.state,
+      setup: setup ? setupKey(setup) : undefined,
       notifications: settings.notifications,
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
@@ -1942,10 +2007,7 @@ function createPlugin(deps) {
       reconnecting: reconnecting(),
       tasks: store.snapshot.tasks.map(({ updatedAt, ...task }) => task),
       alerts: store.snapshot.alerts,
-      consoles: [...new Set([...(store.snapshot.consoles ?? []).map((c) => c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map((handle) => ({
-        handle,
-        live: [...store.snapshot.consoles ?? [], ...store.snapshot.console ? [store.snapshot.console] : []].some((c) => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS)
-      })),
+      consoles: consoleKey(),
       autoConsoleOutcome: hintKey(),
       strategies: store.snapshot.strategies,
       transport: store.transport,
@@ -1968,7 +2030,7 @@ function createPlugin(deps) {
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
-              deps.fs.writeTextAtomic(join7(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
+              deps.fs.writeTextAtomic(join7(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications: settings.notifications, autoConsoleOutcome: panelOutcome(), setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
               renderedKey = key;
               lastRenderAt = nowS;
               userOutcome = false;
@@ -1986,14 +2048,32 @@ function createPlugin(deps) {
       });
     };
     if (deps.bootstrap) {
-      deps.bootstrap.activate(ctx).then(() => deps.bootstrap.run(ctx, () => scheduleRender(true))).catch(logError);
-      timers.every(60000, () => {
-        if (!stopped)
-          deps.bootstrap.run(ctx, () => scheduleRender(true)).catch(logError);
-      });
+      let checking = false, nextCheckAt = 0, request = null;
+      const checkSetup = async () => {
+        const latest = deps.fs.readText(join7(settings.pacerHome, "check-setup-request.json"));
+        if (latest !== request) {
+          request = latest;
+          nextCheckAt = 0;
+        }
+        if (stopped || checking || deps.nowS() < nextCheckAt)
+          return;
+        checking = true;
+        try {
+          const result = await deps.bootstrap.checkSetup(reachable, settings.pacerHome);
+          if (stopped)
+            return;
+          setup = result;
+          nextCheckAt = deps.nowS() + (result.complete ? 60 : 5);
+          scheduleRender(true);
+        } catch (e) {
+          logError(e);
+        } finally {
+          checking = false;
+        }
+      };
+      checkSetup();
       timers.every(5000, () => {
-        if (!stopped)
-          deps.bootstrap.refreshAgents(ctx, () => scheduleRender(true)).catch(logError);
+        checkSetup();
       });
     }
     let refreshingSettings = false;

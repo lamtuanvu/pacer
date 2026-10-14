@@ -1,17 +1,23 @@
 import { actionStatus } from "./shared";
-import { type LinkSnapshot } from "../../../src/link/envelope";
-import { displayName, icon } from "./icons";
-import { header, meter } from "./overview";
-import { age, h } from "./shared";
-import type { BootstrapState, Step } from "../bootstrap";
-import { MANUAL_INSTALL, UNPUBLISHED } from "../bootstrap";
-export function setup(s:LinkSnapshot, now:number, reachable:boolean, bootstrap?:BootstrapState):string {
- const planner=s.budget?.providers.find(p=>p.id===s.budget?.planner);
- const agents=bootstrap?.agents ?? [], pending=agents.filter(a=>!a.installed), connected=agents.filter(a=>a.installed);
- const step=(state:Step,title:string,detail:string)=>`<div class="step ${state.status === "done" ? "done" : state.status === "pending" ? "current" : "failed"}"><span class="step-num ${state.status === "pending" ? "console-spinner" : ""}" aria-hidden="true">${state.status === "done" ? "✓" : state.status === "pending" ? "◐" : "!"}</span><div class="stack grow"><strong>${title}</strong><small>${h(state.detail ?? detail)}</small>${state.status === "failed" ? '<button type="button" data-bootstrap-retry>Try again</button>' : ""}</div></div>`;
- const install=bootstrap?.install ?? {status:"pending"}, start=bootstrap?.start ?? {status:"pending"};
- const agentState:Step={status:pending.length || !bootstrap ? "pending" : "done"};
- const ready=install.status === "done" && start.status === "done" && agentState.status === "done";
- return `<div class="content">${header(s,now,reachable)}${ready ? (connected.length ? `<small>Connected: ${h(connected.map(a=>a.name).join(", "))}</small>` : "") : `<div class="stack"><div class="headline">Connect pacer</div><div class="muted">pacer installs and starts automatically. Choose when to connect your agents.</div></div><div class="list">${step(install,"Install pacer","Checking the pacer binary…")}${install.detail===UNPUBLISHED?`<small class="muted">${h(MANUAL_INSTALL)}</small>`:""}${step(start,"Start pacer","Starting the login service…")}${step(agentState,"Connect your agents",connected.length ? "Connected: " + connected.map(a=>a.name).join(", ") : "Your click installs pacer's skills, rules and hooks. No MCP servers are added.")}</div>${pending.map(a=>`<div class="stack"><strong>${h(a.name)}</strong>${a.files.map(path=>`<small><code>${h(path)}</code></small>`).join("")}</div>`).join("")}${start.status === "done" && pending.length ? `<button type="button" class="primary" data-connect-agents${!bootstrap?.terminal ? " disabled" : ""}>${!bootstrap?.terminal ? "Opening a terminal…" : "Connect my agents"}</button>` : ""}`}
- ${planner?`<section class="stack section"><h2>Last known budget · ${h(age(s.budget!.generatedAt,now))} · not live</h2><div class="card stack last-known"><div class="row"><span class="name">${icon(planner.id)}${h(displayName(planner.id))}</span><span class="grow"></span><strong>${planner.usedPct===null?"—":`${Math.round(planner.usedPct)}%`} used</strong></div>${meter({...planner,pacePct:null})}<small>Shown greyed until pacer reconnects. Nothing here is live.</small></div></section>`:""}<div class="row note info"><strong aria-hidden="true">i</strong><small>pacer never changes Orca's settings. Everything runs on 127.0.0.1 and only on this machine.</small></div></div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" disabled>Delegate a task</button><button type="button" data-check>Check again</button></div>${actionStatus}</div>`;
+import type { LinkSnapshot } from "../../../src/link/envelope";
+import { setupChecklist, type SetupChecklist } from "../../../src/setup/checklist";
+import type { BootstrapState } from "../bootstrap";
+import { h } from "./shared";
+import { mark } from "./icons";
+export function legacyChecklist(s:LinkSnapshot,now:number,reachable:boolean,bootstrap?:BootstrapState):SetupChecklist {
+ return setupChecklist({version:bootstrap?.install.status==="done"?(s.console?.version??"installed"):null,planner:s.budget?.planner??null,service:{installed:bootstrap?.start.status==="done"||!!s.serviceInstalled,running:reachable},link:reachable,live:true,agents:bootstrap?.agents??[]},now);
+}
+function detail(i:SetupChecklist["items"][number]):string {
+ if(i.detail) return i.detail.replace(/^Optional · /, "").replace(/^not connected$/, "Not connected");
+ if(i.status==="failed") return "Needs attention";
+ if(i.status==="done") return i.id==="service"?"Running":i.id==="strategy"?"Configured":"Connected";
+ return i.id==="service"?"Not running yet":i.id==="binary"?"Not installed yet":i.id==="strategy"?"Not configured yet":"Not connected";
+}
+export function checklist(s:SetupChecklist,consoleLive:boolean):string {
+ const rows=(required:boolean)=>s.items.filter(i=>i.required===required).map(i=>`<div class="step ${i.status}"><span class="step-num" aria-hidden="true">${i.status==="done"?"✓":i.status==="failed"?"!":"·"}</span><div class="stack grow"><strong>${h(i.title)}</strong><small>${h(detail(i))}</small></div></div>`).join("");
+ const optional=rows(false);
+ return `<div class="stack"><div class="list">${rows(true)}</div>${optional?`<section class="stack optional"><h2>Optional</h2><div class="list">${optional}</div></section>`:""}<small data-setup-checked="${s.checkedAt}">Checked 0 s ago</small>${consoleLive?'<button type="button" data-command="checkSetup" data-setup-check>Check now</button>':""}<small data-setup-auto${consoleLive?" hidden":""}>Re-checks every 5 seconds</small></div>`;
+}
+export function setup(s:LinkSnapshot,now:number,reachable:boolean,bootstrap?:BootstrapState,state?:SetupChecklist,consoleLive=false,consoleHint=""):string {
+ return `<div class="content"><header class="brand">${mark}<strong>pacer</strong></header><h1 class="headline">Setup</h1><div class="note stack"><strong>Finish setup in a terminal:</strong><code class="command" style="user-select:all">pacer init</code></div>${checklist(state??legacyChecklist(s,now,reachable,bootstrap),consoleLive)}${consoleHint}</div><div class="actionbar">${actionStatus}</div>`;
 }

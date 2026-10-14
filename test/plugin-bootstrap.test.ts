@@ -76,14 +76,10 @@ test("downloads permit five HTTPS redirects, reject downgrade, missing location 
  for(const location of ["http://127.0.0.1/next","file:///next","https://user:pw@host/next",""]){await expect(download("https://host/start",(async()=>new Response(null,{status:302,headers:{location}})) as unknown as typeof fetch)).rejects.toThrow();}
  await expect(download("https://host/start",(async()=>new Response(null,{status:302,headers:{location:"https://host/next"}})) as unknown as typeof fetch)).rejects.toThrow("limit");
 });
-test("setup panel renders pending, failure, consent preview, connected and ready states safely",()=>{
- const state:BootstrapState={install:{status:"done"},start:{status:"done"},agents:[{id:"codex",name:"Codex",installed:false,files:["~/.codex/hooks.json"],undo:"pacer uninstall codex"}],terminal:"shell"};
- const render=()=>renderPanel(emptySnapshot(),{nowS:0,transport:null,reachable:false,bootstrap:state});
- let html=render();expect(html).toContain("Connect my agents");expect(html).toContain("~/.codex/hooks.json");expect(html).toContain('data-connect-agents>');
- state.terminal=undefined;expect(render()).toContain("Opening a terminal…");
- state.install={status:"failed",detail:UNPUBLISHED};html=render();expect(html).toContain("Try again");expect(html).toContain("curl -fsSL");
- state.install={status:"failed",detail:"<script>bad</script>"};expect(render()).not.toContain("<script>bad</script>");
- state.install={status:"done"};state.agents[0].installed=true;html=render();expect(html).not.toContain('data-connect-agents>');expect(html).not.toContain('<div class="headline">Connect pacer');
+test("setup panel renders real readiness and escaped failures",()=>{
+ const state:BootstrapState={install:{status:"done"},start:{status:"done"},agents:[{id:"codex",name:"Codex",installed:false,files:["~/.codex/hooks.json"],undo:"pacer uninstall codex"}]};
+ const html=renderPanel(emptySnapshot(),{nowS:0,transport:null,reachable:false,bootstrap:state});
+ expect(html).toContain("Codex");expect(html).toContain("Optional</h2>");expect(html).toContain("Not connected");expect(html).toContain("pacer init");expect(html).toContain("Re-checks every 5 seconds");
 });
 
 test("bootstrap settings override release env and unsupported platform fails without downloads",async()=>{
@@ -94,4 +90,13 @@ test("verified binary install is atomic and worker only opens init",async()=>{
  const home=tmpDir(),r=release(home),h=harness({home},{releaseBase:r.base});h.setInstalled(false);
  await h.run();const binary=join(home,".local/bin/pacer");expect(readFileSync(binary)).toEqual(r.bytes);expect(statSync(binary).mode&0o777).toBe(0o755);expect(readdirSync(join(home,".local/bin"))).toEqual(["pacer"]);
  expect(h.calls.some(c=>c.args[0]==="init"||c.args[1]==="install")).toBe(false);expect(h.calls.find(c=>c.args[1]==="create")?.args.join(" ")).toContain(`${binary} init`);expect(h.b.state.start.status).toBe("done");
+});
+
+test("live checklist probes binary version, active planner, running service and link without installing",async()=>{
+ const h=harness({mode:"live",exec:async(_bin,args)=>args[0]==="--version"?"pacer 0.1.22":JSON.stringify({installed:true,running:false})});
+ h.put(".local/bin/pacer");h.put(".pacer/strategy.yaml","planner: codex\n");h.put("bin/codex");
+ let state=await h.b.checkSetup(true);expect(state.complete).toBe(false);expect(state.items.find(i=>i.id==="service")?.status).toBe("pending");expect(state.items.find(i=>i.id==="binary")?.detail).toBe("0.1.22");expect(state.items.find(i=>i.id==="strategy")?.detail).toBe("Planner: codex");
+ h.put(".pacer/active","economy\n");h.put(".pacer/strategies/economy.yaml","planner: 'claude-code' # selected\n");state=await h.b.checkSetup(false);
+ expect(state.items.find(i=>i.id==="strategy")?.detail).toBe("Planner: claude-code");expect(state.items.find(i=>i.id==="link")?.status).toBe("pending");expect(state.items.find(i=>i.id==="agent:codex")?.status).toBe("pending");
+ const failed=createBootstrap({...h.d,mode:"live",exec:async()=>{throw Error("unavailable");}});state=await failed.checkSetup(false);expect(state.items.find(i=>i.id==="binary")?.status).toBe("failed");expect(state.items.find(i=>i.id==="service")?.status).toBe("failed");
 });

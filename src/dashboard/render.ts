@@ -1,6 +1,7 @@
+import { setupText, type SetupChecklist } from "../setup/checklist";
 import type { LinkSnapshot } from "../link/envelope";
 import { cards } from "./model";
-export interface View { updateLine?: string; selected: number; help?: boolean; prompt?: string; message?: string; noColor?: boolean }
+export interface View { setup?: SetupChecklist; updateLine?: string; selected: number; help?: boolean; prompt?: string; message?: string; noColor?: boolean }
 export const safeText = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 export function budgetBar(used: number|null, pace: number|null, size: number): string {
  const pct=(n:number)=>Math.max(0,Math.min(100,n));
@@ -13,6 +14,7 @@ export function renderDashboard(s:LinkSnapshot,width:number,height:number,now:nu
  const header=`◆ pacer · ${b?.mode??"unknown"} · ${b?.strategy??"no strategy"}`;
  const live=s.at>0 && now-s.at<30;
  const fixed=[header,`${live?"Live":"Updated"} · ${s.at?new Date(s.at*1000).toISOString().slice(11,19):"waiting for local data"}`,`Planner ${b?.planner??"?"}: ${p?.usedPct==null?"?":Math.round(p.usedPct)+"%"} ${budgetBar(p?.usedPct??null,p?.pacePct??null,Math.max(4,Math.min(compact?12:24,width-24)))}`];
+ if(v.setup && !v.setup.complete)fixed.splice(1,0,...setupText(v.setup).split("\n"));
  if(v.updateLine)fixed.push(v.updateLine);
  const body:{text:string;selected:boolean}[]=[];let index=0;
  for(const group of cards(s,now)) {

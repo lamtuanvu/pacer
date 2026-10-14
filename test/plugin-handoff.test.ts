@@ -18,12 +18,12 @@ test("unmanaged worker never mutates its plugin root or opens consoles", async (
 test("shipped bootstrap panel shows one-time steps without terminal actions",async()=>{
  const {panel}=await buildPluginAssets("0.1.17");
  expect(panel).toContain("Set up pacer");expect(panel).not.toContain("Not connected");expect(panel).toContain("connect-src 'none'");
- expect(panel).toContain("uninstall this pacer");expect(panel).toContain("Development");expect(panel).toContain("~/.pacer/orca-plugin");
- expect(panel).toContain("pacer dashboard");expect(panel).toContain("Prefer the sidebar panel?");expect(panel).toContain("Installing pacer in the background…");expect(panel).toContain("Taking longer than usual.");expect(panel).toContain("Enable pacer");
+ expect(panel).toContain("Development");expect(panel).toContain("~/.pacer/orca-plugin");
+ expect(panel).toContain("Get the live panel");expect(panel).toContain("goes quiet and can be uninstalled");
  expect(panel).not.toContain("terminal.sendText");expect(panel).not.toContain("postMessage");expect(panel).not.toContain("<button");
- expect(panel).toContain("console-spinner");expect(panel).toContain("Installing pacer in the background… 0:00");expect(panel).toContain("Taking longer than usual");
- // A manual CLI path is always on the page, and opens itself when setup takes too long.
- expect(panel).toContain("Setup not finishing? Do it by hand");expect(panel).toContain("install.sh | sh");expect(panel).toContain("~/.local/bin/pacer init");expect(panel).toContain("~/.local/bin/pacer dashboard");expect(panel).toContain('getElementById("manual").open = true');
+ for(const forbidden of ["spinner","timer","setInterval","Date.now","Installing pacer in the background","Taking longer than usual","What happens"])expect(panel).not.toContain(forbidden);
+ expect(panel).toContain("Didn't see it?");expect(panel).toContain("install.sh | sh");expect(panel).toContain("~/.local/bin/pacer init");
+ expect(panel).toContain("Follow the prompts there");expect(panel).toContain("until you approve it");expect(panel).toContain("user-select:all");
 });
 
 test("marker detection opts only pacer-managed folders into live mode", async()=>{

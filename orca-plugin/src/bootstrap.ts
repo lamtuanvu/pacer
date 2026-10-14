@@ -1,3 +1,4 @@
+import { setupChecklist, type SetupChecklist, type SetupFacts } from "../../src/setup/checklist";
 import { readLiveHeartbeat } from "../../src/plugin/live";
 import { resolveFocusedWorktree } from "./worktree";
 export { resolveFocusedWorktree } from "./worktree";
@@ -217,6 +218,22 @@ export function createBootstrap(d: BootstrapDeps) {
         await exec(resolveOrcaCli(env), ["terminal", "create", "--worktree", `id:${id}`, "--title", "pacer setup", "--json"], env, 30_000);
       } catch (e) { state.opening = false; ctx.log(`pacer setup terminal: ${(e as Error).message}`); await changed(ctx, onChange); }
       finally { terminalRunning = false; }
+    },
+    async checkSetup(reachable:boolean, stateHome = pacerHome):Promise<SetupChecklist> {
+      const binary = env.PACER_BIN || (existsSync(join(home, ".local/bin/pacer")) ? join(home, ".local/bin/pacer") : which("pacer", env));
+      const errors:SetupFacts["errors"]={};
+      let version:string|null=null, planner:string|null=null, service={installed:false,running:false};
+      if(binary)try { const value=(await exec(binary,["--version"],env,3000)).trim().replace(/^pacer\s+/,""); if(isVersion(value))version=value;else errors.binary="Could not read pacer version."; }catch {errors.binary="Could not run pacer --version.";}
+      try {
+        let active="";try{active=readFileSync(join(stateHome,"active"),"utf8").trim();}catch{}
+        const text=readFileSync(active?join(stateHome,"strategies",`${active}.yaml`):join(stateHome,"strategy.yaml"),"utf8");
+        // init writes a top-level scalar planner; accept quoted YAML and JSON too.
+        const value=text.trim().startsWith("{") ? JSON.parse(text).planner : text.match(/^planner\s*:\s*(["']?)([a-z][a-z0-9-]*)\1\s*(?:#.*)?$/m)?.[2];
+        if(["claude-code","codex","cursor","opencode"].includes(value))planner=value;else errors.strategy="Strategy needs a supported planner.";
+      }catch { /* strategy not present yet */ }
+      if(binary)try { service=JSON.parse(await exec(binary,["service","status","--json"],{...env,PACER_HOME:stateHome},3000)); }catch {errors.service="Could not check the login service.";}
+      state.agents=agentPlans(home,stateHome,bin=>which(bin,env),env);
+      return setupChecklist({version,planner,service,link:reachable,live:true,agents:state.agents,errors},now());
     },
     stop() { stopped = true; },
   };
