@@ -1,6 +1,6 @@
 # pacer core: one product contract, any client
 
-Status: draft for review, 2026-10-14. Nothing is built. This comes before new clients and before remote runners are implemented.
+Status: decisions recorded 2026-10-14 (see Decisions); ready for the phase 1 implementation plan. Nothing is built. This comes before new clients and before remote runners are implemented.
 
 ## Vision
 
@@ -11,7 +11,7 @@ pacer's value is deciding **who works on what, within which budget**, and keepin
 3. **Provider limits**: know each account's usage and resets from sources pacer reads itself. This is the core value; it must not depend on another product.
 4. **Remote host control**: the same three capabilities on a machine reached over SSH.
 
-Everything else is a **client** of one versioned contract: the CLI, the planner's MCP tools, the terminal dashboard, the Orca plugin, a future VS Code / Open VSX extension, a pacer web UI. No client gets a capability the contract doesn't have, and the core has no client-specific code.
+Everything else is a **client** of one versioned contract: the CLI, the planner's MCP tools, the terminal dashboard, the Orca plugin, a future VS Code / Open VSX extension, a pacer desktop app. No client gets a capability the contract doesn't have, and the core has no client-specific code.
 
 Success:
 
@@ -34,7 +34,7 @@ Success:
 ## Architecture
 
 ```
-            clients:  CLI · MCP (planner) · dashboard · Orca plugin · VS Code ext · web UI
+            clients:  CLI · MCP (planner) · dashboard · Orca plugin · VS Code ext · desktop app
                          │          │            │            │             │
    transports:      argv/stdout   MCP stdio   ── pacer API: HTTP + SSE (localhost), or JSON-RPC over stdio ──
                          └──────────┴────────────┴────────┬───┴─────────────┘
@@ -125,7 +125,7 @@ interface Progress {
 
 ## 3. Provider limits (pacer-owned)
 
-**Principle**: pacer reads usage from sources it controls: the agent's own outputs and local files, pacer's own hooks, and providers' own interfaces, chosen per provider. Other products (Orca included) are never a usage source. The accounts branch's decision 2 (`usage_source: orca` by default) is withdrawn by this design and needs the owner's confirmation.
+**Principle**: pacer reads usage from sources it controls: the agent's own outputs and local files, pacer's own hooks, and providers' own interfaces, chosen per provider. Other products (Orca included) are never a usage source. The accounts branch's decision 2 (`usage_source: orca` by default) is **withdrawn** (owner, 2026-10-14). Orca-managed accounts get usage from pacer's own readers, or reactively.
 
 **Data model** (one shape for every reader):
 
@@ -156,13 +156,13 @@ interface Snapshot {
 | BytePlus | `arkcli usage plan` (verified) | | | reactive |
 | OpenCode endpoints | `opencode stats` metered budget (verified) | | | unmetered / reactive |
 
-**Rung 3 is a policy decision, not a technicality.** Calling a provider's usage interface means using the agent's stored login, which pacer has so far never touched ("pacer never reads credentials"). The options for the owner:
+**Rung 3: decided provider by provider (owner, 2026-10-14).** Passive rungs are the default for every provider. Rung 3 (the provider's usage interface, called with the agent's stored login) is enabled **per provider** only when the passive data proves insufficient, under these rules:
 
-- (a) passive rungs only;
-- (b) rung 3 per provider, opt-in, credentials read in memory only and never stored or logged, using only interfaces the provider documents or ships in its own CLI;
-- (c) ask each agent CLI for a "print usage" command and use that, which keeps pacer out of credentials entirely.
-
-This design recommends (a) now, with (c) pursued upstream.
+- It is opt-in per account: `accounts.<name>.usage_api: true`. It is off by default, and `pacer limits check` says when an account would benefit.
+- Credentials are read only at call time, in memory, from the agent's own store. They are never written, cached, logged or sent anywhere but the provider.
+- pacer uses only interfaces the provider documents or that its own CLI calls for the same purpose. Each provider's rung 3 gets its own small design note before it is built, recording the endpoint, the auth location, the polling interval (no faster than every 5 minutes) and the failure behaviour.
+- A failing rung 3 falls back to the passive rungs, then reactive; it never blocks routing.
+- In parallel, agent vendors are asked for a "print usage" command (option c). Where one exists, it replaces rung 3 for that provider.
 
 **Verification matrix**: a fixture test per reader and per rung, plus a manual `pacer limits check` command. It shows each account's source, `capturedAt`, staleness and the rung used, so wrong numbers are visible.
 
@@ -222,7 +222,9 @@ Over **SSH, owned by pacer** (spike 2026-10-14, part 2: detach, disconnect survi
   - log follow;
   - review in the built-in diff view;
   - settings.
-- **pacer web UI**: served by the daemon from the same API, if wanted.
+- **pacer desktop app**: a native desktop client in the spirit of VS Code or Orca (not a web UI), built on the same API over stdio or localhost. It has its own design spec; the technology (Electron, Tauri, …) is chosen there.
+
+Client priority after the core (owner, 2026-10-14): dashboard (TUI), Orca plugin, VS Code / Open VSX extension, pacer desktop app. All four are wanted; the order is the build order.
 
 ## Migration (phases, each shippable)
 
@@ -231,7 +233,7 @@ Over **SSH, owned by pacer** (spike 2026-10-14, part 2: detach, disconnect survi
 3. **Limits service**: the snapshot model, uniform staleness, account-keyed reactive marks, `pacer limits check`, and rung-2 verification per agent. Reconcile with the accounts branch (withdraw decision 2).
 4. **Protocol v2**: daemon endpoints and stdio JSON-RPC, the protocol doc, the dashboard moved to the API, the Orca plugin moved to the API. The old transports are retired one release later.
 5. **Remote hosts over SSH** on top of 2–4: the rewritten remote-runners spec.
-6. Clients: VS Code extension; web UI if wanted.
+6. Clients, in order: dashboard on the API (part of phase 4), Orca plugin on the API (phase 4), VS Code / Open VSX extension, pacer desktop app.
 
 Accounts (`feat/accounts-0.1.23`) lands before or alongside phase 3. Its runner ids, accounts and settings model are inputs to this contract.
 
@@ -250,11 +252,12 @@ Accounts (`feat/accounts-0.1.23`) lands before or alongside phase 3. Its runner 
   - a golden "client from the doc" test, where a minimal client is built only from `docs/protocol.md`'s schemas and exercises snapshot, subscribe and one operation.
 - No Orca: the full suite runs with `orca` absent from PATH.
 
-## Questions for the owner
+## Decisions (2026-10-14)
 
-1. **Limits, rung 3**: (a) passive only, (b) opt-in provider interfaces using the agent's stored login in memory, or (c) push agent vendors for a usage command? The recommendation is (a) now and (c) later.
-2. **Accounts branch**: withdraw decision 2 (Orca rate limits as the default source) before it ships in 0.1.23?
-3. **Daemon**: make `pacer serve` the required owner of supervision and polling (simpler, one process), or keep everything working without it (today's model, more code paths)? The recommendation is "works without, better with".
-4. **Orca executor backend**: keep it as an opt-in adapter, or drop it once the supervisor gives isolation and live progress?
-5. **Headless agents**: OK to verify each agent's JSON output mode and limit reporting with small real runs (local first, then vudesktop)? This needs your explicit permission for agent launches; Claude Code's auto mode blocks them otherwise.
-6. **Order**: phases 1–3 before remote hosts, as listed? Or do you want remote hosts earlier?
+1. **Limits: provider by provider.** Passive rungs by default for every provider. Rung 3 (provider usage interface with the agent's stored login) is opt-in per account, under the rules in section 3. Agent vendors are asked for a usage command in parallel.
+2. **Accounts branch decision 2 withdrawn.** Orca's `account list` is not a usage source, not even by default when Orca is present. To be applied on `feat/accounts-0.1.23` before 0.1.23 ships.
+3. **Daemon: works without, better with.** CLI and MCP call the core directly. `pacer serve` adds the API, live events and background polling.
+4. **Orca executor backend: opt-in adapter.** The default is pacer's own supervisor. `execution.backend: orca` keeps agents in visible Orca terminals for those who want it. Orca is never a usage source.
+5. **Headless agent verification: local runs approved** (one tiny task per installed agent on this Mac, in a scratch repo). Remote agent runs need a separate OK.
+6. **Phase order 1→6 as listed.**
+7. **Clients after the core**: dashboard (TUI), Orca plugin, VS Code / Open VSX extension, and a **pacer desktop app** (native, like VS Code or Orca; no web UI).
