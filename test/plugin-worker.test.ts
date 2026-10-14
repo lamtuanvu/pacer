@@ -37,7 +37,9 @@ test("real URL-rooted worker renders managed panels and preserves marketplace in
   await until(()=>existsSync(join(root,"panel/live.html")));
   expect(readFileSync(join(root,"panel/live.html"),"utf8")).toContain("pacer");
   expect(JSON.parse(readFileSync(join(home,".pacer/plugin-version.json"),"utf8"))).toEqual({version:"99.0.0",mode:"live"});
+  expect(JSON.parse(readFileSync(join(home,".pacer/plugin-live.json"),"utf8")).version).toBe("99.0.0");
   await worker.deactivate();
+  expect(existsSync(join(home,".pacer/plugin-live.json"))).toBe(false);
   rmSync(join(root,".pacer-managed"));
   const before=contentHash(root);
   const notices:string[]=[];
@@ -46,9 +48,9 @@ test("real URL-rooted worker renders managed panels and preserves marketplace in
   try {worker=await import(pathToFileURL(join(root,"worker-marketplace.mjs")).href);}
   finally {for(const [key,value] of Object.entries(marketplaceEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
   await worker.default({host:{call:async(m:string,p:any)=>{if(m==="notifications.show"){notices.push(p.title);return {delivered:true};}return m==="settings.get"?{settings:{transport:"bridge"}}:m==="storage.get"?{value:emptySnapshot()}:{subscribed:[]};}},commands:{register(){}},events:{on(){}},log:(s:string)=>logs.push(s)});
-  await until(()=>notices.length>=2);
+  await until(()=>notices.length>=1);
   expect(contentHash(root)).toBe(before);
-  expect(notices[0]).toBe("Installing pacer…");
+  expect(notices[0]).toContain("init in a terminal");
   expect(logs.some(s=>s.includes("refused panel write"))).toBe(false);
  } finally {await worker?.deactivate();rmSync(root,{recursive:true,force:true});rmSync(home,{recursive:true,force:true});}
 },30000);

@@ -1,12 +1,12 @@
+import type { SetupChecklist } from "../../src/setup/checklist";
 import type { PluginUpdates } from "./updates";
-import { shellCommand } from "../../src/install/fsx";
 import type { BootstrapState } from "./bootstrap";
 import { LIMITS, type CmdData, type LinkSnapshot } from "../../src/link/envelope";
 import type { TransportId } from "./transports/choose";
 import { h, jsonForScript, packPanelData } from "./panel/shared";
 import { initialView, rankedProviders, mutedProviders, providerDetail, unavailableDetail, tone, verdictWords } from "./panel/model";
 import { overview } from "./panel/overview";
-import { setup } from "./panel/setup";
+import { setup, checklist, legacyChecklist } from "./panel/setup";
 import { delegateView } from "./panel/delegate";
 import { style } from "./panel/style";
 import { paths } from "./panel/icons";
@@ -14,17 +14,20 @@ import { strategyView } from "./panel/strategy";
 import { client } from "./panel/client";
 export { escapeHtml, jsonForScript } from "./panel/shared";
 export interface AutoConsoleOutcome { status: string; at: number }
-export function renderPanel(s:LinkSnapshot, view:{updates?:PluginUpdates;nowS:number;transport:TransportId|null;reachable:boolean;autoConsole?:boolean;notifications?:"off"|"important"|"all";lastSeenAt?:number;autoConsoleOutcome?:AutoConsoleOutcome;bootstrap?:BootstrapState}):string {
+export function renderPanel(s:LinkSnapshot, view:{setup?:SetupChecklist;updates?:PluginUpdates;nowS:number;transport:TransportId|null;reachable:boolean;autoConsole?:boolean;notifications?:"off"|"important"|"all";lastSeenAt?:number;autoConsoleOutcome?:AutoConsoleOutcome;bootstrap?:BootstrapState}):string {
  const reconnecting = !view.reachable && !!s.budget && view.lastSeenAt !== undefined && view.nowS-view.lastSeenAt >= 0 && view.nowS-view.lastSeenAt < 20;
- const consoles=[...(s.consoles ?? []), ...(s.console ? [s.console] : [])].filter(c=>c.handle && view.nowS-c.heartbeatAt<=LIMITS.heartbeatS).filter((c,i,a)=>a.findIndex(x=>x.handle===c.handle)===i), console=consoles[0], selected=view.bootstrap && (view.bootstrap.install.status!=="done" || view.bootstrap.start.status!=="done" || view.bootstrap.agents.some(a=>!a.installed)) ? "setup" : reconnecting ? "overview" : initialView(s,view.reachable,view.nowS);
- const commands:Record<string,CmdData>={refresh:{cmd:"refresh"},c:{cmd:"check-updates"},u:{cmd:"update"}};
+ const consoles=[...(s.consoles ?? []), ...(s.console ? [s.console] : [])].filter(c=>c.handle && view.nowS-c.heartbeatAt<=LIMITS.heartbeatS).filter((c,i,a)=>a.findIndex(x=>x.handle===c.handle)===i), console=consoles[0], setupState=view.setup??(view.bootstrap?legacyChecklist(s,view.nowS,view.reachable,view.bootstrap):undefined), selected=setupState ? setupState.complete?"overview":"setup" : reconnecting ? "overview" : initialView(s,view.reachable,view.nowS);
+ const commands:Record<string,CmdData>={checkSetup:{cmd:"check-setup"},refresh:{cmd:"refresh"},c:{cmd:"check-updates"},u:{cmd:"update"}};
  const text:Record<string,string>={};
  const connected=view.bootstrap?.agents.filter(a=>a.installed).map(a=>a.name) ?? [];
- const updates = `<aside>Updates · CLI: ${h(view.updates?.cli ?? s.console?.version ?? "?")} · Plugin: ${h(view.updates?.plugin ?? "?")} · Latest: ${h(view.updates?.latest ?? "?")}<button data-command="c">Check for updates</button>${view.updates?.available ? '<button data-command="u">Update</button>' : ''}</aside>`;
- const main=updates+overview(s,view.nowS,view.reachable,commands,text)+(connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
+ const knownVersion=view.updates?.cli || view.updates?.plugin || s.console?.version;
+ const updates = knownVersion || view.updates?.latest || view.updates?.available ? `<section class="card stack updates" data-updates><strong>${view.updates?.available ? `Update available${view.updates.latest?`: ${h(view.updates.latest)}`:""}` : knownVersion?`pacer ${h(knownVersion)}${view.updates?.latest?" · up to date":""}`:`Latest pacer ${h(view.updates?.latest)}`}</strong><div class="actions"><button data-command="c">Check for updates</button>${view.updates?.available ? '<button data-command="u">Update</button>' : ''}</div></section>` : "";
+ const rows=(setupState?.complete?`<details class="card stack setup-summary"><summary>Setup ✓</summary>${checklist(setupState,!!console)}</details>`:"")+updates+(connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
  const reasonText = (view.autoConsole ?? true) ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
- const disable=(html:string)=>(console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g,"$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label)=>`<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
- const payload = {setupCommand:view.bootstrap?.binary ? shellCommand([view.bootstrap.binary,"setup","--yes"]) : undefined,setupTerminal:view.bootstrap?.terminal,focusAlerts:s.alerts.filter(a=>a.key.startsWith("focus-")),notifications:view.notifications??"important",actionErrors:s.alerts.filter(a=>(a.key.startsWith("retry-")||a.key.startsWith("focus-"))&&a.level!=="info").map(a=>({key:a.key,at:a.at,body:a.body})),sequence:s.seq,tasks:s.tasks.map(t=>({id:t.id,state:t.state,goal:t.goal,retryOf:t.retryOf,retriedBy:t.retriedBy,dismissed:t.dismissed})),autoConsole:view.autoConsole ?? true,buildAlert:s.alerts.find(a=>a.key==="strategy-build")??null,consoles:consoles.map(c=>({handle:c.handle,live:true})),strategies:s.strategies?.length?s.strategies:[s.budget?.strategy??"default"],strategy:s.budget?.strategy??"default",savedAlerts:s.alerts.filter(a=>a.key.startsWith("strategySaved-")),snapshotAt:s.budget?.generatedAt??s.at,updatedAt:s.at,reachable:view.reachable,commands,text,paths:Object.fromEntries(Object.entries(paths).filter(([id])=>[...rankedProviders(s),...mutedProviders(s)].some(p=>p.id===id))),rows:rankedProviders(s).map(p=>({id:p.id,usedPct:p.usedPct,pacePct:p.pacePct,detail:providerDetail(p,view.nowS),tone:tone(p.verdict),words:verdictWords(p.verdict),blocked:false})),muted:mutedProviders(s).map(p=>({id:p.id,verdict:p.verdict,detail:unavailableDetail(p,view.nowS),blocked:!!p.blockedReason}))};
+ const feedback=console?"":`<p data-status role="status" aria-live="polite" class="action-status">${h(reasonText)}</p>`;
+ const main=overview(s,view.nowS,view.reachable,commands,text,rows,feedback);
+ const disable=(html:string)=>console ? html : html.replace(/(data-command="[^\"]+"|data-live)(?=[ >])/g,"$1 disabled");
+ const payload = {focusAlerts:s.alerts.filter(a=>a.key.startsWith("focus-")),notifications:view.notifications??"important",actionErrors:s.alerts.filter(a=>(a.key.startsWith("retry-")||a.key.startsWith("focus-"))&&a.level!=="info").map(a=>({key:a.key,at:a.at,body:a.body})),sequence:s.seq,tasks:s.tasks.map(t=>({id:t.id,state:t.state,goal:t.goal,retryOf:t.retryOf,retriedBy:t.retriedBy,dismissed:t.dismissed})),autoConsole:view.autoConsole ?? true,buildAlert:s.alerts.find(a=>a.key==="strategy-build")??null,consoles:consoles.map(c=>({handle:c.handle,live:true})),strategies:s.strategies?.length?s.strategies:[s.budget?.strategy??"default"],strategy:s.budget?.strategy??"default",savedAlerts:s.alerts.filter(a=>a.key.startsWith("strategySaved-")),snapshotAt:s.budget?.generatedAt??s.at,updatedAt:s.at,reachable:view.reachable,commands,text,paths:Object.fromEntries(Object.entries(paths).filter(([id])=>[...rankedProviders(s),...mutedProviders(s)].some(p=>p.id===id))),rows:rankedProviders(s).map(p=>({id:p.id,usedPct:p.usedPct,pacePct:p.pacePct,detail:providerDetail(p,view.nowS),tone:tone(p.verdict),words:verdictWords(p.verdict),blocked:false})),muted:mutedProviders(s).map(p=>({id:p.id,verdict:p.verdict,detail:unavailableDetail(p,view.nowS),blocked:!!p.blockedReason}))};
  const strategy=strategyView(s,view.nowS,view.reachable,view.notifications??"important");
  const outcome=view.autoConsoleOutcome, waiting= !outcome || (outcome.status === "starting" && view.nowS-outcome.at<15);
  const reason=outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
@@ -32,12 +35,12 @@ export function renderPanel(s:LinkSnapshot, view:{updates?:PluginUpdates;nowS:nu
  const packed=packPanelData(payload), plain=jsonForScript(packed), encoded=jsonForScript({encoded:Buffer.from(JSON.stringify(packed),"utf8").toString("base64")});
  const data=encoded.length<plain.length?encoded:plain;
 
- return `<!doctype html><html lang="en" data-transport="${h(view.transport??"none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style}</style></head><body>
+ return `<!doctype html><html lang="en" data-transport="${h(view.transport??"none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${style.replace(/;}/g,"}").replace(/\n+/g,"")}</style></head><body>
  <main class="view" data-page="overview"${selected==="overview"?"":" hidden"}>${reconnecting?'<div role="status" class="note">Reconnecting...</div><div style="opacity:.45;pointer-events:none" inert>'+disable(main)+"</div>":disable(main)}</main>
- <main class="view" data-page="setup"${selected==="setup"?"":" hidden"}>${setup(s,view.nowS,view.reachable,view.bootstrap)}</main>
+ <main class="view" data-page="setup"${selected==="setup"?"":" hidden"}>${setup(s,view.nowS,view.reachable,view.bootstrap,setupState,!!console,`<div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong>${consoleHint}</div>`)}</main>
  <main class="view" data-page="delegate" hidden>${disable(delegateView(s,view.nowS,view.reachable))}</main>
  <main class="view" data-page="strategy" hidden>${disable(strategy)}</main>
- <p id="status" role="status" aria-live="polite"></p><div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong>${consoleHint}</div>
+ <p id="status" role="status" aria-live="polite" hidden></p>
  <script type="application/json" id="pacer-actions">${data}</script><script>
-${client.replace(/^ *\/\/[^\n]*\n/gm, "").replace(/^ +/gm, "")}</script></body></html>`;
+${client.replace(/^ *\/\/[^\n]*\n/gm, "").replace(/^ +/gm, "").replace(/\n\s*\n/g,"\n").replace(/^ *\/\/[^\n]*$/gm, "")}</script></body></html>`;
 }

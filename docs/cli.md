@@ -63,24 +63,34 @@ tip. The brain checks at most once per task per minute and exposes `resolved` wi
 live Orca terminals open their session on click or Enter/Space; unavailable sessions show a
 short action error.
 
-## Connect agents
+## Setup
 
-`pacer setup [--yes] [--agents claude-code,codex,cursor,opencode] [--json]`
-ensures a strategy and login service, detects installed agent CLIs on PATH, and
-installs missing integrations. Cursor detection accepts `cursor-agent` or `cursor`.
-Already connected agents are skipped. No MCP servers are added.
+`pacer init [--planner <id>] [--yes] [--agents a,b] [--no-dashboard] [--json]`
+sets up planner selection, strategy, login service, agent integrations and the
+Orca live panel in order. `pacer setup` is an alias. Planner choices are
+claude-code, codex, cursor and opencode. With several detected planners, a TTY
+shows a numbered choice defaulting to the current strategy's planner. Explicit
+`--planner` skips the question. With no CLIs, init creates a valid starter using
+claude-code and explains how to choose another later.
 
-Without `--yes`, setup lists the file changes and asks y/N on a TTY. On non-TTY
-input it prints the plan and exits 2 without changes. `--agents` restricts the
-selection; an unknown or missing CLI is an error. The summary includes one line
-per agent and `pacer uninstall <agent>` to undo it. `--json` returns the same
-summary as data. The Orca plugin's **Connect my agents** button runs this command
-with `--yes` after showing the consent preview.
+Existing strategies are preserved; changing planner updates only the planner
+line. Completed steps print “✓ … (already done)”. Each unconnected detected agent
+shows a file preview and undo command before its own y/N consent prompt. `--yes`
+accepts all; `--agents` limits selection. No MCP servers are added. Undo an
+integration with `pacer uninstall <agent>`.
+
+Non-TTY runs set up strategy and service without prompts. Agents connect only
+with `--yes` or `--agents`; `--json` returns the summary as data. Non-TTY runs
+never wait or launch the dashboard. On a TTY, init prepares the managed Orca
+folder when Orca is installed, prints its path and guides you to Settings >
+Plugins > Development > Add folder. It waits up to five minutes for the live
+heartbeat; Enter or Ctrl-C skips with `Finish later with: pacer init`. Setup then
+prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
 
 ## Terminal dashboard
 
 `pacer dashboard` opens a full-screen live budget and task dashboard. Marketplace
-Orca installs open it automatically in the **pacer** terminal tab. It reads the
+Orca installs open it in the **pacer** terminal tab after setup. It reads the
 local link snapshot and refreshes every two seconds; status computation runs in
 the background so network requests never block the display. An interactive TTY
 is required.

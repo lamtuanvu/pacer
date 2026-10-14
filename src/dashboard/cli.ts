@@ -1,3 +1,5 @@
+import { checkSetup } from "../setup/check";
+import type { SetupChecklist } from "../setup/checklist";
 import { readUpdateCheck, updateLine } from "../update/check";
 import { StringDecoder } from "node:string_decoder";
 import type { Ctx } from "../types";
@@ -21,16 +23,19 @@ export const LEAVE_SCREEN="\x1b[0m\x1b[?25h\x1b[?1049l";
 export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  if(args.length)return {code:2,out:"",err:"usage: pacer dashboard\n"};
  if(!process.stdin.isTTY||!process.stdout.isTTY)return {code:2,out:"",err:"pacer dashboard needs an interactive terminal\n"};
+ let setup:SetupChecklist|undefined, setupBusy=false, nextSetupAt=0;
  let selected=0,help=false,message="",messageUntil=0,busy=false,closed=false,exitError="";
  let statusTimer:ReturnType<typeof setTimeout>|undefined;
  let prompt:null|{type:"update"|"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
  let snapshot=readLatest(ctx),refreshing=false;
  let computed: typeof snapshot.budget=null;
  const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
- const draw=()=>{if(closed)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
+ const draw=()=>{if(closed)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{setup,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
  const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
  const refresh=()=>{
-  const c=fresh(),selectedId=cards(snapshot,c.now).flatMap(g=>g.cards)[selected]?.id; snapshot=readLatest(c);
+  const c=fresh();
+  if(!setupBusy && c.now>=nextSetupAt){setupBusy=true;void checkSetup(c).then(result=>{setup=result;nextSetupAt=c.now+(result.complete?60:5);draw();}).catch(e=>report(String(e))).finally(()=>{setupBusy=false;});}
+  const selectedId=cards(snapshot,c.now).flatMap(g=>g.cards)[selected]?.id; snapshot=readLatest(c);
   if(computed && computed.generatedAt>=(snapshot.budget?.generatedAt??0))snapshot={...snapshot,budget:computed,at:computed.generatedAt};
   snapshot.tasks=listTasks(c,20).map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...taskData(taskStatus(c,t.id)??t)}));
   const updated=cards(snapshot,c.now).flatMap(g=>g.cards),index=updated.findIndex(card=>card.id===selectedId);
@@ -71,7 +76,7 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   if(["up","down","j","k"].includes(key))selected=moveSelection(key,selected,all.length);
   else if(key==="d")startDelegate(process.cwd());
   else if(key==="s")chooseStrategy();
-  else if(key==="r")refresh();
+  else if(key==="r"){nextSetupAt=0;refresh();}
   else if(key==="c")await command(updateKey(key) as import("../link/envelope").CmdData);
   else if(updateKey(key)==="confirm")prompt={type:"update",step:0,value:"",goal:"",repo:"",names:[]};
   else {const action=selectionAction(key,card);if(action)await command(action);}

@@ -1,7 +1,7 @@
 import { runGuard } from "../guard/guard";
 import { runDoctor, renderDoctor } from "../install/doctor";
 import { INSTALLERS, installPlanner, renderInstall, renderUninstall } from "../install";
-import { initCmd } from "../install/init";
+import { setupCmd, INIT_USAGE } from "./setup";
 import { pacerArgv } from "../install/self";
 import { sessionStart } from "../install/session";
 import { statusLine } from "../install/statusline";
@@ -56,19 +56,8 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "init",
-    usage: usage("init [--force] [--planner <p>]", "create a starter strategy from installed CLIs"),
-    run(args, ctx) {
-      let force = false;
-      let planner: string | undefined;
-      for (let i = 0; i < args.length; i++) {
-        if (args[i] === "--force") force = true;
-        else if (args[i] === "--planner") {
-          planner = args[++i];
-          if (!isPlanner(planner)) return badPlanner(planner);
-        } else return error(2, "usage: pacer init [--force] [--planner <p>]");
-      }
-      return initCmd(ctx, { force, planner });
-    },
+    usage: usage(INIT_USAGE, "set up strategy, service, agents and Orca live panel"),
+    run: setupCmd,
   },
   {
     name: "doctor",

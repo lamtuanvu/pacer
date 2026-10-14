@@ -28,19 +28,21 @@ function browser(html=panel(),seen:string[]=[]) {
  const views=[make({view:"delegate"}),make({view:"overview"})], strategy=make({strategyToggle:""}), setups=[make({setup:"pacer service install"}),make({setup:"pacer console --open"}),make({setup:"pacer console"})],worktree=new Node(),selected=new Node();
  const connects=[...html.matchAll(/data-connect-agents/g)].map(()=>make({connectAgents:""})), retries=[...html.matchAll(/data-bootstrap-retry/g)].map(()=>make({bootstrapRetry:""}));
  const check=new Node(), updated=new Node(), connection=new Node(), feedback=Array.from({length:4},()=>new Node());
+ const commandButtons=[...html.matchAll(/data-command="([^"]+)"/g)].map(m=>make({command:m[1]}));
+ const setupAges=[...html.matchAll(/data-setup-checked="([^"]+)"/g)].map(m=>make({setupChecked:m[1]}));
  const focusCards=[...html.matchAll(/data-focus="([^"]+)"/g)].map(m=>make({focus:m[1]}));
  const strategies=[make({strategy:"0"}),make({strategy:"1"})], freshness=[new Node(),new Node()], intervals:Function[]=[];
  const sent:any[]=[];let now=100000,listener:Function=()=>{};
  const parent={postMessage:(m:any)=>sent.push(m)};
  runInNewContext(html.match(/<script>\n([\s\S]*?)<\/script>/)![1],{
   sessionStorage:{getItem:()=>JSON.stringify(seen),setItem:(_key:string,value:string)=>{seen=JSON.parse(value);}},
-  Date:class extends Date {static now(){return now;}},setInterval:(fn:Function,ms:number)=>{expect(ms).toBe(30000);intervals.push(fn);},TextEncoder,TextDecoder,Uint8Array,atob,
+  Date:class extends Date {static now(){return now;}},setInterval:(fn:Function,ms:number)=>{expect([1000,30000]).toContain(ms);intervals.push(fn);},TextEncoder,TextDecoder,Uint8Array,atob,
   document:{getElementById:(id:string)=>id==="pacer-actions"?{textContent:html.match(/id="pacer-actions">(.*?)<\/script>/s)![1]}:ids[id],
-   querySelectorAll:(selector:string)=>selector==="[data-connect-agents]"?connects:selector==="[data-bootstrap-retry]"?retries:selector==="[data-focus]"?focusCards:selector==="[data-status]"?feedback:selector==="[data-console-connection]"?[connection]:selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?[]:selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
+   querySelectorAll:(selector:string)=>selector==="[data-connect-agents]"?connects:selector==="[data-bootstrap-retry]"?retries:selector==="[data-focus]"?focusCards:selector==="[data-status]"?feedback:selector==="[data-console-connection]"?[connection]:selector==="[data-check]"?[check]:selector==="[data-updated]"?[updated]:selector==="[data-page]"?pages:selector==="[data-view]"?views:selector==="[data-command]"?commandButtons:selector==="[data-setup-checked]"?setupAges:selector==="[data-setup-check]"?commandButtons.filter(b=>b.dataset.command==="checkSetup"):selector==="[data-strategy-toggle]"?[strategy]:selector==="[data-strategy]"?strategies:selector==="[data-freshness]"?freshness:selector==="[data-setup]"?setups:selector==="[data-worktree]"?[worktree]:selector==="[data-command],[data-live]"?[strategy,...views]:[],querySelector:(selector:string)=>selector.includes("submit")?submitButton:selector.includes('value=""')?best:selected},
   window:{parent,addEventListener:(n:string,h:Function)=>{if(n==="message")listener=h;}},
  });
  const reply=(m:any,value:any,ok=true,source=parent)=>listener({source,data:{type:"orca-panel-action-result",requestId:m.requestId,ok,value}});
- return {connects,retries,focusCards,ids,pages,feedback,connection,views,strategy,strategies,freshness,check,updated,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-send"].click()};
+ return {commandButtons,setupAges,connects,retries,focusCards,ids,pages,feedback,connection,views,strategy,strategies,freshness,check,updated,tick:()=>intervals.forEach(fn=>fn()),setups,selected,best,submitButton,sent,reply,now:(v:number)=>now=v,submit:()=>ids["delegate-send"].click()};
 }
 for(const [verdict,expected] of [["ON_PACE","You're on pace for the week."],["OK","You're on pace for the week."],["AHEAD","Claude is ahead of pace. Slow down planning."],["NEAR_LIMIT","Claude is ahead of pace. Slow down planning."],["BEHIND","Claude is behind pace. Room for more planning."],["UNKNOWN","Budget unknown."]]) test(`headline ${verdict}`,()=>expect(headline(provider("claude-code",verdict))).toBe(expected));
 test("exhausted and absent planner headlines and unknown detail",()=>{
@@ -65,7 +67,7 @@ test("attention groups duplicate goals, excludes failed executor, detects stuck 
 });
 test("setup selection and checklist states",()=>{
  const s=snapshot();expect(initialView(s,true,100)).toBe("overview");expect(initialView(s,false,100)).toBe("setup");expect(initialView({...s,budget:null},true,100)).toBe("setup");expect(initialView(s,true,130)).toBe("overview");expect(initialView(s,true,131)).toBe("setup");
- const html=panel(s,false);expect(html).toContain('data-page="setup">');expect(html).toContain("Last known budget");expect(html).toContain("not live");expect(html).toContain("pacer never changes Orca's settings");expect(html).toContain('step current');expect(html).toContain("Install pacer");expect(html).toContain("Start pacer");expect(html).toContain("Connect your agents");
+ const html=panel(s,false);expect(html).toContain('data-page="setup">');expect(html).toContain("Login service");expect(html).toContain("pacer init");expect(html).toContain("Checked 0 s ago");
 });
 test("setup commands use focused first terminal and never enter; no-terminal result is useful",()=>{
  const b=browser(panel(emptySnapshot(),false));b.setups[0].click();const contextRequest=b.sent.at(-1);expect(contextRequest.action).toBe("workspace.readContext");b.reply(contextRequest,{branch:"x",displayName:"X",terminals:[{id:"first"},{id:"second"}]});
@@ -282,8 +284,8 @@ for(const [outcome,now] of [[{status:"starting",at:100},114],[{status:"starting"
 test("setup uses live automatic checklist without service typing commands", () => {
  for (const installed of [false,true]) {
   const html=panel({...snapshot(),serviceInstalled:installed},false);
-  expect(html).toContain("Connect pacer"); expect(html).toContain("Install pacer");
-  expect(html).toContain("Start pacer");expect(html).toContain("Connect your agents");
+  expect(html).toContain("Setup"); expect(html).toContain("Binary");
+  expect(html).toContain("Login service");expect(html).toContain("pacer init");
   expect(html).not.toContain('data-setup="pacer service');
  }
 });
@@ -391,20 +393,49 @@ test("focus card mouse and keyboard actions keep child controls and send focus c
  }
 });
 
-test("Connect my agents submits setup with Enter only to the prepared active-worktree terminal",()=>{
- const state={install:{status:"done" as const},start:{status:"done" as const},agents:[{id:"codex" as const,name:"Codex",installed:false,files:["~/.codex/hooks.json"],undo:"pacer uninstall codex"}],terminal:"shell"};
- const html=renderPanel(emptySnapshot(),{nowS:100,transport:null,reachable:false,bootstrap:state});
- const b=browser(html);b.connects[0].click();const request=b.sent.at(-1);b.reply(request,{branch:"main",displayName:"Main",terminals:[{id:"shell"},{id:"agent"}]});
- const send=b.sent.at(-1);expect(send.action).toBe("terminal.sendText");expect(send.params).toEqual({terminalId:"shell",text:"pacer setup --yes",enter:true});b.reply(send,{accepted:true});expect(b.ids.status.textContent).toContain("Connecting");
- const switched=browser(html);switched.connects[0].click();switched.reply(switched.sent.at(-1),{branch:"other",displayName:"Other",terminals:[{id:"elsewhere"}]});expect(switched.sent.at(-1).action).toBe("workspace.readContext");expect(switched.connects[0].disabled).toBe(false);
- const failed=browser(html);failed.connects[0].click();failed.reply(failed.sent.at(-1),{branch:"main",displayName:"Main",terminals:[{id:"shell"}]});failed.reply(failed.sent.at(-1),{accepted:false});expect(failed.connects[0].disabled).toBe(false);
-});
-test("bootstrap Try again is local and sends no retry channel request",()=>{
- const html=renderPanel(emptySnapshot(),{nowS:100,transport:null,reachable:false,bootstrap:{install:{status:"failed",detail:"unavailable"},start:{status:"pending"},agents:[]}});
- const b=browser(html),n=b.sent.length;b.retries[0].click();expect(b.sent).toHaveLength(n);expect(b.ids.status.textContent).toContain("retry automatically");
+test("Check now sends check-setup through the focused console",()=>{
+ const setup={checkedAt:100,complete:false,items:[{id:"link",title:"Link",required:true,status:"pending" as const,command:"pacer init"}]};
+ const html=renderPanel(snapshot(),{nowS:100,transport:"http",reachable:true,setup});
+ expect(html).toContain('data-command="checkSetup"');expect(payload(html).commands.checkSetup).toEqual({cmd:"check-setup"});
+ expect(html).not.toContain("data-connect-agents");
+ const b=browser(html),button=b.commandButtons.find(n=>n.dataset.command==="checkSetup")!;
+ b.reply(b.sent.at(-1),{branch:"main",displayName:"Main",terminals:[{id:"term_console"}]});
+ button.click();b.reply(b.sent.at(-1),{branch:"main",displayName:"Main",terminals:[{id:"term_console"}]});
+ expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data).toEqual({cmd:"check-setup"});
+ b.reply(b.sent.at(-1),{accepted:true});expect(button.disabled).toBe(false);
+ button.click();b.reply(b.sent.at(-1),{branch:"other",displayName:"Other",terminals:[{id:"elsewhere"}]});expect(button.hidden).toBe(true);
+ expect(b.setupAges[0].textContent).toBe("Checked 0 s ago");b.now(108000);b.tick();expect(b.setupAges[0].textContent).toBe("Checked 8 s ago");
 });
 
-test("Connect uses the resolved pacer binary when local bin is absent from shell PATH",()=>{
- const state={install:{status:"done" as const},start:{status:"done" as const},agents:[{id:"codex" as const,name:"Codex",installed:false,files:[],undo:"pacer uninstall codex"}],terminal:"shell",binary:"/temporary home/.local/bin/pacer"};
- const b=browser(renderPanel(emptySnapshot(),{nowS:100,transport:null,reachable:false,bootstrap:state}));b.connects[0].click();b.reply(b.sent.at(-1),{branch:"main",displayName:"Main",terminals:[{id:"shell"}]});expect(b.sent.at(-1).params.text).toBe("'/temporary home/.local/bin/pacer' setup --yes");
+test("operations keeps setup and updates inside content below its header",()=>{
+ const html=renderPanel(snapshot(),{nowS:100,reachable:true,transport:"http",setup:{checkedAt:100,complete:true,items:[]},updates:{plugin:"0.1.22",cli:"0.1.22",latest:"0.1.22",available:false}});
+ const body=html.match(/data-page="overview"[^>]*>([\s\S]*?)<\/main>/)![1];
+ expect(body.indexOf('<header>')).toBeLessThan(body.indexOf('Setup ✓'));
+ expect(body.indexOf('<header>')).toBeLessThan(body.indexOf('data-updates'));
+ expect(body).toContain('pacer 0.1.22 · up to date');
+ expect(panel()).not.toContain('data-updates');
+});
+test("missing console has one reason and a compact disabled action row",()=>{
+ const s=snapshot();s.console=null;
+ const html=renderPanel(s,{nowS:100,reachable:true,transport:"http",setup:{checkedAt:100,complete:true,items:[]}});
+ const body=html.match(/data-page="overview"[^>]*>([\s\S]*?)<\/main>/)![1];
+ expect(body.match(/The pacer console for this worktree is starting\. Try again in a few seconds\./g)).toHaveLength(1);
+ expect(body).not.toContain('Starting pacer console in this worktree...');
+ expect(body).toMatch(/data-live disabled>Delegate a task<\/button><button/);
+ expect(body).not.toMatch(/<\/button><small/);
+});
+test("setup shows one primary init block and required rows before optional rows",()=>{
+ const setup={checkedAt:100,complete:false,items:[
+  {id:"live",title:"Live plugin",required:false,status:"pending" as const,command:"pacer init"},
+  {id:"service",title:"Login service",required:true,status:"pending" as const,command:"pacer init"},
+  {id:"agent:codex",title:"Codex",required:false,status:"pending" as const,detail:"Optional · not connected",command:"pacer init"},
+ ]};
+ const html=renderPanel(emptySnapshot(),{nowS:100,reachable:false,transport:"http",setup});
+ const body=html.match(/data-page="setup"[^>]*>([\s\S]*?)<\/main>/)![1];
+ expect(body.match(/<code[^>]*>pacer init<\/code>/g)).toHaveLength(1);
+ expect(body).toContain('Finish setup in a terminal:');
+ expect(body.indexOf('Login service')).toBeLessThan(body.indexOf('Optional</h2>'));
+ expect(body.indexOf('Optional</h2>')).toBeLessThan(body.indexOf('Live plugin'));
+ expect(body).toContain('Not running yet');expect(body).toContain('Not connected');
+ expect(body).not.toContain('>pending');expect(body).not.toContain('Optional · not connected');
 });

@@ -1,3 +1,4 @@
+import { checkSetupCommand } from "../setup/check";
 import { checkUpdateReport, installedPlugin } from "../update/check";
 import { defaultUpdateDeps, runUpdate } from "../update/update";
 import { loadOrcaState } from "../exec/orca/state";
@@ -19,6 +20,7 @@ import { taskStop } from "../tasks/api";
 import { readTask, updateTask, isTaskId, listTasks } from "../tasks/store";
 export interface ConsoleIO { lines: AsyncIterable<string>; write(text: string): void }
 export interface ConsoleDeps {
+  checkSetup?(ctx: Ctx): Promise<string>;
   checkUpdates?(ctx: Ctx): Promise<import("../commands/types").Result>;
   update?(ctx: Ctx): Promise<import("../commands/types").Result>;
   delegate(ctx: Ctx, input: DelegateInput): TaskRecord;
@@ -57,6 +59,7 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
   };
   return async (data: CmdData) => {
     switch (data.cmd) {
+      case "check-setup": { print(await (deps.checkSetup ?? checkSetupCommand)(fresh())); await refresh(); break; }
       case "check-updates": { const result = await (deps.checkUpdates ?? checkUpdateReport)(fresh()); print(result.out || result.err); await refresh(); break; }
       case "update": {
         const c = fresh(), result = await (deps.update ?? (c => runUpdate({check:false}, defaultUpdateDeps(c))))(c);
@@ -236,8 +239,8 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
     const text = line.trim(), [command, ...rest] = text.split(/\s+/);
     switch (command) {
       case "": break;
-      case "check-updates": case "update": await plugin({cmd:command}); break;
-      case "help": print("check-updates | update | help | status | tasks | refresh | use [name] | delegate | quit | exit"); break;
+      case "check-setup": case "check-updates": case "update": await plugin({cmd:command}); break;
+      case "help": print("check-setup | check-updates | update | help | status | tasks | refresh | use [name] | delegate | quit | exit"); break;
       case "status": print(await deps.statusText(fresh())); break;
       case "tasks":
         for (const task of listTasks(fresh(), 10)) print(`${task.id} ${task.state} ${task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor ?? "-"} ${task.brief.goal}`);
