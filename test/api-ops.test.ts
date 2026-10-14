@@ -45,3 +45,22 @@ test("task.dismiss reports unknown ids", async () => {
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   expect(await callOp(ctx, "task.dismiss", { ids: [t.id, "missing"] })).toEqual({ dismissed: [t.id], unknown: ["missing"] });
 });
+
+test("every planned operation is registered", () => {
+  expect(opNames()).toEqual(["limits.check", "limits.report", "routing.route", "routing.status", "runner.block", "runner.list", "runner.unblock", "strategy.list", "strategy.use",
+    "task.delegate", "task.diff", "task.dismiss", "task.get", "task.list", "task.log", "task.retry", "task.review", "task.stop", "task.wait"]);
+});
+
+test("runner.block validates the executor through core", async () => {
+  const ctx = await ctxWithStrategy();
+  expect(await callOp(ctx, "runner.block", { id: "codex", for: "1h" })).toEqual({ ok: true });
+  expect(await codeOf(callOp(ctx, "runner.block", { id: "gemini" }))).toBe("unknown_executor");
+});
+
+test("log offsets, route kinds and strategy errors are validated", async () => {
+  const ctx = await ctxWithStrategy();
+  for (const stdout of [-1, 0.5]) expect(await codeOf(callOp(ctx, "task.log", { id: "missing", stdout }))).toBe("invalid_input");
+  expect(await codeOf(callOp(ctx, "task.log", { id: "missing", stderr: -1 }))).toBe("invalid_input");
+  expect(await codeOf(callOp(ctx, "routing.route", { kind: "invalid-kind" }))).toBe("invalid_input");
+  expect(await codeOf(callOp(ctx, "strategy.use", { name: "missing" }))).toBe("invalid_input");
+});

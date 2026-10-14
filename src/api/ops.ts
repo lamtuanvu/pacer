@@ -1,7 +1,9 @@
 import { z } from "zod";
 import * as core from "../core";
-import { CoreError } from "../core/errors";
+import { KINDS } from "../config/strategy";
+import { CoreError, toCoreError } from "../core/errors";
 import { isExecutorSession } from "../install/role";
+import * as strategy from "../strategy/service";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
 import type { Ctx } from "../types";
 
@@ -35,6 +37,17 @@ export const OPS: Record<string, OpDef> = {
   }),
   "task.review": op({ description: "Record the planner's verdict on a task.", params: z.object({ id, accepted: z.boolean(), kind: z.string().optional(), note: z.string().max(2000).optional() }), handler: (ctx, p) => core.tasks.review(ctx, p.id, { accepted: p.accepted, kind: p.kind, note: p.note }) }),
   "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100) }), handler: (ctx, p) => { const r = core.tasks.dismiss(ctx, p.ids); return { dismissed: r.dismissed.map((t) => t.id), unknown: r.unknown }; } }),
+  "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
+  "task.diff": op({ description: "Tracked changes against the task's base, plus untracked filenames.", params: z.object({ id }), handler: (ctx, p) => core.tasks.diff(ctx, p.id) }),
+  "runner.list": op({ description: "Configured executors and their availability.", params: z.object({}), handler: (ctx) => core.runners.list(ctx) }),
+  "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),
+  "runner.unblock": op({ description: "Remove an executor's manual block.", params: z.object({ id }), handler: (ctx, p) => { core.runners.unblock(ctx, p.id); return { ok: true }; } }),
+  "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
+  "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
+  "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
+  "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null) }),
+  "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
+  "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: async (ctx, p) => { try { return { name: p.name, path: await strategy.use(ctx, p.name) }; } catch (e) { throw toCoreError(e); } } }),
 };
 
 export const opNames = (): string[] => Object.keys(OPS).sort();
