@@ -41,7 +41,7 @@ test("budget_status and route return structured data in priority order", async (
   expect(b.structuredContent.planner).toBe("claude-code");
   const r = await call("route", { kind: "debug" });
   expect(r.structuredContent.ranked.map((e: { id: string }) => e.id)).toEqual(["codex", "cursor"]);
-  expect(r.structuredContent.excluded).toContainEqual({ id: "claude-code", reason: "planner" });
+  expect(r.structuredContent.excluded).toContainEqual({ id: "claude-code", account: "claude-code", reason: "planner" });
 });
 
 test("delegate queues a task and task_status/task_wait/task_stop work on it", async () => {

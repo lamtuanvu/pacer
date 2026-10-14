@@ -15,7 +15,7 @@ const s = validateStrategy({
     local: { via: "opencode", model: "lmstudio/q", usage: "unmetered" },
   },
   pacing: { policy: "even" },
-  routing: [{ default: ["byteplus", "codex", "local"] }],
+  routing: [{ default: ["opencode#byteplus", "codex", "opencode#local"] }],
 }, "/x");
 
 const now = localTs(2026, 10, 10, 19, 0);
@@ -41,9 +41,9 @@ test("assembles verdicts, planner mode and the default executor ranking", async 
   expect(st.mode).toBe("normal");
   const by = Object.fromEntries(st.providers.map((p) => [p.id, p]));
   expect(by["claude-code"].verdict).toBe("ON_PACE");
-  expect(by.byteplus.verdict).toBe("EXPIRING");
-  expect(by.local.verdict).toBe("OK");
-  expect(st.executors.ranked[0].id).toBe("byteplus");
+  expect(by["opencode#byteplus"].verdict).toBe("EXPIRING");
+  expect(by["opencode#local"].verdict).toBe("OK");
+  expect(st.executors.ranked[0].id).toBe("opencode#byteplus");
 });
 
 test("broken sources degrade to UNKNOWN and the status still renders", async () => {
@@ -52,10 +52,10 @@ test("broken sources degrade to UNKNOWN and the status still renders", async () 
   const by = Object.fromEntries(st.providers.map((p) => [p.id, p]));
   expect(by["claude-code"].verdict).toBe("UNKNOWN");
   expect(by.codex.verdict).toBe("UNKNOWN");
-  expect(by.byteplus.verdict).toBe("UNKNOWN");
-  expect(by.byteplus.error).toContain("arkcli");
+  expect(by["opencode#byteplus"].verdict).toBe("UNKNOWN");
+  expect(by["opencode#byteplus"].error).toContain("arkcli");
   expect(st.mode).toBe("normal");
-  expect(st.executors.ranked.map((e) => e.id)).toEqual(["local", "byteplus", "codex"]);
+  expect(st.executors.ranked.map((e) => e.id)).toEqual(["opencode#local", "opencode#byteplus", "codex"]);
 });
 
 test("unreadable activity logs do not prevent status without a profile override", async () => {
@@ -69,7 +69,7 @@ test("unreadable activity logs do not prevent status without a profile override"
     const st = await computeStatus(ctx, s);
     expect(st.calendarPace).toBe(true);
     expect(st.providers).toHaveLength(Object.keys(s.providers).length);
-    expect(st.providers.find((p) => p.id === "local")?.verdict).toBe("OK");
+    expect(st.providers.find((p) => p.id === "opencode#local")?.verdict).toBe("OK");
   } finally {
     chmodSync(path, mode);
   }
@@ -80,7 +80,7 @@ test("PACER=off marks the status disabled; missing binaries are not installed", 
   const st = await computeStatus(ctx, s, { profile: null });
   expect(st.disabled).toBe(true);
   expect(st.providers.find((p) => p.id === "codex")?.installed).toBe(false);
-  expect(st.executors.excluded).toContainEqual({ id: "codex", reason: "not installed" });
+  expect(st.executors.excluded).toContainEqual({ id: "codex", account: "codex", reason: "not installed" });
 });
 
 test("displayName", () => {

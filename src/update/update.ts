@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { refreshIntegrations } from "../commands/update-refresh";
+import { refreshIntegrations, refreshStrategy } from "../commands/update-refresh";
 import { restartConsoles } from "../console/restart";
 import { restartAfterUpdate } from "../service";
 import type { Result } from "../commands/types";
@@ -23,6 +23,7 @@ export interface UpdateDeps {
   platform: Platform | null;
   smoke?: SmokeFn;
   refreshIntegrations?: (path: string) => Promise<string[]>;
+  migrateStrategy?: () => string[];
   restartService?: (path: string) => Promise<boolean | { restarted: boolean; consoles: number; warning?: string }>;
 }
 
@@ -61,6 +62,7 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
     version: currentVersion(),
     platform: hostPlatform(),
     refreshIntegrations: path => refreshIntegrations(ctx, path),
+    migrateStrategy: () => refreshStrategy(ctx),
     restartService: async path => {
       let restarted = false, warning: string | undefined;
       try { restarted = await restartAfterUpdate(ctx, path); } catch (e) { warning = `could not restart pacer serve: ${(e as Error).message}`; }
@@ -89,6 +91,10 @@ function installHint(d: UpdateDeps): string | undefined {
 }
 
 export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result> {
+  const migrationNote = () => {
+    if (o.check || !d.migrateStrategy) return "";
+    const lines = d.migrateStrategy(); return lines.length ? `\n${lines.join("\n")}` : "";
+  };
   const hint = installHint(d);
   if (hint && !o.check) return fail(2, hint);
   const checked = (out: string): Result => ok(out + (hint ? `\n${hint}` : ""));
@@ -107,7 +113,7 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
   try {
     const target = o.to ?? parseLatest(JSON.parse(await fetchText(d.fetch, latestUrl(base))));
     const cmp = compareVersions(target, d.version);
-    if (!o.to && cmp <= 0) return checked(cmp === 0 ? `pacer ${d.version} is up to date` : `pacer ${d.version} is up to date (latest release: ${target})`);
+    if (!o.to && cmp <= 0) return checked((cmp === 0 ? `pacer ${d.version} is up to date` : `pacer ${d.version} is up to date (latest release: ${target})`) + migrationNote());
     if (o.check && o.to && cmp === 0) return checked(`pacer ${d.version} is already installed`);
     const manifest = parseManifest(JSON.parse(await fetchText(d.fetch, releaseUrl(base, target, "manifest.json"))));
     if (manifest.version !== target) throw new ReleaseError(`manifest.json is for ${manifest.version}, not ${target}`);
@@ -133,6 +139,7 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
         if (lines.length) refreshNote = "\n" + lines.join("\n");
       } catch (e) { refreshNote = `\nWARNING: could not refresh integrations: ${(e as Error).message}`; }
     }
+    refreshNote += migrationNote();
     let serviceNote = "";
     if (!o.noRestart && d.restartService) {
       try { const result = await d.restartService(r.path);

@@ -12,7 +12,7 @@ function setup(){const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});w
 const summaryKeys=["task_id","state","kind","requested_executor","placement","attempts","result","review","resolved"].sort();
 test("CLI status and route pin JSON top-level keys",async()=>{
  const ctx=setup();
- expect(Object.keys(JSON.parse((await main(["status","--json"],ctx)).out)).sort()).toEqual(["generatedAt","strategy","planner","mode","disabled","calendarPace","providers","executors"].sort());
+ expect(Object.keys(JSON.parse((await main(["status","--json"],ctx)).out)).sort()).toEqual(["generatedAt","strategy","planner","mode","disabled","calendarPace","accounts","providers","executors"].sort());
  expect(Object.keys(JSON.parse((await main(["route","debug","--json"],ctx)).out)).sort()).toEqual(["kind","ranked","excluded"].sort());
 });
 test("brief-file and stdin preserve text and command flags override file fields",async()=>{

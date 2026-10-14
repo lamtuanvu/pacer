@@ -14,8 +14,8 @@ export function checkName(name: string, writable=false): void {
 }
 export function pathFor(ctx: Ctx, name: string): string { if(!listStrategies(ctx).includes(name)) throw new Error(`unknown strategy "${name}"`); return name === "default" ? join(ctx.pacerHome,"strategy.yaml") : join(ctx.pacerHome,"strategies",`${name}.yaml`); }
 export function summarize(s: Strategy): string {
-  const first=s.pacing.order.find(id=>id!==s.planner);
-  return `${first ? displayName(first)+" first" : "Configured executors"}, ${displayName(s.planner)} keeps ${s.pacing.plannerReserve}%${s.pacing.policy === "priority" ? "" : `; ${s.pacing.policy} policy`}`;
+  const first=s.pacing.order.find(id=>id!==s.planner.agent);
+  return `${first ? displayName(first)+" first" : "Configured executors"}, ${displayName(s.planner.agent)} keeps ${s.pacing.plannerReserve}%${s.pacing.policy === "priority" ? "" : `; ${s.pacing.policy} policy`}`;
 }
 export function show(ctx: Ctx, name: string) {
   const path=pathFor(ctx,name), yaml=readFileSync(path,"utf8"), s=validateStrategy(Bun.YAML.parse(yaml),path,name);

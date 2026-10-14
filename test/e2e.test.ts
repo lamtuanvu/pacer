@@ -12,7 +12,8 @@ function setup(executors: Record<string, string>, strategy: string) {
   writeFileSync(join(pacerHome, "strategy.yaml"), strategy);
   const bin = join(home, "bin");
   mkdirSync(bin);
-  for (const [name, body] of Object.entries(executors)) {
+  // Direct-backend fixtures must not read the host Orca account budgets.
+  for (const [name, body] of Object.entries({ orca: "exit 127", ...executors })) {
     writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
     chmodSync(join(bin, name), 0o755);
   }

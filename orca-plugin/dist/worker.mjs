@@ -266,7 +266,7 @@ var package_default = {
     "@types/bun": "^1.4.2",
     typescript: "^7.0.2"
   },
-  version: "0.1.22",
+  version: "0.1.23",
   bin: {
     pacer: "src/cli.ts"
   },
@@ -284,6 +284,7 @@ var package_default = {
   },
   dependencies: {
     "@modelcontextprotocol/sdk": "1.32.1",
+    yaml: "2.8.2",
     zod: "4.6.5"
   },
   license: "Apache-2.0",
@@ -763,7 +764,7 @@ function parseBudget(d) {
     const id = str(p.id, 64), verdict = str(p.verdict, 32);
     if (id === null || verdict === null)
       return [];
-    return [{ id, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true, ...optStr(p.brokenReason, 500) ? { brokenReason: optStr(p.brokenReason, 500) } : {}, ...optStr(p.blockedReason, 500) ? { blockedReason: optStr(p.blockedReason, 500), blockedUntil: num(p.blockedUntil) } : {} }];
+    return [{ id, ...optStr(p.agent, 64) && optStr(p.account, 64) ? { agent: optStr(p.agent, 64), account: optStr(p.account, 64) } : {}, ...optStr(p.unavailableReason, 500) ? { unavailableReason: optStr(p.unavailableReason, 500) } : {}, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true, ...optStr(p.brokenReason, 500) ? { brokenReason: optStr(p.brokenReason, 500) } : {}, ...optStr(p.blockedReason, 500) ? { blockedReason: optStr(p.blockedReason, 500), blockedUntil: num(p.blockedUntil) } : {} }];
   });
   const ranked = (Array.isArray(d.ranked) ? d.ranked : []).slice(0, LIMITS.providers).flatMap((r) => {
     if (!isObj(r))
@@ -1335,18 +1336,44 @@ function packPanelData(value) {
 }
 var actionStatus = '<p data-status role="status" aria-live="polite" class="action-status"></p>';
 
+// src/config/accounts.ts
+var AGENTS = ["claude-code", "codex", "cursor", "agy", "opencode"];
+
+// src/config/runner-id.ts
+function parseRunnerId(id) {
+  const m = /^([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?(?:@([a-z0-9][a-z0-9-]*))?$/.exec(id);
+  if (!m || !AGENTS.includes(m[1]))
+    return null;
+  return { agent: m[1], account: m[2] ?? null, host: m[3] ?? null };
+}
+
+// src/render/accounts.ts
+var names2 = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", local: "Local", opencode: "OpenCode" };
+var providerName = (id) => (Object.hasOwn(names2, id) ? names2[id] : undefined) ?? id.charAt(0).toUpperCase() + id.slice(1);
+function displayName(id) {
+  const runner = parseRunnerId(id);
+  if (runner?.agent === "opencode" && runner.account)
+    return providerName(runner.account);
+  if (runner?.account)
+    return `${runner.agent === "claude-code" ? "Claude Code" : providerName(runner.agent)} (${runner.account})`;
+  return providerName(runner?.agent ?? id);
+}
+function runnerLabel(p) {
+  return p.agent === "opencode" && p.account ? providerName(p.account) : displayName(p.id);
+}
+
 // orca-plugin/src/panel/icons.ts
 var paths = { "claude-code": "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z", cursor: "M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23", agy: "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81", byteplus: "M19.8772 1.4685L24 2.5326v18.9426l-4.1228 1.0563V1.4685zm-13.3481 9.428l4.115 1.0641v8.9786l-4.115 1.0642v-11.107zM0 2.572l4.115 1.0642v16.7354L0 21.428V2.572zm17.4553 5.6205v11.107l-4.1228-1.0642V9.2568l4.1228-1.0642z", local: "M14.025 0c3.492 0 5.237 0 6.571.68a6.24 6.24 0 0 1 2.725 2.724C24 4.738 24 6.484 24 9.975v4.05c0 3.492 0 5.237-.68 6.571a6.24 6.24 0 0 1-2.724 2.725c-1.334.679-3.08.679-6.571.679h-4.05c-3.492 0-5.237 0-6.571-.68A6.24 6.24 0 0 1 .68 20.597C0 19.262 0 17.516 0 14.025v-4.05c0-3.492 0-5.237.68-6.571A6.23 6.23 0 0 1 3.404.68C4.738 0 6.484 0 9.975 0zM7.688 16.313a1.313 1.313 0 0 0 0 2.625h11.625a1.313 1.313 0 0 0 0-2.625zm-3-3.75a1.313 1.313 0 0 0 0 2.624h11.625a1.313 1.313 0 0 0 0-2.624zm3-3.75a1.313 1.313 0 0 0 0 2.624h11.625a1.313 1.313 0 0 0 0-2.624zm-3-3.75a1.313 1.313 0 0 0 0 2.625h11.625a1.313 1.313 0 0 0 0-2.625z" };
-var names2 = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", local: "Local model", opencode: "OpenCode" };
-var displayName = (id) => Object.hasOwn(names2, id) ? names2[id] : id;
+var displayName2 = (id) => parseRunnerId(id) || Object.hasOwn(paths, id) ? displayName(id) : id;
 function icon(id, size = 16) {
-  const name = escapeHtml(displayName(id));
+  const name = escapeHtml(displayName2(id));
   return Object.hasOwn(paths, id) ? `<svg role="img" aria-label="${name}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor"><path d="${paths[id]}"></path></svg>` : `<span class="monogram" role="img" aria-label="${name}" style="width:${size}px;height:${size}px">${escapeHtml(id === "codex" ? "Cx" : id.slice(0, 2))}</span>`;
 }
 var mark = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><rect x="4" y="20" width="40" height="8" rx="4" fill="var(--border)"></rect><rect x="4" y="20" width="22" height="8" rx="4" fill="currentColor"></rect><rect class="brand-tick" x="29" y="12" width="4" height="24" rx="2"></rect></svg>`;
 var info = `<svg role="img" aria-label="Information" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="flex-shrink:0"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7v1"></path></svg>`;
 
 // orca-plugin/src/panel/model.ts
+var providerLabel = (p) => p.agent ? runnerLabel(p) : displayName2(p.id);
 function initialView(s, reachable, now) {
   return reachable && s.budget && [...s.consoles ?? [], ...s.console ? [s.console] : []].some((c) => c.handle && now - c.heartbeatAt <= 30) ? "overview" : "setup";
 }
@@ -1355,24 +1382,25 @@ var verdictWords = (v) => Object.hasOwn(words, v) ? words[v] : "Unknown";
 var tone = (v) => v === "EXHAUSTED" ? "bad" : ["AHEAD", "NEAR_LIMIT", "EXPIRING", "EXPIRING_SOON"].includes(v) ? "warn" : ["OK", "ON_PACE", "BEHIND", "UNMETERED"].includes(v) ? "good" : "neutral";
 function rankedProviders(s) {
   const b = s.budget;
-  return (b?.ranked ?? []).filter((r, i, a) => r.id !== b?.planner && a.findIndex((x) => x.id === r.id) === i).map((r) => b?.providers.find((p) => p.id === r.id) ?? { ...r, usedPct: null, pacePct: null, resetsAt: null, window: null, stale: false }).filter((p) => p.verdict !== "EXHAUSTED" && !p.brokenReason && !p.blockedReason);
+  return (b?.ranked ?? []).filter((r, i, a) => r.id !== b?.planner && a.findIndex((x) => x.id === r.id) === i).map((r) => b?.providers.find((p) => p.id === r.id) ?? { ...r, usedPct: null, pacePct: null, resetsAt: null, window: null, stale: false }).filter((p) => p.verdict !== "EXHAUSTED" && !p.brokenReason && !p.blockedReason && !p.unavailableReason);
 }
 function mutedProviders(s) {
   const ids = new Set(rankedProviders(s).map((p) => p.id));
   return (s.budget?.providers ?? []).filter((p) => p.id !== s.budget?.planner && !ids.has(p.id));
 }
 function headline(p, _now = 0) {
+  const name = p?.agent ? providerLabel(p) : "Claude";
   switch (p?.verdict) {
     case "OK":
     case "ON_PACE":
       return "You're on pace for the week.";
     case "AHEAD":
     case "NEAR_LIMIT":
-      return "Claude is ahead of pace. Slow down planning.";
+      return `${name} is ahead of pace. Slow down planning.`;
     case "BEHIND":
-      return "Claude is behind pace. Room for more planning.";
+      return `${name} is behind pace. Room for more planning.`;
     case "EXHAUSTED":
-      return p.resetsAt === null ? "Claude is out of quota until its next reset." : `Claude is out until ${new Date(p.resetsAt * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}.`;
+      return p.resetsAt === null ? `${name} is out of quota until its next reset.` : `${name} is out until ${new Date(p.resetsAt * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}.`;
     default:
       return "Budget unknown.";
   }
@@ -1381,11 +1409,11 @@ function answerDetail(s, now) {
   const p = s.budget?.providers.find((p) => p.id === s.budget?.planner), top = rankedProviders(s)[0];
   const parts = [];
   if (p?.usedPct != null)
-    parts.push(`${displayName(p.id)} has ${Math.round(100 - p.usedPct)}% left${p.resetsAt == null ? "" : ` with ${duration(p.resetsAt - now, true)} to go`}.`);
+    parts.push(`${providerLabel(p)} has ${Math.round(100 - p.usedPct)}% left${p.resetsAt == null ? "" : ` with ${duration(p.resetsAt - now, true)} to go`}.`);
   else if (p?.resetsAt != null)
-    parts.push(`${displayName(p.id)} has ${duration(p.resetsAt - now, true)} to go.`);
+    parts.push(`${providerLabel(p)} has ${duration(p.resetsAt - now, true)} to go.`);
   if (top)
-    parts.push(`New work goes to ${displayName(top.id)}.`);
+    parts.push(`New work goes to ${providerLabel(top)}.`);
   return parts.join(" ");
 }
 function providerDetail(p, now) {
@@ -1421,19 +1449,19 @@ function attentionGroups(s, now) {
     }
     return seen.size;
   };
-  return [...groups].map(([_key, tasks]) => ({ count: count(tasks), goal: tasks[0].brokenExecutor ? `${displayName(tasks[0].brokenExecutor)} is not working` : tasks[0].goal, tasks, latest: tasks[0], stuck: ["running", "queued"].includes(tasks[0].state), retry: rankedProviders(s).find((p) => !tasks.some((t) => t.executor === p.id)) ?? null, ...tasks[0].brokenExecutor ? { brokenExecutor: tasks[0].brokenExecutor, brokenReason: tasks[0].brokenReason } : {} }));
+  return [...groups].map(([_key, tasks]) => ({ count: count(tasks), goal: tasks[0].brokenExecutor ? `${displayName2(tasks[0].brokenExecutor)} is not working` : tasks[0].goal, tasks, latest: tasks[0], stuck: ["running", "queued"].includes(tasks[0].state), retry: rankedProviders(s).find((p) => !tasks.some((t) => t.executor === p.id)) ?? null, ...tasks[0].brokenExecutor ? { brokenExecutor: tasks[0].brokenExecutor, brokenReason: tasks[0].brokenReason } : {} }));
 }
 function attentionText(g, now) {
   if (g.brokenExecutor)
-    return `${displayName(g.brokenExecutor)} is not working: ${g.brokenReason ?? "CLI startup failed"} · ${g.tasks.length} tasks affected`;
+    return `${displayName2(g.brokenExecutor)} is not working: ${g.brokenReason ?? "CLI startup failed"} · ${g.tasks.length} tasks affected`;
   if (g.stuck)
     return `Waiting ${duration(now - g.latest.updatedAt)} with no executor picked`;
   if (g.latest.state === "partial")
-    return `Needs review${g.latest.executor ? ` on ${displayName(g.latest.executor)}` : ""}`;
+    return `Needs review${g.latest.executor ? ` on ${displayName2(g.latest.executor)}` : ""}`;
   const count = g.count, label = g.latest.state === "limit" ? "Hit a limit" : "Failed";
-  return `${label}${count === 2 ? " twice" : count > 2 ? ` ×${count}` : ""}${g.latest.executor ? ` on ${displayName(g.latest.executor)}` : ""}`;
+  return `${label}${count === 2 ? " twice" : count > 2 ? ` ×${count}` : ""}${g.latest.executor ? ` on ${displayName2(g.latest.executor)}` : ""}`;
 }
-var unavailableDetail = (p, now) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.verdict === "EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt, now)}` : "not in the queue";
+var unavailableDetail = (p, now) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.unavailableReason ? `usage-only · ${p.unavailableReason}${p.usedPct === null ? "" : ` · ${Math.round(p.usedPct)}% used`}` : p.verdict === "EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt, now)}` : "not in the queue";
 
 // orca-plugin/src/panel/overview.ts
 function focusAttrs(t, commands) {
@@ -1450,7 +1478,7 @@ function meter(p, slim = false) {
   if (p.usedPct === null)
     return "";
   const used = Math.max(0, Math.min(100, p.usedPct)), pace = p.pacePct == null ? null : Math.max(0, Math.min(100, p.pacePct));
-  return `<div class="meter ${slim ? "slim" : ""} ${tone(p.verdict)}" role="progressbar" aria-label="${h(displayName(p.id))} usage${pace === null ? "" : `, pace ${pace}%`}" aria-valuenow="${used}" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:${used}%"></div>${pace === null ? "" : `<div class="pace" style="left:${pace}%"></div>`}</div>`;
+  return `<div class="meter ${slim ? "slim" : ""} ${tone(p.verdict)}" role="progressbar" aria-label="${h(providerLabel(p))} usage${pace === null ? "" : `, pace ${pace}%`}" aria-valuenow="${used}" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:${used}%"></div>${pace === null ? "" : `<div class="pace" style="left:${pace}%"></div>`}</div>`;
 }
 function connectionIndicator(s, now, reachable) {
   const old = now - (s.budget?.generatedAt ?? s.at) > 120;
@@ -1465,24 +1493,24 @@ function strategyPicker(_s) {
 function overview(s, now, reachable, commands, text, rows = "", feedback = "") {
   const p = s.budget?.providers.find((p) => p.id === s.budget?.planner), attention = attentionGroups(s, now);
   return `<div class="content">${header(s, now, reachable)}${rows}
- <div class="card stack answer"><div class="stack"><div class="headline">${h(headline(p, now))}</div><div class="muted">${h(answerDetail(s, now))}</div></div>${p ? `<div class="stack"><div class="row"><span class="name">${icon(p.id, 14)}${h(displayName(p.id))}</span><small>planner</small><span class="grow"></span><span class="percent">${p.usedPct === null ? "—" : `${Math.round(p.usedPct)}%`}</span><small>used</small></div>${meter(p)}<div class="row"><small>Pace marker ${p.pacePct == null ? "—" : `${p.pacePct}%`}</small><span class="grow"></span><small>${p.resetsAt === null ? "Reset unknown" : `Resets ${h(new Date(p.resetsAt * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }))}`}</small></div></div>` : ""}</div>
+ <div class="card stack answer"><div class="stack"><div class="headline">${h(headline(p, now))}</div><div class="muted">${h(answerDetail(s, now))}</div></div>${p ? `<div class="stack"><div class="row"><span class="name">${icon(p.id, 14)}${h(providerLabel(p))}</span><small>planner</small><span class="grow"></span><span class="percent">${p.usedPct === null ? "—" : `${Math.round(p.usedPct)}%`}</span><small>used</small></div>${meter(p)}<div class="row"><small>Pace marker ${p.pacePct == null ? "—" : `${p.pacePct}%`}</small><span class="grow"></span><small>${p.resetsAt === null ? "Reset unknown" : `Resets ${h(new Date(p.resetsAt * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }))}`}</small></div></div>` : ""}</div>
  <section class="stack section"><div class="row"><h2>Who runs next</h2><span class="grow"></span><small>in this order</small></div><div class="list" id="ranked-list"></div><div class="stack unavailable" id="unavailable-list"></div></section>
  <section class="stack section"><div class="row"><h2>Needs attention</h2>${attention.length ? `<span class="pill bad">${attention.length}</span>` : ""}</div>${attention.slice(0, 10).map((g, i) => {
     const key = `attention-${i}`, review = g.latest.state === "partial";
     text[key + "-goal"] = g.goal.length > 96 ? g.goal.slice(0, 93) + "…" : g.goal;
     text[key + "-detail"] = attentionText(g, now) + (g.stuck ? "" : ` · ${age(g.latest.updatedAt, now)}`);
     if (g.retry)
-      text[key + "-executor"] = displayName(g.retry.id);
+      text[key + "-executor"] = displayName2(g.retry.id);
     if (g.stuck && /^[A-Za-z0-9_-]{1,128}$/.test(g.latest.id))
       commands[key] = { cmd: "stop", taskId: g.latest.id };
-    else if (g.retry && /^[A-Za-z0-9_-]{1,128}$/.test(g.latest.id) && /^[a-z0-9-]{1,64}$/.test(g.retry.id))
+    else if (g.retry && /^[A-Za-z0-9_-]{1,128}$/.test(g.latest.id) && /^(?=.{1,64}$)[a-z0-9-]+(?:#[a-z0-9-]+)?$/.test(g.retry.id))
       commands[key] = g.brokenExecutor ? { cmd: "retry-all", taskIds: g.tasks.map((t) => t.id), executor: g.retry.id } : { cmd: "retry", taskId: g.latest.id, executor: g.retry.id };
     if (!g.stuck)
       commands[key + "-dismiss"] = { cmd: "dismiss", ...g.tasks.length > 1 ? { taskIds: g.tasks.map((t) => t.id) } : { taskId: g.latest.id } };
     return `<div class="card stack attention ${g.stuck ? "stuck" : ""}"${focusAttrs(g.latest, commands)}><div class="row"><span class="${g.stuck ? "warn" : "bad"}" aria-hidden="true">${g.stuck ? "◐" : "✕"}</span><div class="stack grow"><span class="task-goal"><span data-text="${key}-goal"></span></span><small><span data-text="${key}-detail"></span></small>${placementLine(g.latest)}${review && g.latest.worktree ? `<small>${h(g.latest.worktree)}</small>` : ""}</div></div><div class="actions">${review ? `<button type="button" class="primary" data-command="${key}-dismiss">Dismiss</button>` : ""}${commands[key] ? `<button type="button" class="${g.stuck || review ? "" : "primary"}" data-command="${key}">${g.stuck ? "Stop it" : `${g.brokenExecutor ? "Retry all" : "Retry"} on <span data-text="${key}-executor"></span>`}</button>` : "<small>No other executor available.</small>"}${!g.stuck && !review ? `<button type="button" data-command="${key}-dismiss">Dismiss</button>` : ""}</div></div>`;
   }).join("")}${attention.length > 10 ? `<small>${attention.length - 10} more groups need attention. View all with pacer tasks.</small>` : ""}${attention.length ? "" : "<small>Nothing needs attention.</small>"}</section>
- <section class="stack section"><h2>Running</h2>${s.tasks.filter((t) => ["running", "queued"].includes(t.state)).map((t) => `<div class="card stack running-task"${focusAttrs(t, commands)}><span>${h(t.goal)}</span><small>${t.executor ? `Running on ${h(displayName(t.executor))} · started <span data-age-at="${t.attemptStartedAt ?? t.updatedAt}">${Math.max(0, Math.floor(now - (t.attemptStartedAt ?? t.updatedAt)))}s ago</span>` : "Queued"}${t.retryOf ? ` · Retry of ${h(t.retryOf)}` : ""}</small>${placementLine(t)}</div>`).join("") || "<small>No tasks running.</small>"}</section>
- <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter((t) => t.state === "done").sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).map((t) => `<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0, 100))}">${h(t.goal.slice(0, 100))}</span><small>${h(t.executor ? displayName(t.executor) : "—")} · ${h(age(t.updatedAt, now))}</small></div></div>`).join("")}${s.tasks.some((t) => t.state === "done") ? "" : "<small>No completed tasks yet.</small>"}</div></section>
+ <section class="stack section"><h2>Running</h2>${s.tasks.filter((t) => ["running", "queued"].includes(t.state)).map((t) => `<div class="card stack running-task"${focusAttrs(t, commands)}><span>${h(t.goal)}</span><small>${t.executor ? `Running on ${h(displayName2(t.executor))} · started <span data-age-at="${t.attemptStartedAt ?? t.updatedAt}">${Math.max(0, Math.floor(now - (t.attemptStartedAt ?? t.updatedAt)))}s ago</span>` : "Queued"}${t.retryOf ? ` · Retry of ${h(t.retryOf)}` : ""}</small>${placementLine(t)}</div>`).join("") || "<small>No tasks running.</small>"}</section>
+ <section class="stack section"><h2>Recently done</h2><div class="stack recent">${[...s.tasks].filter((t) => t.state === "done").sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).map((t) => `<div class="row"><span class="good" aria-hidden="true">✓</span><div class="stack grow"><span class="ellipsis" title="${h(t.goal.slice(0, 100))}">${h(t.goal.slice(0, 100))}</span><small>${h(t.executor ? displayName2(t.executor) : "—")} · ${h(age(t.updatedAt, now))}</small></div></div>`).join("")}${s.tasks.some((t) => t.state === "done") ? "" : "<small>No completed tasks yet.</small>"}</div></section>
  ${strategyPicker(s)}</div><div class="actionbar"><div class="actions"><button type="button" class="primary grow" data-view="delegate" data-live>Delegate a task</button><button type="button" data-view="strategy" data-live>Strategy</button><button type="button" class="refresh" data-command="refresh" aria-label="Refresh">↻</button></div>${feedback || actionStatus}<div class="footnote">Updated <span data-updated>—</span> · <span data-console-connection>Checking console...</span></div></div>`;
 }
 
@@ -1552,7 +1580,7 @@ try {const saved=JSON.parse(sessionStorage.getItem(actionStorage)||"{}");if(save
 const actionButtons=new Map();
 function saveActions(){try{sessionStorage.setItem(actionStorage,JSON.stringify(actionStates));}catch{}}
 function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.level||c.goal||c.from||c.text||"");}
-function actionLabel(c){const name=providerNames[c.executor]||c.executor||"executor";return ({focus:"Opening session...",retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
+function actionLabel(c){const name=data.rows.find(p=>p.id===c.executor)?.name||c.executor||"executor";return ({focus:"Opening session...",retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
 function outcome(a){
  const c=a.action,t=data.tasks||[],ids=c.taskIds||[c.taskId],p=[...data.rows,...data.muted].find(p=>p.id===c.executor);
  if(c.cmd==="retry"||c.cmd==="retry-all")return ids.every(id=>t.some(x=>x.retryOf===id)||t.find(x=>x.id===id)?.retriedBy);
@@ -1603,7 +1631,13 @@ function bindAction(button,action){const key=actionKey(action);if(actionStates[k
 `;
 
 // orca-plugin/src/panel/client.ts
-var client = `
+var accountGroupsClient = `function groupedRows(rows,render) {
+ const groups=new Map();
+ rows.forEach((p,i)=>{const key=p.account || "";if(!groups.has(key))groups.set(key,[]);groups.get(key).push([p,i]);});
+ return Array.from(groups,([account,entries])=>(account?'<div class="muted account-group">Account '+h(account)+'</div>':'')+entries.map(([p,i])=>render(p,i)).join("")).join("");
+}
+`;
+var client = (accounts = false) => `
 const embedded=JSON.parse(document.getElementById("pacer-actions").textContent);
 function unpack(value) {
  if(Array.isArray(value)) return value.map(unpack);
@@ -1611,8 +1645,9 @@ function unpack(value) {
  return value;
 }
 const data=unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(embedded.encoded), c=>c.charCodeAt(0)))) : embedded);
-const providerNames={"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model",opencode:"OpenCode"};
-for (const p of [...data.rows,...data.muted]) p.name=Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
+const runnerId=/^(?=.{1,64}$)[a-z0-9-]+(?:#[a-z0-9-]+)?$/;
+const names=${JSON.stringify(names2)};
+for(const p of [...data.rows,...data.muted])p.name||=Object.hasOwn(names,p.id)?names[p.id]:p.id;
 data.executors=data.rows.map(p=>p.id);
 const statusNode=document.getElementById("status");
 const status={ get textContent() { return statusNode.textContent; }, set textContent(value) {
@@ -1710,14 +1745,15 @@ function meter(p) {
  return '<div class="meter slim '+p.tone+'" role="progressbar" aria-label="'+h(p.name)+' usage" aria-valuenow="'+used+'" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:'+used+'%"></div>'+(pace===null?'':'<div class="pace" style="left:'+pace+'%"></div>')+'</div>';
 }
 const rankedList=document.getElementById("ranked-list"), mutedList=document.getElementById("unavailable-list"), options=document.getElementById("executor-options");
-rankedList.innerHTML=data.rows.map((p,i)=>'<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span><button type="button" data-executor-action="'+i+'">Block</button></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
-mutedList.innerHTML=data.muted.map((p,i)=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span><button type="button" data-executor-action="'+(data.rows.length+i)+'">'+(p.blocked?'Unblock':'Block')+'</button></div>').join("");
+${accounts ? accountGroupsClient : ""}
+rankedList.innerHTML=${accounts ? "groupedRows(data.rows," : "data.rows.map("}(p,i)=>'<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span><button type="button" data-executor-action="'+i+'">Block</button></div>'+meter(p)+'</div>')${accounts ? "" : '.join("")'} || '<div class="provider muted">No executor available yet.</div>';
+mutedList.innerHTML=${accounts ? "groupedRows(data.muted," : "data.muted.map("}(p,i)=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span><button type="button" data-executor-action="'+(data.rows.length+i)+'">'+(p.blocked?'Unblock':'Block')+'</button></div>')${accounts ? "" : '.join("")'};
 options.innerHTML=data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict==="EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
 for(const b of document.querySelectorAll("[data-executor-action]")) {
  const provider=[...data.rows,...data.muted][Number(b.dataset.executorAction)];if(provider)bindAction(b,{cmd:provider.blocked?"unblock":"block",executor:provider.id});
  b.addEventListener("click",()=>{
  const p=[...data.rows,...data.muted][Number(b.dataset.executorAction)];
- if(p && /^[a-z0-9-]{1,64}$/.test(p.id))pendingSend(b,{cmd:p.blocked?"unblock":"block",executor:p.id});
+ if(p && runnerId.test(p.id))pendingSend(b,{cmd:p.blocked?"unblock":"block",executor:p.id});
 });}
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", ()=>{
   if (["delegate","strategy"].includes(b.dataset.view)) {
@@ -1766,7 +1802,7 @@ document.getElementById("delegate-send").addEventListener("click", ()=>{
   const selected=document.querySelector('input[name="executor"]:checked');
   if (!goal.trim()) { status.textContent="What should be done is required."; return; }
   if (goal.length > 2000 || acceptance.length > 500) { status.textContent="Goal must be at most 2000 characters; Done when at most 500."; return; }
-  if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !/^[a-z0-9-]{1,64}$/.test(data.executors[Number(selected.value)]))) { status.textContent="Choose an available executor."; return; }
+  if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !runnerId.test(data.executors[Number(selected.value)]))) { status.textContent="Choose an available executor."; return; }
   const command={cmd:"delegate",goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})};
   const action=beginAction(submitButton,command);if(!action)return;
   sending=true;
@@ -1838,7 +1874,7 @@ function renderPanel(s, view) {
   const feedback = console ? "" : `<p data-status role="status" aria-live="polite" class="action-status">${h(reasonText)}</p>`;
   const main = overview(s, view.nowS, view.reachable, commands, text, rows, feedback);
   const disable = (html) => console ? html : html.replace(/(data-command="[^\"]+"|data-live)(?=[ >])/g, "$1 disabled");
-  const payload = { focusAlerts: s.alerts.filter((a) => a.key.startsWith("focus-")), notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => (a.key.startsWith("retry-") || a.key.startsWith("focus-")) && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
+  const payload = { focusAlerts: s.alerts.filter((a) => a.key.startsWith("focus-")), notifications: view.notifications ?? "important", actionErrors: s.alerts.filter((a) => (a.key.startsWith("retry-") || a.key.startsWith("focus-")) && a.level !== "info").map((a) => ({ key: a.key, at: a.at, body: a.body })), sequence: s.seq, tasks: s.tasks.map((t) => ({ id: t.id, state: t.state, goal: t.goal, retryOf: t.retryOf, retriedBy: t.retriedBy, dismissed: t.dismissed })), autoConsole: view.autoConsole ?? true, buildAlert: s.alerts.find((a) => a.key === "strategy-build") ?? null, consoles: consoles.map((c) => ({ handle: c.handle, live: true })), strategies: s.strategies?.length ? s.strategies : [s.budget?.strategy ?? "default"], strategy: s.budget?.strategy ?? "default", savedAlerts: s.alerts.filter((a) => a.key.startsWith("strategySaved-")), snapshotAt: s.budget?.generatedAt ?? s.at, updatedAt: s.at, reachable: view.reachable, commands, text, paths: Object.fromEntries(Object.entries(paths).filter(([id]) => [...rankedProviders(s), ...mutedProviders(s)].some((p) => p.id === id))), rows: rankedProviders(s).map((p) => ({ id: p.id, ...p.id.includes("#") ? { name: providerLabel(p) } : {}, ...p.agent ? { agent: p.agent, account: p.account } : {}, usedPct: p.usedPct, pacePct: p.pacePct, detail: providerDetail(p, view.nowS), tone: tone(p.verdict), words: verdictWords(p.verdict), blocked: false })), muted: mutedProviders(s).map((p) => ({ id: p.id, ...p.id.includes("#") ? { name: providerLabel(p) } : {}, ...p.agent ? { agent: p.agent, account: p.account } : {}, verdict: p.verdict, detail: unavailableDetail(p, view.nowS), blocked: !!p.blockedReason })) };
   const strategy = strategyView(s, view.nowS, view.reachable, view.notifications ?? "important");
   const outcome = view.autoConsoleOutcome, waiting = !outcome || outcome.status === "starting" && view.nowS - outcome.at < 15;
   const reason = outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
@@ -1852,7 +1888,7 @@ function renderPanel(s, view) {
  <main class="view" data-page="strategy" hidden>${disable(strategy)}</main>
  <p id="status" role="status" aria-live="polite" hidden></p>
  <script type="application/json" id="pacer-actions">${data}</script><script>
-${client.replace(/^ *\/\/[^\n]*\n/gm, "").replace(/^ +/gm, "").replace(/\n\s*\n/g, `
+${client(!!s.budget?.providers.some((p) => p.agent)).replace(/^ *\/\/[^\n]*\n/gm, "").replace(/^ +/gm, "").replace(/\n\s*\n/g, `
 `).replace(/^ *\/\/[^\n]*$/gm, "")}</script></body></html>`;
 }
 

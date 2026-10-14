@@ -19,7 +19,7 @@ test("status --json prints the full status object", async () => {
   expect(r.code).toBe(0);
   const st = JSON.parse(r.out);
   expect(st.planner).toBe("claude-code");
-  expect(st.providers.map((p: { id: string }) => p.id)).toEqual(["claude-code", "local"]);
+  expect(st.providers.map((p: { id: string }) => p.id)).toEqual(["claude-code", "opencode#local"]);
   expect(typeof st.calendarPace).toBe("boolean");
 });
 

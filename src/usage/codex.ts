@@ -1,5 +1,7 @@
+import type { AccountCfg } from "../config/accounts";
+import { orcaAccountHome } from "../orca/accounts";
 import { stat } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx, UsageReading, UsageWindow } from "../types";
 import { isObj, parseTs, toNum } from "../util";
@@ -39,8 +41,11 @@ export async function lastRateLimits(path: string): Promise<Record<string, unkno
   return null;
 }
 
-export async function readCodex(ctx: Ctx): Promise<UsageReading> {
-  const root = join(ctx.home, ".codex", "sessions");
+export async function readCodex(ctx: Ctx, account?: AccountCfg): Promise<UsageReading> {
+  const home = account?.source === "orca" ? orcaAccountHome(ctx, "codex", account.orcaAccount ?? "")
+    : account?.home ? account.home.replace(/^~(?=\/|$)/, ctx.home) : join(ctx.home, ".codex");
+  if (!home) return { windows: [], capturedAt: null, stale: false, error: "Orca account folder not found" };
+  const root = join(home, "sessions");
   if (!existsSync(root)) return { windows: [], capturedAt: null, stale: false, error: "no Codex session logs" };
   const files: { p: string; m: number }[] = [];
   for await (const p of new Bun.Glob("**/rollout-*.jsonl").scan({ cwd: root, absolute: true })) {

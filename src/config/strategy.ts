@@ -2,6 +2,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import type { Ctx, UsageKind } from "../types";
 import { isObj } from "../util";
+import { parseRunnerId, runnerDefaults, resolveRunner } from "./runner-id";
+import { allowedPair, legacyToAccounts, parseAccounts, parseSize, parseDuration, type AccountCfg, type RunnerCfg, type PlannerCfg } from "./accounts";
+
+export { parseSize, parseDuration } from "./accounts";
 
 export const KINDS = [
   "boilerplate", "tests", "docs", "rename", "migration", "feature",
@@ -29,9 +33,14 @@ export interface ProviderCfg {
 export interface RouteRule { kinds: string[] | null; executors: string[] }
 export interface Strategy {
   name: string;
-  planner: string;
+  planner: PlannerCfg;
+  accounts: Record<string, AccountCfg>;
+  runners: Record<string, RunnerCfg>;
+  legacy: boolean;
+  runnerAliases: Record<string, string>;
+  /** @deprecated Derived from runners and accounts; use those directly in new consumers. */
   providers: Record<string, ProviderCfg>;
-  pacing: { policy: Policy; order: string[]; plannerReserve: number; aheadThreshold: number; behindThreshold: number };
+  pacing: { policy: Policy; order: string[]; plannerReserve: number; aheadThreshold: number; behindThreshold: number; accounts: "spread" | "fill"; fillThreshold: number };
   routing: RouteRule[];
   execution: Record<string, unknown>;
   classifier: Record<string, unknown>;
@@ -50,71 +59,63 @@ export class MissingStrategyError extends Error {
   }
 }
 
-export function parseSize(v: unknown): number | null {
-  if (typeof v === "number") return v;
-  const m = /^(\d+(?:\.\d+)?)\s*([kKmMgG]?)$/.exec(String(v ?? "").trim());
-  if (!m) return null;
-  const mult = { "": 1, k: 1e3, m: 1e6, g: 1e9 }[m[2].toLowerCase() as "" | "k" | "m" | "g"];
-  return Number(m[1]) * mult;
-}
-
-export function parseDuration(v: unknown): number | null {
-  if (typeof v === "number") return v;
-  const m = /^(\d+(?:\.\d+)?)\s*([smhd])$/.exec(String(v ?? "").trim());
-  if (!m) return null;
-  return Number(m[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[m[2] as "s" | "m" | "h" | "d"];
-}
-
 export function validateStrategy(raw: unknown, path: string, name = "default"): Strategy {
   const p: string[] = [];
   if (!isObj(raw)) throw new StrategyError(path, ["top level must be a mapping"]);
 
-  const planner = String(raw.planner ?? "");
-  if (!(PLANNERS as readonly string[]).includes(planner)) {
-    p.push(`planner must be one of ${PLANNERS.join(", ")} (got "${planner}")`);
-  }
-
+  const legacy = Object.hasOwn(raw, "providers");
+  if (legacy && (raw.accounts !== undefined || raw.runners !== undefined)) p.push("providers cannot be combined with accounts or runners");
   const providers: Record<string, ProviderCfg> = {};
-  if (!isObj(raw.providers) || Object.keys(raw.providers).length === 0) {
-    p.push("providers must be a non-empty mapping");
-  } else {
-    for (const [id, v] of Object.entries(raw.providers)) {
-      const c = isObj(v) ? v : {};
-      const native = (NATIVE as readonly string[]).includes(id);
-      const via = c.via === undefined ? null : c.via;
-      if (native && via !== null) p.push(`providers.${id}: native providers cannot set "via"`);
-      if (!native && via !== "opencode") p.push(`providers.${id}: non-native providers need via: opencode`);
-      const model = c.model === undefined ? null : String(c.model);
-      if (via === "opencode" && (!model || !model.includes("/"))) {
-        p.push(`providers.${id}: model must look like "<provider>/<model>"`);
+  if (legacy) {
+    const planner = String(raw.planner ?? "");
+    if (!(PLANNERS as readonly string[]).includes(planner)) {
+      p.push(`planner must be one of ${PLANNERS.join(", ")} (got "${planner}")`);
+    }
+
+    if (!isObj(raw.providers) || Object.keys(raw.providers).length === 0) {
+      p.push("providers must be a non-empty mapping");
+    } else {
+      for (const [id, v] of Object.entries(raw.providers)) {
+        const c = isObj(v) ? v : {};
+        const native = (NATIVE as readonly string[]).includes(id);
+        const via = c.via === undefined ? null : c.via;
+        if (native && via !== null) p.push(`providers.${id}: native providers cannot set "via"`);
+        if (!native && via !== "opencode") p.push(`providers.${id}: non-native providers need via: opencode`);
+        const model = c.model === undefined ? null : String(c.model);
+        if (via === "opencode" && (!model || !model.includes("/"))) {
+          p.push(`providers.${id}: model must look like "<provider>/<model>"`);
+        }
+        const usage = (c.usage ?? (native ? NATIVE_USAGE[id] : "metered")) as UsageKind;
+        if (!USAGES.includes(usage)) p.push(`providers.${id}: usage must be one of ${USAGES.join(", ")}`);
+        if ((id === "cursor" || id === "agy") && usage === "quota") {
+          p.push(`providers.${id}: quota usage is not available for ${id}; use reactive`);
+        }
+        const quotaSource = c.quota_source === undefined ? null : c.quota_source;
+        if (!native && usage === "quota" && quotaSource !== "arkcli") {
+          p.push(`providers.${id}: quota usage via opencode needs quota_source: arkcli`);
+        }
+        const weeklyTokens = isObj(c.budget) ? parseSize(c.budget.weekly_tokens) : null;
+        if (usage === "metered" && weeklyTokens === null) {
+          p.push(`providers.${id}: metered usage needs budget.weekly_tokens (e.g. 20M)`);
+        }
+        const cooldownS = c.cooldown === undefined ? 6 * 3600 : parseDuration(c.cooldown);
+        if (cooldownS === null) p.push(`providers.${id}: cooldown must look like 30m, 6h or 2d`);
       }
-      const usage = (c.usage ?? (native ? NATIVE_USAGE[id] : "metered")) as UsageKind;
-      if (!USAGES.includes(usage)) p.push(`providers.${id}: usage must be one of ${USAGES.join(", ")}`);
-      if ((id === "cursor" || id === "agy") && usage === "quota") {
-        p.push(`providers.${id}: quota usage is not available for ${id}; use reactive`);
-      }
-      const quotaSource = c.quota_source === undefined ? null : c.quota_source;
-      if (!native && usage === "quota" && quotaSource !== "arkcli") {
-        p.push(`providers.${id}: quota usage via opencode needs quota_source: arkcli`);
-      }
-      const weeklyTokens = isObj(c.budget) ? parseSize(c.budget.weekly_tokens) : null;
-      if (usage === "metered" && weeklyTokens === null) {
-        p.push(`providers.${id}: metered usage needs budget.weekly_tokens (e.g. 20M)`);
-      }
-      const cooldownS = c.cooldown === undefined ? 6 * 3600 : parseDuration(c.cooldown);
-      if (cooldownS === null) p.push(`providers.${id}: cooldown must look like 30m, 6h or 2d`);
-      providers[id] = {
-        id,
-        via: via === "opencode" ? "opencode" : null,
-        model,
-        usage,
-        allowPaid: c.allow_paid === true,
-        cooldownS: cooldownS ?? 6 * 3600,
-        quotaSource: quotaSource === "arkcli" ? "arkcli" : null,
-        weeklyTokens,
-      };
     }
   }
+  const { accounts, runners, planner, runnerAliases } = legacy ? legacyToAccounts(raw) : parseAccounts(raw, p);
+  // Keep the provider facade stable while consumers move to accounts and runners.
+  for (const [id, runner] of Object.entries(runners)) {
+    const account = accounts[runner.account];
+    if (!account) continue;
+    providers[id] = {
+      id, via: runner.agent === "opencode" ? "opencode" : null, model: runner.model,
+      usage: account.usage, allowPaid: account.allowPaid, cooldownS: account.cooldownS,
+      quotaSource: account.quotaSource === "arkcli" ? "arkcli" : null, weeklyTokens: account.weeklyTokens,
+    };
+  }
+
+  const resolve = (id: string) => resolveRunner({ accounts, runners, runnerAliases } as Strategy, id)?.id ?? id;
 
   const pc = isObj(raw.pacing) ? raw.pacing : {};
   const policy = String(pc.policy ?? "priority") as Policy;
@@ -124,13 +125,17 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   let order: string[] = [];
   if (pc.order === undefined) {
     const hasOpencode = Object.values(providers).some((cfg) => cfg.via === "opencode");
-    order = DEFAULT_ORDER.filter((id) => Object.hasOwn(providers, id) || (id === "opencode" && hasOpencode));
+    order = legacy ? DEFAULT_ORDER.filter((id) => Object.hasOwn(runners, id) || (id === "opencode" && hasOpencode)) : Object.keys(runners);
   } else if (!Array.isArray(pc.order)) {
     p.push("pacing.order must be a list");
   } else {
-    order = pc.order.map(String);
+    order = pc.order.map(v => resolve(String(v)));
     for (const id of order) {
-      if (id !== "opencode" && !Object.hasOwn(providers, id)) {
+      const parsed = parseRunnerId(id);
+      const account = parsed ? accounts[parsed.account ?? runnerDefaults(accounts)[parsed.agent] ?? ""] : undefined;
+      if (parsed && account && !allowedPair(parsed.agent, account.kind)) p.push(`pacing.order: ${parsed.agent} cannot use ${account.kind} account "${account.name}"`);
+      if (parsed?.host) p.push("remote runners aren't supported yet");
+      if (id !== "opencode" && !Object.hasOwn(providers, id) && !account) {
         p.push(`pacing.order: unknown provider "${id}"`);
       }
     }
@@ -149,7 +154,11 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     plannerReserve: num("planner_reserve", 15),
     aheadThreshold: num("ahead_threshold", 10),
     behindThreshold: num("behind_threshold", -10),
+    accounts: (pc.accounts ?? "spread") as "spread" | "fill",
+    fillThreshold: num("fill_threshold", 90),
   };
+  if (!["spread", "fill"].includes(pacing.accounts)) p.push("pacing.accounts must be spread or fill");
+  if (!Number.isFinite(pacing.fillThreshold) || pacing.fillThreshold < 50 || pacing.fillThreshold > 100) p.push("pacing.fill_threshold must be between 50 and 100");
   if (pacing.plannerReserve < 0 || pacing.plannerReserve >= 100) {
     p.push("pacing.planner_reserve must be between 0 and 99");
   }
@@ -170,7 +179,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
         p.push(`routing[${i}] needs a non-empty executors (or default) list`);
         return;
       }
-      for (const e of executors) if (!providers[String(e)]) p.push(`routing[${i}]: unknown provider "${e}"`);
+      for (const e of executors) if (!providers[resolve(String(e))]) p.push(`routing[${i}]: unknown provider "${e}"`);
       let kinds: string[] | null = null;
       if (!isDefault) {
         if (!Array.isArray(r.kinds) || r.kinds.length === 0) {
@@ -184,13 +193,13 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
           }
         }
       }
-      routing.push({ kinds, executors: executors.map(String) });
+      routing.push({ kinds, executors: executors.map(e => resolve(String(e))) });
     });
   }
 
   if (p.length) throw new StrategyError(path, p);
   return {
-    name, planner, providers, pacing, routing,
+    name, planner, accounts, runners, legacy, runnerAliases, providers, pacing, routing,
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
   };
