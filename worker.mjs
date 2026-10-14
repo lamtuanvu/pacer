@@ -7,7 +7,7 @@ var package_default = {
     "@types/bun": "^1.4.2",
     typescript: "^7.0.2"
   },
-  version: "0.1.18",
+  version: "0.1.19",
   bin: {
     pacer: "src/cli.ts"
   },
@@ -58,6 +58,14 @@ var package_default = {
 import { join } from "node:path";
 function pluginMode(pluginRoot, fs) {
   return fs.exists(join(pluginRoot, ".pacer-managed")) ? "live" : "bootstrap";
+}
+
+// src/install/fsx.ts
+function shq(s) {
+  return /^[A-Za-z0-9_\/.:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+}
+function shellCommand(argv) {
+  return argv.map(shq).join(" ");
 }
 
 // orca-plugin/src/bootstrap.ts
@@ -220,7 +228,7 @@ function createBootstrap(d) {
   const changed = async (ctx, onChange) => {
     if (d.mode === "bootstrap") {
       const failed = state.install.status === "failed" ? state.install.detail === UNPUBLISHED ? UNPUBLISHED : "pacer couldn't install. Try again shortly." : state.start.status === "failed" ? "pacer couldn't start. Try again shortly." : undefined;
-      const message = failed || (state.start.status === "done" && state.handoffVersion === d.version ? `pacer is ready. Last step: in Orca Settings > Plugins, uninstall this pacer and add ${join3(pacerHome, "orca-plugin")} under Development.` : state.install.status === "pending" ? "Installing pacer…" : null);
+      const message = failed || (state.start.status === "done" && state.dashboardOpened ? "pacer is running in the pacer terminal tab." : state.install.status === "pending" ? "Installing pacer…" : null);
       if (message && !state.notifications?.includes(message)) {
         state.notifications = [...state.notifications ?? [], message];
         try {
@@ -241,7 +249,7 @@ function createBootstrap(d) {
     try {
       const saved = (await ctx.host.call("storage.get", { key: "bootstrap" })).value;
       if (saved && saved.install && saved.start)
-        state = { ...state, install: saved.install ?? state.install, start: saved.start ?? state.start, binary: saved.binary, agents: saved.agents ?? [], nextAt: saved.nextAt, failures: saved.failures, restarts: saved.restarts, terminalAttempts: saved.terminalAttempts, notifications: saved.notifications, handoffVersion: saved.handoffVersion };
+        state = { ...state, install: saved.install ?? state.install, start: saved.start ?? state.start, binary: saved.binary, agents: saved.agents ?? [], nextAt: saved.nextAt, failures: saved.failures, restarts: saved.restarts, terminalAttempts: saved.terminalAttempts, notifications: saved.notifications, handoffVersion: saved.handoffVersion, dashboardSessions: saved.dashboardSessions, dashboardReadySessions: saved.dashboardReadySessions };
     } catch {}
   }
   async function cycle(ctx, onChange) {
@@ -321,10 +329,35 @@ function createBootstrap(d) {
         }
       }
       state.start = { status: "done" };
-      if (d.mode === "bootstrap" && state.handoffVersion !== d.version) {
-        step = "install";
-        await exec(binary, ["plugin", "install"], env, 30000);
-        state.handoffVersion = d.version;
+      if (d.mode === "bootstrap") {
+        const cli = env.ORCA_CLI_COMMAND || "orca";
+        const status = JSON.parse(await exec(cli, ["status", "--json"], env, 30000));
+        const session = status.caller?.orcaSessionId || status.result?.caller?.orcaSessionId;
+        if (typeof session !== "string" || !session)
+          throw new Error("Could not identify the Orca session to open the dashboard.");
+        if (!state.dashboardSessions?.includes(session)) {
+          state.dashboardSessions = [...state.dashboardSessions ?? [], session].slice(-20);
+          await ctx.host.call("storage.set", { key: "bootstrap", value: state });
+          const result = JSON.parse(await exec(cli, ["terminal", "create", "--worktree", "active", "--title", "pacer", "--command", shellCommand([binary, "dashboard"]), "--json"], env, 30000));
+          if (result.ok !== true)
+            throw new Error(result.error?.message || "Could not open the pacer terminal.");
+          state.dashboardReadySessions = [...state.dashboardReadySessions ?? [], session].slice(-20);
+        }
+        if (!state.dashboardReadySessions?.includes(session))
+          throw new Error("The pacer terminal could not open. Run pacer dashboard in a terminal.");
+        state.dashboardOpened = true;
+        await changed(ctx, onChange);
+        if (state.handoffVersion !== d.version) {
+          try {
+            await exec(binary, ["plugin", "install"], env, 30000);
+            state.handoffVersion = d.version;
+          } catch (e) {
+            ctx.log(`pacer sidebar preparation: ${e.message}`);
+            state.failures = (state.failures ?? []).filter((at) => now() - at < 3600);
+            state.failures.push(now());
+            state.nextAt = state.failures.length >= 5 ? state.failures[0] + 3600 : now() + 60;
+          }
+        }
       }
     } catch (e) {
       const message = e.message;
@@ -976,14 +1009,6 @@ ${a.notification?.nextExecutor ? `Moved to ${executorName(a.notification.nextExe
   settings.lastAlertAt = state.pending.size ? Math.min(newest, Math.min(...[...state.pending.values()].map((x) => x.at)) - 0.001) : newest;
   await host.call("settings.set", { key: "lastAlertAt", value: settings.lastAlertAt });
   return settings.lastAlertAt;
-}
-
-// src/install/fsx.ts
-function shq(s) {
-  return /^[A-Za-z0-9_\/.:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
-}
-function shellCommand(argv) {
-  return argv.map(shq).join(" ");
 }
 
 // orca-plugin/src/panel/shared.ts
