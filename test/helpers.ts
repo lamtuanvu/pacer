@@ -1,10 +1,26 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Ctx } from "../src/types";
 
+// Every test temp dir lives under one root per test run; test/setup.ts (bunfig preload) removes it after all tests.
+// Without this, each suite run left hundreds of dirs behind (some ~250 MB) and filled the disk.
+// Bun's test runner fires no process "exit" event, so the cleanup has to be a global afterAll.
+let root: string | null = null;
+function testRoot(): string {
+  root ??= mkdtempSync(join(tmpdir(), "pacer-test-"));
+  return root;
+}
+
+/** Removes the run's temp root. PACER_KEEP_TEST_TMP=1 keeps it for debugging. */
+export function cleanupTestRoot(): void {
+  if (!root || process.env.PACER_KEEP_TEST_TMP) return;
+  try { rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
+  root = null;
+}
+
 export function tmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "pacer-test-"));
+  return mkdtempSync(join(testRoot(), "t-"));
 }
 
 /** Unix seconds for a local wall-clock time (tests run with TZ=Asia/Ho_Chi_Minh). Month is 1-based. */
