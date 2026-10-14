@@ -1,0 +1,116 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { publish } from "../src/link/publish";
+import { appendOutbox } from "../src/link/store";
+import { startServer } from "../src/serve/http";
+import { createTask, updateTask } from "../src/tasks/store";
+import { fakeCtx, tmpDir } from "./helpers";
+
+let stop: (() => void) | undefined;
+afterEach(() => stop?.());
+
+async function serve() {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  const spawned: string[] = [];
+  const s = startServer(() => ctx, { port: 0, sseIntervalMs: 50, tailMs: 50, pumpMs: 0, opDeps: { spawnRunner: (_c, id) => { spawned.push(id); return 1; } } });
+  stop = s.stop;
+  return { ctx, spawned, url: `http://127.0.0.1:${s.port}`, h: { authorization: `Bearer ${s.token}` } };
+}
+const post = (url: string, h: Record<string, string>, body: string) => fetch(url, { method: "POST", headers: { ...h, "content-type": "application/json" }, body });
+
+async function readSse(res: Response, n: number): Promise<string> {
+  const reader = res.body!.getReader(), dec = new TextDecoder(); let text = "";
+  while ((text.match(/\n\n/g) ?? []).length < n) { const { value, done } = await reader.read(); if (done) break; text += dec.decode(value); }
+  await reader.cancel(); return text;
+}
+
+test("hello and snapshot need the token and describe the protocol", async () => {
+  const { url, h } = await serve();
+  expect((await fetch(`${url}/v2/hello`)).status).toBe(401);
+  const hello = await (await fetch(`${url}/v2/hello`, { headers: h })).json();
+  expect(hello).toMatchObject({ protocol: "2.0.0", ops: expect.arrayContaining(["task.list", "limits.check"]) });
+  expect(await (await fetch(`${url}/v2/snapshot`, { headers: h })).json()).toMatchObject({ protocol: "2.0.0", seq: expect.any(Number) });
+});
+
+test("ops run through the registry and return results", async () => {
+  const { url, h, spawned } = await serve();
+  const r = await post(`${url}/v2/ops/task.delegate`, h, JSON.stringify({ goal: "g", repo: tmpDir() }));
+  expect(r.status).toBe(200);
+  const { result } = await r.json();
+  expect(spawned).toEqual([result.task_id]);
+});
+
+test("ops reject bad JSON, wrong params and oversized bodies", async () => {
+  const { url, h } = await serve();
+  expect((await post(`${url}/v2/ops/task.get`, h, "{")).status).toBe(400);
+  const bad = await post(`${url}/v2/ops/task.get`, h, JSON.stringify({ id: 1 }));
+  expect(bad.status).toBe(400);
+  expect((await bad.json()).error.code).toBe("invalid_input");
+  expect((await post(`${url}/v2/ops/task.get`, h, JSON.stringify({ id: "x".repeat(300_000) }))).status).toBe(413);
+});
+
+test("unknown op and unknown task map to 404 with codes", async () => {
+  const { url, h } = await serve();
+  const a = await post(`${url}/v2/ops/task.nope`, h, "{}");
+  expect([a.status, (await a.json()).error.code]).toEqual([404, "unknown_op"]);
+  const b = await post(`${url}/v2/ops/task.get`, h, JSON.stringify({ id: "missing" }));
+  expect([b.status, (await b.json()).error.code]).toEqual([404, "unknown_task"]);
+});
+
+test("SSE resumes from Last-Event-ID", async () => {
+  const { ctx, url, h } = await serve();
+  await publish(ctx, [{ v: 1, type: "alert", data: { key: "a", level: "info", title: "a", body: "", at: ctx.now } }, { v: 1, type: "alert", data: { key: "b", level: "info", title: "b", body: "", at: ctx.now } }], { bridge: false, channel: false });
+  const first = await fetch(`${url}/v2/events?since=0`, { headers: h });
+  const text = await readSse(first, 2);
+  const ids = [...text.matchAll(/^id: (\d+)$/gm)].map((m) => Number(m[1]));
+  expect(ids).toHaveLength(2);
+  const resumed = await readSse(await fetch(`${url}/v2/events`, { headers: { ...h, "last-event-id": String(ids[0]) } }), 1);
+  expect(resumed).toContain(`id: ${ids[1]}`);
+});
+
+test("SSE on a fresh outbox whose oldest entry is newer than since sends reset first", async () => {
+  const { ctx, url, h } = await serve();
+  appendOutbox(ctx, [{ seq: 1000, envelope: { v: 1, type: "alert", data: { key: "z", level: "info", title: "z", body: "", at: ctx.now } } }]);
+  const gap = await readSse(await fetch(`${url}/v2/events?since=500`, { headers: h }), 2);
+  expect(gap.indexOf("event: reset")).toBeGreaterThanOrEqual(0);
+  expect(gap.indexOf("event: reset")).toBeLessThan(gap.indexOf("id: 1000"));
+});
+
+test("ops cap UTF-8 bodies by bytes", async () => {
+  const { url, h } = await serve();
+  const r = await post(`${url}/v2/ops/task.get`, h, JSON.stringify({ id: "é".repeat(140_000) }));
+  expect([r.status, (await r.json()).error.code]).toEqual([413, "too_large"]);
+});
+
+test("log follow streams new output and ends when the task is done", async () => {
+  const { ctx, url, h } = await serve();
+  const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const dir = tmpDir();
+  await Bun.write(join(dir, "stdout"), "first\n");
+  await Bun.write(join(dir, "stderr"), "warning\n");
+  updateTask(ctx, t.id, x => {
+    x.state = "running";
+    x.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current", workdir: ctx.home, logFile: "" };
+  });
+  const res = await fetch(`${url}/v2/tasks/${t.id}/log?follow=1`, { headers: h });
+  expect(res.status).toBe(200);
+  const reader = res.body!.getReader(), dec = new TextDecoder();
+  const first = dec.decode((await reader.read()).value);
+  expect(first).toContain('event: log\ndata: {"stdout":"first\\n","stderr":"warning\\n"}');
+  await Bun.write(join(dir, "stdout"), "first\nsecond\n");
+  updateTask(ctx, t.id, x => { x.state = "done"; });
+  let rest = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    rest += dec.decode(value);
+  }
+  expect(rest).toContain('data: {"stdout":"second\\n","stderr":""}');
+  expect(rest).toContain("event: done\n");
+  expect(rest).not.toContain("first");
+  const missing = await fetch(`${url}/v2/tasks/missing/log?follow=1`, { headers: h });
+  expect([missing.status, (await missing.json()).error.code]).toEqual([404, "unknown_task"]);
+});
