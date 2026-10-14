@@ -4,6 +4,8 @@ import { createInterface } from "node:readline/promises";
 import { agentPlans, AGENT_BINS, type AgentId } from "../install/detection";
 import { detect, starterStrategy } from "../install/init";
 import { PLANNERS, validateStrategy } from "../config/strategy";
+import { editStrategy } from "../config/edit";
+import { migrateStrategy, migrationLines } from "../config/migrate";
 import { installPlanner } from "../install";
 import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceBackend } from "../service";
@@ -76,7 +78,7 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     if (selected?.some(id => !agents.some(a => a.id === id))) return { code: 2, out: "", err: "requested agent CLI is not on PATH" };
     const path = join(ctx.pacerHome, "strategy.yaml");
     const existing = existsSync(path) ? readFileSync(path, "utf8") : null;
-    const current = existing ? String((Bun.YAML.parse(existing) as { planner?: string })?.planner ?? "") : undefined;
+    const current = existing ? validateStrategy(Bun.YAML.parse(existing), path).planner.agent : undefined;
     const detection = await detect(ctx);
     const detected = (Object.keys(AGENT_BINS) as AgentId[]).filter(id => AGENT_BINS[id].some(bin => ctx.which(bin)));
     if (!planner) {
@@ -94,8 +96,9 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     if (existing) {
       validateStrategy(Bun.YAML.parse(existing), path);
       if (current !== planner) {
-        const text = existing.replace(/^planner\s*:.*$/m, `planner: ${planner}`);
-        validateStrategy(Bun.YAML.parse(text), path); writeFileSync(path, text); print("✓ Strategy planner updated");
+        const result = editStrategy(path, doc => doc.setScalar(["planner"], planner!));
+        if (!result.ok) throw Error(result.error);
+        print("✓ Strategy planner updated");
       } else print("✓ Strategy (already done)");
     } else {
       const text = starterStrategy(detection, planner);
@@ -133,12 +136,14 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
       }
       if (live) print("✓ Live panel connected");
     }
+    const migration = migrationLines(path, migrateStrategy(path));
+    migration.forEach(print);
     print(`Setup: planner ${planner}; strategy ready; login service installed; ${results.filter(a => a.installed).length} agents connected; live panel ${live ? "connected" : "pending"}.`);
     if (tty && (deps.stdoutTTY ?? !!process.stdout.isTTY) && !noDashboard) {
       // Flush the setup summary before dashboard owns stdout.
       if (!tty) (deps.print ?? console.log)(lines.join("\n"));
       return (deps.dashboard ?? runDashboard)([], ctx);
     }
-    return { code: 0, out: json ? JSON.stringify({ planner, strategy: path, service: true, agents: results, live, applied: true }) : tty ? "" : lines.join("\n"), err: "" };
+    return { code: 0, out: json ? JSON.stringify({ planner, strategy: path, service: true, agents: results, live, applied: true, migration }) : tty ? "" : lines.join("\n"), err: "" };
   } catch (e) { return { code: 1, out: json ? "" : tty ? "" : lines.join("\n"), err: `pacer init: ${(e as Error).message}` }; }
 }

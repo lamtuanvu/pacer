@@ -284,6 +284,7 @@ var package_default = {
   },
   dependencies: {
     "@modelcontextprotocol/sdk": "1.32.1",
+    yaml: "2.8.2",
     zod: "4.6.5"
   },
   license: "Apache-2.0",

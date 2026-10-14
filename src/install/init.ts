@@ -5,6 +5,7 @@ import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 import { backupPath } from "./fsx";
+import { migrateStrategy, migrationLines } from "../config/migrate";
 
 const BINS = ["claude", "codex", "cursor-agent", "cursor", "agy", "opencode", "arkcli", "ollama", "lms", "orca"] as const;
 const PLANNER_BINS: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", opencode: "opencode" };
@@ -93,7 +94,9 @@ export async function initCmd(ctx: Ctx, options: { force?: boolean; planner?: st
       out += `Backup: ${backup}\n`;
     }
     writeFileSync(path, text);
-    return { code: 0, out: `${out}Wrote ${path}\n`, err: "" };
+    out += `Wrote ${path}\n`;
+    out += migrationLines(path, migrateStrategy(path)).join("\n") + "\n";
+    return { code: 0, out, err: "" };
   } catch (e) {
     return { code: 1, out, err: `${e instanceof Error ? e.message : String(e)}\n` };
   }

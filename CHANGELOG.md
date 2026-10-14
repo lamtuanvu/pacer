@@ -8,6 +8,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Add accounts and runners to the strategy model, with validated agent/account pairings and a compatibility loader for existing provider strategies.
 - Add account spread/fill settings and a validated fill threshold (default 90%).
+- Add validated, atomic strategy edits that preserve comments and untouched layout, and migrate provider strategies during init, update or `pacer config migrate` with a recovery backup and restore command.
+- Keep the default OpenCode planner from adding a phantom endpoint budget account.
 
 ## [0.1.22] - 2026-10-14
 

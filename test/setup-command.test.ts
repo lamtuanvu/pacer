@@ -25,7 +25,9 @@ test("planner numbered question uses choice, current default and --planner skips
  await setupCmd([], f.ctx, {...f.deps,tty:true}); expect(f.questions.at(-1)).toContain("Planner [2]");
  f.questions.length=0; const before=readFileSync(path,"utf8");
  await setupCmd(["--planner","opencode"],f.ctx,{...f.deps,tty:true});expect(f.questions).toHaveLength(0);
- expect(readFileSync(path,"utf8")).toBe(before.replace("planner: codex","planner: opencode"));
+ const after=readFileSync(path,"utf8");
+ expect(validateStrategy(Bun.YAML.parse(after),path).planner.agent).toBe("opencode");
+ expect(after.slice(after.indexOf("\n"))).toBe(before.slice(before.indexOf("\n")));
 });
 test("no CLI still creates valid strategy, explicit missing planner is accepted", async () => {
  for (const args of [[], ["--planner", "cursor"]]) {

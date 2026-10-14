@@ -70,6 +70,9 @@ function plannerCfg(raw: unknown, accounts: Record<string, AccountCfg>, problems
   if (!["claude-code", "codex", "cursor", "opencode"].includes(agent)) {
     problems.push("planner must be one of claude-code, codex, cursor, opencode");
   }
+  // OpenCode's default planner session has no model or tracked endpoint budget.
+  // Keep its historical identity as a sentinel, without inventing an account row.
+  if (agent === "opencode" && account === "opencode" && !accounts[account]) return { agent, account };
   if (stringForm && Object.hasOwn(ACCOUNT_KIND, agent)) {
     const existing = accounts[account];
     if (!existing) accounts[account] = accountCfg(account, {

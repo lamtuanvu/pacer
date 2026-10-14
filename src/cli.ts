@@ -12,7 +12,8 @@ import { io } from "./install/stdin";
 import { resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
-import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy } from "./config/strategy";
+import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, strategyPath } from "./config/strategy";
+import { migrateStrategy, migrationLines } from "./config/migrate";
 import { makeCtx } from "./ctx";
 import { rankExecutors } from "./engine/rank";
 import { computeStatus, displayName } from "./engine/status";
@@ -44,6 +45,7 @@ const USAGE = `usage: pacer <command>
   mcp                                            run the MCP server on stdio
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
+  config migrate                                 migrate the active strategy to accounts and runners
   ${SETUP_USAGE}                connect detected agent CLIs
   help                                           this message
 JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors.
@@ -207,6 +209,13 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
   switch (cmd) {
+    case "config": {
+      if (rest.length !== 1 || rest[0] !== "migrate") return { code: 2, out: "", err: "usage: pacer config migrate" };
+      try {
+        const path = strategyPath(ctx); const result = migrateStrategy(path);
+        return { code: 0, out: result.changed ? migrationLines(path, result).join("\n") : "Strategy already uses accounts and runners; nothing changed.", err: "" };
+      } catch (e) { return { code: 2, out: "", err: explain(e) }; }
+    }
     case "dashboard": return runDashboard(rest, ctx);
     case "setup": return setupCmd(rest, ctx);
     case "report-limit": {
