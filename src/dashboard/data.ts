@@ -1,3 +1,5 @@
+import { runMappedCmd } from "../api/cmd";
+export { cmdToOp, CMD_SUCCESS, runMappedCmd } from "../api/cmd";
 import { ApiError, type ApiClient } from "../api/client";
 import type { CmdData, LinkSnapshot } from "../link/envelope";
 import { cards } from "./model";
@@ -14,21 +16,6 @@ export async function refreshView(
 }
 
 
-export function cmdToOp(data: CmdData): { op: string; params: Record<string, unknown> } | null {
-  switch (data.cmd) {
-    case "stop": return { op: "task.stop", params: { id: data.taskId } };
-    case "retry": return { op: "task.retry", params: { id: data.taskId, ...(data.executor !== undefined ? { executor: data.executor } : {}) } };
-    case "dismiss": return { op: "task.dismiss", params: { ids: data.taskIds ?? (data.taskId ? [data.taskId] : []) } };
-    case "block": return { op: "runner.block", params: {
-      id: data.executor,
-      ...(data.for !== undefined ? { for: data.for } : {}),
-      ...("reason" in data && typeof data.reason === "string" ? { reason: data.reason } : {}),
-    } };
-    case "unblock": return { op: "runner.unblock", params: { id: data.executor } };
-    case "use": return data.strategy ? { op: "strategy.use", params: { name: data.strategy } } : null;
-    default: return null;
-  }
-}
 
 function reportApiError(error: unknown, report: (s: string) => void): void {
   if (!(error instanceof ApiError)) throw error;
@@ -41,27 +28,9 @@ export async function runCommand(
   fallback: (d: CmdData) => Promise<void>,
   report: (s: string) => void,
 ): Promise<void> {
-  const command = cmdToOp(data);
-  if (!command) { await fallback(data); return; }
-  try {
-    switch (command.op) {
-      case "task.stop": {
-        const result = await client.call<{ task_id: string }>(command.op, command.params);
-        report(`${result.task_id} stopped`); break;
-      }
-      case "task.retry": {
-        const result = await client.call<{ retry: { task_id: string }; of: { task_id: string } }>(command.op, command.params);
-        report(`${result.retry.task_id} queued (retry of ${result.of.task_id})`); break;
-      }
-      case "task.dismiss": {
-        const result = await client.call<{ dismissed: string[]; unknown: string[] }>(command.op, command.params);
-        report(`dismissed ${result.dismissed.length}${result.unknown.length ? `; unknown: ${result.unknown.join(", ")}` : ""}`); break;
-      }
-      default:
-        await client.call(command.op, command.params);
-        report(command.op === "strategy.use" ? `active strategy: ${data.strategy}` : `${data.cmd === "block" ? "blocked" : "unblocked"} ${data.executor}`);
-    }
-  } catch (error) { reportApiError(error, report); }
+  const result = await runMappedCmd((op, params) => client.call(op, params), data);
+  if (result.handled) report(result.message);
+  else await fallback(data);
 }
 
 export async function delegateViaClient(
