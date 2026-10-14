@@ -11,5 +11,5 @@ test("committed assets are fresh: run `bun run plugin:build`",async()=> {
 
 test("worker bundle excludes core modules", async () => {
   const worker = await Bun.file("orca-plugin/dist/worker.mjs").text();
-  for (const marker of ["unknown operation", "rankExecutors", "runTask("]) expect(worker).not.toContain(marker);
+  for (const marker of ["unknown operation", "rankExecutors", "runTask(", "selfCommand", "spawnRunner"]) expect(worker).not.toContain(marker);
 });

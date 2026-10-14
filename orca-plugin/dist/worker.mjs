@@ -1,3 +1,343 @@
+// src/api/client-types.ts
+class ApiError extends Error {
+  code;
+  hint;
+  constructor(code, message, hint) {
+    super(message);
+    this.code = code;
+    this.hint = hint;
+    this.name = "ApiError";
+  }
+}
+
+// src/api/http-client.ts
+class HttpClient {
+  base;
+  token;
+  o;
+  kind = "http";
+  subscriptions = new Set;
+  constructor(base, token, o = {}) {
+    this.base = base;
+    this.token = token;
+    this.o = o;
+    const url = new URL(base);
+    if (!/^http:\/\/127\.0\.0\.1:[0-9]+\/?$/.test(base) || url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+      throw new Error("pacer API base must be http://127.0.0.1:<port> without credentials");
+    }
+  }
+  async request(path, params) {
+    const response = await fetch(`${this.base}${path}`, {
+      method: params === undefined ? "GET" : "POST",
+      headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+      ...params === undefined ? {} : { body: JSON.stringify(params) }
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      let error;
+      try {
+        error = JSON.parse(text).error;
+      } catch {}
+      if (error)
+        throw new ApiError(error.code, error.message, error.hint);
+      throw new ApiError(response.status === 401 ? "not_allowed" : "internal", `pacer serve: HTTP ${response.status} ${text.trim()}`.trim());
+    }
+    return await response.json();
+  }
+  hello() {
+    return this.request("/v2/hello");
+  }
+  snapshot() {
+    return this.request("/v2/snapshot");
+  }
+  async call(op, params) {
+    const body = await this.request(`/v2/ops/${encodeURIComponent(op)}`, params ?? {});
+    return body.result;
+  }
+  subscribe(since, onEvent) {
+    let last = since;
+    let stopped = false;
+    let controller;
+    let timer;
+    const stop = () => {
+      stopped = true;
+      controller?.abort();
+      clearTimeout(timer);
+      this.subscriptions.delete(stop);
+    };
+    this.subscriptions.add(stop);
+    const connect = async () => {
+      controller = new AbortController;
+      let reader;
+      try {
+        const response = await fetch(`${this.base}/v2/events?since=${last}`, {
+          headers: { authorization: `Bearer ${this.token}`, "Last-Event-ID": String(last) },
+          signal: controller.signal
+        });
+        if (!response.ok || !response.body)
+          throw new Error("event stream unavailable");
+        reader = response.body.getReader();
+        const decoder = new TextDecoder;
+        let buffer = "";
+        while (!stopped) {
+          const { value, done } = await reader.read();
+          if (done)
+            break;
+          buffer += decoder.decode(value, { stream: true });
+          let boundary;
+          while (!stopped && (boundary = /\r?\n\r?\n/.exec(buffer))) {
+            const frame = buffer.slice(0, boundary.index);
+            buffer = buffer.slice(boundary.index + boundary[0].length);
+            let id;
+            let type;
+            const data = [];
+            for (const line of frame.split(/\r?\n/)) {
+              if (line.startsWith(":"))
+                continue;
+              const colon = line.indexOf(":");
+              const field = colon < 0 ? line : line.slice(0, colon);
+              const value = colon < 0 ? "" : line.slice(colon + 1).replace(/^ /, "");
+              if (field === "id")
+                id = value;
+              if (field === "event")
+                type = value;
+              if (field === "data")
+                data.push(value);
+            }
+            const seq = Number(id);
+            if (id === undefined || !Number.isSafeInteger(seq) || seq < 0 || !type || !data.length)
+              continue;
+            const parsed = JSON.parse(data.join(`
+`));
+            last = seq;
+            onEvent({ seq, at: Date.now() / 1000, type, data: parsed });
+          }
+        }
+      } catch {} finally {
+        await reader?.cancel().catch(() => {});
+        if (!stopped)
+          timer = setTimeout(() => {
+            connect();
+          }, this.o.retryMs ?? 1000);
+      }
+    };
+    connect();
+    return stop;
+  }
+  close() {
+    for (const stop of this.subscriptions)
+      stop();
+  }
+}
+
+// src/api/stdio-client.ts
+import { spawn } from "node:child_process";
+var MAX_LINE_BYTES = 1024 * 1024;
+
+class StdioClient {
+  argv;
+  env;
+  o;
+  kind = "stdio";
+  child;
+  pending = new Map;
+  subscriptions = new Set;
+  nextId = 1;
+  closed = false;
+  backoffMs = 1000;
+  restartTimer;
+  constructor(argv, env, o = {}) {
+    this.argv = argv;
+    this.env = env;
+    this.o = o;
+    if (!argv.length)
+      throw new Error("pacer argv must not be empty");
+    this.start();
+  }
+  rejectPending() {
+    for (const pending of this.pending.values())
+      pending.reject(new ApiError("internal", "pacer api exited"));
+    this.pending.clear();
+  }
+  restart() {
+    if (this.closed)
+      return;
+    const delay = Math.min(this.backoffMs, this.o.maxBackoffMs ?? 30000);
+    this.backoffMs = Math.min(this.backoffMs * 2, 30000);
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = undefined;
+      this.start();
+    }, delay);
+  }
+  start() {
+    if (this.closed)
+      return;
+    let child;
+    try {
+      child = (this.o.spawn ?? spawn)(this.argv[0], [...this.argv.slice(1), "api", "--stdio"], {
+        env: this.env,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+    } catch (e) {
+      this.o.log?.(String(e));
+      this.restart();
+      return;
+    }
+    this.child = child;
+    let ended = false;
+    const finish = () => {
+      if (ended)
+        return;
+      ended = true;
+      this.child = undefined;
+      this.rejectPending();
+      this.restart();
+    };
+    child.once("exit", finish);
+    child.once("error", (e) => {
+      this.o.log?.(e.message);
+      finish();
+    });
+    child.stdin.on("error", (e) => {
+      this.o.log?.(e.message);
+      child.kill("SIGTERM");
+      finish();
+    });
+    const lines = (stream, receive) => {
+      let buffer = "";
+      let dropping = false;
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk) => {
+        if (ended || this.closed)
+          return;
+        let offset = 0;
+        while (offset < chunk.length) {
+          const newline = chunk.indexOf(`
+`, offset);
+          const end = newline < 0 ? chunk.length : newline;
+          const part = chunk.slice(offset, end);
+          if (!dropping) {
+            if (Buffer.byteLength(buffer) + Buffer.byteLength(part) > MAX_LINE_BYTES) {
+              buffer = "";
+              dropping = true;
+              this.o.log?.("pacer api: dropped line over 1 MiB");
+            } else
+              buffer += part;
+          }
+          if (newline < 0)
+            break;
+          if (!dropping)
+            receive(buffer.replace(/\r$/, ""));
+          buffer = "";
+          dropping = false;
+          offset = newline + 1;
+        }
+      });
+      stream.on("end", () => {
+        if (!ended && !this.closed && !dropping && buffer)
+          receive(buffer);
+        buffer = "";
+      });
+    };
+    lines(child.stdout, (line) => this.receive(line));
+    lines(child.stderr, (line) => this.o.log?.(line));
+    this.resubscribe();
+  }
+  receive(line) {
+    let message;
+    try {
+      const parsed = JSON.parse(line);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        return;
+      message = parsed;
+    } catch {
+      this.o.log?.("pacer api: ignored malformed JSON line");
+      return;
+    }
+    if (message.jsonrpc !== "2.0")
+      return;
+    this.backoffMs = 1000;
+    if (message.method === "event") {
+      const event = message.params;
+      if (!event || !Number.isSafeInteger(event.seq) || event.seq < 0 || typeof event.type !== "string")
+        return;
+      for (const subscription of this.subscriptions) {
+        if (event.seq <= subscription.since)
+          continue;
+        subscription.since = event.seq;
+        try {
+          subscription.onEvent(event);
+        } catch (e) {
+          this.o.log?.(String(e));
+        }
+      }
+      return;
+    }
+    if (typeof message.id !== "number")
+      return;
+    const pending = this.pending.get(message.id);
+    if (!pending)
+      return;
+    this.pending.delete(message.id);
+    if (message.error) {
+      const error = message.error;
+      pending.reject(new ApiError(error.data?.code ?? "internal", error.message, error.data?.hint));
+    } else
+      pending.resolve(message.result);
+  }
+  request(method, params = {}) {
+    const child = this.child;
+    if (this.closed || !child)
+      return Promise.reject(new ApiError("internal", "pacer api exited"));
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve: (result) => resolve(result), reject });
+      try {
+        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}
+`);
+      } catch (e) {
+        this.pending.delete(id);
+        reject(new ApiError("internal", e instanceof Error ? e.message : String(e)));
+      }
+    });
+  }
+  hello() {
+    return this.request("hello");
+  }
+  snapshot() {
+    return this.request("snapshot");
+  }
+  call(op, params) {
+    return this.request(op, params ?? {});
+  }
+  resubscribe() {
+    if (!this.child || !this.subscriptions.size)
+      return;
+    const since = Math.min(...Array.from(this.subscriptions, (s) => s.since));
+    this.request("subscribe", { since }).catch((e) => this.o.log?.(String(e)));
+  }
+  subscribe(since, onEvent) {
+    if (this.closed)
+      return () => {};
+    const subscription = { since, onEvent };
+    this.subscriptions.add(subscription);
+    this.resubscribe();
+    return () => {
+      this.subscriptions.delete(subscription);
+    };
+  }
+  close() {
+    if (this.closed)
+      return;
+    this.closed = true;
+    clearTimeout(this.restartTimer);
+    this.subscriptions.clear();
+    this.rejectPending();
+    this.child?.kill("SIGTERM");
+    this.child = undefined;
+  }
+}
+
 // src/plugin/live.ts
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -912,7 +1252,7 @@ function readSettings(raw, home) {
   return {
     notifications: ["off", "important", "all"].includes(String(raw.notifications)) ? raw.notifications : "important",
     autoConsole: typeof raw.autoConsole === "boolean" ? raw.autoConsole : true,
-    transport: ["auto", "http", "channel", "bridge"].includes(raw.transport) ? raw.transport : "auto",
+    transport: ["auto", "api", "http", "channel", "bridge"].includes(raw.transport) ? raw.transport : "auto",
     port: finite(raw.port) && Number.isInteger(raw.port) && raw.port >= 1 && raw.port <= 65535 ? raw.port : 4317,
     pacerHome: typeof raw.pacerHome === "string" && raw.pacerHome.length > 0 ? raw.pacerHome : `${home}/.pacer`,
     pollSeconds: finite(raw.pollSeconds) ? Math.max(5, Math.min(300, raw.pollSeconds)) : 10,
@@ -946,7 +1286,7 @@ class LinkStore {
 }
 
 // orca-plugin/src/transports/choose.ts
-var TRANSPORT_ORDER = ["http", "channel", "bridge"];
+var TRANSPORT_ORDER = ["api", "http", "channel", "bridge"];
 async function chooseTransport(ts, forced) {
   const probe = async (t) => {
     try {
@@ -965,6 +1305,122 @@ async function chooseTransport(ts, forced) {
       return { transport, reachable: true };
   }
   return { transport: null, reachable: false };
+}
+
+// orca-plugin/src/transports/api.ts
+function apiTransport(o) {
+  let connection = null;
+  let seq = 0;
+  const client = () => connection ??= Promise.resolve().then(o.connect);
+  async function snapshot() {
+    try {
+      const c = await client();
+      if (!c)
+        return null;
+      const result = await c.snapshot();
+      seq = result.seq;
+      return result.snapshot;
+    } catch (e) {
+      o.log?.(`pacer API snapshot: ${String(e)}`);
+      return null;
+    }
+  }
+  return {
+    id: "api",
+    async probe() {
+      let cancel = () => {}, abandoned = false;
+      const pending = client();
+      try {
+        const ready = await Promise.race([
+          pending.then(async (c) => {
+            if (abandoned) {
+              c?.close();
+              return false;
+            }
+            if (!c)
+              return false;
+            await c.hello();
+            return true;
+          }),
+          new Promise((resolve) => {
+            cancel = o.timers.after(2000, () => resolve(false));
+          })
+        ]);
+        if (ready)
+          return true;
+      } catch (e) {
+        o.log?.(`pacer API probe: ${String(e)}`);
+      } finally {
+        cancel();
+      }
+      abandoned = true;
+      connection = null;
+      pending.then((c) => c?.close()).catch(() => {});
+      return false;
+    },
+    snapshot,
+    watch(onEnvelope, onSnapshot, onFailure) {
+      let stopped = false, busy = false, resetPending = false;
+      let unsubscribe = () => {};
+      const refresh = async () => {
+        if (stopped || busy)
+          return;
+        busy = true;
+        try {
+          const s = await snapshot();
+          if (!stopped) {
+            if (s)
+              onSnapshot(s);
+            else
+              onFailure?.();
+          }
+        } finally {
+          busy = false;
+          if (resetPending) {
+            resetPending = false;
+            refresh();
+          }
+        }
+      };
+      const start = async () => {
+        await refresh();
+        if (stopped)
+          return;
+        const c = await client();
+        if (stopped || !c)
+          return;
+        unsubscribe = c.subscribe(seq, (e) => {
+          if (stopped)
+            return;
+          if (e.type === "reset") {
+            if (busy)
+              resetPending = true;
+            else
+              refresh();
+            return;
+          }
+          if (!["budget", "task", "mode", "alert"].includes(e.type))
+            return;
+          const envelope = parseEnvelope({ v: 1, type: e.type, data: e.data });
+          if (envelope)
+            onEnvelope(envelope);
+        });
+      };
+      start().catch((e) => {
+        o.log?.(`pacer API watch: ${String(e)}`);
+        if (!stopped)
+          onFailure?.();
+      });
+      const cancelPoll = o.timers.every(1e4, () => {
+        refresh();
+      });
+      return () => {
+        stopped = true;
+        unsubscribe();
+        cancelPoll();
+      };
+    }
+  };
 }
 
 // orca-plugin/src/transports/http.ts
@@ -8490,6 +8946,7 @@ ${client(!!s.budget?.providers.some((p) => p.agent)).replace(/^ *\/\/[^\n]*\n/gm
 // orca-plugin/src/plugin.ts
 function createPlugin(deps) {
   let stopped = false;
+  const clients = new Set;
   let stopWatch = null;
   let cancelRender = null;
   let cancelRetry = null;
@@ -8585,6 +9042,16 @@ function createPlugin(deps) {
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
+      apiTransport({ timers, log: (m) => ctx.log(m), connect: async () => {
+        const client = await deps.connect?.(settings) ?? null;
+        if (stopped) {
+          client?.close();
+          return null;
+        }
+        if (client)
+          clients.add(client);
+        return client;
+      } }),
       httpTransport({ http: deps.http, readToken: () => deps.fs.readText(`${settings.pacerHome}/token`)?.trim() || null, port: settings.port, timers }),
       channelTransport({ host: ctx.host, registerEvent: (name, handler) => ctx.events.on(name, async (payload) => {
         await ensureConnected();
@@ -9085,6 +9552,9 @@ function createPlugin(deps) {
       cancelRender = null;
       cancelRetry?.();
       cancelRetry = null;
+      for (const client of clients)
+        client.close();
+      clients.clear();
       for (const cancel of timerCancels)
         cancel();
       timerCancels.clear();
@@ -9204,6 +9674,24 @@ var log = (message) => {};
 var workerEnv = { ...process.env };
 var pacerHome = workerEnv.PACER_HOME || join8(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
 var plugin = createPlugin({
+  async connect(settings) {
+    const base = `http://127.0.0.1:${settings.port}`;
+    try {
+      const health = await http.get(`${base}/health`, "", 500);
+      if (health.status === 200 && health.headers?.["x-pacer"] === "1") {
+        const token = readFileSync6(join8(settings.pacerHome, "token"), "utf8").trim();
+        if (token)
+          return new HttpClient(base, token);
+      }
+    } catch {}
+    try {
+      const binary = workerEnv.PACER_BIN || (existsSync3(join8(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join8(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+      const env = { ...workerEnv, PACER_BIN: binary, PACER_HOME: settings.pacerHome };
+      return new StdioClient([binary], env, { log: (m) => log(m) });
+    } catch {
+      return null;
+    }
+  },
   version: PLUGIN_VERSION,
   cachedUpdate: () => readUpdateCheck({ pacerHome, env: workerEnv }, PLUGIN_VERSION),
   reportVersion(mode, version) {
