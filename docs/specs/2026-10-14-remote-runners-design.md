@@ -1,6 +1,6 @@
 # Remote runners: delegating to an agent on another machine
 
-Status: design for review, 2026-10-14. Nothing is built. Depends on the accounts design (`2026-10-14-accounts-design.md`, branch `feat/accounts-0.1.23`), whose runner ids reserve `@host`.
+Status: **superseded in part** by `2026-10-14-core-contract-design.md` (remote hosts move to a pacer-run SSH backend; placement, lifecycle and usage here describe the Orca route that was spiked and set aside). Transfer, security and failure modes carry over. Original status: design for review, 2026-10-14. Depends on the accounts design (`2026-10-14-accounts-design.md`, branch `feat/accounts-0.1.23`), whose runner ids reserve `@host`.
 
 ## Goal
 
