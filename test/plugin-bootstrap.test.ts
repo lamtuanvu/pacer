@@ -23,6 +23,8 @@ function harness(options: Partial<BootstrapDeps> = {}, settings: Record<string, 
  }},log:()=>{},commands:{register(){}},events:{on(){}},grantedCapabilities:[]} as OrcaWorkerContext;
  const exec:BootstrapDeps["exec"]=async(bin,args,env,timeout)=>{
   calls.push({bin,args,env,timeout,at});
+  if(args[0]==="status")return JSON.stringify({caller:{orcaSessionId:"session-one"}});
+  if(args[0]==="terminal"&&args[1]==="create")return JSON.stringify({ok:true,result:{terminal:{handle:"dashboard"}}});
   if(args[0]==="--version")return version;
   if(args[0]==="init"){mkdirSync(join(home,".pacer"),{recursive:true});writeFileSync(join(home,".pacer/strategy.yaml"),"strategy");}
   if(args[0]==="service"&&args[1]==="status")return JSON.stringify({installed});
@@ -139,7 +141,7 @@ test("terminal discovery uses CLI writability when panel workspace returns only 
 
 test("marketplace bootstrap persists milestone notifications across retries and worker restarts",async()=>{
  const h=harness({mode:"bootstrap"} as Partial<BootstrapDeps>);h.put(".local/bin/pacer");
- await h.b.activate(h.ctx);await h.run();expect(h.notifications).toEqual(["Installing pacer…",`pacer is ready. Last step: in Orca Settings > Plugins, uninstall this pacer and add ${join(h.home,".pacer/orca-plugin")} under Development.`]);
+ await h.b.activate(h.ctx);await h.run();expect(h.notifications).toEqual(["Installing pacer…","pacer is running in the pacer terminal tab."]);
  h.time(600);await h.run();expect(h.notifications).toHaveLength(2);expect(h.calls.filter(c=>c.args[0]==="plugin")).toHaveLength(1);
  const restarted=createBootstrap(h.d);await restarted.activate(h.ctx);h.time(1200);await restarted.run(h.ctx,()=>{});expect(h.notifications).toHaveLength(2);expect(h.calls.filter(c=>c.args[0]==="plugin")).toHaveLength(1);
 });
@@ -148,7 +150,7 @@ test("marketplace failure notification is friendly and deduplicated after restar
  await h.b.activate(h.ctx);await h.run();expect(h.notifications).toEqual(["Installing pacer…",UNPUBLISHED]);
  h.time(600);await h.run();const restarted=createBootstrap(h.d);await restarted.activate(h.ctx);h.time(1200);await restarted.run(h.ctx,()=>{});expect(h.notifications).toHaveLength(2);
 });
-test("marketplace prepares its folder once per version without probing or creating terminals",async()=>{
+test("marketplace opens one dashboard per session and prepares its folder once per version",async()=>{
  const h=harness({mode:"bootstrap"});h.put(".local/bin/pacer");
  await h.b.activate(h.ctx);await h.run();await h.b.refreshAgents(h.ctx,()=>{});
  expect(h.b.state.handoffVersion).toBe(h.d.version);
@@ -159,7 +161,9 @@ test("marketplace prepares its folder once per version without probing or creati
  expect(h.storage.at(-1)?.handoffVersion).toBe(h.d.version);
  const upgraded=createBootstrap({...h.d,version:"0.1.17"});await upgraded.activate(h.ctx);h.time(600);await upgraded.run(h.ctx,()=>{});
  expect(h.calls.filter(c=>c.args[0]==="plugin")).toHaveLength(2);expect(upgraded.state.handoffVersion).toBe("0.1.17");
- expect(h.calls.some(c=>c.bin==="orca"||c.args[0]==="terminal"||c.args[0]==="console"||c.args[0]==="setup")).toBe(false);
+ const opened=h.calls.filter(c=>c.args[0]==="terminal");expect(opened).toHaveLength(1);
+ expect(opened[0].args).toEqual(["terminal","create","--worktree","active","--title","pacer","--command",`${join(h.home,".local/bin/pacer")} dashboard`,"--json"]);
+ expect(opened[0].env.ORCA_AGENT_SESSION_ID).toBeUndefined();expect(opened[0].env.ORCA_TERMINAL_HANDLE).toBeUndefined();
 });
 test("marketplace handoff retries failures at most five per hour and persists success",async()=>{
  const h=harness({mode:"bootstrap"});h.put(".local/bin/pacer");let attempts=0,fail=true;
@@ -170,14 +174,29 @@ test("marketplace handoff retries failures at most five per hour and persists su
  await b.activate(h.ctx);
  for(const at of [0,60,120,180,240]){h.time(at);await b.run(h.ctx,()=>{});}
  expect(attempts).toBe(5);expect(b.state.handoffVersion).toBeUndefined();expect(b.state.nextAt).toBe(3600);
- expect(h.notifications).toEqual(["Installing pacer…","pacer couldn't install. Try again shortly."]);
+ expect(h.notifications).toEqual(["Installing pacer…","pacer is running in the pacer terminal tab."]);
  h.time(3599);await b.run(h.ctx,()=>{});expect(attempts).toBe(5);
  fail=false;h.time(3600);await b.run(h.ctx,()=>{});expect(attempts).toBe(6);expect(b.state.handoffVersion).toBe(h.d.version);
  const restarted=createBootstrap(h.d);await restarted.activate(h.ctx);h.time(4200);await restarted.run(h.ctx,()=>{});
- expect(h.calls.some(c=>c.args[0]==="plugin")).toBe(false);expect(h.notifications).toHaveLength(3);
+ expect(h.calls.some(c=>c.args[0]==="plugin")).toBe(false);expect(h.notifications).toHaveLength(2);
 });
 
 test("marketplace install errors show a friendly line rather than subprocess diagnostics",async()=>{
  const h=harness({mode:"bootstrap",exec:async()=>{throw new Error("spawn /private/fixture/pacer EACCES\ninternal details");}});h.put(".local/bin/pacer");await h.b.activate(h.ctx);await h.run();
  expect(h.notifications).toEqual(["Installing pacer…","pacer couldn't install. Try again shortly."]);
+});
+
+
+test("dashboard stays closed in the same session and opens once in a new session",async()=>{
+ const h=harness({mode:"bootstrap"});h.put(".local/bin/pacer");await h.b.activate(h.ctx);await h.run();
+ const restarted=createBootstrap({...h.d,exec:async(bin,args,env,timeout)=>args[0]==="status"?JSON.stringify({caller:{orcaSessionId:"session-two"}}):h.d.exec!(bin,args,env,timeout)});
+ await restarted.activate(h.ctx);h.time(600);await restarted.run(h.ctx,()=>{});h.time(1200);await restarted.run(h.ctx,()=>{});
+ expect(h.calls.filter(c=>c.args[0]==="terminal")).toHaveLength(2);
+ expect(restarted.state.dashboardSessions).toEqual(["session-one","session-two"]);
+});
+test("dashboard launch failure is reserved durably and never reported as running",async()=>{
+ const h=harness({mode:"bootstrap"});h.put(".local/bin/pacer");let launches=0;
+ const d={...h.d,exec:async(bin:string,args:string[],env:NodeJS.ProcessEnv,timeout:number)=>{if(args[0]==="terminal"){launches++;return JSON.stringify({ok:false,error:{message:"closed"}});}return h.d.exec!(bin,args,env,timeout);}};
+ const b=createBootstrap(d);await b.activate(h.ctx);await b.run(h.ctx,()=>{});const restarted=createBootstrap(d);await restarted.activate(h.ctx);h.time(60);await restarted.run(h.ctx,()=>{});
+ expect(launches).toBe(1);expect(h.notifications).not.toContain("pacer is running in the pacer terminal tab.");expect(restarted.state.start.status).toBe("failed");
 });

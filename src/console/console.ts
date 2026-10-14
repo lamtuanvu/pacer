@@ -40,48 +40,18 @@ type Prompt = { type: "strategy"; names: string[] } | {
   type: "delegate"; step: number; repo: string; goal: string; scope: string; acceptance: string;
 };
 
-export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Promise<number> {
-  const print = (text: string) => io.write(`${text}\n`);
-  const error = (e: unknown) => print(`pacer: ${e instanceof Error ? e.message : String(e)}`);
+export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: string) => void, prompts: {
+  startDelegate(repo: string): void; chooseStrategy(): void; use(name: string): Promise<void>; refresh(): Promise<void>;
+}) {
   const fresh = (): Ctx => ({ ...ctx, now: Date.now() / 1000 });
-  let prompt: Prompt | null = null;
-  const queue: CmdData[] = [];
-  const cancels: (() => void)[] = [];
-  let ticking: Promise<void> | null = null;
-  let closed = false;
-  let commandBusy = false;
-  const notifyIdle = () => deps.onIdle?.(!closed && !commandBusy && !prompt && !ticking && queue.length === 0);
-  let consoleData: ConsoleData = { version: currentVersion(), handle: null, paneKey: null, pid: deps.pid, startedAt: ctx.now, heartbeatAt: ctx.now };
-
-  const showPrompt = () => {
-    if (!prompt) io.write("pacer> ");
-    else if (prompt.type === "strategy") io.write("strategy (number or name, empty to cancel)> ");
-    else io.write(["goal> ", `repo [${displayText(prompt.repo)}]> `, "scope (optional)> ", "acceptance (optional)> ", "kind (optional)> "][prompt.step]);
-  };
-  const startDelegate = (repo: string) => { prompt = { type: "delegate", step: 0, repo, goal: "", scope: "", acceptance: "" }; };
-  const use = async (name: string) => {
-    if (!deps.listStrategies(fresh()).includes(name)) { print(`pacer: unknown strategy ${displayText(name)}`); return; }
-    const path = await deps.useStrategy(fresh(), name);
-    print(`active strategy: ${name} (${path})`);
-    await deps.pump(fresh());
-  };
-  const chooseStrategy = () => {
-    const names = deps.listStrategies(fresh());
-    names.forEach((name, i) => print(`${i + 1}. ${name}`));
-    prompt = { type: "strategy", names };
-  };
-  const refresh = async () => {
-    const c = fresh(), updates = await deps.pump(c);
-    print(summaryLine(currentSnapshot(c).budget));
-    print(`published ${updates.length} update(s)`);
-  };
+  const { startDelegate, chooseStrategy, use, refresh } = prompts;
   const validExecutor = (id?: string) => {
     if (!id) return true;
     const ids = deps.configuredExecutors?.(fresh()) ?? Object.keys(loadStrategy(fresh()).providers);
     if (ids.includes(id)) return true;
     print(`pacer: unknown executor ${displayText(id)}`); return false;
   };
-  const plugin = async (data: CmdData) => {
+  return async (data: CmdData) => {
     switch (data.cmd) {
       case "focus": {
         const handle=Object.values(loadOrcaState(fresh()).workers).find(w=>w.taskId===data.taskId)?.terminal;
@@ -179,6 +149,44 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
       }
     }
   };
+}
+
+export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Promise<number> {
+  const print = (text: string) => io.write(`${text}\n`);
+  const error = (e: unknown) => print(`pacer: ${e instanceof Error ? e.message : String(e)}`);
+  const fresh = (): Ctx => ({ ...ctx, now: Date.now() / 1000 });
+  let prompt: Prompt | null = null;
+  const queue: CmdData[] = [];
+  const cancels: (() => void)[] = [];
+  let ticking: Promise<void> | null = null;
+  let closed = false;
+  let commandBusy = false;
+  const notifyIdle = () => deps.onIdle?.(!closed && !commandBusy && !prompt && !ticking && queue.length === 0);
+  let consoleData: ConsoleData = { version: currentVersion(), handle: null, paneKey: null, pid: deps.pid, startedAt: ctx.now, heartbeatAt: ctx.now };
+
+  const showPrompt = () => {
+    if (!prompt) io.write("pacer> ");
+    else if (prompt.type === "strategy") io.write("strategy (number or name, empty to cancel)> ");
+    else io.write(["goal> ", `repo [${displayText(prompt.repo)}]> `, "scope (optional)> ", "acceptance (optional)> ", "kind (optional)> "][prompt.step]);
+  };
+  const startDelegate = (repo: string) => { prompt = { type: "delegate", step: 0, repo, goal: "", scope: "", acceptance: "" }; };
+  const use = async (name: string) => {
+    if (!deps.listStrategies(fresh()).includes(name)) { print(`pacer: unknown strategy ${displayText(name)}`); return; }
+    const path = await deps.useStrategy(fresh(), name);
+    print(`active strategy: ${name} (${path})`);
+    await deps.pump(fresh());
+  };
+  const chooseStrategy = () => {
+    const names = deps.listStrategies(fresh());
+    names.forEach((name, i) => print(`${i + 1}. ${name}`));
+    prompt = { type: "strategy", names };
+  };
+  const refresh = async () => {
+    const c = fresh(), updates = await deps.pump(c);
+    print(summaryLine(currentSnapshot(c).budget));
+    print(`published ${updates.length} update(s)`);
+  };
+  const plugin = consoleCommands(ctx, deps, print, { startDelegate, chooseStrategy, use, refresh });
   const answer = async (line: string) => {
     const p = prompt!;
     const value = line.trim();
