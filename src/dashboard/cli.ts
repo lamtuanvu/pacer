@@ -5,7 +5,7 @@ import { StringDecoder } from "node:string_decoder";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { connectClient } from "../api/client";
-import { emptySnapshot } from "../link/envelope";
+import { emptySnapshot, type CmdData } from "../link/envelope";
 import { listStrategies } from "../link/strategies";
 import { loadStrategy } from "../config/strategy";
 import { readTask } from "../tasks/store";
@@ -14,7 +14,7 @@ import { use as switchStrategy } from "../strategy/service";
 import { selfHandle, resolveWorktreePath } from "../console/cli";
 import { consoleCommands, type ConsoleDeps } from "../console/console";
 import { cards } from "./model";
-import { refreshView } from "./data";
+import { delegateViaClient, refreshView, runCommand } from "./data";
 import { DashboardSettings, terminalLogin } from "./settings";
 import { renderDashboard } from "./render";
 import { Keys, moveSelection, selectionAction, updateKey, UPDATE_PROMPT } from "./input";
@@ -43,7 +43,8 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   }).catch(e=>{if(!closed)report(String(e));}).finally(()=>{inFlight=undefined;});
   return inFlight;
  };
- const use=async(name:string)=>{if(!listStrategies(fresh()).includes(name))throw Error(`unknown strategy ${name}`);await switchStrategy(fresh(),name);report(`active strategy: ${name}`);};
+ const reportOp=(text:string)=>{report(text);if(!text.startsWith("pacer: "))void refresh();};
+ const use=async(name:string)=>{await command({cmd:"use",strategy:name});};
  const deps:ConsoleDeps={delegate,readTask,taskStop,configuredExecutors:c=>Object.keys(loadStrategy(c).providers),useStrategy:switchStrategy,listStrategies,statusText:async()=>"",pump:async()=>{refresh();return [];},heartbeat(){},resolveWorktreePath,selfHandle,every:()=>()=>{},pid:process.pid,cwd:process.cwd()};
  const startDelegate=(repo:string)=>{prompt={type:"delegate",step:0,value:"",goal:"",repo,names:[]};};
  const chooseStrategy=()=>{prompt={type:"strategy",step:0,value:"",goal:"",repo:"",names:listStrategies(fresh())};};
@@ -51,7 +52,8 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   suspend(){suspended=true;clearTimeout(escapeTimer);keys.flush();process.stdin.off("data",input);process.stdin.pause();process.stdin.setRawMode(false);process.stdout.write(LEAVE_SCREEN);},
   resume(){if(closed)return;process.stdin.setRawMode(true);process.stdout.write(ENTER_SCREEN);process.stdin.on("data",input);process.stdin.resume();suspended=false;refresh();}
  })});
- const command=consoleCommands(ctx,deps,report,{startDelegate,chooseStrategy,use,refresh:async()=>{refresh();report("Refreshed");}});
+ const fallback=consoleCommands(ctx,deps,report,{startDelegate,chooseStrategy,use,refresh:async()=>{refresh();report("Refreshed");}});
+ const command=(data:CmdData)=>runCommand(client,data,fallback,reportOp);
  let finish!:(code:number)=>void;const done=new Promise<number>(resolve=>{finish=resolve;});
  const quit=(code=0)=>{if(closed)return;closed=true;finish(code);};
  const handle=async(key:string)=>{
@@ -71,7 +73,7 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
     if(p.type==="strategy"){prompt=null;if(value)await use(/^\d+$/.test(value)?p.names[Number(value)-1]??value:value);}
     else if(p.step===0){if(!value){prompt=null;report("Delegate cancelled");}else{p.goal=value;p.step++;}}
     else if(p.step===1){p.repo=value||p.repo;p.step++;}
-    else {prompt=null;const task=delegate(fresh(),{brief:{goal:p.goal,repo:p.repo},kind:value||null});report(`${task.id} queued`);refresh();}
+    else {prompt=null;await delegateViaClient(client,{goal:p.goal,repo:p.repo,...(value?{kind:value}:{})},reportOp);}
    }else if(key.length && !["up","down"].includes(key)&&!/[\x00-\x1f\x7f]/.test(key))prompt.value+=key;
    draw();return;
   }
