@@ -7,6 +7,8 @@ export const accountGroupsClient=`function groupedRows(rows,render) {
 `;
 import { pendingClient } from "./pending";
 /** No network or navigation: every host request uses the sandboxed panel bridge. */
+// Compact private script identifiers to keep all views within the panel size limit.
+const compactNames:Record<string,string>={"notificationControl":"_s0","strategyEntries":"_s1","submitButton":"_s2","updateContext":"_s3","sendCommand":"_s4","updateFreshness":"_s6","seenStrategies":"_s7","actionStates":"_s8","pendingSend":"_s9","statusNode":"_s10","recoverActions":"_s11","afterSession":"_s12","finishSending":"_s13","rankedList":"_s14","mutedList":"_s15","savedStrategy":"_s16","sentAt":"_s17","actionStorage":"_c17","actionButtons":"_c18","saveActions":"_c19","actionKey":"_c20","actionLabel":"_c21","restoreAction":"_c22","paintAction":"_c23","beginAction":"_c24","bindAction":"_c25","onFailure":"_f","pending":"_p"};
 export const client=(accounts=false)=>`
 const embedded=JSON.parse(document.getElementById("pacer-actions").textContent);
 function unpack(value) {
@@ -33,6 +35,7 @@ function show(view) {
   if(view==="strategy" && savedStrategy) {try {sessionStorage.setItem("pacer-seen-strategies",JSON.stringify([...seenStrategies,savedStrategy.key+":"+savedStrategy.at].slice(-100)));}catch {}}
   for (const el of document.querySelectorAll("[data-page]")) el.hidden=el.dataset.page!==view;
   status.textContent="";
+  try {sessionStorage.setItem("pacer-panel-view",view);}catch{}
 }
 function live(workspace) {
   const available=data.consoles.filter(c=>c.handle && c.live);
@@ -70,6 +73,7 @@ function sendCommand(command, after, onFailure, workspace) {
   const send=value=>{
     updateContext(value);
     if (!live(value)) return fail();
+    if(command.cmd==="open-terminal" && typeof value?.worktreeId==="string") command={...command,worktreeId:value.worktreeId};
     const text=": pacer '" + JSON.stringify({v:1,type:"cmd",data:command}).replace(/'/g,"\\\\u0027") + "'";
     if (text.length > 4096) { status.textContent="pacer command line exceeds 4096 characters. Shorten your brief and try again."; return fail(); }
     if (!request("terminal.sendText",{terminalId:data.handle,text,enter:true},"console",after,onFailure)) return fail();
@@ -141,6 +145,11 @@ for (const b of document.querySelectorAll("[data-command]")) {
  if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
  b.addEventListener("click", ()=>{
   const command=data.commands[b.dataset.command];
+  if (command && b.dataset.remove) {
+   const now=Date.now(), armed=Number(b.dataset.confirmAt);
+   if(!Number.isFinite(armed) || now-armed>=5000 || now<armed) {b.dataset.confirmAt=String(now);b.textContent="Confirm remove";status.textContent="Click again within 5 seconds to remove.";return;}
+   delete b.dataset.confirmAt;
+  }
   if (command) pendingSend(b,command,command.cmd==="check-setup"?()=>{restoreAction(actionKey(command));status.textContent="Setup check requested. The checklist updates when a check changes.";}:undefined); else status.textContent="Reopen the panel to load this action.";
 });
 }
@@ -225,7 +234,8 @@ if(notificationControl){
  });
 }
 recoverActions();
+try {if(sessionStorage.getItem("pacer-panel-view")==="settings")show("settings");}catch{}
 try {const saved=Number(sessionStorage.getItem("pacer-panel-scroll"));if(Number.isFinite(saved)&&saved>=0)window.scrollTo?.(0,saved);}catch{}
 window.addEventListener("scroll",()=>{try{sessionStorage.setItem("pacer-panel-scroll",String(window.scrollY));}catch{}},{passive:true});
 readContext(value=>{ live(value); });
-`;
+`.replace(/(?<!-)\b(notificationControl|strategyEntries|submitButton|updateContext|sendCommand|updateFreshness|seenStrategies|actionStates|pendingSend|statusNode|recoverActions|afterSession|finishSending|rankedList|mutedList|savedStrategy|sentAt|actionStorage|actionButtons|saveActions|actionKey|actionLabel|restoreAction|paintAction|beginAction|bindAction|onFailure|pending)\b(?!-)/g,name=>compactNames[name]!);

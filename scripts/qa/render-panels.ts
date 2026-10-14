@@ -3,6 +3,7 @@ import { resolve, join } from "node:path";
 import { renderPanel } from "../../orca-plugin/src/panel";
 import { renderBootstrapPanel } from "../../orca-plugin/src/panel/bootstrap";
 import { emptySnapshot, type LinkSnapshot } from "../../src/link/envelope";
+import { validateStrategy } from "../../src/config/strategy";
 import { setupChecklist } from "../../src/setup/checklist";
 
 // Frozen time keeps tasks, ages, and console liveness reproducible.
@@ -19,7 +20,14 @@ const tasks:LinkSnapshot = {...operations,console:liveConsole,tasks:[
  {id:"qa_failed",state:"failed",goal:"Fix the panel layout after the acceptance command failed",executor:"claude-code",backend:"orca",worktree:null,updatedAt:nowS-60,terminalPresent:true},
 ]};
 const view = {nowS,reachable:true,transport:"http" as const};
+const settingsConfig=validateStrategy({accounts:{personal:{kind:"claude"},team:{kind:"codex",orca_account:"team-id"},api:{kind:"endpoint",usage:"unmetered",model:"local/test"}},planner:"claude-code",runners:{"opencode#api":{}},pacing:{policy:"burn-before-reset",order:["codex#team","opencode#api"],planner_reserve:25,accounts:"fill",fill_threshold:95},routing:[{default:["codex#team","opencode#api"]}]},"QA fixture");
+const settingsPanel=(live:boolean,config=settingsConfig,extra={})=>renderPanel({...operations,console:live?liveConsole:null},{...view,strategyConfig:config,...extra}).replace(/data-page="[^"]+"(?: hidden)?/g,tag=>tag.includes('settings')?'data-page="settings"':tag.replace(/ hidden$/, '')+' hidden').replace('data-page="settings" hidden','data-page="settings"');
 const fixtures:Record<string,string> = {
+ "settings-live":settingsPanel(true),
+ "settings-without-console":settingsPanel(false),
+ "settings-spread":settingsPanel(true,{...settingsConfig,pacing:{...settingsConfig.pacing,policy:"priority",accounts:"spread",plannerReserve:0,fillThreshold:50}}),
+ "settings-limits-update":settingsPanel(true,{...settingsConfig,pacing:{...settingsConfig.pacing,plannerReserve:50,fillThreshold:100}},{notifications:"all",updateCheck:false,updates:{cli:"0.1.23",plugin:"0.1.24",latest:"0.1.24",available:true}}),
+ "settings-unconfigured":renderPanel(emptySnapshot(),view).replace('data-page="setup"','data-page="setup" hidden').replace('data-page="settings" hidden','data-page="settings"'),
  "marketplace":renderBootstrapPanel(),
  "setup-without-console":renderPanel({...emptySnapshot(),at:nowS},{...view,reachable:false,setup:incomplete}),
  "setup-with-console":renderPanel({...emptySnapshot(),at:nowS,console:liveConsole},{...view,setup:incomplete}),

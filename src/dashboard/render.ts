@@ -2,7 +2,8 @@ import { setupText, type SetupChecklist } from "../setup/checklist";
 import type { LinkSnapshot } from "../link/envelope";
 import { cards } from "./model";
 import { runnerLabel } from "../render/accounts";
-export interface View { setup?: SetupChecklist; updateLine?: string; selected: number; help?: boolean; prompt?: string; message?: string; noColor?: boolean }
+import type { DashboardSettings } from "./settings";
+export interface View { settings?: DashboardSettings; setup?: SetupChecklist; updateLine?: string; selected: number; help?: boolean; prompt?: string; message?: string; noColor?: boolean }
 export const safeText = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 export function budgetBar(used: number|null, pace: number|null, size: number): string {
  const pct=(n:number)=>Math.max(0,Math.min(100,n));
@@ -11,6 +12,13 @@ export function budgetBar(used: number|null, pace: number|null, size: number): s
 }
 export function renderDashboard(s:LinkSnapshot,width:number,height:number,now:number,v:View):string {
  width=Math.max(1,Math.floor(width)); height=Math.max(1,Math.floor(height));
+ if(v.settings?.open){
+  let section="";const body=v.settings.rows().flatMap((r,i)=>{const lines:string[]=[];if(section!==r.section){section=r.section;lines.push(section);}lines.push(`${i===v.settings!.selected?">":" "} ${r.text}${r.reason?` · ${r.reason}`:""}`);return lines;});
+  const space=Math.max(0,height-3),index=body.findIndex(l=>l.startsWith(">")),offset=Math.max(0,index-space+1),lines=["◆ pacer · Settings",...body.slice(offset,offset+space)];
+  while(lines.length<height-2)lines.push("");
+  lines.push(v.settings.prompt?`${v.settings.prompt.question}: ${v.settings.prompt.value}`:v.message??"","↑/↓ select · Enter change · a add · l link · x remove · [/] order · Esc back");
+  return lines.slice(0,height).map(l=>safeText(l).slice(0,width)).join("\n");
+ }
  const b=s.budget,p=b?.providers.find(p=>p.id===b.planner), compact=width<60;
  const header=`◆ pacer · ${b?.mode??"unknown"} · ${b?.strategy??"no strategy"}`;
  const live=s.at>0 && now-s.at<30;
@@ -24,10 +32,10 @@ export function renderDashboard(s:LinkSnapshot,width:number,height:number,now:nu
   let account:string|undefined;
   for(const card of group.cards) {if(card.account && card.account!==account) {body.push({text:`  Account ${card.account}`,selected:false});account=card.account;}const selected=index++===v.selected;body.push({text:`${selected?">":" "} ${card.text}`,selected});}
  }
- if(v.help) {body.splice(0,body.length,...["Keys", "↑/↓ or j/k: select · Enter: primary action", "d: delegate · x: dismiss · b: block/unblock", "s: strategy · r: refresh · c: check updates · u: update · ?: help · q: quit", "Running: Enter focuses its terminal, or stops it.", "Esc cancels prompts. Budget bar: # used, | pace."].map(text=>({text,selected:false})));}
+ if(v.help) {body.splice(0,body.length,...["Keys", "↑/↓ or j/k: select · Enter: primary action", "d: delegate · x: dismiss · b: block/unblock", "s: strategy · ,: settings · r: refresh · c: check updates · u: update · ?: help · q: quit", "Running: Enter focuses its terminal, or stops it.", "Esc cancels prompts. Budget bar: # used, | pace."].map(text=>({text,selected:false})));}
  const space=Math.max(0,height-fixed.length-2), selected=body.findIndex(row=>row.selected), offset=selected>=space?Math.min(Math.max(0,body.length-space),selected-space+1):0;
  const lines=[...fixed,...body.slice(offset,offset+space).map(row=>row.selected&&!v.noColor?`\x1b[7m${safeText(row.text).slice(0,width)}\x1b[0m`:safeText(row.text).slice(0,width))];
  while(lines.length<height-2)lines.push("");
- lines.push(v.prompt??v.message??"",compact?"j/k Enter d x b s r c u ? q":"↑/↓/j/k select · Enter action · d x b s r c u ? q");
+ lines.push(v.prompt??v.message??"",compact?"j/k Enter d x b s , r c u ? q":"↑/↓/j/k select · Enter action · d x b s , r c u ? q");
  return lines.slice(0,height).map(line=>line.includes("\x1b[7m")?line:safeText(line).slice(0,width)).join("\n");
 }

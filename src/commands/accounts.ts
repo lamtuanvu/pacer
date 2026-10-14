@@ -14,6 +14,7 @@ import type { Result } from "./types";
 import { table } from "../render/table";
 
 export interface AccountDeps {
+  prompt?: (question: string) => Promise<string>;
   login?: (argv: string[], env: Record<string, string>) => Promise<number>;
   confirm?: (question: string) => Promise<boolean>;
   print?: (line: string) => void;
@@ -55,6 +56,11 @@ async function confirmDeletion(question: string): Promise<boolean> {
   try { return /^y(?:es)?$/i.test((await rl.question(`${question} [y/N] `)).trim()); }
   finally { rl.close(); }
 }
+async function promptArgument(question: string): Promise<string> {
+  if(!process.stdin.isTTY) throw Error("interactive account/runner setup requires a terminal");
+  const rl=createInterface({input:process.stdin,output:process.stdout});
+  try {return (await rl.question(`${question}> `)).trim();} finally {rl.close();}
+}
 async function loginAgent(ctx: Ctx, argv: string[], env: Record<string,string>): Promise<number> {
   const child = Bun.spawn(argv, {env: {...ctx.env, ...env}, stdin: "inherit", stdout: "inherit", stderr: "inherit"});
   return child.exited;
@@ -75,6 +81,21 @@ function deletionHome(ctx: Ctx, s: Strategy, name: string): string {
 
 export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {}): Promise<Result> {
   try {
+    if(args[0]==="add" && (args.length===1 || (args.length===2 && args[1]==="--orca"))) {
+      const ask=deps.prompt ?? promptArgument;
+      const kind=await ask("Account kind (claude, codex, endpoint)");
+      const name=await ask("Account name");
+      const options=args[1]==="--orca" ? ["--orca",await ask("Orca account id")] : [];
+      if(kind==="endpoint" && args[1]!=="--orca") {
+        const usage=await ask("Usage (quota, metered, unmetered)");options.push("--usage",usage);
+        if(usage==="metered") options.push("--weekly-tokens",await ask("Weekly token budget"));
+        if(usage==="quota") {
+          const source=await ask("Quota source (arkcli, empty for manual)");
+          if(source) options.push("--quota-source",source);
+        }
+      }
+      return accountCmd(["add",kind,name,...options],ctx,deps);
+    }
     const [verb, ...rest] = args;
     const {pos, flags} = commandArgs(rest, verb === "add" ? ["home","orca","usage","quota-source","weekly-tokens"] : [], verb === "list" ? ["json"] : verb === "add" ? ["no-login"] : ["delete-home"]);
     const s = loadStrategy(ctx);
@@ -149,8 +170,13 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
   } catch(e) {return fail(e);}
 }
 
-export async function runnerCmd(args: string[], ctx: Ctx): Promise<Result> {
+export async function runnerCmd(args: string[], ctx: Ctx, deps: Pick<AccountDeps,"prompt"> = {}): Promise<Result> {
   try {
+    if(args[0]==="add" && args.length===1) {
+      const ask=deps.prompt ?? promptArgument,id=await ask("Runner (agent#account)");
+      const model=id.startsWith("opencode#")?await ask("Model (provider/model, empty for account default)"):"";
+      return runnerCmd(["add",id,...(model?["--model",model]:[])],ctx,deps);
+    }
     const [verb,...rest]=args;
     const {pos,flags}=commandArgs(rest,verb==='add'?['model']:[],verb==='list'?['json']:[]);
     const s=loadStrategy(ctx);

@@ -311,7 +311,7 @@ test("brief link outages keep a disabled grey overview for 20 seconds before set
 });
 
 test("all primary views expose polite feedback and forms rely on visible JavaScript validation",()=>{
- const html=panel(); expect(html).not.toMatch(/\srequired(?:\s|>)/);expect(html.match(/data-status role="status" aria-live="polite"/g)).toHaveLength(4);
+ const html=panel(); expect(html).not.toMatch(/\srequired(?:\s|>)/);expect(html.match(/data-status role="status" aria-live="polite"/g)).toHaveLength(5);
  const b=browser();b.ids["strategy-brief"].value="";b.ids["strategy-send"].click();expect(b.ids.status.textContent).toContain("Enter a brief");
 });
 test("all console actions show startup feedback when console is missing, including strategy-build submit",()=>{

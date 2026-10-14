@@ -14,6 +14,7 @@ import { bridgeTransport } from "./transports/bridge";
 import { channelTransport } from "./transports/channel";
 import { NO_CONSOLE, sendToConsole, focusedConsole } from "./console-link";
 import { notifyNewAlerts, deliverNotification } from "./notify";
+import { readPanelSettings } from "./panel/settings";
 import { renderPanel, type AutoConsoleOutcome } from "./panel";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
@@ -122,13 +123,20 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const consoleKey = () => [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map(handle => ({
         handle, live: [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS),
       }));
-    const panelKey = () => setup && !setup.complete ? JSON.stringify({setup:setupKey(setup),consoles:consoleKey()}) : JSON.stringify({
+    const configuredSettings = () => {
+      const activeName=deps.fs.readText(join(settings.pacerHome,"active"))?.trim();
+      const name=activeName && /^[a-z0-9][a-z0-9-]{0,39}$/.test(activeName) ? activeName : "default";
+      const result=readPanelSettings(path=>deps.fs.readText(path),settings.pacerHome,name);
+      return {strategyConfig:result.strategyConfig,updateCheck:result.updateCheck,settingsError:result.error};
+    };
+    const contentPanelKey = () => setup && !setup.complete ? JSON.stringify({setup:setupKey(setup),consoles:consoleKey()}) : JSON.stringify({
       updates: panelUpdates(), setup: setup ? setupKey(setup) : undefined, notifications:settings.notifications,
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       serviceInstalled: store.snapshot.serviceInstalled, reconnecting: reconnecting(), tasks: store.snapshot.tasks.map(({updatedAt,...task})=>task), alerts: store.snapshot.alerts,
       consoles: consoleKey(), autoConsoleOutcome: hintKey(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
     });
+    const panelKey = () => JSON.stringify({content:contentPanelKey(),...configuredSettings(),autoConsole:settings.autoConsole,notifications:settings.notifications});
     const logError = (e: unknown) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
     const scheduleRender = (immediate=false) => {
       if(immediate){userOutcome=true;cancelRender?.();cancelRender=null;}
@@ -140,7 +148,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome(), setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { ...configuredSettings(), nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome(), setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
               renderedKey = key; lastRenderAt=nowS; userOutcome=false;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
@@ -172,10 +180,11 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       refreshingSettings=true;
       void ctx.host.call("settings.get").then(result=>{
         if(stopped)return;
-        const updated=readSettings(result.settings,deps.home),changed=settings.notifications!==updated.notifications;
+        const updated=readSettings(result.settings,deps.home),changed=settings.notifications!==updated.notifications || settings.autoConsole!==updated.autoConsole;
         settings.lastAlertAt=Math.max(settings.lastAlertAt,updated.lastAlertAt);
         settings.deliveredAlerts=[...(settings.deliveredAlerts??[]),...(updated.deliveredAlerts??[])].slice(-200);
         settings.notifications=updated.notifications;
+        settings.autoConsole=updated.autoConsole;
         settings.settingsReady=true;
         if(changed)scheduleRender(true);
       }).catch(()=>{}).finally(()=>{refreshingSettings=false;});

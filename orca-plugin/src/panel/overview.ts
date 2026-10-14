@@ -19,7 +19,7 @@ export function connectionIndicator(s:LinkSnapshot, now:number, reachable:boolea
  return `<span class="name live ${reachable?old?"warn":"good":"bad"}"><span class="dot"></span><span data-freshness>${reachable?`Live · ${h(time(s.budget?.generatedAt??s.at))}`:"Not connected"}</span></span>`;
 }
 export function header(s:LinkSnapshot, now:number, reachable:boolean):string {
- return `<header><span class="brand name">${mark}pacer</span>${s.budget?`<span class="pill">${h((s.mode?.mode??s.budget.mode).replace(/^./,c=>c.toUpperCase()))} mode</span>`:""}<span class="grow"></span>${connectionIndicator(s,now,reachable)}</header>`;
+ return `<header><span class="brand name">${mark}pacer</span>${s.budget?`<span class="pill">${h((s.mode?.mode??s.budget.mode).replace(/^./,c=>c.toUpperCase()))} mode</span>`:""}<span class="grow"></span>${connectionIndicator(s,now,reachable)}<button type="button" data-view="settings" aria-label="Settings">⚙</button></header>`;
 }
 function strategyPicker(_s:LinkSnapshot):string { return `<section id="strategy-picker" hidden></section>`; }
 export function overview(s:LinkSnapshot, now:number, reachable:boolean, commands:Record<string,CmdData>, text:Record<string,string>, rows="", feedback=""):string {

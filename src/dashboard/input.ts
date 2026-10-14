@@ -6,7 +6,7 @@ export class Keys {
   this.pending+=text;const out:Key[]=[];
   while(this.pending) {
    if(this.pending==="\x1b"||this.pending==="\x1b[")break;
-   if(this.pending.startsWith("\x1b[A")||this.pending.startsWith("\x1b[B")){out.push(this.pending[2]==="A"?"up":"down");this.pending=this.pending.slice(3);continue;}
+   if(this.pending.startsWith("\x1b[A")||this.pending.startsWith("\x1b[B")||this.pending.startsWith("\x1b[C")||this.pending.startsWith("\x1b[D")){out.push(({A:"up",B:"down",C:"right",D:"left"} as Record<string,string>)[this.pending[2]]);this.pending=this.pending.slice(3);continue;}
    const char=Array.from(this.pending)[0];this.pending=this.pending.slice(char.length);
    out.push(char==="\x03"?"interrupt":char==="\r"||char==="\n"?"enter":char==="\x7f"?"backspace":char==="\x1b"?"escape":char);
   }return out;
