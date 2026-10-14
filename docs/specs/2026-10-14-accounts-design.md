@@ -117,11 +117,12 @@ Decided (see Decisions): Orca's rate limits also cover Cursor, Gemini, Kimi, Ope
 
 ## Running a task on an account
 
-- pacer-managed: pacer sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` in the executor's environment, for both the direct and the Orca backend (the Orca backend passes it in the terminal command). Never set for the default account.
-- Orca-managed: **spike result (2026-10-14, read from Orca's source; not yet run against a real second account):** Orca runs each managed account from its own config folder, exactly like a pacer-managed account:
+- In 0.1.23, runners whose account uses a non-default folder (pacer-managed `home` or Orca-managed) always use the **direct backend**, even when `execution.backend` is `orca` or `auto`. Interactive Orca launches cannot pre-approve folder trust for that account; a real Claude run stopped at its workspace-trust dialog, while headless `claude -p` ran successfully. The attempt log records `direct backend: non-default account (Orca launch can't pre-approve folder trust)`. Default accounts keep their existing backend behavior.
+- pacer-managed: pacer sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` in the direct executor's environment. Never set for the default account.
+- Orca-managed: **folder layout (2026-10-14, read from Orca's source):** Orca runs each managed account from its own config folder, exactly like a pacer-managed account:
   - Claude: `<Orca data>/claude-profiles/<accountId>/home`, launched with `CLAUDE_CONFIG_DIR` set to it. Claude names the account's Keychain entry from that exact path, so the same path reaches the same login.
   - Codex: `<Orca data>/codex-accounts/<accountId>/home`, a self-contained `CODEX_HOME`.
-  - Orca leaves an explicitly set `CLAUDE_CONFIG_DIR` / `CODEX_HOME` alone ("the user's own CLAUDE_CONFIG_DIR wins over the selection"; custom `CODEX_HOME` overrides are honoured), so a runner launched inside an Orca terminal stays on the account pacer chose.
+  - pacer selects the same folder with `CLAUDE_CONFIG_DIR` / `CODEX_HOME` in the direct executor's environment.
   - **Gap:** `orca account list --json` returns account summaries without the folder path (the full records with `managedHomePath`/`managedAuthPath` stay inside Orca). pacer therefore derives the path from Orca's layout, checks the folder exists before using it, and otherwise treats the account as usage-only. This is a workaround with its own `upstream: orca` issue (ask Orca to include the folder in `account list --json`, or a per-launch account option).
   - pacer never reads or copies credentials from these folders or the Keychain; it only sets the environment variable.
 

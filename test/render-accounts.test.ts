@@ -84,7 +84,7 @@ test("list commands use aligned labeled columns and JSON retains its shape",asyn
  const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,"strategy.yaml"),Bun.YAML.stringify(raw));
  const accounts=await main(["account","list"],ctx), runners=await main(["runner","list"],ctx);
  expect(accounts.code).toBe(0);expect(runners.code).toBe(0);
- expect(accounts.out.split("\n")[0].split(/\s{2,}/)).toEqual(["ACCOUNT","KIND","SOURCE","RUNNERS","USAGE"]);
+ expect(accounts.out.split("\n")[0].split(/\s{2,}/)).toEqual(["ACCOUNT","KIND","SOURCE","FOLDER","RUNNERS","USAGE"]);
  expect(runners.out.split("\n")[0].split(/\s{2,}/)).toEqual(["RUNNER","ACCOUNT","MODEL"]);
  for(const out of [accounts.out,runners.out]) {
   const lines=out.split("\n"), starts=[...lines[0].matchAll(/\S+/g)].map(m=>m.index!);

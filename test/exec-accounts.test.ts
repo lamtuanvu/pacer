@@ -62,18 +62,17 @@ test("missing Orca folder keeps usage visible but excludes the runner from routi
 });
 
 test.each([
-  ["claude-code#team", "current", "CLAUDE_CONFIG_DIR", "claude"],
-  ["codex#work", "current", "CODEX_HOME", "codex"],
-  ["claude-code#team", "new-child", "CLAUDE_CONFIG_DIR", "claude"],
-  ["codex#work", "new-child", "CODEX_HOME", "codex"],
-] as const)("Orca %s on %s quotes account env and uses terminal supervision", async (id, worktree, variable, agent) => {
-  const {ctx, s, home} = setup();
+  ["claude-code", "current", "claude"],
+  ["codex", "current", "codex"],
+  ["claude-code", "new-child", "claude"],
+  ["codex", "new-child", "codex"],
+] as const)("default-account Orca %s on %s keeps agent supervision", async (id, worktree, agent) => {
+  const {ctx, s} = setup();
   const f = fakeRun([
     [["git", "-C", "/work/app", "rev-parse"], raw("/work/app\nmain\n")],
     [["git", "-C", "/work/app", "status"], raw("")],
     [["orca", "status"], ok("status-ready.json")],
     [["orca", "repo", "list"], raw('{"ok":true,"result":{"repos":[{"id":"repo1","path":"/work/app"}]}}')],
-    [["orca", "worktree", "create"], raw('{"ok":true,"result":{"worktree":{"id":"repo1::/work/child","path":"/work/child"}}}')],
     [["orca", "terminal", "create"], ok("coordinator-terminal.json")],
     [["orca", "terminal", "show"], ok("terminal-show-live.json")],
     [["orca", "orchestration", "run-create"], ok("run-create.json")],
@@ -87,17 +86,18 @@ test.each([
   const backend = makeOrcaBackend({loadExecution: () => ({...DEFAULT_EXECUTION, worktree}), sleep: async () => {}});
   const out = await backend.runAttempt(ctx, s.providers[id], task);
   expect(out.backend).toBe("orca");
-  const create = f.calls.find(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"));
-  expect(create).toBeDefined();
-  const command = create![create!.indexOf("--command") + 1];
-  expect(command).toBe(`${variable}='${home.replaceAll("'", "'\\''")}' PACER_ROLE=executor ${agent}`);
+  expect(f.calls.some(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))).toBe(false);
   const start = f.calls.find(a => a[2] === "worker-start")!;
-  expect(start).toContain("--terminal");
-  expect(start).not.toContain("--agent");
+  expect(start).not.toContain("--terminal");
+  expect(start[start.indexOf("--agent") + 1]).toBe(agent);
   if (worktree === "new-child") {
-    expect(out.worktree).toBe("/work/child");
-    expect(create![create!.indexOf("--worktree") + 1]).toBe("path:/work/child");
+    expect(start[start.indexOf("--worktree") + 1]).toBe("new-child");
+    expect(out.worktree).toBeTruthy();
+  } else {
+    expect(start[start.indexOf("--worktree") + 1]).toBe("path:/work/app");
+    expect(out.worktree).toBe("/work/app");
   }
+
 });
 
 test("direct launch passes the account env and clears an inherited planner account", async () => {

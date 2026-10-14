@@ -31,7 +31,9 @@ export class StrategyDoc {
     node.commentBefore = undefined; // already present before the source range
     if (old.range[2] > old.range[1]) node.comment = undefined; // inline comment is outside the range
     const doc = new Document(); doc.contents = node;
-    let value = doc.toString({ lineWidth: 0 }).replace(/\n$/, "");
+    let value = doc.toString({ lineWidth: 0, ...(isSeq(old) && old.flow && old.range ? {
+      flowCollectionPadding: /^\[\s/.test(this.text.slice(old.range[0], old.range[1]))
+    } : {}) }).replace(/\n$/, "");
     const block = (isMap(node) || isSeq(node)) && !node.flow;
     const wasBlock = (isMap(old) || isSeq(old)) && !old.flow;
     const lineStart = this.text.lastIndexOf("\n", old.range[0] - 1) + 1;

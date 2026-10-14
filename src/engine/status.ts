@@ -66,8 +66,7 @@ export async function computeStatus(
       behind: s.pacing.behindThreshold,
       paceScale: account.name === s.planner.account ? 1 - s.pacing.plannerReserve / 100 : 1,
     };
-    // Limit marks are still written using runner ids by the execution layer.
-    // Any such mark constrains the whole account, including sibling runners.
+    // Account marks constrain all runners; retain support for older runner marks.
     const limits = [account.name, ...runners.map(r => r.name)].flatMap(id => {
       const limit = limitWindow(ctx, id); return limit ? [limit] : [];
     });

@@ -44,6 +44,11 @@ export function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy>[1]):
   if (!result.ok) throw Error(result.error);
   return result.diff;
 }
+function compactFolder(ctx: Ctx, folder: string | null): string {
+  if (!folder) return '—';
+  const path = folder === ctx.home ? '~' : folder.startsWith(ctx.home + sep) ? '~' + folder.slice(ctx.home.length) : folder;
+  return path.length > 40 ? path.slice(0,19) + '…' + path.slice(-20) : path;
+}
 async function confirmDeletion(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return false;
   const rl = createInterface({input: process.stdin, output: process.stdout});
@@ -83,7 +88,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
         return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id), signedIn: identity ? true : null,
           runnable: a.source !== "orca" || folder !== null, usageReading};
       }));
-      return ok(flags.json ? JSON.stringify(rows,null,2) : table(['ACCOUNT','KIND','SOURCE','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,`${a.source}${a.folder || a.orcaAccount ? ` (${a.folder ?? a.orcaAccount})` : ''}`,a.runners.join(', ') || 'no runners',`${a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
+      return ok(flags.json ? JSON.stringify(rows,null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
     }
     requireAccounts(s);
     if (verb === "add" && pos.length === 2) {
@@ -112,7 +117,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
         }
       } else {
         if (flags.usage || flags['quota-source'] || flags['weekly-tokens']) throw Error("usage options are only supported for endpoints");
-        folder=resolve(typeof flags.home==='string' ? flags.home.replace(/^~(?=\/|$)/,ctx.home) : join(ctx.pacerHome,'accounts',name));
+        folder=resolve(typeof flags.home==='string' ? flags.home.replace(/^~(?=\/|$)/,ctx.home) : join(ctx.home,`.${kind}-${name}`));
         if (existsSync(folder)) throw Error("account home already exists; choose a new folder");
         value.home=folder;
       }
@@ -161,7 +166,7 @@ export async function runnerCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(verb==='add') {
       if(s.runners[id]) throw Error(`runner ${id} already exists`);
       const diff=applyEdit(ctx,doc=>{
-        doc.addMappingEntry('runners',id,flags.model ? {model:flags.model} : {});
+        if (flags.model) doc.addMappingEntry('runners',id,{model:flags.model});
         // Materialize the effective routing before adding a runner, preserving every rule.
         const raw=docValue(doc,['routing']);
         if(!Array.isArray(raw)) doc.setIn(['routing'],s.routing.map(r=>r.kinds?{kinds:r.kinds,executors:r.executors}:{default:r.executors}));

@@ -108,3 +108,11 @@ start a new session from the selected folder to use the new planner account.
 until an account is behind pace or reaches `pacing.fill_threshold` (default 90%,
 range 50–100). These choices apply within matching native agent/account-kind
 groups; endpoint routing retains its existing ordering.
+
+## Limits
+
+In 0.1.23, runners on a non-default account folder (pacer-managed `home` or
+Orca-managed) always use the direct backend, including when `execution.backend`
+is `orca` or `auto`. An interactive Orca launch cannot pre-approve workspace
+trust for that account and can stop at the folder-trust dialog. The attempt log
+records this reason; default accounts keep their existing backend behavior.

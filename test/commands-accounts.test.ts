@@ -20,6 +20,7 @@ for (const kind of ['claude','codex']) test(`${kind} add creates private home an
   const ctx=commandCtx(); const calls:any[]=[];
   const r=await accountCmd(['add',kind,'work'],ctx,{login:async (argv,env)=>{calls.push({argv,env}); return 0;}});
   expect(r.code).toBe(0); const a=loadStrategy(ctx).accounts.work;
+  expect(a.home).toBe(join(ctx.home, `.${kind}-work`));
   expect(statSync(a.home!).mode & 0o777).toBe(0o700);
   expect(calls).toEqual([{argv:kind==='codex'?['codex','login']:['claude'],env:{[kind==='codex'?'CODEX_HOME':'CLAUDE_CONFIG_DIR']:a.home}}]);
   if(kind==='claude') expect(r.out).toContain('/login');
@@ -104,4 +105,28 @@ test('root home deletion is refused before confirmation',async()=>{
  let prompted=false;
  const r=await accountCmd(['rm','work','--delete-home'],ctx,{confirm:async()=>{prompted=true; return false;}});
  expect(r.err).toContain('protected'); expect(prompted).toBe(false);
+});
+
+for (const spacing of [false, true]) test(`runner add preserves flow spacing (${spacing}) without empty settings`, async () => {
+ const ctx=commandCtx(), path=join(ctx.pacerHome,'strategy.yaml');
+ const before=readFileSync(path,'utf8').replace('spare: {kind: endpoint, usage: unmetered}', 'work: {kind: codex, home: ~/.codex-work}').replace('[codex]', spacing ? '[ codex ]' : '[codex]');
+ writeFileSync(path,before);
+ expect((await runnerCmd(['add','codex#work'],ctx)).code).toBe(0);
+ expect(readFileSync(path,'utf8')).toBe(before.replace(spacing ? '[ codex ]' : '[codex]', spacing ? '[ codex, codex#work ]' : '[codex, codex#work]'));
+ expect(loadStrategy(ctx).runners['codex#work']).toBeDefined();
+});
+test('account add refuses an existing default folder without changing config',async()=>{
+ const ctx=commandCtx(),path=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(path,'utf8');
+ mkdirSync(join(ctx.home,'.claude-work'));
+ expect((await accountCmd(['add','claude','work','--no-login'],ctx)).err).toContain('already exists');
+ expect(readFileSync(path,'utf8')).toBe(before);
+});
+test('account list separates compact folders from source and JSON keeps full paths',async()=>{
+ const ctx=commandCtx(),path=join(ctx.pacerHome,'strategy.yaml'),folder=join(ctx.home,'very-long-account-folder-name-for-work','nested-codex-home');
+ writeFileSync(path,readFileSync(path,'utf8').replace('  spare:',`  work: {kind: codex, home: ${folder}}\n  spare:`));
+ const out=(await accountCmd(['list'],ctx)).out, lines=out.split('\n'),headers=lines[0].split(/\s{2,}/);
+ expect(headers).toEqual(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE']);
+ const row=lines.find(l=>l.startsWith('work '))!.split(/\s{2,}/);
+ expect(row[2]).toBe('pacer');expect(row[3]).toStartWith('~/');expect(row[3]).toContain('…');expect(row[3].length).toBeLessThanOrEqual(40);expect(row[3]).toEndWith('nested-codex-home');
+ expect(JSON.parse((await accountCmd(['list','--json'],ctx)).out).find((a:any)=>a.name==='work').folder).toBe(folder);
 });
