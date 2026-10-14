@@ -15,7 +15,7 @@ async function run(argv: string[], env: Record<string, string>) {
   return { code, out, err };
 }
 
-test.skipIf(!HOST)("a compiled pacer updates itself from a file:// release and leaves ~/.pacer alone", async () => {
+test.skipIf(!HOST)("a compiled pacer updates itself from a file:// release and preserves the strategy while caching its update check", async () => {
   const target = HOST!;
   const work = tmpDir();
   const releases = join(work, "release");
@@ -43,7 +43,7 @@ test.skipIf(!HOST)("a compiled pacer updates itself from a file:// release and l
   expect((await run([`${pacer}.bak`, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
   expect(readdirSync(bin).sort()).toEqual(["pacer", "pacer.bak"]);
 
-  expect(readdirSync(join(home, ".pacer"))).toEqual(["strategy.yaml"]);
+  expect(readdirSync(join(home, ".pacer")).sort()).toEqual(["strategy.yaml", "update-check.json"]);
   expect(readFileSync(join(home, ".pacer", "strategy.yaml"), "utf8")).toBe("planner: claude-code\n");
 
   const again = await run([pacer, "update"], env);

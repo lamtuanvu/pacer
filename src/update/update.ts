@@ -10,9 +10,9 @@ import { type Platform, hostPlatform, latestUrl, parseLatest, parseManifest, par
 import { type SmokeFn, replaceBinary, runVersion } from "./replace";
 import { compareVersions, currentVersion, isVersion } from "./version";
 
-export const UPDATE_USAGE = "usage: pacer update [--check] [--to <version>] [--base <url>] [--no-restart] [--no-reinstall]";
+export const UPDATE_USAGE = "usage: pacer update [--check [--json]] [--to <version>] [--base <url>] [--no-restart] [--no-reinstall]";
 
-export interface UpdateOptions { check: boolean; noRestart?: boolean; noReinstall?: boolean; to?: string; base?: string }
+export interface UpdateOptions { check: boolean; json?: boolean; noRestart?: boolean; noReinstall?: boolean; to?: string; base?: string }
 
 export interface UpdateDeps {
   env: Record<string, string | undefined>;
@@ -30,7 +30,8 @@ export function parseUpdateArgs(args: string[]): UpdateOptions | string {
   const o: UpdateOptions = { check: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === "--check") {
+    if (a === "--json") { o.json = true;
+    } else if (a === "--check") {
       o.check = true;
     } else if (a === "--no-restart") {
       o.noRestart = true;
@@ -46,6 +47,7 @@ export function parseUpdateArgs(args: string[]): UpdateOptions | string {
       return `pacer update: unknown argument "${a}"\n${UPDATE_USAGE}`;
     }
   }
+  if (o.json && !o.check) return `pacer update: --json requires --check\n${UPDATE_USAGE}`;
   if (o.to !== undefined && !isVersion(o.to)) return `pacer update: invalid version "${o.to}" (expected MAJOR.MINOR.PATCH)`;
   return o;
 }

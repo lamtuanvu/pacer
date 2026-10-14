@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { readUpdateCheck, updateLine } from "./update/check";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { markExhausted } from "./usage/reactive";
@@ -120,7 +121,7 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     if (mode === "line") return { code: 0, out: renderLine(st), err: "" };
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
-    return { code: 0, out: renderText(st), err: "" };
+    return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.
     if (mode === "line") return { code: 0, out: `◆ Budget ? (${explain(e).split("\n")[0].replace(/^pacer: /, "")})`, err: "" };

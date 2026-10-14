@@ -4,7 +4,7 @@ Install the Orca marketplace plugin; it bootstraps pacer in the background.
 
 In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
 install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.20`.
+bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.21`.
 The worker installs the binary, initializes `~/.pacer`, starts the login service,
 and keeps older binaries updated to the plugin version. It never downgrades.
 
@@ -127,3 +127,15 @@ pacer status --json
 `install` adds the pacer skill and planner policy/hooks with tracked backups. MCP is optional: use `pacer install claude-code --mcp` to register the stdio server, or `--no-mcp` to remove an existing entry. A plain reinstall leaves an existing MCP entry unchanged. Restart an MCP client after updating. `pacer uninstall <planner>` reverses the integration while preserving later user edits.
 
 For local Orca development, run `pacer plugin install` and add the printed managed directory in Settings > Plugins; see the [plugin guide](../orca-plugin/README.md). `pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
+
+Update availability is checked on plugin startup and every six hours, with one
+notification per new version. Marketplace: Orca Settings > Plugins > Refresh,
+then Update plugin. Development folder: use the live panel's Updates card or
+`pacer update`, then turn pacer off and on in Orca Settings > Plugins; if only the
+plugin is behind the CLI, run `pacer plugin install` first. `pacer update --check
+--json` reports versions without installing. Disable checks with
+`PACER_NO_UPDATE_CHECK=1` or top-level `update_check: false` in the active strategy.
+Checks only GET `latest.json`, time out after three seconds, and cache in
+`~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours. The static marketplace
+panel has no update buttons or host calls, and the worker never installs a newer
+release than the version shipped with its plugin.

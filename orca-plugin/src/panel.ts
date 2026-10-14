@@ -1,3 +1,4 @@
+import type { PluginUpdates } from "./updates";
 import { shellCommand } from "../../src/install/fsx";
 import type { BootstrapState } from "./bootstrap";
 import { LIMITS, type CmdData, type LinkSnapshot } from "../../src/link/envelope";
@@ -13,13 +14,14 @@ import { strategyView } from "./panel/strategy";
 import { client } from "./panel/client";
 export { escapeHtml, jsonForScript } from "./panel/shared";
 export interface AutoConsoleOutcome { status: string; at: number }
-export function renderPanel(s:LinkSnapshot, view:{nowS:number;transport:TransportId|null;reachable:boolean;autoConsole?:boolean;notifications?:"off"|"important"|"all";lastSeenAt?:number;autoConsoleOutcome?:AutoConsoleOutcome;bootstrap?:BootstrapState}):string {
+export function renderPanel(s:LinkSnapshot, view:{updates?:PluginUpdates;nowS:number;transport:TransportId|null;reachable:boolean;autoConsole?:boolean;notifications?:"off"|"important"|"all";lastSeenAt?:number;autoConsoleOutcome?:AutoConsoleOutcome;bootstrap?:BootstrapState}):string {
  const reconnecting = !view.reachable && !!s.budget && view.lastSeenAt !== undefined && view.nowS-view.lastSeenAt >= 0 && view.nowS-view.lastSeenAt < 20;
  const consoles=[...(s.consoles ?? []), ...(s.console ? [s.console] : [])].filter(c=>c.handle && view.nowS-c.heartbeatAt<=LIMITS.heartbeatS).filter((c,i,a)=>a.findIndex(x=>x.handle===c.handle)===i), console=consoles[0], selected=view.bootstrap && (view.bootstrap.install.status!=="done" || view.bootstrap.start.status!=="done" || view.bootstrap.agents.some(a=>!a.installed)) ? "setup" : reconnecting ? "overview" : initialView(s,view.reachable,view.nowS);
- const commands:Record<string,CmdData>={refresh:{cmd:"refresh"}};
+ const commands:Record<string,CmdData>={refresh:{cmd:"refresh"},c:{cmd:"check-updates"},u:{cmd:"update"}};
  const text:Record<string,string>={};
  const connected=view.bootstrap?.agents.filter(a=>a.installed).map(a=>a.name) ?? [];
- const main=overview(s,view.nowS,view.reachable,commands,text)+(connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
+ const updates = `<aside>Updates · CLI: ${h(view.updates?.cli ?? s.console?.version ?? "?")} · Plugin: ${h(view.updates?.plugin ?? "?")} · Latest: ${h(view.updates?.latest ?? "?")}<button data-command="c">Check for updates</button>${view.updates?.available ? '<button data-command="u">Update</button>' : ''}</aside>`;
+ const main=updates+overview(s,view.nowS,view.reachable,commands,text)+(connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
  const reasonText = (view.autoConsole ?? true) ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
  const disable=(html:string)=>(console ? html : html.replace(/(data-command="[^"]+"|data-live)(?=[ >])/g,"$1 disabled")).replace(/<button([^>]*\bdisabled[^>]*)>([\s\S]*?)<\/button>/g, (_match, attrs, label)=>`<button${attrs} title="${h(reasonText)}">${label}</button><small class="muted">${h(reasonText)}</small>`);
  const payload = {setupCommand:view.bootstrap?.binary ? shellCommand([view.bootstrap.binary,"setup","--yes"]) : undefined,setupTerminal:view.bootstrap?.terminal,focusAlerts:s.alerts.filter(a=>a.key.startsWith("focus-")),notifications:view.notifications??"important",actionErrors:s.alerts.filter(a=>(a.key.startsWith("retry-")||a.key.startsWith("focus-"))&&a.level!=="info").map(a=>({key:a.key,at:a.at,body:a.body})),sequence:s.seq,tasks:s.tasks.map(t=>({id:t.id,state:t.state,goal:t.goal,retryOf:t.retryOf,retriedBy:t.retriedBy,dismissed:t.dismissed})),autoConsole:view.autoConsole ?? true,buildAlert:s.alerts.find(a=>a.key==="strategy-build")??null,consoles:consoles.map(c=>({handle:c.handle,live:true})),strategies:s.strategies?.length?s.strategies:[s.budget?.strategy??"default"],strategy:s.budget?.strategy??"default",savedAlerts:s.alerts.filter(a=>a.key.startsWith("strategySaved-")),snapshotAt:s.budget?.generatedAt??s.at,updatedAt:s.at,reachable:view.reachable,commands,text,paths:Object.fromEntries(Object.entries(paths).filter(([id])=>[...rankedProviders(s),...mutedProviders(s)].some(p=>p.id===id))),rows:rankedProviders(s).map(p=>({id:p.id,usedPct:p.usedPct,pacePct:p.pacePct,detail:providerDetail(p,view.nowS),tone:tone(p.verdict),words:verdictWords(p.verdict),blocked:false})),muted:mutedProviders(s).map(p=>({id:p.id,verdict:p.verdict,detail:unavailableDetail(p,view.nowS),blocked:!!p.blockedReason}))};

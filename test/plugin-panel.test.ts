@@ -105,6 +105,7 @@ test("maximum snapshots and hostile escaping stay under 64 KiB",()=>{
   s.consoles=Array.from({length:32},(_,i)=>({handle:`term_${String(i).padStart(36,"0")}`,paneKey:null,pid:i+1,startedAt:0,heartbeatAt:100}));s.strategies=Array.from({length:32},(_,i)=>String(i)+fill.repeat(126).slice(0,126));
   s.tasks=Array.from({length:20},(_,i)=>({id:`t${i}`+"i".repeat(125),state:"failed",goal:String(i)+fill.repeat(198).slice(0,198),executor:fill.repeat(64).slice(0,64),backend:null,worktree:null,updatedAt:100}));s.alerts=Array.from({length:10},(_,i)=>({key:`a${i}`,level:"warn",title:fill.repeat(120),body:fill.repeat(1000),at:100}));
   expect(Buffer.byteLength(panel(s))).toBeLessThan(65536);expect(payload(panel(s)).rows).toHaveLength(32);
+  expect(Buffer.byteLength(renderPanel(s,{nowS:100,transport:"http",reachable:true,updates:{cli:"0.1.20",plugin:"0.1.20",latest:"0.1.21",available:true}}))).toBeLessThan(65536);
   const rendered=browser(panel(s));expect(rendered.ids["ranked-list"].innerHTML.match(/class="stack provider"/g)).toHaveLength(32);expect(rendered.ids["strategy-list"].innerHTML.match(/data-strategy=/g)).toHaveLength(32);
  }
 });

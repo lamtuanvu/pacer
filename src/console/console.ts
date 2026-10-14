@@ -1,3 +1,5 @@
+import { checkUpdateReport, installedPlugin } from "../update/check";
+import { defaultUpdateDeps, runUpdate } from "../update/update";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient } from "../exec/orca/client";
 import { pluginCli } from "../plugin/cli";
@@ -17,6 +19,8 @@ import { taskStop } from "../tasks/api";
 import { readTask, updateTask, isTaskId, listTasks } from "../tasks/store";
 export interface ConsoleIO { lines: AsyncIterable<string>; write(text: string): void }
 export interface ConsoleDeps {
+  checkUpdates?(ctx: Ctx): Promise<import("../commands/types").Result>;
+  update?(ctx: Ctx): Promise<import("../commands/types").Result>;
   delegate(ctx: Ctx, input: DelegateInput): TaskRecord;
   readTask?: typeof readTask;
   taskStop?: typeof taskStop;
@@ -53,6 +57,21 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
   };
   return async (data: CmdData) => {
     switch (data.cmd) {
+      case "check-updates": { const result = await (deps.checkUpdates ?? checkUpdateReport)(fresh()); print(result.out || result.err); await refresh(); break; }
+      case "update": {
+        const c = fresh(), result = await (deps.update ?? (c => runUpdate({check:false}, defaultUpdateDeps(c))))(c);
+        print(result.out || result.err);
+        if (!result.code) {
+          // An up-to-date CLI can still have an older development plugin folder.
+          // Successful binary updates already refresh it using the new executable.
+          const plugin = installedPlugin(c);
+          if (!result.out.startsWith("updated pacer ") && plugin?.mode === "live" && plugin.hint) {
+            const installed = await pluginCli(["install"], c); print(installed.out || installed.err);
+          }
+          print("Turn pacer off and on in Orca Settings > Plugins.");
+        }
+        await refresh(); break;
+      }
       case "focus": {
         const handle=Object.values(loadOrcaState(fresh()).workers).find(w=>w.taskId===data.taskId)?.terminal;
         let message="This task no longer has an Orca terminal.";
@@ -217,7 +236,8 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
     const text = line.trim(), [command, ...rest] = text.split(/\s+/);
     switch (command) {
       case "": break;
-      case "help": print("help | status | tasks | refresh | use [name] | delegate | quit | exit"); break;
+      case "check-updates": case "update": await plugin({cmd:command}); break;
+      case "help": print("check-updates | update | help | status | tasks | refresh | use [name] | delegate | quit | exit"); break;
       case "status": print(await deps.statusText(fresh())); break;
       case "tasks":
         for (const task of listTasks(fresh(), 10)) print(`${task.id} ${task.state} ${task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor ?? "-"} ${task.brief.goal}`);

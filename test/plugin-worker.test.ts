@@ -19,27 +19,30 @@ async function until(ready:()=>boolean):Promise<void> {
 
 test("real URL-rooted worker renders managed panels and preserves marketplace integrity", async () => {
  const root=mkdtempSync(join(tmpdir(),"pacer-worker-"));
+ const home=mkdtempSync(join(tmpdir(),"pacer-worker-home-"));
  let worker:any; const logs:string[]=[];
  try {
   mkdirSync(join(root,"panel")); writeFileSync(join(root,".pacer-managed"),"pacer");
+  writeFileSync(join(root,"orca-plugin.json"),JSON.stringify({version:"99.0.0"}));
   await Bun.build({entrypoints:["orca-plugin/src/worker.ts"],outdir:root,naming:"worker.mjs",target:"node"});
   writeFileSync(join(root,"worker-marketplace.mjs"),readFileSync(join(root,"worker.mjs")));
   // Import-time dependencies capture this isolated environment. This fixture must
   // never execute an installed binary, use real HOME, or download from the network.
   const previous={HOME:process.env.HOME,PACER_BIN:process.env.PACER_BIN,PACER_RELEASE_BASE:process.env.PACER_RELEASE_BASE};
   const dummy=join(root,"not-executable");writeFileSync(dummy,"fixture",{mode:0o600});
-  process.env.HOME=root;process.env.PACER_BIN=dummy;process.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"release")).href;
+  process.env.HOME=home;process.env.PACER_BIN=dummy;process.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"release")).href;
   try {worker=await import(pathToFileURL(join(root,"worker.mjs")).href);}
   finally {for(const [key,value] of Object.entries(previous)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
   await worker.default({host:{call:async(m:string)=>m==="settings.get"?{settings:{transport:"bridge"}}:m==="storage.get"?{value:emptySnapshot()}:{subscribed:[]}},commands:{register(){}},events:{on(){}},log:(s:string)=>logs.push(s)});
   await until(()=>existsSync(join(root,"panel/live.html")));
   expect(readFileSync(join(root,"panel/live.html"),"utf8")).toContain("pacer");
+  expect(JSON.parse(readFileSync(join(home,".pacer/plugin-version.json"),"utf8"))).toEqual({version:"99.0.0",mode:"live"});
   await worker.deactivate();
   rmSync(join(root,".pacer-managed"));
   const before=contentHash(root);
   const notices:string[]=[];
   const marketplaceEnv={HOME:process.env.HOME,PACER_BIN:process.env.PACER_BIN,PACER_RELEASE_BASE:process.env.PACER_RELEASE_BASE};
-  process.env.HOME=root;process.env.PACER_BIN=dummy;process.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"release")).href;
+  process.env.HOME=home;process.env.PACER_BIN=dummy;process.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"release")).href;
   try {worker=await import(pathToFileURL(join(root,"worker-marketplace.mjs")).href);}
   finally {for(const [key,value] of Object.entries(marketplaceEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
   await worker.default({host:{call:async(m:string,p:any)=>{if(m==="notifications.show"){notices.push(p.title);return {delivered:true};}return m==="settings.get"?{settings:{transport:"bridge"}}:m==="storage.get"?{value:emptySnapshot()}:{subscribed:[]};}},commands:{register(){}},events:{on(){}},log:(s:string)=>logs.push(s)});
@@ -47,5 +50,5 @@ test("real URL-rooted worker renders managed panels and preserves marketplace in
   expect(contentHash(root)).toBe(before);
   expect(notices[0]).toBe("Installing pacer…");
   expect(logs.some(s=>s.includes("refused panel write"))).toBe(false);
- } finally {await worker?.deactivate();rmSync(root,{recursive:true,force:true});}
+ } finally {await worker?.deactivate();rmSync(root,{recursive:true,force:true});rmSync(home,{recursive:true,force:true});}
 },30000);

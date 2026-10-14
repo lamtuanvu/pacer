@@ -1,3 +1,4 @@
+import { checkUpdateReport } from "../update/check";
 import { defaultUpdateDeps, parseUpdateArgs, runUpdate } from "../update/update";
 import { currentVersion } from "../update/version";
 import type { Command } from "./types";
@@ -11,10 +12,11 @@ export const COMMANDS: Command[] = [
   { name: "--version", usage: usage("--version", "same as version"), run: printVersion },
   {
     name: "update",
-    usage: usage("update [--check] [--to <v>] [--base <url>] [--no-restart] [--no-reinstall]", "update binary and refresh installed integrations"),
+    usage: usage("update [--check [--json]] [--to <v>] [--base <url>] [--no-restart] [--no-reinstall]", "update binary and refresh installed integrations"),
     run: async (args, ctx) => {
       const o = parseUpdateArgs(args);
       if (typeof o === "string") return { code: 2, out: "", err: o };
+      if (o.check && !o.to) return checkUpdateReport(ctx, o.json, { base: o.base });
       return runUpdate(o, defaultUpdateDeps(ctx));
     },
   },

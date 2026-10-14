@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.21] - 2026-10-14
+
+### Added
+
+- Cached, opt-out update checks for the CLI and Orca plugin, with version-aware notices and plugin update instructions.
+- Live panel update controls and dashboard keys `c` (check) and `u` (update with confirmation).
+
+### Changed
+
+- `pacer update --check --json` reports current/latest versions and installed plugin status without installing anything.
+
 ## [0.1.20] - 2026-10-14
 
 ### Fixed

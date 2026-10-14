@@ -1,3 +1,7 @@
+import { checkForUpdate, readUpdateCheck } from "../../src/update/check";
+import { execFile } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import { isVersion } from "../../src/update/version";
 import pkg from "../../package.json";
 import { pluginMode } from "./mode";
 import { createBootstrap } from "./bootstrap";
@@ -69,9 +73,23 @@ const http: HttpPort = {
   },
 };
 const pluginRoot = dirname(fileURLToPath(import.meta.url));
-const PLUGIN_VERSION = pkg.version;
+const PLUGIN_VERSION = (() => {
+  try { const version = JSON.parse(readFileSync(join(pluginRoot,"orca-plugin.json"),"utf8")).version; if(isVersion(version)) return version as string; } catch {}
+  return pkg.version;
+})();
 let log = (message: string) => {};
+const workerEnv = {...process.env};
+const pacerHome = workerEnv.PACER_HOME || join(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
 const plugin = createPlugin({
+  version: PLUGIN_VERSION,
+  cachedUpdate: () => readUpdateCheck({pacerHome,env:workerEnv}, PLUGIN_VERSION),
+  reportVersion(mode, version) { mkdirSync(pacerHome, {recursive:true}); const path=join(pacerHome,"plugin-version.json"), temp=`${path}.${process.pid}.tmp`; writeFileSync(temp,JSON.stringify({mode,version})); renameSync(temp,path); },
+  async checkUpdates() {
+    const check = await checkForUpdate({pacerHome, env:workerEnv, now:Date.now()/1000}, {force:true,current:PLUGIN_VERSION});
+    const binary = workerEnv.PACER_BIN || (existsSync(join(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+    const cli = await new Promise<string|null>(resolve => execFile(binary,["--version"],{timeout:3000,env:workerEnv},(error,stdout)=>resolve(error?null:stdout.trim().replace(/^pacer\s+/,""))));
+    return {check,cli};
+  },
   bootstrap: createBootstrap({ home: process.env.HOME ?? process.env.USERPROFILE ?? "", env: process.env, version: PLUGIN_VERSION, mode: pluginMode(pluginRoot, { exists: existsSync }) }),
   nowS: () => Date.now() / 1000,
   timers, http,

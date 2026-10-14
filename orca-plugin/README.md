@@ -10,7 +10,7 @@ The marketplace plugin bootstraps pacer. It opens a live terminal dashboard and 
 In Orca Settings > Plugins, add marketplace source URL
 `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer**
 (`lamtuanvu.pacer`) and grant its declared capabilities. For a direct versioned
-install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.20`, replacing
+install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.21`, replacing
 the version with the release you want. Releases publish a root-level bundle on
 the `orca-plugin` branch, with immutable `orca-plugin-v<version>` tags.
 
@@ -113,3 +113,15 @@ Run `bun run test && bun run typecheck` and `bunx tsc --noEmit -p orca-plugin`
 after changes. Bundle freshness tests require rebuilding generated artifacts.
 
 Execution defaults to `child-of-current`, using the current branch under the owning Orca project. An explicit `execution.base_branch` without `execution.worktree` preserves `new-child` placement from that branch; set `worktree` explicitly to override it.
+
+Update availability is checked on plugin startup and every six hours, with one
+notification per new version. Marketplace: Orca Settings > Plugins > Refresh,
+then Update plugin. Development folder: use the live panel's Updates card or
+`pacer update`, then turn pacer off and on in Orca Settings > Plugins; if only the
+plugin is behind the CLI, run `pacer plugin install` first. `pacer update --check
+--json` reports versions without installing. Disable checks with
+`PACER_NO_UPDATE_CHECK=1` or top-level `update_check: false` in the active strategy.
+Checks only GET `latest.json`, time out after three seconds, and cache in
+`~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours. The static marketplace
+panel has no update buttons or host calls, and the worker never installs a newer
+release than the version shipped with its plugin.

@@ -228,7 +228,7 @@ test("pacer update through the CLI refuses from source and validates arguments",
   expect(r.err).toContain("runs from source");
   expect((await main(["update", "--force"], ctx)).code).toBe(2);
   expect((await main(["update", "--check"], ctx)).out).toContain(`-> 99.0.0`);
-  expect((await main(["help"], ctx)).out).toContain("update [--check] [--to <v>] [--base <url>]");
+  expect((await main(["help"], ctx)).out).toContain("update [--check [--json]] [--to <v>] [--base <url>]");
 });
 
 test("update restarts after successful replacement, warns on restart failure, and honors --no-restart", async () => {
