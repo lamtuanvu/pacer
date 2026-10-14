@@ -1,10 +1,26 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Ctx } from "../src/types";
 
+// One parent folder per test run, removed after the run (see test/setup.ts), so test homes don't pile up in TMPDIR.
+// Set PACER_KEEP_TEST_TMP=1 to keep it for debugging.
+let runRoot: string | null = null;
+function testRunRoot(): string {
+  if (runRoot) return runRoot;
+  const root = mkdtempSync(join(tmpdir(), "pacer-test-"));
+  runRoot = root;
+  return root;
+}
+
+/** Called once after all test files (test/setup.ts, preloaded via bunfig.toml). */
+export function cleanupTestTmp(): void {
+  if (runRoot && !process.env.PACER_KEEP_TEST_TMP) rmSync(runRoot, { recursive: true, force: true });
+  runRoot = null;
+}
+
 export function tmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "pacer-test-"));
+  return mkdtempSync(join(testRunRoot(), "t-"));
 }
 
 /** Unix seconds for a local wall-clock time (tests run with TZ=Asia/Ho_Chi_Minh). Month is 1-based. */

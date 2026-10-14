@@ -5,7 +5,7 @@ let actionStates={};
 try {const saved=JSON.parse(sessionStorage.getItem(actionStorage)||"{}");if(saved && !Array.isArray(saved))actionStates=saved;}catch{}
 const actionButtons=new Map();
 function saveActions(){try{sessionStorage.setItem(actionStorage,JSON.stringify(actionStates));}catch{}}
-function actionKey(c){return c.cmd+":"+(c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.level||c.goal||c.from||c.text||"");}
+function actionKey(c){return c.cmd+":"+(c.key?c.key+":"+c.value:c.name||c.command||c.taskId||c.taskIds?.join(",")||c.executor||c.strategy||c.level||c.goal||c.from||c.text||"");}
 function actionLabel(c){const name=data.rows.find(p=>p.id===c.executor)?.name||c.executor||"executor";return ({focus:"Opening session...",retry:"Retrying on "+name+"...","retry-all":"Retrying all on "+name+"...",stop:"Stopping...",dismiss:"Dismissing...",delegate:"Delegating...","strategy-build":"Starting session...",use:"Switching...",block:"Blocking...",unblock:"Unblocking...",refresh:"Refreshing...","notify-level":"Saving preference...",type:"Typing command..."})[c.cmd]||"Working...";}
 function outcome(a){
  const c=a.action,t=data.tasks||[],ids=c.taskIds||[c.taskId],p=[...data.rows,...data.muted].find(p=>p.id===c.executor);
@@ -19,7 +19,10 @@ function outcome(a){
  if(c.cmd==="strategy-build")return data.buildAlert && data.buildAlert.at>=a.startedAt;
  if(c.cmd==="refresh")return data.sequence>a.sequence;
  if(c.cmd==="notify-level")return data.notifications===c.level;
- if(c.cmd==="type")return a.accepted;
+ if(c.cmd==="config-set")return data.prefs?.values[c.key]===c.value;
+ if(c.cmd==="account-remove")return data.prefs && !data.prefs.accounts.includes(c.name);
+ if(c.cmd==="runner-remove")return data.prefs && !data.prefs.runners.includes(c.name);
+ if(c.cmd==="type"||c.cmd==="open-terminal")return a.accepted;
  return false;
 }
 function restoreAction(key){const entry=actionButtons.get(key);if(entry){entry.button.disabled=entry.disabled;if(actionStates[key]?.action.cmd!=="focus")entry.button.innerHTML=entry.html;entry.card?.removeAttribute?.("aria-busy");}actionButtons.delete(key);delete actionStates[key];saveActions();}
