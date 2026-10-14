@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { withLock } from "../exec/orca/state";
+import { withLock } from "../core/lock";
 import { pidAlive } from "../link/store";
 import { readBlocked } from "../executors/blocked";
 import { activeHooks } from "../classify/active";

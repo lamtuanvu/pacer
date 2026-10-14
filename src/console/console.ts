@@ -4,7 +4,7 @@ import { defaultUpdateDeps, runUpdate } from "../update/update";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient } from "../exec/orca/client";
 import { pluginCli } from "../plugin/cli";
-import { withLock } from "../exec/orca/state";
+import { withLock } from "../core/lock";
 import { blockExecutor, unblockExecutor } from "../executors/blocked";
 import {taskData} from "../link/pump";
 import { currentVersion } from "../update/version";

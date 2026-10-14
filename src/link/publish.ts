@@ -1,4 +1,4 @@
-import { withLock } from "../exec/orca/state";
+import { withLock } from "../core/lock";
 import { writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
 import { writeBridge } from "./bridge";
