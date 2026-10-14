@@ -125,10 +125,11 @@ prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
 ## Terminal dashboard
 
 `pacer dashboard` opens a full-screen live budget and task dashboard. Marketplace
-Orca installs open it in the **pacer** terminal tab after setup. It reads the
-local link snapshot and refreshes every two seconds; status computation runs in
-the background so network requests never block the display. An interactive TTY
-is required.
+Orca installs open it in the **pacer** terminal tab after setup. It uses the v2
+API and connects to `pacer serve` when it runs; without it, the dashboard works
+in-process. It refreshes on events and every two seconds, with status computation
+in the background so network requests never block the display. An interactive
+TTY is required.
 
 - Arrows or j/k select a card; Enter retries on the suggested executor, stops a
   stalled task, or focuses a running task's Orca terminal.
