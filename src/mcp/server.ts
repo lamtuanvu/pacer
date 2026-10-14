@@ -1,16 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { KINDS, loadStrategy } from "../config/strategy";
+import pkg from "../../package.json";
+import { KINDS } from "../config/strategy";
+import * as core from "../core";
 import { isExecutorSession } from "../install/role";
 import { makeCtx } from "../ctx";
-import { rankExecutors } from "../engine/rank";
-import { computeStatus } from "../engine/status";
-import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, taskReview, summarizeTask, delegate, spawnRunner, taskStatus, taskStop, taskWait } from "../tasks/api";
+import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, summarizeTask, spawnRunner } from "../tasks/api";
 import { appendLabel } from "../tasks/labels";
-import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { markExhausted } from "../usage/reactive";
 
 import * as strategies from "../strategy/service";
 
@@ -21,13 +19,8 @@ const json = (value: Record<string, unknown>) => ({
 
 export { summarizeTask } from "../tasks/api";
 
-function mustTask(t: TaskRecord | null, id: string): TaskRecord {
-  if (!t) throw new Error(`unknown task ${id}`);
-  return t;
-}
-
 export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRunner } = {}): McpServer {
-  const server = new McpServer({ name: "pacer", version: "0.1.14" });
+  const server = new McpServer({ name: "pacer", version: pkg.version });
   const spawnFn = opts.spawnRunner ?? spawnRunner;
 
   server.registerTool("budget_status", {
@@ -35,7 +28,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     inputSchema: {},
   }, async () => {
     const ctx = getCtx();
-    return json({ ...(await computeStatus(ctx, loadStrategy(ctx))) });
+    return json({ ...(await core.routing.status(ctx)) });
   });
 
   server.registerTool("route", {
@@ -43,10 +36,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     inputSchema: { kind: z.enum(KINDS).optional() },
   }, async ({ kind }) => {
     const ctx = getCtx();
-    const s = loadStrategy(ctx);
-    const st = await computeStatus(ctx, s);
-    const r = rankExecutors(kind ?? null, s, Object.fromEntries(st.providers.map((p) => [p.id, p])));
-    return json({ kind: kind ?? null, ranked: r.ranked, excluded: r.excluded });
+    return json(await core.routing.route(ctx, kind ?? null));
   });
 
   server.registerTool("delegate", {
@@ -55,35 +45,32 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   }, async (a) => {
     const ctx = getCtx();
     if (isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
-    const t = delegate(ctx, parseDelegateBrief(a, process.cwd()), spawnFn);
+    const t = core.tasks.delegate(ctx, parseDelegateBrief(a, process.cwd()), spawnFn);
     return json(summarizeTask(t));
   });
 
   server.registerTool("task_status", {
     description: "Current state and result of a delegated task.",
     inputSchema: { task_id: z.string() },
-  }, async ({ task_id }) => json(summarizeTask(mustTask(taskStatus(getCtx(), task_id), task_id))));
+  }, async ({ task_id }) => json(summarizeTask(core.tasks.get(getCtx(), task_id))));
 
   server.registerTool("task_wait", {
     description: "Block until a delegated task finishes or timeout_s passes (default 600, max 3000), then return its state.",
     inputSchema: { task_id: z.string(), timeout_s: z.number().int().min(1).max(3000).optional() },
-  }, async ({ task_id, timeout_s }) => json(summarizeTask(mustTask(await taskWait(getCtx(), task_id, timeout_s ?? 600), task_id))));
+  }, async ({ task_id, timeout_s }) => json(summarizeTask(await core.tasks.wait(getCtx(), task_id, timeout_s ?? 600))));
 
   server.registerTool("task_stop", {
     description: "Stop a delegated task and kill its executor.",
     inputSchema: { task_id: z.string() },
-  }, async ({ task_id }) => json(summarizeTask(mustTask(taskStop(getCtx(), task_id), task_id))));
+  }, async ({ task_id }) => json(summarizeTask(core.tasks.stop(getCtx(), task_id))));
 
   server.registerTool("report_limit", {
     description: "Tell pacer an executor hit its plan limit (seen outside pacer). It is skipped until `until` (unix seconds) or its cooldown.",
     inputSchema: { provider: z.string(), until: z.number().optional() },
   }, async ({ provider, until }) => {
     const ctx = getCtx();
-    const cfg = loadStrategy(ctx).providers[provider];
-    if (!cfg) throw new Error(`unknown provider "${provider}"`);
-    const at = until ?? ctx.now + cfg.cooldownS;
-    markExhausted(ctx, provider, at);
-    return json({ provider, exhausted_until: at });
+    const r = core.limits.report(ctx, provider, until);
+    return json({ provider: r.provider, exhausted_until: r.exhaustedUntil });
   });
 
   server.registerTool("task_review", {
@@ -91,7 +78,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     inputSchema: { task_id: z.string(), accepted: z.boolean(), kind: z.enum(KINDS).optional(), note: z.string().optional() },
   }, async ({ task_id, accepted, kind, note }) => {
     const ctx = getCtx();
-    return json(taskReview(ctx, task_id, accepted, kind, note));
+    return json(core.tasks.review(ctx, task_id, { accepted, kind, note }));
   });
 
   server.registerTool("guard_feedback", {
