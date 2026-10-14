@@ -1,10 +1,9 @@
-import { isExecutorSession, plannerPolicyApplies } from "../install/role";
+import { isExecutorSession, plannerPolicyApplies, plannerSessionStatus } from "../install/role";
 import { guardEventId } from "../classify/state";
 import { appendLabel } from "../tasks/labels";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks, GuardInput } from "../classify/hooks";
-import { loadStrategy } from "../config/strategy";
-import { computeStatus, displayName, type Status } from "../engine/status";
+import { displayName, type Status } from "../engine/status";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 
@@ -60,7 +59,7 @@ export async function decideGuard(ctx: Ctx, input: GuardInput, deps: GuardDeps =
   if (opinion?.allow) return verdict({ allow: true, source: "classifier" }, "classifier");
   if (!opinion && ALLOW_TYPES.some((pattern) => globMatch(pattern, input.subagentType))) return verdict({ allow: true }, "rules");
 
-  const st = await (deps.status ? deps.status(ctx) : computeStatus(ctx, loadStrategy(ctx)));
+  const st = await (deps.status ? deps.status(ctx) : plannerSessionStatus(ctx));
   if (!opinion && st.providers.some((provider) =>
     input.subagentType.toLowerCase() === `${provider.id}-executor`.toLowerCase())) return verdict({ allow: true }, "rules");
   if (st.mode === "relaxed" || !st.executors.ranked.length) return verdict({ allow: true }, "rules");

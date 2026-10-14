@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { plannerSessionStatus } from "./install/role";
+import type { AgentId } from "./config/accounts";
 import { resolveRunner } from "./config/runner-id";
 import { readUpdateCheck, updateLine } from "./update/check";
 import { runDashboard } from "./dashboard/cli";
@@ -120,7 +122,7 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     if (mode === "hook" && !plannerPolicyApplies(ctx, planner!, hookInput(process.stdin.isTTY ? "" : await io.readStdin().catch(() => "")))) {
       return { code: 0, out: "", err: "" };
     }
-    const st = await computeStatus(ctx, loadStrategy(ctx));
+    const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "line") return { code: 0, out: renderLine(st), err: "" };
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };

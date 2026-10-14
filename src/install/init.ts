@@ -1,3 +1,6 @@
+import { allowedPair, type AgentId } from "../config/accounts";
+import type { Strategy } from "../config/strategy";
+import { accountFolder } from "./role";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
@@ -100,4 +103,10 @@ export async function initCmd(ctx: Ctx, options: { force?: boolean; planner?: st
   } catch (e) {
     return { code: 1, out, err: `${e instanceof Error ? e.message : String(e)}\n` };
   }
+}
+
+/** Planner account choices are restricted to runnable, compatible accounts. */
+export function plannerAccounts(ctx: Ctx, strategy: Strategy, agent: AgentId) {
+  return Object.values(strategy.accounts).filter(a => allowedPair(agent, a.kind)
+    && (a.source !== "orca" || accountFolder(ctx, a) !== null));
 }

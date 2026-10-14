@@ -32,6 +32,7 @@ export interface Status {
   mode: Mode;
   disabled: boolean;
   calendarPace: boolean;
+  warnings?: string[];
   accounts?: AccountStatus[];
   providers: ProviderStatus[];
   executors: { ranked: RankedExecutor[]; excluded: Excluded[] };

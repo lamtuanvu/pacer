@@ -1,8 +1,11 @@
+import { parseRunnerId, formatRunnerId, runnerDefaults } from "../config/runner-id";
+import { readManifest } from "../install/manifest";
+import { accountFolder } from "../install/role";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { agentPlans, AGENT_BINS, type AgentId } from "../install/detection";
-import { detect, starterStrategy } from "../install/init";
+import { detect, starterStrategy, plannerAccounts } from "../install/init";
 import { PLANNERS, validateStrategy } from "../config/strategy";
 import { editStrategy } from "../config/edit";
 import { migrateStrategy, migrationLines } from "../config/migrate";
@@ -57,7 +60,7 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     else if ((arg === "--planner" || arg === "--agents") && args[i + 1] && !args[i + 1].startsWith("--")) {
       const value = args[++i];
       if (arg === "--planner") {
-        if (!(PLANNERS as readonly string[]).includes(value)) return { code: 2, out: "", err: `unknown planner; choose ${PLANNERS.join(", ")}` };
+        if (!parseRunnerId(value) || parseRunnerId(value)!.host || !(PLANNERS as readonly string[]).includes(parseRunnerId(value)!.agent)) return { code: 2, out: "", err: `unknown planner; choose ${PLANNERS.join(", ")}` };
         planner = value;
       } else {
         const ids = value.split(",");
@@ -78,18 +81,31 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     if (selected?.some(id => !agents.some(a => a.id === id))) return { code: 2, out: "", err: "requested agent CLI is not on PATH" };
     const path = join(ctx.pacerHome, "strategy.yaml");
     const existing = existsSync(path) ? readFileSync(path, "utf8") : null;
-    const current = existing ? validateStrategy(Bun.YAML.parse(existing), path).planner.agent : undefined;
+    const strategy = existing ? validateStrategy(Bun.YAML.parse(existing), path) : undefined;
+    const current = strategy ? formatRunnerId({...strategy.planner, host: null}, runnerDefaults(strategy.accounts)) : undefined;
     const detection = await detect(ctx);
     const detected = (Object.keys(AGENT_BINS) as AgentId[]).filter(id => AGENT_BINS[id].some(bin => ctx.which(bin)));
     if (!planner) {
-      planner = current && (PLANNERS as readonly string[]).includes(current) ? current : detected[0] ?? "claude-code";
+      planner = current && (PLANNERS as readonly string[]).includes(parseRunnerId(current)?.agent ?? "") ? current : detected[0] ?? "claude-code";
       if (tty && detected.length > 1) {
-        const choices = detected.includes(planner as AgentId) ? detected : [...detected, planner as AgentId];
-        const defaultIndex = Math.max(0, choices.indexOf(planner as AgentId));
+        const choices = detected.includes(parseRunnerId(planner)!.agent as AgentId) ? detected : [...detected, parseRunnerId(planner)!.agent as AgentId];
+        const defaultIndex = Math.max(0, choices.indexOf(parseRunnerId(planner)!.agent as AgentId));
         const answer = (await question(`Choose planner:\n${choices.map((id, i) => `${i + 1}. ${id}`).join("\n")}\nPlanner [${defaultIndex + 1}]: `)).trim();
         if (answer && (!/^\d+$/.test(answer) || !choices[Number(answer) - 1])) return { code: 2, out: "", err: "invalid planner choice" };
         planner = choices[answer ? Number(answer) - 1 : defaultIndex];
       }
+    }
+    if (strategy) {
+      const id = parseRunnerId(planner)!;
+      const choices = plannerAccounts(ctx, strategy, id.agent);
+      const defaultIndex = Math.max(0, choices.findIndex(a => a.name === (id.account ?? (strategy.planner.agent === id.agent ? strategy.planner.account : runnerDefaults(strategy.accounts)[id.agent]))));
+      if (tty && !args.includes("--planner") && choices.length > 1) {
+        const answer = (await question(`Choose planner account for ${id.agent}:\n${choices.map((a, i) => `${i + 1}. ${a.name}`).join("\n")}\nAccount [${defaultIndex + 1}]: `)).trim();
+        if (answer && (!/^\d+$/.test(answer) || !choices[Number(answer) - 1])) return {code: 2, out: "", err: "invalid planner account choice"};
+        id.account = choices[answer ? Number(answer) - 1 : defaultIndex].name;
+      } else if (!id.account && !args.includes("--planner") && strategy.planner.agent === id.agent) id.account = strategy.planner.account;
+      if (!id.account && !args.includes("--planner") && choices.length === 1 && !runnerDefaults(strategy.accounts)[id.agent]) id.account = choices[0].name;
+      planner = formatRunnerId(id, runnerDefaults(strategy.accounts));
     }
     if (!detected.length) print("No agent CLI was found. Default planner: claude-code. Choose another with: pacer init --planner <id>");
     print(`✓ Planner: ${planner}${current === planner ? " (already done)" : ""}`);
@@ -109,15 +125,20 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     else { await service.install(); print("✓ Login service installed"); }
     const results = [];
     for (const agent of agents) {
-      let connected = agent.installed;
+      const target = strategy && agent.id === parseRunnerId(planner!)?.agent && strategy.accounts[parseRunnerId(planner!)!.account ?? runnerDefaults(strategy.accounts)[agent.id] ?? ""]
+        ? {agent: agent.id, account: parseRunnerId(planner!)!.account ?? runnerDefaults(strategy.accounts)[agent.id]!} : agent.id;
+      const targetFolder = typeof target === "object" ? accountFolder(ctx, strategy!.accounts[target.account]) : null;
+      const targetKey = targetFolder ? `${agent.id}#${typeof target === "object" ? target.account : ""}` : agent.id;
+      const installed = targetFolder ? !!readManifest(ctx).planners[targetKey] : agent.installed;
+      let connected = installed;
       if (!connected) {
-        const preview = `${agent.name}:\n${agent.files.join("\n")}\nUndo: ${agent.undo}\nNo MCP servers will be added.`;
+        const preview = `${agent.name}:\n${(targetFolder ? [targetFolder] : agent.files).join("\n")}\nUndo: ${targetFolder ? `pacer uninstall ${targetKey}` : agent.undo}\nNo MCP servers will be added.`;
         print(preview);
         const consent = yes || (!tty && !!selected) || (tty && (deps.confirm ? await deps.confirm(preview) : /^y(?:es)?$/i.test((await question(`Connect ${agent.name}? [y/N] `)).trim())));
-        if (consent) { await installPlanner({ ctx, pacerArgv: pacerArgv(ctx.env), mcp: false }, agent.id); connected = true; }
+        if (consent) { await installPlanner({ ctx, pacerArgv: pacerArgv(ctx.env), mcp: false }, target); connected = true; }
       }
-      print(connected ? `✓ ${agent.name}${agent.installed ? " (already done)" : " connected"}` : `${agent.name}: skipped`);
-      results.push({ ...agent, installed: connected, status: connected ? agent.installed ? "already connected" : "connected" : "skipped" });
+      print(connected ? `✓ ${agent.name}${installed ? " (already done)" : " connected"}` : `${agent.name}: skipped`);
+      results.push({ ...agent, installed: connected, status: connected ? installed ? "already connected" : "connected" : "skipped" });
     }
     let live = !!readLiveHeartbeat(ctx.pacerHome);
     const orcaInstalled = deps.orcaInstalled ?? !!(ctx.env.ORCA_CLI_COMMAND || ctx.which("orca") || existsSync("/Applications/Orca.app/Contents/Resources/bin/orca"));

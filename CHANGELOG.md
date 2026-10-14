@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [0.1.23] - 2026-10-14
 
+- Install planner integrations into the selected Claude/Codex account folder, record account-scoped uninstall paths and command environments, and resolve hook budgets from the running session with a warning for unknown folders; init offers agent then account selection.
+
 - Launch Claude and Codex runners on their selected account homes in direct and Orca execution, quote account variables in terminal commands, and exclude usage-only Orca accounts whose folders are missing.
 
 - Read usage per account from native Codex sessions, separate Claude status-line caches and Orca active/inactive rate limits; filter Orca account emails, retain native/reactive fallbacks and validate derived Orca account folders.

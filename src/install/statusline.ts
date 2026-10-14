@@ -1,8 +1,8 @@
+import { plannerSessionStatus } from "./role";
 import { resolve } from "node:path";
 import { orcaAccountHome } from "../orca/accounts";
 import { claudeCacheFile } from "../usage/claude";
 import { loadStrategy } from "../config/strategy";
-import { computeStatus } from "../engine/status";
 import { writeJsonAtomic } from "../fsutil";
 import { renderLine } from "../render/line";
 import type { Ctx } from "../types";
@@ -46,7 +46,7 @@ export async function statusLine(ctx: Ctx, stdin: string): Promise<string> {
     captureClaudeRateLimits(ctx, stdin);
   } catch { /* Cache persistence must not prevent budget rendering. */ }
   try {
-    const line = renderLine(await computeStatus(ctx, loadStrategy(ctx)));
+    const line = renderLine(await plannerSessionStatus(ctx));
     const warning = claudeCaptureTarget(ctx).warning;
     return warning ? `${line}\nWarning: ${warning}` : line;
   } catch (error) {
