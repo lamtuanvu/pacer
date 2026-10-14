@@ -20,7 +20,7 @@ Recently done
 
 
 
-↑/↓/j/k select · Enter action · d x b s r c u ? q"
+↑/↓/j/k select · Enter action · d x b s , r c u ? q"
 `;
 
 exports[`dashboard fixed-size rendering 2`] = `
@@ -35,5 +35,5 @@ Needs attention
   (none)
 Running tasks
 
-j/k Enter d x b s r c u ? q"
+j/k Enter d x b s , r c u ? q"
 `;

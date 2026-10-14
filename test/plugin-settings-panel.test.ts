@@ -72,10 +72,10 @@ test('selected settings choices are pressed and enabled in the live console',()=
  expect(page).not.toContain('Use claude-code');
  expect(page).toMatch(/data-command="s-planner-codex#team"[^>]*aria-pressed="false"/);
 });
-test('every disabled live action has a title and visible reason',()=>{
+test('disabled actions explain refusal while boundary arrows use title only',()=>{
  const page=settings(html(true,{...strategyConfig,pacing:{...strategyConfig.pacing,plannerReserve:0,fillThreshold:100}}));
  for(const [tag] of page.matchAll(/<button[^>]*disabled[^>]*>/g)) {
-  const reason=tag.match(/title="([^"]+)"/)?.[1];expect(reason).toBeDefined();expect(page).toContain(`<small class="muted">${reason}</small>`);
+  const reason=tag.match(/title="([^"]+)"/)?.[1];expect(reason).toBeDefined();if(reason==='First executor'||reason==='Last executor')expect(page).not.toContain(`<small class="muted">${reason}</small>`);else expect(page).toContain(`<small class="muted">${reason}</small>`);
  }
  expect(page).toContain('Planner — can&#39;t remove');expect(page).toContain('In use by codex#team');
 });
@@ -90,3 +90,5 @@ test('offline settings uses only the console banner for disabled explanations',(
  const page=settings(html(false));expect(page.match(/Open a pacer console to change settings/g)).toHaveLength(1);
  expect(page).not.toContain('Planner — can&#39;t remove');expect(page).not.toContain('In use by');
 });
+
+test('removal reasons sit on their own line after the row title and controls',()=>{const page=settings();expect(page).toMatch(/data-command="s-account-personal"[^>]*>[\s\S]*?<\/button><\/div><small class="muted">Planner/);expect(page).toMatch(/<strong>claude-code<\/strong>[\s\S]*?<\/button><\/div><small class="muted">Planner/);});
