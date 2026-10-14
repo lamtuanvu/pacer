@@ -31,7 +31,7 @@ function live(workspace) {
   const selected=workspace===undefined ? available[0] : available.find(c=>Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>t.id===c.handle));
   if (selected) { if(workspace!==undefined) data.handle=selected.handle; document.getElementById("console-hint").hidden=true; return true; }
   status.textContent=workspace!==undefined && Array.isArray(workspace?.terminals) && workspace.terminals.some(t=>typeof t.title==="string" && /^pacer(?: console)?$/.test(t.title)) ? "Reopen the panel to connect to the new console." : data.autoConsole ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
-  document.getElementById("console-hint").hidden=false;
+  document.getElementById("console-hint").hidden=!document.querySelector('[data-page="setup"]:not([hidden])');
   return false;
 }
 function updateFreshness() {
@@ -77,6 +77,8 @@ function updateContext(value) {
   for (const el of document.querySelectorAll("[data-worktree]")) el.textContent=context ? context.displayName : "—";
   document.getElementById("worktree-branch").textContent=context ? context.branch : "—";
   const connected=context && data.consoles.some(c=>c.live && Array.isArray(context.terminals) && context.terminals.some(t=>t.id===c.handle));
+  for(const el of document.querySelectorAll("[data-setup-check]"))el.hidden=!connected;
+  for(const el of document.querySelectorAll("[data-setup-auto]"))el.hidden=!!connected;
   for (const el of document.querySelectorAll("[data-console-connection]")) el.textContent=context ? (connected ? "console connected in " : "console not connected in ") + context.displayName : "console not connected";
 }
 // Escape data before creating local provider rows; the same nodes populate the radio list.
@@ -130,7 +132,7 @@ for (const b of document.querySelectorAll("[data-command]")) {
  if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
  b.addEventListener("click", ()=>{
   const command=data.commands[b.dataset.command];
-  if (command) pendingSend(b,command); else status.textContent="Reopen the panel to load this action.";
+  if (command) pendingSend(b,command,command.cmd==="check-setup"?()=>{restoreAction(actionKey(command));status.textContent="Setup check requested. The checklist updates when a check changes.";}:undefined); else status.textContent="Reopen the panel to load this action.";
 });
 }
 for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"type",text:b.dataset.setup});b.addEventListener("click", ()=>{
@@ -142,17 +144,10 @@ for (const b of document.querySelectorAll("[data-setup]")) {bindAction(b,{cmd:"t
     request("terminal.sendText",{terminalId:terminal.id,text:b.dataset.setup,enter:false},"setup",()=>restoreAction(key),()=>restoreAction(key));
   },()=>restoreAction(key));
 });}
-for (const b of document.querySelectorAll("[data-connect-agents]")) b.addEventListener("click", ()=>{
- b.disabled=true;
- readContext(value=>{
-  const terminal=value?.terminals?.find(t=>t.id===data.setupTerminal);
-  if(!terminal){b.disabled=false;status.textContent="Opening a terminal… Reopen the panel shortly.";return;}
-  request("terminal.sendText",{terminalId:terminal.id,text:data.setupCommand || "pacer setup --yes",enter:true},"connect",()=>{status.textContent="Connecting your agents…";},()=>{b.disabled=false;});
- },()=>{b.disabled=false;});
-});
-for (const b of document.querySelectorAll("[data-bootstrap-retry]")) b.addEventListener("click", ()=>{
- show("setup"); status.textContent="pacer will retry automatically. Reopen the panel shortly.";
-});
+function setupAge() {
+ for(const el of document.querySelectorAll("[data-setup-checked]"))el.textContent="Checked "+Math.max(0,Math.floor(Date.now()/1000-Number(el.dataset.setupChecked)))+" s ago";
+}
+setupAge();setInterval(setupAge,1000);
 for (const b of document.querySelectorAll("[data-check]")) b.addEventListener("click", ()=>{
   if (!data.reachable) {
     status.textContent="Waiting for pacer serve. Start it, then reopen this panel.";

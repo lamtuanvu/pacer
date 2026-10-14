@@ -1,25 +1,13 @@
-import { style } from "./style";
 import { mark } from "./icons";
 import { MANUAL_INSTALL } from "../bootstrap";
-const manual = `<details id="manual"><summary>Setup not finishing? Do it by hand</summary><p>Run these in any terminal:</p><ol><li>Install pacer: <code>${MANUAL_INSTALL}</code></li><li>Start pacer and connect your agents: <code>~/.local/bin/pacer setup</code> (it asks before changing any agent's files)</li><li>Open the dashboard: <code>~/.local/bin/pacer dashboard</code></li></ol><p class="muted">Already installed? Check with <code>~/.local/bin/pacer --version</code> and <code>~/.local/bin/pacer service status</code>.</p></details>`;
-const steps = `<ol><li>In Orca Settings &gt; Plugins, uninstall this pacer (installed from the marketplace).</li><li>Under Development, add <code>~/.pacer/orca-plugin</code>, the folder pacer prepared for you.</li><li>Enable pacer.</li></ol>`;
+import { h } from "./shared";
 export function renderBootstrapPanel(): string {
- return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>Set up pacer</title><style>${style}</style></head><body><main class="view"><div class="content">
- <header class="brand">${mark}<strong>Set up pacer</strong></header>
- <p id="activity" role="status"><span class="console-spinner" aria-hidden="true">◐</span> <span id="activity-text">Installing pacer in the background… 0:00</span></p>
- <p>pacer opens in a <strong>pacer</strong> terminal tab when it is ready. Closed it? Run <code>pacer dashboard</code> in any terminal.</p>
- ${manual}
- <details><summary>Prefer the sidebar panel?</summary>${steps}</details>
- <p class="muted">Orca only refreshes plugin panels added as a development folder, so the live budget panel runs from there.</p>
- </div></main><script>
-// The panel can't see the worker's progress; this only shows that work is under way since the panel opened.
-const opened = Date.now(), text = document.getElementById("activity-text"), spinner = document.querySelector("#activity .console-spinner");
-const timer = setInterval(() => {
- const s = Math.floor((Date.now() - opened) / 1000);
- if (s < 120) { text.textContent = "Installing pacer in the background… " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); return; }
- clearInterval(timer); spinner.hidden = true;
- text.textContent = "Taking longer than usual. If no pacer terminal or notification appeared, set it up by hand with the steps below.";
- document.getElementById("manual").open = true;
-}, 1000);
-</script></body></html>`;
+ return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>Set up pacer</title><style>
+*{box-sizing:border-box}body{margin:0;background:var(--background,#fff);color:var(--foreground,#18181b);font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{padding:14px;display:flex;flex-direction:column;gap:14px}header{display:flex;align-items:center;gap:8px;font-size:14px}header svg{flex-shrink:0}.brand-tick{fill:#65a30d}strong{font-weight:600}section{border:1px solid var(--border,#e4e4e7);border-radius:8px;padding:14px;background:var(--card,var(--background,#fff))}h2{margin:0 0 10px;font-size:11px;font-weight:600}p{margin:0}p+p{margin-top:10px}ol{list-style:none;counter-reset:steps;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}li{counter-increment:steps;display:grid;grid-template-columns:20px 1fr;gap:8px}li:before{content:counter(steps);border:1px solid var(--border,#e4e4e7);border-radius:50%;width:20px;height:20px;text-align:center;font-size:11px}code{font:11px/1.5 ui-monospace,monospace;overflow-wrap:anywhere;user-select:all}.command{display:block;margin-top:6px;padding:8px 10px;background:var(--muted,#f4f4f5);border-radius:6px;white-space:pre-wrap}footer{font-size:11px;color:var(--muted-foreground,#71717a)}@media(prefers-color-scheme:dark){body{background:var(--background,#18181b);color:var(--foreground,#fafafa)}section{background:var(--card,var(--background,#18181b));border-color:var(--border,#3f3f46)}li:before{border-color:var(--border,#3f3f46)}.command{background:var(--muted,#27272a)}footer{color:var(--muted-foreground,#a1a1aa)}.brand-tick{fill:#a3e635}}
+</style></head><body><main><header>${mark}<strong>pacer</strong></header>
+<p>pacer sets itself up in a terminal tab named <strong>pacer</strong>. Follow the prompts there.</p>
+<section><h2>Didn't see it?</h2><ol><li><div>Install pacer:<code class="command">${h(MANUAL_INSTALL)}</code></div></li><li><div>Finish setup:<code class="command">~/.local/bin/pacer init</code></div></li></ol></section>
+<section><h2>Get the live panel</h2><p>pacer init's last step adds <code>~/.pacer/orca-plugin</code> under <strong>Settings &gt; Plugins &gt; Development</strong>. Add that folder and enable pacer to see setup checks, budgets and tasks.</p><p>After the live panel connects, this marketplace copy goes quiet and can be uninstalled.</p></section>
+<footer>pacer won't touch your agents' settings until you approve it.</footer>
+</main></body></html>`;
 }

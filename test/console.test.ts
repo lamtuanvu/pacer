@@ -288,3 +288,10 @@ test("update refreshes an older live plugin even when the CLI is already current
  await h.run(["update"]);
  expect(JSON.parse(readFileSync(marker,"utf8")).version).toBe(currentVersion());expect(h.output()).toContain("Turn pacer off and on");
 });
+
+test("check-setup console command rechecks and refreshes for panel and human input",async()=>{
+ let checks=0;
+ const h=harness({checkSetup:async()=>{checks++;return "Setup checked";}});
+ await h.run([encodeCmdLine({cmd:"check-setup"}),"check-setup"]);
+ expect(checks).toBe(2);expect(h.output()).toContain("Setup checked");expect(h.calls).toEqual(["pump","pump"]);
+});

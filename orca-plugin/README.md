@@ -10,42 +10,30 @@ The marketplace plugin bootstraps pacer. It opens a live terminal dashboard and 
 In Orca Settings > Plugins, add marketplace source URL
 `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer**
 (`lamtuanvu.pacer`) and grant its declared capabilities. For a direct versioned
-install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.21`, replacing
+install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.22`, replacing
 the version with the release you want. Releases publish a root-level bundle on
 the `orca-plugin` branch, with immutable `orca-plugin-v<version>` tags.
 
-The worker installs and starts pacer, then opens one **pacer** terminal running
-`pacer dashboard` in the active worktree. Notifications show **Installing
-pacer…**, then **pacer is running in the pacer terminal tab.** It reserves the
-launch durably using the Orca session ID, so worker restarts and closing the tab
-do not create duplicates. Closed it? Run `pacer dashboard` in any terminal.
+The worker installs or updates the checksum-verified binary, then opens one
+**pacer** terminal per Orca app PID in the focused worktree. It runs `pacer init`
+when the strategy or login service is missing, otherwise `pacer dashboard`.
+No focus means a retry in 30 seconds without a reserved launch. Reservations
+survive worker restarts and closing the tab. Run `pacer init` manually to resume.
+The worker never runs init or installs a service itself.
 
-The static marketplace panel shows an installation spinner and elapsed timer.
-After two minutes it suggests checking `~/.local/bin/pacer --version` if no
-notification appeared. It makes no host calls and never rewrites the verified
-marketplace folder.
-
-The worker also runs `pacer plugin install` once per plugin version in the
-background. Prefer the sidebar panel? In Orca Settings > Plugins, uninstall the
-marketplace pacer, add `~/.pacer/orca-plugin` under **Development**, then enable
-pacer. This optional copy reloads live; marketplace panels stay static:
-[Orca #26951](https://github.com/stablyai/orca/issues/26951).
-pacer never edits Orca settings to perform this switch.
+The static marketplace panel shows an installation spinner and manual setup
+commands. It makes no host calls and never rewrites the verified marketplace
+folder. `pacer init` prepares `~/.pacer/orca-plugin`, prompts separately before
+changing each agent's files, and guides you to add the folder under Orca
+Settings > Plugins > Development. It waits for the live heartbeat for up to five
+minutes; Enter or Ctrl-C skips. Rerunning init completes remaining steps.
 
 The development folder has a JSON `.pacer-managed` marker (`version`,
-`installedAt`). Without it the worker stays in bootstrap mode and never mutates
-its plugin root. The marker is excluded from published bundles. The development
-panel retains the live checklist and **Connect my agents**.
-
-The worker installs only pacer's own binary (`~/.local/bin/pacer`), strategy
-(`~/.pacer`) and login service automatically. It checks on activation and every
-ten minutes, updates older releases to the plugin version, and never downgrades
-newer or development builds. Downloads require a matching SHA-256 checksum.
-Connecting agents is separate consent: the panel previews detected CLIs and the
-files it will change, then your click runs `pacer setup --yes` in a writable
-terminal in the active worktree. Skills, rules and hooks are installed; no MCP
-servers are added. The manifest tracks connections and `pacer uninstall <agent>`
-undoes each integration.
+`installedAt`). Its worker writes `~/.pacer/plugin-live.json` on start and every
+30 seconds and removes its own heartbeat on stop. A heartbeat younger than 90
+seconds makes the marketplace worker dormant, with one notification per version
+suggesting removal of the marketplace copy in Orca Settings. Pacer cannot
+register a development folder or disable a plugin automatically.
 
 While the repository is private, GitHub releases may return 404. Set **releaseBase**
 in the plugin's own settings to a release folder, such as
@@ -125,3 +113,15 @@ Checks only GET `latest.json`, time out after three seconds, and cache in
 `~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours. The static marketplace
 panel has no update buttons or host calls, and the worker never installs a newer
 release than the version shipped with its plugin.
+
+## Setup flow
+
+On install/enable the marketplace worker opens `pacer init` in the focused
+worktree, or `pacer dashboard` if strategy and login service are already set up.
+It opens once per Orca launch. Run `pacer init` manually to resume setup and
+choose any supported planner; agent files change only after consent.
+
+Init prepares the managed development folder and guides you to add and enable
+it in Orca Settings > Plugins > Development. Its live heartbeat makes the
+marketplace worker dormant; uninstall the marketplace copy through Settings.
+Before publishing, run the [real-Orca bootstrap harness](../docs/testing/orca-e2e.md).

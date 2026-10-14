@@ -1,3 +1,4 @@
+import { setupKey, type SetupChecklist } from "../../src/setup/checklist";
 import { notifyUpdates, UPDATE_INTERVAL_MS, type PluginUpdates } from "./updates";
 import { updateAvailable, type UpdateCheck } from "../../src/update/check";
 import { pluginMode } from "./mode";
@@ -61,7 +62,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         const ready = deps.bootstrap.activate(ctx);
         const run = async () => { await ready; if (!stopped) await deps.bootstrap!.run(ctx, () => {}); };
         void run().catch(logError);
-        timers.every(60000, () => { void run().catch(logError); });
+        timers.every(30000, () => { void run().catch(logError); });
       }
       return;
     }
@@ -95,6 +96,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const reconnecting = () => !reachable && lastSeenAt !== undefined && deps.nowS()-lastSeenAt < 20;
     let processing = Promise.resolve();
     let httpFailures = 0;
+    let setup:SetupChecklist|undefined;
     let renderedKey: string | null = null;
     let lastRenderAt=-Infinity;
     let userOutcome=false;
@@ -117,14 +119,15 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       const check = { checkedAt: deps.nowS(), latest, current: deps.version };
       return { plugin: deps.version, cli, latest, available: updateAvailable(check) || (!!cli && updateAvailable({...check,current:cli})) };
     };
-    const panelKey = () => JSON.stringify({
-      updates: panelUpdates(), bootstrap: deps.bootstrap?.state, notifications:settings.notifications,
+    const consoleKey = () => [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map(handle => ({
+        handle, live: [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS),
+      }));
+    const panelKey = () => setup && !setup.complete ? JSON.stringify({setup:setupKey(setup),consoles:consoleKey()}) : JSON.stringify({
+      updates: panelUpdates(), setup: setup ? setupKey(setup) : undefined, notifications:settings.notifications,
       budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
       mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
       serviceInstalled: store.snapshot.serviceInstalled, reconnecting: reconnecting(), tasks: store.snapshot.tasks.map(({updatedAt,...task})=>task), alerts: store.snapshot.alerts,
-      consoles: [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map(handle => ({
-        handle, live: [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS),
-      })), autoConsoleOutcome: hintKey(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
+      consoles: consoleKey(), autoConsoleOutcome: hintKey(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
     });
     const logError = (e: unknown) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
     const scheduleRender = (immediate=false) => {
@@ -137,7 +140,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           const key = panelKey(), nowS = deps.nowS();
           if (key !== renderedKey) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome(), bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome(), setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
               renderedKey = key; lastRenderAt=nowS; userOutcome=false;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
@@ -147,9 +150,20 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       });
     };
     if (deps.bootstrap) {
-      void deps.bootstrap.activate(ctx).then(() => deps.bootstrap!.run(ctx, () => scheduleRender(true))).catch(logError);
-      timers.every(60000, () => { if (!stopped) void deps.bootstrap!.run(ctx, () => scheduleRender(true)).catch(logError); });
-      timers.every(5000, () => { if (!stopped) void deps.bootstrap!.refreshAgents(ctx, () => scheduleRender(true)).catch(logError); });
+      let checking=false, nextCheckAt=0, request:string|null=null;
+      const checkSetup = async () => {
+        const latest=deps.fs.readText(join(settings.pacerHome,"check-setup-request.json"));
+        if(latest!==request){request=latest;nextCheckAt=0;}
+        if(stopped || checking || deps.nowS()<nextCheckAt)return;
+        checking=true;
+        try {
+          const result=await deps.bootstrap!.checkSetup(reachable,settings.pacerHome);
+          if(stopped)return;
+          setup=result;nextCheckAt=deps.nowS()+(result.complete?60:5);scheduleRender(true);
+        }catch(e){logError(e);}finally{checking=false;}
+      };
+      void checkSetup();
+      timers.every(5000,()=>{void checkSetup();});
     }
     // Only the worker may read host settings; refresh preferences without restarting.
     let refreshingSettings=false;
