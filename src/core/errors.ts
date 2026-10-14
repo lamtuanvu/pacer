@@ -1,4 +1,5 @@
-export type CoreErrorCode = "unknown_task" | "invalid_input" | "unknown_executor" | "conflict" | "not_allowed";
+// unknown_op is an API-layer code carried by CoreError for surface mapping.
+export type CoreErrorCode = "unknown_op" | "unknown_task" | "invalid_input" | "unknown_executor" | "conflict" | "not_allowed";
 
 /** The one error type core operations throw. Surfaces map `code` to exit codes, MCP errors or HTTP statuses. */
 export class CoreError extends Error {
