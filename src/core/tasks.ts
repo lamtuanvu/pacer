@@ -1,3 +1,9 @@
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { realpathSafe } from "./git";
+import { removeTaskWorktree, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
+import { TERMINAL_STATES } from "../tasks/types";
+
 import type { Strategy } from "../config/strategy";
 import {
   type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
@@ -92,4 +98,23 @@ export async function retry(
     const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; });
     return { retry: readTask(ctx, next.id) ?? next, of };
   });
+}
+
+/** Removes pacer-owned worktrees of settled, reviewed/dismissed/resolved tasks. Branches always stay. */
+export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } = {}): Promise<{ removed: string[]; kept: { id: string; reason: string }[] }> {
+  const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
+  for (const t of listTasks(ctx, Infinity)) {
+    if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved) || t.run?.mode !== "new") continue;
+    const wt = t.run.workdir;
+    if (!wt.startsWith(root) || !existsSync(wt)) continue;
+    const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
+    if (!o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
+    if (o.dryRun) { removed.push(t.id); continue; }
+    const top = realpathSafe(t.brief.repo);
+    const r = await removeTaskWorktree(ctx, top, path, { force: o.force });
+    if ("error" in r) { kept.push({ id: t.id, reason: r.error }); continue; }
+    rmSync(join(ctx.pacerHome, "runs", t.id), { recursive: true, force: true });
+    removed.push(t.id);
+  }
+  return { removed, kept };
 }

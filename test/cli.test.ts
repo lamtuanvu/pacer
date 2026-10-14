@@ -132,3 +132,10 @@ test("retry is refused inside an executor session, like delegate", async () => {
   expect(r.err).toContain("pacer executors cannot delegate onward");
   expect(readTask(ctx, t.id)?.retriedBy).toBeUndefined();
 });
+
+test("pacer clean --dry-run --json prints the plan", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const r = await main(["clean", "--dry-run", "--json"], ctx);
+  expect(r.code).toBe(0);
+  expect(JSON.parse(r.out)).toEqual({ removed: [], kept: [] });
+});

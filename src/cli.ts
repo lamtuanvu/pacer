@@ -44,6 +44,7 @@ const USAGE = `usage: pacer <command>
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   stop <task-id> [--json]                         stop a running task
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
+  clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
   report-limit <provider> [--until <unix-seconds>] record an executor limit
   mcp                                            run the MCP server on stdio
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
@@ -60,7 +61,7 @@ Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skill
 Identical pacer skill copies may appear; update refresh keeps them identical.`;
 
 function help(): string {
-  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
+  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
   const extras = EXTRA_COMMANDS.filter((c) => !builtins.has(c.name));
   return extras.length ? `${USAGE}\n${extras.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
 }
@@ -253,6 +254,14 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         }
         const t=cmd==="wait" ? await core.tasks.wait(ctx,pos[0],Number(str(opts.timeout)??600)) : core.tasks.stop(ctx,pos[0]);
         return {code:cmd==="wait"&&!TERMINAL_STATES.includes(t.state)?2:0,out:opts.json?JSON.stringify(summarizeTask(t),null,1):cmd==="stop"?`${t.id} ${t.state}`:renderTask(t),err:""};
+      }catch(e){return {code:2,out:"",err:explain(e)};}
+    }
+    case "clean": {
+      const {opts}=parseFlags(rest,["json","dry-run","force"]);
+      try{const r=await core.tasks.clean(ctx,{dryRun:opts["dry-run"]===true,force:opts.force===true});
+        if(opts.json)return {code:0,out:JSON.stringify(r),err:""};
+        const lines=[...r.removed.map(id=>`${id} ${opts["dry-run"]?"would be removed":"removed"}`),...r.kept.map(k=>`${k.id} kept: ${k.reason}`)];
+        return {code:0,out:lines.join("\n")||"nothing to clean",err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
     }
     case "mcp":
