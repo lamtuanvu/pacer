@@ -1,6 +1,7 @@
 import * as core from "../core";
+import type { Status } from "../engine/status";
 import type { Ctx } from "../types";
-import { apiSnapshot, eventsSince } from "./events";
+import { apiSnapshot, eventsSince, liveSnapshot } from "./events";
 import { callOp, type OpDeps } from "./ops";
 import { helloBody, httpStatus, toApiError, type ApiErrorBody } from "./protocol";
 
@@ -34,7 +35,7 @@ function sse(tailMs: number, poll: (send: (frame: string) => void) => boolean): 
 }
 
 /** Auth is enforced by startServer before dispatching any v2 route. */
-export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?: OpDeps; tailMs?: number }): Promise<Response> {
+export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?: OpDeps; tailMs?: number; status?: () => Promise<Status> }): Promise<Response> {
   const url = new URL(req.url), { pathname } = url;
   const tailMs = deps.tailMs ?? 1_000;
   try {
@@ -50,7 +51,9 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
     }
     if (req.method !== "GET") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
     if (pathname === "/v2/hello") return Response.json(helloBody());
-    if (pathname === "/v2/snapshot") return Response.json(apiSnapshot(deps.getCtx()));
+    if (pathname === "/v2/snapshot") return Response.json(deps.status
+      ? await liveSnapshot(deps.getCtx(), { status: deps.status })
+      : apiSnapshot(deps.getCtx()));
     if (pathname === "/v2/events") {
       let last = Number(req.headers.get("last-event-id") ?? url.searchParams.get("since") ?? 0);
       if (!Number.isSafeInteger(last) || last < 0) return errorResponse({ code: "invalid_input", message: "since must be a non-negative integer" });

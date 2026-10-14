@@ -83,7 +83,7 @@ export function startServer(
       const headers = { "X-Pacer": "1" };
       if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid }, { headers });
       if (req.headers.get("authorization") !== `Bearer ${token}`) return new Response("unauthorized\n", { status: 401 });
-      if (pathname.startsWith("/v2/")) return handleV2(req, { getCtx, opDeps: opts.opDeps, tailMs });
+      if (pathname.startsWith("/v2/")) return handleV2(req, { getCtx, opDeps: opts.opDeps, tailMs, status });
       if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) {
         const body=await consoleRequestBody(req);
         if(body instanceof Response)return body;
