@@ -1,6 +1,7 @@
 import type { Mode } from "../engine/mode";
-import { type Status, displayName } from "../engine/status";
+import type { Status } from "../engine/status";
 import type { WindowStatus } from "../engine/verdict";
+import { accountGroups, runnerLabel } from "./accounts";
 
 export function modeGuidance(mode: Mode, p: string): string {
   switch (mode) {
@@ -24,16 +25,17 @@ function fmtWindow(w: WindowStatus): string {
 }
 
 export function renderText(st: Status): string {
-  const lines = st.providers.map((p) => {
-    const name = displayName(p.id);
+  const lines = accountGroups(st.providers).flatMap(group => [...(group.account ? [`Account ${group.account}`] : []), ...group.rows.map((p) => {
+    const name = runnerLabel(p);
+    if(p.agent && p.unavailableReason) return `- ${name}: usage-only · ${p.unavailableReason}${p.windows.length ? ` · ${p.windows.map(fmtWindow).join("; ")}` : ""}`;
     if(p.brokenReason) return `- ${name}: Not working · ${p.brokenReason}`;
     if(p.blockedReason) return `- ${name}: Blocked by you`;
     if (p.usage === "unmetered") return `- ${name}: local, unmetered OK`;
     if (!p.windows.length) return `- ${name}: unavailable (${p.error ?? "no data"})`;
     const stale = p.stale ? " [stale]" : "";
     return `- ${name}: ${p.windows.map(fmtWindow).join("; ")}${stale}`;
-  });
-  const planner = displayName(st.planner);
+  })]);
+  const planner = runnerLabel(st.providers.find(p=>p.id===st.planner) ?? {id:st.planner});
   lines.push(`Mode: ${st.mode.toUpperCase()} - ${modeGuidance(st.mode, planner)}`);
   const ex = st.executors;
   const excluded = ex.excluded.filter((e) => e.reason !== "planner").map((e) => `${e.id}: ${e.reason}`);

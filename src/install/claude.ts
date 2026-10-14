@@ -10,8 +10,8 @@ import type { UndoOp } from "./manifest";
 import { policyText } from "./policy";
 import { InstallError, type Txn } from "./txn";
 
-export function claudeLegacyFiles(home: string): string[] {
-  const root = join(home, ".claude");
+export function claudeLegacyFiles(home: string, folder?: string): string[] {
+  const root = folder ?? join(home, ".claude");
   const delegation = join(root, "agents/delegation");
   return [
     ...["budget_status.py", "subagent_guard.py", "budget-status"].map(name => join(root, "scripts/budget", name)),
@@ -117,11 +117,11 @@ export async function installClaude(tx: Txn): Promise<void> {
   } else if(tx.env.mcp===true)tx.notes.push(`claude CLI not found: register the MCP server yourself with \`claude mcp add -s user pacer -- ${command} mcp\``);
   // ~/.claude.json is rewritten by running Claude sessions; let the claude CLI remove the entry.
   if(tx.env.mcp===false){
-    if(claude) await removeClaudeMcp(ctx, [claude, "mcp", "remove", "-s", "user", "pacer"], tx.notes);
+    if(claude) await removeClaudeMcp(ctx, [claude, "mcp", "remove", "-s", "user", "pacer"], tx.notes, tx.env.configEnv);
     else tx.notes.push("claude CLI not found: remove the MCP server yourself with `claude mcp remove -s user pacer`");
   }
-  for (const path of claudeLegacyFiles(ctx.home)) if (existsSync(path)) tx.moveAside(path);
-  const root = join(ctx.home, ".claude");
+  for (const path of claudeLegacyFiles(ctx.home, tx.env.folder)) if (existsSync(path)) tx.moveAside(path);
+  const root = tx.env.folder ?? join(ctx.home, ".claude");
   installSkill(tx,root);
   tx.edit(join(root, "rules/pacer.md"), () => policyText("claude-code"), []);
   const settingsPath = join(root, "settings.json");
@@ -147,11 +147,11 @@ export async function installClaude(tx: Txn): Promise<void> {
 }
 
 /** Probe before removing so an absent server is not reported as a change. */
-export async function removeClaudeMcp(ctx: Ctx, argv: string[], notes: string[]): Promise<void> {
+export async function removeClaudeMcp(ctx: Ctx, argv: string[], notes: string[], env?: Record<string, string>): Promise<void> {
   let registered = false;
-  try { registered = (await ctx.run([argv[0]!, "mcp", "get", "pacer"], 30000)).code === 0; } catch {}
+  try { registered = (await ctx.run([argv[0]!, "mcp", "get", "pacer"], 30000, env ? {env: {...ctx.env, ...env}} : undefined)).code === 0; } catch {}
   try {
-    const result = await ctx.run(argv, 30000);
+    const result = await ctx.run(argv, 30000, env ? {env: {...ctx.env, ...env}} : undefined);
     if (!registered) notes.push("MCP server pacer was not registered");
     if (result.code !== 0 && registered) notes.push(`\`${shellCommand(argv)}\` failed (exit ${result.code}): ${(result.stderr || result.stdout).split(/\r?\n/)[0]}`);
     else if (result.code === 0 && registered) notes.push(`removed MCP server pacer (${shellCommand(argv)})`);

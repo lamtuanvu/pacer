@@ -1,6 +1,8 @@
 import { type LinkSnapshot, type ProviderLine, type TaskData } from "../../../src/link/envelope";
 import { displayName } from "./icons";
 import { duration, backIn } from "./shared";
+import { runnerLabel } from "../../../src/render/accounts";
+export const providerLabel=(p:ProviderLine)=>p.agent ? runnerLabel(p) : displayName(p.id);
 export function initialView(s: LinkSnapshot, reachable: boolean, now: number): "overview" | "setup" {
  return reachable && s.budget && [...(s.consoles ?? []), ...(s.console ? [s.console] : [])].some(c=>c.handle && now-c.heartbeatAt<=30) ? "overview" : "setup";
 }
@@ -9,27 +11,28 @@ export const verdictWords = (v: string) => Object.hasOwn(words,v) ? words[v] : "
 export const tone = (v: string) => v === "EXHAUSTED" ? "bad" : ["AHEAD","NEAR_LIMIT","EXPIRING","EXPIRING_SOON"].includes(v) ? "warn" : ["OK","ON_PACE","BEHIND","UNMETERED"].includes(v) ? "good" : "neutral";
 export function rankedProviders(s: LinkSnapshot): ProviderLine[] {
  const b=s.budget;
- return (b?.ranked ?? []).filter((r,i,a)=>r.id!==b?.planner && a.findIndex(x=>x.id===r.id)===i).map(r => b?.providers.find(p=>p.id===r.id) ?? { ...r, usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false }).filter(p=>p.verdict!=="EXHAUSTED"&&!p.brokenReason&&!p.blockedReason);
+ return (b?.ranked ?? []).filter((r,i,a)=>r.id!==b?.planner && a.findIndex(x=>x.id===r.id)===i).map(r => b?.providers.find(p=>p.id===r.id) ?? { ...r, usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false }).filter(p=>p.verdict!=="EXHAUSTED"&&!p.brokenReason&&!p.blockedReason&&!p.unavailableReason);
 }
 export function mutedProviders(s: LinkSnapshot): ProviderLine[] {
  const ids=new Set(rankedProviders(s).map(p=>p.id));
  return (s.budget?.providers??[]).filter(p=>p.id!==s.budget?.planner&&!ids.has(p.id));
 }
 export function headline(p?: ProviderLine, _now=0): string {
+ const name=p?.agent ? providerLabel(p) : "Claude";
  switch(p?.verdict) {
   case "OK": case "ON_PACE": return "You're on pace for the week.";
-  case "AHEAD": case "NEAR_LIMIT": return "Claude is ahead of pace. Slow down planning.";
-  case "BEHIND": return "Claude is behind pace. Room for more planning.";
-  case "EXHAUSTED": return p.resetsAt === null ? "Claude is out of quota until its next reset." : `Claude is out until ${new Date(p.resetsAt*1000).toLocaleString([], {weekday:"short",hour:"2-digit",minute:"2-digit"})}.`;
+  case "AHEAD": case "NEAR_LIMIT": return `${name} is ahead of pace. Slow down planning.`;
+  case "BEHIND": return `${name} is behind pace. Room for more planning.`;
+  case "EXHAUSTED": return p.resetsAt === null ? `${name} is out of quota until its next reset.` : `${name} is out until ${new Date(p.resetsAt*1000).toLocaleString([], {weekday:"short",hour:"2-digit",minute:"2-digit"})}.`;
   default: return "Budget unknown.";
  }
 }
 export function answerDetail(s: LinkSnapshot, now: number): string {
  const p=s.budget?.providers.find(p=>p.id===s.budget?.planner), top=rankedProviders(s)[0];
  const parts:string[]=[];
- if(p?.usedPct!=null) parts.push(`${displayName(p.id)} has ${Math.round(100-p.usedPct)}% left${p.resetsAt==null?"":` with ${duration(p.resetsAt-now,true)} to go`}.`);
- else if(p?.resetsAt!=null) parts.push(`${displayName(p.id)} has ${duration(p.resetsAt-now,true)} to go.`);
- if(top) parts.push(`New work goes to ${displayName(top.id)}.`);
+ if(p?.usedPct!=null) parts.push(`${providerLabel(p)} has ${Math.round(100-p.usedPct)}% left${p.resetsAt==null?"":` with ${duration(p.resetsAt-now,true)} to go`}.`);
+ else if(p?.resetsAt!=null) parts.push(`${providerLabel(p)} has ${duration(p.resetsAt-now,true)} to go.`);
+ if(top) parts.push(`New work goes to ${providerLabel(top)}.`);
  return parts.join(" ");
 }
 export function providerDetail(p: ProviderLine, now: number): string {
@@ -63,4 +66,4 @@ export function attentionText(g: AttentionGroup, now: number): string {
  const count=g.count, label=g.latest.state==="limit"?"Hit a limit":"Failed";
  return `${label}${count===2?" twice":count>2?` ×${count}`:""}${g.latest.executor?` on ${displayName(g.latest.executor)}`:""}`;
 }
-export const unavailableDetail = (p: ProviderLine, now:number) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.verdict==="EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt,now)}` : "not in the queue";
+export const unavailableDetail = (p: ProviderLine, now:number) => p.blockedReason ? "Blocked by you" : p.brokenReason ? `Not working · ${p.brokenReason}` : p.unavailableReason ? `usage-only · ${p.unavailableReason}${p.usedPct===null?"":` · ${Math.round(p.usedPct)}% used`}` : p.verdict==="EXHAUSTED" ? `out of quota · ${backIn(p.resetsAt,now)}` : "not in the queue";

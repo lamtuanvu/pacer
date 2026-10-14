@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+import { plannerSessionStatus } from "./install/role";
+import type { AgentId } from "./config/accounts";
+import { resolveRunner } from "./config/runner-id";
 import { readUpdateCheck, updateLine } from "./update/check";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
@@ -12,7 +15,9 @@ import { io } from "./install/stdin";
 import { resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
-import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy } from "./config/strategy";
+import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, strategyPath } from "./config/strategy";
+import { configCmd } from "./commands/config";
+import { accountCmd, runnerCmd } from "./commands/accounts";
 import { makeCtx } from "./ctx";
 import { rankExecutors } from "./engine/rank";
 import { computeStatus, displayName } from "./engine/status";
@@ -20,6 +25,7 @@ import { runMcpStdio } from "./mcp/server";
 import { renderHook } from "./render/hook";
 import { renderLine } from "./render/line";
 import { renderText } from "./render/text";
+import { renderRoute } from "./render/accounts";
 import { DEFAULT_PORT, startServer } from "./serve/http";
 import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskReview, taskDismiss, delegate, taskStatus, taskStop, taskWait } from "./tasks/api";
 import { runTask } from "./tasks/runner";
@@ -44,6 +50,9 @@ const USAGE = `usage: pacer <command>
   mcp                                            run the MCP server on stdio
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
+  account list [--json] | add <kind> <name> [options] | rm <name> [--delete-home]
+  runner list [--json] | add <agent#account> [--model <m>] | rm <agent#account>
+  config get [key] [--json] | set <key> <value> | migrate
   ${SETUP_USAGE}                connect detected agent CLIs
   help                                           this message
 JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors.
@@ -117,7 +126,7 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     if (mode === "hook" && !plannerPolicyApplies(ctx, planner!, hookInput(process.stdin.isTTY ? "" : await io.readStdin().catch(() => "")))) {
       return { code: 0, out: "", err: "" };
     }
-    const st = await computeStatus(ctx, loadStrategy(ctx));
+    const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "line") return { code: 0, out: renderLine(st), err: "" };
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
@@ -137,7 +146,8 @@ async function route(args: string[], ctx: Ctx): Promise<Result> {
     const st = await computeStatus(ctx, s);
     const r = rankExecutors(pos[0] ?? null, s, Object.fromEntries(st.providers.map((p) => [p.id, p])));
     if (opts.json) return { code: 0, out: JSON.stringify({kind:pos[0]??null,...r}, null, 1), err: "" };
-    const lines = r.ranked.map((e, i) => `${i + 1}. ${e.id} (${displayName(e.id)}): ${e.reason}`);
+    const rows=r.ranked.map((e,i)=>({...e,index:i,...(!s.legacy ? {agent:s.runners[e.id]?.agent} : {})}));
+    const lines = renderRoute(rows);
     if (!lines.length) lines.push("no executor available");
     if (r.excluded.length) lines.push(`excluded: ${r.excluded.map((e) => `${e.id} (${e.reason})`).join(", ")}`);
     return { code: 0, out: lines.join("\n"), err: "" };
@@ -207,11 +217,14 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
   switch (cmd) {
+    case "account": return accountCmd(rest, ctx);
+    case "runner": return runnerCmd(rest, ctx);
+    case "config": return configCmd(rest, ctx);
     case "dashboard": return runDashboard(rest, ctx);
     case "setup": return setupCmd(rest, ctx);
     case "report-limit": {
       const {opts,pos}=parseFlags(rest,[]);
-      try{const cfg=loadStrategy(ctx).providers[pos[0]];if(!cfg)throw new Error(`unknown provider "${pos[0]}"`);
+      try{const s=loadStrategy(ctx);const cfg=s.providers[resolveRunner(s,pos[0])?.id??pos[0]];if(!cfg)throw new Error(`unknown provider "${pos[0]}"`);
         const until=Number(str(opts.until)??ctx.now+cfg.cooldownS);if(!Number.isFinite(until))throw new Error("until must be unix seconds");
         markExhausted(ctx,pos[0],until);return {code:0,out:`${pos[0]} exhausted until ${until}`,err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}

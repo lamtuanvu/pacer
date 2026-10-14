@@ -30,7 +30,7 @@ function status(): Status {
   return {
     generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal",
     disabled: false, calendarPace: true, executors: { ranked: [], excluded: [] },
-    providers: ["claude-code", "codex", "cursor", "agy", "byteplus"].map(id => ({
+    providers: ["claude-code", "codex", "cursor", "agy", "opencode#byteplus"].map(id => ({
       id, usage: "quota", windows: [], binding: null, verdict: "OK", installed: true, stale: false,
     })),
   };
@@ -70,7 +70,7 @@ test("doctor fixture covers ok, warn, fail and info with usage and legacy fixes"
   expect(new Set(checks.map(c => c.level))).toEqual(new Set(["ok", "warn", "fail", "info"]));
   expect(find(checks, "Strategy").level).toBe("ok");
   expect(find(checks, "Binary codex")).toMatchObject({ level: "fail", fix: "install codex or remove providers.codex" });
-  expect(find(checks, "Binary byteplus").detail).toContain("opencode");
+  expect(find(checks, "Binary opencode#byteplus").detail).toContain("opencode");
   expect(find(checks, "Login claude-code").level).toBe("ok");
   expect(find(checks, "Login codex")).toMatchObject({ level: "warn", fix: "codex login" });
   expect(find(checks, "Login cursor").level).toBe("ok");
@@ -81,7 +81,7 @@ test("doctor fixture covers ok, warn, fail and info with usage and legacy fixes"
   expect(find(checks, "Usage codex").level).toBe("warn");
   expect(find(checks, "Usage cursor").level).toBe("warn");
   expect(find(checks, "Usage agy")).toMatchObject({ level: "warn", detail: "usage unavailable" });
-  expect(find(checks, "Usage byteplus").level).toBe("ok");
+  expect(find(checks, "Usage opencode#byteplus").level).toBe("ok");
   expect(find(checks, "Orca").level).toBe("ok");
   expect(find(checks, "Activity")).toMatchObject({ level: "info", detail: "calendar pace" });
   expect(find(checks, "Install codex").level).toBe("ok");

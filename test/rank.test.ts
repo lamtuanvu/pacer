@@ -14,13 +14,13 @@ const strategy = (policy = "even", extra: Record<string, unknown> = {}) => valid
   },
   pacing: { policy },
   routing: [
-    { kinds: ["tests"], executors: ["claude-code", "byteplus", "local"] },
-    { default: ["codex", "byteplus", "meter", "cursor", "local"] },
+    { kinds: ["tests"], executors: ["claude-code", "opencode#byteplus", "opencode#local"] },
+    { default: ["codex", "opencode#byteplus", "opencode#meter", "cursor", "opencode#local"] },
   ],
 }, "/x");
 
 function st(id: string, verdict: Verdict, o: Partial<ProviderStatus> & { used?: number; pace?: number; hours?: number } = {}): ProviderStatus {
-  const usage = id === "local" ? "unmetered" : id === "meter" ? "metered" : (id === "cursor" || id === "agy") ? "reactive" : "quota";
+  const usage = id === "opencode#local" ? "unmetered" : id === "opencode#meter" ? "metered" : (id === "cursor" || id === "agy") ? "reactive" : "quota";
   const binding = o.used === undefined ? null : {
     name: "weekly", usedPct: o.used, resetsAt: 1, lengthS: 1, paced: true, verdict,
     pace: o.pace, delta: o.pace !== undefined ? o.used - o.pace : undefined, activeHoursLeft: o.hours,
@@ -31,30 +31,30 @@ function st(id: string, verdict: Verdict, o: Partial<ProviderStatus> & { used?: 
 const statuses = (): Record<string, ProviderStatus> => ({
   "claude-code": st("claude-code", "ON_PACE", { used: 10, pace: 10 }),
   codex: st("codex", "BEHIND", { used: 10, pace: 40 }),
-  byteplus: st("byteplus", "AHEAD", { used: 60, pace: 40 }),
-  meter: st("meter", "OK"),
+  byteplus: st("opencode#byteplus", "AHEAD", { used: 60, pace: 40 }),
+  meter: st("opencode#meter", "OK"),
   cursor: st("cursor", "OK"),
-  local: st("local", "OK"),
+  local: st("opencode#local", "OK"),
 });
 
 test("executorsFor uses the kind rule, then default", () => {
   const s = strategy();
-  expect(executorsFor("tests", s)).toEqual(["claude-code", "byteplus", "local"]);
-  expect(executorsFor("debug", s)).toEqual(["codex", "byteplus", "meter", "cursor", "local"]);
-  expect(executorsFor(null, s)).toEqual(["codex", "byteplus", "meter", "cursor", "local"]);
+  expect(executorsFor("tests", s)).toEqual(["claude-code", "opencode#byteplus", "opencode#local"]);
+  expect(executorsFor("debug", s)).toEqual(["codex", "opencode#byteplus", "opencode#meter", "cursor", "opencode#local"]);
+  expect(executorsFor(null, s)).toEqual(["codex", "opencode#byteplus", "opencode#meter", "cursor", "opencode#local"]);
 });
 
 test("planner is never its own executor", () => {
   const r = rankExecutors("tests", strategy(), statuses());
   expect(r.ranked.map((e) => e.id)).not.toContain("claude-code");
-  expect(r.excluded).toContainEqual({ id: "claude-code", reason: "planner" });
+  expect(r.excluded).toContainEqual({ id: "claude-code", account: "claude-code", reason: "planner" });
 });
 
 test("even: furthest behind pace first; EXPIRING gets a boost", () => {
   const s = statuses();
-  expect(rankExecutors(null, strategy(), s).ranked.map((e) => e.id)).toEqual(["codex", "meter", "cursor", "local", "byteplus"]);
-  s.byteplus = st("byteplus", "EXPIRING", { used: 17, pace: 86, hours: 9 });
-  expect(rankExecutors(null, strategy(), s).ranked[0].id).toBe("byteplus");
+  expect(rankExecutors(null, strategy(), s).ranked.map((e) => e.id)).toEqual(["codex", "opencode#meter", "cursor", "opencode#local", "opencode#byteplus"]);
+  s.byteplus = st("opencode#byteplus", "EXPIRING", { used: 17, pace: 86, hours: 9 });
+  expect(rankExecutors(null, strategy(), s).ranked[0].id).toBe("opencode#byteplus");
 });
 
 test("exhausted, not installed and paid-overflow rules exclude with reasons", () => {
@@ -62,22 +62,22 @@ test("exhausted, not installed and paid-overflow rules exclude with reasons", ()
   s.codex = st("codex", "EXHAUSTED", { used: 100, pace: 30 });
   s.cursor = { ...st("cursor", "OK"), installed: false };
   const r = rankExecutors(null, strategy(), s);
-  expect(r.excluded).toContainEqual({ id: "codex", reason: "exhausted" });
-  expect(r.excluded).toContainEqual({ id: "cursor", reason: "not installed" });
+  expect(r.excluded).toContainEqual({ id: "codex", account: "codex", reason: "exhausted" });
+  expect(r.excluded).toContainEqual({ id: "cursor", account: "cursor", reason: "not installed" });
   const paid = rankExecutors(null, strategy("even", { codex: { allow_paid: true } }), s);
   expect(paid.ranked.map((e) => e.id)).toContain("codex");
 });
 
 test("cheapest-first: unmetered, then flat subscriptions, then metered", () => {
   expect(rankExecutors(null, strategy("cheapest-first"), statuses()).ranked.map((e) => e.id))
-    .toEqual(["local", "codex", "cursor", "byteplus", "meter"]);
+    .toEqual(["opencode#local", "codex", "cursor", "opencode#byteplus", "opencode#meter"]);
 });
 
 test("burn-before-reset: most unused quota per remaining active hour first", () => {
   const s = statuses();
   s.codex = st("codex", "ON_PACE", { used: 50, pace: 50, hours: 50 });     // 50/50 = 1
-  s.byteplus = st("byteplus", "ON_PACE", { used: 80, pace: 80, hours: 4 }); // 20/4  = 5
-  expect(rankExecutors(null, strategy("burn-before-reset"), s).ranked[0].id).toBe("byteplus");
+  s.byteplus = st("opencode#byteplus", "ON_PACE", { used: 80, pace: 80, hours: 4 }); // 20/4  = 5
+  expect(rankExecutors(null, strategy("burn-before-reset"), s).ranked[0].id).toBe("opencode#byteplus");
 });
 
 test("UNKNOWN providers stay usable but rank after known ones", () => {
@@ -95,52 +95,52 @@ const priorityStrategy = (order?: string[]) => validateStrategy({
     local: { via: "opencode", model: "lmstudio/q", usage: "unmetered" },
   },
   pacing: { policy: "priority", ...(order ? { order } : {}) },
-  routing: [{ default: ["codex", "cursor", "agy", "byteplus", "local", "claude-code"] }],
+  routing: [{ default: ["codex", "cursor", "agy", "opencode#byteplus", "opencode#local", "claude-code"] }],
 }, "/x");
 
 const priorityStatuses = (): Record<string, ProviderStatus> => Object.fromEntries(
-  ["claude-code", "codex", "cursor", "agy", "byteplus", "local"].map((id) =>
-    [id, st(id, id === "local" || id === "cursor" || id === "agy" ? "OK" : "ON_PACE")]),
+  ["claude-code", "codex", "cursor", "agy", "opencode#byteplus", "opencode#local"].map((id) =>
+    [id, st(id, id === "opencode#local" || id === "cursor" || id === "agy" ? "OK" : "ON_PACE")]),
 );
 
 test("priority: normal candidates follow executor preferences and exclude the planner", () => {
   const r = rankExecutors(null, priorityStrategy(), priorityStatuses());
-  expect(r.ranked.map((e) => e.id)).toEqual(["codex", "cursor", "agy", "byteplus", "local"]);
-  expect(r.excluded).toContainEqual({ id: "claude-code", reason: "planner" });
+  expect(r.ranked.map((e) => e.id)).toEqual(["codex", "cursor", "agy", "opencode#byteplus", "opencode#local"]);
+  expect(r.excluded).toContainEqual({ id: "claude-code", account: "claude-code", reason: "planner" });
 });
 
 test("priority: exhausted providers are excluded", () => {
   const statuses = priorityStatuses();
   statuses.codex = st("codex", "EXHAUSTED");
   const r = rankExecutors(null, priorityStrategy(), statuses);
-  expect(r.ranked.map((e) => e.id)).toEqual(["cursor", "agy", "byteplus", "local"]);
-  expect(r.excluded).toContainEqual({ id: "codex", reason: "exhausted" });
+  expect(r.ranked.map((e) => e.id)).toEqual(["cursor", "agy", "opencode#byteplus", "opencode#local"]);
+  expect(r.excluded).toContainEqual({ id: "codex", account: "codex", reason: "exhausted" });
 });
 
 test("priority: EXPIRING goes first", () => {
   const statuses = priorityStatuses();
-  statuses.byteplus = st("byteplus", "EXPIRING");
+  statuses.byteplus = st("opencode#byteplus", "EXPIRING");
   expect(rankExecutors(null, priorityStrategy(), statuses).ranked.map((e) => e.id))
-    .toEqual(["byteplus", "codex", "cursor", "agy", "local"]);
+    .toEqual(["opencode#byteplus", "codex", "cursor", "agy", "opencode#local"]);
 });
 
 test("priority: AHEAD goes last", () => {
   const statuses = priorityStatuses();
   statuses.codex = st("codex", "AHEAD");
   expect(rankExecutors(null, priorityStrategy(), statuses).ranked.map((e) => e.id))
-    .toEqual(["cursor", "agy", "byteplus", "local", "codex"]);
+    .toEqual(["cursor", "agy", "opencode#byteplus", "opencode#local", "codex"]);
 });
 
 test("priority: UNKNOWN moves down one position", () => {
   const statuses = priorityStatuses();
   statuses.cursor = st("cursor", "UNKNOWN");
   expect(rankExecutors(null, priorityStrategy(), statuses).ranked.map((e) => e.id))
-    .toEqual(["codex", "agy", "cursor", "byteplus", "local"]);
+    .toEqual(["codex", "agy", "cursor", "opencode#byteplus", "opencode#local"]);
 });
 
 test("priority: custom order expands opencode and appends remaining candidates", () => {
   expect(rankExecutors(null, priorityStrategy(["opencode", "codex"]), priorityStatuses()).ranked.map((e) => e.id))
-    .toEqual(["byteplus", "local", "codex", "cursor", "agy"]);
+    .toEqual(["opencode#byteplus", "opencode#local", "codex", "cursor", "agy"]);
 });
 
 test("priority: scores strictly decrease with position and preserve reasons", () => {
@@ -153,9 +153,9 @@ test("priority: adjacent UNKNOWN providers each move at most once", () => {
   const statuses = priorityStatuses();
   statuses.codex = st("codex", "UNKNOWN");
   statuses.cursor = st("cursor", "UNKNOWN");
-  statuses.local = st("local", "UNKNOWN");
+  statuses.local = st("opencode#local", "UNKNOWN");
   expect(rankExecutors(null, priorityStrategy(), statuses).ranked.map((e) => e.id))
-    .toEqual(["agy", "codex", "cursor", "byteplus", "local"]);
+    .toEqual(["agy", "codex", "cursor", "opencode#byteplus", "opencode#local"]);
 });
 
 test("priority: guardrails preserve order within EXPIRING and AHEAD groups", () => {
@@ -163,29 +163,29 @@ test("priority: guardrails preserve order within EXPIRING and AHEAD groups", () 
   statuses.codex = st("codex", "AHEAD");
   statuses.cursor = st("cursor", "EXPIRING");
   statuses.agy = st("agy", "AHEAD");
-  statuses.byteplus = st("byteplus", "EXPIRING");
+  statuses.byteplus = st("opencode#byteplus", "EXPIRING");
   expect(rankExecutors(null, priorityStrategy(), statuses).ranked.map((e) => e.id))
-    .toEqual(["cursor", "byteplus", "local", "codex", "agy"]);
+    .toEqual(["cursor", "opencode#byteplus", "opencode#local", "codex", "agy"]);
 });
 
 test("priority: overlapping preferences and duplicate routes place each candidate once", () => {
-  const s = priorityStrategy(["local", "opencode", "local", "opencode", "codex"]);
-  s.routing[0].executors.push("codex", "local");
+  const s = priorityStrategy(["opencode#local", "opencode", "opencode#local", "opencode", "codex"]);
+  s.routing[0].executors.push("codex", "opencode#local");
   expect(rankExecutors(null, s, priorityStatuses()).ranked.map((e) => e.id))
-    .toEqual(["local", "byteplus", "codex", "cursor", "agy"]);
+    .toEqual(["opencode#local", "opencode#byteplus", "codex", "cursor", "agy"]);
 });
 
 test("priority: installation, configuration and paid-overflow exclusions are preserved", () => {
   const s = priorityStrategy();
   const statuses = priorityStatuses();
   statuses.codex = st("codex", "EXHAUSTED");
-  s.providers.codex.allowPaid = true;
+  s.accounts.codex.allowPaid = true;
   statuses.cursor.installed = false;
   delete statuses.agy;
   s.routing[0].executors.push("missing");
   const r = rankExecutors(null, s, statuses);
-  expect(r.ranked.map((e) => e.id)).toEqual(["codex", "byteplus", "local"]);
-  expect(r.excluded).toContainEqual({ id: "cursor", reason: "not installed" });
-  expect(r.excluded).toContainEqual({ id: "agy", reason: "not configured" });
+  expect(r.ranked.map((e) => e.id)).toEqual(["codex", "opencode#byteplus", "opencode#local"]);
+  expect(r.excluded).toContainEqual({ id: "cursor", account: "cursor", reason: "not installed" });
+  expect(r.excluded).toContainEqual({ id: "agy", account: "agy", reason: "not configured" });
   expect(r.excluded).toContainEqual({ id: "missing", reason: "not configured" });
 });

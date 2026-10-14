@@ -1,3 +1,6 @@
+import { allowedPair, type AgentId } from "../config/accounts";
+import type { Strategy } from "../config/strategy";
+import { accountFolder } from "./role";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
@@ -5,6 +8,7 @@ import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 import { backupPath } from "./fsx";
+import { migrateStrategy, migrationLines } from "../config/migrate";
 
 const BINS = ["claude", "codex", "cursor-agent", "cursor", "agy", "opencode", "arkcli", "ollama", "lms", "orca"] as const;
 const PLANNER_BINS: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", opencode: "opencode" };
@@ -93,8 +97,16 @@ export async function initCmd(ctx: Ctx, options: { force?: boolean; planner?: st
       out += `Backup: ${backup}\n`;
     }
     writeFileSync(path, text);
-    return { code: 0, out: `${out}Wrote ${path}\n`, err: "" };
+    out += `Wrote ${path}\n`;
+    out += migrationLines(path, migrateStrategy(path)).join("\n") + "\n";
+    return { code: 0, out, err: "" };
   } catch (e) {
     return { code: 1, out, err: `${e instanceof Error ? e.message : String(e)}\n` };
   }
+}
+
+/** Planner account choices are restricted to runnable, compatible accounts. */
+export function plannerAccounts(ctx: Ctx, strategy: Strategy, agent: AgentId) {
+  return Object.values(strategy.accounts).filter(a => allowedPair(agent, a.kind)
+    && (a.source !== "orca" || accountFolder(ctx, a) !== null));
 }

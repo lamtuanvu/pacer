@@ -5,9 +5,9 @@ function harness(storage=new Map<string,string>(),over:Record<string,unknown>={}
  let now=100000;
  const card={busy:false,setAttribute:()=>{card.busy=true;},removeAttribute:()=>{card.busy=false;}};
  const button={disabled:false,innerHTML:"Retry",closest:()=>card};
- const data:any={sequence:1,tasks:[{id:"old",state:"failed"}],rows:[{id:"codex",blocked:false}],muted:[],strategy:"default",...over};
+ const data:any={sequence:1,tasks:[{id:"old",state:"failed"}],rows:[{id:"codex",name:"Codex",blocked:false}],muted:[],strategy:"default",...over};
  const status={textContent:""};let fail!:()=>void;
- const ctx:any={data,status,providerNames:{codex:"Codex"},h:(v:any)=>String(v),sessionStorage:{getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>storage.set(k,v)},Date:class extends Date {static now(){return now;}},sendCommand:(_c:any,_success:any,failure:any)=>{fail=failure;return true;}};
+ const ctx:any={data,status,h:(v:any)=>String(v),sessionStorage:{getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>storage.set(k,v)},Date:class extends Date {static now(){return now;}},sendCommand:(_c:any,_success:any,failure:any)=>{fail=failure;return true;}};
  runInNewContext(pendingClient+"\nglobalThis.api={beginAction,pendingSend,bindAction,recoverActions,actionStates,outcome};",ctx);
  return {api:ctx.api,data,status,card,button,storage,fail:()=>fail(),time:(value:number)=>{now=value;}};
 }
@@ -30,4 +30,10 @@ test("notification action preserves select options and completes on refreshed wo
  h.button.innerHTML='<option value="important">Important</option>';
  h.api.pendingSend(h.button,c);expect(h.button.disabled).toBe(true);expect(h.button.innerHTML).toContain("<option");
  h.data.notifications="off";h.api.recoverActions();expect(h.button.disabled).toBe(false);expect(h.status.textContent).toContain("saved");
+});
+
+test("retry pending state uses the named account label",()=>{
+ const h=harness(new Map(),{rows:[{id:"codex#team",name:"Codex (team)",blocked:false}]});
+ h.api.beginAction(h.button,{cmd:"retry",taskId:"old",executor:"codex#team"});
+ expect(h.button.innerHTML).toContain("Retrying on Codex (team)");
 });

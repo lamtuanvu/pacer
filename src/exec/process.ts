@@ -1,3 +1,11 @@
+/** Executor accounts must not inherit the planner's selected account. */
+export function executorEnv(base: Record<string, string | undefined>, account: Record<string, string>): Record<string, string | undefined> {
+  const env = {...base};
+  delete env.CLAUDE_CONFIG_DIR;
+  delete env.CODEX_HOME;
+  return {...env, ...account, PACER_ROLE: "executor"};
+}
+
 export interface ExecSpec {
   argv: string[];
   cwd: string;

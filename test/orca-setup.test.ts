@@ -28,8 +28,8 @@ test("orcaAgentFor maps providers to Orca agent ids", () => {
   expect(orcaAgentFor(s.providers.cursor, "new-child")).toEqual({ agent: "cursor", model: "auto" });
   expect(orcaAgentFor(s.providers["claude-code"], "new-child")).toEqual({ agent: "claude", model: null });
   expect(orcaAgentFor(s.providers.agy, "current")).toEqual({ agent: "antigravity", model: null });
-  expect(orcaAgentFor(s.providers.byteplus, "current")).toEqual({ agent: "opencode", model: "coding-plan/dola-seed-2.0-code" });
-  const skip = orcaAgentFor(s.providers.byteplus, "new-child");
+  expect(orcaAgentFor(s.providers["opencode#byteplus"], "current")).toEqual({ agent: "opencode", model: "coding-plan/dola-seed-2.0-code" });
+  const skip = orcaAgentFor(s.providers["opencode#byteplus"], "new-child");
   expect("skip" in skip && skip.skip).toContain("existing worktree");
   const mystery: ProviderCfg = { ...s.providers.codex, id: "mystery" };
   expect(orcaAgentFor(mystery, "new-child")).toEqual({ skip: 'no Orca agent for provider "mystery"' });

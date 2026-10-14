@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { buildRelease } from "../scripts/release/build";
 import { type Platform, assetFile, hostTarget } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
+import { validateStrategy } from "../src/config/strategy";
 
 const ROOT = resolve(import.meta.dir, "..");
 const HOST = hostTarget();
@@ -15,7 +16,7 @@ async function run(argv: string[], env: Record<string, string>) {
   return { code, out, err };
 }
 
-test.skipIf(!HOST)("a compiled pacer updates itself from a file:// release and preserves the strategy while caching its update check", async () => {
+test.skipIf(!HOST)("a compiled pacer updates itself, migrates the strategy with a backup and caches its update check", async () => {
   const target = HOST!;
   const work = tmpDir();
   const releases = join(work, "release");
@@ -28,7 +29,8 @@ test.skipIf(!HOST)("a compiled pacer updates itself from a file:// release and p
   chmodSync(pacer, 0o755);
   await buildRelease({ root: ROOT, outRoot: releases, version: "0.9.0", targets: [target] });
   mkdirSync(join(home, ".pacer"), { recursive: true });
-  writeFileSync(join(home, ".pacer", "strategy.yaml"), "planner: claude-code\n");
+  const original = "planner: claude-code\nproviders:\n  codex: {usage: quota}\n";
+  writeFileSync(join(home, ".pacer", "strategy.yaml"), original);
   const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, PACER_RELEASE_BASE: pathToFileURL(releases).href };
 
   expect((await run([pacer, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
@@ -43,8 +45,13 @@ test.skipIf(!HOST)("a compiled pacer updates itself from a file:// release and p
   expect((await run([`${pacer}.bak`, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
   expect(readdirSync(bin).sort()).toEqual(["pacer", "pacer.bak"]);
 
-  expect(readdirSync(join(home, ".pacer")).sort()).toEqual(["strategy.yaml", "update-check.json"]);
-  expect(readFileSync(join(home, ".pacer", "strategy.yaml"), "utf8")).toBe("planner: claude-code\n");
+  expect(readdirSync(join(home, ".pacer")).sort()).toEqual(["strategy.yaml", "strategy.yaml.pre-accounts.bak", "update-check.json"]);
+  const strategy = validateStrategy(Bun.YAML.parse(readFileSync(join(home, ".pacer", "strategy.yaml"), "utf8")), "strategy.yaml");
+  expect(strategy.legacy).toBe(false);
+  expect(strategy.planner).toEqual({ agent: "claude-code", account: "claude-code" });
+  expect(strategy.runners.codex).toEqual({ id: "codex", host: null, name: "codex", agent: "codex", account: "codex", model: null });
+  expect(readFileSync(join(home, ".pacer", "strategy.yaml.pre-accounts.bak"), "utf8")).toBe(original);
+  expect(up.out).toContain("Restore:");
 
   const again = await run([pacer, "update"], env);
   expect(again).toEqual({ code: 0, out: "pacer 0.9.0 is up to date\n", err: "" });

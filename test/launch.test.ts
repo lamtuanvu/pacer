@@ -34,7 +34,7 @@ test("cursor, agy, claude: prompt as the last argument, cwd = repo", () => {
 });
 
 test("opencode-routed providers always pass --agent build and their model", () => {
-  expect(launchFor(s.providers.byteplus, "P", "/repo", "/t", ID)).toEqual({
+  expect(launchFor(s.providers["opencode#byteplus"], "P", "/repo", "/t", ID)).toEqual({
     cwd: "/repo", argv: ["opencode", "run", "--agent", "build", "-m", "coding-plan/dola-seed-2.0-code", "--auto", "--title", `pacer ${ID}`, "P"],
   });
 });
@@ -45,7 +45,7 @@ test("a provider with no launcher throws", () => {
 
 for (const id of ["agy", "cursor", "claude-code", "codex", "byteplus"]) {
   test(`${id}: launch contract preserves flag/value pairing`, () => {
-    const l = launchFor({ ...s.providers[id], model: "chosen-model" }, "the prompt", "/repo", "/tasks", ID);
+    const l = launchFor({ ...s.providers[id === "byteplus" ? "opencode#byteplus" : id], model: "chosen-model" }, "the prompt", "/repo", "/tasks", ID);
     const value = (flag: string) => l.argv[l.argv.indexOf(flag) + 1];
     if (id === "agy") {
       expect(value("-p")).toBe("the prompt");

@@ -27,13 +27,13 @@ test("metered: counts input+output+reasoning for the configured model only, agai
     expect(argv).toEqual(["opencode", "stats", "--models", "--json", "--days", "7"]);
     return { code: 0, stdout: STATS, stderr: "" };
   };
-  const r = await readUsage(fakeCtx({ run }), strategy.providers["opencode-go"]);
+  const r = await readUsage(fakeCtx({ run }), strategy.providers["opencode#opencode-go"]);
   expect(r.windows).toEqual([{ name: "7d", usedPct: 10, resetsAt: null, lengthS: 604800, paced: false }]);
 });
 
 test("unmetered has no windows; reactive has an OK limit window; quota dispatches by provider", async () => {
   const ctx = fakeCtx();
-  expect((await readUsage(ctx, strategy.providers.local)).windows).toEqual([]);
+  expect((await readUsage(ctx, strategy.providers["opencode#local"])).windows).toEqual([]);
   expect((await readUsage(ctx, strategy.providers.cursor)).windows).toEqual([
     { name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false },
   ]);
@@ -43,9 +43,9 @@ test("unmetered has no windows; reactive has an OK limit window; quota dispatche
 test("an active exhausted mark overrides any provider's limit window", async () => {
   const ctx = fakeCtx({ now: 1000 });
   markExhausted(ctx, "cursor", 5000);
-  markExhausted(ctx, "local", 5000);
+  markExhausted(ctx, "opencode#local", 5000);
   expect((await readUsage(ctx, strategy.providers.cursor)).windows).toEqual([
     { name: "limit", usedPct: 100, resetsAt: 5000, lengthS: 4000, paced: false },
   ]);
-  expect((await readUsage(ctx, strategy.providers.local)).windows[0].usedPct).toBe(100);
+  expect((await readUsage(ctx, strategy.providers["opencode#local"])).windows[0].usedPct).toBe(100);
 });

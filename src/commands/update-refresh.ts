@@ -1,6 +1,16 @@
 import { readManifest } from "../install/manifest";
 import { PLUGIN_RECORD } from "../link/paths";
 import type { Ctx } from "../types";
+import { existsSync } from "node:fs";
+import { strategyPath } from "../config/strategy";
+import { migrateStrategy, migrationLines } from "../config/migrate";
+
+export function refreshStrategy(ctx: Ctx): string[] {
+  const path = strategyPath(ctx);
+  if (!existsSync(path)) return [];
+  try { return migrationLines(path, migrateStrategy(path)); }
+  catch (e) { return [`WARNING: could not migrate strategy: ${e instanceof Error ? e.message : String(e)}`]; }
+}
 
 /** Run the replacement binary: this process still embeds the previous integration assets. */
 export async function refreshIntegrations(ctx: Ctx, path: string): Promise<string[]> {
@@ -22,5 +32,5 @@ export async function refreshIntegrations(ctx: Ctx, path: string): Promise<strin
       lines.push(`WARNING: ${planner}: failed: ${(error instanceof Error ? error.message : String(error)).trim().split(/\r?\n/)[0]}`);
     }
   }
-  return lines;
+  return [...lines, ...refreshStrategy(ctx)];
 }

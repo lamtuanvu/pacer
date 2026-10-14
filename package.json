@@ -6,7 +6,7 @@
     "@types/bun": "^1.4.2",
     "typescript": "^7.0.2"
   },
-  "version": "0.1.22",
+  "version": "0.1.23",
   "bin": {
     "pacer": "src/cli.ts"
   },
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
+    "yaml": "2.8.2",
     "zod": "4.6.5"
   },
   "license": "Apache-2.0",

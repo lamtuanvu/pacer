@@ -20,17 +20,19 @@ test("non TTY ensures strategy/service but never edits agent config without cons
 test("planner numbered question uses choice, current default and --planner skips", async () => {
  const f = fixture();
  expect((await setupCmd([], f.ctx, { ...f.deps, tty: true, question: async q => { f.questions.push(q); return "2"; } })).code).toBe(0);
- const path = join(f.ctx.pacerHome, "strategy.yaml"); expect(validateStrategy(Bun.YAML.parse(readFileSync(path,"utf8")),path).planner).toBe("codex");
+ const path = join(f.ctx.pacerHome, "strategy.yaml"); expect(validateStrategy(Bun.YAML.parse(readFileSync(path,"utf8")),path).planner.agent).toBe("codex");
  expect(f.questions[0]).toContain("1. claude-code\n2. codex");
  await setupCmd([], f.ctx, {...f.deps,tty:true}); expect(f.questions.at(-1)).toContain("Planner [2]");
  f.questions.length=0; const before=readFileSync(path,"utf8");
  await setupCmd(["--planner","opencode"],f.ctx,{...f.deps,tty:true});expect(f.questions).toHaveLength(0);
- expect(readFileSync(path,"utf8")).toBe(before.replace("planner: codex","planner: opencode"));
+ const after=readFileSync(path,"utf8");
+ expect(validateStrategy(Bun.YAML.parse(after),path).planner.agent).toBe("opencode");
+ expect(after.slice(after.indexOf("\n"))).toBe(before.slice(before.indexOf("\n")));
 });
 test("no CLI still creates valid strategy, explicit missing planner is accepted", async () => {
  for (const args of [[], ["--planner", "cursor"]]) {
   const f=fixture([]),r=await setupCmd(args,f.ctx,f.deps);expect(r.code).toBe(0);expect(r.out).toContain("No agent CLI was found");
-  expect(validateStrategy(Bun.YAML.parse(readFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"utf8")),"test").planner).toBe(args.length?"cursor":"claude-code");
+  expect(validateStrategy(Bun.YAML.parse(readFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"utf8")),"test").planner.agent).toBe(args.length?"cursor":"claude-code");
  }
 });
 test("TTY per-agent no leaves configs untouched; yes connects only consenting agents",async()=>{

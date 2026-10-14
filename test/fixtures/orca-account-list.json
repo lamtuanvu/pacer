@@ -1,0 +1,56 @@
+{
+  "ok": true,
+  "result": {
+    "claude": {
+      "accounts": [{"id": "cl-main", "label": "Main"}, {"id": "cl-team", "label": "Team"}],
+      "activeAccountId": "cl-main"
+    },
+    "codex": {
+      "accounts": [{"id": "cx-main", "label": "Main"}, {"id": "cx-team", "label": "Team"}],
+      "activeAccountId": "cx-main"
+    },
+    "rateLimits": {
+      "claude": {
+        "provider": "claude",
+        "session": {"usedPercent": 4, "windowMinutes": 300, "resetsAt": 1792003600000},
+        "weekly": {"usedPercent": 37, "windowMinutes": 10080, "resetsAt": 1792604800000},
+        "updatedAt": 1792000000000, "error": null, "status": "ok"
+      },
+      "codex": {
+        "provider": "codex", "session": null,
+        "weekly": {"usedPercent": 12, "windowMinutes": 10080, "resetsAt": 1792604800000},
+        "updatedAt": 1792000000000, "error": null, "status": "ok"
+      },
+      "cursor": {
+        "provider": "cursor", "session": null, "weekly": null,
+        "monthly": {"usedPercent": 51.5, "windowMinutes": 43200, "resetsAt": 1794592000000},
+        "updatedAt": 1792000000000, "status": "ok"
+      },
+      "opencodeGo": {
+        "provider": "opencodeGo",
+        "session": {"usedPercent": 18, "windowMinutes": 300, "resetsAt": 1792003600000},
+        "weekly": {"usedPercent": 61, "windowMinutes": 10080, "resetsAt": 1792604800000},
+        "monthly": {"usedPercent": 28, "windowMinutes": 43200, "resetsAt": 1794592000000},
+        "updatedAt": 1792000000000, "status": "ok"
+      },
+      "inactiveClaudeAccounts": [{
+        "accountId": "cl-team",
+        "rateLimits": {
+          "provider": "claude",
+          "weekly": {"usedPercent": 79, "windowMinutes": 10080, "resetsAt": 1792604800000},
+          "updatedAt": 1792000000000, "status": "ok"
+        },
+        "updatedAt": 1792000000000, "isFetching": false
+      }],
+      "inactiveCodexAccounts": [{
+        "accountId": "cx-team",
+        "rateLimits": {
+          "provider": "codex",
+          "weekly": {"usedPercent": 83, "windowMinutes": 10080, "resetsAt": 1792604800000},
+          "updatedAt": 1792000000000, "status": "ok"
+        },
+        "updatedAt": 1792000000000, "isFetching": false
+      }]
+    }
+  }
+}

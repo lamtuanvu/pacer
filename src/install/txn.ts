@@ -8,7 +8,7 @@ import { mergeUndo, readManifest, writeManifest, type PlannerRecord, type UndoOp
 export class InstallError extends Error {
   constructor(message: string) { super(message); this.name = "InstallError"; }
 }
-export interface InstallEnv { ctx: Ctx; pacerArgv: string[]; mcp?: boolean }
+export interface InstallEnv { ctx: Ctx; pacerArgv: string[]; mcp?: boolean; folder?: string; plannerAccount?: string; plannerKey?: string; configEnv?: Record<string, string> }
 export class Txn {
   readonly record: PlannerRecord;
   readonly touched: string[] = [];
@@ -20,6 +20,9 @@ export class Txn {
       planner, installedAt: env.ctx.now, pacerArgv: [...env.pacerArgv], files: [], commands: [], notes: [],
     };
     this.record.pacerArgv = [...env.pacerArgv];
+    if (env.plannerAccount) this.record.account = env.plannerAccount;
+    if (env.folder) this.record.folder = env.folder;
+    if (env.configEnv) this.record.configEnv = {...env.configEnv};
   }
   edit(path: string, fn: (old: string | null) => string, undo: UndoOp[], backupDir?: string): boolean {
     const old = readText(path);
@@ -63,7 +66,7 @@ export class Txn {
   }
   async run(argv: string[], undo?: string[], options: { quiet?: boolean; successNote?: string } = {}): Promise<void> {
     try {
-      const result = await this.env.ctx.run(argv, 30000);
+      const result = await this.env.ctx.run(argv, 30000, this.env.configEnv ? {env: {...this.env.ctx.env, ...this.env.configEnv}} : undefined);
       if (result.code === 0 && options.successNote) this.notes.push(options.successNote);
       if (!options.quiet && result.code !== 0) this.notes.push(`\`${shellCommand(argv)}\` failed (exit ${result.code}): ${(result.stderr || result.stdout).split(/\r?\n/)[0]}`);
     } catch (error) {
@@ -80,7 +83,7 @@ export class Txn {
       try { change(); } catch (error) { this.notes.push(`rollback failed: ${String(error)}`); }
     }
     for (const undo of this.commandUndos.reverse()) {
-      try { await this.env.ctx.run(undo, 30000); } catch (error) { this.notes.push(`rollback command failed: ${String(error)}`); }
+      try { await this.env.ctx.run(undo, 30000, this.env.configEnv ? {env: {...this.env.ctx.env, ...this.env.configEnv}} : undefined); } catch (error) { this.notes.push(`rollback command failed: ${String(error)}`); }
     }
     this.changes = []; this.commandUndos = [];
   }
@@ -94,6 +97,7 @@ export class Txn {
 }
 export async function runInstall(env: InstallEnv, planner: string, fn: (tx: Txn) => void | Promise<void>): Promise<{ record: PlannerRecord; touched: string[]; notes: string[] }> {
   validateInstallArgv(env.ctx.env, env.pacerArgv);
+  planner = env.plannerKey ?? planner;
   const tx = new Txn(env, planner, readManifest(env.ctx).planners[planner]);
   if (isDevArgv(env.pacerArgv)) tx.notes.push(`WARNING: development install bakes this command into integrations: ${shellCommand(env.pacerArgv)}`);
   try { await fn(tx); tx.commit(); }

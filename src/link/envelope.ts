@@ -3,7 +3,7 @@ import type { NotificationData } from "./notification";
 export const PLUGIN_KEY = "lamtuanvu.pacer";
 export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 } as const;
 export type Level = "info" | "warn" | "error";
-export interface ProviderLine { id: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
+export interface ProviderLine { id: string; agent?: string; account?: string; unavailableReason?: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
 export interface TaskData { terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
@@ -28,7 +28,7 @@ function parseBudget(d: unknown): BudgetData | null {
   if (generatedAt === null || strategy === null || planner === null || mode === null) return null;
   const providers = (Array.isArray(d.providers) ? d.providers : []).slice(0, LIMITS.providers).flatMap((p): ProviderLine[] => {
     if (!isObj(p)) return []; const id = str(p.id, 64), verdict = str(p.verdict, 32); if (id === null || verdict === null) return [];
-    return [{ id, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true, ...(optStr(p.brokenReason,500) ? {brokenReason:optStr(p.brokenReason,500)!} : {}), ...(optStr(p.blockedReason,500) ? {blockedReason:optStr(p.blockedReason,500)!,blockedUntil:num(p.blockedUntil)} : {}) }];
+    return [{ id, ...(optStr(p.agent,64) && optStr(p.account,64) ? {agent:optStr(p.agent,64)!,account:optStr(p.account,64)!} : {}), ...(optStr(p.unavailableReason,500)?{unavailableReason:optStr(p.unavailableReason,500)!}:{}), verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true, ...(optStr(p.brokenReason,500) ? {brokenReason:optStr(p.brokenReason,500)!} : {}), ...(optStr(p.blockedReason,500) ? {blockedReason:optStr(p.blockedReason,500)!,blockedUntil:num(p.blockedUntil)} : {}) }];
   });
   const ranked = (Array.isArray(d.ranked) ? d.ranked : []).slice(0, LIMITS.providers).flatMap((r) => {
     if (!isObj(r)) return []; const id = str(r.id, 64), verdict = str(r.verdict, 32); return id === null || verdict === null ? [] : [{ id, verdict }];
@@ -106,7 +106,7 @@ export function parseCmd(raw: unknown): Cmd | null {
   if (!CMD_NAMES.includes(d.cmd as CmdName)) return null; const data: CmdData = { cmd:d.cmd as CmdName };
   for (const k of ["branch","displayName","paneKey","worktreeId","strategy"] as const) { const v=optStr(d[k],1024); if(v) data[k]=v; }
   for (const [k,max] of [["goal",2000],["acceptance",500]] as const) { const v=str(d[k],max); if(v !== null) data[k]=v; }
-  for (const [k,max,pattern] of [["executor",64,/^[a-z0-9-]+$/],["taskId",128,/^[A-Za-z0-9_-]+$/]] as const) {
+  for (const [k,max,pattern] of [["executor",64,/^[a-z0-9-]+(?:#[a-z0-9-]+)?$/],["taskId",128,/^[A-Za-z0-9_-]+$/]] as const) {
     if (d[k] !== undefined && (typeof d[k] !== "string" || !pattern.test(d[k] as string))) return null;
     const v=optStr(d[k],max); if(v) data[k]=v;
   }

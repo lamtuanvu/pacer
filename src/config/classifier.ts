@@ -1,3 +1,4 @@
+import { resolveRunner } from "./runner-id";
 import { ADAPTER_IDS, DECISIONS, type AdapterId, type DecisionName } from "../classify/types";
 import { isObj } from "../util";
 import type { ProviderCfg, Strategy } from "./strategy";
@@ -147,5 +148,6 @@ export function validateClassifier(raw: unknown, providers: Record<string, Provi
 }
 
 export function classifierConfig(s: Strategy): ClassifierConfig {
-  return validateClassifier(s.classifier, s.providers);
+  const tiers = isObj(s.classifier.tiers) ? Object.fromEntries(Object.entries(s.classifier.tiers).map(([id, value]) => [resolveRunner(s, id)?.id ?? id, value])) : s.classifier.tiers;
+  return validateClassifier(tiers === undefined ? s.classifier : {...s.classifier, tiers}, s.providers);
 }

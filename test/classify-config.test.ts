@@ -15,7 +15,7 @@ test("empty input gives configured:false with all defaults", () => {
     configured: false, default: "rules",
     decisions: { task_kind: decision, difficulty: decision, guard: decision, result_check: decision },
     shadow: [], shadowExternal: false, timeoutMs: 3000, logState: "trimmed",
-    tiers: { codex: "capable", local: "cheap" },
+    tiers: { codex: "capable", "opencode#local": "cheap" },
     adapters: {
       ollama: { baseUrl: "http://127.0.0.1:1234/v1", model: "qwen3.6-35b-a3b", maxTokens: 512, keyEnv: null },
       jev: { baseUrl: "https://api.typesafe.ai", model: "jev-latest", keyEnv: "TYPESAFE_API_KEY", usdPerMtokIn: null, usdPerMtokOut: null },
@@ -57,9 +57,9 @@ test("an input with five different mistakes reports all five problems at once", 
 });
 
 test("default tiers: opencode-routed providers cheap, native capable", () => {
-  expect(validateClassifier({}, providers).tiers).toEqual({ codex: "capable", local: "cheap" });
-  expect(validateClassifier({ tiers: { local: "capable", codex: "cheap" } }, providers).tiers)
-    .toEqual({ codex: "cheap", local: "capable" });
+  expect(validateClassifier({}, providers).tiers).toEqual({ codex: "capable", "opencode#local": "cheap" });
+  expect(validateClassifier({ tiers: { "opencode#local": "capable", codex: "cheap" } }, providers).tiers)
+    .toEqual({ codex: "cheap", "opencode#local": "capable" });
   expect(() => validateClassifier({ tiers: { codex: "fast" } }, providers)).toThrow(ClassifierConfigError);
 });
 

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
+import { loadStrategy } from "../src/config/strategy";
 import { io } from "../src/install/stdin";
 import { fakeCtx } from "./helpers";
 
@@ -80,7 +81,8 @@ test("init and internal activity dispatch write their outputs in the context hom
   writeFileSync(join(ctx.home, "Library/LaunchAgents/com.pacer.serve.plist"), "fixture");
   writeFileSync(join(ctx.home, ".config/systemd/user/pacer-serve.service"), "fixture");
   expect((await main(["init", "--planner", "codex", "--no-dashboard"], ctx)).code).toBe(0);
-  expect(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")).toContain("planner: codex");
+  expect(loadStrategy(ctx).planner).toEqual({ agent: "codex", account: "codex" });
+  expect(loadStrategy(ctx).legacy).toBe(false);
   expect((await main(["_activity"], ctx)).code).toBe(0);
   expect(existsSync(join(ctx.pacerHome, "activity.json"))).toBe(true);
 });

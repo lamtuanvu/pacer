@@ -33,3 +33,27 @@ test("exhaustUntil uses the earliest future reset of a near-full window, else th
  for(const [provider,text] of [["cursor","ActionRequiredError: You've hit your usage limit"],["codex","You've hit your usage limit. Try again later."],["agy","quota exceeded for this project"]]) test(`recorded ${provider} quota text is a limit`,()=>{
  expect(detectLimit(provider!,r(1,"",text))).toBe(true);
  });
+
+const awaitedCodexLimit = await Bun.file(new URL('./fixtures/codex-team-limit.txt', import.meta.url)).text();
+const weekly = await Bun.file(new URL('./fixtures/claude-weekly-limit.txt', import.meta.url)).text();
+test('real Claude weekly output and named Codex runner detect limits',()=>{
+ expect(detectLimit('claude-code#work',r(1,weekly))).toBe(true);
+ expect(detectLimit('codex#team',r(1,awaitedCodexLimit))).toBe(true);
+ for(const word of ['daily','session','5-hour','usage','monthly']) expect(detectLimit('claude-code',r(1,`YOU'VE HIT YOUR ${word} LIMIT`))).toBe(true);
+});
+test('explicit reset beats quota windows and cooldown, respecting its timezone',()=>{
+ const now=Date.parse('2026-10-14T00:00:00Z')/1000;
+ expect(exhaustUntil(undefined,cfg,now,weekly)).toBe(Date.parse('2026-10-18T06:00:00Z')/1000);
+ expect(exhaustUntil(undefined,cfg,now,'resets Oct 18 at 1:30pm (Asia/Saigon)')).toBe(Date.parse('2026-10-18T06:30:00Z')/1000);
+ const st={windows:[{usedPct:100,resetsAt:now+60}]} as ProviderStatus;
+ expect(exhaustUntil(st,cfg,now,weekly)).toBe(Date.parse('2026-10-18T06:00:00Z')/1000);
+ expect(exhaustUntil(st,cfg,now,'resets nonsense')).toBe(now+60);
+ expect(exhaustUntil(undefined,cfg,now,'resets 1pm (Invalid/Zone)')).toBe(now+21600);
+});
+test('past dates roll to next year and past times to next day, using local time by default',()=>{
+ const now=new Date(2026,9,19,14).getTime()/1000;
+ expect(exhaustUntil(undefined,cfg,now,'resets Oct 18 at 1pm')).toBe(new Date(2027,9,18,13).getTime()/1000);
+ expect(exhaustUntil(undefined,cfg,now,'resets 1pm')).toBe(new Date(2026,9,20,13).getTime()/1000);
+ expect(exhaustUntil(undefined,cfg,now,'resets 11:30pm')).toBe(new Date(2026,9,19,23,30).getTime()/1000);
+ expect(exhaustUntil(undefined,cfg,now,'resets Oct 18 at 1pm (Asia/Saigon)')).toBe(Date.parse('2027-10-18T06:00:00Z')/1000);
+});

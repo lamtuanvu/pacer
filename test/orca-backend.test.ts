@@ -81,7 +81,7 @@ function setup(
     sleep: async () => {},
     ...opts.deps,
   });
-  return { f, ctx, task, backend, direct, cfg: s.providers[opts.provider ?? "cursor"] };
+  return { f, ctx, task, backend, direct, cfg: s.providers[opts.provider === "byteplus" ? "opencode#byteplus" : opts.provider ?? "cursor"] };
 }
 const startArgs = (f: ReturnType<typeof fakeRun>) => f.calls.find((a) => a[2] === "worker-start") ?? [];
 
@@ -217,7 +217,7 @@ test("falls back to direct when the Orca runtime is not ready", async () => {
 test("falls back to direct for an OpenCode provider with new-child, without calling orca or git", async () => {
   const { f, ctx, task, backend, cfg, direct } = setup(() => [], { provider: "byteplus" });
   const out = await backend.runAttempt(ctx, cfg, task);
-  expect(direct).toEqual(["byteplus"]);
+  expect(direct).toEqual(["opencode#byteplus"]);
   expect(readFileSync(join(ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("existing worktree");
   expect(f.calls).toHaveLength(0);
 });

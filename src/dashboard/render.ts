@@ -1,6 +1,7 @@
 import { setupText, type SetupChecklist } from "../setup/checklist";
 import type { LinkSnapshot } from "../link/envelope";
 import { cards } from "./model";
+import { runnerLabel } from "../render/accounts";
 export interface View { setup?: SetupChecklist; updateLine?: string; selected: number; help?: boolean; prompt?: string; message?: string; noColor?: boolean }
 export const safeText = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 export function budgetBar(used: number|null, pace: number|null, size: number): string {
@@ -13,14 +14,15 @@ export function renderDashboard(s:LinkSnapshot,width:number,height:number,now:nu
  const b=s.budget,p=b?.providers.find(p=>p.id===b.planner), compact=width<60;
  const header=`◆ pacer · ${b?.mode??"unknown"} · ${b?.strategy??"no strategy"}`;
  const live=s.at>0 && now-s.at<30;
- const fixed=[header,`${live?"Live":"Updated"} · ${s.at?new Date(s.at*1000).toISOString().slice(11,19):"waiting for local data"}`,`Planner ${b?.planner??"?"}: ${p?.usedPct==null?"?":Math.round(p.usedPct)+"%"} ${budgetBar(p?.usedPct??null,p?.pacePct??null,Math.max(4,Math.min(compact?12:24,width-24)))}`];
+ const fixed=[header,`${live?"Live":"Updated"} · ${s.at?new Date(s.at*1000).toISOString().slice(11,19):"waiting for local data"}`,`Planner ${runnerLabel(p ?? {id:b?.planner??"?"})}: ${p?.usedPct==null?"?":Math.round(p.usedPct)+"%"} ${budgetBar(p?.usedPct??null,p?.pacePct??null,Math.max(4,Math.min(compact?12:24,width-24)))}`];
  if(v.setup && !v.setup.complete)fixed.splice(1,0,...setupText(v.setup).split("\n"));
  if(v.updateLine)fixed.push(v.updateLine);
  const body:{text:string;selected:boolean}[]=[];let index=0;
  for(const group of cards(s,now)) {
   body.push({text:group.title,selected:false});
   if(!group.cards.length) body.push({text:"  (none)",selected:false});
-  for(const card of group.cards) {const selected=index++===v.selected;body.push({text:`${selected?">":" "} ${card.text}`,selected});}
+  let account:string|undefined;
+  for(const card of group.cards) {if(card.account && card.account!==account) {body.push({text:`  Account ${card.account}`,selected:false});account=card.account;}const selected=index++===v.selected;body.push({text:`${selected?">":" "} ${card.text}`,selected});}
  }
  if(v.help) {body.splice(0,body.length,...["Keys", "↑/↓ or j/k: select · Enter: primary action", "d: delegate · x: dismiss · b: block/unblock", "s: strategy · r: refresh · c: check updates · u: update · ?: help · q: quit", "Running: Enter focuses its terminal, or stops it.", "Esc cancels prompts. Budget bar: # used, | pace."].map(text=>({text,selected:false})));}
  const space=Math.max(0,height-fixed.length-2), selected=body.findIndex(row=>row.selected), offset=selected>=space?Math.min(Math.max(0,body.length-space),selected-space+1):0;

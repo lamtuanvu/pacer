@@ -16,7 +16,7 @@ export interface FileChange {
   backup?: string; afterHash?: string; exact?: boolean; undo: UndoOp[];
 }
 export interface PlannerRecord {
-  planner: string; installedAt: number; pacerArgv: string[]; files: FileChange[];
+  planner: string; account?: string; folder?: string; configEnv?: Record<string, string>; installedAt: number; pacerArgv: string[]; files: FileChange[];
   commands: { undo: string[] }[]; notes: string[];
 }
 export interface Manifest { version: 1; planners: Record<string, PlannerRecord> }

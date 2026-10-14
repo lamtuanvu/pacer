@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import type { ProviderStatus } from "../src/engine/rank";
@@ -8,7 +9,7 @@ import { EXTRA_BACKENDS } from "../src/exec/backends-extra";
 import type { AttemptOutcome } from "../src/exec/direct";
 import { runTask } from "../src/tasks/runner";
 import { createTask } from "../src/tasks/store";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} } }, "/x");
 const ok: AttemptOutcome = {
@@ -84,3 +85,61 @@ test("a throwing selected extra backend is recorded", async () => {
     EXTRA_BACKENDS.splice(EXTRA_BACKENDS.indexOf(backend), 1);
   }
 });
+
+for (const agent of ["claude-code", "codex"]) {
+  for (const source of ["default", "pacer", "orca"]) {
+    for (const backend of ["orca", "auto", "direct"]) {
+      test(`${agent} ${source} account selects backend under ${backend}`, async () => {
+        const raw = {
+          accounts: { plan: {kind: "claude", home: "~/.plan"}, team: {kind: agent === "codex" ? "codex" : "claude",
+            ...(source === "pacer" ? {home: "~/.team"} : source === "orca" ? {orca_account: "team-id"} : {})} },
+          planner: "claude-code#plan", routing: [{default: [`${agent}#team`]}], execution: {backend},
+        };
+        const strategy = validateStrategy(raw, "test");
+        const ctx = fakeCtx();
+        const orca = fake("orca", async () => backend !== "direct");
+        const selected = await selectBackend(ctx, strategy, [orca], `${agent}#team`);
+        expect(selected.id).toBe(source === "default" && backend !== "direct" ? "orca" : "direct");
+        // An explicit backend override must also preserve the account restriction.
+        ctx.env.PACER_BACKEND = "orca";
+        expect((await selectBackend(ctx, strategy, [orca], `${agent}#team`)).id).toBe(source === "default" ? "orca" : "direct");
+      });
+    }
+  }
+}
+
+for (const source of ["pacer", "orca"]) {
+  test(`task runner keeps ${source} accounts away from Orca and logs direct reason`, async () => {
+    const bin = tmpDir();
+    writeFileSync(join(bin, "claude"), '#!/bin/sh\nprintf "%s" "$CLAUDE_CONFIG_DIR"\n');
+    chmodSync(join(bin, "claude"), 0o755);
+    const ctx = fakeCtx({env: {PATH: `${bin}:${process.env.PATH}`, PACER_BACKEND: "orca"}});
+    ctx.env.ORCA_USER_DATA_PATH = tmpDir();
+    const home = source === "pacer" ? join(ctx.home, ".team") : join(ctx.env.ORCA_USER_DATA_PATH, "claude-profiles", "team-id", "home");
+    mkdirSync(home, {recursive: true});
+    const raw = {
+      accounts: {plan: {kind: "claude"}, team: {kind: "claude", usage: "unmetered",
+        ...(source === "pacer" ? {home} : {orca_account: "team-id"})}},
+      planner: "claude-code", routing: [{default: ["claude-code#team"]}], execution: {backend: "orca"},
+    };
+    await Bun.write(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
+    const strategy = validateStrategy(raw, "test");
+    const task = createTask(ctx, {brief: {goal: "g", repo: tmpDir()}, kind: null, requestedExecutor: null, timeoutS: 30});
+    let orcaRuns = 0;
+    const orca: Backend = {id: "orca", available: async () => true, runAttempt: async () => {orcaRuns++; throw Error("non-default account reached Orca");}};
+    EXTRA_BACKENDS.unshift(orca);
+    try {
+      const result = await runTask(ctx, task.id, {
+        loadStrategy: () => strategy,
+        computeStatus: async () => ({...status(), providers: [{...status().providers[0], id: "claude-code#team"}]}),
+        verifyRepo: async () => ({files: ""}),
+      });
+      expect(result.result).toMatchObject({status: "done", backend: "direct"});
+      expect(result.result?.report).toContain(home);
+      expect(orcaRuns).toBe(0);
+      expect(readFileSync(result.attempts[0].log, "utf8")).toContain("direct backend: non-default account (Orca launch can't pre-approve folder trust)");
+    } finally {
+      EXTRA_BACKENDS.splice(EXTRA_BACKENDS.indexOf(orca), 1);
+    }
+  });
+}

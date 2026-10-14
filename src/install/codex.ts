@@ -14,7 +14,7 @@ export function codexMcpBlock(argv: string[]): string {
 }
 
 export function installCodex(tx: Txn): void {
-  const dir = join(tx.env.ctx.home, ".codex");
+  const dir = tx.env.folder ?? join(tx.env.ctx.home, ".codex");
   const argv = tx.env.pacerArgv;
   const configPath = join(dir, "config.toml");
   const ownsTable = tx.record.files.some(file => file.path === configPath
@@ -33,7 +33,7 @@ export function installCodex(tx: Txn): void {
     return upsertBlock(text, codexMcpBlock(argv), "hash");
   }, [{ kind: "block", style: "hash" }, { kind: "toml-table", table: "mcp_servers.pacer" }]);
 
-  installSkill(tx,join(tx.env.ctx.env.CODEX_HOME || dir));
+  installSkill(tx,join(tx.env.folder || tx.env.ctx.env.CODEX_HOME || dir));
   tx.edit(join(dir, "AGENTS.md"), old => upsertBlock(old ?? "", policyText("codex"), "md"),
     [{ kind: "block", style: "md" }]);
 
