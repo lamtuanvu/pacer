@@ -1,5 +1,5 @@
 import type { CmdData, LinkSnapshot, ProviderLine } from "../link/envelope";
-import { attentionGroups, attentionText, mutedProviders, rankedProviders, verdictWords } from "../../orca-plugin/src/panel/model";
+import { attentionGroups, attentionText, mutedProviders, rankedProviders, verdictWords } from "../view-model/panel";
 export interface Card { id: string; text: string; action?: CmdData; dismiss?: CmdData; provider?: ProviderLine }
 export function cards(s: LinkSnapshot, now: number): { title: string; cards: Card[] }[] {
  const provider = (p: ProviderLine): Card => ({ id: `executor:${p.id}`, provider:p, text:`${p.id}: ${verdictWords(p.verdict)} · ${p.usedPct === null ? "unmetered / unknown" : `${Math.round(p.usedPct)}% used`}${p.blockedReason ? " · blocked" : p.brokenReason ? ` · ${p.brokenReason}` : ""}` });
