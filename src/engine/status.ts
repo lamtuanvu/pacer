@@ -1,12 +1,12 @@
 import { parseRunnerId, formatRunnerId, runnerDefaults, resolveRunner } from "../config/runner-id";
-import type { AccountCfg, RunnerCfg } from "../config/accounts";
+import type { AccountCfg } from "../config/accounts";
 import { readBlocked } from "../executors/blocked";
 import { readBroken } from "../exec/broken";
 import type { ProviderCfg, Strategy } from "../config/strategy";
 import { type ActivityProfile, loadActivity } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
 import type { Ctx, UsageReading, Verdict } from "../types";
-import { readUsage } from "../usage/index";
+import { readAccountUsage } from "../usage/index";
 import { limitWindow } from "../usage/reactive";
 import { type Mode, plannerMode } from "./mode";
 import { type Excluded, type ProviderStatus, type RankedExecutor, rankExecutors } from "./rank";
@@ -58,7 +58,7 @@ export async function computeStatus(
     const runners = Object.values(s.runners).filter(r => r.account === account.name);
     const key = JSON.stringify({ account, models: [...new Set(runners.map(r => r.model))] });
     const reading = opts.readings?.get(account.name) ?? opts.readings?.get(key)
-      ?? await accountReading(ctx, account, runners).catch((e): UsageReading => ({
+      ?? await readAccountUsage(ctx, account, runners).catch((e): UsageReading => ({
         windows: [], capturedAt: null, stale: false, error: String(e),
       }));
     opts.readings?.set(key, reading);
@@ -108,30 +108,5 @@ export async function computeStatus(
     })),
     providers,
     executors: rankExecutors(null, s, byId),
-  };
-}
-
-/** Bridge the existing readers until the account-source readers land in Task 4. */
-async function accountReading(ctx: Ctx, account: AccountCfg, runners: RunnerCfg[]): Promise<UsageReading> {
-  // Do not accidentally report the default native login's usage for another account.
-  if (account.source === "pacer" || account.source === "orca") {
-    return { windows: [], capturedAt: null, stale: false, error: "account usage source not available" };
-  }
-  const cfg: ProviderCfg = {
-    id: account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? account.name : account.kind,
-    via: account.kind === "endpoint" ? "opencode" : null, model: runners[0]?.model ?? null,
-    usage: account.usage, allowPaid: account.allowPaid, cooldownS: account.cooldownS,
-    quotaSource: account.quotaSource === "arkcli" ? "arkcli" : null, weeklyTokens: account.weeklyTokens,
-  };
-  if (account.usage !== "metered") return readUsage(ctx, cfg);
-  const models = [...new Set(runners.map(r => r.model))];
-  const readings = await Promise.all(models.map(model => readUsage(ctx, { ...cfg, model })));
-  if (!readings.length) return readUsage(ctx, cfg);
-  const first = readings[0];
-  return {
-    ...first,
-    windows: first.windows.map(w => ({ ...w, usedPct: w.usedPct === null ? null : readings.reduce((sum, r) => sum + (r.windows.find(v => v.name === w.name)?.usedPct ?? 0), 0) })),
-    stale: readings.some(r => r.stale),
-    ...(readings.some(r => r.error) ? { error: readings.filter(r => r.error).map(r => r.error).join("; ") } : {}),
   };
 }

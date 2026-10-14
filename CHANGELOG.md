@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [0.1.23] - 2026-10-14
 
+- Read usage per account from native Codex sessions, separate Claude status-line caches and Orca active/inactive rate limits; filter Orca account emails, retain native/reactive fallbacks and validate derived Orca account folders.
+
 - Add accounts and runners to the strategy model, with validated agent/account pairings and a compatibility loader for existing provider strategies.
 - Add account spread/fill settings and a validated fill threshold (default 90%).
 - Add validated, atomic strategy edits that preserve comments and untouched layout, and migrate provider strategies during init, update or `pacer config migrate` with a recovery backup and restore command.
