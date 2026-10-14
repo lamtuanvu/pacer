@@ -4,8 +4,8 @@ import { defaultUpdateDeps, runUpdate } from "../update/update";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient } from "../exec/orca/client";
 import { pluginCli } from "../plugin/cli";
-import { withLock } from "../core/lock";
-import { blockExecutor, unblockExecutor } from "../executors/blocked";
+import * as core from "../core";
+import { CoreError } from "../core/errors";
 import {taskData} from "../link/pump";
 import { currentVersion } from "../update/version";
 import { publish } from "../link/publish";
@@ -102,16 +102,19 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
       case "block":
       case "unblock": {
         if(!data.executor || !validExecutor(data.executor))return;
-        if(data.cmd === "block")blockExecutor(fresh(),data.executor,data.for);else unblockExecutor(fresh(),data.executor);
+        try {
+          if(data.cmd === "block")core.runners.block(fresh(),data.executor,{for:data.for});else core.runners.unblock(fresh(),data.executor);
+        } catch(e) { print(`pacer: ${(e as Error).message}`); return; }
         print(`${data.executor} ${data.cmd === "block" ? "Blocked by you" : "unblocked"}`);
         await deps.pump(fresh());break;
       }
       case "dismiss": {
         const ids = data.taskIds ?? (data.taskId ? [data.taskId] : []);
+        const r = core.tasks.dismiss(fresh(), ids);
         for(const id of ids) {
-          if(!readTask(fresh(),id)) { print("pacer: unknown task"); continue; }
-          const updated=updateTask(fresh(),id,t=>{t.dismissed=true;});
-          await publish(fresh(),[{v:1,type:"task",data:taskData(updated)}]);
+          const t = r.dismissed.find(x=>x.id===id);
+          if(!t) { print("pacer: unknown task"); continue; }
+          await publish(fresh(),[{v:1,type:"task",data:taskData(t)}]);
           print(`${id} dismissed`);
         }
         await deps.pump(fresh()); break;
@@ -121,22 +124,19 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
         if (!validExecutor(data.executor)) return;
         const ids = data.taskIds ?? (data.taskId ? [data.taskId] : []);
         for (const id of ids) {
-          await withLock(fresh(),`retry-${id}`,async()=>{
-            const task=(deps.readTask ?? readTask)(fresh(),id);
-            if(!task){print("pacer: unknown task");return;}
-            const retry=task.retriedBy ? readTask(fresh(),task.retriedBy) : null;
-            if(retry && ["queued","running"].includes(retry.state)) {
-              const reason=`${task.id} already has an active retry ${retry.id}`;
-              print(`pacer: ${reason}`);
-              await publish(fresh(),[{v:1,type:"alert",data:{key:`retry-${task.id}`,level:"warn",title:"Retry already running",body:reason,at:fresh().now}}]);
-              return;
+          try {
+            const r = await core.tasks.retry(fresh(), id, {...(data.executor?{executor:data.executor}:{}), fromPanel:true}, {delegate:(c,input)=>deps.delegate(c,input)});
+            await publish(fresh(),[{v:1,type:"task",data:taskData(r.of)},{v:1,type:"task",data:taskData(r.retry)}]);
+            print(`${r.retry.id} queued (retry of ${r.of.id})`);
+          } catch(e) {
+            if(e instanceof CoreError && e.code==="unknown_task"){print("pacer: unknown task");continue;}
+            if(e instanceof CoreError && e.code==="conflict"){
+              print(`pacer: ${e.message}`);
+              await publish(fresh(),[{v:1,type:"alert",data:{key:`retry-${id}`,level:"warn",title:"Retry already running",body:e.message,at:fresh().now}}]);
+              continue;
             }
-            const next=deps.delegate(fresh(),{brief:{...task.brief},kind:task.kind,timeoutMin:task.timeoutS/60,retryOf:task.id,...(data.executor?{executor:data.executor}:{})});
-            if(readTask(fresh(),next.id))updateTask(fresh(),next.id,t=>{t.retryOf=task.id;t.fromPanel=true;});
-            if(readTask(fresh(),task.id))updateTask(fresh(),task.id,t=>{t.retriedBy=next.id;});
-            await publish(fresh(),[{v:1,type:"task",data:taskData(readTask(fresh(),task.id)??task)},{v:1,type:"task",data:taskData(readTask(fresh(),next.id)??next)}]);
-            print(`${next.id} queued (retry of ${task.id})`);
-          });
+            throw e;
+          }
         }
         await deps.pump(fresh()); break;
       }
