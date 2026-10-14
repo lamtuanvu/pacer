@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [0.1.23] - 2026-10-14
 
+- Show runner ids with their agents, accounts and shared usage in status, route, dashboard and live panel rows, grouping runners by account while preserving legacy strategy rendering; label and align account and runner list columns without changing JSON output.
+
 - Add account and runner list/add/remove commands, private account homes with interactive agent login, sanitized Orca links, endpoint budgets and validated removal safeguards; add config get/set with effective-value provenance, planner integration movement and undo commands.
 
 - Install planner integrations into the selected Claude/Codex account folder, record account-scoped uninstall paths and command environments, and resolve hook budgets from the running session with a warning for unknown folders; init offers agent then account selection.

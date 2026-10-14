@@ -11,6 +11,7 @@ import { readOrcaAccounts } from "../orca/accounts";
 import { readAccountUsage } from "../usage";
 import type { Ctx } from "../types";
 import type { Result } from "./types";
+import { table } from "../render/table";
 
 export interface AccountDeps {
   login?: (argv: string[], env: Record<string, string>) => Promise<number>;
@@ -82,7 +83,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
         return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id), signedIn: identity ? true : null,
           runnable: a.source !== "orca" || folder !== null, usageReading};
       }));
-      return ok(flags.json ? JSON.stringify(rows,null,2) : rows.map(a=>`${a.name} · ${a.kind} · ${a.source} · ${a.folder ?? a.orcaAccount ?? 'default'} · ${a.runners.join(', ') || 'no runners'}${!a.runnable ? ' · usage-only: account folder not found' : ''} · ${a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage}`).join('\n'));
+      return ok(flags.json ? JSON.stringify(rows,null,2) : table(['ACCOUNT','KIND','SOURCE','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,`${a.source}${a.folder || a.orcaAccount ? ` (${a.folder ?? a.orcaAccount})` : ''}`,a.runners.join(', ') || 'no runners',`${a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
     }
     requireAccounts(s);
     if (verb === "add" && pos.length === 2) {
@@ -148,7 +149,7 @@ export async function runnerCmd(args: string[], ctx: Ctx): Promise<Result> {
     const [verb,...rest]=args;
     const {pos,flags}=commandArgs(rest,verb==='add'?['model']:[],verb==='list'?['json']:[]);
     const s=loadStrategy(ctx);
-    if(verb==='list' && !pos.length) return ok(flags.json ? JSON.stringify(Object.values(s.runners),null,2) : Object.values(s.runners).map(r=>`${r.id} · ${r.account} · ${r.model ?? 'default model'}`).join('\n'));
+    if(verb==='list' && !pos.length) return ok(flags.json ? JSON.stringify(Object.values(s.runners),null,2) : table(['RUNNER','ACCOUNT','MODEL'],Object.values(s.runners).map(r=>[r.id,r.account,r.model ?? 'default model'])));
     requireAccounts(s);
     if(pos.length!==1) throw Error('a runner id is required');
     const parsed=parseRunnerId(pos[0]); if(!parsed) throw Error('invalid runner id');

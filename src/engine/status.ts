@@ -39,15 +39,12 @@ export interface Status {
 }
 
 const BINARIES: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", agy: "agy" };
-const NAMES: Record<string, string> = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", opencode: "OpenCode" };
 
 export function binaryFor(cfg: ProviderCfg): string {
   return cfg.via === "opencode" ? "opencode" : BINARIES[parseRunnerId(cfg.id)?.agent ?? cfg.id] ?? cfg.id;
 }
 
-export function displayName(id: string): string {
-  return NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
-}
+export { displayName } from "../render/accounts";
 
 export async function computeStatus(
   ctx: Ctx, s: Strategy, opts: { profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
@@ -86,6 +83,7 @@ export async function computeStatus(
     const { account, reading, windows, binding, verdict } = byAccount[runner.account];
     return {
       id: runner.name, account: account.name, usage: account.usage, windows, binding, verdict,
+      ...(!s.legacy ? {agent: runner.agent} : {}),
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
       installed: ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
       stale: reading.stale,

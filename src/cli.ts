@@ -25,6 +25,7 @@ import { runMcpStdio } from "./mcp/server";
 import { renderHook } from "./render/hook";
 import { renderLine } from "./render/line";
 import { renderText } from "./render/text";
+import { renderRoute } from "./render/accounts";
 import { DEFAULT_PORT, startServer } from "./serve/http";
 import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskReview, taskDismiss, delegate, taskStatus, taskStop, taskWait } from "./tasks/api";
 import { runTask } from "./tasks/runner";
@@ -145,7 +146,8 @@ async function route(args: string[], ctx: Ctx): Promise<Result> {
     const st = await computeStatus(ctx, s);
     const r = rankExecutors(pos[0] ?? null, s, Object.fromEntries(st.providers.map((p) => [p.id, p])));
     if (opts.json) return { code: 0, out: JSON.stringify({kind:pos[0]??null,...r}, null, 1), err: "" };
-    const lines = r.ranked.map((e, i) => `${i + 1}. ${e.id} (${displayName(e.id)}): ${e.reason}`);
+    const rows=r.ranked.map((e,i)=>({...e,index:i,...(!s.legacy ? {agent:s.runners[e.id]?.agent} : {})}));
+    const lines = renderRoute(rows);
     if (!lines.length) lines.push("no executor available");
     if (r.excluded.length) lines.push(`excluded: ${r.excluded.map((e) => `${e.id} (${e.reason})`).join(", ")}`);
     return { code: 0, out: lines.join("\n"), err: "" };

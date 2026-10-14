@@ -5,6 +5,8 @@ import type { WindowStatus } from "./verdict";
 
 export interface ProviderStatus {
   id: string;
+  /** Present for account-form strategies; legacy presentation stays unchanged. */
+  agent?: string;
   account?: string;
   usage: UsageKind;
   windows: WindowStatus[];

@@ -3,9 +3,9 @@
 exports[`dashboard fixed-size rendering 1`] = `
 "◆ pacer · normal · default
 Live · 00:16:40
-Planner claude-code: 25% [######------|-----------]
+Planner Claude: 25% [######------|-----------]
 Who runs next
-> codex: Available · 25% used
+> Codex: Available · 25% used
 Unavailable executors
   (none)
 Needs attention
@@ -26,9 +26,9 @@ Recently done
 exports[`dashboard fixed-size rendering 2`] = `
 "◆ pacer · normal · default
 Live · 00:16:40
-Planner claude-code: 25% [###---|-----]
+Planner Claude: 25% [###---|-----]
 Who runs next
-> codex: Available · 25% used
+> Codex: Available · 25% used
 Unavailable executors
   (none)
 Needs attention

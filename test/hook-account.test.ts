@@ -22,7 +22,7 @@ test("hook resolves the actual planner account from its environment", async () =
   writeFileSync(path, (await Bun.file(path).text()).replace("planner: claude-code#work", "planner: claude-code"));
   ctx.env.CLAUDE_CONFIG_DIR = join(ctx.home, ".work-agent");
   const r = await main(["status", "--hook", "claude-code"], ctx);
-  expect(r.code).toBe(0); expect(r.out).toContain("Mode: EMERGENCY"); expect(r.out).toContain("Claude-code#work\'s quota");
+  expect(r.code).toBe(0); expect(r.out).toContain("Mode: EMERGENCY"); expect(r.out).toContain("Claude Code (work)'s quota");
 });
 test("hook unknown folder falls back to default budget with visible structured warning", async () => {
   const ctx = await fixture(); ctx.env.CLAUDE_CONFIG_DIR = join(ctx.home, "unknown");
