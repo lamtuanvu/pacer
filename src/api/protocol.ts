@@ -1,6 +1,12 @@
 import { CoreError, type CoreErrorCode } from "../core/errors";
+import pkg from "../../package.json";
+import { opNames } from "./ops";
 
 export const PROTOCOL_VERSION = "2.0.0";
+
+export function helloBody(): { protocol: string; pacer: string; ops: string[]; events: string[] } {
+  return { protocol: PROTOCOL_VERSION, pacer: pkg.version, ops: opNames(), events: ["budget", "task", "mode", "alert", "reset"] };
+}
 
 export type ApiErrorCode = CoreErrorCode | "unknown_op" | "too_large" | "internal";
 export interface ApiErrorBody { error: { code: ApiErrorCode; message: string; hint?: string } }

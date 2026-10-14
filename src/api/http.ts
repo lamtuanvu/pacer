@@ -1,9 +1,8 @@
-import pkg from "../../package.json";
 import * as core from "../core";
 import type { Ctx } from "../types";
 import { apiSnapshot, eventsSince } from "./events";
-import { callOp, opNames, type OpDeps } from "./ops";
-import { httpStatus, PROTOCOL_VERSION, toApiError, type ApiErrorBody } from "./protocol";
+import { callOp, type OpDeps } from "./ops";
+import { helloBody, httpStatus, toApiError, type ApiErrorBody } from "./protocol";
 
 const errorResponse = (error: ApiErrorBody["error"], status = httpStatus(error.code)) =>
   Response.json({ error }, { status });
@@ -50,9 +49,7 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       return Response.json({ result });
     }
     if (req.method !== "GET") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
-    if (pathname === "/v2/hello") return Response.json({
-      protocol: PROTOCOL_VERSION, pacer: pkg.version, ops: opNames(), events: ["budget", "task", "mode", "alert", "reset"],
-    });
+    if (pathname === "/v2/hello") return Response.json(helloBody());
     if (pathname === "/v2/snapshot") return Response.json(apiSnapshot(deps.getCtx()));
     if (pathname === "/v2/events") {
       let last = Number(req.headers.get("last-event-id") ?? url.searchParams.get("since") ?? 0);

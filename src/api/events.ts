@@ -1,10 +1,33 @@
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import type { LinkSnapshot } from "../link/envelope";
+import { toBudget } from "../link/budget";
+import { taskData } from "../link/pump";
+import { listTasks } from "../tasks/store";
+import { taskStatus } from "../tasks/api";
+import { computeStatus, type Status } from "../engine/status";
+import { loadStrategy } from "../config/strategy";
 import type { Ctx } from "../types";
 import { type ApiEvent, PROTOCOL_VERSION } from "./protocol";
 
 export function apiSnapshot(ctx: Ctx): { protocol: string; seq: number; snapshot: LinkSnapshot } {
   const snapshot = currentSnapshot(ctx);
+  return { protocol: PROTOCOL_VERSION, seq: snapshot.seq, snapshot };
+}
+
+export async function liveSnapshot(
+  ctx: Ctx, o: { maxBudgetAgeS?: number; status?: (c: Ctx) => Promise<Status> } = {},
+): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot }> {
+  const snapshot = currentSnapshot(ctx);
+  snapshot.tasks = listTasks(ctx, 20).map(t => ({
+    ...snapshot.tasks.find(old => old.id === t.id),
+    ...taskData(taskStatus(ctx, t.id) ?? t),
+  }));
+  if (!snapshot.budget || ctx.now - snapshot.budget.generatedAt > (o.maxBudgetAgeS ?? 60)) {
+    try {
+      const status = o.status ?? (c => computeStatus({ ...c, readOnly: true }, loadStrategy(c)));
+      snapshot.budget = toBudget(await status(ctx));
+    } catch { /* Keep the stored budget when status cannot be refreshed. */ }
+  }
   return { protocol: PROTOCOL_VERSION, seq: snapshot.seq, snapshot };
 }
 
