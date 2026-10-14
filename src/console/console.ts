@@ -1,3 +1,7 @@
+import { configCmd, CONFIG_KEYS } from "../commands/config";
+import { accountCmd, runnerCmd } from "../commands/accounts";
+import { pacerArgv } from "../install/self";
+import { shellCommand } from "../install/fsx";
 import { checkSetupCommand } from "../setup/check";
 import { checkUpdateReport, installedPlugin } from "../update/check";
 import { defaultUpdateDeps, runUpdate } from "../update/update";
@@ -59,6 +63,33 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
   };
   return async (data: CmdData) => {
     switch (data.cmd) {
+      case "config-set": {
+        if(!data.key || !(CONFIG_KEYS as readonly string[]).includes(data.key) || typeof data.value!=="string") {print("pacer: unknown config key or missing value");break;}
+        const result=await configCmd(["set",data.key,data.value],fresh());print(result.out || result.err);await refresh();break;
+      }
+      case "account-remove":
+      case "runner-remove": {
+        if(!data.name) {print("pacer: name is required");break;}
+        const result=await (data.cmd==="account-remove"?accountCmd:runnerCmd)(["rm",data.name],fresh());
+        print(result.out || result.err);await refresh();break;
+      }
+      case "open-terminal": {
+        const commands={"account-add":["account","add"],"account-add-orca":["account","add","--orca"],"runner-add":["runner","add"],init:["init"]};
+        if(!data.command || !Object.hasOwn(commands,data.command)) {print("pacer: unknown terminal command");break;}
+        const c=fresh(),client=new OrcaClient(c.run,c.env);
+        // The panel supplies the focus resolved by resolveFocusedWorktree; never use the console CWD.
+        const path=!data.worktreeId && data.branch ? await deps.resolveWorktreePath(c,data.branch) : null;
+        let selector=data.worktreeId?`id:${data.worktreeId}`:path?`path:${path}`:null;
+        if(!selector && !data.branch && !data.worktreeId) {
+          const focused=await client.call<{worktree?:{id?:string}}>(["worktree","show","--worktree","active"]);
+          if(!focused.ok) {print(`pacer: focused worktree could not be resolved: ${focused.error.message}`);break;}
+          if(typeof focused.result.worktree?.id==="string" && focused.result.worktree.id) selector=`id:${focused.result.worktree.id}`;
+        }
+        if(!selector) {print("pacer: focused worktree could not be resolved");break;}
+        const result=await client.call<{terminal?:{handle?:string}}>(["terminal","create","--worktree",selector,"--title","pacer settings","--command",shellCommand([...pacerArgv(c.env),...commands[data.command]])]);
+        print(result.ok && result.result.terminal?.handle ? `pacer settings opened in terminal ${result.result.terminal.handle}` : `pacer: could not open settings terminal: ${result.ok?"missing terminal handle":result.error.message}`);
+        break;
+      }
       case "check-setup": { print(await (deps.checkSetup ?? checkSetupCommand)(fresh())); await refresh(); break; }
       case "check-updates": { const result = await (deps.checkUpdates ?? checkUpdateReport)(fresh()); print(result.out || result.err); await refresh(); break; }
       case "update": {
@@ -162,6 +193,7 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
       case "use": if (data.strategy) await use(data.strategy); else chooseStrategy(); break;
       case "refresh": await refresh(); break;
       case "agent-done": print(`agent finished (${data.paneKey ?? ""}); refreshing`); await deps.pump(fresh()); break;
+      default: print("pacer: unknown plugin command"); break;
       case "worktree-created": {
         const branch = data.branch ?? "";
         const match = /^pacer-(t-\d{8}-\d{6}-[0-9a-f]{4})-/.exec(branch);

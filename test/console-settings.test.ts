@@ -1,0 +1,50 @@
+import {expect,test} from 'bun:test';
+import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {fakeCtx} from './helpers';
+import {runConsole,type ConsoleDeps} from '../src/console/console';
+import {parseCmd,type CmdData} from '../src/link/envelope';
+import {loadStrategy} from '../src/config/strategy';
+
+function harness() {
+ const ctx=fakeCtx({env:{PACER_BIN:'pacer'}}); mkdirSync(ctx.pacerHome,{recursive:true});
+ const path=join(ctx.pacerHome,'strategy.yaml');
+ writeFileSync(path,'# keep\naccounts: {personal: {kind: claude}, codex: {kind: codex}, spare: {kind: endpoint, usage: unmetered, model: local/test}}\nplanner: claude-code\nrouting: [{default: [codex, opencode#spare]}]\npacing: {policy: priority}\n');
+ let output=''; const calls:string[][]=[];
+ ctx.run=async argv=>{calls.push(argv);return {code:0,stderr:'',stdout:JSON.stringify({ok:true,result:{terminal:{handle:'term_settings'}}})};};
+ const deps:ConsoleDeps={delegate:()=>{throw Error('unexpected');},useStrategy:()=>'',listStrategies:()=>[],statusText:async()=>'',pump:async()=>[],heartbeat:()=>{},resolveWorktreePath:async()=>'/focused',selfHandle:async()=>({handle:null,paneKey:null}),every:()=>()=>{},pid:1,cwd:'/worker'};
+ const run=async(data:Record<string,unknown>)=>{async function* lines(){yield `: pacer '${JSON.stringify({v:1,type:'cmd',data})}'`;}await runConsole(ctx,{lines:lines(),write:s=>{output+=s;}},deps);};
+ return {ctx,path,calls,run,output:()=>output};
+}
+for(const [key,value,want] of [['pacing.policy','even','even'],['pacing.accounts','fill','fill'],['pacing.fill_threshold','95',95],['pacing.planner_reserve','25',25],['pacing.order','codex,claude-code',['codex','claude-code']],['update_check','false',false]] as const) test(`console writes ${key} through validated config`,async()=>{
+ const h=harness();await h.run({cmd:'config-set',key,value});
+ const raw=Bun.YAML.parse(readFileSync(h.path,'utf8')) as any;
+ expect(key.split('.').reduce((v,k)=>v[k],raw)).toEqual(want);
+ expect(h.output()).toContain('Undo: pacer config set');expect(readFileSync(h.path,'utf8')).toContain('# keep');
+});
+test('planner accepts a runner id and moves integration through the shared writer',async()=>{const h=harness();await h.run({cmd:'config-set',key:'planner',value:'codex'});expect(loadStrategy(h.ctx).planner.agent).toBe('codex');expect(h.output()).toContain('Undo:');});
+for(const data of [{cmd:'config-set',key:'execution.backend',value:'direct'},{cmd:'open-terminal',command:'init; touch /tmp/pwn'},{cmd:'unknown'},{cmd:'config-set',key:'planner',value:22},{cmd:'account-remove',name:'spare --delete-home'}]) test(`rejects malformed settings ${JSON.stringify(data)}`,async()=>{const h=harness(),before=readFileSync(h.path,'utf8');await h.run(data);expect(h.output()).toContain('ignored malformed plugin command');expect(h.calls).toEqual([]);expect(readFileSync(h.path,'utf8')).toBe(before);});
+test('invalid settings report validation errors without writing',async()=>{const h=harness(),before=readFileSync(h.path,'utf8');await h.run({cmd:'config-set',key:'pacing.fill_threshold',value:'49'});expect(h.output()).toContain('pacer:');expect(readFileSync(h.path,'utf8')).toBe(before);});
+test('removals use the shared safeguards and report results',async()=>{const h=harness();await h.run({cmd:'account-remove',name:'spare'});expect(h.output()).toContain('in use');await h.run({cmd:'runner-remove',name:'opencode#spare'});expect(loadStrategy(h.ctx).runners['opencode#spare']).toBeUndefined();await h.run({cmd:'account-remove',name:'spare'});expect(loadStrategy(h.ctx).accounts.spare).toBeUndefined();expect(h.output()).toContain('Removed account spare');});
+for(const [command,shell] of [['account-add','pacer account add'],['account-add-orca','pacer account add --orca'],['runner-add','pacer runner add'],['init','pacer init']]) test(`opens only fixed argv for ${command} in focused worktree`,async()=>{const h=harness();await h.run({cmd:'open-terminal',command,worktreeId:'repo::/focused',goal:'$(touch /tmp/pwn)'});expect(h.calls[0]).toEqual(['orca','terminal','create','--worktree','id:repo::/focused','--title','pacer settings','--command',shell,'--json']);expect(h.output()).toContain('term_settings');});
+test('open-terminal refuses absent focus and reports Orca failures',async()=>{const h=harness();await h.run({cmd:'open-terminal',command:'init'});expect(h.calls).toEqual([['orca','worktree','show','--worktree','active','--json']]);expect(h.output()).toContain('focused worktree');h.ctx.run=async()=>({code:1,stdout:JSON.stringify({ok:false,error:{message:'offline'}}),stderr:''});await h.run({cmd:'open-terminal',command:'init',worktreeId:'repo::/focused'});expect(h.output()).toContain('offline');});
+test('settings payloads survive parsing without truncation or coercion',()=>{expect(parseCmd({v:1,type:'cmd',data:{cmd:'config-set',key:'pacing.order',value:''}})?.data).toEqual({cmd:'config-set',key:'pacing.order',value:''} as unknown as CmdData);});
+
+test('fixed add commands collect arguments in the terminal before using shared writers',async()=>{
+ const {accountCmd,runnerCmd}=await import('../src/commands/accounts');const h=harness();
+ const answers=['codex','team'];
+ expect((await accountCmd(['add'],h.ctx,{prompt:async()=>answers.shift()!,login:async()=>0})).code).toBe(0);
+ expect(loadStrategy(h.ctx).accounts.team.kind).toBe('codex');
+ expect((await runnerCmd(['add'],h.ctx,{prompt:async()=> 'codex#team'})).code).toBe(0);
+ expect(loadStrategy(h.ctx).runners['codex#team']).toBeDefined();
+});
+test('fixed Orca link command prompts for label-safe identity and writes the linked account',async()=>{
+ const {accountCmd}=await import('../src/commands/accounts');const h=harness();
+ h.ctx.run=async()=>({code:0,stderr:'',stdout:JSON.stringify({rateLimits:{},codex:{accounts:[{id:'team-id',label:'Team',email:'private@example.invalid'}]}})});
+ const answers=['codex','team','team-id'];
+ const r=await accountCmd(['add','--orca'],h.ctx,{prompt:async()=>answers.shift()!});
+ expect(r.code).toBe(0);expect(loadStrategy(h.ctx).accounts.team.orcaAccount).toBe('team-id');expect(r.out).not.toContain('private@example.invalid');
+});
+test('interactive endpoint add collects usage settings for the shared validator',async()=>{const {accountCmd}=await import('../src/commands/accounts');const h=harness(),answers=['endpoint','metered-api','metered','1M'];const r=await accountCmd(['add'],h.ctx,{prompt:async()=>answers.shift()!});expect(r.code).toBe(0);expect(loadStrategy(h.ctx).accounts['metered-api'].weeklyTokens).toBe(1_000_000);});
+
+test('command-only terminal actions resolve Orca focus rather than the worker directory',async()=>{const h=harness();h.ctx.run=async argv=>{h.calls.push(argv);return {code:0,stderr:'',stdout:JSON.stringify({ok:true,result:argv[1]==='worktree'?{worktree:{id:'repo::/focused'}}:{terminal:{handle:'term_settings'}}})};};await h.run({cmd:'open-terminal',command:'init'});expect(h.calls).toEqual([['orca','worktree','show','--worktree','active','--json'],['orca','terminal','create','--worktree','id:repo::/focused','--title','pacer settings','--command','pacer init','--json']]);expect(h.output()).toContain('term_settings');});

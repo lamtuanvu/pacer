@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-10-14
+
+- Add validated console settings commands for planner and pacing changes, account and runner removal, and fixed terminal actions in the focused worktree.
+- Collect account and runner add arguments in the terminal while keeping the shared CLI write path.
+
 ## [0.1.23] - 2026-10-14
 
 - Always use direct execution for non-default account folders, even with Orca/auto selected, to avoid interactive workspace-trust hangs; record the reason in attempt logs and preserve default-account backend behavior.

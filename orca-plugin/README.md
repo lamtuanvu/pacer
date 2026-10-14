@@ -10,7 +10,7 @@ The marketplace plugin bootstraps pacer. It opens a live terminal dashboard and 
 In Orca Settings > Plugins, add marketplace source URL
 `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer**
 (`lamtuanvu.pacer`) and grant its declared capabilities. For a direct versioned
-install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.23`, replacing
+install, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.24`, replacing
 the version with the release you want. Releases publish a root-level bundle on
 the `orca-plugin` branch, with immutable `orca-plugin-v<version>` tags.
 

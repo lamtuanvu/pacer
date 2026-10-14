@@ -12,9 +12,9 @@ export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
-export const CMD_NAMES = ["check-setup", "check-updates", "update", "focus", "delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build", "notify-level"] as const;
+export const CMD_NAMES = ["check-setup", "check-updates", "update", "focus", "delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build", "notify-level", "config-set", "account-remove", "runner-remove", "open-terminal"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
-export interface CmdData { cmd: CmdName; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
+export interface CmdData { cmd: CmdName; key?: string; value?: string; name?: string; command?: "account-add" | "account-add-orca" | "runner-add" | "init"; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
 export interface Cmd { v: 1; type: "cmd"; data: CmdData }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max: number): string | null => typeof v === "string" ? v.slice(0, max) : null;
@@ -109,6 +109,19 @@ export function parseCmd(raw: unknown): Cmd | null {
   for (const [k,max,pattern] of [["executor",64,/^[a-z0-9-]+(?:#[a-z0-9-]+)?$/],["taskId",128,/^[A-Za-z0-9_-]+$/]] as const) {
     if (d[k] !== undefined && (typeof d[k] !== "string" || !pattern.test(d[k] as string))) return null;
     const v=optStr(d[k],max); if(v) data[k]=v;
+  }
+  if(data.cmd==="config-set") {
+    if(typeof d.key!=="string" || !["planner","pacing.order","pacing.policy","pacing.planner_reserve","pacing.accounts","pacing.fill_threshold","update_check"].includes(d.key) || typeof d.value!=="string" || d.value.length>2000)return null;
+    data.key=d.key;data.value=d.value;
+  }
+  if(data.cmd==="account-remove" || data.cmd==="runner-remove") {
+    const pattern=data.cmd==="account-remove" ? /^[a-z0-9][a-z0-9-]*$/ : /^[a-z0-9][a-z0-9-]*(?:#[a-z0-9][a-z0-9-]*)?(?:@[a-z0-9][a-z0-9-]*)?$/;
+    if(typeof d.name!=="string" || d.name.length>128 || !pattern.test(d.name))return null;
+    data.name=d.name;
+  }
+  if(data.cmd==="open-terminal") {
+    if(typeof d.command!=="string" || !["account-add","account-add-orca","runner-add","init"].includes(d.command))return null;
+    data.command=d.command as CmdData["command"];
   }
   if(data.cmd==="focus" && !data.taskId)return null;
   if(data.cmd==="notify-level") {
