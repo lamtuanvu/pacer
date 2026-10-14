@@ -24,8 +24,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "yaml": "2.8.2",
-    "zod": "4.6.5"
+    "yaml": "2.9.1",
+    "zod": "4.6.6"
   },
   "license": "Apache-2.0",
   "description": "Subscription-budget-aware delegation for AI coding agents through a CLI, MCP server and Orca plugin.",
