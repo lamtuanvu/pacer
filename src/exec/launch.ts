@@ -1,6 +1,32 @@
-import { parseRunnerId } from "../config/runner-id";
+import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { join } from "node:path";
-import type { ProviderCfg } from "../config/strategy";
+import { loadStrategy, MissingStrategyError, type ProviderCfg } from "../config/strategy";
+import type { RunnerCfg } from "../config/accounts";
+import type { Ctx } from "../types";
+import { orcaAccountHome } from "../orca/accounts";
+
+/** Select only an account's config directory; never inspect credentials. */
+export function runnerEnv(ctx: Ctx, runner: RunnerCfg): Record<string, string> {
+  const account = loadStrategy(ctx).accounts[runner.account];
+  if (!account) throw new Error(`account not configured: ${runner.account}`);
+  if (account.source === "default" || account.source === "endpoint") return {};
+  if (account.kind !== "claude" && account.kind !== "codex") return {};
+  const home = account.source === "orca" ? orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") : account.home?.replace(/^~(?=\/|$)/, ctx.home);
+  if (!home) throw new Error(`account folder not found: ${runner.account}`);
+  return {[account.kind === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"]: home};
+}
+
+/** Bridge backends still accepting the compatibility provider view. */
+export function providerEnv(ctx: Ctx, cfg: ProviderCfg): Record<string, string> {
+  let strategy;
+  try { strategy = loadStrategy(ctx); } catch (e) {
+    if (e instanceof MissingStrategyError && (cfg.via === "opencode" || !parseRunnerId(cfg.id)?.account)) return {};
+    throw e;
+  }
+  const runner = resolveRunner(strategy, cfg.id);
+  if (!runner) throw new Error(`runner not configured: ${cfg.id}`);
+  return runnerEnv(ctx, runner);
+}
 
 export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessageFile?: string }
 

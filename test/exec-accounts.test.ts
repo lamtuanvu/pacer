@@ -1,0 +1,129 @@
+import { expect, test } from "bun:test";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { validateStrategy } from "../src/config/strategy";
+import * as launch from "../src/exec/launch";
+import { computeStatus } from "../src/engine/status";
+import { makeOrcaBackend } from "../src/exec/orca/backend";
+import { DEFAULT_EXECUTION } from "../src/config/execution";
+import { createTask } from "../src/tasks/store";
+import { fakeCtx } from "./helpers";
+import { fakeRun, ok, raw } from "./fixtures/orca/fake";
+
+function setup() {
+  const ctx = fakeCtx();
+  ctx.env.ORCA_USER_DATA_PATH = join(ctx.home, "orca data");
+  const home = join(ctx.home, "team's $(unsafe) home");
+  const s = validateStrategy({
+    planner: "claude-code",
+    accounts: {
+      main: {kind: "claude"}, team: {kind: "claude", home},
+      codex: {kind: "codex"}, work: {kind: "codex", home},
+      managed: {kind: "codex", orca_account: "cx-team"},
+      local: {kind: "endpoint", usage: "unmetered", model: "local/model"},
+    },
+    routing: [{default: ["claude-code#team", "codex", "codex#work", "codex#managed", "opencode#local"]}],
+  }, "/strategy");
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  // The public runnerEnv interface resolves account settings from the active strategy.
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+    planner: "claude-code", accounts: Object.fromEntries(Object.entries(s.accounts).map(([name, a]) => [name, {
+      kind: a.kind, ...(a.home ? {home: a.home} : {}), ...(a.orcaAccount ? {orca_account: a.orcaAccount} : {}), usage: a.usage,
+      ...(a.model ? {model: a.model} : {}),
+    }])), routing: [{default: Object.keys(s.runners)}],
+  }));
+  return {ctx, s, home};
+}
+
+test("runnerEnv sets only non-default Claude and Codex account homes", () => {
+  const {ctx, s, home} = setup();
+  expect(launch.runnerEnv(ctx, s.runners["claude-code#team"])).toEqual({CLAUDE_CONFIG_DIR: home});
+  expect(launch.runnerEnv(ctx, s.runners["codex#work"])).toEqual({CODEX_HOME: home});
+  expect(launch.runnerEnv(ctx, s.runners["claude-code"])).toEqual({});
+  expect(launch.runnerEnv(ctx, s.runners.codex)).toEqual({});
+  expect(launch.runnerEnv(ctx, s.runners["opencode#local"])).toEqual({});
+});
+
+test("Orca account home is resolved only when its folder exists", () => {
+  const {ctx, s} = setup();
+  expect(() => launch.runnerEnv(ctx, s.runners["codex#managed"])).toThrow("account folder not found");
+  const home = join(ctx.env.ORCA_USER_DATA_PATH!, "codex-accounts", "cx-team", "home");
+  mkdirSync(home, {recursive: true});
+  expect(launch.runnerEnv(ctx, s.runners["codex#managed"])).toEqual({CODEX_HOME: home});
+});
+
+test("missing Orca folder keeps usage visible but excludes the runner from routing", async () => {
+  const {ctx, s} = setup();
+  const readings = new Map(Object.keys(s.accounts).map(name => [name, {windows: [], capturedAt: null, stale: false}]));
+  const status = await computeStatus(ctx, s, {profile: null, readings});
+  expect(status.accounts.find(a => a.name === "managed")).toBeDefined();
+  expect(status.executors.ranked.some(r => r.id === "codex#managed")).toBe(false);
+  expect(status.executors.excluded).toContainEqual({id: "codex#managed", account: "managed", reason: "account folder not found"});
+});
+
+test.each([
+  ["claude-code#team", "current", "CLAUDE_CONFIG_DIR", "claude"],
+  ["codex#work", "current", "CODEX_HOME", "codex"],
+  ["claude-code#team", "new-child", "CLAUDE_CONFIG_DIR", "claude"],
+  ["codex#work", "new-child", "CODEX_HOME", "codex"],
+] as const)("Orca %s on %s quotes account env and uses terminal supervision", async (id, worktree, variable, agent) => {
+  const {ctx, s, home} = setup();
+  const f = fakeRun([
+    [["git", "-C", "/work/app", "rev-parse"], raw("/work/app\nmain\n")],
+    [["git", "-C", "/work/app", "status"], raw("")],
+    [["orca", "status"], ok("status-ready.json")],
+    [["orca", "repo", "list"], raw('{"ok":true,"result":{"repos":[{"id":"repo1","path":"/work/app"}]}}')],
+    [["orca", "worktree", "create"], raw('{"ok":true,"result":{"worktree":{"id":"repo1::/work/child","path":"/work/child"}}}')],
+    [["orca", "terminal", "create"], ok("coordinator-terminal.json")],
+    [["orca", "terminal", "show"], ok("terminal-show-live.json")],
+    [["orca", "orchestration", "run-create"], ok("run-create.json")],
+    [["orca", "orchestration", "worker-start"], ok("worker-start-t1-auto.json")],
+    [["orca", "orchestration", "check"], [ok("check-1.ndjson"), ok("ack-1.json")]],
+    [["orca", "orchestration", "worker-release"], ok("worker-release-t1.json")],
+    [["orca", "terminal", "close"], ok("terminal-close.json")],
+  ]);
+  ctx.run = f.run;
+  const task = createTask(ctx, {brief: {goal: "test", repo: "/work/app"}, kind: null, requestedExecutor: null, timeoutS: 10});
+  const backend = makeOrcaBackend({loadExecution: () => ({...DEFAULT_EXECUTION, worktree}), sleep: async () => {}});
+  const out = await backend.runAttempt(ctx, s.providers[id], task);
+  expect(out.backend).toBe("orca");
+  const create = f.calls.find(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"));
+  expect(create).toBeDefined();
+  const command = create![create!.indexOf("--command") + 1];
+  expect(command).toBe(`${variable}='${home.replaceAll("'", "'\\''")}' PACER_ROLE=executor ${agent}`);
+  const start = f.calls.find(a => a[2] === "worker-start")!;
+  expect(start).toContain("--terminal");
+  expect(start).not.toContain("--agent");
+  if (worktree === "new-child") {
+    expect(out.worktree).toBe("/work/child");
+    expect(create![create!.indexOf("--worktree") + 1]).toBe("path:/work/child");
+  }
+});
+
+test("direct launch passes the account env and clears an inherited planner account", async () => {
+  const {runAttempt} = await import("../src/exec/direct");
+  const {chmodSync} = await import("node:fs");
+  const {ctx, s, home} = setup();
+  const bin = join(ctx.home, "bin");
+  mkdirSync(bin);
+  const claude = join(bin, "claude");
+  writeFileSync(claude, '#!/bin/sh\nprintf "%s|%s|%s" "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" "$PACER_ROLE"\n');
+  chmodSync(claude, 0o755);
+  ctx.env = {...ctx.env, PATH: bin, CLAUDE_CONFIG_DIR: "planner-home", CODEX_HOME: "planner-codex"};
+  const task = createTask(ctx, {brief: {goal: "test", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10});
+  const selected = await runAttempt(ctx, s.providers["claude-code#team"], task);
+  expect(selected.exec.code).toBe(0);
+  expect(selected.exec.stdout).toBe(`${home}||executor`);
+  const defaultAccount = await runAttempt(ctx, s.providers["claude-code"], task);
+  expect(defaultAccount.exec.code).toBe(0);
+  expect(defaultAccount.exec.stdout).toBe("||executor");
+});
+
+test("pacer-managed home expands the user's home before launch", () => {
+  const {ctx, s} = setup();
+  const file = join(ctx.pacerHome, "strategy.yaml");
+  const rawStrategy = JSON.parse(readFileSync(file, "utf8"));
+  rawStrategy.accounts.team.home = "~/.claude-team";
+  writeFileSync(file, JSON.stringify(rawStrategy));
+  expect(launch.runnerEnv(ctx, s.runners["claude-code#team"])).toEqual({CLAUDE_CONFIG_DIR: join(ctx.home, ".claude-team")});
+});

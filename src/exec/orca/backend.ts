@@ -1,3 +1,6 @@
+import { parseRunnerId } from "../../config/runner-id";
+import { shellCommand, shq } from "../../install/fsx";
+import { providerEnv } from "../launch";
 import { pidAlive } from "../../link/store";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -156,6 +159,12 @@ async function cleanup(c: OrcaClient, dispatchId: string, terminal: string | nul
 async function runOrcaAttempt(
   deps: OrcaBackendDeps, ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void,
 ): Promise<AttemptOutcome> {
+  let accountEnv: Record<string, string>;
+  try { accountEnv = providerEnv(ctx, cfg); } catch (e) {
+    const reason = (e as Error).message, at = deps.now() / 1000;
+    return {exec: {code: 1, stdout: "", stderr: reason, timedOut: false}, report: reason, backend: "orca",
+      attempt: {executor: cfg.id, model: cfg.model, startedAt: at, endedAt: at, exitCode: 1, timedOut: false, limitHit: false, log: ""}};
+  }
   let ex: ExecutionCfg;
   try {
     ex = deps.loadExecution(ctx);
@@ -194,23 +203,51 @@ async function runOrcaAttempt(
   };
   let ws: Awaited<ReturnType<OrcaClient["workerStart"]>>;
   const prompt = workerSpec(task, p);
+  let accountWorktree: string | null = null;
+  let accountTerminal: string | null = null;
   try {
-    ws = await c.workerStart({ spec: prompt, agent: p.agent, model: p.model, placement: p.placement, run: p.run, from: p.coordinator });
+    if (Object.keys(accountEnv).length) {
+      // worker-start --agent cannot override env. Create a terminal with the
+      // account command, then supervise that terminal using the public CLI.
+      let selector = p.placement.kind === "existing" ? p.placement.selector : "";
+      if (p.placement.kind === "new-child") {
+        const created = await c.call<{worktree?: {id?: string; path?: string}}>([
+          "worktree", "create", "--repo", `id:${p.placement.repoId}`, "--name", p.placement.name,
+          "--base-branch", p.placement.baseBranch, "--parent-worktree", `path:${p.top}`, "--setup", "skip",
+        ], 240_000);
+        if (!created.ok) return uncertainStart(`account worktree creation failed: ${created.error.code}`);
+        accountWorktree = created.result.worktree?.path ?? null;
+        if (!accountWorktree) return uncertainStart("account worktree creation returned no path");
+        selector = `path:${accountWorktree}`;
+      }
+      const agent = parseRunnerId(cfg.id)?.agent;
+      const argv = agent === "claude-code" ? ["claude", ...(cfg.model ? ["--model", cfg.model] : [])]
+        : ["codex", ...(cfg.model ? ["-m", cfg.model] : [])];
+      const command = [...Object.entries(accountEnv).map(([key, value]) => `${key}=${shq(value)}`),
+        "PACER_ROLE=executor", shellCommand(argv)].join(" ");
+      const terminal = await c.call<{terminal?: {handle?: string}}>(["terminal", "create", "--worktree", selector,
+        "--title", `pacer ${task.id}`, "--command", command]);
+      if (!terminal.ok || !terminal.result.terminal?.handle) return uncertainStart("account terminal creation failed");
+      accountTerminal = terminal.result.terminal.handle;
+      ws = await c.call(["orchestration", "worker-start", "--spec", prompt, "--terminal", accountTerminal,
+        "--worktree", selector, "--run", p.run, "--from", p.coordinator], 240_000);
+    } else ws = await c.workerStart({ spec: prompt, agent: p.agent, model: p.model, placement: p.placement, run: p.run, from: p.coordinator });
   } catch (e) {
     return uncertainStart(String(e instanceof Error ? e.message : e));
   }
   if (!ws.ok && ["timeout", "bad_output"].includes(ws.error.code)) {
     return uncertainStart(`${ws.error.code}: ${ws.error.message}`);
   }
+  if (!ws.ok && accountTerminal) { await c.terminalClose(accountTerminal); return uncertainStart(`account worker-start refused: ${ws.error.code}`); }
   if (!ws.ok) return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`);
   startedAt = deps.now() / 1000;
   const r = ws.result;
   if (!r.dispatchId) return uncertainStart("orca worker-start returned no dispatch id");
   const dispatchId = r.dispatchId;
-  const root = worktreePathOf(r.effects);
+  const root = accountWorktree ?? worktreePathOf(r.effects);
   const worktree = p.placement.kind === "existing" ? task.brief.repo : root ? (p.sub ? join(root, p.sub) : root) : null;
   if(worktree)updateTask(ctx,task.id,t=>{t.worktree=worktree;});
-  const terminal = agentTerminalOf(r.effects);
+  const terminal = accountTerminal ?? agentTerminalOf(r.effects);
   log(`worker-start ${dispatchId}: ${r.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
   const forget = async () => {
     try {

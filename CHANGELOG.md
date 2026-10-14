@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [0.1.23] - 2026-10-14
 
+- Launch Claude and Codex runners on their selected account homes in direct and Orca execution, quote account variables in terminal commands, and exclude usage-only Orca accounts whose folders are missing.
+
 - Read usage per account from native Codex sessions, separate Claude status-line caches and Orca active/inactive rate limits; filter Orca account emails, retain native/reactive fallbacks and validate derived Orca account folders.
 
 - Add accounts and runners to the strategy model, with validated agent/account pairings and a compatibility loader for existing provider strategies.

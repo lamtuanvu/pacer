@@ -11,6 +11,7 @@ export interface ProviderStatus {
   binding: WindowStatus | null;
   verdict: Verdict;
   installed: boolean;
+  unavailableReason?: string;
   stale: boolean;
   error?: string;
   brokenReason?: string;
@@ -72,6 +73,7 @@ export function rankExecutors(
     const exclude = (reason: string) => excluded.push({ id, ...accountField, reason });
     if (runner?.agent === s.planner.agent && runner.account === s.planner.account) return exclude("planner");
     if (!st || !runner || !account) return exclude("not configured");
+    if (st.unavailableReason) return exclude(st.unavailableReason);
     if (st.blockedReason) return exclude("Blocked by you");
     if (st.brokenReason) return exclude(`Not working · ${st.brokenReason}`);
     if (!st.installed) return exclude("not installed");

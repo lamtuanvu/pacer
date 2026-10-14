@@ -1,3 +1,4 @@
+import { orcaAccountHome } from "../orca/accounts";
 import { parseRunnerId, formatRunnerId, runnerDefaults, resolveRunner } from "../config/runner-id";
 import type { AccountCfg } from "../config/accounts";
 import { readBlocked } from "../executors/blocked";
@@ -84,6 +85,7 @@ export async function computeStatus(
     const { account, reading, windows, binding, verdict } = byAccount[runner.account];
     return {
       id: runner.name, account: account.name, usage: account.usage, windows, binding, verdict,
+      ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
       installed: ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
       stale: reading.stale,
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
