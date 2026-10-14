@@ -8,6 +8,17 @@ import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {} } }, "/x");
 
+test("progress is recorded while the agent runs, and a silent agent is stopped as idle", async () => {
+  const { ctx, task } = await setup("cursor-agent", "echo start; sleep 30", { git: true });
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  cursor: {}\nexecution:\n  idle_after_min: 1\n  idle_fail_min: 2\n");
+  const o = await runAttempt({ ...ctx, env: { ...ctx.env, PACER_IDLE_SCALE: "0.01" } }, s.providers.cursor, task);
+  expect(o.exec.code).toBe(143);
+  expect(o.exec.stderr).toContain("without output or file changes");
+  const p = readTask(ctx, task.id)!.progress!;
+  expect(p.logBytes).toBeGreaterThan(0);
+  expect(["working", "idle"]).toContain(p.phase);
+});
+
 function fakeBin(name: string, script: string): string {
   const dir = tmpDir();
   const p = join(dir, name);

@@ -1,7 +1,8 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
-import { type ExecutionCfg, validateExecution } from "../config/execution";
+import { IDLE_AFTER_S, IDLE_FAIL_S, type ExecutionCfg, validateExecution } from "../config/execution";
+import { publish } from "../link/publish";
 import { pidAlive } from "../link/store";
 import { gitInfo, realpathSafe } from "../core/git";
 import { tasksDir, listTasks, readTask, updateTask } from "../tasks/store";
@@ -14,6 +15,7 @@ import { buildPrompt } from "./prompt";
 import { readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
 import { createTaskWorktree } from "../supervisor/worktree";
+import { idleSeconds, nextProgress } from "../supervisor/progress";
 
 export const REPORT_CHARS = 4000;
 
@@ -41,6 +43,42 @@ function loadExec(ctx: Ctx): ExecutionCfg {
   try { return validateExecution(loadStrategy(ctx).execution); } catch { return validateExecution(undefined); }
 }
 
+/** Progress every poll (written at most every 10 s or on a phase change); git counts every 30 s; idle stop after idleFailS. */
+function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
+  const ex = loadExec(ctx), scale = Number(ctx.env.PACER_IDLE_SCALE ?? "1") || 1; // PACER_IDLE_SCALE: test-only
+  const idleAfter = (ex.idleAfterS ?? IDLE_AFTER_S) * scale, idleFail = (ex.idleFailS ?? IDLE_FAIL_S) * scale;
+  let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = false;
+  let prev = readTask(ctx, task.id)?.progress;
+  return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle"> => {
+    const now = Date.now() / 1000;
+    if (now - gitAt >= 30) {
+      gitAt = now;
+      try {
+        const st = await ctx.run(["git", "-C", run.workdir, "status", "--porcelain"], 15_000);
+        if (st.code === 0) files = st.stdout.split("\n").filter(Boolean).length;
+        const base = readTask(ctx, task.id)?.baseBranch;
+        if (base && run.mode === "new") {
+          const c = await ctx.run(["git", "-C", run.workdir, "rev-list", "--count", `${base}..HEAD`], 15_000);
+          if (c.code === 0) commits = Number(c.stdout.trim()) || 0;
+        }
+      } catch { /* git progress is best effort, including when git is unavailable */ }
+    }
+    const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: s.lastOutputAt, files, commits, prev }, idleAfter);
+    if (p.phase !== prev?.phase || now - writtenAt >= 10) {
+      updateTask(ctx, task.id, t => { t.progress = p; });
+      writtenAt = now;
+    }
+    if (p.phase === "idle" && !alerted) {
+      alerted = true;
+      try {
+        await publish(ctx, [{ v: 1, type: "alert", data: { key: `idle-${task.id}`, level: "warn", title: "Task is idle", body: `${task.brief.goal.slice(0, 120)}: no output or file changes for ${Math.round(idleSeconds(p, run.startedAt, now) / 60)} min`, at: Math.floor(now) } }]);
+      } catch { /* alerts are best effort */ }
+    }
+    prev = p;
+    return idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
+  };
+}
+
 /** Shared tail of a fresh or resumed attempt: supervise, collect files, write the legacy log, build the outcome. */
 async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, run: RunRef, note: string, onPoll?: Parameters<typeof supervise>[0]["onPoll"]): Promise<AttemptOutcome> {
   const end: SuperviseEnd = await supervise({
@@ -49,7 +87,7 @@ async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, run: RunR
   });
   const out = readOutput(run.dir);
   const exec: ExecResult = { code: end.code, stdout: out.stdout, stderr: out.stderr, timedOut: end.kind === "timeout" };
-  if (end.kind === "idle") exec.stderr += `\npacer: stopped after ${Math.round(((loadExec(ctx) as { idleFailS?: number }).idleFailS ?? 1800) / 60)} min without output or file changes`;
+  if (end.kind === "idle") exec.stderr += `\npacer: stopped after ${Math.round((loadExec(ctx).idleFailS ?? IDLE_FAIL_S) / 60)} min without output or file changes`;
   if (end.kind === "lost") exec.stderr += "\npacer: the attempt's wrapper vanished without an exit record";
   try {
     writeFileSync(run.logFile, `$ ${launchArgv(run)}\n--- stdout\n${exec.stdout}\n--- stderr\n${exec.stderr}\n--- exit ${exec.code}${exec.timedOut ? " (timed out)" : ""}\n`);
@@ -123,11 +161,11 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
     return outcome(cfg, startedAt, exec, log, note + started.error);
   }
   try { onSpawn?.(started.pid); } catch { /* the run continues regardless */ }
-  return finishRun(ctx, cfg, task, run, note);
+  return finishRun(ctx, cfg, task, run, note, progressPoller(ctx, task, run));
 }
 
 /** Re-attach to an attempt whose pacer runner died (Task 6). */
 export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
   if (!task.run) throw new Error(`task ${task.id} has no run to resume`);
-  return finishRun(ctx, cfg, task, task.run, "");
+  return finishRun(ctx, cfg, task, task.run, "", progressPoller(ctx, task, task.run));
 }
