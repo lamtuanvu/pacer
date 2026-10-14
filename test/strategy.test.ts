@@ -19,8 +19,8 @@ const VALID = {
   },
   pacing: { policy: "even", planner_reserve: 15 },
   routing: [
-    { kinds: ["tests", "docs"], executors: ["byteplus", "local"] },
-    { default: ["byteplus", "codex"] },
+    { kinds: ["tests", "docs"], executors: ["opencode#byteplus", "opencode#local"] },
+    { default: ["opencode#byteplus", "codex"] },
   ],
 };
 
@@ -42,12 +42,12 @@ test("a valid strategy normalizes defaults", () => {
   expect(s.providers.cursor.usage).toBe("reactive");
   expect(s.providers.cursor.cooldownS).toBe(21600);
   expect(s.providers.codex.allowPaid).toBe(false);
-  expect(s.providers["opencode-go"].weeklyTokens).toBe(20_000_000);
-  expect(s.providers.byteplus.quotaSource).toBe("arkcli");
+  expect(s.providers["opencode#opencode-go"].weeklyTokens).toBe(20_000_000);
+  expect(s.providers["opencode#byteplus"].quotaSource).toBe("arkcli");
   expect(s.pacing).toEqual({ policy: "even", order: ["codex", "cursor", "opencode"], plannerReserve: 15, aheadThreshold: 10, behindThreshold: -10, accounts: "spread", fillThreshold: 90 });
   expect(s.routing).toEqual([
-    { kinds: ["tests", "docs"], executors: ["byteplus", "local"] },
-    { kinds: null, executors: ["byteplus", "codex"] },
+    { kinds: ["tests", "docs"], executors: ["opencode#byteplus", "opencode#local"] },
+    { kinds: null, executors: ["opencode#byteplus", "codex"] },
   ]);
 });
 
@@ -115,7 +115,7 @@ test("useStrategy validates, switches the active strategy, and 'default' switche
 test("examples/strategy.yaml is valid", async () => {
   const path = join(import.meta.dir, "..", "examples", "strategy.yaml");
   const s = validateStrategy(Bun.YAML.parse(await Bun.file(path).text()), path);
-  expect(Object.keys(s.providers)).toEqual(["claude-code", "codex", "cursor", "agy", "byteplus", "local"]);
+  expect(Object.keys(s.providers)).toEqual(["claude-code", "codex", "cursor", "agy", "opencode#byteplus", "opencode#local"]);
 });
 
 test("omitted pacing defaults to priority with only configured native preferences", () => {

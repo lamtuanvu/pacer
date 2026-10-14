@@ -11,8 +11,8 @@ import { fakeCtx, tmpDir } from "./helpers";
 const strategy = (accountsMode = "spread", policy = "priority") => validateStrategy({
   accounts: { plan: { kind: "claude" }, a: { kind: "endpoint", usage: "metered", budget: { weekly_tokens: 1000 } }, b: { kind: "endpoint", usage: "metered", budget: { weekly_tokens: 1000 } } },
   planner: { agent: "claude-code", account: "plan" },
-  runners: { a1: { agent: "opencode", account: "a", model: "api/one" }, a2: { agent: "opencode", account: "a", model: "api/two" }, b: { agent: "opencode", account: "b", model: "api/three" } },
-  pacing: { policy, accounts: accountsMode, order: ["a1", "a2", "b"] },
+  runners: { a1: { agent: "opencode", account: "a", model: "api/one" }, b: { agent: "opencode", account: "b", model: "api/three" } },
+  pacing: { policy, accounts: accountsMode, order: ["opencode#a", "opencode#b"] },
 }, "strategy.yaml");
 const now = 1_800_000_000;
 function reading(used: number, short = 0): UsageReading {
@@ -25,45 +25,46 @@ const status = (s = strategy(), a = 40, b = 30, short = 0) => computeStatus(fake
   profile: null, readings: new Map([["plan", reading(45)], ["a", reading(a, short)], ["b", reading(b)]]),
 });
 
-test("runners share one account evaluation and usage increases lower both runners' headroom", async () => {
+test("runner aliases share one account identity and usage increases lower headroom", async () => {
   const first = await status(); const second = await status(strategy(), 80);
-  const [one, two] = first.providers;
+  const one = first.providers.find(p => p.id === "opencode#a")!;
+  const two = second.providers.find(p => p.id === "opencode#a")!;
   expect(one.account).toBe("a"); expect(two.account).toBe("a");
-  expect(one.windows).toEqual(two.windows); expect(one.binding?.usedPct).toBe(40);
-  expect(second.providers[0].binding?.usedPct).toBe(80);
-  expect(second.providers[1].verdict).toBe("AHEAD");
-  expect(first.accounts.find(a => a.name === "a")).toMatchObject({ kind: "endpoint", usedPct: 40, pacePct: 50, window: "weekly", stale: false, runners: ["a1", "a2"] });
+  expect(one.binding?.usedPct).toBe(40); expect(two.binding?.usedPct).toBe(80);
+  expect(second.providers.find(p => p.id === "opencode#a")!.binding?.usedPct).toBe(80);
+  expect(second.providers.find(p => p.id === "opencode#a")!.verdict).toBe("AHEAD");
+  expect(first.accounts.find(a => a.name === "a")).toMatchObject({ kind: "endpoint", usedPct: 40, pacePct: 50, window: "weekly", stale: false, runners: ["opencode#a"] });
 });
 
 const claudeStrategy = (accountsMode = "spread", policy = "priority") => validateStrategy({
-  accounts: { plan: { kind: "codex" }, a: { kind: "claude" }, b: { kind: "claude" } },
+  accounts: { plan: { kind: "codex" }, a: { kind: "claude", home: "~/.claude-a" }, b: { kind: "claude", home: "~/.claude-b" } },
   planner: { agent: "codex", account: "plan" },
-  runners: { a1: { agent: "claude-code", account: "a" }, a2: { agent: "claude-code", account: "a" }, b: { agent: "claude-code", account: "b" } },
-  pacing: { policy, accounts: accountsMode, order: ["a1", "a2", "b"] },
+  runners: { a1: { agent: "claude-code", account: "a" }, b: { agent: "claude-code", account: "b" } },
+  pacing: { policy, accounts: accountsMode, order: ["claude-code#a", "claude-code#b"] },
 }, "strategy.yaml");
 
 for (const policy of ["priority", "even"]) {
   test(`spread orders Claude accounts by headroom under ${policy}`, async () => {
     const result = await status(claudeStrategy("spread", policy));
-    expect(result.executors.ranked.map(r => r.id)).toEqual(["b", "a1", "a2"]);
+    expect(result.executors.ranked.map(r => r.id)).toEqual(["claude-code#b", "claude-code#a"]);
     expect(result.executors.ranked[0].account).toBe("b");
   });
 
   test(`fill orders Claude accounts by preference and yields on pace or threshold under ${policy}`, async () => {
     const s = claudeStrategy("fill", policy);
-    expect((await status(s)).executors.ranked.map(r => r.id)).toEqual(["a1", "a2", "b"]);
-    expect((await status(s, 70, 40)).executors.ranked[0].id).toBe("b");
-    expect((await status(s, 40, 40, 90)).executors.ranked[0].id).toBe("b");
+    expect((await status(s)).executors.ranked.map(r => r.id)).toEqual(["claude-code#a", "claude-code#b"]);
+    expect((await status(s, 70, 40)).executors.ranked[0].id).toBe("claude-code#b");
+    expect((await status(s, 40, 40, 90)).executors.ranked[0].id).toBe("claude-code#b");
     // The literal BEHIND verdict yields even though the account has spare budget.
-    expect((await status(s, 10, 40)).executors.ranked[0].id).toBe("b");
-    s.pacing.order = ["b", "a1", "a2"];
-    expect((await status(s, 40, 40)).executors.ranked[0].id).toBe("b");
+    expect((await status(s, 10, 40)).executors.ranked[0].id).toBe("claude-code#b");
+    s.pacing.order = ["claude-code#b", "claude-code#a"];
+    expect((await status(s, 40, 40)).executors.ranked[0].id).toBe("claude-code#b");
   });
 }
 
 test("planner reserve and mode apply to its account even without a matching runner name", async () => {
   const s = validateStrategy({
-    accounts: { work: { kind: "claude" }, personal: { kind: "claude" } },
+    accounts: { work: { kind: "claude", home: "~/.claude-work" }, personal: { kind: "claude" } },
     planner: { agent: "claude-code", account: "work" },
     runners: { shared: { agent: "claude-code", account: "work" }, other: { agent: "claude-code", account: "personal" } },
     pacing: { planner_reserve: 20 },
@@ -72,8 +73,8 @@ test("planner reserve and mode apply to its account even without a matching runn
   expect(result.providers[0].binding?.pace).toBe(40);
   expect(result.providers[1].binding?.pace).toBe(50);
   expect(result.mode).toBe("strict");
-  expect(result.executors.excluded).toContainEqual({ id: "shared", reason: "planner", account: "work" });
-  expect(result.executors.ranked.map(r => r.id)).toEqual(["other"]);
+  expect(result.executors.excluded).toContainEqual({ id: "claude-code#work", reason: "planner", account: "work" });
+  expect(result.executors.ranked.map(r => r.id)).toEqual(["claude-code"]);
 });
 
 const starter = `planner: claude-code
@@ -95,20 +96,20 @@ test("starter route JSON retains its pre-accounts output, including after migrat
   const path = join(ctx.pacerHome, "strategy.yaml"); writeFileSync(path, starter);
   const strip = (value: unknown): unknown => Array.isArray(value) ? value.map(strip) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "account").map(([k, v]) => [k, strip(v)])) : value;
   const before = JSON.parse((await main(["route", "--json"], ctx)).out);
-  expect(strip(before)).toMatchSnapshot();
+  const legacyIds = (value: unknown): unknown => typeof value === "string" && value.startsWith("opencode#") ? value.slice(9) : Array.isArray(value) ? value.map(legacyIds) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([k,v]) => [k,legacyIds(v)])) : value;
+  expect(legacyIds(strip(before))).toMatchSnapshot();
   migrateStrategy(path);
   expect(JSON.parse((await main(["route", "--json"], ctx)).out)).toEqual(before);
 });
 
-test("migration inserts runners immediately after accounts without trailing whitespace", () => {
+test("migration omits redundant runners without trailing whitespace", () => {
   const path = join(tmpDir(), "strategy.yaml"); writeFileSync(path, starter);
   migrateStrategy(path); const text = readFileSync(path, "utf8");
-  expect(text.indexOf("runners:")).toBeLessThan(text.indexOf("pacing:"));
-  expect(text.slice(text.indexOf("accounts:"), text.indexOf("runners:"))).not.toContain("pacing:");
+  expect(text).not.toContain("runners:");
   expect(text.split(/\r?\n/).some(line => /[ \t]+$/.test(line))).toBe(false);
 });
 
-test("live metered readings sum distinct models once per shared account", async () => {
+test("live metered readings count the runner model once per account", async () => {
   const s = strategy();
   const ctx = fakeCtx({ now, run: async argv => argv[0] === "opencode" ? { code: 0, stderr: "", stdout: JSON.stringify({ models: [
     { model: { providerID: "api", id: "one" }, tokens: { input: 100, output: 50 } },
@@ -116,18 +117,16 @@ test("live metered readings sum distinct models once per shared account", async 
     { model: { providerID: "api", id: "three" }, tokens: { input: 50, output: 50 } },
   ] }) } : { code: 127, stdout: "", stderr: "missing" } });
   const result = await computeStatus(ctx, s, { profile: null });
-  expect(result.providers[0].binding?.usedPct).toBe(40);
-  expect(result.providers[1].binding?.usedPct).toBe(40);
-  expect(result.providers[2].binding?.usedPct).toBe(10);
+  expect(result.providers.find(p => p.id === "opencode#a")?.binding?.usedPct).toBe(15);
+  expect(result.providers.find(p => p.id === "opencode#b")?.binding?.usedPct).toBe(10);
 });
 
-test("exhausting one runner exhausts every runner on its account", async () => {
+test("exhausting a runner exhausts its account", async () => {
   const { markExhausted } = await import("../src/usage/reactive");
-  const ctx = fakeCtx({ now }); markExhausted(ctx, "a1", now + 3600);
+  const ctx = fakeCtx({ now }); markExhausted(ctx, "opencode#a", now + 3600);
   const result = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["a", reading(40)], ["b", reading(40)], ["plan", reading(40)]]) });
-  expect(result.providers[0].verdict).toBe("EXHAUSTED");
-  expect(result.providers[1].verdict).toBe("EXHAUSTED");
-  expect(result.executors.ranked.map(r => r.id)).toEqual(["b"]);
+  expect(result.providers.find(p => p.id === "opencode#a")?.verdict).toBe("EXHAUSTED");
+  expect(result.executors.ranked.map(r => r.id)).toEqual(["opencode#b"]);
 });
 
 for (const policy of ["priority", "even"]) {
@@ -141,7 +140,7 @@ for (const policy of ["priority", "even"]) {
       const ctx = fakeCtx({ now });
       const inputs = { profile: null, readings: new Map([["first", reading(40)], ["second", reading(30)]]) };
       const before = await computeStatus(ctx, validateStrategy(Bun.YAML.parse(readFileSync(path, "utf8")), path), inputs);
-      expect(before.executors.ranked.map(r => r.id)).toEqual(policy === "priority" ? ["first", "second"] : ["second", "first"]);
+      expect(before.executors.ranked.map(r => r.id)).toEqual(policy === "priority" ? ["opencode#first", "opencode#second"] : ["opencode#second", "opencode#first"]);
       migrateStrategy(path);
       const after = await computeStatus(ctx, validateStrategy(Bun.YAML.parse(readFileSync(path, "utf8")), path), inputs);
       expect(after.executors).toEqual(before.executors);
@@ -152,6 +151,5 @@ for (const policy of ["priority", "even"]) {
 test("paid overflow is controlled by the shared account", async () => {
   const s = strategy(); s.accounts.a.allowPaid = true;
   const result = await status(s, 100, 40);
-  expect(result.executors.ranked.map(r => r.id)).toContain("a1");
-  expect(result.executors.ranked.map(r => r.id)).toContain("a2");
+  expect(result.executors.ranked.map(r => r.id)).toContain("opencode#a");
 });

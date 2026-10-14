@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { isMap, isScalar, Pair, parseDocument, type Node, YAMLMap, Document } from "yaml";
+import { isMap, isScalar, parseDocument, type Node, YAMLMap } from "yaml";
 import { isObj } from "../util";
 import { atomicStrategyWrite, StrategyDoc } from "./edit";
+import { formatRunnerId, resolveRunner, runnerDefaults } from "./runner-id";
 import { validateStrategy } from "./strategy";
 
 export interface MigrationResult { changed: boolean; backup?: string; summary: string[] }
@@ -18,23 +19,15 @@ export function migrateStrategy(path: string): MigrationResult {
   // These leading comments precede the collection's source range, so the
   // source edit already retains them. Avoid emitting a second copy.
   accounts.commentBefore = undefined;
-  const runners = new YAMLMap(yaml.schema);
   for (const pair of accounts.items) {
     const name = isScalar(pair.key) ? String(pair.key.value) : "";
-    const account = strategy.accounts[name]; const runner = strategy.runners[name];
-    const original = yaml.getIn(["providers", name], true) as Node;
+    const account = strategy.accounts[name];
     let value = pair.value;
     if (!isMap(value)) value = yaml.createNode(isObj(raw) && isObj(raw.providers) && isObj(raw.providers[name]) ? raw.providers[name] : {}, { flow: true });
     if (!isMap(value)) throw Error("cannot create account mapping");
-    value.delete("via"); value.delete("model"); value.set("kind", account.kind);
+    value.delete("via"); value.set("kind", account.kind);
+    if (account.model !== null && !value.has("model")) value.set("model", account.model);
     pair.value = value;
-    const run = yaml.createNode({ agent: runner.agent, account: name }, { flow: true }) as YAMLMap;
-    if (!isMap(run)) throw Error("cannot create runner mapping");
-    if (runner.model !== null) {
-      const model = isMap(original) ? original.get("model", true) : undefined;
-      run.set("model", isScalar(model) && typeof model.value === "string" ? model.clone() : runner.model);
-    }
-    runners.items.push(new Pair(yaml.createNode(name), run));
   }
   // Native planners absent from providers still have a default budget account.
   for (const [name, account] of Object.entries(strategy.accounts)) {
@@ -43,28 +36,29 @@ export function migrateStrategy(path: string): MigrationResult {
   const doc = new StrategyDoc(before);
   doc.replaceNode(["providers"], accounts);
   doc.renameKey(["providers"], "accounts");
-  doc.setIn(["planner"], strategy.planner);
+  const plannerId = strategy.planner.agent === "opencode" && !strategy.accounts[strategy.planner.account] ? "opencode" : formatRunnerId({...strategy.planner, host: null}, {...runnerDefaults(strategy.accounts), opencode: undefined});
+  doc.setIn(["planner"], plannerId);
   // Retain the legacy default order, including its OpenCode group shorthand.
   if (!isObj(raw) || !isObj(raw.pacing) || raw.pacing.order === undefined) doc.setList(["pacing", "order"], strategy.pacing.order);
-  // Insert directly after accounts, keeping the subsequent pacing/routing bytes.
-  let after = doc.toString();
-  const updated = parseDocument(after);
-  const accountNode = updated.get("accounts", true) as Node;
-  const root = updated.contents;
-  const runnerDoc = new Document();
-  const section = new YAMLMap(runnerDoc.schema);
-  section.set("runners", runners);
-  runnerDoc.contents = section;
-  if (isMap(root) && root.flow) {
-    section.flow = true; runners.flow = true;
-    const value = runnerDoc.toString({ lineWidth: 0 }).trim().slice(1, -1).trim();
-    const at = accountNode.range![1];
-    after = after.slice(0, at) + `, ${value}` + after.slice(at);
-  } else {
-    const at = accountNode.range![2];
-    const value = runnerDoc.toString({ lineWidth: 0 });
-    after = after.slice(0, at) + (after[at - 1] === "\n" ? "" : "\n") + value + after.slice(at);
+  if (isObj(raw) && raw.routing === undefined) doc.setIn(["routing"], strategy.routing.map(r => r.kinds ? {kinds: r.kinds, executors: r.executors} : {default: r.executors}));
+  // Rewrite only the referenced ids; retain the OpenCode group shorthand.
+  const canonical = (id: unknown) => resolveRunner(strategy, String(id))?.id ?? String(id);
+  if (isObj(raw) && isObj(raw.pacing) && Array.isArray(raw.pacing.order)) {
+    raw.pacing.order.forEach((id, i) => { if (id !== "opencode" && canonical(id) !== id) doc.setScalar(["pacing", "order", i], canonical(id)); });
   }
+  if (isObj(raw) && Array.isArray(raw.routing)) raw.routing.forEach((rule, i) => {
+    if (!isObj(rule)) return;
+    const key = Array.isArray(rule.default) ? "default" : "executors";
+    const refs = rule[key];
+    if (Array.isArray(refs)) refs.forEach((id, j) => { if (canonical(id) !== id) doc.setScalar(["routing", i, key, j], canonical(id)); });
+  });
+  // Every legacy provider existed as a runner even if omitted from explicit routing.
+  // Preserve such runners with empty entries; referenced runners need no section.
+  const referenced = new Set(strategy.routing.flatMap(r => r.executors));
+  referenced.add(plannerId);
+  const unreferenced = Object.keys(strategy.runners).filter(id => !referenced.has(id));
+  if (unreferenced.length) doc.setIn(["runners"], Object.fromEntries(unreferenced.map(id => [id, {}])));
+  let after = doc.toString();
   after = after.replace(/[ \t]+(?=\r?$)/gm, "");
   validateStrategy(Bun.YAML.parse(after), path);
   const backup = `${path}.pre-accounts.bak`;

@@ -1,3 +1,4 @@
+import { parseRunnerId } from "../config/runner-id";
 import { join } from "node:path";
 import type { ProviderCfg } from "../config/strategy";
 
@@ -11,7 +12,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
       argv: ["opencode", "run", "--agent", "build", "-m", model ?? "", "--auto", "--title", `pacer ${taskId}`, prompt],
     };
   }
-  switch (cfg.id) {
+  switch (parseRunnerId(cfg.id)?.agent ?? cfg.id) {
     case "codex": {
       const lastMessageFile = join(taskDir, `${taskId}.codex-last.md`);
       return {

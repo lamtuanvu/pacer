@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { resolveRunner } from "./config/runner-id";
 import { readUpdateCheck, updateLine } from "./update/check";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
@@ -220,7 +221,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "setup": return setupCmd(rest, ctx);
     case "report-limit": {
       const {opts,pos}=parseFlags(rest,[]);
-      try{const cfg=loadStrategy(ctx).providers[pos[0]];if(!cfg)throw new Error(`unknown provider "${pos[0]}"`);
+      try{const s=loadStrategy(ctx);const cfg=s.providers[resolveRunner(s,pos[0])?.id??pos[0]];if(!cfg)throw new Error(`unknown provider "${pos[0]}"`);
         const until=Number(str(opts.until)??ctx.now+cfg.cooldownS);if(!Number.isFinite(until))throw new Error("until must be unix seconds");
         markExhausted(ctx,pos[0],until);return {code:0,out:`${pos[0]} exhausted until ${until}`,err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}

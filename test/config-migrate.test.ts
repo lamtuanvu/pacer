@@ -50,7 +50,8 @@ test("migration backs up the starter and retains runner, routing, budget and com
   expect(migrated).toContain("# Hosted endpoint");
   expect(migrated).toContain("# no paid fallback");
   expect(migrated.split("# Claude budget").length - 1).toBe(1);
-  expect(migrated).toContain(starter.slice(starter.indexOf("# Keep pacing layout")));
+  expect(migrated).toContain("# Keep pacing layout\npacing: {policy: priority, order: [codex, cursor, agy, opencode]}");
+  expect(migrated).toContain("execution: {backend: direct}");
   expect(migrateStrategy(path)).toEqual({ changed: false, summary: [] });
   expect(readFileSync(path, "utf8")).toBe(migrated);
   expect(readFileSync(result.backup!, "utf8")).toBe(starter);
@@ -153,4 +154,14 @@ test("config migrate targets the active strategy and ordinary reads never migrat
   expect(await main(["route", "--json"], ctx)).toEqual(beforeRoute);
   expect(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")).toBe(starter);
   expect((await main(["config", "migrate", "extra"], ctx)).code).toBe(2);
+});
+
+test("migration writes runner ids, account models and no redundant runners section", () => {
+  const path = fixture(); migrateStrategy(path);
+  const text = readFileSync(path, "utf8"); const raw = Bun.YAML.parse(text) as any;
+  expect(raw.runners).toBeUndefined();
+  expect(raw.planner).toBe("claude-code");
+  expect(raw.accounts.byteplus.model).toBe("coding-plan/dola-seed-2.0-code");
+  expect(raw.routing[0].executors).toEqual(["codex", "opencode#local"]);
+  expect(raw.routing[1].default).toEqual(["codex", "cursor", "agy", "opencode#byteplus", "opencode#local"]);
 });

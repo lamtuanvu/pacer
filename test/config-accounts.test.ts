@@ -14,7 +14,7 @@ const starter = {
     local: { via: "opencode", model: "ollama/qwen3", usage: "unmetered" },
   },
   pacing: { order: ["codex", "cursor", "agy", "opencode"] },
-  routing: [{ default: ["claude-code", "codex", "cursor", "agy", "byteplus", "local"] }],
+  routing: [{ default: ["claude-code", "codex", "cursor", "agy", "opencode#byteplus", "opencode#local"] }],
 };
 const modern = () => ({
   accounts: {
@@ -35,21 +35,21 @@ const modern = () => ({
 });
 const parse = (raw: unknown) => validateStrategy(raw, "strategy.yaml");
 
-test("legacy starter preserves runner names, provider settings, ordering and routing", () => {
+test("legacy starter canonicalizes runner ids, provider settings, ordering and routing", () => {
   const s = parse(starter);
   expect(s.legacy).toBe(true);
-  expect(Object.keys(s.runners)).toEqual(["claude-code", "codex", "cursor", "agy", "byteplus", "local"]);
+  expect(Object.keys(s.runners)).toEqual(["claude-code", "codex", "cursor", "agy", "opencode#byteplus", "opencode#local"]);
   expect(s.planner).toEqual({ agent: "claude-code", account: "claude-code" });
   expect(s.accounts.byteplus).toMatchObject({ kind: "endpoint", source: "endpoint", usageSource: "arkcli", quotaSource: "arkcli" });
-  expect(s.runners.cursor).toEqual({ name: "cursor", agent: "cursor", account: "cursor", model: "auto" });
+  expect(s.runners.cursor).toEqual({ id: "cursor", host: null, name: "cursor", agent: "cursor", account: "cursor", model: "auto" });
   expect(s.providers.codex.allowPaid).toBe(false);
-  expect(s.providers.byteplus).toMatchObject({ via: "opencode", model: "coding-plan/dola-seed-2.0-code", usage: "quota" });
+  expect(s.providers["opencode#byteplus"]).toMatchObject({ via: "opencode", model: "coding-plan/dola-seed-2.0-code", usage: "quota" });
   expect(s.pacing.order).toEqual(["codex", "cursor", "agy", "opencode"]);
-  expect(s.routing).toEqual([{ kinds: null, executors: ["claude-code", "codex", "cursor", "agy", "byteplus", "local"] }]);
+  expect(s.routing).toEqual([{ kinds: null, executors: ["claude-code", "codex", "cursor", "agy", "opencode#byteplus", "opencode#local"] }]);
   const statuses = Object.fromEntries(Object.values(s.providers).map(c => [c.id, {
     id: c.id, usage: c.usage, verdict: "OK", installed: true, stale: false, windows: [], binding: null,
   } satisfies ProviderStatus]));
-  expect(rankExecutors(null, s, statuses).ranked.map(e => e.id)).toEqual(["codex", "cursor", "agy", "byteplus", "local"]);
+  expect(rankExecutors(null, s, statuses).ranked.map(e => e.id)).toEqual(["codex", "cursor", "agy", "opencode#byteplus", "opencode#local"]);
 });
 
 test("new form derives sources, budgets, runners and the compatibility provider view", () => {
@@ -59,12 +59,12 @@ test("new form derives sources, budgets, runners and the compatibility provider 
   expect(s.accounts.work).toMatchObject({ source: "pacer", home: "~/.codex-work", usageSource: "native" });
   expect(s.accounts.team).toMatchObject({ source: "orca", orcaAccount: "team-id", usageSource: "orca" });
   expect(s.accounts.company.weeklyTokens).toBe(50_000_000);
-  expect(s.providers.seed).toMatchObject({ id: "seed", via: "opencode", model: "coding-plan/seed", quotaSource: "arkcli" });
-  expect(s.pacing.order).toEqual(["work", "seed", "local"]);
+  expect(s.providers["opencode#endpoint"]).toMatchObject({ id: "opencode#endpoint", via: "opencode", model: "coding-plan/seed", quotaSource: "arkcli" });
+  expect(s.pacing.order).toEqual(["claude-code", "codex#work", "opencode#endpoint", "opencode#local"]);
 });
 
 test("planner string selects the agent's default account even when it is not an executor", () => {
-  const s = parse({ ...modern(), planner: "codex" });
+  const s = parse({ ...modern(), accounts: {...modern().accounts, codex: {kind: "codex"}}, planner: "codex" });
   expect(s.planner).toEqual({ agent: "codex", account: "codex" });
   expect(s.accounts.codex).toMatchObject({ kind: "codex", source: "default", home: null });
   expect(parse({ planner: "opencode", providers: { local: starter.providers.local } }).planner)
@@ -121,14 +121,12 @@ test("agent/account table allows exactly the five supported pairs", () => {
   expect(pairs).toEqual(["claude-code:claude", "codex:codex", "cursor:cursor", "agy:agy", "opencode:endpoint"]);
 });
 
-test("multiple runners retain one account and its shared usage configuration", () => {
+test("legacy explicit runner aliases resolve to one canonical account identity", () => {
   const s = parse({ ...modern(), runners: {
     seed: { agent: "opencode", account: "company", model: "company/seed" },
-    fast: { agent: "opencode", account: "company", model: "company/fast" },
+    fast: { agent: "opencode", account: "company", model: "company/seed" },
   }, pacing: { order: ["fast", "seed"] }, routing: [{ default: ["seed", "fast"] }] });
-  expect(s.runners.seed.account).toBe("company");
-  expect(s.runners.fast.account).toBe("company");
-  expect(s.providers.seed.weeklyTokens).toBe(50_000_000);
-  expect(s.providers.fast.weeklyTokens).toBe(50_000_000);
-  expect(s.pacing.order).toEqual(["fast", "seed"]);
+  expect(s.runners["opencode#company"].account).toBe("company");
+  expect(s.providers["opencode#company"].weeklyTokens).toBe(50_000_000);
+  expect(s.pacing.order).toEqual(["opencode#company", "opencode#company"]);
 });

@@ -40,16 +40,16 @@ test("init writes valid detected providers and JSON-quoted models in executor or
   expect(s.providers.agy.usage).toBe("reactive");
   expect(s.providers.agy.cooldownS).toBe(21600);
   expect(s.providers["claude-code"].usage).toBe("quota");
-  expect(s.providers.byteplus.model).toBe("coding-plan/dola-seed-2.0-code");
-  expect(s.providers.byteplus.quotaSource).toBe("arkcli");
-  expect(s.providers.ollama.model).toBe("ollama/qwen:7b");
-  expect(s.providers.lmstudio.model).toBe('lmstudio/tool:"model"');
-  expect(s.providers.ollama.usage).toBe("unmetered");
-  expect(s.providers.lmstudio.usage).toBe("unmetered");
+  expect(s.providers["opencode#byteplus"].model).toBe("coding-plan/dola-seed-2.0-code");
+  expect(s.providers["opencode#byteplus"].quotaSource).toBe("arkcli");
+  expect(s.providers["opencode#ollama"].model).toBe("ollama/qwen:7b");
+  expect(s.providers["opencode#lmstudio"].model).toBe('lmstudio/tool:"model"');
+  expect(s.providers["opencode#ollama"].usage).toBe("unmetered");
+  expect(s.providers["opencode#lmstudio"].usage).toBe("unmetered");
   expect(text).toContain('model: "ollama/qwen:7b"');
   expect(s.pacing.policy).toBe("priority");
   expect(s.pacing.plannerReserve).toBe(15);
-  expect(s.routing).toEqual([{ kinds: null, executors: ["codex", "cursor", "agy", "byteplus", "ollama", "lmstudio"] }]);
+  expect(s.routing).toEqual([{ kinds: null, executors: ["codex", "cursor", "agy", "opencode#byteplus", "opencode#ollama", "opencode#lmstudio"] }]);
   expect(result.out).toContain("orca");
 });
 

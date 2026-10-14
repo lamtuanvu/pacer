@@ -1,3 +1,4 @@
+import { resolveRunner } from "../config/runner-id";
 import type { Strategy } from "../config/strategy";
 import type { UsageKind, Verdict } from "../types";
 import type { WindowStatus } from "./verdict";
@@ -24,7 +25,7 @@ const TIER: Record<UsageKind, number> = { unmetered: 0, quota: 1, reactive: 1, m
 
 export function executorsFor(kind: string | null, s: Strategy): string[] {
   const rule = (kind && s.routing.find((r) => r.kinds?.includes(kind))) || s.routing.find((r) => r.kinds === null);
-  return rule ? rule.executors : Object.keys(s.runners);
+  return (rule ? rule.executors : Object.keys(s.runners)).map(id => resolveRunner(s, id)?.id ?? id);
 }
 
 function score(st: ProviderStatus, s: Strategy): number {
@@ -60,6 +61,7 @@ function reason(st: ProviderStatus): string {
 export function rankExecutors(
   kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>,
 ): { ranked: RankedExecutor[]; excluded: Excluded[] } {
+  statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [resolveRunner(s, id)?.id ?? id, status]));
   const ranked: (RankedExecutor & { unknown: boolean; order: number })[] = [];
   const excluded: Excluded[] = [];
   [...new Set(executorsFor(kind, s))].forEach((id, order) => {
@@ -85,7 +87,8 @@ export function rankExecutors(
         placed.add(candidate.id);
       }
     };
-    for (const id of s.pacing.order) {
+    for (const reference of s.pacing.order) {
+      const id = reference === "opencode" ? reference : resolveRunner(s, reference)?.id ?? reference;
       if (id === "opencode") {
         ranked.filter((e) => s.runners[e.id].agent === "opencode").forEach(append);
       } else {

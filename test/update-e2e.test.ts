@@ -49,7 +49,7 @@ test.skipIf(!HOST)("a compiled pacer updates itself, migrates the strategy with 
   const strategy = validateStrategy(Bun.YAML.parse(readFileSync(join(home, ".pacer", "strategy.yaml"), "utf8")), "strategy.yaml");
   expect(strategy.legacy).toBe(false);
   expect(strategy.planner).toEqual({ agent: "claude-code", account: "claude-code" });
-  expect(strategy.runners.codex).toEqual({ name: "codex", agent: "codex", account: "codex", model: null });
+  expect(strategy.runners.codex).toEqual({ id: "codex", host: null, name: "codex", agent: "codex", account: "codex", model: null });
   expect(readFileSync(join(home, ".pacer", "strategy.yaml.pre-accounts.bak"), "utf8")).toBe(original);
   expect(up.out).toContain("Restore:");
 

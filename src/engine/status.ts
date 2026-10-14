@@ -1,3 +1,4 @@
+import { parseRunnerId, formatRunnerId, runnerDefaults, resolveRunner } from "../config/runner-id";
 import type { AccountCfg, RunnerCfg } from "../config/accounts";
 import { readBlocked } from "../executors/blocked";
 import { readBroken } from "../exec/broken";
@@ -39,7 +40,7 @@ const BINARIES: Record<string, string> = { "claude-code": "claude", codex: "code
 const NAMES: Record<string, string> = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", opencode: "OpenCode" };
 
 export function binaryFor(cfg: ProviderCfg): string {
-  return cfg.via === "opencode" ? "opencode" : BINARIES[cfg.id] ?? cfg.id;
+  return cfg.via === "opencode" ? "opencode" : BINARIES[parseRunnerId(cfg.id)?.agent ?? cfg.id] ?? cfg.id;
 }
 
 export function displayName(id: string): string {
@@ -49,8 +50,8 @@ export function displayName(id: string): string {
 export async function computeStatus(
   ctx: Ctx, s: Strategy, opts: { profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
-  const blocked = readBlocked(ctx);
-  const broken = readBroken(ctx);
+  const blocked = Object.fromEntries(Object.entries(readBlocked(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
+  const broken = Object.fromEntries(Object.entries(readBroken(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
   const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx).catch(() => null);
   // Evaluate an account once; every runner draws on this same budget.
   const budgets = await Promise.all(Object.values(s.accounts).map(async (account) => {
@@ -95,7 +96,7 @@ export async function computeStatus(
   return {
     generatedAt: ctx.now,
     strategy: s.name,
-    planner: s.planner.agent,
+    planner: s.planner.agent === "opencode" && !s.accounts[s.planner.account] ? "opencode" : formatRunnerId({...s.planner, host: null}, {...runnerDefaults(s.accounts), opencode: undefined}),
     mode: planner ? plannerMode(planner.verdict) : "normal",
     disabled: (ctx.env.PACER ?? "").toLowerCase() === "off",
     calendarPace: isCalendar(profile),

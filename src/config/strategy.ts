@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import type { Ctx, UsageKind } from "../types";
 import { isObj } from "../util";
-import { legacyToAccounts, parseAccounts, parseSize, parseDuration, type AccountCfg, type RunnerCfg, type PlannerCfg } from "./accounts";
+import { parseRunnerId, runnerDefaults, resolveRunner } from "./runner-id";
+import { allowedPair, legacyToAccounts, parseAccounts, parseSize, parseDuration, type AccountCfg, type RunnerCfg, type PlannerCfg } from "./accounts";
 
 export { parseSize, parseDuration } from "./accounts";
 
@@ -36,6 +37,7 @@ export interface Strategy {
   accounts: Record<string, AccountCfg>;
   runners: Record<string, RunnerCfg>;
   legacy: boolean;
+  runnerAliases: Record<string, string>;
   /** @deprecated Derived from runners and accounts; use those directly in new consumers. */
   providers: Record<string, ProviderCfg>;
   pacing: { policy: Policy; order: string[]; plannerReserve: number; aheadThreshold: number; behindThreshold: number; accounts: "spread" | "fill"; fillThreshold: number };
@@ -101,7 +103,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
       }
     }
   }
-  const { accounts, runners, planner } = legacy ? legacyToAccounts(raw) : parseAccounts(raw, p);
+  const { accounts, runners, planner, runnerAliases } = legacy ? legacyToAccounts(raw) : parseAccounts(raw, p);
   // Keep the provider facade stable while consumers move to accounts and runners.
   for (const [id, runner] of Object.entries(runners)) {
     const account = accounts[runner.account];
@@ -113,6 +115,8 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     };
   }
 
+  const resolve = (id: string) => resolveRunner({ accounts, runners, runnerAliases } as Strategy, id)?.id ?? id;
+
   const pc = isObj(raw.pacing) ? raw.pacing : {};
   const policy = String(pc.policy ?? "priority") as Policy;
   if (!(POLICIES as readonly string[]).includes(policy)) {
@@ -121,13 +125,17 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   let order: string[] = [];
   if (pc.order === undefined) {
     const hasOpencode = Object.values(providers).some((cfg) => cfg.via === "opencode");
-    order = legacy ? DEFAULT_ORDER.filter((id) => Object.hasOwn(providers, id) || (id === "opencode" && hasOpencode)) : Object.keys(runners);
+    order = legacy ? DEFAULT_ORDER.filter((id) => Object.hasOwn(runners, id) || (id === "opencode" && hasOpencode)) : Object.keys(runners);
   } else if (!Array.isArray(pc.order)) {
     p.push("pacing.order must be a list");
   } else {
-    order = pc.order.map(String);
+    order = pc.order.map(v => resolve(String(v)));
     for (const id of order) {
-      if (id !== "opencode" && !Object.hasOwn(providers, id)) {
+      const parsed = parseRunnerId(id);
+      const account = parsed ? accounts[parsed.account ?? runnerDefaults(accounts)[parsed.agent] ?? ""] : undefined;
+      if (parsed && account && !allowedPair(parsed.agent, account.kind)) p.push(`pacing.order: ${parsed.agent} cannot use ${account.kind} account "${account.name}"`);
+      if (parsed?.host) p.push("remote runners aren't supported yet");
+      if (id !== "opencode" && !Object.hasOwn(providers, id) && !account) {
         p.push(`pacing.order: unknown provider "${id}"`);
       }
     }
@@ -171,7 +179,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
         p.push(`routing[${i}] needs a non-empty executors (or default) list`);
         return;
       }
-      for (const e of executors) if (!providers[String(e)]) p.push(`routing[${i}]: unknown provider "${e}"`);
+      for (const e of executors) if (!providers[resolve(String(e))]) p.push(`routing[${i}]: unknown provider "${e}"`);
       let kinds: string[] | null = null;
       if (!isDefault) {
         if (!Array.isArray(r.kinds) || r.kinds.length === 0) {
@@ -185,13 +193,13 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
           }
         }
       }
-      routing.push({ kinds, executors: executors.map(String) });
+      routing.push({ kinds, executors: executors.map(e => resolve(String(e))) });
     });
   }
 
   if (p.length) throw new StrategyError(path, p);
   return {
-    name, planner, accounts, runners, legacy, providers, pacing, routing,
+    name, planner, accounts, runners, legacy, runnerAliases, providers, pacing, routing,
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
   };

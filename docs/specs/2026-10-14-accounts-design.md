@@ -50,6 +50,7 @@ A runner is identified by what runs, on which budget, where. Its id spells that 
 - The same id is used everywhere: `planner`, `routing`, `pacing.order`, `pacer delegate --executor`, `pacer config set planner`, status, dashboard and panel.
 - The model is not part of the id. An account may set `model` (its default); a runner entry may override it.
 - In YAML the ids need no quotes (`#` starts a comment only after whitespace); the same holds for shell arguments.
+- Orca host names can contain characters outside the grammar (for example `Home/Server`); the remote-runners design defines how a host is named in an id (a slug or an alias table).
 - **Remote hosts are reserved, not built in this version**: an id with `@host` parses but is refused with "remote runners aren't supported yet" until the remote-runners design lands (it needs code transfer, remote usage and Orca dispatch tracking).
 
 Two runners may share an account (for example OpenCode and Claude Code both using one API account); they then share that account's budget. Pacing charges usage to the account, not the runner.
