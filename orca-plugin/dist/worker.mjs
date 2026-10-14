@@ -278,6 +278,7 @@ var package_default = {
     "release:prepare": "bun scripts/release/prepare.ts",
     "release:host": "bun scripts/release/build.ts --host",
     "plugin:build": "bun orca-plugin/build.ts",
+    "protocol:doc": "bun scripts/protocol-doc.ts",
     "release:npm": "bun scripts/release/npm.ts",
     "release:homebrew": "bun scripts/release/homebrew.ts",
     "brand:render": "bun scripts/brand/render.ts"

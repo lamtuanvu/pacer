@@ -52,6 +52,13 @@ export const OPS: Record<string, OpDef> = {
 
 export const opNames = (): string[] => Object.keys(OPS).sort();
 
+export function opJsonSchemas(): Record<string, { description: string; params: unknown }> {
+  return Object.fromEntries(opNames().map((name) => {
+    const def = OPS[name];
+    return [name, { description: def.description, params: z.toJSONSchema(def.params) }];
+  }));
+}
+
 export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
   if (!Object.hasOwn(OPS, name)) throw new CoreError("unknown_op", `unknown operation "${name}"`, `operations: ${opNames().join(", ")}`);
   const def = OPS[name];
