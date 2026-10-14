@@ -1,0 +1,40 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`account-form status identifies each runner and its agent/account 1`] = `
+"Account plan
+- Claude: weekly 34% (pace 84%, 1 active-h left) EXPIRING
+Account byteplus
+- BytePlus: local, unmetered OK
+Account team
+- Codex (team): weekly 34% (pace 99%, 1 active-h left) EXPIRING
+Mode: RELAXED - Claude is BEHIND pace or its window resets soon with quota unused. Claude may do small and medium edits itself; still delegate bulk or mechanical work.
+Executor preference: codex#team > opencode#byteplus
+Pace clock: calendar (not enough activity history yet)"
+`;
+
+exports[`account metadata survives the link and appears in dashboard and panel 1`] = `
+"◆ pacer · relaxed · default
+Updated · waiting for local data
+Planner Claude: 34% [########------------|---]
+Who runs next
+  Account team
+> Codex (team): Expiring soon · 34% used
+  Account byteplus
+  BytePlus: Available · unmetered / unknown
+Unavailable executors
+  (none)
+Needs attention
+  (none)
+Running tasks
+  (none)
+Recently done
+  (none)
+
+
+
+
+
+
+
+↑/↓/j/k select · Enter action · d x b s , r c u ? q"
+`;

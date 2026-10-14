@@ -32,7 +32,7 @@ test("init writes valid detected providers and JSON-quoted models in executor or
   const path = join(ctx.pacerHome, "strategy.yaml");
   const text = readFileSync(path, "utf8");
   const s = validateStrategy(Bun.YAML.parse(text), path);
-  expect(s.planner).toBe("claude-code");
+  expect(s.planner.agent).toBe("claude-code");
   expect(s.providers.codex.usage).toBe("quota");
   expect(s.providers.codex.allowPaid).toBe(false);
   expect(s.providers.cursor.usage).toBe("reactive");
@@ -40,16 +40,16 @@ test("init writes valid detected providers and JSON-quoted models in executor or
   expect(s.providers.agy.usage).toBe("reactive");
   expect(s.providers.agy.cooldownS).toBe(21600);
   expect(s.providers["claude-code"].usage).toBe("quota");
-  expect(s.providers.byteplus.model).toBe("coding-plan/dola-seed-2.0-code");
-  expect(s.providers.byteplus.quotaSource).toBe("arkcli");
-  expect(s.providers.ollama.model).toBe("ollama/qwen:7b");
-  expect(s.providers.lmstudio.model).toBe('lmstudio/tool:"model"');
-  expect(s.providers.ollama.usage).toBe("unmetered");
-  expect(s.providers.lmstudio.usage).toBe("unmetered");
+  expect(s.providers["opencode#byteplus"].model).toBe("coding-plan/dola-seed-2.0-code");
+  expect(s.providers["opencode#byteplus"].quotaSource).toBe("arkcli");
+  expect(s.providers["opencode#ollama"].model).toBe("ollama/qwen:7b");
+  expect(s.providers["opencode#lmstudio"].model).toBe('lmstudio/tool:"model"');
+  expect(s.providers["opencode#ollama"].usage).toBe("unmetered");
+  expect(s.providers["opencode#lmstudio"].usage).toBe("unmetered");
   expect(text).toContain('model: "ollama/qwen:7b"');
   expect(s.pacing.policy).toBe("priority");
   expect(s.pacing.plannerReserve).toBe(15);
-  expect(s.routing).toEqual([{ kinds: null, executors: ["codex", "cursor", "agy", "byteplus", "ollama", "lmstudio"] }]);
+  expect(s.routing).toEqual([{ kinds: null, executors: ["codex", "cursor", "agy", "opencode#byteplus", "opencode#ollama", "opencode#lmstudio"] }]);
   expect(result.out).toContain("orca");
 });
 
@@ -58,7 +58,7 @@ test("init omits missing CLIs and reports both detected and missing including or
   const result = await initCmd(ctx, {});
   expect(result.code).toBe(0);
   const s = validateStrategy(Bun.YAML.parse(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")), "/test");
-  expect(s.planner).toBe("codex");
+  expect(s.planner.agent).toBe("codex");
   expect(Object.keys(s.providers)).toEqual(["codex", "cursor"]);
   expect(s.routing[0].executors).toEqual(["cursor"]);
   expect(result.out).toContain("Detected: codex, cursor-agent");
@@ -68,9 +68,9 @@ test("init omits missing CLIs and reports both detected and missing including or
 test("explicit planner overrides discovery priority and is excluded from routing", async () => {
   const d = await detect(detectedCtx(["claude", "codex"]));
   const s = validateStrategy(Bun.YAML.parse(starterStrategy(d, "codex")), "/test");
-  expect(s.planner).toBe("codex");
+  expect(s.planner.agent).toBe("codex");
   expect(s.routing[0].executors).toEqual(["claude-code"]);
-  expect(validateStrategy(Bun.YAML.parse(starterStrategy(d, "cursor")), "/test").planner).toBe("cursor");
+  expect(validateStrategy(Bun.YAML.parse(starterStrategy(d, "cursor")), "/test").planner.agent).toBe("cursor");
 });
 
 test("LM Studio falls back to first llm and local providers require opencode and a model", async () => {

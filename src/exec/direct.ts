@@ -8,9 +8,9 @@ import { gitInfo, realpathSafe } from "../core/git";
 import { tasksDir, listTasks, readTask, updateTask } from "../tasks/store";
 import { resolvePlacement, type Attempt, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { launchFor } from "./launch";
+import { launchFor, providerEnv } from "./launch";
 import { detectLimit } from "./limits";
-import type { ExecResult } from "./process";
+import { type ExecResult, executorEnv } from "./process";
 import { buildPrompt } from "./prompt";
 import { readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
@@ -144,7 +144,9 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
     ? buildPrompt({ ...task.brief, repo: `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }, task.id)
     : buildPrompt(task.brief, task.id);
   let launch: ReturnType<typeof launchFor>;
+  let env: Record<string, string | undefined>;
   try {
+    env = executorEnv(ctx.env, providerEnv(ctx, cfg));
     launch = launchFor(cfg, prompt, workdir, rdir, task.id);
   } catch (e) {
     const exec = { code: 127, stdout: "", stderr: (e as Error).message, timedOut: false };
@@ -155,7 +157,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
   writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
   const run: RunRef = { dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
   updateTask(ctx, task.id, t => { t.run = run; });
-  const started = startRun({ dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env: { ...ctx.env, PACER_ROLE: "executor" } });
+  const started = startRun({ dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env });
   if ("error" in started) {
     const exec = { code: 127, stdout: "", stderr: started.error, timedOut: false };
     return outcome(cfg, startedAt, exec, log, note + started.error);

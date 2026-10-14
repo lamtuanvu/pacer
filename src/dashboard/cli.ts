@@ -16,6 +16,7 @@ import { use as switchStrategy } from "../strategy/service";
 import { selfHandle, resolveWorktreePath } from "../console/cli";
 import { consoleCommands, type ConsoleDeps } from "../console/console";
 import { cards } from "./model";
+import { DashboardSettings, terminalLogin } from "./settings";
 import { renderDashboard } from "./render";
 import { Keys, moveSelection, selectionAction, updateKey, UPDATE_PROMPT } from "./input";
 export const ENTER_SCREEN="\x1b[?1049h\x1b[?25l";
@@ -24,13 +25,13 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  if(args.length)return {code:2,out:"",err:"usage: pacer dashboard\n"};
  if(!process.stdin.isTTY||!process.stdout.isTTY)return {code:2,out:"",err:"pacer dashboard needs an interactive terminal\n"};
  let setup:SetupChecklist|undefined, setupBusy=false, nextSetupAt=0;
- let selected=0,help=false,message="",messageUntil=0,busy=false,closed=false,exitError="";
+ let selected=0,help=false,message="",messageUntil=0,busy=false,suspended=false,closed=false,exitError="";
  let statusTimer:ReturnType<typeof setTimeout>|undefined;
  let prompt:null|{type:"update"|"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
  let snapshot=readLatest(ctx),refreshing=false;
  let computed: typeof snapshot.budget=null;
  const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
- const draw=()=>{if(closed)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{setup,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
+ const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{settings,setup,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
  const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
  const refresh=()=>{
   const c=fresh();
@@ -47,11 +48,16 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  const deps:ConsoleDeps={delegate,readTask,taskStop,configuredExecutors:c=>Object.keys(loadStrategy(c).providers),useStrategy:switchStrategy,listStrategies,statusText:async()=>"",pump:async()=>{refresh();return [];},heartbeat(){},resolveWorktreePath,selfHandle,every:()=>()=>{},pid:process.pid,cwd:process.cwd()};
  const startDelegate=(repo:string)=>{prompt={type:"delegate",step:0,value:"",goal:"",repo,names:[]};};
  const chooseStrategy=()=>{prompt={type:"strategy",step:0,value:"",goal:"",repo:"",names:listStrategies(fresh())};};
+ const settings=new DashboardSettings(ctx,{changed:()=>{draw();},report,command:data=>command(data),snapshot:()=>snapshot,login:(argv,env)=>terminalLogin(argv,{...ctx.env,...env},{
+  suspend(){suspended=true;clearTimeout(escapeTimer);keys.flush();process.stdin.off("data",input);process.stdin.pause();process.stdin.setRawMode(false);process.stdout.write(LEAVE_SCREEN);},
+  resume(){if(closed)return;process.stdin.setRawMode(true);process.stdout.write(ENTER_SCREEN);process.stdin.on("data",input);process.stdin.resume();suspended=false;refresh();}
+ })});
  const command=consoleCommands(ctx,deps,report,{startDelegate,chooseStrategy,use,refresh:async()=>{refresh();report("Refreshed");}});
  let finish!:(code:number)=>void;const done=new Promise<number>(resolve=>{finish=resolve;});
  const quit=(code=0)=>{if(closed)return;closed=true;finish(code);};
  const handle=async(key:string)=>{
   if(key==="interrupt"){quit(130);return;}
+  if(settings.open||key===","&&!prompt){await settings.handle(key);draw();return;}
   if(prompt){
    if(key==="escape"){prompt=null;draw();return;}
    if(prompt.type==="update") {
@@ -85,11 +91,11 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  const keys=new Keys(),decoder=new StringDecoder("utf8");let escapeTimer:ReturnType<typeof setTimeout>|undefined;
  let queue=Promise.resolve();
  const run=(key:string)=>{
-  if(key==="interrupt" || key==="q"&&busy&&!prompt){quit(key==="interrupt"?130:0);return;}
+  if(key==="interrupt" || key==="q"&&busy&&!prompt&&!settings.open){quit(key==="interrupt"?130:0);return;}
   queue=queue.then(async()=>{if(closed)return;busy=true;try{await handle(key);}catch(e){report(`pacer: ${e instanceof Error?e.message:String(e)}`);}finally{busy=false;}});
  };
  const input=(chunk:Buffer)=>{clearTimeout(escapeTimer);for(const key of keys.feed(decoder.write(chunk)))run(key);escapeTimer=setTimeout(()=>{for(const key of keys.flush())run(key);},30);};
- const interrupt=()=>quit(130),terminate=()=>quit(143),hangup=()=>quit(129);
+ const interrupt=()=>{if(!suspended)quit(130);},terminate=()=>quit(143),hangup=()=>quit(129);
  const crash=(error:unknown)=>{exitError=`pacer: ${error instanceof Error?error.message:String(error)}`;report(exitError);quit(1);};
  const raw=process.stdin.isRaw;
  const restore=()=>{process.stdin.setRawMode(raw);process.stdout.write(LEAVE_SCREEN);};

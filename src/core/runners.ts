@@ -9,7 +9,7 @@ import { CoreError } from "./errors";
 export interface RunnerRow { id: string; state: "ok" | "blocked" | "broken" | "exhausted"; until: number | null; reason: string | null }
 
 function executorIds(s: Strategy): string[] {
-  return Object.keys(s.providers).filter((id) => id !== s.planner);
+  return Object.keys(s.providers).filter((id) => id !== s.planner.agent);
 }
 function mustExecutor(s: Strategy, id: string): void {
   if (!executorIds(s).includes(id)) throw new CoreError("unknown_executor", `unknown executor ${id}`, `configured: ${executorIds(s).join(", ")}`);

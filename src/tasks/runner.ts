@@ -17,6 +17,7 @@ import { killTree } from "../exec/process";
 import { exhaustUntil } from "../exec/limits";
 import { verifyRepo } from "../exec/verify";
 import type { Ctx } from "../types";
+import { resolveRunner } from "../config/runner-id";
 import { markExhausted } from "../usage/reactive";
 import { listTasks, readTask, updateTask } from "./store";
 import { TERMINAL_STATES, type TaskRecord, type TaskResult, type Verification } from "./types";
@@ -148,7 +149,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         updateTask(ctx, id, (t) => { t.childPid = pid; });
         if (stopped(ctx, id)) killTree(pid, "SIGTERM");
       };
-      const backend = resuming || deps.runAttempt ? null : await selectBackend(ctx, s);
+      const backend = resuming || deps.runAttempt ? null : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       task = updateTask(ctx, id, t => {
         t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming?.startedAt ?? Date.now() / 1000;
@@ -194,7 +195,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       lastBroken = undefined;
       if (out.attempt.limitHit) {
         lastLimitReport = out.report;
-        markExhausted(ctx, pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000));
+        markExhausted(ctx, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`));
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
         continue;
       }

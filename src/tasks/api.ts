@@ -1,3 +1,4 @@
+import { resolveRunner } from "../config/runner-id";
 import { z } from "zod";
 import { appendLabel } from "./labels";
 import { readBlocked } from "../executors/blocked";
@@ -80,9 +81,10 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   if (input.kind && !(KINDS as readonly string[]).includes(input.kind)) {
     p.push(`unknown kind "${input.kind}" (allowed: ${KINDS.join(", ")})`);
   }
-  if (input.executor && !s.providers[input.executor]) {
+  const runner = input.executor ? resolveRunner(s, input.executor) : null;
+  if (input.executor && !runner) {
     p.push(`unknown executor "${input.executor}" (configured: ${Object.keys(s.providers).join(", ")})`);
-  } else if (input.executor && input.executor === s.planner) {
+  } else if (input.executor && runner?.agent === s.planner.agent && runner.account === s.planner.account) {
     p.push(`"${input.executor}" is the planner; pick an executor`);
   }
   if (input.timeoutMin !== undefined && !(input.timeoutMin >= 1 && input.timeoutMin <= 240)) {
@@ -96,8 +98,9 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
 export function delegate(
   ctx: Ctx, input: DelegateInput, spawnFn: SpawnRunner = spawnRunner, s: Strategy = loadStrategy(ctx),
 ): TaskRecord {
+  if (input.executor) input = {...input, executor: resolveRunner(s, input.executor)?.id ?? input.executor};
   const problems = validateInput(s, input);
-  if(input.executor && readBlocked(ctx)[input.executor])problems.push(`${input.executor}: Blocked by you; run pacer executor unblock ${input.executor}`);
+  if(input.executor && Object.keys(readBlocked(ctx)).some(id => (resolveRunner(s,id)?.id ?? id) === input.executor))problems.push(`${input.executor}: Blocked by you; run pacer executor unblock ${input.executor}`);
   if (problems.length) throw new DelegateError(problems.join("; "));
   const task = createTask(ctx, {
     brief: input.brief,

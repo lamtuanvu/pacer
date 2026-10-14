@@ -53,11 +53,24 @@ test("exhausted and absent planner headlines and unknown detail",()=>{
 });
 test("ranked rows, muted quota, icons and plain verdict words",()=>{
  const s=snapshot();const b=browser();expect(rankedProviders(s).map(p=>p.id)).toEqual(["agy","local","codex"]);expect(mutedProviders(s).map(p=>p.id)).toEqual(["cursor"]);
- const rows=b.ids["ranked-list"].innerHTML;expect(rows.indexOf("Antigravity")).toBeLessThan(rows.indexOf("Local model"));expect(rows.indexOf("Local model")).toBeLessThan(rows.indexOf("Codex"));expect(rows).toContain("Ahead of pace");expect(rows).toContain('left:24%');
+ const rows=b.ids["ranked-list"].innerHTML;expect(rows.indexOf("Antigravity")).toBeLessThan(rows.indexOf("Local"));expect(rows.indexOf("Local")).toBeLessThan(rows.indexOf("Codex"));expect(rows).toContain("Ahead of pace");expect(rows).toContain('left:24%');
  expect(b.ids["unavailable-list"].innerHTML).toContain("out of quota · back in 5h 24m");expect(b.ids["executor-options"].innerHTML).toContain('value="unavailable" disabled');
- for(const [id,name] of [["claude-code","Claude"],["cursor","Cursor"],["agy","Antigravity"],["byteplus","BytePlus"],["local","Local model"],["codex","Codex"],["test","test"]]) {expect(icon(id)).toContain(`aria-label="${name}"`);expect(displayName(id)).toBe(name);}
+ for(const [id,name] of [["claude-code","Claude"],["cursor","Cursor"],["agy","Antigravity"],["byteplus","BytePlus"],["local","Local"],["codex","Codex"],["test","test"]]) {expect(icon(id)).toContain(`aria-label="${name}"`);expect(displayName(id)).toBe(name);}
  expect(icon("codex")).toContain("Cx");expect(icon("test")).toContain(">te<");expect(icon("agy",13)).toContain('width="13"');
  for(const [v,word] of [["OK","Available"],["AHEAD","Ahead of pace"],["BEHIND","Behind pace"],["EXPIRING","Expiring soon"],["NEAR_LIMIT","Near limit"],["wat","Unknown"]]) expect(verdictWords(v)).toBe(word);
+});
+test("account rows group shared runners and keep delegate selection tied to routing order",()=>{
+ const s=snapshot();
+ s.budget!.providers=[provider("claude-code","ON_PACE",{agent:"claude-code",account:"personal"}),provider("opencode#api","OK",{agent:"opencode",account:"api",usedPct:34}),provider("codex#team","OK",{agent:"codex",account:"team",usedPct:50}),provider("opencode#api@desktop","OK",{agent:"opencode",account:"api",usedPct:34})];
+ s.budget!.ranked=[{id:"opencode#api",verdict:"OK"},{id:"codex#team",verdict:"OK"},{id:"opencode#api@desktop",verdict:"OK"}];
+ const b=browser(panel(s)),rows=b.ids["ranked-list"].innerHTML;
+ expect(rows).toContain("Account api");expect(rows).toContain("Api");
+ expect(rows.lastIndexOf("Api")).toBeLessThan(rows.indexOf("Account team"));
+ expect(rows).toContain('data-executor-action="2"');
+ expect(b.ids["ranked-order"].innerHTML.indexOf("Codex (team)")).toBeLessThan(b.ids["ranked-order"].innerHTML.lastIndexOf("Api"));
+ b.ids.goal.value="Do work";b.selected.value="1";b.submit();
+ b.reply(b.sent.at(-1),{branch:"feature",displayName:"Feature",terminals:[{id:"term_console"}]});
+ expect(decodeCmdLine(b.sent.at(-1).params.text).cmd?.data.executor).toBe("codex#team");
 });
 test("attention groups duplicate goals, excludes failed executor, detects stuck tasks after ten minutes",()=>{
  const s=snapshot();s.tasks=[{id:"a",state:"failed",goal:"same",executor:"agy",backend:null,worktree:null,updatedAt:90},{id:"b",state:"limit",goal:"same",executor:"agy",backend:null,worktree:null,updatedAt:80},{id:"c",state:"running",goal:"stuck",executor:null,backend:null,worktree:null,updatedAt:-501},{id:"d",state:"queued",goal:"just ten",executor:null,backend:null,worktree:null,updatedAt:-500}];
@@ -298,7 +311,7 @@ test("brief link outages keep a disabled grey overview for 20 seconds before set
 });
 
 test("all primary views expose polite feedback and forms rely on visible JavaScript validation",()=>{
- const html=panel(); expect(html).not.toMatch(/\srequired(?:\s|>)/);expect(html.match(/data-status role="status" aria-live="polite"/g)).toHaveLength(4);
+ const html=panel(); expect(html).not.toMatch(/\srequired(?:\s|>)/);expect(html.match(/data-status role="status" aria-live="polite"/g)).toHaveLength(5);
  const b=browser();b.ids["strategy-brief"].value="";b.ids["strategy-send"].click();expect(b.ids.status.textContent).toContain("Enter a brief");
 });
 test("all console actions show startup feedback when console is missing, including strategy-build submit",()=>{

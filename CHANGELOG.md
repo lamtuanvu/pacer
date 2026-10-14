@@ -17,6 +17,42 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Executor timeouts send TERM to the process group, then KILL after a five-second grace period, instead of killing immediately.
 - Idle tasks stop after `execution.idle_fail_min` minutes without output or file changes (default 30).
 
+## [0.1.24] - 2026-10-14
+
+- Add dashboard Settings on `,` with the shared validated CLI writers, prompt-line account and runner setup, confirmed removals, executor ordering, and terminal handoff that returns after login. Align panel removal reasons below their row titles and keep boundary-arrow reasons in tooltips.
+
+- Add live panel Settings with planner, accounts, runners, executor controls, pacing, strategies, updates and plugin preferences; retain values without a console, confirm removals on a second click, and refresh changed settings without flashing unchanged panels. Show selected choices as segmented controls, explain unavailable actions and pacing policies, and hide the fill threshold in spread mode.
+- Reject malformed account names and runner ids before console removal commands reach shared writers.
+
+- Add validated console settings commands for planner and pacing changes, account and runner removal, and fixed terminal actions in the focused worktree.
+- Collect account and runner add arguments in the terminal while keeping the shared CLI write path.
+
+## [0.1.23] - 2026-10-14
+
+- Always use direct execution for non-default account folders, even with Orca/auto selected, to avoid interactive workspace-trust hangs; record the reason in attempt logs and preserve default-account backend behavior.
+
+- Detect Claude subscription limits and resolve agent-specific patterns for named runners; honor reported reset times and zones before quota-window/cooldown fallbacks and exhaust the shared account.
+- Default new Claude/Codex account homes to `~/.claude-<name>` / `~/.codex-<name>`; show compact folders separately from account sources while retaining full paths in JSON.
+- Infer runners added without settings from routing references and preserve flow-list padding when editing strategy lists.
+
+- Show runner ids with their agents, accounts and shared usage in status, route, dashboard and live panel rows, grouping runners by account while preserving legacy strategy rendering; label and align account and runner list columns without changing JSON output.
+
+- Add account and runner list/add/remove commands, private account homes with interactive agent login, sanitized Orca links, endpoint budgets and validated removal safeguards; add config get/set with effective-value provenance, planner integration movement and undo commands.
+
+- Install planner integrations into the selected Claude/Codex account folder, record account-scoped uninstall paths and command environments, and resolve hook budgets from the running session with a warning for unknown folders; init offers agent then account selection.
+
+- Launch Claude and Codex runners on their selected account homes in direct execution, and exclude usage-only Orca accounts whose folders are missing.
+
+- Read usage per account from native Codex sessions, separate Claude status-line caches and Orca active/inactive rate limits; filter Orca account emails, retain native/reactive fallbacks and validate derived Orca account folders.
+
+- Add accounts and runners to the strategy model, with validated agent/account pairings and a compatibility loader for existing provider strategies.
+- Add account spread/fill settings and a validated fill threshold (default 90%).
+- Add validated, atomic strategy edits that preserve comments and untouched layout, and migrate provider strategies during init, update or `pacer config migrate` with a recovery backup and restore command.
+- Pace and route runners against shared account budgets, with account headroom spread and fill preferences restricted to matching agent/account-kind groups (excluding endpoints), migration-equivalent ordering and planner reserve applied to the planner account; add account summaries and runner account fields to status and route JSON.
+- Identify runners as `agent#account@host`, resolve default accounts and legacy provider aliases, and infer runners from planner and routing references; reserve remote host ids with a clear validation error.
+- Keep default models on accounts with optional runner overrides; migrate routing and pacing to canonical runner ids and omit redundant runner declarations while preserving comments and recovery backups.
+- Keep the default OpenCode planner from adding a phantom endpoint budget account.
+
 ## [0.1.22] - 2026-10-14
 
 - Make `pacer init` the complete, consent-based setup flow with planner selection, agent connections and live panel guidance; `setup` is an alias.

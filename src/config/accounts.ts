@@ -1,0 +1,172 @@
+import { formatRunnerId, parseRunnerId, runnerDefaults } from "./runner-id";
+import type { UsageKind } from "../types";
+import { isObj } from "../util";
+
+export function parseSize(v: unknown): number | null {
+  if (typeof v === "number") return v;
+  const m = /^(\d+(?:\.\d+)?)\s*([kKmMgG]?)$/.exec(String(v ?? "").trim());
+  if (!m) return null;
+  const mult = { "": 1, k: 1e3, m: 1e6, g: 1e9 }[m[2].toLowerCase() as "" | "k" | "m" | "g"];
+  return Number(m[1]) * mult;
+}
+
+export function parseDuration(v: unknown): number | null {
+  if (typeof v === "number") return v;
+  const m = /^(\d+(?:\.\d+)?)\s*([smhd])$/.exec(String(v ?? "").trim());
+  if (!m) return null;
+  return Number(m[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[m[2] as "s" | "m" | "h" | "d"];
+}
+
+export const AGENTS = ["claude-code", "codex", "cursor", "agy", "opencode"] as const;
+export type AgentId = (typeof AGENTS)[number];
+export type AccountKind = "claude" | "codex" | "cursor" | "agy" | "endpoint";
+export interface AccountCfg {
+  name: string;
+  model: string | null;
+  kind: AccountKind;
+  source: "default" | "pacer" | "orca" | "endpoint";
+  home: string | null;
+  orcaAccount: string | null;
+  usage: UsageKind;
+  usageSource: "native" | "orca" | "arkcli" | "metered" | "reactive" | "unmetered";
+  quotaSource: string | null;
+  weeklyTokens: number | null;
+  cooldownS: number;
+  allowPaid: boolean;
+}
+export interface RunnerCfg { id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
+export interface PlannerCfg { agent: AgentId; account: string }
+export interface AccountsModel {
+  accounts: Record<string, AccountCfg>;
+  runners: Record<string, RunnerCfg>;
+  planner: PlannerCfg;
+  runnerAliases: Record<string, string>;
+}
+const ACCOUNT_KIND: Record<AgentId, AccountKind> = {
+  "claude-code": "claude", codex: "codex", cursor: "cursor", agy: "agy", opencode: "endpoint",
+};
+export function allowedPair(agent: AgentId, kind: AccountKind): boolean {
+  return Object.hasOwn(ACCOUNT_KIND, agent) && ACCOUNT_KIND[agent] === kind;
+}
+
+function accountCfg(name: string, c: Record<string, unknown>): AccountCfg {
+  const kind = c.kind as AccountKind;
+  const home = typeof c.home === "string" ? c.home : null;
+  const orcaAccount = typeof c.orca_account === "string" ? c.orca_account : null;
+  const source = orcaAccount ? "orca" : home ? "pacer" : kind === "endpoint" ? "endpoint" : "default";
+  const usage = (c.usage ?? (kind === "claude" || kind === "codex" ? "quota" : kind === "endpoint" ? "metered" : "reactive")) as UsageKind;
+  const quotaSource = typeof c.quota_source === "string" ? c.quota_source : null;
+  const usageSource = (c.usage_source ?? (source === "orca" ? "orca" : quotaSource === "arkcli" ? "arkcli" : usage === "quota" ? "native" : usage)) as AccountCfg["usageSource"];
+  return {
+    name, model: c.model === undefined ? null : String(c.model), kind, source, home, orcaAccount, usage, usageSource, quotaSource,
+    weeklyTokens: isObj(c.budget) ? parseSize(c.budget.weekly_tokens) : null,
+    cooldownS: c.cooldown === undefined ? 6 * 3600 : parseDuration(c.cooldown) ?? 6 * 3600,
+    allowPaid: c.allow_paid === true,
+  };
+}
+
+/** Map the legacy provider shape without changing its accepted usage settings. */
+export function legacyToAccounts(raw: unknown): AccountsModel {
+  const c = isObj(raw) ? raw : {};
+  const accounts: Record<string, AccountCfg> = {};
+  const runners: Record<string, RunnerCfg> = {};
+  const runnerAliases: Record<string, string> = {};
+  for (const [name, value] of Object.entries(isObj(c.providers) ? c.providers : {})) {
+    const v = isObj(value) ? value : {};
+    const agent = v.via === "opencode" ? "opencode" : name as AgentId;
+    accounts[name] = accountCfg(name, { ...v, kind: ACCOUNT_KIND[agent] });
+    const id = agent === "opencode" ? `opencode#${name}` : agent;
+    runnerAliases[name] = id;
+    runners[id] = { id, name: id, host: null, agent, account: name, model: accounts[name].model };
+  }
+  const agent = c.planner as AgentId;
+  if (agent !== "opencode" && !accounts[agent]) accounts[agent] = accountCfg(agent, {kind: ACCOUNT_KIND[agent]});
+  const planner = {agent, account: agent};
+  if (accounts[agent] && !runners[agent]) runners[agent] = {id: agent, name: agent, host: null, agent, account: agent, model: accounts[agent].model};
+  return { accounts, runners, planner, runnerAliases };
+}
+
+export function parseAccounts(raw: Record<string, unknown>, problems: string[]): AccountsModel {
+  const accounts: Record<string, AccountCfg> = {};
+  const runners: Record<string, RunnerCfg> = {};
+  if (!isObj(raw.accounts) || !Object.keys(raw.accounts).length) problems.push("accounts must be a non-empty mapping");
+  for (const [name, value] of Object.entries(isObj(raw.accounts) ? raw.accounts : {})) {
+    const at = `accounts.${name}`;
+    if (!isObj(value)) { problems.push(`${at} must be a mapping`); continue; }
+    const cfg = accountCfg(name, value);
+    if (!["claude", "codex", "cursor", "agy", "endpoint"].includes(cfg.kind)) problems.push(`${at}: unknown account kind`);
+    if (value.home !== undefined && (typeof value.home !== "string" || !value.home.trim() || !["claude", "codex"].includes(cfg.kind))) {
+      problems.push(`${at}: home requires a non-empty folder on a claude or codex account`);
+    }
+    if (value.orca_account !== undefined && (typeof value.orca_account !== "string" || !value.orca_account.trim() || !["claude", "codex"].includes(cfg.kind))) {
+      problems.push(`${at}: orca_account requires a non-empty id on a claude or codex account`);
+    }
+    if (value.home !== undefined && value.orca_account !== undefined) problems.push(`${at}: home and orca_account are mutually exclusive`);
+    if (!["quota", "metered", "reactive", "unmetered"].includes(cfg.usage)) problems.push(`${at}: unknown usage kind`);
+    if (!["native", "orca", "arkcli", "metered", "reactive", "unmetered"].includes(cfg.usageSource)) problems.push(`${at}: unknown usage_source`);
+    if (["cursor", "agy"].includes(cfg.kind) && cfg.usage === "quota" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage is not available; use reactive or usage_source: orca`);
+    if (cfg.kind === "endpoint" && cfg.usage === "quota" && cfg.quotaSource !== "arkcli" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage needs quota_source: arkcli or usage_source: orca`);
+    if (cfg.usage === "metered" && (cfg.weeklyTokens === null || !Number.isFinite(cfg.weeklyTokens) || cfg.weeklyTokens <= 0)) problems.push(`${at}: metered usage needs budget.weekly_tokens`);
+    if (value.cooldown !== undefined && (parseDuration(value.cooldown) === null || !Number.isFinite(cfg.cooldownS) || cfg.cooldownS < 0)) problems.push(`${at}: cooldown must look like 30m, 6h or 2d`);
+    accounts[name] = cfg;
+  }
+  // Native defaults are unique; endpoint budgets are always explicitly named.
+  for (const kind of ["claude", "codex", "cursor", "agy"]) {
+    if (Object.values(accounts).filter(a => a.kind === kind && !a.home && !a.orcaAccount).length > 1) problems.push(`accounts: more than one default ${kind} account`);
+  }
+  const defaults = runnerDefaults(accounts); delete defaults.opencode;
+  const runnerAliases: Record<string, string> = {};
+  const declarations = new Map<string, string | null>();
+  const entries = isObj(raw.runners) ? raw.runners : {};
+  if (raw.runners !== undefined && !isObj(raw.runners)) problems.push("runners must be a mapping");
+  // Accept the explicit agent/account shape from the transitional accounts format.
+  for (const [name, value] of Object.entries(entries)) {
+    if (isObj(value) && value.agent && value.account) runnerAliases[name] = formatRunnerId({agent: value.agent as AgentId, account: String(value.account), host: null}, defaults);
+  }
+  const add = (reference: string, value: unknown = {}): RunnerCfg | null => {
+    const at = `runner ${reference}`;
+    const c = isObj(value) ? value : {};
+    if (!isObj(value)) problems.push(`${at}: must be a mapping`);
+    const declared = parseRunnerId(reference);
+    const explicit = c.agent !== undefined || c.account !== undefined;
+    if (declared?.host && explicit) problems.push("remote runners aren't supported yet");
+    if (declared && explicit && (declared.agent !== c.agent || (declared.account ?? defaults[declared.agent]) !== c.account)) problems.push(`${at}: declaration conflicts with runner id identity`);
+    const parsed = explicit ? {agent: c.agent as AgentId, account: c.account as string, host: null} : parseRunnerId(runnerAliases[reference] ?? reference)
+      ?? (accounts[reference]?.kind === "endpoint" ? {agent: "opencode" as const, account: reference, host: null} : null);
+    if (!parsed || !(AGENTS as readonly string[]).includes(parsed.agent)) { problems.push(`${at}: invalid runner id or unknown agent`); return null; }
+    if (parsed.host) problems.push("remote runners aren't supported yet");
+    if (parsed.agent === "opencode" && reference === "opencode" && !accounts.opencode) return null;
+    const account = parsed.account ?? defaults[parsed.agent];
+    if (!account) { problems.push(`${at}: no default account for ${parsed.agent}`); return null; }
+    const cfg = accounts[account];
+    if (!cfg) { problems.push(`${at}: unknown account "${account}"`); return null; }
+    if (!allowedPair(parsed.agent, cfg.kind)) problems.push(`${at}: ${parsed.agent} cannot use ${cfg.kind} account "${account}"`);
+    const id = formatRunnerId({...parsed, account}, defaults);
+    if (!parseRunnerId(id)) problems.push(`${at}: invalid runner id`);
+    if (runners[id] && !Object.keys(c).length) { runnerAliases[reference] = id; return runners[id]; }
+    const model = c.model === undefined ? cfg.model : typeof c.model === "string" ? c.model : null;
+    if (Object.keys(c).length) {
+      if (declarations.has(id) && declarations.get(id) !== model) problems.push(`${at}: conflicting model declarations for ${id}`);
+      declarations.set(id, model);
+    }
+    const runner = {id, name: id, host: parsed.host, agent: parsed.agent, account, model};
+    if (!runners[id] || Object.keys(c).length) runners[id] = runner;
+    runnerAliases[reference] = id;
+    return runners[id];
+  };
+  const plannerRaw = isObj(raw.planner) ? raw.planner : {};
+  const plannerRef = plannerRaw.agent === "opencode" && plannerRaw.account === "opencode" && !accounts.opencode ? "opencode" : typeof raw.planner === "string" ? raw.planner : formatRunnerId({agent: plannerRaw.agent as AgentId, account: plannerRaw.account as string, host: null}, defaults);
+  const plannerRunner = add(plannerRef, typeof raw.planner === "string" ? {} : plannerRaw);
+  const planner = plannerRunner ? {agent: plannerRunner.agent, account: plannerRunner.account} : {agent: "opencode" as AgentId, account: "opencode"};
+  if (!["claude-code", "codex", "cursor", "opencode"].includes(planner.agent)) problems.push("planner must be one of claude-code, codex, cursor, opencode");
+  for (const [name, value] of Object.entries(entries)) add(name, value);
+  if (Array.isArray(raw.routing)) for (const rule of raw.routing) {
+    if (!isObj(rule)) continue;
+    const refs = rule.default ?? rule.executors;
+    if (Array.isArray(refs)) for (const ref of refs) add(String(ref));
+  }
+  for (const runner of Object.values(runners)) {
+    if (runner.agent === "opencode" && (!runner.model || !runner.model.includes("/"))) problems.push(`runner ${runner.id}: model must look like "<provider>/<model>"`);
+  }
+  return {accounts, runners, planner, runnerAliases};
+}

@@ -126,3 +126,13 @@ test("live output lands in the run directory while the agent runs; the legacy lo
   expect(readFileSync(join(run.dir, "stdout"), "utf8")).toBe("first\nsecond\n");
   expect(readFileSync(o.attempt.log, "utf8")).toMatch(/^\$ cursor-agent .*\n--- stdout\nfirst\nsecond\n\n--- stderr\n\n--- exit 0\n$/s);
 });
+for (const [agent,kind,bin,fixture] of [['claude-code','claude','claude','claude-weekly-limit.txt'],['codex','codex','codex','codex-team-limit.txt']]) test(`direct ${agent} named-account failure detects recorded limit output`,async()=>{
+ const text=await Bun.file(new URL(`./fixtures/${fixture}`,import.meta.url)).text();
+ const {ctx,task}=await setup(bin,`cat <<'LIMIT'\n${text}LIMIT\nexit 1`);
+ const {mkdirSync}=await import('node:fs');mkdirSync(ctx.pacerHome,{recursive:true});
+ const raw={accounts:{plan:{kind:'claude'},team:{kind,home:'~/.test-team'}},planner:'claude-code',routing:[{default:[`${agent}#team`]}]};
+ writeFileSync(join(ctx.pacerHome,'strategy.yaml'),JSON.stringify(raw));
+ const st=validateStrategy(raw,'test');
+ const out=await runAttempt(ctx,st.providers[`${agent}#team`],task);
+ expect(out.attempt.exitCode).toBe(1);expect(out.attempt.limitHit).toBe(true);
+});

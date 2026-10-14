@@ -1,6 +1,15 @@
+import { names } from "../../../src/render/accounts";
+export const accountGroupsClient=`function groupedRows(rows,render) {
+ const groups=new Map();
+ rows.forEach((p,i)=>{const key=p.account || "";if(!groups.has(key))groups.set(key,[]);groups.get(key).push([p,i]);});
+ return Array.from(groups,([account,entries])=>(account?'<div class="muted account-group">Account '+h(account)+'</div>':'')+entries.map(([p,i])=>render(p,i)).join("")).join("");
+}
+`;
 import { pendingClient } from "./pending";
 /** No network or navigation: every host request uses the sandboxed panel bridge. */
-export const client=`
+// Compact private script identifiers to keep all views within the panel size limit.
+const compactNames:Record<string,string>={"notificationControl":"_s0","strategyEntries":"_s1","submitButton":"_s2","updateContext":"_s3","sendCommand":"_s4","updateFreshness":"_s6","seenStrategies":"_s7","actionStates":"_s8","pendingSend":"_s9","statusNode":"_s10","recoverActions":"_s11","afterSession":"_s12","finishSending":"_s13","rankedList":"_s14","mutedList":"_s15","savedStrategy":"_s16","sentAt":"_s17","actionStorage":"_c17","actionButtons":"_c18","saveActions":"_c19","actionKey":"_c20","actionLabel":"_c21","restoreAction":"_c22","paintAction":"_c23","beginAction":"_c24","bindAction":"_c25","onFailure":"_f","pending":"_p"};
+export const client=(accounts=false)=>`
 const embedded=JSON.parse(document.getElementById("pacer-actions").textContent);
 function unpack(value) {
  if(Array.isArray(value)) return value.map(unpack);
@@ -8,8 +17,9 @@ function unpack(value) {
  return value;
 }
 const data=unpack(embedded.encoded ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(embedded.encoded), c=>c.charCodeAt(0)))) : embedded);
-const providerNames={"claude-code":"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",byteplus:"BytePlus",local:"Local model",opencode:"OpenCode"};
-for (const p of [...data.rows,...data.muted]) p.name=Object.hasOwn(providerNames,p.id) ? providerNames[p.id] : p.id;
+const runnerId=/^(?=.{1,64}$)[a-z0-9-]+(?:#[a-z0-9-]+)?$/;
+const names=${JSON.stringify(names)};
+for(const p of [...data.rows,...data.muted])p.name||=Object.hasOwn(names,p.id)?names[p.id]:p.id;
 data.executors=data.rows.map(p=>p.id);
 const statusNode=document.getElementById("status");
 const status={ get textContent() { return statusNode.textContent; }, set textContent(value) {
@@ -25,6 +35,7 @@ function show(view) {
   if(view==="strategy" && savedStrategy) {try {sessionStorage.setItem("pacer-seen-strategies",JSON.stringify([...seenStrategies,savedStrategy.key+":"+savedStrategy.at].slice(-100)));}catch {}}
   for (const el of document.querySelectorAll("[data-page]")) el.hidden=el.dataset.page!==view;
   status.textContent="";
+  try {sessionStorage.setItem("pacer-panel-view",view);}catch{}
 }
 function live(workspace) {
   const available=data.consoles.filter(c=>c.handle && c.live);
@@ -62,6 +73,7 @@ function sendCommand(command, after, onFailure, workspace) {
   const send=value=>{
     updateContext(value);
     if (!live(value)) return fail();
+    if(command.cmd==="open-terminal" && typeof value?.worktreeId==="string") command={...command,worktreeId:value.worktreeId};
     const text=": pacer '" + JSON.stringify({v:1,type:"cmd",data:command}).replace(/'/g,"\\\\u0027") + "'";
     if (text.length > 4096) { status.textContent="pacer command line exceeds 4096 characters. Shorten your brief and try again."; return fail(); }
     if (!request("terminal.sendText",{terminalId:data.handle,text,enter:true},"console",after,onFailure)) return fail();
@@ -107,14 +119,15 @@ function meter(p) {
  return '<div class="meter slim '+p.tone+'" role="progressbar" aria-label="'+h(p.name)+' usage" aria-valuenow="'+used+'" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:'+used+'%"></div>'+(pace===null?'':'<div class="pace" style="left:'+pace+'%"></div>')+'</div>';
 }
 const rankedList=document.getElementById("ranked-list"), mutedList=document.getElementById("unavailable-list"), options=document.getElementById("executor-options");
-rankedList.innerHTML=data.rows.map((p,i)=>'<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span><button type="button" data-executor-action="'+i+'">Block</button></div>'+meter(p)+'</div>').join("") || '<div class="provider muted">No executor available yet.</div>';
-mutedList.innerHTML=data.muted.map((p,i)=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span><button type="button" data-executor-action="'+(data.rows.length+i)+'">'+(p.blocked?'Unblock':'Block')+'</button></div>').join("");
+${accounts ? accountGroupsClient : ""}
+rankedList.innerHTML=${accounts ? 'groupedRows(data.rows,' : 'data.rows.map('}(p,i)=>'<div class="stack provider"><div class="row"><span class="rank">'+(i+1)+'</span><div class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></div><span class="pill '+p.tone+'">'+h(p.words)+'</span><button type="button" data-executor-action="'+i+'">Block</button></div>'+meter(p)+'</div>')${accounts ? '' : '.join("")'} || '<div class="provider muted">No executor available yet.</div>';
+mutedList.innerHTML=${accounts ? 'groupedRows(data.muted,' : 'data.muted.map('}(p,i)=>'<div class="row"><span class="name">'+icon(p,13)+h(p.name)+'</span><span>'+h(p.detail)+'</span><button type="button" data-executor-action="'+(data.rows.length+i)+'">'+(p.blocked?'Unblock':'Block')+'</button></div>')${accounts ? '' : '.join("")'};
 options.innerHTML=data.rows.map((p,i)=>'<label class="radio"><input type="radio" name="executor" value="'+i+'"><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span><span class="pill '+p.tone+'">'+h(p.words)+'</span></label>').join("") + data.muted.filter(p=>p.verdict==="EXHAUSTED").map(p=>'<label class="radio"><input type="radio" name="executor" value="unavailable" disabled><span class="stack grow"><span class="name">'+icon(p,14)+h(p.name)+'</span><small>'+h(p.detail)+'</small></span></label>').join("");
 for(const b of document.querySelectorAll("[data-executor-action]")) {
  const provider=[...data.rows,...data.muted][Number(b.dataset.executorAction)];if(provider)bindAction(b,{cmd:provider.blocked?"unblock":"block",executor:provider.id});
  b.addEventListener("click",()=>{
  const p=[...data.rows,...data.muted][Number(b.dataset.executorAction)];
- if(p && /^[a-z0-9-]{1,64}$/.test(p.id))pendingSend(b,{cmd:p.blocked?"unblock":"block",executor:p.id});
+ if(p && runnerId.test(p.id))pendingSend(b,{cmd:p.blocked?"unblock":"block",executor:p.id});
 });}
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", ()=>{
   if (["delegate","strategy"].includes(b.dataset.view)) {
@@ -132,6 +145,11 @@ for (const b of document.querySelectorAll("[data-command]")) {
  if(data.commands[b.dataset.command])bindAction(b,data.commands[b.dataset.command]);
  b.addEventListener("click", ()=>{
   const command=data.commands[b.dataset.command];
+  if (command && b.dataset.remove) {
+   const now=Date.now(), armed=Number(b.dataset.confirmAt);
+   if(!Number.isFinite(armed) || now-armed>=5000 || now<armed) {b.dataset.confirmAt=String(now);b.textContent="Confirm remove";status.textContent="Click again within 5 seconds to remove.";return;}
+   delete b.dataset.confirmAt;
+  }
   if (command) pendingSend(b,command,command.cmd==="check-setup"?()=>{restoreAction(actionKey(command));status.textContent="Setup check requested. The checklist updates when a check changes.";}:undefined); else status.textContent="Reopen the panel to load this action.";
 });
 }
@@ -163,7 +181,7 @@ document.getElementById("delegate-send").addEventListener("click", ()=>{
   const selected=document.querySelector('input[name="executor"]:checked');
   if (!goal.trim()) { status.textContent="What should be done is required."; return; }
   if (goal.length > 2000 || acceptance.length > 500) { status.textContent="Goal must be at most 2000 characters; Done when at most 500."; return; }
-  if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !/^[a-z0-9-]{1,64}$/.test(data.executors[Number(selected.value)]))) { status.textContent="Choose an available executor."; return; }
+  if (!selected || selected.disabled || selected.value && (!data.executors[Number(selected.value)] || !runnerId.test(data.executors[Number(selected.value)]))) { status.textContent="Choose an available executor."; return; }
   const command={cmd:"delegate",goal,acceptance,...(selected.value?{executor:data.executors[Number(selected.value)]}:{})};
   const action=beginAction(submitButton,command);if(!action)return;
   sending=true;
@@ -216,7 +234,8 @@ if(notificationControl){
  });
 }
 recoverActions();
+try {if(sessionStorage.getItem("pacer-panel-view")==="settings")show("settings");}catch{}
 try {const saved=Number(sessionStorage.getItem("pacer-panel-scroll"));if(Number.isFinite(saved)&&saved>=0)window.scrollTo?.(0,saved);}catch{}
 window.addEventListener("scroll",()=>{try{sessionStorage.setItem("pacer-panel-scroll",String(window.scrollY));}catch{}},{passive:true});
 readContext(value=>{ live(value); });
-`;
+`.replace(/(?<!-)\b(notificationControl|strategyEntries|submitButton|updateContext|sendCommand|updateFreshness|seenStrategies|actionStates|pendingSend|statusNode|recoverActions|afterSession|finishSending|rankedList|mutedList|savedStrategy|sentAt|actionStorage|actionButtons|saveActions|actionKey|actionLabel|restoreAction|paintAction|beginAction|bindAction|onFailure|pending)\b(?!-)/g,name=>compactNames[name]!);

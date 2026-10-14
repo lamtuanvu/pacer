@@ -4,7 +4,7 @@ Install the Orca marketplace plugin; it bootstraps pacer in the background.
 
 In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
 install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.22`.
+bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.24`.
 The worker installs a checksum-verified binary and keeps older binaries updated to
 its version. It never downgrades. Once per Orca launch it opens a terminal titled
 **pacer** in the focused worktree: `pacer init` if strategy or login service setup

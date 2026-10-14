@@ -38,12 +38,12 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       checks.push({ name: `Binary ${cfg.id}`, level: installed ? "ok" : "fail",
         detail: installed ? `${bin} installed` : `${bin} missing`,
         ...(!installed ? { fix: `install ${bin} or remove providers.${cfg.id}` } : {}) });
-      if(installed && cfg.id !== strategy.planner)checks.push(await executorCliCheck(ctx,cfg));
+      if(installed && cfg.id !== strategy.planner.agent)checks.push(await executorCliCheck(ctx,cfg));
       logins.add(cfg.via === "opencode" ? "opencode" : cfg.id);
       if (cfg.quotaSource === "arkcli") logins.add("arkcli");
     }
     // OpenCode may be the planner without being a provider itself.
-    logins.add(strategy.planner);
+    logins.add(strategy.planner.agent);
     for (const id of logins) checks.push(loginCheck(ctx, id));
 
     try {

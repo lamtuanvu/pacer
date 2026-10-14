@@ -1,3 +1,4 @@
+import { parseRunnerId } from "../config/runner-id";
 import { runGuard } from "../guard/guard";
 import { runDoctor, renderDoctor } from "../install/doctor";
 import { INSTALLERS, installPlanner, renderInstall, renderUninstall } from "../install";
@@ -15,8 +16,14 @@ const ok = (out = ""): Result => ({ code: 0, out, err: "" });
 const error = (code: number, err: string): Result => ({ code, out: "", err });
 const message = (e: unknown): string => e instanceof Error ? e.message : String(e);
 const usage = (text: string, description: string): string => text.padEnd(47) + description;
-const isPlanner = (p: string | undefined): p is keyof typeof INSTALLERS =>
-  p !== undefined && Object.hasOwn(INSTALLERS, p);
+const isPlanner = (p: string | undefined): p is string => {
+  const id = p ? parseRunnerId(p) : null;
+  return !!id && !id.host && Object.hasOwn(INSTALLERS, id.agent);
+};
+const installTarget = (p: string) => {
+  const id = parseRunnerId(p)!;
+  return id.account ? {agent: id.agent, account: id.account} : id.agent as keyof typeof INSTALLERS;
+};
 const plannerFlag = (args: string[]): string => {
   const index = args.indexOf("--planner");
   return index < 0 ? "" : args[index + 1] ?? "";
@@ -34,7 +41,7 @@ export const COMMANDS: Command[] = [
       if (!isPlanner(planner)) return badPlanner(planner);
       if (args.slice(1).some(a=>!["--mcp","--no-mcp"].includes(a)) || args.includes("--mcp")&&args.includes("--no-mcp")) return error(2, "usage: pacer install <planner> [--mcp|--no-mcp]");
       try {
-        return ok(renderInstall(await installPlanner({ ctx, pacerArgv: pacerArgv(ctx.env), ...(args.includes("--mcp")?{mcp:true}:args.includes("--no-mcp")?{mcp:false}:{}) }, planner)));
+        return ok(renderInstall(await installPlanner({ ctx, pacerArgv: pacerArgv(ctx.env), ...(args.includes("--mcp")?{mcp:true}:args.includes("--no-mcp")?{mcp:false}:{}) }, installTarget(planner))));
       } catch (e) {
         if (e instanceof InstallError) return error(1, `pacer: ${e.message}`);
         return error(1, `pacer: ${message(e)}`);
@@ -49,7 +56,7 @@ export const COMMANDS: Command[] = [
       if (!isPlanner(planner)) return badPlanner(planner);
       if (args.length !== 1) return error(2, "usage: pacer uninstall <planner>");
       try {
-        const report = await uninstallPlanner(ctx, planner);
+        const report = await uninstallPlanner(ctx, installTarget(planner));
         return report ? ok(renderUninstall(report)) : error(1, `pacer: ${planner} is not installed`);
       } catch (e) { return error(1, `pacer: ${message(e)}`); }
     },

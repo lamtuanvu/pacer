@@ -1,3 +1,4 @@
+import { parseRunnerId } from "../../config/runner-id";
 import type { WorktreeMode } from "../../config/execution";
 import type { ProviderCfg } from "../../config/strategy";
 
@@ -20,6 +21,6 @@ export function orcaAgentFor(cfg: ProviderCfg, worktree: WorktreeMode): AgentPic
     }
     return { agent: "opencode", model: cfg.model };
   }
-  const agent = ORCA_AGENTS[cfg.id];
+  const agent = ORCA_AGENTS[parseRunnerId(cfg.id)?.agent ?? cfg.id];
   return agent ? { agent, model: cfg.model } : { skip: `no Orca agent for provider "${cfg.id}"` };
 }
