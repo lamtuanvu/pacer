@@ -608,4 +608,6 @@ Params JSON Schema:
 
 TypeScript clients in this repository use `ApiClient` from `src/api/client.ts`. `connectClient` picks HTTP when `pacer serve` answers `/health` with `X-Pacer: 1`, and otherwise runs in-process. `PACER_API=inprocess` forces in-process.
 
+The Orca plugin worker reads the v2 API over HTTP when `pacer serve` is running, otherwise through a `pacer api --stdio` child; panel commands still reach the console terminal, which executes mapped commands as v2 operations.
+
 HTTP `subscribe` reconnects with `Last-Event-ID` to resume from the last seen event.
