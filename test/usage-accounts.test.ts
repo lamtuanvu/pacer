@@ -93,25 +93,6 @@ function orcaStrategy() {
   }, "/strategy");
 }
 
-test("Orca active and inactive rate limits map to the matching account budgets", async () => {
-  const ctx = await orcaCtx();
-  const st = await computeStatus(ctx, orcaStrategy(), {profile: null});
-  const account = (name: string) => st.accounts.find(a => a.name === name);
-  // Default native Claude keeps its existing native reader.
-  expect(account("claude-code")?.usedPct).toBeNull();
-  expect(account("work")?.usedPct).toBe(79);
-  expect(account("main")?.usedPct).toBe(12);
-  expect(account("team")?.usedPct).toBe(83);
-  expect(account("cursor")?.usedPct).toBe(51.5);
-  const go = st.providers.find(p => p.account === "go")!;
-  expect(go.windows.map(w => [w.name, w.usedPct, w.resetsAt, w.lengthS])).toEqual([
-    ["5h", 18, 1792003600, 18000],
-    ["weekly", 61, 1792604800, 604800],
-    ["monthly", 28, 1794592000, 2592000],
-  ]);
-  expect(JSON.stringify(st)).not.toContain("email");
-  expect(JSON.stringify(st)).not.toContain("synthetic@example.invalid");
-});
 
 test("missing Orca falls back to native Claude and reactive Cursor", async () => {
   const ctx = fakeCtx({which: () => null});
@@ -150,14 +131,6 @@ test("derived Orca homes require a real directory and refuse path traversal", as
   expect(orcaAccountHome(ctx, "claude", "../escape")).toBeNull();
 });
 
-test("unknown linked Orca account never borrows the active account quota", async () => {
-  const ctx = await orcaCtx();
-  const s = orcaStrategy();
-  s.accounts.work.orcaAccount = "missing-account";
-  const st = await computeStatus(ctx, s, {profile: null});
-  expect(st.accounts.find(a => a.name === "work")?.usedPct).toBeNull();
-  expect(st.providers.find(p => p.account === "work")?.error).toContain("Orca");
-});
 
 test("Claude status-line capture recognizes an existing Orca-managed home", async () => {
   const ctx = fakeCtx();

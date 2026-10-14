@@ -5,7 +5,6 @@ import { readByteplus } from "./byteplus";
 import { readClaude } from "./claude";
 import { readCodex } from "./codex";
 import { readMetered } from "./metered";
-import { readOrca } from "./orca";
 import { limitWindow } from "./reactive";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg): Promise<UsageReading> {
@@ -54,12 +53,6 @@ export async function readUsage(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg
 /** Read one budget per account, aggregating metered model usage exactly once. */
 export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: RunnerCfg[]): Promise<UsageReading> {
   const model = runners[0]?.model ?? account.model;
-  const automaticOrca = (account.kind === "cursor" || account.kind === "agy" || account.kind === "endpoint")
-    && (account.usageSource === "reactive" || account.usageSource === "metered");
-  if (account.usageSource === "orca" || automaticOrca) {
-    const reading = await readOrca(ctx, account, model);
-    if (reading) return reading;
-  }
   const cfg: ProviderCfg = {
     id: account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? account.name : account.kind,
     via: account.kind === "endpoint" ? "opencode" : null, model,
@@ -67,8 +60,8 @@ export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: R
     quotaSource: account.quotaSource === "arkcli" || account.usageSource === "arkcli" ? "arkcli" : null,
     weeklyTokens: account.weeklyTokens,
   };
-  // Orca quota requests on reactive agents fall back to today's reactive tracking.
-  if (account.usageSource === "orca" && (account.kind === "cursor" || account.kind === "agy")) cfg.usage = "reactive";
+  // Orca is never a usage source; a legacy usage_source: orca reads natively (claude/codex) or reactively.
+  if (account.usageSource === "orca" && account.kind !== "claude" && account.kind !== "codex") cfg.usage = "reactive";
   if (account.usage !== "metered") return cachedBase(ctx, cfg, account);
   const models = [...new Set(runners.map(r => r.model))];
   const readings = await Promise.all(models.map(model => cachedBase(ctx, { ...cfg, model }, account)));

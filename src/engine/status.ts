@@ -52,6 +52,8 @@ export { displayName } from "../render/accounts";
 export async function computeStatus(
   ctx: Ctx, s: Strategy, opts: { profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
+  const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
+    .map(a => `account ${a.name}: usage_source orca is no longer read; using ${a.kind === "claude" || a.kind === "codex" ? "native" : "reactive"}`);
   const blocked = Object.fromEntries(Object.entries(readBlocked(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
   const broken = Object.fromEntries(Object.entries(readBroken(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
   const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx).catch(() => null);
@@ -105,6 +107,7 @@ export async function computeStatus(
     mode: planner ? plannerMode(planner.verdict) : "normal",
     disabled: (ctx.env.PACER ?? "").toLowerCase() === "off",
     calendarPace: isCalendar(profile),
+    ...(warnings.length ? { warnings } : {}),
     accounts: budgets.map(({ account, runners, binding, verdict, reading }) => ({
       name: account.name, kind: account.kind, verdict,
       usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,

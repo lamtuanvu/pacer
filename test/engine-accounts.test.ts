@@ -190,3 +190,61 @@ test("a limit mark beats staleness", async () => {
   const st = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["plan", r]]) });
   expect(st.accounts.find(a => a.name === "plan")!.verdict).toBe("EXHAUSTED");
 });
+
+for (const usageSource of [undefined, "orca"] as const) {
+  test(`Orca-linked native accounts read their own data with usage_source ${usageSource ?? "default"}`, async () => {
+    const calls: string[][] = [];
+    const ctx = fakeCtx({ now, run: async argv => {
+      calls.push([...argv]);
+      return { code: 0, stderr: "", stdout: JSON.stringify({ rateLimits: {} }) };
+    } });
+    ctx.env.PACER_ORCA_USER_DATA = join(ctx.home, "orca-data");
+    const logs = join(ctx.env.PACER_ORCA_USER_DATA, "codex-accounts", "cx-team", "home", "sessions");
+    mkdirSync(logs, { recursive: true });
+    writeFileSync(join(logs, "rollout-test.jsonl"), JSON.stringify({
+      rate_limits: { primary: { used_percent: 27, window_minutes: 10080, resets_at: now + 86400 } },
+    }));
+    mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true });
+    writeFileSync(join(ctx.pacerHome, "cache", "claude-rate-limits.work.json"), JSON.stringify({
+      seven_day: { used_percentage: 42, resets_at: now + 86400 }, captured_at: now,
+    }));
+    const s = validateStrategy({
+      accounts: {
+        work: { kind: "claude", orca_account: "cl-team", usage_source: usageSource },
+        team: { kind: "codex", orca_account: "cx-team", usage_source: usageSource },
+      }, planner: "claude-code#work", routing: [{ default: ["codex#team"] }],
+    }, "test");
+    const st = await computeStatus(ctx, s, { profile: null });
+    expect(st.accounts.find(a => a.name === "work")).toMatchObject({ source: "status-line", usedPct: 42 });
+    expect(st.accounts.find(a => a.name === "team")).toMatchObject({ source: "session-log", usedPct: 27 });
+    expect(calls).toEqual([]);
+    expect(st.warnings).toEqual(usageSource ? [
+      "account work: usage_source orca is no longer read; using native",
+      "account team: usage_source orca is no longer read; using native",
+    ] : undefined);
+  });
+}
+
+test("reactive and metered accounts never query Orca for usage", async () => {
+  const calls: string[][] = [];
+  const ctx = fakeCtx({ now, run: async argv => {
+    calls.push([...argv]);
+    return { code: 0, stderr: "", stdout: JSON.stringify({ models: [
+      { model: { providerID: "api", id: "one" }, tokens: { input: 100, output: 50 } },
+    ] }) };
+  } });
+  const s = validateStrategy({
+    accounts: {
+      plan: { kind: "claude" }, cursor: { kind: "cursor" }, agy: { kind: "agy" },
+      metered: { kind: "endpoint", model: "api/one", usage: "metered", budget: { weekly_tokens: 1000 } },
+      legacy: { kind: "endpoint", model: "api/one", usage: "quota", usage_source: "orca" },
+    }, planner: "claude-code", routing: [{ default: ["cursor", "agy", "opencode#metered", "opencode#legacy"] }],
+  }, "test");
+  const st = await computeStatus(ctx, s, { profile: null });
+  for (const name of ["cursor", "agy", "legacy"]) {
+    expect(st.accounts.find(a => a.name === name)).toMatchObject({ source: "reactive", usedPct: 0 });
+  }
+  expect(st.accounts.find(a => a.name === "metered")).toMatchObject({ source: "metered", usedPct: 15 });
+  expect(calls.map(argv => argv[0])).toEqual(["opencode"]);
+  expect(st.warnings).toEqual(["account legacy: usage_source orca is no longer read; using reactive"]);
+});
