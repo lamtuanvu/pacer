@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "./wrapper";
@@ -14,6 +14,8 @@ const num = (file: string): number | null => {
 export function startRun(spec: RunSpec): { pid: number } | { error: string } {
   try {
     mkdirSync(spec.dir, { recursive: true });
+    // A reused directory must not hand a stale exit or output to the new run.
+    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin"]) rmSync(join(spec.dir, f), { force: true });
     const script = join(spec.dir, "run.sh");
     writeFileSync(script, WRAPPER_SH, { mode: 0o700 });
     if (spec.stdin !== undefined) writeFileSync(join(spec.dir, "stdin"), spec.stdin, { mode: 0o600 });

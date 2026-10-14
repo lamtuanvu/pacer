@@ -71,3 +71,23 @@ test("a reused pid is not mistaken for the wrapper", async () => {
   expect(readRun(dir).alive).toBe(false);
   other.kill();
 });
+
+test("the wrapper records pid and exit even when the agent's PATH lacks mv and date", async () => {
+  const dir = tmpDir(), bin = tmpDir();
+  writeFileSync(join(bin, "agent"), "#!/bin/sh\necho ran\n", { mode: 0o755 });
+  startRun({ dir, argv: ["agent"], cwd: tmpDir(), env: { PATH: bin } });
+  await until(() => readRun(dir).exit !== null);
+  expect(readRun(dir)).toMatchObject({ exit: 0, startedAt: expect.any(Number) });
+  expect(readOutput(dir).stdout).toBe("ran\n");
+});
+
+test("starting again in the same directory never reports the previous run's record", async () => {
+  const dir = tmpDir(), cwd = tmpDir();
+  startRun({ dir, argv: ["sh", "-c", "echo first"], cwd, env });
+  await until(() => readRun(dir).exit !== null);
+  startRun({ dir, argv: ["sh", "-c", "sleep 0.3; echo second; exit 2"], cwd, env });
+  expect(readRun(dir).exit).toBeNull();
+  await until(() => readRun(dir).exit !== null);
+  expect(readRun(dir).exit).toBe(2);
+  expect(readOutput(dir).stdout).toBe("second\n");
+});
