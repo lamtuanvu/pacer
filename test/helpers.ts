@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Ctx } from "../src/types";
+import { execProcess } from "../src/exec/process";
+import type { Ctx, RunFn } from "../src/types";
 
 // Every test temp dir lives under one root per test run; test/setup.ts (bunfig preload) removes it after all tests.
 // Without this, each suite run left hundreds of dirs behind (some ~250 MB) and filled the disk.
@@ -38,4 +39,14 @@ export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
     run: o.run ?? (async () => ({ code: 127, stdout: "", stderr: "not available in tests" })),
     which: o.which ?? (() => "/usr/bin/fake"),
   };
+}
+
+/** A RunFn that really runs commands (git in temp repos). */
+export const realRun: RunFn = (argv, timeoutMs, o) => execProcess({ argv, cwd: process.cwd(), env: { ...process.env, ...(o?.env ?? {}) }, timeoutMs });
+
+/** A temp git repo with one commit on branch main. */
+export function gitRepo(): string {
+  const repo = tmpDir();
+  Bun.spawnSync(["sh", "-c", "git init -q -b main && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init"], { cwd: repo });
+  return repo;
 }
