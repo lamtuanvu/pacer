@@ -9462,9 +9462,13 @@ function createPlugin(deps) {
     });
     ctx.commands.register("refresh-status", async () => {
       await ensureConnected();
-      const result = await sendFresh({ cmd: "refresh" });
-      if (result === "rejected")
-        await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
+      if (active?.id === "api")
+        await refreshSnapshot();
+      else {
+        const result = await sendFresh({ cmd: "refresh" });
+        if (result === "rejected")
+          await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
+      }
       scheduleRender();
       const message = summaryLine(store.snapshot.budget);
       await notify(message, (store.snapshot.budget?.providers ?? []).map((p) => `${p.id} ${p.verdict} ${p.usedPct === null ? "?" : `${Math.round(p.usedPct)}%`}`).join(`
