@@ -4,13 +4,8 @@ import { join } from "node:path";
 import { defaultRun } from "../src/ctx";
 import { SCRIPTS } from "../src/remote/scripts";
 import { controlDir, runRemote, sshArgv } from "../src/remote/ssh";
-import { fakeCtx, realRun, tmpDir } from "./helpers";
+import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 
-export const fakeSshEnv = (hostHome: string, log: string, down = "") => {
-  const bin = join(import.meta.dir, "fixtures", "bin");
-  chmodSync(join(bin, "ssh"), 0o755);
-  return { PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
-};
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
 
 test("sshArgv is fixed: options, alias, bash -lc and quoted args", () => {

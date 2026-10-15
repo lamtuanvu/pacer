@@ -1,3 +1,4 @@
+import type { RunIO } from "./io";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { killTree } from "../exec/process";
@@ -92,4 +93,9 @@ function tailFile(file: string, maxBytes: number): string {
 
 export function readOutput(dir: string, maxBytes = 256 * 1024): { stdout: string; stderr: string } {
   return { stdout: tailFile(join(dir, "stdout"), maxBytes), stderr: tailFile(join(dir, "stderr"), maxBytes) };
+}
+
+/** File-backed access for a local attempt. */
+export function localRunIO(dir: string): RunIO {
+  return { read: async () => readRun(dir), stop: (o) => stopRun(dir, o) };
 }

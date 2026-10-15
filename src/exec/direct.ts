@@ -12,7 +12,7 @@ import { launchFor, providerEnv } from "./launch";
 import { detectLimit } from "./limits";
 import { type ExecResult, executorEnv } from "./process";
 import { buildPrompt } from "./prompt";
-import { readOutput, startRun } from "../supervisor/run";
+import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
 import { createTaskWorktree } from "../supervisor/worktree";
 import { idleSeconds, nextProgress } from "../supervisor/progress";
@@ -82,7 +82,7 @@ function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
 /** Shared tail of a fresh or resumed attempt: supervise, collect files, write the legacy log, build the outcome. */
 async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, run: RunRef, note: string, onPoll?: Parameters<typeof supervise>[0]["onPoll"]): Promise<AttemptOutcome> {
   const end: SuperviseEnd = await supervise({
-    dir: run.dir, deadlineMs: (run.startedAt + task.timeoutS) * 1000,
+    io: localRunIO(run.dir), deadlineMs: (run.startedAt + task.timeoutS) * 1000,
     isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
   });
   const out = readOutput(run.dir);

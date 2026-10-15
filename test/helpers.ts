@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execProcess } from "../src/exec/process";
@@ -50,3 +50,10 @@ export function gitRepo(): string {
   Bun.spawnSync(["sh", "-c", "git init -q -b main && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init"], { cwd: repo });
   return repo;
 }
+
+/** Environment that puts the fake `ssh` (test/fixtures/bin/ssh) first on PATH, with a temp dir as the host's HOME. */
+export const fakeSshEnv = (hostHome: string, log: string, down = "") => {
+  const bin = join(import.meta.dir, "fixtures", "bin");
+  chmodSync(join(bin, "ssh"), 0o755);
+  return { PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
+};

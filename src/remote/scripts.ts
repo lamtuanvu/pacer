@@ -7,4 +7,79 @@ printf 'setsid=%s\\n' "$(command -v setsid || true)"
 printf 'home=%s\\n' "$HOME"`,
   // Used only by tests and host check to verify the stdin channel.
   ECHO_STDIN: "cat",
+  START: `D="$1"; cwd="$2"; shift 2
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$cwd" in '~/'*) cwd="$HOME/\${cwd#??}" ;; esac
+mkdir -p "$D" || exit 1
+chmod 700 "$D"
+rm -f "$D/pid" "$D/pid.tmp" "$D/child" "$D/started" "$D/exit" "$D/exit.tmp" "$D/stdout" "$D/stderr"
+# Read only the wrapper as lines; cat preserves every byte of the remaining prompt.
+: > "$D/run.sh"
+while IFS= read -r line; do
+  [ "$line" = '__PACER_STDIN__' ] && break
+  printf '%s\\n' "$line" >> "$D/run.sh"
+done
+cat > "$D/stdin"
+chmod 700 "$D/run.sh"
+chmod 600 "$D/stdin"
+cd "$cwd" || exit 1
+setsid nohup env -i HOME="$HOME" PATH="$PATH" sh -c '
+D="$1"; shift
+while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+  pair="$1"; key=\${pair%%=*}; value=\${pair#*=}
+  case "$value" in "~/"*) value="$HOME/\${value#??}" ;; esac
+  export "$key=$value"
+  shift
+done
+shift
+exec sh "$D/run.sh" "$D" "$@"
+' pacer "$D" "$@" </dev/null >/dev/null 2>&1 &
+n=0
+while [ ! -s "$D/pid" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+[ -s "$D/pid" ] || exit 1
+printf 'pid=%s\\n' "$(cat "$D/pid")"`,
+  REPORT: `D="$1"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+pid=$(cat "$D/pid" 2>/dev/null); alive=0
+if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+  case "$(ps -o args= -p "$pid")" in *"$D/run.sh"*) alive=1 ;; esac
+fi
+printf 'pid=%s\\nalive=%s\\nexit=%s\\nstarted=%s\\n' "$pid" "$alive" "$(cat "$D/exit" 2>/dev/null)" "$(cat "$D/started" 2>/dev/null)"
+for stream in stdout stderr; do
+  bytes=0; stamp=''
+  if [ -f "$D/$stream" ]; then
+    bytes=$(wc -c < "$D/$stream" | tr -d ' ')
+    stamp=$(stat -c %Y "$D/$stream" 2>/dev/null) || stamp=$(stat -f %m "$D/$stream" 2>/dev/null)
+  fi
+  case "$stream" in stdout) key=out ;; stderr) key=err ;; esac
+  printf '%s=%s\\n%sm=%s\\n' "$key" "$bytes" "$key" "$stamp"
+done`,
+  READ_FROM: `D="$1"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+[ -f "$D/$2" ] || exit 0
+# Hex mode preserves arbitrary bytes across the text-only RunFn boundary.
+if [ "\${5:-}" = "hex" ]; then
+  tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4" | od -An -v -tx1 | tr -d ' \n'
+else
+  tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4"
+fi`,
+  STOP: `D="$1"; grace="$2"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; exit 0; fi
+pid=$(cat "$D/pid" 2>/dev/null)
+case "$pid" in ''|*[!0-9]*) printf 'code=137\\nkilled=0\\n'; exit 0 ;; esac
+case "$(ps -o args= -p "$pid")" in *"$D/run.sh"*) ;; *) printf 'code=137\\nkilled=0\\n'; exit 0 ;; esac
+end=$(($(date +%s) + grace))
+while [ ! -f "$D/child" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 0.05; done
+kill -TERM -- "-$pid" 2>/dev/null
+while [ "$(date +%s)" -lt "$end" ]; do
+  if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; exit 0; fi
+  sleep 0.05
+done
+kill -KILL -- "-$pid" 2>/dev/null
+sleep 0.1
+if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; else
+  printf '137\\n' > "$D/exit"
+  printf 'code=137\\nkilled=1\\n'
+fi`,
 } as const;
