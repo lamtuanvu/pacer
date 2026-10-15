@@ -4,11 +4,11 @@ Status: **superseded in part** by `2026-10-14-core-contract-design.md` (remote h
 
 ## Goal
 
-`pacer delegate` can run a task on a runner such as `codex#team@vudesktop`: the agent works in a checkout on another machine, and the result comes back for the planner to review locally, exactly like a local task (`pacer wait`, `pacer stop`, logs, `pacer review`).
+`pacer delegate` can run a task on a runner such as `codex#team@box`: the agent works in a checkout on another machine, and the result comes back for the planner to review locally, exactly like a local task (`pacer wait`, `pacer stop`, logs, `pacer review`).
 
 Success:
 
-- A task routed to `codex@vudesktop` produces a local branch with the remote agent's commits. Acceptance runs locally, the report looks like a local task's, and `pacer review` accepts or rejects it.
+- A task routed to `codex@box` produces a local branch with the remote agent's commits. Acceptance runs locally, the report looks like a local task's, and `pacer review` accepts or rejects it.
 - Losing the connection never turns into a fake exit or a duplicate run.
 - No credentials leave either machine.
 
@@ -30,7 +30,7 @@ Non-goals:
 - Verification (`verifyRepo`: `git status` / `diff --stat` and the acceptance command) runs on a local path. Review is local.
 - Usage readers are local files plus Orca's `account list` for the local runtime.
 
-Orca facts, verified on Orca 1.4.224 against SSH host vudesktop (spike, 2026-10-14):
+Orca facts, verified on Orca 1.4.224 against SSH host box (spike, 2026-10-14):
 
 | Fact | Consequence |
 |---|---|
@@ -53,7 +53,7 @@ Orca facts, verified on Orca 1.4.224 against SSH host vudesktop (spike, 2026-10-
 - **Transfer mode**: how a finished task's commits reach this machine: `push` (default) or `bundle`.
 - **Task branch**: `pacer/<task-id>`. It's the only branch pacer creates on a host and the only ref it ever pushes.
 
-The account stays the budget and stays global: `codex#team` and `codex#team@vudesktop` draw on one budget. Pacing, limits and exhaustion are charged to the account.
+The account stays the budget and stays global: `codex#team` and `codex#team@box` draw on one budget. Pacing, limits and exhaustion are charged to the account.
 
 ## How `@host` resolves
 
@@ -73,20 +73,20 @@ The grammar doesn't change: `<agent>[#<account>][@<host>]`, each part `[a-z0-9][
 
 ```yaml
 hosts:
-  vudesktop:
+  box:
     orca: ssh-<id>               # SSH target id or exact name, or env:<paired server name>
     transfer: push               # push (default) | bundle
-    ssh: vudesktop-ssh           # bundle only: an ssh alias pacer can use non-interactively
+    ssh: box-ssh           # bundle only: an ssh alias pacer can use non-interactively
     acceptance: local            # local (default) | host
     max_tasks: 2                 # optional, concurrent tasks on this host (default 2)
     repos:                       # optional overrides; normally discovered from Orca project setups
       github.com/lamtuanvu/pacer: ~/src/pacer
 
 runners:
-  codex#team@vudesktop: {}       # a runner exists when its id appears here, in planner or in routing (as today)
+  codex#team@box: {}       # a runner exists when its id appears here, in planner or in routing (as today)
 
-routing: [ { default: [codex#team, codex#team@vudesktop, cursor] } ]
-pacing:  { order: [codex#team, codex#team@vudesktop, cursor] }
+routing: [ { default: [codex#team, codex#team@box, cursor] } ]
+pacing:  { order: [codex#team, codex#team@box, cursor] }
 ```
 
 Rules:
@@ -105,13 +105,13 @@ A remote runner is eligible for a task only when all of these hold. Otherwise it
 
 | Check | Exclusion reason |
 |---|---|
-| Orca runtime ready and the host `connected` (SSH) or reachable (`orca host name --environment`) | `host vudesktop offline` |
-| The task's repo has a setup on that host | `repo not set up on vudesktop (pacer host setup vudesktop)` |
+| Orca runtime ready and the host `connected` (SSH) or reachable (`orca host name --environment`) | `host box offline` |
+| The task's repo has a setup on that host | `repo not set up on box (pacer host setup box)` |
 | Placement resolves to `new`. Remote never uses `current` and never sees local uncommitted work. | `remote runners need a new worktree` |
 | The base commit is reachable by the host: for `push`, the base branch is published (local `<base>` equals `origin/<base>`); for `bundle`, it is sent with the task | `base main has unpushed commits; push it or use a local runner` |
-| Host below `max_tasks` | `vudesktop busy (2/2)` |
+| Host below `max_tasks` | `box busy (2/2)` |
 
-A task's brief that asks for `--worktree current` is never routed remote, even with `--executor codex@vudesktop`. That combination is refused with the reason.
+A task's brief that asks for `--worktree current` is never routed remote, even with `--executor codex@box`. That combination is refused with the reason.
 
 Start sequence (SSH target):
 
@@ -155,7 +155,7 @@ Push mode publishes the task branch on the shared remote for the duration of the
 
 1. Base: when the host lacks the base commit, pacer sends it. That's `git bundle create` locally for `<host's newest common commit>..<base>`, or the whole branch the first time, copied with `scp` through the configured `ssh:` alias and fetched on the host into `refs/pacer/base/<task-id>`.
 2. Result: on the host, `git bundle create <tmp> <base sha>..pacer/<task-id>`, then pacer copies it back with `scp`. Locally, `git bundle verify` and `git fetch <bundle> pacer/<task-id>:refs/heads/pacer/<task-id>`. The temporary bundles are deleted on both ends.
-3. `ssh:` must work non-interactively (`ssh -o BatchMode=yes <alias> true`). `pacer host check` tests it. Orca's own connection is no evidence: in the spike, Orca was connected while `ssh vudesktop` was refused.
+3. `ssh:` must work non-interactively (`ssh -o BatchMode=yes <alias> true`). `pacer host check` tests it. Orca's own connection is no evidence: in the spike, Orca was connected while `ssh box` was refused.
 
 **pacer refuses to**:
 
@@ -177,11 +177,11 @@ pacer's runner process stays local, so `pacer wait`, `pacer stop`, `taskStatus` 
 | Nudges and resends with `terminal send --terminal <agent handle>` | SSH target: unchanged (the handle belongs to the local runtime). Paired server: `orchestration send --to dispatch:<id>`; terminal verbs are never used. |
 | `worker-stop` / `worker-release` by dispatch | Unchanged. |
 | Records `{dispatchId, taskId, executor, worktree, terminal}` in `orca.json` | Adds `host` (alias and Orca host id) and `remoteWorktree` (Orca worktree id). `pacer orca status` lists workers with `worker-list --run <run> --include-remote`. |
-| Readiness failure detection: `/agent[ _-]?launch/` | Also `agent_readiness`, with `lastError` (e.g. `agent-update-prompt`) → broken runner with "the agent on vudesktop shows a startup prompt; run `codex` there once (update or dismiss) and retry". |
+| Readiness failure detection: `/agent[ _-]?launch/` | Also `agent_readiness`, with `lastError` (e.g. `agent-update-prompt`) → broken runner with "the agent on box shows a startup prompt; run `codex` there once (update or dismiss) and retry". |
 
 **`unverifiable`** (connection lost, relay gone, timeout):
 
-- The task stays `running`, with the report line "lost contact with vudesktop at 14:02; the worker may still be running there". pacer keeps polling `worker-show` on the normal slice.
+- The task stays `running`, with the report line "lost contact with box at 14:02; the worker may still be running there". pacer keeps polling `worker-show` on the normal slice.
 - If the host comes back and the worker settled or sent `worker_done`, the task continues normally: transfer, verify, finish.
 - If the task's deadline passes while unverifiable, the task finishes `failed` with `remote: {state: "unverifiable", dispatchId, host}`. The worker is **not** retried on another runner, the same rule as `uncertainStart` today, because a second run could duplicate work. The planner decides: `pacer stop` (pacer records a pending `worker-stop` and sends it when the host returns), or `pacer delegate --retry-of`.
 - `exited` without `worker_done` maps like today's `settled`.
@@ -219,7 +219,7 @@ Remote hosts never get pacer's status-line hook: there is no pacer on the host.
 **Not needed**: pacer, Bun, or the Orca CLI on the host.
 
 - Supervision, verification and review stay local.
-- Acceptance runs locally on the fetched branch by default. `acceptance: host` runs it in the remote worktree through a short-lived terminal and records the result as "ran on vudesktop". It's useful when the toolchain only exists there. It runs after the worker has finished, before transfer.
+- Acceptance runs locally on the fetched branch by default. `acceptance: host` runs it in the remote worktree through a short-lived terminal and records the result as "ran on box". It's useful when the toolchain only exists there. It runs after the worker has finished, before transfer.
 - The executor role is enforced by the brief's instructions. Nested delegation is impossible without pacer on the host.
 
 `pacer host setup <alias> [--repo <local repo>]` walks through the checkout. It can't clone through Orca onto an SSH target, so it:
@@ -240,7 +240,7 @@ Then it runs `orca project setup-existing-folder`, sets the repo-local identity 
 | Account mismatch (host logged into a different account) | `pacer host check` warns; at run time, limits are charged to the account in the id (documented risk). |
 | Base not published (push) | Runner excluded before start. |
 | Pre-flight refuses transfer (identity, ancestry, size) | Task `partial` with the reason; the remote branch and worktree are kept; `pacer host clean` removes them later. |
-| Push rejected (no credentials, protected namespace) | Task `partial`, "push of pacer/<id> from vudesktop failed: …"; the remote worktree is kept. |
+| Push rejected (no credentials, protected namespace) | Task `partial`, "push of pacer/<id> from box failed: …"; the remote worktree is kept. |
 | Fetch or bundle verify fails | Task `partial`; nothing written to local branches; the bundle is kept in `<pacerHome>/tasks/<id>.bundle` for inspection. |
 | Limit hit remotely | Account exhausted globally; next runner tried (existing loop). |
 | Orca too old or missing a capability (no `--include-remote`, no transcript source) | Remote runners excluded with "needs Orca ≥ <version>"; local runners unaffected. |
@@ -289,7 +289,7 @@ Then it runs `orca project setup-existing-folder`, sets the repo-local identity 
   - local branches untouched.
 - Command templates: brief text with quotes, `$()` and newlines never reaches a shell.
 - Usage: freshest-snapshot merge across sources; account-keyed exhaustion affects local and remote runners of the account.
-- Real run (manual, documented): `codex@vudesktop` task end to end in push mode, then in bundle mode, then with the SSH connection dropped mid-task.
+- Real run (manual, documented): `codex@box` task end to end in push mode, then in bundle mode, then with the SSH connection dropped mid-task.
 
 ## Questions for the owner
 
