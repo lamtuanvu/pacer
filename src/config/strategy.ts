@@ -3,7 +3,8 @@ import { join } from "node:path";
 import type { Ctx, UsageKind } from "../types";
 import { isObj } from "../util";
 import { parseRunnerId, runnerDefaults, resolveRunner } from "./runner-id";
-import { allowedPair, legacyToAccounts, parseAccounts, parseSize, parseDuration, type AccountCfg, type RunnerCfg, type PlannerCfg } from "./accounts";
+import { parseHosts, type HostCfg } from "./hosts";
+import { validateRemoteRunner, allowedPair, legacyToAccounts, parseAccounts, parseSize, parseDuration, type AccountCfg, type RunnerCfg, type PlannerCfg } from "./accounts";
 
 export { parseSize, parseDuration } from "./accounts";
 
@@ -35,6 +36,7 @@ export interface Strategy {
   name: string;
   planner: PlannerCfg;
   accounts: Record<string, AccountCfg>;
+  hosts: Record<string, HostCfg>;
   runners: Record<string, RunnerCfg>;
   legacy: boolean;
   runnerAliases: Record<string, string>;
@@ -63,6 +65,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   const p: string[] = [];
   if (!isObj(raw)) throw new StrategyError(path, ["top level must be a mapping"]);
 
+  const hosts = parseHosts(raw.hosts, p);
   const legacy = Object.hasOwn(raw, "providers");
   if (legacy && (raw.accounts !== undefined || raw.runners !== undefined)) p.push("providers cannot be combined with accounts or runners");
   const providers: Record<string, ProviderCfg> = {};
@@ -103,7 +106,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
       }
     }
   }
-  const { accounts, runners, planner, runnerAliases } = legacy ? legacyToAccounts(raw) : parseAccounts(raw, p);
+  const { accounts, runners, planner, runnerAliases } = legacy ? legacyToAccounts(raw) : parseAccounts(raw, p, hosts);
   // Keep the provider facade stable while consumers move to accounts and runners.
   for (const [id, runner] of Object.entries(runners)) {
     const account = accounts[runner.account];
@@ -134,7 +137,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
       const parsed = parseRunnerId(id);
       const account = parsed ? accounts[parsed.account ?? runnerDefaults(accounts)[parsed.agent] ?? ""] : undefined;
       if (parsed && account && !allowedPair(parsed.agent, account.kind)) p.push(`pacing.order: ${parsed.agent} cannot use ${account.kind} account "${account.name}"`);
-      if (parsed?.host) p.push("remote runners aren't supported yet");
+      if (parsed) validateRemoteRunner(id, parsed, parsed.account ?? runnerDefaults(accounts)[parsed.agent], runnerDefaults(accounts), hosts, p);
       if (id !== "opencode" && !Object.hasOwn(providers, id) && !account) {
         p.push(`pacing.order: unknown provider "${id}"`);
       }
@@ -199,7 +202,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
 
   if (p.length) throw new StrategyError(path, p);
   return {
-    name, planner, accounts, runners, legacy, runnerAliases, providers, pacing, routing,
+    name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing,
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
   };

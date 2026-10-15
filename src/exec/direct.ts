@@ -8,24 +8,30 @@ import { gitInfo, realpathSafe } from "../core/git";
 import { tasksDir, listTasks, readTask, updateTask } from "../tasks/store";
 import { resolvePlacement, type Attempt, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
+import { parseRunnerId } from "../config/runner-id";
+import { RemoteRunIO } from "../remote/run-io";
+import { runRemoteAttempt } from "../remote/attempt";
+import { SCRIPTS } from "../remote/scripts";
+import { runRemote } from "../remote/ssh";
 import { launchFor, providerEnv } from "./launch";
 import { detectLimit } from "./limits";
 import { type ExecResult, executorEnv } from "./process";
 import { buildPrompt } from "./prompt";
-import { readOutput, startRun } from "../supervisor/run";
+import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
-import { createTaskWorktree } from "../supervisor/worktree";
+import { transferBack } from "../remote/transfer";
+import { taskWorktreePath, createTaskWorktree } from "../supervisor/worktree";
 import { idleSeconds, nextProgress } from "../supervisor/progress";
 
 export const REPORT_CHARS = 4000;
 
-export interface AttemptOutcome { attempt: Attempt; exec: ExecResult; report: string; backend?: string; worktree?: string }
+export interface AttemptOutcome { attempt: Attempt; exec: ExecResult; report: string; backend?: string; worktree?: string; partial?: string }
 
 export function tail(s: string, n: number): string {
   return s.length > n ? s.slice(-n) : s;
 }
 
-function outcome(cfg: ProviderCfg, startedAt: number, exec: ExecResult, log: string, report: string): AttemptOutcome {
+export function outcome(cfg: ProviderCfg, startedAt: number, exec: ExecResult, log: string, report: string): AttemptOutcome {
   return {
     backend: "direct",
     exec,
@@ -44,14 +50,14 @@ function loadExec(ctx: Ctx): ExecutionCfg {
 }
 
 /** Progress every poll (written at most every 10 s or on a phase change); git counts every 30 s; idle stop after idleFailS. */
-function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
+export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   const ex = loadExec(ctx), scale = Number(ctx.env.PACER_IDLE_SCALE ?? "1") || 1; // PACER_IDLE_SCALE: test-only
   const idleAfter = (ex.idleAfterS ?? IDLE_AFTER_S) * scale, idleFail = (ex.idleFailS ?? IDLE_FAIL_S) * scale;
   let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = false;
   let prev = readTask(ctx, task.id)?.progress;
   return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle"> => {
     const now = Date.now() / 1000;
-    if (now - gitAt >= 30) {
+    if (!run.host && now - gitAt >= 30) {
       gitAt = now;
       try {
         const st = await ctx.run(["git", "-C", run.workdir, "status", "--porcelain"], 15_000);
@@ -63,7 +69,7 @@ function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
         }
       } catch { /* git progress is best effort, including when git is unavailable */ }
     }
-    const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: s.lastOutputAt, files, commits, prev }, idleAfter);
+    const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: s.lastOutputAt, files, commits, prev, host: run.host }, idleAfter);
     if (p.phase !== prev?.phase || now - writtenAt >= 10) {
       updateTask(ctx, task.id, t => { t.progress = p; });
       writtenAt = now;
@@ -80,15 +86,24 @@ function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
 }
 
 /** Shared tail of a fresh or resumed attempt: supervise, collect files, write the legacy log, build the outcome. */
-async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, run: RunRef, note: string, onPoll?: Parameters<typeof supervise>[0]["onPoll"]): Promise<AttemptOutcome> {
+export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, run: RunRef, note: string, onPoll?: Parameters<typeof supervise>[0]["onPoll"]): Promise<AttemptOutcome> {
+  const host = run.host ? loadStrategy(ctx).hosts[run.host] : undefined;
+  if (run.host && (!host || !run.remoteDir)) throw new Error(`remote run ${task.id} has no configured host or run directory`);
+  const io = host ? new RemoteRunIO(ctx, host, run.remoteDir!, run.dir) : localRunIO(run.dir);
   const end: SuperviseEnd = await supervise({
-    dir: run.dir, deadlineMs: (run.startedAt + task.timeoutS) * 1000,
+    io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: (run.startedAt + task.timeoutS) * 1000,
     isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
   });
   const out = readOutput(run.dir);
   const exec: ExecResult = { code: end.code, stdout: out.stdout, stderr: out.stderr, timedOut: end.kind === "timeout" };
   if (end.kind === "idle") exec.stderr += `\npacer: stopped after ${Math.round((loadExec(ctx).idleFailS ?? IDLE_FAIL_S) / 60)} min without output or file changes`;
-  if (end.kind === "lost") exec.stderr += "\npacer: the attempt's wrapper vanished without an exit record";
+  if (end.kind === "lost") exec.stderr += host ? `\npacer: host ${host.alias} unreachable or wrapper missing after the contact grace period` : "\npacer: the attempt's wrapper vanished without an exit record";
+  if (host && run.lastMessageFile) {
+    try {
+      const last = await runRemote(ctx, host, SCRIPTS.READ_FROM, [run.remoteDir!, "last.md", "0", "262144"]);
+      if (last.code === 0) writeFileSync(run.lastMessageFile, last.stdout);
+    } catch { /* mirrored output remains available */ }
+  }
   try {
     writeFileSync(run.logFile, `$ ${launchArgv(run)}\n--- stdout\n${exec.stdout}\n--- stderr\n${exec.stderr}\n--- exit ${exec.code}${exec.timedOut ? " (timed out)" : ""}\n`);
   } catch { /* the run directory keeps the full record */ }
@@ -96,7 +111,7 @@ async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, run: RunR
   if (run.lastMessageFile && existsSync(run.lastMessageFile)) report = tail(readFileSync(run.lastMessageFile, "utf8").trim(), REPORT_CHARS) || report;
   return {
     ...outcome(cfg, run.startedAt, exec, run.logFile, note + report),
-    ...(run.mode === "new" ? { worktree: run.workdir } : {}),
+    ...(run.mode === "new" ? { worktree: run.host ? `${run.host}:${run.remoteWorktree}` : run.workdir } : {}),
   };
 }
 
@@ -104,6 +119,8 @@ const launchArgv = (run: RunRef) => { try { return readFileSync(join(run.dir, "a
 
 /** One executor attempt through the executor's own CLI, under the file-backed supervisor. */
 export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
+  const alias = parseRunnerId(cfg.id)?.host;
+  if (alias) return runRemoteAttempt(ctx, cfg, task, loadStrategy(ctx).hosts[alias], onSpawn);
   const dir = tasksDir(ctx);
   mkdirSync(dir, { recursive: true });
   const startedAt = Date.now() / 1000, log = join(dir, `${task.id}.${cfg.id}.log`), ex = loadExec(ctx);
@@ -169,5 +186,32 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
 /** Re-attach to an attempt whose pacer runner died (Task 6). */
 export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
   if (!task.run) throw new Error(`task ${task.id} has no run to resume`);
-  return finishRun(ctx, cfg, task, task.run, "", progressPoller(ctx, task, task.run));
+  const run = task.run;
+  const result = await finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
+  if (!run.host || result.exec.timedOut || readTask(ctx, task.id)?.state === "stopped") return result;
+  const host = loadStrategy(ctx).hosts[run.host];
+  if (result.exec.code !== 0) {
+    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree!, run.baseSha!, task.id]);
+    if (preflight.code || Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0) === 0) return result;
+  }
+  // A runner may die after transfer but before recording the attempt. Reuse the
+  // review worktree when its branch already exists; never fetch over that ref.
+  const top = await gitInfo(ctx.run, task.brief.repo);
+  const review = "error" in top ? undefined : taskWorktreePath(ctx, top.top, task.id);
+  const branch = await ctx.run(["git", "-C", task.brief.repo, "show-ref", "--verify", "--quiet", `refs/heads/pacer/${task.id}`], 10000);
+  if (branch.code === 0 && review && existsSync(review)) {
+    result.worktree = review;
+    return result;
+  }
+  const transfer = await transferBack(ctx, task, host, run);
+  if (!transfer.ok) {
+    result.exec = { ...result.exec, code: result.exec.code || 1, stderr: `${result.exec.stderr}\n${transfer.reason}`.trim() };
+    result.attempt.exitCode = result.exec.code;
+    result.report = `${transfer.reason}\n\n${result.report}`;
+    result.partial = transfer.reason;
+  } else {
+    result.worktree = transfer.reviewWorktree;
+    result.report = `ran on ${host.alias}; fetched ${transfer.branch} (${transfer.commits} commits)\n\n${result.report}`;
+  }
+  return result;
 }

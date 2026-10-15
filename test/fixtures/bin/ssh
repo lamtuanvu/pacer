@@ -1,0 +1,13 @@
+#!/bin/sh
+# Test stand-in for OpenSSH: runs the remote command locally with HOME set to a fake host home.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) shift 2 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+alias="$1"; shift
+[ -n "$PACER_FAKE_SSH_LOG" ] && printf '%s %s\n' "$alias" "$*" >> "$PACER_FAKE_SSH_LOG"
+case " $PACER_FAKE_SSH_DOWN " in *" $alias "*) echo "ssh: connect to host $alias port 22: Connection refused" >&2; exit 255 ;; esac
+HOME="$PACER_FAKE_HOST_HOME" exec sh -c "$*"

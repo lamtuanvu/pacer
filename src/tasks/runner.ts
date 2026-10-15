@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
-import { realpathSafe } from "../core/git";
+import { appendFileSync, existsSync, realpathSync } from "node:fs";
+import { gitInfo, realpathSafe } from "../core/git";
 import { worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
 import { pidAlive } from "../link/store";
@@ -17,10 +17,12 @@ import { killTree } from "../exec/process";
 import { exhaustUntil } from "../exec/limits";
 import { verifyRepo } from "../exec/verify";
 import type { Ctx } from "../types";
+import { validateExecution } from "../config/execution";
+import { remoteExclusion } from "../remote/eligibility";
 import { resolveRunner } from "../config/runner-id";
 import { markExhausted } from "../usage/reactive";
 import { listTasks, readTask, updateTask } from "./store";
-import { TERMINAL_STATES, type TaskRecord, type TaskResult, type Verification } from "./types";
+import { resolvePlacement, TERMINAL_STATES, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
 const safe = <T>(f: () => Promise<T>, fb: T) => Promise.resolve().then(f).catch(() => fb);
@@ -41,7 +43,7 @@ const DEFAULTS: RunnerDeps = {
 
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
   const finished = updateTask(ctx, id, (t) => {
-    if(t.placement?.mode) {
+    if(t.placement?.mode && !t.run?.host) {
       const p=t.placement;
       const line=p.mode==="new"?`ran in new worktree ${t.worktree??result.worktree??"(unknown)"} (${p.why})`:`ran in current worktree (${p.why})`;
       result={...result,report:`${line}\n\n${result.report}`};
@@ -100,6 +102,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     const kind = await safe(() => hooks.taskKind(ctx, task), task.kind);
     const tried = new Set<string>();
     let excluded: Excluded[] = [];
+    const remoteSkipped = new Map<string, string>();
     let lastLimitReport: string | undefined;
     let requestedUnavailable: string | undefined;
     let lastBroken: { brokenExecutor: string; brokenReason: string } | undefined;
@@ -120,6 +123,27 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         const broken = readBroken({ ...ctx, now });
         byId = Object.fromEntries(st.providers.map((p) => [p.id, { ...p, ...(blocked[p.id] ? {blockedReason:blocked[p.id].reason,blockedUntil:blocked[p.id].until} : {}), ...(broken[p.id] ? { brokenReason: broken[p.id].reason } : {}) }]));
         const ranking = rankExecutors(kind, s, byId);
+        // Resolve placement only for a remote candidate; local routing remains
+        // unchanged and the backend still owns worktree creation and safety.
+        if (ranking.ranked.some(e => resolveRunner(s, e.id)?.host)) {
+          const git = await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" }));
+          const top = realpathSafe("error" in git ? task.brief.repo : git.top);
+          const busy = listTasks(ctx, Infinity).some(t => {
+            const path = realpathSafe(t.worktree ?? t.result?.worktree ?? t.brief.repo);
+            return t.id !== task.id && t.state === "running" && !!t.runnerPid && pidAlive(t.runnerPid)
+              && t.placement?.mode === "current" && (path === top || path.startsWith(top + "/"));
+          });
+          const placement = task.placement?.mode ?? resolvePlacement(task, validateExecution(s.execution).worktree, busy, !("error" in git) && git.dirty).mode;
+          const eligible = [];
+          for (const candidate of ranking.ranked) {
+            const reason = await remoteExclusion({ ...ctx, now }, s, candidate.id, { repo: task.brief.repo, placement });
+            if (reason) {
+              ranking.excluded.push({ id: candidate.id, ...(candidate.account ? { account: candidate.account } : {}), reason });
+              remoteSkipped.set(candidate.id, reason);
+            } else eligible.push(candidate);
+          }
+          ranking.ranked = eligible;
+        }
         excluded = ranking.excluded;
         const rankedIds = ranking.ranked.map((e) => e.id);
         const req = task.requestedExecutor;
@@ -147,7 +171,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       }
       const onSpawn = (pid: number) => {
         updateTask(ctx, id, (t) => { t.childPid = pid; });
-        if (stopped(ctx, id)) killTree(pid, "SIGTERM");
+        if (stopped(ctx, id) && !resolveRunner(s, pick!)?.host) killTree(pid, "SIGTERM");
       };
       const backend = resuming || deps.runAttempt ? null : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
@@ -166,6 +190,11 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
           exec: { code, stdout: "", stderr: String(error), timedOut: false },
           attempt: { executor: pick, model: cfg.model, startedAt: task.attemptStartedAt!, endedAt: Date.now()/1000, exitCode: code, timedOut: false, limitHit: false, log: "" },
         };
+      }
+      if (remoteSkipped.size) {
+        const note = [...remoteSkipped].map(([id, reason]) => `skipped ${id}: ${reason}`).join("\n");
+        out.report = `${note}\n\n${out.report}`;
+        if (existsSync(out.attempt.log)) appendFileSync(out.attempt.log, `\n--- routing\n${note}\n`);
       }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
       if (out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
@@ -199,11 +228,11 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
         continue;
       }
-      const v = await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
+      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());
       const review = changed && !out.exec.timedOut && out.exec.code > 0 && out.exec.code < 126;
-      const status = !ok ? review ? "partial" : "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
+      const status = out.partial ? "partial" : !ok ? review ? "partial" : "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
       const report = requestedUnavailable ? `requested ${task.requestedExecutor} unavailable (${requestedUnavailable}); ran on ${pick}\n\n${out.report}` : out.report;
       const result: TaskResult = { status, executor: pick, model: cfg.model, ...v, report, backend: out.backend ?? "direct", ...(out.worktree ? { worktree: out.worktree } : {}) };
       const check = await safe(() => hooks.resultCheck(ctx, task, result), undefined);

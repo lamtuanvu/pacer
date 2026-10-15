@@ -5,6 +5,7 @@ pacer delegates coding work according to subscription usage and pace. Start with
 - [Installation](install.md): source build, binary installer and planner setup.
 - [Configuration](configuration.md): strategy files, providers, pacing and routing.
 - [Executors](executors.md): CLI requirements, usage sources and execution placement.
+- [Remote runners over SSH](remote-hosts.md): host setup, account folders, bundle transfer, local review and recovery.
 - [CLI and skill](cli.md): structured briefs, task commands and JSON contracts.
 - [Client protocol v2](protocol.md): HTTP + SSE and JSON-RPC transports, errors, events and operation schemas.
 - [Orca plugin](../orca-plugin/README.md): panel, console and local transports.

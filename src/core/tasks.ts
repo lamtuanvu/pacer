@@ -1,7 +1,11 @@
 import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { loadStrategy } from "../config/strategy";
+import { repoKey } from "../config/hosts";
+import { SCRIPTS } from "../remote/scripts";
+import { runRemote } from "../remote/ssh";
 import { realpathSafe } from "./git";
-import { removeTaskWorktree, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
+import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
 import { TERMINAL_STATES } from "../tasks/types";
 
@@ -153,19 +157,38 @@ export async function retry(
   });
 }
 
-/** Removes pacer-owned worktrees of settled, reviewed/dismissed/resolved tasks. Branches always stay. */
+/** Removes settled, reviewed/dismissed/resolved task worktrees. Local branches stay. */
 export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } = {}): Promise<{ removed: string[]; kept: { id: string; reason: string }[] }> {
   const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
   for (const t of listTasks(ctx, Infinity)) {
     if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved) || t.run?.mode !== "new") continue;
-    const wt = t.run.workdir;
-    if (!wt.startsWith(root) || !existsSync(wt)) continue;
-    const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
-    if (!o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
-    if (o.dryRun) { removed.push(t.id); continue; }
     const top = realpathSafe(t.brief.repo);
-    const r = await removeTaskWorktree(ctx, top, path, { force: o.force });
-    if ("error" in r) { kept.push({ id: t.id, reason: r.error }); continue; }
+    const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;
+    if (!wt.startsWith(root) || (!t.run.host && !existsSync(wt))) continue;
+    const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
+    if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
+    if (o.dryRun) { removed.push(t.id); continue; }
+    if (t.run.host) {
+      try {
+        const host = loadStrategy(ctx).hosts[t.run.host];
+        const origin = await ctx.run(["git", "-C", top, "remote", "get-url", "origin"], 10000);
+        const key = repoKey(origin.stdout.trim()), checkout = key && host?.repos[key];
+        if (!host || !checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
+          kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
+        }
+        const branch = await ctx.run(["git", "-C", top, "show-ref", "--verify", "--quiet", `refs/heads/pacer/${t.id}`], 10000);
+        if (branch.code !== 0 && branch.code !== 1) {
+          kept.push({ id: t.id, reason: branch.stderr.trim() || "local branch check failed" }); continue;
+        }
+        // Empty task id preserves untransferred work on the remote task branch.
+        const remote = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, branch.code === 0 ? t.id : ""]);
+        if (remote.code) { kept.push({ id: t.id, reason: remote.stderr.trim() || "remote cleanup failed" }); continue; }
+      } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); continue; }
+    }
+    if (existsSync(path)) {
+      const r = await removeTaskWorktree(ctx, top, path, { force: o.force });
+      if ("error" in r) { kept.push({ id: t.id, reason: r.error }); continue; }
+    }
     rmSync(join(ctx.pacerHome, "runs", t.id), { recursive: true, force: true });
     removed.push(t.id);
   }

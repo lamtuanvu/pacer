@@ -106,3 +106,17 @@ test("timeout kills grandchildren", async () => {
     if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
   }
 });
+
+test("stdout file preserves binary bytes and overflow kills the process", async () => {
+  const dir = tmpDir(), file = join(dir, "stdout.bin");
+  const r = await execProcess({ argv: ["sh", "-c", "printf '\\000\\377\\200'"], cwd: dir, env, timeoutMs: 15000, stdoutFile: file, maxStdoutBytes: 3 });
+  expect(r.code).toBe(0);
+  expect(Buffer.from(await Bun.file(file).arrayBuffer())).toEqual(Buffer.from([0, 255, 128]));
+  const started = Date.now();
+  const overflow = await execProcess({ argv: ["sh", "-c", "while :; do printf 'abcdefgh'; done"], cwd: dir, env, timeoutMs: 15000, stdoutFile: file, maxStdoutBytes: 1024 });
+  expect(overflow.stdoutOverflow).toBe(true);
+  expect(overflow.code).not.toBe(0);
+  expect(overflow.timedOut).toBe(false);
+  expect((await Bun.file(file).size)).toBeLessThanOrEqual(1024);
+  expect(Date.now() - started).toBeLessThan(10000);
+});

@@ -1,4 +1,5 @@
 import { formatRunnerId, parseRunnerId, runnerDefaults } from "./runner-id";
+import type { HostCfg } from "./hosts";
 import type { UsageKind } from "../types";
 import { isObj } from "../util";
 
@@ -86,7 +87,16 @@ export function legacyToAccounts(raw: unknown): AccountsModel {
   return { accounts, runners, planner, runnerAliases };
 }
 
-export function parseAccounts(raw: Record<string, unknown>, problems: string[]): AccountsModel {
+export function validateRemoteRunner(reference: string, parsed: { agent: AgentId; host: string | null }, account: string | undefined, defaults: Partial<Record<AgentId, string>>, hosts: Record<string, HostCfg>, problems: string[]): void {
+  if (!parsed.host) return;
+  const at = `runner ${reference}`;
+  const host = Object.hasOwn(hosts, parsed.host) ? hosts[parsed.host] : undefined;
+  if (!host) problems.push(`${at}: unknown host ${parsed.host} (hosts: ${Object.keys(hosts).join(", ") || "none"})`);
+  if (!["codex", "claude-code"].includes(parsed.agent)) problems.push(`${at}: remote runners support codex and claude-code`);
+  if (host && account && account !== defaults[parsed.agent] && !Object.hasOwn(host.accounts, account)) problems.push(`${at}: account ${account} on ${parsed.host} needs hosts.${parsed.host}.accounts.${account}.home`);
+}
+
+export function parseAccounts(raw: Record<string, unknown>, problems: string[], hosts: Record<string, HostCfg> = {}): AccountsModel {
   const accounts: Record<string, AccountCfg> = {};
   const runners: Record<string, RunnerCfg> = {};
   if (!isObj(raw.accounts) || !Object.keys(raw.accounts).length) problems.push("accounts must be a non-empty mapping");
@@ -121,7 +131,7 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[]):
   if (raw.runners !== undefined && !isObj(raw.runners)) problems.push("runners must be a mapping");
   // Accept the explicit agent/account shape from the transitional accounts format.
   for (const [name, value] of Object.entries(entries)) {
-    if (isObj(value) && value.agent && value.account) runnerAliases[name] = formatRunnerId({agent: value.agent as AgentId, account: String(value.account), host: null}, defaults);
+    if (isObj(value) && value.agent && value.account) runnerAliases[name] = formatRunnerId({agent: value.agent as AgentId, account: String(value.account), host: parseRunnerId(name)?.host ?? null}, defaults);
   }
   const add = (reference: string, value: unknown = {}): RunnerCfg | null => {
     const at = `runner ${reference}`;
@@ -129,14 +139,13 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[]):
     if (!isObj(value)) problems.push(`${at}: must be a mapping`);
     const declared = parseRunnerId(reference);
     const explicit = c.agent !== undefined || c.account !== undefined;
-    if (declared?.host && explicit) problems.push("remote runners aren't supported yet");
     if (declared && explicit && (declared.agent !== c.agent || (declared.account ?? defaults[declared.agent]) !== c.account)) problems.push(`${at}: declaration conflicts with runner id identity`);
-    const parsed = explicit ? {agent: c.agent as AgentId, account: c.account as string, host: null} : parseRunnerId(runnerAliases[reference] ?? reference)
+    const parsed = explicit ? {agent: c.agent as AgentId, account: c.account as string, host: declared?.host ?? null} : parseRunnerId(runnerAliases[reference] ?? reference)
       ?? (accounts[reference]?.kind === "endpoint" ? {agent: "opencode" as const, account: reference, host: null} : null);
     if (!parsed || !(AGENTS as readonly string[]).includes(parsed.agent)) { problems.push(`${at}: invalid runner id or unknown agent`); return null; }
-    if (parsed.host) problems.push("remote runners aren't supported yet");
     if (parsed.agent === "opencode" && reference === "opencode" && !accounts.opencode) return null;
     const account = parsed.account ?? defaults[parsed.agent];
+    validateRemoteRunner(reference, parsed, account, defaults, hosts, problems);
     if (!account) { problems.push(`${at}: no default account for ${parsed.agent}`); return null; }
     const cfg = accounts[account];
     if (!cfg) { problems.push(`${at}: unknown account "${account}"`); return null; }
@@ -157,6 +166,7 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[]):
   const plannerRaw = isObj(raw.planner) ? raw.planner : {};
   const plannerRef = plannerRaw.agent === "opencode" && plannerRaw.account === "opencode" && !accounts.opencode ? "opencode" : typeof raw.planner === "string" ? raw.planner : formatRunnerId({agent: plannerRaw.agent as AgentId, account: plannerRaw.account as string, host: null}, defaults);
   const plannerRunner = add(plannerRef, typeof raw.planner === "string" ? {} : plannerRaw);
+  if (plannerRunner?.host) problems.push("the planner can't run on a host");
   const planner = plannerRunner ? {agent: plannerRunner.agent, account: plannerRunner.account} : {agent: "opencode" as AgentId, account: "opencode"};
   if (!["claude-code", "codex", "cursor", "opencode"].includes(planner.agent)) problems.push("planner must be one of claude-code, codex, cursor, opencode");
   for (const [name, value] of Object.entries(entries)) add(name, value);

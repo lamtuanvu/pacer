@@ -30,7 +30,7 @@ test("runner overrides account model and unquoted YAML ids round trip", () => {
   expect(parse(Bun.YAML.parse("accounts: {plan: {kind: claude}, byteplus: {kind: endpoint, usage: unmetered, model: api/model}}\nplanner: claude-code\nrouting: [{default: [opencode#byteplus]}]\n")).runners["opencode#byteplus"].id).toBe("opencode#byteplus");
 });
 test("remote runners and ambiguous or missing defaults are refused", () => {
-  expect(() => parse({...base, routing: [{default: ["codex#work@desktop"]}]})).toThrow("remote runners aren't supported yet");
+  expect(() => parse({...base, routing: [{default: ["codex#work@desktop"]}]})).toThrow("unknown host desktop");
   expect(() => parse({...base, accounts: {...base.accounts, duplicate: {kind: "codex"}}})).toThrow("default");
   expect(() => parse({...base, accounts: {...base.accounts, personal: {kind: "codex", home: "~/.personal"}}})).toThrow("default");
 });
@@ -46,7 +46,7 @@ test("planner uses a declared runner model override", () => {
   expect(s.runners["opencode#api"].model).toBe("api/override");
 });
 test("explicit runner declarations cannot conceal a remote host or conflicting identity", () => {
-  expect(() => parse({...base, runners: {"codex#work@desktop": {agent: "codex", account: "work"}}})).toThrow("remote runners aren't supported yet");
+  expect(() => parse({...base, runners: {"codex#work@desktop": {agent: "codex", account: "work"}}})).toThrow("unknown host desktop");
   expect(() => parse({...base, runners: {"codex#work": {agent: "claude-code", account: "plan"}}})).toThrow("identity");
 });
 test("canonical native ids retain their direct and Orca agent launchers", async () => {

@@ -1,3 +1,4 @@
+import { closeSync, openSync, writeSync } from "node:fs";
 /** Executor accounts must not inherit the planner's selected account. */
 export function executorEnv(base: Record<string, string | undefined>, account: Record<string, string>): Record<string, string | undefined> {
   const env = {...base};
@@ -13,10 +14,13 @@ export interface ExecSpec {
   env: Record<string, string | undefined>;
   timeoutMs: number;
   logFile?: string;
+  /** Raw stdout destination, without text decoding or accumulation. */
+  stdoutFile?: string;
+  maxStdoutBytes?: number;
   onSpawn?: (pid: number) => void;
 }
 
-export interface ExecResult { code: number; stdout: string; stderr: string; timedOut: boolean }
+export interface ExecResult { code: number; stdout: string; stderr: string; timedOut: boolean; stdoutOverflow?: boolean }
 
 /** Signal the executor's process group, falling back to the direct child. Never throws. */
 export function killTree(pid: number, signal: NodeJS.Signals): void {
@@ -38,7 +42,7 @@ function spawn(spec: ExecSpec) {
   });
 }
 
-function startReading(stream: ReadableStream<Uint8Array>): {
+function startReading(stream: ReadableStream<Uint8Array>, onChunk?: (value: Uint8Array) => void): {
   promise: Promise<string>;
   cancel: () => void;
 } {
@@ -50,7 +54,8 @@ function startReading(stream: ReadableStream<Uint8Array>): {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        acc += decoder.decode(value, { stream: true });
+        if (onChunk) onChunk(value);
+        else acc += decoder.decode(value, { stream: true });
       }
       acc += decoder.decode();
     } catch {
@@ -69,9 +74,12 @@ function startReading(stream: ReadableStream<Uint8Array>): {
 /** Run a command to completion. Never throws: a spawn failure is exit code 127. */
 export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
   let proc: ReturnType<typeof spawn>;
+  let stdoutFd: number | undefined;
   try {
+    if (spec.stdoutFile) stdoutFd = openSync(spec.stdoutFile, "w", 0o600);
     proc = spawn(spec);
   } catch (e) {
+    if (stdoutFd !== undefined) closeSync(stdoutFd);
     const r = { code: 127, stdout: "", stderr: String(e), timedOut: false };
     if (spec.logFile) {
       try {
@@ -102,7 +110,28 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
     // ignore onSpawn errors — timer is already armed
   }
 
-  const out = startReading(proc.stdout);
+  let stdoutBytes = 0, stdoutOverflow = false, stdoutError = "";
+  const chunks: Uint8Array[] = [];
+  const out = startReading(proc.stdout, spec.stdoutFile || spec.maxStdoutBytes !== undefined ? (value) => {
+    if (stdoutOverflow || stdoutError) return;
+    stdoutBytes += value.length;
+    if (spec.maxStdoutBytes !== undefined && stdoutBytes > spec.maxStdoutBytes) {
+      stdoutOverflow = true;
+      killTree(proc.pid, "SIGKILL");
+      graceTimer = setTimeout(() => onGrace?.(), 2000);
+      return;
+    }
+    try {
+      if (stdoutFd !== undefined) {
+        let at = 0;
+        while (at < value.length) at += writeSync(stdoutFd, value, at, value.length - at);
+      } else chunks.push(value);
+    } catch (e) {
+      stdoutError = String(e);
+      killTree(proc.pid, "SIGKILL");
+      graceTimer = setTimeout(() => onGrace?.(), 2000);
+    }
+  } : undefined);
   const err = startReading(proc.stderr);
 
   const completion = Promise.all([out.promise, err.promise, proc.exited]).then(
@@ -133,6 +162,10 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
     code = proc.exitCode ?? 1;
   }
 
+  if (stdoutFd !== undefined) closeSync(stdoutFd);
+  if (spec.maxStdoutBytes !== undefined && !spec.stdoutFile) stdout = Buffer.concat(chunks).toString("utf8");
+  if (stdoutOverflow || stdoutError) { code = code || 1; stderr += stdoutError; }
+
   if (spec.logFile) {
     try {
       await Bun.write(
@@ -143,5 +176,5 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
       // ignore write errors
     }
   }
-  return { code, stdout, stderr, timedOut };
+  return { code, stdout, stderr, timedOut, ...(stdoutOverflow ? { stdoutOverflow: true } : {}) };
 }

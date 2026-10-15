@@ -47,7 +47,7 @@ test("task.dismiss reports unknown ids", async () => {
 });
 
 test("every planned operation is registered", () => {
-  expect(opNames()).toEqual(["limits.check", "limits.report", "routing.route", "routing.status", "runner.block", "runner.list", "runner.unblock", "strategy.list", "strategy.use",
+  expect(opNames()).toEqual(["host.check", "host.list", "limits.check", "limits.report", "routing.route", "routing.status", "runner.block", "runner.list", "runner.unblock", "strategy.list", "strategy.use",
     "task.delegate", "task.diff", "task.dismiss", "task.get", "task.list", "task.log", "task.retry", "task.review", "task.stop", "task.wait"]);
 });
 

@@ -40,6 +40,39 @@ Orca-linked accounts use their own folders: pacer reads Codex session logs in th
 
 `usage_source: orca` is deprecated and ignored. Existing configurations still load and retain the setting, with a status warning: Claude and Codex use their native readers, and other account kinds use reactive tracking.
 
+## Remote hosts
+
+`hosts:` maps runner host aliases to SSH aliases and repository checkouts.
+Remote runner IDs are `<agent>[#account]@<host>`, for example `codex@box` or
+`codex#team@box`. Only `codex` and `claude-code` can run remotely; the planner
+must stay local. `@local` normalizes to a local runner.
+
+```yaml
+hosts:
+  box:
+    ssh: box-ssh
+    repos:
+      github.com/example/project: ~/src/project
+    max_tasks: 2
+    accounts:
+      team: {home: ~/.codex-team}
+routing:
+  - default: [codex@box, codex#team@box, codex]
+```
+
+Add this to a strategy with the corresponding top-level accounts. `ssh` is
+required: an SSH alias that works with `BatchMode=yes`, containing only letters,
+digits, `.`, `_`, `@` and `-`, without a leading `-`. Host aliases match
+`[a-z0-9][a-z0-9-]*`; `local` is reserved. Repository keys are lower-case
+`host/owner/repo` without `.git`, matching the local `origin`; every repository
+used remotely needs a mapping. Paths may start with `~/`.
+
+`max_tasks` accepts 1–16, defaulting to 2. Optional `accounts` declares host
+folders; each non-default remote account needs `home` here, independently of
+its local account folder. Unknown keys are errors. Remote runners require new
+worktree placement. See [Remote runners over SSH](remote-hosts.md) for host
+prerequisites, `bash -lc` execution, setup, transfer and failure recovery.
+
 ## Pacing and routing
 
 Policies are `priority` (default), `even`, `burn-before-reset` and `cheapest-first`. Priority follows `order`, whose default is `[codex, cursor, agy, opencode]` filtered to configured providers; `opencode` expands to OpenCode-routed candidates. Expiring capacity moves forward, ahead-of-pace usage moves back and unknown usage moves down one place. Other policies score pace, remaining capacity or usage tiers. The planner, unavailable CLIs and blocked/broken executors are excluded from routing.

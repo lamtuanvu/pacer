@@ -1,16 +1,27 @@
-import { type RunState, readRun, stopRun } from "./run";
+import type { RunState } from "./run";
+import { type RunIO, Unreachable } from "./io";
 
 export type SuperviseEnd = { kind: "exited" | "timeout" | "stopped" | "idle" | "lost"; code: number };
 
 export async function supervise(o: {
-  dir: string; deadlineMs: number; isStopped: () => boolean; pollMs?: number; graceMs?: number;
+  io: RunIO; unreachableGraceMs?: number; deadlineMs: number; isStopped: () => boolean; pollMs?: number; graceMs?: number;
   now?: () => number; sleep?: (ms: number) => Promise<void>; onPoll?: (s: RunState) => Promise<"continue" | "idle">;
 }): Promise<SuperviseEnd> {
   const now = o.now ?? (() => Date.now()), sleep = o.sleep ?? ((ms: number) => Bun.sleep(ms)), poll = o.pollMs ?? 2000;
-  const stop = async (kind: SuperviseEnd["kind"]) => ({ kind, code: (await stopRun(o.dir, { graceMs: o.graceMs ?? 5000, sleep })).code });
-  let missing = 0;
+  const stop = async (kind: SuperviseEnd["kind"]) => ({ kind, code: (await o.io.stop({ graceMs: o.graceMs ?? 5000, sleep })).code });
+  let missing = 0, unreachableSince: number | null = null;
   for (;;) {
-    const s = readRun(o.dir);
+    let s: RunState;
+    try {
+      s = await o.io.read();
+      unreachableSince = null;
+    } catch (e) {
+      if (!(e instanceof Unreachable)) throw e;
+      unreachableSince ??= now();
+      if (now() - unreachableSince >= (o.unreachableGraceMs ?? 600_000)) return { kind: "lost", code: 137 };
+      await sleep(poll);
+      continue;
+    }
     if (s.exit !== null) return { kind: "exited", code: s.exit };
     if (!s.alive) {
       // One extra poll covers the wrapper writing exit just after its process ended.

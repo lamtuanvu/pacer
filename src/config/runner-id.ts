@@ -5,7 +5,7 @@ export type RunnerDefaults = Partial<Record<AgentId, string>>;
 export function parseRunnerId(id: string): RunnerId | null {
   const m = /^([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?(?:@([a-z0-9][a-z0-9-]*))?$/.exec(id);
   if (!m || !(AGENTS as readonly string[]).includes(m[1])) return null;
-  return { agent: m[1] as AgentId, account: m[2] ?? null, host: m[3] ?? null };
+  return { agent: m[1] as AgentId, account: m[2] ?? null, host: m[3] === "local" ? null : m[3] ?? null };
 }
 export function runnerDefaults(accounts: Record<string, AccountCfg>): RunnerDefaults {
   const defaults: RunnerDefaults = {};
@@ -16,7 +16,7 @@ export function runnerDefaults(accounts: Record<string, AccountCfg>): RunnerDefa
   return defaults;
 }
 export function formatRunnerId(id: RunnerId, defaults: RunnerDefaults): string {
-  return id.agent + (id.account && id.account !== defaults[id.agent] ? `#${id.account}` : "") + (id.host ? `@${id.host}` : "");
+  return id.agent + (id.account && id.account !== defaults[id.agent] ? `#${id.account}` : "") + (id.host && id.host !== "local" ? `@${id.host}` : "");
 }
 export function resolveRunner(s: Strategy, idOrAlias: string): RunnerCfg | null {
   if (Object.hasOwn(s.runners, idOrAlias)) return s.runners[idOrAlias];

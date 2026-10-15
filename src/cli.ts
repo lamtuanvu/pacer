@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { createInterface } from "node:readline/promises";
 import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
 import { resolveRunner } from "./config/runner-id";
@@ -54,6 +55,7 @@ const USAGE = `usage: pacer <command>
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
   report-limit <provider> [--until <unix-seconds>] record an executor limit
+  host list [--json] | check <alias> [--repo <path>] [--json] | setup <alias> [--repo <path>] | clean <alias> [--json]
   limits check [--json]                          where each account's usage comes from, its age and freshness
   mcp                                            run the MCP server on stdio
   api --stdio                                    client protocol v2 on stdio (JSON-RPC)
@@ -74,7 +76,7 @@ Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skill
 Identical pacer skill copies may appear; update refresh keeps them identical.`;
 
 function help(): string {
-  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "limits", "mcp", "api", "serve", "use", "help", "--help", "-h", "_run"]);
+  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "host", "limits", "mcp", "api", "serve", "use", "help", "--help", "-h", "_run"]);
   const extras = EXTRA_COMMANDS.filter((c) => !builtins.has(c.name));
   return extras.length ? `${USAGE}\n${extras.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
 }
@@ -280,6 +282,28 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         const lines=[...r.removed.map(id=>`${id} ${opts["dry-run"]?"would be removed":"removed"}`),...r.kept.map(k=>`${k.id} kept: ${k.reason}`)];
         return {code:0,out:lines.join("\n")||"nothing to clean",err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
+    }
+    case "host": {
+      const { opts, pos } = parseFlags(rest, ["json"]);
+      const [action, alias] = pos;
+      const usage = "usage: pacer host list|check|setup|clean [alias] [--repo <path>] [--json]";
+      if (!["list", "check", "setup", "clean"].includes(action) || (action !== "list" && !alias) || pos.length !== (action === "list" ? 1 : 2) || Object.keys(opts).some(k => !["json", "repo"].includes(k)) || opts.repo === true || (opts.repo && !["check", "setup"].includes(action)) || (action === "setup" && opts.json)) return { code: 2, out: "", err: usage };
+      try {
+        if (action === "list") {
+          const rows = core.hosts.list(ctx);
+          return { code: 0, out: opts.json ? JSON.stringify(rows) : rows.map(h => `${h.alias}  ${h.running}/${h.maxTasks} running  ${h.repos.join(", ")}`).join("\n") || "no hosts", err: "" };
+        }
+        if (action === "clean") {
+          const r = await core.hosts.clean(ctx, alias);
+          return { code: 0, out: opts.json ? JSON.stringify(r) : [...r.removed.map(id => `${id} removed`), ...r.kept.map(k => `${k.id} kept: ${k.reason}`)].join("\n") || "nothing to clean", err: "" };
+        }
+        const r = action === "setup" ? await core.hosts.setup(ctx, alias, str(opts.repo) ?? process.cwd(), async question => {
+          if (!process.stdin.isTTY) { process.stdout.write(`${question} [y/N] (confirmation required)\n`); return false; }
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          try { return /^y(?:es)?$/i.test((await rl.question(`${question} [y/N] `)).trim()); } finally { rl.close(); }
+        }) : await core.hosts.check(ctx, alias, { repo: str(opts.repo) });
+        return { code: r.ok ? 0 : 1, out: opts.json ? JSON.stringify(r) : r.checks.map(c => `${c.ok ? "ok " : "FAIL"} ${c.name}${!c.ok && c.detail ? `: ${c.detail}` : ""}`).join("\n"), err: "" };
+      } catch (e) { return { code: 2, out: "", err: explain(e) }; }
     }
     case "limits": {
       const { opts, pos } = parseFlags(rest, ["json"]);
