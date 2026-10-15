@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { spawn } from "node:child_process";
 import * as core from "../core";
 import * as accounts from "../core/accounts";
 import * as runnersConfig from "../core/runners-config";
@@ -8,14 +9,24 @@ import * as config from "../core/config";
 import * as setup from "../core/setup";
 import * as notify from "../core/notify";
 import { publishConfigChange } from "../core/events";
-import { KINDS } from "../config/strategy";
+import { KINDS, loadStrategy } from "../config/strategy";
 import { CoreError, toCoreError } from "../core/errors";
 import { isExecutorSession } from "../install/role";
 import * as strategy from "../strategy/service";
+import { pacerArgv } from "../install/self";
+import { publish } from "../link/publish";
+import { checkForUpdate, installedPlugin, updateAvailable } from "../update/check";
+import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
+import { currentVersion } from "../update/version";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
 import type { Ctx } from "../types";
 
-export interface OpDeps { spawnRunner?: SpawnRunner }
+type UpdateSpawnOptions = { detached: true; stdio: "ignore"; env: NodeJS.ProcessEnv };
+export interface OpDeps {
+  spawnRunner?: SpawnRunner;
+  spawnUpdate?: (argv: string[], options: UpdateSpawnOptions) => void | Promise<void>;
+  update?: Partial<Pick<UpdateDeps, "standalone" | "execPath">>;
+}
 export interface OpDef<P extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; handler: (ctx: Ctx, p: z.infer<P>, deps: OpDeps) => unknown }
 
 const id = z.string().min(1).max(128);
@@ -23,6 +34,35 @@ const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 
 const agent = z.enum(["claude-code", "codex", "cursor", "opencode"]);
 const level = z.enum(["off", "important", "all"]);
+const draft = z.object({from: id, set: z.record(z.string(), z.json()).optional(), unset: z.array(z.string()).optional(), description: z.string().optional()});
+async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
+  try { return await action(); } catch (e) {
+    const error = toCoreError(e);
+    throw new CoreError(error.code, error.message, error.hint ?? "Use strategy.list to choose a strategy and strategy.preview to validate a draft.");
+  }
+}
+function spawnUpdate(argv: string[], options: UpdateSpawnOptions): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(argv[0]!, argv.slice(1), options);
+    child.once("error", reject);
+    child.once("spawn", () => { child.unref(); resolve(); });
+  });
+}
+async function applyUpdate(ctx: Ctx, deps: OpDeps) {
+  const update = {...defaultUpdateDeps(ctx), ...deps.update};
+  // Reuse the CLI's install-method checks without letting it replace the daemon
+  // binary in-process. With standalone:false it always stops before fetching.
+  const preflight = await runUpdate({check: false}, {...update, standalone: false});
+  if (!update.standalone || !preflight.err.startsWith("pacer update: this pacer runs from source")) {
+    const message = preflight.err.replace(/^pacer update: /, "");
+    throw new CoreError("not_allowed", message, message);
+  }
+  const argv = [...(update.standalone ? [update.execPath] : pacerArgv(ctx.env)), "update"];
+  try { await (deps.spawnUpdate ?? spawnUpdate)(argv, {detached: true, stdio: "ignore", env: ctx.env}); }
+  catch (e) { throw new CoreError("invalid_input", e instanceof Error ? e.message : String(e), "Check that the pacer binary exists and is executable, then retry."); }
+  await publish(ctx, [{v: 1, type: "alert", data: {key: "update", level: "info", title: "Updating pacer…", body: "", at: ctx.now}}], {channel: false});
+  return {started: true};
+}
 async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>): Promise<T> {
   const result = await action();
   await publishConfigChange(ctx, area);
@@ -86,7 +126,20 @@ export const OPS: Record<string, OpDef> = {
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
   "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null) }),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
-  "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: async (ctx, p) => { try { return { name: p.name, path: await strategy.use(ctx, p.name) }; } catch (e) { throw toCoreError(e); } } }),
+  "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(async () => ({name: p.name, path: await strategy.use(ctx, p.name)}))) }),
+  "strategy.show": op({ description: "Show a strategy's YAML, summary and active status.", params: z.object({name: id}), handler: (ctx, p) => strategyAction(() => strategy.show(ctx, p.name)) }),
+  "strategy.preview": op({ description: "Validate a strategy draft without writing and compare its ranking and routing.", params: z.object({draft}), handler: (ctx, p) => strategyAction(() => strategy.preview(ctx, p.draft)) }),
+  "strategy.save": op({ description: "Save a validated named strategy with a reason, optionally replacing an inactive strategy.", params: z.object({name: id, draft, reason: z.string().min(1), overwrite: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(() => { const {name, path} = strategy.save(ctx, p.name, p.draft, p.reason, {overwrite: p.overwrite}); return {name, path}; })) }),
+  "strategy.remove": op({ description: "Remove a named strategy; default and the active strategy are protected.", params: z.object({name: id}), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(() => {
+    if (p.name === "default" || loadStrategy(ctx).name === p.name) throw new CoreError("not_allowed", `cannot delete ${p.name === "default" ? "the default" : "the active"} strategy`, "Switch to another strategy first; default cannot be removed.");
+    strategy.remove(ctx, p.name);
+    return {removed: true};
+  })) }),
+  "update.check": op({ description: "Check release and installed plugin versions, optionally bypassing the cached update check.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
+    const check = await checkForUpdate(ctx, {force: p.force});
+    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: installedPlugin(ctx), ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};
+  }) }),
+  "update.apply": op({ description: "Start pacer update in a detached child; package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
 };
 
 export const opNames = (): string[] => Object.keys(OPS).sort();
