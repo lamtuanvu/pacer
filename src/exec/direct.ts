@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { loadStrategy } from "../config/strategy";
 import { validateExecution } from "../config/execution";
 import { pidAlive } from "../link/store";
-import { gitInfo, realpathSafe } from "./orca/setup";
+import { gitInfo, realpathSafe } from "../core/git";
 import type { ProviderCfg } from "../config/strategy";
 import { tasksDir, listTasks, updateTask } from "../tasks/store";
 import { resolvePlacement, type Attempt, type TaskRecord } from "../tasks/types";

@@ -8,6 +8,7 @@ import { readLabels } from "../src/tasks/labels";
 import { readTask, updateTask } from "../src/tasks/store";
 import { readMarks } from "../src/usage/reactive";
 import { fakeCtx, tmpDir } from "./helpers";
+import pkg from "../package.json";
 
 // codex: reactive so a fresh test home (no Codex logs) does not make it UNKNOWN, which would move it below cursor
 const STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: reactive }\n  cursor: {}\n";
@@ -139,4 +140,9 @@ test("delegate placement schema validates and task_status exposes resolution",as
  updateTask(ctx,id,t=>{t.placement={...t.placement!,mode:"current",why:"agent: follow-up"};});
  expect((await call("task_status",{task_id:id})).structuredContent.placement).toMatchObject({mode:"current",why:"agent: follow-up"});
  await client.close();
+});
+
+test("the MCP server reports pacer's package version", async () => {
+  const { client } = await connect();
+  expect(client.getServerVersion()).toMatchObject({ name: "pacer", version: pkg.version });
 });

@@ -1,5 +1,5 @@
 import type { CmdData, LinkSnapshot, ProviderLine } from "../link/envelope";
-import { attentionGroups, attentionText, mutedProviders, rankedProviders, verdictWords } from "../../orca-plugin/src/panel/model";
+import { attentionGroups, attentionText, mutedProviders, rankedProviders, verdictWords } from "../view-model/panel";
 import { accountGroups, runnerLabel } from "../render/accounts";
 export interface Card { id: string; text: string; account?: string; action?: CmdData; dismiss?: CmdData; provider?: ProviderLine }
 export function cards(s: LinkSnapshot, now: number): { title: string; cards: Card[] }[] {

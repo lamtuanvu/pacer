@@ -41,8 +41,13 @@ omit the choice for auto placement.
 Timeout defaults to 600 seconds, maximum 3000; exit 0 means settled, exit 2 means timeout
 (or invalid input). Review the diff and run acceptance before
 `pacer review <id> --accept|--reject [--kind <kind>] --json`.
-Use `pacer stop <id> --json` to cancel, `pacer report-limit <provider>` to record a quota
-limit, and `pacer dismiss <id...>` to hide cards.
+Use `pacer stop <id> --json` to cancel.
+`pacer retry <task-id> [--executor <id>] [--json]`: Re-delegate a task's stored brief.
+`--executor` picks the runner; otherwise routing chooses. Refused while the task
+already has a queued or running retry.
+Use `pacer report-limit <provider>` to record a quota limit, and
+`pacer dismiss <id...>` to hide cards. Unknown ids are reported and the command
+exits 2; known ids are still dismissed.
 
 JSON contracts:
 
@@ -51,7 +56,7 @@ JSON contracts:
 | status | generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors |
 | route | kind, ranked, excluded |
 | delegate | id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields |
-| tasks id, wait, stop | task_id, state, kind, requested_executor, placement, attempts, result, review, resolved |
+| tasks id, wait, stop, retry | task_id, state, kind, requested_executor, placement, attempts, result, review, resolved |
 | tasks | Array of task summaries |
 | review | recorded |
 
