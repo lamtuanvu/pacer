@@ -121,7 +121,7 @@ export async function diff(ctx: Ctx, id: string): Promise<{
     if (r.code !== 0) throw new CoreError("invalid_input", `cannot diff: ${r.stderr.trim().split("\n")[0] || `git exited with code ${r.code}`}`);
     return r.stdout;
   };
-  const output = await git(["diff", "--no-ext-diff", "--no-textconv", "--end-of-options", base ?? "HEAD", "--"]);
+  const output = await git(["diff", ...(base ? ["--merge-base"] : []), "--no-ext-diff", "--no-textconv", "--end-of-options", base ?? "HEAD", "--"]);
   const untracked = (await git(["ls-files", "--others", "--exclude-standard", "-z"])).split("\0").filter(Boolean);
   const bytes = Buffer.from(output, "utf8"), max = 1024 * 1024, truncated = bytes.length > max;
   // Keep the byte cap even when the cut falls inside a UTF-8 character.

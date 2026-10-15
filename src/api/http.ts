@@ -41,8 +41,19 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
   try {
     if (pathname.startsWith("/v2/ops/")) {
       if (req.method !== "POST") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
-      const text = await req.text();
-      if (Buffer.byteLength(text, "utf8") > 256 * 1024) return errorResponse({ code: "too_large", message: "body exceeds 256 KiB" });
+      const max = 256 * 1024;
+      const tooLarge = () => errorResponse({ code: "too_large", message: "body exceeds 256 KiB" });
+      if (Number(req.headers.get("content-length")) > max) return tooLarge();
+      const reader = req.body?.getReader(), decoder = new TextDecoder();
+      let text = "", bytes = 0;
+      if (reader) for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        bytes += chunk.value.byteLength;
+        if (bytes > max) { await reader.cancel(); return tooLarge(); }
+        text += decoder.decode(chunk.value, { stream: true });
+      }
+      text += decoder.decode();
       let params: unknown;
       try { params = JSON.parse(text); }
       catch { return errorResponse({ code: "invalid_input", message: "body is not JSON" }); }
@@ -71,7 +82,7 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       let initial: ReturnType<typeof core.tasks.log> | undefined = core.tasks.log(deps.getCtx(), id);
       let offsets = { stdout: 0, stderr: 0 };
       return sse(tailMs, send => {
-        while (true) {
+        for (let n = 0; n < 4; n++) {
           const chunk = initial ?? core.tasks.log(deps.getCtx(), id, offsets);
           initial = undefined;
           offsets = chunk.next;
@@ -80,6 +91,7 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
           // Drain completed logs across the core reader's bounded chunks before closing.
           if (!chunk.stdout && !chunk.stderr) { send("event: done\ndata: {}\n\n"); return true; }
         }
+        return false;
       });
     }
     return errorResponse({ code: "unknown_op", message: "not found" });
