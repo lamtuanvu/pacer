@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { CoreError } from "../src/core/errors";
+import { withLock } from "../src/core/lock";
 import * as tasks from "../src/core/tasks";
 import { readTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -70,6 +73,47 @@ test("retry without executor lets routing choose", async () => {
   await tasks.retry(ctx, t.id, {}, { delegate: (c, input) => { inputs.push(input); return tasks.delegate(c, input, () => 1, s); } });
   expect(inputs[0].executor).toBeUndefined();
 });
+
+for (const worktree of ["current", "new"] as const) {
+  test(`retry preserves explicit ${worktree} placement and its reason`, async () => {
+    const ctx = fakeCtx();
+    const t = tasks.delegate(ctx, {
+      brief: { goal: "g", repo: tmpDir() }, worktree, worktree_reason: "keep this placement",
+    }, () => 1, s);
+    const inputs: Parameters<typeof tasks.delegate>[1][] = [];
+    const r = await tasks.retry(ctx, t.id, {}, { delegate: (c, input) => {
+      inputs.push(input);
+      return tasks.delegate(c, input, () => 1, s);
+    } });
+    expect(inputs[0]).toMatchObject({ worktree, worktree_reason: "keep this placement" });
+    expect(r.retry.placement).toEqual(t.placement);
+  });
+}
+
+test("retry preserves force", async () => {
+  const ctx = fakeCtx();
+  const t = tasks.delegate(ctx, { brief: { goal: "g", repo: tmpDir() }, force: true }, () => 1, s);
+  const r = await tasks.retry(ctx, t.id, {}, { delegate: (c, input) => tasks.delegate(c, input, () => 1, s) });
+  expect(r.retry.force).toBe(true);
+});
+
+test("retry rejects traversal ids before creating a lock or files outside pacerHome", async () => {
+  const ctx = fakeCtx();
+  const before = readdirSync(ctx.home, { recursive: true });
+  await expect(tasks.retry(ctx, "../../x")).rejects.toMatchObject({ code: "unknown_task" });
+  expect(readdirSync(ctx.home, { recursive: true })).toEqual(before);
+  expect(existsSync(join(ctx.pacerHome, "orca"))).toBe(false);
+});
+
+for (const name of ["../escape", "nested/lock", "nested\\lock", "retry-..-lock"]) {
+  test(`withLock rejects unsafe name ${JSON.stringify(name)} before filesystem access`, async () => {
+    const ctx = fakeCtx();
+    let called = false;
+    await expect(withLock(ctx, name, async () => { called = true; })).rejects.toThrow();
+    expect(called).toBe(false);
+    expect(existsSync(ctx.pacerHome)).toBe(false);
+  });
+}
 
 test("concurrent retries create exactly one retry", async () => {
   const { ctx, t } = mk();

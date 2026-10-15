@@ -14,7 +14,7 @@ import {
   type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
-import { listTasks, readTask, updateTask } from "../tasks/store";
+import { isTaskId, listTasks, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
@@ -134,6 +134,7 @@ export async function retry(
   ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean } = {},
   deps: { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord } = {},
 ): Promise<{ retry: TaskRecord; of: TaskRecord }> {
+  if (!isTaskId(id)) throw unknown(id);
   return withLock(ctx, `retry-${id}`, async () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
@@ -143,6 +144,9 @@ export async function retry(
     }
     const input: DelegateInput = {
       brief: { ...task.brief }, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
+      ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
+      ...(task.force ? { force: true } : {}),
       ...(o.executor ? { executor: o.executor } : {}),
     };
     let next: TaskRecord;
