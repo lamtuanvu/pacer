@@ -59,6 +59,10 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
 }
 
 export interface RunRef {
+  host?: string;
+  remoteDir?: string;
+  remoteWorktree?: string;
+  baseSha?: string;
   dir: string;
   attempt: number;
   executor: string;

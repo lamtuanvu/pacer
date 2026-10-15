@@ -7,6 +7,25 @@ printf 'setsid=%s\\n' "$(command -v setsid || true)"
 printf 'home=%s\\n' "$HOME"`,
   // Used only by tests and host check to verify the stdin channel.
   ECHO_STDIN: "cat",
+  PREPARE: `checkout="$1"; tag="$2"; task="$3"; base="$4"; branch="$5"
+case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+cd "$checkout" || exit 1
+git fetch -q origin "$branch" 2>/dev/null || true
+if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+  mkdir -p "$HOME/.pacer-remote" || exit 1
+  tmp=$(mktemp "$HOME/.pacer-remote/base.XXXXXX") || exit 1
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  cat > "$tmp"
+  if [ -s "$tmp" ]; then
+    git bundle verify "$tmp" >&2 && git fetch -q "$tmp" "refs/pacer/base/$task" || exit 1
+  fi
+  rm -f "$tmp"
+fi
+git cat-file -e "$base^{commit}" 2>/dev/null || { echo missing-base >&2; exit 3; }
+worktree="$HOME/.pacer-remote/worktrees/$tag/$task"
+mkdir -p "$HOME/.pacer-remote/worktrees/$tag" || exit 1
+git worktree add -q -b "pacer/$task" "$worktree" "$base" || exit 1
+printf 'worktree=%s\\n' "$worktree"`,
   START: `D="$1"; cwd="$2"; shift 2
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 case "$cwd" in '~/'*) cwd="$HOME/\${cwd#??}" ;; esac
