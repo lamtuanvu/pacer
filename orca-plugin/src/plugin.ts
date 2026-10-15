@@ -9,6 +9,8 @@ import type { AgentStatusChanged, OrcaWorkerContext, WorktreeCreated } from "./o
 import { readSettings } from "./settings";
 import { LinkStore } from "./store";
 import { chooseTransport, type Transport } from "./transports/choose";
+import type { ApiClient } from "../../src/api/client-types";
+import { apiTransport } from "./transports/api";
 import { httpTransport, type HttpPort } from "./transports/http";
 import { bridgeTransport } from "./transports/bridge";
 import { channelTransport } from "./transports/channel";
@@ -18,6 +20,7 @@ import { readPanelSettings } from "./panel/settings";
 import { renderPanel, type AutoConsoleOutcome } from "./panel";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
+  connect?(settings: { port: number; pacerHome: string }): Promise<ApiClient | null>;
   version?: string;
   cachedUpdate?(): UpdateCheck | null;
   checkUpdates?(): Promise<{check: UpdateCheck | null; cli: string | null}>;
@@ -32,6 +35,7 @@ export interface PluginDeps {
 }
 export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContext): Promise<void>; deactivate(): Promise<void> } {
   let stopped = false;
+  const clients = new Set<ApiClient>();
   let stopWatch: (() => void) | null = null;
   let cancelRender: (() => void) | null = null;
   let cancelRetry: (() => void) | null = null;
@@ -88,6 +92,12 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
+      apiTransport({ timers, log: m => ctx.log(m), connect: async () => {
+        const client = await deps.connect?.(settings) ?? null;
+        if (stopped) { client?.close(); return null; }
+        if (client) clients.add(client);
+        return client;
+      } }),
       httpTransport({ http: deps.http, readToken: () => deps.fs.readText(`${settings.pacerHome}/token`)?.trim() || null, port: settings.port, timers }),
       channelTransport({ host: ctx.host, registerEvent: (name, handler) => ctx.events.on(name, async payload => { await ensureConnected(); if (!stopped) handler(payload); }) }),
       bridge,
@@ -338,8 +348,11 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     ctx.commands.register("switch-strategy", async () => { await ensureConnected(); return send({ cmd: "use" }); });
     ctx.commands.register("refresh-status", async () => {
       await ensureConnected();
-      const result = await sendFresh({ cmd: "refresh" });
-      if (result === "rejected") await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
+      if (active?.id === "api") await refreshSnapshot();
+      else {
+        const result = await sendFresh({ cmd: "refresh" });
+        if (result === "rejected") await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
+      }
       scheduleRender();
       const message = summaryLine(store.snapshot.budget);
       await notify(message, (store.snapshot.budget?.providers ?? []).map(p => `${p.id} ${p.verdict} ${p.usedPct === null ? "?" : `${Math.round(p.usedPct)}%`}`).join("\n"));
@@ -400,6 +413,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     activate,
     async deactivate() {
       stopped = true; deps.bootstrap?.stop(); stopWatch?.(); stopWatch = null; cancelRender?.(); cancelRender = null; cancelRetry?.(); cancelRetry = null;
+      for (const client of clients) client.close(); clients.clear();
       for (const cancel of timerCancels) cancel(); timerCancels.clear();
     },
   };

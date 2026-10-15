@@ -2,7 +2,8 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPlugin } from "../orca-plugin/src/plugin";
+import { createPlugin, type PluginDeps } from "../orca-plugin/src/plugin";
+import type { ApiClient } from "../src/api/client-types";
 import { readSettings } from "../orca-plugin/src/settings";
 import { notifyNewAlerts } from "../orca-plugin/src/notify";
 import { NO_CONSOLE } from "../orca-plugin/src/console-link";
@@ -15,13 +16,13 @@ import { httpTransport } from "../orca-plugin/src/transports/http";
 import { bridgeTransport } from "../orca-plugin/src/transports/bridge";
 import { channelTransport } from "../orca-plugin/src/transports/channel";
 import { contentKey, reduce, type Envelope } from "../src/link/envelope";
-function fixture(heartbeat: number|null=100, marker=true) {
+function fixture(heartbeat: number|null=100, marker=true, connect?: PluginDeps["connect"]) {
  const root=mkdtempSync(join(tmpdir(),"pacer-plugin-"));const timers=new ManualTimers();let now=100;
  let snapshot:LinkSnapshot={...emptySnapshot(),console:heartbeat===null?null:{handle:"term",paneKey:"pane",pid:1,startedAt:0,heartbeatAt:heartbeat}};
  const calls:{method:string;params:any}[]=[];const commands=new Map<string,(args?:unknown)=>unknown>();const events=new Map<string,(p:unknown)=>void|Promise<void>>();const writes:{path:string;text:string}[]=[];
  let accepted=true,throwSend=false,pending=false,context:any={branch:"pacer-task",displayName:"Project",terminals:[{id:"term"}]};
  const host={call:async(method:string,params:any)=>{calls.push({method,params});switch(method){case "settings.get":return {settings:{notifications:"all"}};case "events.subscribe":throw Error("invalid enum");case "storage.get":return {value:snapshot};case "workspace.readContext":return context;case "terminal.sendText":if(throwSend)throw Object.assign(Error("denied"),{code:"capability_denied"});return {accepted};case "notifications.show":return {delivered:true};case "settings.set":return {ok:true};default:throw Error(method);}}} as OrcaHost;
- const plugin=createPlugin({home:root,pluginRoot:root,nowS:()=>now,timers,http:{get:async()=>pending?await new Promise(()=>{}):{status:401,body:""},stream:()=>()=>{}},fs:{readText:()=>"token",exists:p=>marker && p===join(root,".pacer-managed"),writeTextAtomic:(path,text)=>writes.push({path,text})}});
+ const plugin=createPlugin({connect,home:root,pluginRoot:root,nowS:()=>now,timers,http:{get:async()=>pending?await new Promise(()=>{}):{status:401,body:""},stream:()=>()=>{}},fs:{readText:()=>"token",exists:p=>marker && p===join(root,".pacer-managed"),writeTextAtomic:(path,text)=>writes.push({path,text})}});
  const ctx:OrcaWorkerContext={host,commands:{register:(id,h)=>commands.set(id,h)},events:{on:(id,h)=>events.set(id,h)},grantedCapabilities:[],log:()=>{}};
  return {plugin,ctx,host,timers,calls,commands,events,writes,get snapshot(){return snapshot;},set snapshot(s){snapshot=s;},set accepted(v:boolean){accepted=v;},set throwSend(v:boolean){throwSend=v;},set pending(v:boolean){pending=v;},set context(v:any){context=v;},set now(v:number){now=v;},async start(){await plugin.activate(ctx);await flush();},async cleanup(){await plugin.deactivate();rmSync(root,{recursive:true,force:true});}};
 }
@@ -412,4 +413,32 @@ test("worker refreshes notification preference after 30 seconds and rerenders wi
  level="all";f.now=130;await f.timers.advance(29799);expect(reads).toBe(1);
  await f.timers.advance(1);await f.timers.advance(200);expect(reads).toBe(2);expect(f.writes.at(-1)!.text).toContain('value="all" selected');
  }finally{await f.cleanup();}
+});
+
+for (const heartbeat of [null, 100]) test(`API refresh updates the summary without console IPC (heartbeat ${heartbeat})`, async () => {
+ let connections = 0, snapshots = 0;
+ const client: ApiClient = {
+  kind: "stdio",
+  hello: async () => ({protocol:"2.0.0",pacer:"0",ops:[],events:[]}),
+  snapshot: async () => { snapshots++; return {protocol:"2.0.0",seq:snapshots,snapshot:f.snapshot}; },
+  call: async <T>() => null as T,
+  subscribe: () => () => {},
+  close: () => {},
+ };
+ const f = fixture(heartbeat, true, async () => { connections++; return client; });
+ try {
+  await f.start();await f.timers.advance(2000);
+  expect(f.writes.at(-1)!.text).toContain('data-transport="api"');
+  const before = snapshots;
+  f.snapshot = {...f.snapshot,budget:{generatedAt:100,strategy:"fresh",planner:"codex",mode:"normal",
+   providers:[{id:"codex",verdict:"OK",pacePct:null,usedPct:42,resetsAt:null,window:null,stale:false}],ranked:[]}};
+  expect(await f.commands.get("refresh-status")!()).toEqual({ok:true,message:summaryLine(f.snapshot.budget)});
+  expect(snapshots).toBeGreaterThan(before);
+  expect(connections).toBe(1);
+  expect(notes(f).at(-1)!.params).toMatchObject({title:"Budget refreshed",body:"Open the pacer panel for the current budget."});
+  expect(sends(f)).toHaveLength(0);
+  expect(f.calls.filter(c=>c.method==="workspace.readContext")).toHaveLength(0);
+  await f.timers.advance(2000);
+  expect(f.writes.at(-1)!.text).toContain("fresh");
+ } finally { await f.cleanup(); }
 });

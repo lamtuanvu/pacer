@@ -71,3 +71,87 @@ test("HTTP never discloses token to an unidentified server including SSE reconne
  identified=false;requests.length=0;close();await timers.advance(2000);
  expect(streams).toBe(1);expect(requests.every(r=>r.url.endsWith("/health") && !r.token)).toBe(true);stop();
 });
+
+import { apiTransport } from "../orca-plugin/src/transports/api";
+import type { ApiClient } from "../src/api/client-types";
+import type { ApiEvent } from "../src/api/protocol";
+import { readSettings } from "../orca-plugin/src/settings";
+
+function fakeClient(over: Partial<ApiClient> = {}) {
+ let handler: ((e: ApiEvent) => void) | null = null;
+ const c = {
+  kind: "http" as const, snapshots: 0, since: -1,
+  hello: async () => ({ protocol: "2.0.0", pacer: "0", ops: [], events: [] }),
+  snapshot: async () => { c.snapshots++; return { protocol: "2.0.0", seq: 5, snapshot: { ...emptySnapshot(), seq: 5 } }; },
+  call: async <T = unknown>() => null as T,
+  subscribe: (since: number, on: (e: ApiEvent) => void) => { c.since = since; handler = on; return () => { handler = null; }; },
+  close() {}, emit: (e: ApiEvent) => handler?.(e), ...over,
+ };
+ return c;
+}
+
+test("api transport forwards valid events as envelopes from the snapshot seq", async () => {
+ const client = fakeClient(), got: Envelope[] = [], timers = new ManualTimers(); let connections = 0;
+ const t = apiTransport({ connect: async () => { connections++; return client; }, timers });
+ expect(await t.probe()).toBe(true);
+ const stop = t.watch(e => got.push(e), () => {}); await flush();
+ expect(client.since).toBe(5); expect(connections).toBe(1);
+ client.emit({ seq: 6, at: 0, type: "alert", data: alert.data });
+ client.emit({ seq: 7, at: 0, type: "alert", data: null });
+ client.emit({ seq: 8, at: 0, type: "host", data: {} } as unknown as ApiEvent);
+ stop(); client.emit({ seq: 9, at: 0, type: "alert", data: alert.data });
+ expect(got).toEqual([alert]);
+});
+
+test("reset re-fetches the snapshot", async () => {
+ const client = fakeClient(), timers = new ManualTimers(); let snaps = 0;
+ const t = apiTransport({ connect: async () => client, timers });
+ const stop = t.watch(() => {}, () => { snaps++; }); await flush();
+ const before = client.snapshots, delivered = snaps;
+ client.emit({ seq: 7, at: 0, type: "reset", data: {} }); await flush();
+ expect(client.snapshots).toBeGreaterThan(before); expect(snaps).toBeGreaterThan(delivered); stop();
+});
+
+test("api transport polls snapshots, reports failures and stops cleanly", async () => {
+ let fail = false, snaps = 0, failures = 0;
+ const client = fakeClient({ snapshot: async () => { if (fail) throw Error("offline"); return { protocol: "2.0.0", seq: 5, snapshot: emptySnapshot() }; } });
+ const timers = new ManualTimers(), t = apiTransport({ connect: async () => client, timers });
+ const stop = t.watch(() => {}, () => snaps++, () => failures++); await flush();
+ const before = snaps; await timers.advance(10000); expect(snaps).toBe(before + 1);
+ fail = true; await timers.advance(10000); expect(failures).toBe(1); expect(await t.snapshot()).toBeNull();
+ stop(); await timers.advance(20000); expect(failures).toBe(1);
+});
+
+test("api transport probes false when pacer cannot start", async () => {
+ const timers = new ManualTimers();
+ expect(await apiTransport({ connect: async () => null, timers }).probe()).toBe(false);
+ for (const connect of [async () => fakeClient({ hello: () => new Promise<never>(() => {}) }), () => new Promise<never>(() => {})]) {
+  let result: boolean | undefined;
+  void apiTransport({ connect, timers }).probe().then(v => { result = v; }); await flush();
+  await timers.advance(1999); expect(result).toBeUndefined(); await timers.advance(1); expect(result).toBe(false);
+ }
+});
+
+test("auto prefers api and falls back through existing transports", async () => {
+ for (const available of [true, false]) {
+  const r = await chooseTransport([stub("bridge", true), stub("http", true), stub("api", available)], "auto");
+  expect(r.transport?.id).toBe(available ? "api" : "http");
+ }
+ expect(readSettings({ transport: "api" }, "").transport).toBe("api");
+});
+
+test("reset during a snapshot fetch queues another fetch", async () => {
+ const client = fakeClient(), timers = new ManualTimers();
+ const t = apiTransport({ connect: async () => client, timers });
+ const stop = t.watch(() => {}, () => {}); await flush();
+ let release!: () => void, calls = 0;
+ client.snapshot = async () => {
+  calls++;
+  if (calls === 1) await new Promise<void>(resolve => { release = resolve; });
+  return { protocol: "2.0.0", seq: 7, snapshot: emptySnapshot() };
+ };
+ await timers.advance(10000);
+ client.emit({ seq: 7, at: 0, type: "reset", data: {} });
+ release(); await flush();
+ expect(calls).toBe(2); stop();
+});
