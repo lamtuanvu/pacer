@@ -1064,9 +1064,6 @@ import { existsSync as existsSync3, readFileSync as readFileSync6, writeFileSync
 import { dirname, join as join8, resolve } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
-// orca-plugin/src/plugin.ts
-import { createHash as createHash2 } from "node:crypto";
-
 // orca-plugin/src/updates.ts
 var UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 var updateInstruction = (mode) => mode === "bootstrap" ? "In Orca Settings > Plugins, click Refresh, then Update plugin." : "Click Update in the pacer panel.";
@@ -1982,7 +1979,7 @@ function createPlugin(deps) {
     let processing = Promise.resolve();
     let httpFailures = 0;
     let setup;
-    let renderedKey = null;
+    let renderedHtml = null;
     let lastRenderAt = -Infinity;
     let userOutcome = false;
     const panelUpdates = () => {
@@ -2010,11 +2007,10 @@ function createPlugin(deps) {
         try {
           const nowS = deps.nowS();
           const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
-          const key = createHash2("sha1").update(html).digest("hex");
-          if (key !== renderedKey) {
+          if (html !== renderedHtml) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
               deps.fs.writeTextAtomic(join7(deps.pluginRoot, "panel", "live.html"), html);
-              renderedKey = key;
+              renderedHtml = html;
               lastRenderAt = nowS;
               userOutcome = false;
             } else

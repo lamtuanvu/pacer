@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { notifyUpdates, UPDATE_INTERVAL_MS, type PluginUpdates } from "./updates";
 import { updateAvailable, type UpdateCheck } from "../../src/update/check";
@@ -116,7 +115,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     let processing = Promise.resolve();
     let httpFailures = 0;
     let setup:SetupChecklist|undefined;
-    let renderedKey: string | null = null;
+    let renderedHtml: string | null = null;
     let lastRenderAt=-Infinity;
     let userOutcome=false;
     const panelUpdates = (): PluginUpdates | undefined => {
@@ -137,11 +136,10 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         try {
           const nowS = deps.nowS();
           const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
-          const key = createHash("sha1").update(html).digest("hex");
-          if (key !== renderedKey) {
+          if (html !== renderedHtml) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
               deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), html);
-              renderedKey = key; lastRenderAt=nowS; userOutcome=false;
+              renderedHtml = html; lastRenderAt=nowS; userOutcome=false;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
         } catch (e) { logError(e); }
