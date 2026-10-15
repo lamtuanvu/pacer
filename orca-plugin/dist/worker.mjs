@@ -16,6 +16,7 @@ class HttpClient {
   token;
   o;
   kind = "http";
+  controller = new AbortController;
   subscriptions = new Set;
   constructor(base, token, o = {}) {
     this.base = base;
@@ -28,6 +29,7 @@ class HttpClient {
   }
   async request(path, params) {
     const response = await fetch(`${this.base}${path}`, {
+      signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(this.o.timeoutMs ?? 15000)]),
       method: params === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
       ...params === undefined ? {} : { body: JSON.stringify(params) }
@@ -125,6 +127,7 @@ class HttpClient {
     return stop;
   }
   close() {
+    this.controller.abort();
     for (const stop of this.subscriptions)
       stop();
   }

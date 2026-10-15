@@ -40,14 +40,16 @@ export class InProcessClient implements ApiClient {
     private readonly o: { opDeps?: OpDeps; pollMs?: number; status?: (c: Ctx) => Promise<Status> } = {},
   ) {}
 
+  private liveCtx(): Ctx { return { ...this.getCtx(), now: Date.now() / 1000 }; }
+
   async hello(): Promise<Hello> { return helloBody(); }
 
   snapshot(): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot }> {
-    return liveSnapshot(this.getCtx(), { status: this.o.status });
+    return liveSnapshot(this.liveCtx(), { status: this.o.status });
   }
 
   async call<T = unknown>(op: string, params?: unknown): Promise<T> {
-    try { return await callOp(this.getCtx(), op, params, this.o.opDeps) as T; }
+    try { return await callOp(this.liveCtx(), op, params, this.o.opDeps) as T; }
     catch (e) {
       const error = toApiError(e);
       throw new ApiError(error.code, error.message, error.hint);
@@ -57,7 +59,7 @@ export class InProcessClient implements ApiClient {
   subscribe(since: number, onEvent: (e: ApiEvent) => void): () => void {
     let last = since;
     const timer = setInterval(() => {
-      const batch = eventsSince(this.getCtx(), last);
+      const batch = eventsSince(this.liveCtx(), last);
       last = batch.last;
       for (const event of batch.events) {
         if (!this.timers.has(timer)) break;
