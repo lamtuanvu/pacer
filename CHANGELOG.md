@@ -13,6 +13,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- `pacer dashboard` reads and acts through the v2 API (`pacer serve` when running, in-process otherwise); task actions, executor block/unblock and strategy switching are API operations.
 - Stale usage no longer decides routing verdicts: accounts with only stale readings show their last numbers marked stale with verdict `UNKNOWN`.
 - Orca's `account list` is never read for usage. Orca-linked Claude and Codex accounts read their own data (Claude status-line caches or reactive limits, Codex session logs in the account folder); Cursor, Antigravity and endpoint accounts no longer try Orca first. Explicit `usage_source: orca` remains accepted but is ignored with a status warning.
 - `pacer report-limit <runner>` exhausts the runner's whole account, including every runner sharing it.

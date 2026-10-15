@@ -4,18 +4,17 @@ import { readUpdateCheck, updateLine } from "../update/check";
 import { StringDecoder } from "node:string_decoder";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
-import { readLatest } from "../link/store";
+import { connectClient } from "../api/client";
+import { emptySnapshot, type CmdData } from "../link/envelope";
 import { listStrategies } from "../link/strategies";
-import { taskData } from "../link/pump";
-import { toBudget } from "../link/budget";
-import { computeStatus } from "../engine/status";
 import { loadStrategy } from "../config/strategy";
-import { listTasks, readTask } from "../tasks/store";
-import { delegate, taskStatus, taskStop } from "../tasks/api";
+import { readTask } from "../tasks/store";
+import { delegate, taskStop } from "../tasks/api";
 import { use as switchStrategy } from "../strategy/service";
 import { selfHandle, resolveWorktreePath } from "../console/cli";
 import { consoleCommands, type ConsoleDeps } from "../console/console";
 import { cards } from "./model";
+import { delegateViaClient, refreshView, runCommand } from "./data";
 import { DashboardSettings, terminalLogin } from "./settings";
 import { renderDashboard } from "./render";
 import { Keys, moveSelection, selectionAction, updateKey, UPDATE_PROMPT } from "./input";
@@ -28,23 +27,24 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  let selected=0,help=false,message="",messageUntil=0,busy=false,suspended=false,closed=false,exitError="";
  let statusTimer:ReturnType<typeof setTimeout>|undefined;
  let prompt:null|{type:"update"|"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
- let snapshot=readLatest(ctx),refreshing=false;
- let computed: typeof snapshot.budget=null;
+ const client=await connectClient(ctx);
+ let snapshot=emptySnapshot(),inFlight:Promise<void>|undefined;
  const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
  const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{settings,setup,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
  const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
  const refresh=()=>{
+  if(closed)return Promise.resolve();
+  if(inFlight)return inFlight;
   const c=fresh();
   if(!setupBusy && c.now>=nextSetupAt){setupBusy=true;void checkSetup(c).then(result=>{setup=result;nextSetupAt=c.now+(result.complete?60:5);draw();}).catch(e=>report(String(e))).finally(()=>{setupBusy=false;});}
-  const selectedId=cards(snapshot,c.now).flatMap(g=>g.cards)[selected]?.id; snapshot=readLatest(c);
-  if(computed && computed.generatedAt>=(snapshot.budget?.generatedAt??0))snapshot={...snapshot,budget:computed,at:computed.generatedAt};
-  snapshot.tasks=listTasks(c,20).map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...taskData(taskStatus(c,t.id)??t)}));
-  const updated=cards(snapshot,c.now).flatMap(g=>g.cards),index=updated.findIndex(card=>card.id===selectedId);
-  selected=index>=0?index:Math.max(0,Math.min(selected,updated.length-1));draw();
-  // Status work runs in the background; terminal polling never waits for it.
-  if(!refreshing){refreshing=true;void Promise.resolve().then(()=>computeStatus({...c,readOnly:true},loadStrategy(c))).then(st=>{computed=toBudget(st);refresh();}).catch(e=>report(String(e))).finally(()=>{refreshing=false;});}
+  inFlight=refreshView(client,{snapshot,selected,now:c.now}).then(view=>{
+   if(closed)return;
+   snapshot=view.snapshot;selected=view.selected;draw();
+  }).catch(e=>{if(!closed)report(String(e));}).finally(()=>{inFlight=undefined;});
+  return inFlight;
  };
- const use=async(name:string)=>{if(!listStrategies(fresh()).includes(name))throw Error(`unknown strategy ${name}`);await switchStrategy(fresh(),name);report(`active strategy: ${name}`);};
+ const reportOp=(text:string)=>{report(text);if(!text.startsWith("pacer: "))void refresh();};
+ const use=async(name:string)=>{await command({cmd:"use",strategy:name});};
  const deps:ConsoleDeps={delegate,readTask,taskStop,configuredExecutors:c=>Object.keys(loadStrategy(c).providers),useStrategy:switchStrategy,listStrategies,statusText:async()=>"",pump:async()=>{refresh();return [];},heartbeat(){},resolveWorktreePath,selfHandle,every:()=>()=>{},pid:process.pid,cwd:process.cwd()};
  const startDelegate=(repo:string)=>{prompt={type:"delegate",step:0,value:"",goal:"",repo,names:[]};};
  const chooseStrategy=()=>{prompt={type:"strategy",step:0,value:"",goal:"",repo:"",names:listStrategies(fresh())};};
@@ -52,7 +52,8 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   suspend(){suspended=true;clearTimeout(escapeTimer);keys.flush();process.stdin.off("data",input);process.stdin.pause();process.stdin.setRawMode(false);process.stdout.write(LEAVE_SCREEN);},
   resume(){if(closed)return;process.stdin.setRawMode(true);process.stdout.write(ENTER_SCREEN);process.stdin.on("data",input);process.stdin.resume();suspended=false;refresh();}
  })});
- const command=consoleCommands(ctx,deps,report,{startDelegate,chooseStrategy,use,refresh:async()=>{refresh();report("Refreshed");}});
+ const fallback=consoleCommands(ctx,deps,report,{startDelegate,chooseStrategy,use,refresh:async()=>{refresh();report("Refreshed");}});
+ const command=(data:CmdData)=>runCommand(client,data,fallback,reportOp);
  let finish!:(code:number)=>void;const done=new Promise<number>(resolve=>{finish=resolve;});
  const quit=(code=0)=>{if(closed)return;closed=true;finish(code);};
  const handle=async(key:string)=>{
@@ -72,7 +73,7 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
     if(p.type==="strategy"){prompt=null;if(value)await use(/^\d+$/.test(value)?p.names[Number(value)-1]??value:value);}
     else if(p.step===0){if(!value){prompt=null;report("Delegate cancelled");}else{p.goal=value;p.step++;}}
     else if(p.step===1){p.repo=value||p.repo;p.step++;}
-    else {prompt=null;const task=delegate(fresh(),{brief:{goal:p.goal,repo:p.repo},kind:value||null});report(`${task.id} queued`);refresh();}
+    else {prompt=null;await delegateViaClient(client,{goal:p.goal,repo:p.repo,...(value?{kind:value}:{})},reportOp);}
    }else if(key.length && !["up","down"].includes(key)&&!/[\x00-\x1f\x7f]/.test(key))prompt.value+=key;
    draw();return;
   }
@@ -100,15 +101,18 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  const raw=process.stdin.isRaw;
  const restore=()=>{process.stdin.setRawMode(raw);process.stdout.write(LEAVE_SCREEN);};
  let timer:ReturnType<typeof setInterval>|undefined;
+ let unsubscribe:(()=>void)|undefined;
  process.on("exit",restore);
  try {
   process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write(ENTER_SCREEN);
   process.stdin.on("data",input);process.stdin.on("end",quit);process.stdout.on("resize",draw);
   process.on("SIGINT",interrupt);process.on("SIGTERM",terminate);process.on("SIGHUP",hangup);process.on("uncaughtException",crash);process.on("unhandledRejection",crash);
-  refresh();timer=setInterval(()=>{try{refresh();}catch(e){report(String(e));}},2000);
+  await refresh();
+  if(!closed)unsubscribe=client.subscribe(snapshot.seq,()=>{void refresh();});
+  timer=setInterval(()=>{try{void refresh();}catch(e){report(String(e));}},2000);
   return {code:await done,out:"",err:exitError};
  }finally{
-  closed=true;clearInterval(timer);clearTimeout(escapeTimer);clearTimeout(statusTimer);process.stdin.off("data",input);process.stdin.off("end",quit);process.stdin.pause();process.stdout.off("resize",draw);
+  closed=true;unsubscribe?.();client.close();clearInterval(timer);clearTimeout(escapeTimer);clearTimeout(statusTimer);process.stdin.off("data",input);process.stdin.off("end",quit);process.stdin.pause();process.stdout.off("resize",draw);
   process.off("SIGINT",interrupt);process.off("SIGTERM",terminate);process.off("SIGHUP",hangup);process.off("uncaughtException",crash);process.off("unhandledRejection",crash);process.off("exit",restore);restore();
  }
 }

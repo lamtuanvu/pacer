@@ -1,9 +1,8 @@
-import pkg from "../../package.json";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 import { apiSnapshot, eventsSince } from "./events";
-import { callOp, opNames, type OpDeps } from "./ops";
-import { PROTOCOL_VERSION, rpcError } from "./protocol";
+import { callOp, type OpDeps } from "./ops";
+import { helloBody, rpcError } from "./protocol";
 
 /** Concurrent, line-delimited JSON-RPC; EOF stops events and drains requests. */
 export async function runStdio(
@@ -42,7 +41,7 @@ export async function runStdio(
       let result: unknown;
       switch (r.method) {
         case "hello":
-          result = { protocol: PROTOCOL_VERSION, pacer: pkg.version, ops: opNames(), events: ["budget", "task", "mode", "alert", "reset"] };
+          result = helloBody();
           break;
         case "snapshot": result = apiSnapshot(getCtx()); break;
         case "subscribe": {
