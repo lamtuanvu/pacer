@@ -6,6 +6,7 @@ import { readClaude } from "./claude";
 import { readCodex } from "./codex";
 import { readMetered } from "./metered";
 import { limitWindow } from "./reactive";
+import { cachedRemoteUsage } from "../remote/usage";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg): Promise<UsageReading> {
   switch (cfg.usage) {
@@ -62,7 +63,11 @@ export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: R
   };
   // Orca is never a usage source; a legacy usage_source: orca reads natively (claude/codex) or reactively.
   if (account.usageSource === "orca" && account.kind !== "claude" && account.kind !== "codex") cfg.usage = "reactive";
-  if (account.usage !== "metered") return cachedBase(ctx, cfg, account);
+  if (account.usage !== "metered") {
+    const local = await cachedBase(ctx, cfg, account);
+    const remote = account.kind === "codex" && account.usage === "quota" ? cachedRemoteUsage(ctx, account.name) : null;
+    return remote?.capturedAt != null && (local.capturedAt === null || remote.capturedAt > local.capturedAt) ? remote : local;
+  }
   const models = [...new Set(runners.map(r => r.model))];
   const readings = await Promise.all(models.map(model => cachedBase(ctx, { ...cfg, model }, account)));
   if (!readings.length) return cachedBase(ctx, cfg, account);

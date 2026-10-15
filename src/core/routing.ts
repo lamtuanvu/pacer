@@ -1,6 +1,7 @@
 import { type Strategy, loadStrategy } from "../config/strategy";
 import { rankExecutors } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
+import { remoteExclusion } from "../remote/eligibility";
 import type { Ctx } from "../types";
 
 export function status(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<Status> {
@@ -9,6 +10,10 @@ export function status(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<Statu
 
 export async function route(ctx: Ctx, kind: string | null, s: Strategy = loadStrategy(ctx)) {
   const st = await computeStatus(ctx, s);
+  await Promise.all(st.providers.map(async p => {
+    const reason = await remoteExclusion(ctx, s, p.id);
+    if (reason) p.unavailableReason = reason;
+  }));
   const r = rankExecutors(kind, s, Object.fromEntries(st.providers.map((p) => [p.id, p])));
   return { kind, ranked: r.ranked, excluded: r.excluded };
 }

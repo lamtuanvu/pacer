@@ -20,11 +20,12 @@ export interface UsageReading {
   capturedAt: number | null;
   stale: boolean;
   source?: UsageSource;
+  remoteHost?: string;
   error?: string;
 }
 
 export interface RunResult { code: number; stdout: string; stderr: string }
-export type RunFn = (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined> }) => Promise<RunResult>;
+export type RunFn = (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined>; stdin?: string }) => Promise<RunResult>;
 
 export interface Ctx {
   readOnly?: boolean; // Suppress cache writes for strategy previews.

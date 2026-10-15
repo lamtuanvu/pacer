@@ -184,7 +184,8 @@ export async function runnerCmd(args: string[], ctx: Ctx, deps: Pick<AccountDeps
     requireAccounts(s);
     if(pos.length!==1) throw Error('a runner id is required');
     const parsed=parseRunnerId(pos[0]); if(!parsed) throw Error('invalid runner id');
-    if(parsed.host) throw Error("remote runners aren't supported yet");
+    // Remote rules (agents, account homes) are enforced when the edited strategy is validated.
+    if(parsed.host && !Object.hasOwn(s.hosts,parsed.host)) throw Error(`unknown host ${parsed.host} (hosts: ${Object.keys(s.hosts).join(', ') || 'none'})`);
     const defaults=runnerDefaults(s.accounts); delete defaults.opencode;
     const name=parsed.account ?? defaults[parsed.agent],a=s.accounts[name ?? ''];
     if(!a || !allowedPair(parsed.agent,a.kind)) throw Error('agent/account pairing not allowed or account not found');

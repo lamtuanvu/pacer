@@ -7,6 +7,7 @@ import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
 import { killTree } from "../exec/process";
+import { RemoteRunIO } from "../remote/run-io";
 import { readRun } from "../supervisor/run";
 import type { Ctx } from "../types";
 import { createTask, readTask, updateTask } from "./store";
@@ -133,8 +134,8 @@ export function taskStatus(ctx: Ctx, id: string, spawn: SpawnRunner = spawnRunne
   if (!t) return null;
   const run = t.run, current = run && run.attempt > t.attempts.length;
   if (t.state === "running" && current && !alive(t.runnerPid)) {
-    const r = readRun(run.dir);
-    if (r.alive || r.exit !== null) {
+    const r = run.host ? null : readRun(run.dir);
+    if (run.host || (r && (r.alive || r.exit !== null))) {
       if (!t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
         updateTask(ctx, id, x => { x.resumeSpawnedAt = ctx.now; });
         try { spawn(ctx, id); } catch { /* the next status read tries again */ }
@@ -178,6 +179,12 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
       x.result = { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" };
     }
   });
-  if (t.childPid) killTree(t.childPid, "SIGTERM");
+  if (t.run?.host) {
+    try {
+      const host = loadStrategy(ctx).hosts[t.run.host];
+      if (host && t.run.remoteDir) void new RemoteRunIO(ctx, host, t.run.remoteDir, t.run.dir)
+        .stop({ graceMs: 5000, sleep: ms => Bun.sleep(ms) }).catch(() => { /* a live supervisor retries the stop */ });
+    } catch { /* retain the stop flag for the supervisor when config is unavailable */ }
+  } else if (t.childPid) killTree(t.childPid, "SIGTERM");
   return updated;
 }

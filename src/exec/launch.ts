@@ -68,3 +68,14 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
       throw new Error(`no launcher for provider "${cfg.id}"`);
   }
 }
+
+/** Remote prompts always use stdin; output files belong to the host run directory. */
+export function remoteLaunch(cfg: ProviderCfg, workdir: string, runDir = workdir): Pick<Launch, "argv" | "lastMessageFile"> {
+  const agent = parseRunnerId(cfg.id)?.agent;
+  if (agent !== "codex" && agent !== "claude-code") throw new Error("remote runners support codex and claude-code");
+  const launch = launchFor(cfg, "", workdir, runDir, "remote");
+  if (agent === "claude-code") return { argv: launch.argv.slice(0, -1) };
+  const lastMessageFile = join(runDir, "last.md");
+  launch.argv[launch.argv.indexOf("-o") + 1] = lastMessageFile;
+  return { argv: launch.argv, lastMessageFile };
+}

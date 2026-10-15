@@ -1,19 +1,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Ctx, RunFn } from "./types";
+import { execProcess } from "./exec/process";
 
 export const defaultRun: RunFn = async (argv, timeoutMs, options) => {
-  try {
-    const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe", timeout: timeoutMs, ...(options?.env ? {env: options.env} : {}) });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return { code, stdout, stderr };
-  } catch (e) {
-    return { code: 127, stdout: "", stderr: String(e) };
-  }
+  const { code, stdout, stderr } = await execProcess({
+    argv, cwd: process.cwd(), env: options?.env ?? process.env,
+    timeoutMs, stdin: options?.stdin,
+  });
+  return { code, stdout, stderr };
 };
 
 export function makeCtx(o: Partial<Ctx> = {}): Ctx {

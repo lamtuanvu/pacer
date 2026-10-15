@@ -130,3 +130,14 @@ test('account list separates compact folders from source and JSON keeps full pat
  expect(row[2]).toBe('pacer');expect(row[3]).toStartWith('~/');expect(row[3]).toContain('…');expect(row[3].length).toBeLessThanOrEqual(40);expect(row[3]).toEndWith('nested-codex-home');
  expect(JSON.parse((await accountCmd(['list','--json'],ctx)).out).find((a:any)=>a.name==='work').folder).toBe(folder);
 });
+
+test("runner add accepts a declared host and refuses an unknown one", async () => {
+  const ctx = commandCtx();
+  const file = join(ctx.pacerHome, "strategy.yaml");
+  writeFileSync(file, readFileSync(file, "utf8") + "hosts:\n  box: {ssh: box-ssh}\n");
+  const refused = await runnerCmd(["add", "codex@nowhere"], ctx).catch((e) => ({ code: 2, out: "", err: String(e) }));
+  expect(refused.code).not.toBe(0);
+  expect(refused.err).toContain("unknown host nowhere (hosts: box)");
+  expect((await runnerCmd(["add", "codex@box"], ctx)).code).toBe(0);
+  expect(loadStrategy(ctx).runners["codex@box"]).toMatchObject({ agent: "codex", host: "box" });
+});

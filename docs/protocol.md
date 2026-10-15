@@ -83,6 +83,49 @@ The outbox retains the last 200 entries. If a positive resume cursor predates th
 
 ## Operations
 
+### `host.check`
+
+Check SSH host prerequisites, checkouts and identity.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `host.list`
+
+Configured SSH hosts and running task counts.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `limits.check`
 
 Provider limits, freshness and usage sources.
