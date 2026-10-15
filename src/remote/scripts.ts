@@ -1,5 +1,18 @@
 /** Fixed remote programs; user text is carried only over stdin. */
 export const SCRIPTS = {
+  CODEX_USAGE: `home="\${1:-$HOME/.codex}"
+case "$home" in '~/'*) home="$HOME/\${home#??}" ;; esac
+[ -d "$home/sessions" ] || exit 0
+while IFS= read -r -d '' file; do
+  mtime=$(stat -c %Y "$file" 2>/dev/null) || mtime=$(stat -f %m "$file") || continue
+  printf '%s %s\\n' "$mtime" "$file"
+done < <(find "$home/sessions" -type f -name 'rollout-*.jsonl' -print0) |
+sort -rn | head -n 15 | while read -r mtime file; do
+  line=$(tail -n 4000 "$file" | grep '"rate_limits"' | tail -1)
+  [ -n "$line" ] || continue
+  printf 'mtime=%s\\n%s\\n' "$mtime" "$line"
+  break
+done`,
   PROBE: `printf 'git=%s\\n' "$(git --version)"
 printf 'codex=%s\\n' "$(command -v codex || true)"
 printf 'claude=%s\\n' "$(command -v claude || true)"

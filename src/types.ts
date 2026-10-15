@@ -20,6 +20,7 @@ export interface UsageReading {
   capturedAt: number | null;
   stale: boolean;
   source?: UsageSource;
+  remoteHost?: string;
   error?: string;
 }
 

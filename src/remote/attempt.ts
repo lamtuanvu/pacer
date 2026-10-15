@@ -17,6 +17,7 @@ import { RemoteRunIO } from "./run-io";
 import { SCRIPTS } from "./scripts";
 import { transferBack } from "./transfer";
 import { runRemote, sshArgv } from "./ssh";
+import { probeCodexUsage } from "./usage";
 
 const MAX_BUNDLE = 50 * 1024 * 1024;
 
@@ -106,6 +107,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     if ("error" in started) return failed(started.error);
     try { onSpawn?.(started.pid); } catch { /* observer does not own the run */ }
     const result = await finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
+    if (runner.agent === "codex") await probeCodexUsage(ctx, host, s.accounts[runner.account]);
     if (result.exec.timedOut) return result;
     if (result.exec.code !== 0) {
       const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [worktree, baseSha, task.id]);

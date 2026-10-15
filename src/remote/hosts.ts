@@ -7,6 +7,7 @@ import { TERMINAL_STATES } from "../tasks/types";
 import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
+import { probeCodexUsage } from "./usage";
 
 export interface HostCheck { alias: string; ok: boolean; checks: { name: string; ok: boolean; detail: string }[] }
 const fields = (s: string): Record<string, string> => Object.fromEntries(s.split("\n").filter(l => l.includes("=")).map(l => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
@@ -66,6 +67,8 @@ export async function check(ctx: Ctx, alias: string, o: { repo?: string } = {}):
     // Never put identity values or remote paths in returned diagnostics.
     add(`identity ${key}`, identityOk, identityOk ? "" : "repo-local identity does not match local repo");
   }
+  const accounts = new Set(Object.values(s.runners).filter(r => r.host === alias && r.agent === "codex").map(r => r.account));
+  for (const account of accounts) await probeCodexUsage(ctx, host, s.accounts[account]);
   return { alias, ok: checks.every(c => c.ok), checks };
 }
 

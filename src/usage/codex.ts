@@ -9,7 +9,7 @@ import { isObj, parseTs, toNum } from "../util";
 const TAIL_BYTES = 4_000_000;
 const MAX_FILES = 15;
 
-function findRateLimits(root: unknown): Record<string, unknown> | null {
+export function findRateLimits(root: unknown): Record<string, unknown> | null {
   const stack: unknown[] = [root];
   while (stack.length) {
     const o = stack.pop();
@@ -55,23 +55,29 @@ export async function readCodex(ctx: Ctx, account?: AccountCfg): Promise<UsageRe
   for (const f of files.slice(0, MAX_FILES)) {
     const rl = await lastRateLimits(f.p);
     if (!rl) continue;
-    const windows: UsageWindow[] = [];
-    for (const key of ["primary", "secondary"] as const) {
-      const w = rl[key];
-      if (!isObj(w)) continue;
-      const mins = toNum(w.window_minutes) ?? 10080;
-      let resetsAt = parseTs(w.resets_at);
-      const inS = toNum(w.resets_in_seconds);
-      if (resetsAt === null && inS !== null) resetsAt = f.m + inS;
-      windows.push({
-        name: mins >= 7 * 1440 ? "weekly" : `${Math.round(mins / 60)}h`,
-        usedPct: toNum(w.used_percent),
-        resetsAt,
-        lengthS: mins * 60,
-        paced: mins >= 1440,
-      });
-    }
+    const windows = windowsFromRateLimits(rl, f.m);
     return { windows, capturedAt: f.m, stale: false, source: "session-log" };
   }
   return { windows: [], capturedAt: null, stale: false, error: "no rate_limits found in recent Codex session logs" };
+}
+
+/** Shared conversion for local rollout files and the SSH session-log probe. */
+export function windowsFromRateLimits(rl: Record<string, unknown>, mtime: number): UsageWindow[] {
+  const windows: UsageWindow[] = [];
+  for (const key of ["primary", "secondary"] as const) {
+    const w = rl[key];
+    if (!isObj(w)) continue;
+    const mins = toNum(w.window_minutes) ?? 10080;
+    let resetsAt = parseTs(w.resets_at);
+    const inS = toNum(w.resets_in_seconds);
+    if (resetsAt === null && inS !== null) resetsAt = mtime + inS;
+    windows.push({
+      name: mins >= 7 * 1440 ? "weekly" : `${Math.round(mins / 60)}h`,
+      usedPct: toNum(w.used_percent),
+      resetsAt,
+      lengthS: mins * 60,
+      paced: mins >= 1440,
+    });
+  }
+  return windows;
 }
