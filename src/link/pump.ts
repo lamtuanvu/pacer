@@ -27,6 +27,7 @@ export function taskData(t:TaskRecord):TaskData {
     ...(t.dismissed ? {dismissed:true} : {}), ...(t.retryOf ? {retryOf:t.retryOf} : {}), ...(t.retriedBy ? {retriedBy:t.retriedBy} : {}),
     ...(t.result?.brokenReason ? {brokenExecutor:t.result.brokenExecutor,brokenReason:t.result.brokenReason} : {}),
     ...(t.attemptStartedAt ? {attemptStartedAt:t.attemptStartedAt} : {}),
+    ...(t.progress && ["running","queued"].includes(t.state) ? {progress:{phase:t.progress.phase,lastOutputAt:t.progress.lastOutputAt,files:t.progress.files,commits:t.progress.commits,logBytes:t.progress.logBytes}} : {}),
     ...(["running","queued"].includes(t.state) ? {runnerAlive:!!t.runnerPid && pidAlive(t.runnerPid)} : {}),
   };
 }

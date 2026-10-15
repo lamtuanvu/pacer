@@ -247,22 +247,22 @@ test("falls back to direct on an invalid execution section or a refused worker-s
   expect(readFileSync(join(b.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("task_not_startable");
 });
 
-test("available: needs execution.backend auto|orca and a ready runtime", async () => {
+test("available: only with execution.backend orca and a ready runtime", async () => {
   const strat = (execution: Record<string, unknown>) => validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} }, execution }, "/x");
   const ready = fakeCtx({ run: fakeRun([[O("status"), ok("status-ready.json")]]).run });
   const down = fakeCtx({ run: fakeRun([[O("status"), ok("status-down.json")]]).run });
   const none = fakeRun([]);
-  expect(await orcaBackend.available(ready, strat({}))).toBe(true);
+  expect(await orcaBackend.available(fakeCtx({ run: none.run }), strat({}))).toBe(false);
   expect(await orcaBackend.available(ready, strat({ backend: "orca" }))).toBe(true);
-  expect(await orcaBackend.available(down, strat({}))).toBe(false);
+  expect(await orcaBackend.available(down, strat({ backend: "orca" }))).toBe(false);
   expect(await orcaBackend.available(fakeCtx({ run: none.run }), strat({ backend: "direct" }))).toBe(false);
   expect(none.calls).toHaveLength(0);
   await expect(orcaBackend.available(ready, strat({ backend: "x" }))).rejects.toThrow(ExecutionError);
 });
 
-test("registered as the extra backend; selectBackend picks it only when Orca is ready", async () => {
+test("registered as the extra backend; selectBackend picks it only when opted in and Orca is ready", async () => {
   expect(EXTRA_BACKENDS.map((b) => b.id)).toEqual(["orca"]);
-  const strat = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} } }, "/x");
+  const strat = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} }, execution: { backend: "orca" } }, "/x");
   const ready = fakeCtx({ run: fakeRun([[O("status"), ok("status-ready.json")]]).run });
   const down = fakeCtx({ run: fakeRun([[O("status"), raw("", 127)]]).run });
   expect((await selectBackend(ready, strat)).id).toBe("orca");

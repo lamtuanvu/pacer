@@ -34,7 +34,9 @@ Claude usage requires the status-line integration to have received rate-limit da
 
 ## Execution and review
 
-`auto` execution tries Orca when its runtime is reachable and falls back to direct CLI execution. Orca maps supported agents into supervised workers and honors placement policy, including agy through its antigravity agent. OpenCode-routed providers require `execution.worktree: current` for Orca model selection; other placement policies fall back to direct execution under `auto`. Direct execution edits the selected repository in place and cannot provide Orca worktree isolation.
+`execution.backend: auto` (default) uses pacer's own supervisor through the direct backend. Set `execution.backend: orca` to run agents as supervised workers in visible Orca terminals, including agy through Orca's antigravity agent. OpenCode-routed providers require `execution.worktree: current` for Orca model selection; other placement policies fall back to direct execution.
+
+Each direct attempt records `pid`, live `stdout` and `stderr`, and `exit` under `<pacerHome>/runs/<task-id>/<attempt>/`. New task worktrees live under `<pacerHome>/worktrees/…` on branch `pacer/<task-id>`; current placement uses the selected repository. `pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees and run directories of settled tasks that have been reviewed, dismissed or resolved. Dirty worktrees are kept unless `--force` is given, and branches are always kept.
 
 Orca defaults to a child based on the current branch. A brief or `--worktree` flag can choose `current`, `new` or `auto`, with `--worktree-reason` explaining the choice. Concurrent activity and unsafe placement can prevent in-place execution. Inspect the returned task's placement and reported worktree before review.
 

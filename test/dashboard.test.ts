@@ -39,3 +39,11 @@ test("dashboard update keys require explicit confirmation and header/help show u
  const output=renderDashboard(snapshot(),120,20,1005,{selected:0,help:true,updateLine:"Update available: pacer 1.2.0"});
  expect(output).toContain("Update available: pacer 1.2.0");expect(output).toContain("c: check updates");expect(output).toContain("u: update");
 });
+
+test("running card shows progress: phase, files and last output", () => {
+  const now = 10_000;
+  const s = { ...emptySnapshot(), tasks: [{ id: "t-1", state: "running", goal: "fix", executor: "codex", backend: "direct", worktree: null, updatedAt: now - 120, attemptStartedAt: now - 120,
+    progress: { phase: "working", lastOutputAt: now - 30, files: 3, commits: 0, logBytes: 100 } }] };
+  const card = cards(s, now).find((g) => g.title === "Running tasks")!.cards[0];
+  expect(card.text).toBe("fix · codex · 120s · working · 3 files · output 30s ago");
+});

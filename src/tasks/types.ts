@@ -1,3 +1,4 @@
+import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
 
@@ -57,7 +58,21 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
   return {mode:strategy==="current"?"current":"new",why:"strategy default"};
 }
 
+export interface RunRef {
+  dir: string;
+  attempt: number;
+  executor: string;
+  startedAt: number;
+  mode: "current" | "new";
+  workdir: string;
+  logFile: string;
+  lastMessageFile?: string;
+}
+
 export interface TaskRecord {
+  run?: RunRef;
+  progress?: Progress;
+  resumeSpawnedAt?: number;
   review?: {accepted:boolean; kind:string|null; note:string|null; at:number};
   resolved?: string;
   resolutionCheckedAt?: number;

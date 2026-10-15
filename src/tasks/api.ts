@@ -7,6 +7,7 @@ import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
 import { killTree } from "../exec/process";
+import { readRun } from "../supervisor/run";
 import type { Ctx } from "../types";
 import { createTask, readTask, updateTask } from "./store";
 import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
@@ -126,10 +127,21 @@ function alive(pid: number | undefined): boolean {
 
 const isTerminal = (t: TaskRecord) => TERMINAL_STATES.includes(t.state);
 
-/** Read a task; missing or dead runners become failed. */
-export function taskStatus(ctx: Ctx, id: string): TaskRecord | null {
+/** Read a task; resume recoverable attempts before failing missing or dead runners. */
+export function taskStatus(ctx: Ctx, id: string, spawn: SpawnRunner = spawnRunner): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
+  const run = t.run, current = run && run.attempt > t.attempts.length;
+  if (t.state === "running" && current && !alive(t.runnerPid)) {
+    const r = readRun(run.dir);
+    if (r.alive || r.exit !== null) {
+      if (!t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
+        updateTask(ctx, id, x => { x.resumeSpawnedAt = ctx.now; });
+        try { spawn(ctx, id); } catch { /* the next status read tries again */ }
+      }
+      return readTask(ctx, id);
+    }
+  }
   const neverStarted = ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
   if (neverStarted || (t.state === "running" && (t.attempts.length > 0 || t.attemptStartedAt !== undefined || ctx.now - t.createdAt > 600) && !alive(t.runnerPid))) {
     return updateTask(ctx, id, (x) => {

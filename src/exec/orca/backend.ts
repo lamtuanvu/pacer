@@ -302,7 +302,7 @@ export function makeOrcaBackend(over: Partial<OrcaBackendDeps> = {}): Backend {
     id: "orca",
     available: async (ctx, s) => {
       const ex = validateExecution(s.execution);
-      if (ex.backend === "direct") return false;
+      if (ex.backend !== "orca") return false; // auto means pacer's own supervisor; Orca is opt-in
       return isReady(await new OrcaClient(ctx.run, ctx.env).status());
     },
     runAttempt: (ctx, cfg, task, onSpawn) => runOrcaAttempt(deps, ctx, cfg, task, onSpawn),
