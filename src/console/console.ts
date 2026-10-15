@@ -65,7 +65,16 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
     print(`pacer: unknown executor ${displayText(id)}`); return false;
   };
   return async (data: CmdData) => {
-    const r = await runMappedCmd((op, p) => callOp(fresh(), op, p, { spawnRunner }), data);
+    const r = await runMappedCmd(async (op, p) => {
+      try { return await callOp(fresh(), op, p, { spawnRunner }); }
+      catch (e) {
+        if (e instanceof CoreError && e.code === "unknown_task") throw new CoreError("unknown_task", "unknown task");
+        if (data.cmd === "retry" && e instanceof CoreError && e.code === "conflict") {
+          await publish(fresh(), [{ v: 1, type: "alert", data: { key: `retry-${data.taskId}`, level: "warn", title: "Retry already running", body: e.message, at: fresh().now } }]);
+        }
+        throw e;
+      }
+    }, data, { fromPanel: true });
     if (r.handled) { print(r.message); await refresh(); return; }
     switch (data.cmd) {
       case "config-set": {

@@ -57,6 +57,12 @@ test("console runs mapped commands through ops", async () => {
   expect(readTask(ctx, t.id)?.state).toBe("stopped");
   expect(printed.at(-1)).toBe(`${t.id} stopped`);
   await command({ cmd: "stop", taskId: "missing" });
-  expect(printed.at(-1)).toMatch(/^pacer: .*missing/);
+  expect(printed.at(-1)).toBe("pacer: unknown task");
   expect(refreshed).toBe(2);
+});
+
+test("retry mapping opts console commands into panel semantics", () => {
+  const retry = { cmd: "retry" as const, taskId: "t1", executor: "codex" };
+  expect(cmdToOp(retry, { fromPanel: true })).toEqual({ op: "task.retry", params: { id: "t1", executor: "codex", from_panel: true } });
+  expect(cmdToOp(retry)?.params.from_panel ?? false).toBe(false);
 });

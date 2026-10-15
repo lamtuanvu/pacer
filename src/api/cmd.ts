@@ -2,10 +2,10 @@ import { ApiError } from "./client";
 import { CoreError } from "../core/errors";
 import type { CmdData } from "../link/envelope";
 
-export function cmdToOp(data: CmdData): { op: string; params: Record<string, unknown> } | null {
+export function cmdToOp(data: CmdData, options: { fromPanel?: boolean } = {}): { op: string; params: Record<string, unknown> } | null {
   switch (data.cmd) {
     case "stop": return { op: "task.stop", params: { id: data.taskId } };
-    case "retry": return { op: "task.retry", params: { id: data.taskId, ...(data.executor !== undefined ? { executor: data.executor } : {}) } };
+    case "retry": return { op: "task.retry", params: { id: data.taskId, ...(options.fromPanel ? { from_panel: true } : {}), ...(data.executor !== undefined ? { executor: data.executor } : {}) } };
     case "dismiss": return { op: "task.dismiss", params: { ids: data.taskIds ?? (data.taskId ? [data.taskId] : []) } };
     case "block": return { op: "runner.block", params: {
       id: data.executor,
@@ -37,8 +37,9 @@ export const CMD_SUCCESS: Record<string, (params: Record<string, unknown>, resul
 export async function runMappedCmd(
   call: (op: string, params: unknown) => Promise<unknown>,
   data: CmdData,
+  options: { fromPanel?: boolean } = {},
 ): Promise<{ handled: false } | { handled: true; ok: boolean; message: string }> {
-  const command = cmdToOp(data);
+  const command = cmdToOp(data, options);
   if (!command) return { handled: false };
   try {
     const result = await call(command.op, command.params);
