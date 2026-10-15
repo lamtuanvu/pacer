@@ -95,7 +95,11 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       apiTransport({ timers, log: m => ctx.log(m), connect: async () => {
         const client = await deps.connect?.(settings) ?? null;
         if (stopped) { client?.close(); return null; }
-        if (client) clients.add(client);
+        if (client && !clients.has(client)) {
+          const close = client.close.bind(client);
+          client.close = () => { try { close(); } finally { clients.delete(client); } };
+          clients.add(client);
+        }
         return client;
       } }),
       httpTransport({ http: deps.http, readToken: () => deps.fs.readText(`${settings.pacerHome}/token`)?.trim() || null, port: settings.port, timers }),
@@ -268,7 +272,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     // Re-probe higher priority transports so a recovered server replaces the bridge.
     let probing = false;
     timers.every(settings.pollSeconds * 1000, () => {
-      if (stopped || probing || connecting || active?.id === "http") return;
+      if (stopped || probing || connecting || active?.id === "http" || active?.id === "api") return;
       probing = true;
       void (async () => {
         if (active?.id === "channel") await refreshSnapshot();

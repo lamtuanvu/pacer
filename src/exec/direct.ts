@@ -19,9 +19,9 @@ import { type ExecResult, executorEnv } from "./process";
 import { buildPrompt } from "./prompt";
 import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
-import { transferBack } from "../remote/transfer";
+import { transferBack, transferred } from "../remote/transfer";
 import { taskWorktreePath, createTaskWorktree } from "../supervisor/worktree";
-import { idleSeconds, nextProgress } from "../supervisor/progress";
+import { gitFingerprint, idleSeconds, nextProgress } from "../supervisor/progress";
 
 export const REPORT_CHARS = 4000;
 
@@ -49,27 +49,42 @@ function loadExec(ctx: Ctx): ExecutionCfg {
   try { return validateExecution(loadStrategy(ctx).execution); } catch { return validateExecution(undefined); }
 }
 
-/** Progress every poll (written at most every 10 s or on a phase change); git counts every 30 s; idle stop after idleFailS. */
+/** Progress every poll (written at most every 10 s or on a phase change); git activity every 30 s; idle stop after idleFailS. */
 export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   const ex = loadExec(ctx), scale = Number(ctx.env.PACER_IDLE_SCALE ?? "1") || 1; // PACER_IDLE_SCALE: test-only
   const idleAfter = (ex.idleAfterS ?? IDLE_AFTER_S) * scale, idleFail = (ex.idleFailS ?? IDLE_FAIL_S) * scale;
   let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = false;
+  let fingerprint: string | undefined;
   let prev = readTask(ctx, task.id)?.progress;
   return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle"> => {
     const now = Date.now() / 1000;
+    let changed = false;
     if (!run.host && now - gitAt >= 30) {
       gitAt = now;
       try {
-        const st = await ctx.run(["git", "-C", run.workdir, "status", "--porcelain"], 15_000);
-        if (st.code === 0) files = st.stdout.split("\n").filter(Boolean).length;
+        const st = await ctx.run(["git", "-C", run.workdir, "status", "--porcelain=v1", "-z"], 15_000);
+        if (st.code === 0) {
+          const entries = st.stdout.split("\0").filter(Boolean);
+          files = 0;
+          for (let n = 0; n < entries.length; n++) {
+            files++;
+            if (/^[RC]|^.[RC]/.test(entries[n])) n++; // Renames/copies include the original path too.
+          }
+        }
         const base = readTask(ctx, task.id)?.baseBranch;
         if (base && run.mode === "new") {
           const c = await ctx.run(["git", "-C", run.workdir, "rev-list", "--count", `${base}..HEAD`], 15_000);
           if (c.code === 0) commits = Number(c.stdout.trim()) || 0;
         }
+        const diff = await ctx.run(["git", "-C", run.workdir, "diff", "HEAD"], 15_000);
+        if (st.code === 0 && diff.code === 0) {
+          const next = gitFingerprint(st.stdout, diff.stdout);
+          changed = fingerprint === undefined ? files > 0 || commits > 0 : next !== fingerprint;
+          fingerprint = next;
+        }
       } catch { /* git progress is best effort, including when git is unavailable */ }
     }
-    const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: s.lastOutputAt, files, commits, prev, host: run.host }, idleAfter);
+    const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: s.lastOutputAt, files, commits, prev, host: run.host, changed }, idleAfter);
     if (p.phase !== prev?.phase || now - writtenAt >= 10) {
       updateTask(ctx, task.id, t => { t.progress = p; });
       writtenAt = now;
@@ -143,9 +158,10 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
       return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
     }
     // Fallback executors continue the same task worktree, including prior work.
-    const existing = task.attempts.length > 0 && task.run?.mode === "new" ? task.run : null;
+    const path = taskWorktreePath(ctx, git.top, task.id);
+    const existing = existsSync(path) && (await ctx.run(["git", "-C", git.top, "show-ref", "--verify", "--quiet", `refs/heads/pacer/${task.id}`], 10_000)).code === 0;
     const w = existing
-      ? { workdir: existing.workdir }
+      ? { workdir: git.sub ? join(path, git.sub) : path }
       : await createTaskWorktree(ctx, git, task.id, base);
     if ("error" in w) return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: w.error, timedOut: false }, log, w.error);
     workdir = w.workdir;
@@ -191,15 +207,14 @@ export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord
   if (!run.host || result.exec.timedOut || readTask(ctx, task.id)?.state === "stopped") return result;
   const host = loadStrategy(ctx).hosts[run.host];
   if (result.exec.code !== 0) {
-    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree!, run.baseSha!, task.id]);
+    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree!, run.baseSha!, run.remoteBranch ?? `pacer/${task.id}`]);
     if (preflight.code || Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0) === 0) return result;
   }
   // A runner may die after transfer but before recording the attempt. Reuse the
-  // review worktree when its branch already exists; never fetch over that ref.
+  // review worktree only when its branch matches the recorded transfer.
   const top = await gitInfo(ctx.run, task.brief.repo);
   const review = "error" in top ? undefined : taskWorktreePath(ctx, top.top, task.id);
-  const branch = await ctx.run(["git", "-C", task.brief.repo, "show-ref", "--verify", "--quiet", `refs/heads/pacer/${task.id}`], 10000);
-  if (branch.code === 0 && review && existsSync(review)) {
+  if (await transferred(ctx, task) && review && existsSync(review)) {
     result.worktree = review;
     return result;
   }

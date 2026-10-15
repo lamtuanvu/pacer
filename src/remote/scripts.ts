@@ -38,7 +38,7 @@ case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
 git -C "$path" config --local user.name "$2" && git -C "$path" config --local user.email "$3"`,
   // Used only by tests and host check to verify the stdin channel.
   ECHO_STDIN: "cat",
-  PREPARE: `checkout="$1"; tag="$2"; task="$3"; base="$4"; branch="$5"
+  PREPARE: `checkout="$1"; tag="$2"; task="$3"; base="$4"; branch="$5"; attempt="\${6:-1}"
 case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
 cd "$checkout" || exit 1
 git fetch -q origin "$branch" 2>/dev/null || true
@@ -53,12 +53,25 @@ if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
   rm -f "$tmp"
 fi
 git cat-file -e "$base^{commit}" 2>/dev/null || { echo missing-base >&2; exit 3; }
-worktree="$HOME/.pacer-remote/worktrees/$tag/$task"
+worktree="$HOME/.pacer-remote/worktrees/$tag/$task-$attempt"
 mkdir -p "$HOME/.pacer-remote/worktrees/$tag" || exit 1
-git worktree add -q -b "pacer/$task" "$worktree" "$base" || exit 1
-printf 'worktree=%s\\n' "$worktree"`,
+remote_branch="pacer/$task"
+if git show-ref --verify --quiet "refs/heads/$remote_branch"; then
+  count=$(git rev-list --count "$base..$remote_branch") || exit 1
+  if [ "$count" = 0 ]; then
+    # An earlier attempt may still have this unchanged branch checked out.
+    git worktree add -q --force "$worktree" "$remote_branch" || exit 1
+  else
+    remote_branch="pacer/$task-$attempt"
+    git worktree add -q -b "$remote_branch" "$worktree" "$base" || exit 1
+  fi
+else
+  git worktree add -q -b "$remote_branch" "$worktree" "$base" || exit 1
+fi
+printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
   PREFLIGHT: `cd "$1" || exit 1
-base="$2"; branch="pacer/$3"
+base="$2"; branch="$3"
+case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac
 ancestor=0
 git merge-base --is-ancestor "$base" "$branch" && ancestor=1
 printf 'ancestor=%s\\n' "$ancestor"
@@ -70,16 +83,24 @@ printf 'emails=%s\\n' "$(git log --format='%ae%n%ce' "$base..$branch" | sed '/^$
 printf 'signoffs=%s\\n' "$(git log --format='%B' "$base..$branch" | sed -n 's/^[Ss][Ii][Gg][Nn][Ee][Dd]-[Oo][Ff][Ff]-[Bb][Yy]:.*<\\([^>]*\\)>.*/\\1/p' | LC_ALL=C sort -u | paste -sd ',' -)"
 printf 'head=%s\\n' "$(git rev-parse "$branch^{commit}")"`,
   BUNDLE_OUT: `cd "$1" || exit 1
-git bundle create - "$2..pacer/$3"`,
-  CLEAN: `worktree="$1"; D="$2"; checkout="$3"; task="$4"
+branch="$3"
+case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac
+git bundle create - "$2..$branch"`,
+  CLEAN: `worktree="$1"; D="$2"; checkout="$3"; task="$4"; delete_branch="$5"
 case "$worktree" in '~/'*) worktree="$HOME/\${worktree#??}" ;; esac
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+# Resolve the task run directory before deleting anything; reject traversal and symlink escapes.
+remote_home=$(cd "$HOME" && pwd -P) || exit 1
+runs=$(cd "$HOME/.pacer-remote/runs" && pwd -P) || exit 1
+D=$(cd "$(dirname "$D")" && pwd -P) || exit 1
+case "$D" in "$remote_home/.pacer-remote/runs/"*) ;; *) exit 1 ;; esac
+[ "$(basename "$D")" = "$task" ] && [ "$D" = "$runs/$task" ] || exit 1
 cd "$checkout" || exit 1
 if [ -d "$worktree" ]; then git worktree remove --force "$worktree" || exit 1; fi
 rm -rf "$D" || exit 1
-if [ -n "$task" ] && git show-ref --verify --quiet "refs/heads/pacer/$task"; then
-  git branch -D "pacer/$task" || exit 1
+if [ -n "$delete_branch" ] && git show-ref --verify --quiet "refs/heads/$delete_branch"; then
+  git branch -D "$delete_branch" || exit 1
 fi`,
   START: `D="$1"; cwd="$2"; shift 2
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac

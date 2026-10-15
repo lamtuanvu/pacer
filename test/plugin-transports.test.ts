@@ -5,8 +5,8 @@ import { bridgeTransport } from "../orca-plugin/src/transports/bridge";
 import { channelTransport } from "../orca-plugin/src/transports/channel";
 import { LinkStore } from "../orca-plugin/src/store";
 import { emptySnapshot, contentKey, reduce, type Envelope } from "../src/link/envelope";
-import type { Timers } from "../orca-plugin/src/plugin";
-import type { OrcaHost } from "../orca-plugin/src/orca-api";
+import { createPlugin, type Timers } from "../orca-plugin/src/plugin";
+import type { OrcaWorkerContext, OrcaHost } from "../orca-plugin/src/orca-api";
 export class ManualTimers implements Timers {
   now = 0; jobs: { at: number; interval: number; fn: () => void; cancelled: boolean }[] = [];
   schedule(ms: number, fn: () => void, interval: number) { const j = { at: this.now + ms, interval, fn, cancelled: false }; this.jobs.push(j); return () => { j.cancelled = true; }; }
@@ -154,4 +154,50 @@ test("reset during a snapshot fetch queues another fetch", async () => {
  client.emit({ seq: 7, at: 0, type: "reset", data: {} });
  release(); await flush();
  expect(calls).toBe(2); stop();
+});
+
+for (const timeout of [false, true]) test(`failed probe preserves a watched API client (timeout ${timeout})`, async () => {
+ let closes = 0, connections = 0;
+ const client = fakeClient({ close: () => { closes++; } });
+ const timers = new ManualTimers(), got: Envelope[] = [];
+ const t = apiTransport({ connect: async () => { connections++; return client; }, timers });
+ const stop = t.watch(e => got.push(e), () => {}); await flush();
+ client.hello = timeout ? () => new Promise<never>(() => {}) : async () => { throw Error("offline"); };
+ const probing = t.probe(); await flush();
+ if (timeout) await timers.advance(2000);
+ expect(await probing).toBe(false); await flush();
+ expect(closes).toBe(0);
+ client.emit({ seq: 6, at: 0, type: "alert", data: alert.data });
+ expect(got).toEqual([alert]);
+ expect(await t.snapshot()).not.toBeNull();expect(connections).toBe(1);stop();
+});
+
+test("a failed client created by a probe is closed and replaced", async () => {
+ let closes = 0, connections = 0;
+ const failed = fakeClient({ hello: async () => { throw Error("offline"); }, close: () => { closes++; } });
+ const good = fakeClient(), timers = new ManualTimers();
+ const t = apiTransport({ connect: async () => ++connections === 1 ? failed : good, timers });
+ expect(await t.probe()).toBe(false); await flush();expect(closes).toBe(1);
+ expect(await t.probe()).toBe(true);expect(connections).toBe(2);
+});
+
+for (const fails of [false, true]) test(`plugin owns API client lifecycle (failed probe ${fails})`, async () => {
+ const timers = new ManualTimers();let hellos = 0, closes = 0;
+ const client = fakeClient({ hello: async () => {
+   hellos++;if (fails) throw Error("offline");
+   return { protocol: "2.0.0", pacer: "0", ops: [], events: [] };
+ }, close: () => { closes++; } });
+ const plugin = createPlugin({ connect: async () => client, timers, nowS: () => timers.now / 1000,
+   home: "/tmp/plugin-fixture", pluginRoot: "/tmp/plugin-fixture",
+   fs: { exists: () => true, readText: () => null, writeTextAtomic() {} },
+   http: { get: async () => ({ status: 401, body: "" }), stream: () => () => {} },
+ });
+ const ctx = { host: { call: async (method: string) => method === "settings.get" ? { settings: { autoConsole: false } } : { value: null } },
+   commands: { register() {} }, events: { on() {} }, log() {} } as unknown as OrcaWorkerContext;
+ try {
+   await plugin.activate(ctx);await flush();
+   if (!fails) { await timers.advance(30000);expect(hellos).toBe(1);expect(closes).toBe(0); }
+   else expect(closes).toBe(1);
+ } finally { await plugin.deactivate(); }
+ expect(closes).toBe(1);
 });

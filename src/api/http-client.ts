@@ -4,12 +4,13 @@ import type { ApiErrorBody, ApiEvent } from "./protocol";
 
 export class HttpClient implements ApiClient {
   readonly kind = "http";
+  private readonly controller = new AbortController();
   private readonly subscriptions = new Set<() => void>();
 
   constructor(
     private readonly base: string,
     private readonly token: string,
-    private readonly o: { retryMs?: number } = {},
+    private readonly o: { retryMs?: number; timeoutMs?: number } = {},
   ) {
     const url = new URL(base);
     if (!/^http:\/\/127\.0\.0\.1:[0-9]+\/?$/.test(base) ||
@@ -21,6 +22,7 @@ export class HttpClient implements ApiClient {
 
   private async request<T>(path: string, params?: unknown): Promise<T> {
     const response = await fetch(`${this.base}${path}`, {
+      signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(this.o.timeoutMs ?? 15000)]),
       method: params === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
       ...(params === undefined ? {} : { body: JSON.stringify(params) }),
@@ -106,6 +108,9 @@ export class HttpClient implements ApiClient {
     return stop;
   }
 
-  close(): void { for (const stop of this.subscriptions) stop(); }
+  close(): void {
+    this.controller.abort();
+    for (const stop of this.subscriptions) stop();
+  }
 }
 

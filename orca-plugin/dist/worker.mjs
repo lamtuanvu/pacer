@@ -16,6 +16,7 @@ class HttpClient {
   token;
   o;
   kind = "http";
+  controller = new AbortController;
   subscriptions = new Set;
   constructor(base, token, o = {}) {
     this.base = base;
@@ -28,6 +29,7 @@ class HttpClient {
   }
   async request(path, params) {
     const response = await fetch(`${this.base}${path}`, {
+      signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(this.o.timeoutMs ?? 15000)]),
       method: params === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
       ...params === undefined ? {} : { body: JSON.stringify(params) }
@@ -125,6 +127,7 @@ class HttpClient {
     return stop;
   }
   close() {
+    this.controller.abort();
     for (const stop of this.subscriptions)
       stop();
   }
@@ -1311,6 +1314,7 @@ async function chooseTransport(ts, forced) {
 function apiTransport(o) {
   let connection = null;
   let seq = 0;
+  let watches = 0;
   const client = () => connection ??= Promise.resolve().then(o.connect);
   async function snapshot() {
     try {
@@ -1329,14 +1333,13 @@ function apiTransport(o) {
     id: "api",
     async probe() {
       let cancel = () => {}, abandoned = false;
+      const created = connection === null;
       const pending = client();
       try {
         const ready = await Promise.race([
           pending.then(async (c) => {
-            if (abandoned) {
-              c?.close();
+            if (abandoned)
               return false;
-            }
             if (!c)
               return false;
             await c.hello();
@@ -1354,12 +1357,15 @@ function apiTransport(o) {
         cancel();
       }
       abandoned = true;
-      connection = null;
-      pending.then((c) => c?.close()).catch(() => {});
+      if (created && watches === 0 && connection === pending) {
+        connection = null;
+        pending.then((c) => c?.close()).catch(() => {});
+      }
       return false;
     },
     snapshot,
     watch(onEnvelope, onSnapshot, onFailure) {
+      watches++;
       let stopped = false, busy = false, resetPending = false;
       let unsubscribe = () => {};
       const refresh = async () => {
@@ -1415,7 +1421,10 @@ function apiTransport(o) {
         refresh();
       });
       return () => {
+        if (stopped)
+          return;
         stopped = true;
+        watches--;
         unsubscribe();
         cancelPoll();
       };
@@ -9128,8 +9137,17 @@ function createPlugin(deps) {
           client?.close();
           return null;
         }
-        if (client)
+        if (client && !clients.has(client)) {
+          const close = client.close.bind(client);
+          client.close = () => {
+            try {
+              close();
+            } finally {
+              clients.delete(client);
+            }
+          };
           clients.add(client);
+        }
         return client;
       } }),
       httpTransport({ http: deps.http, readToken: () => deps.fs.readText(`${settings.pacerHome}/token`)?.trim() || null, port: settings.port, timers }),
@@ -9411,7 +9429,7 @@ function createPlugin(deps) {
     };
     let probing = false;
     timers.every(settings.pollSeconds * 1000, () => {
-      if (stopped || probing || connecting || active?.id === "http")
+      if (stopped || probing || connecting || active?.id === "http" || active?.id === "api")
         return;
       probing = true;
       (async () => {

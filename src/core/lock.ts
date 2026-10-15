@@ -9,6 +9,7 @@ const lockDir = (ctx: Ctx) => join(ctx.pacerHome, "orca");
 export async function withLock<T>(
   ctx: Ctx, name: string, fn: () => Promise<T>, o: { timeoutMs?: number; staleMs?: number } = {},
 ): Promise<T> {
+  if (name.includes("/") || name.includes("\\") || name.includes("..")) throw new Error("invalid lock name");
   mkdirSync(lockDir(ctx), { recursive: true });
   const file = join(lockDir(ctx), `${name}.lock`);
   const deadline = Date.now() + (o.timeoutMs ?? 20_000);

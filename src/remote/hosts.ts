@@ -7,6 +7,7 @@ import { TERMINAL_STATES } from "../tasks/types";
 import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
+import { transferred } from "./transfer";
 import { probeCodexUsage } from "./usage";
 
 export interface HostCheck { alias: string; ok: boolean; checks: { name: string; ok: boolean; detail: string }[] }
@@ -103,9 +104,7 @@ export async function clean(ctx: Ctx, alias: string) {
       if (!checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
         kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
       }
-      const branch = await ctx.run(["git", "-C", t.brief.repo, "show-ref", "--verify", "--quiet", `refs/heads/pacer/${t.id}`], 10000);
-      if (branch.code !== 0 && branch.code !== 1) { kept.push({ id: t.id, reason: "local branch check failed" }); continue; }
-      const r = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, branch.code === 0 ? t.id : ""]);
+      const r = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, await transferred(ctx, t) ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
       if (r.code) kept.push({ id: t.id, reason: "remote cleanup failed" });
       else removed.push(t.id);
     } catch { kept.push({ id: t.id, reason: "remote cleanup failed" }); }

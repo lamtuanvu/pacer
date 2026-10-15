@@ -2,13 +2,14 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as tasks from "../src/core/tasks";
+import { clean as hostClean } from "../src/remote/hosts";
 import { loadStrategy } from "../src/config/strategy";
 import { runTask, type RunnerDeps } from "../src/tasks/runner";
 import { readTask, updateTask } from "../src/tasks/store";
 import { taskStatus, taskStop } from "../src/tasks/api";
 import { RemoteRunIO } from "../src/remote/run-io";
 import { remoteLaunch } from "../src/exec/launch";
-import { runDir } from "../src/exec/direct";
+import { runAttempt, runDir } from "../src/exec/direct";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 
 async function setup(wait = false) {
@@ -32,7 +33,7 @@ async function setup(wait = false) {
   await git("-C", repo, "remote", "set-url", "origin", "https://example.invalid/o/r");
   writeFileSync(join(bin, "codex"), `#!/bin/sh\ncat > PROMPT.txt\necho agent-started\n${wait ? 'while [ ! -f "$HOME/release" ]; do sleep 0.05; done' : ''}\ngit add PROMPT.txt\ngit commit -q -m result\necho agent-done\n`, { mode: 0o755 });
   if (!Bun.which("setsid")) writeFileSync(join(bin, "setsid"), `#!${Bun.which("python3")}\nimport os, sys\nos.setsid()\nos.execvp(sys.argv[1], sys.argv[1:])\n`, { mode: 0o755 });
-  writeFileSync(join(hostHome, ".bash_profile"), 'export PATH="$HOME/bin:$PATH"\n');
+  writeFileSync(join(hostHome, ".bash_profile"), 'echo hello from profile\nexport PATH="$HOME/bin:$PATH"\n');
   const env = { ...process.env, ...fakeSshEnv(hostHome, join(root, "ssh.log")), PACER_BACKEND: "direct" };
   const ctx = fakeCtx({ env, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...env, ...o?.env } }) });
   mkdirSync(ctx.pacerHome, { recursive: true });
@@ -134,3 +135,34 @@ test("clean keeps the remote branch when transfer was refused", async () => {
   expect(await f.git("-C", f.checkout, "log", "-1", "--format=%s", `pacer/${t.id}`)).toBe("result");
   expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${t.id}`)).toBe("");
 }, 20000);
+
+for (const hostOnly of [false, true]) test(`clean ${hostOnly ? "host" : "core"} preserves a remote branch when the local head differs`, async () => {
+  const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
+  expect(t.state).toBe("done");
+  const head = await f.git("-C", f.repo, "rev-parse", `pacer/${t.id}`);
+  expect(t.run).toHaveProperty("transferredHead", head);
+  await f.git("-C", f.repo, "update-ref", `refs/heads/pacer/${t.id}`, t.run!.baseSha!);
+  tasks.review(f.ctx, t.id, { accepted: true });
+  const result = hostOnly ? await hostClean(f.ctx, "box") : await tasks.clean(f.ctx, { force: true });
+  expect(result.removed).toContain(t.id);
+  expect(await f.git("-C", f.checkout, "rev-parse", `pacer/${t.id}`)).toBe(head);
+}, 20000);
+
+test("repeat remote attempts start and clean removes every attempt run directory", async () => {
+  const f = await setup(), cfg = loadStrategy(f.ctx).providers["codex@box"];
+  const first = await runAttempt(f.ctx, cfg, readTask(f.ctx, f.task.id)!);
+  expect(first.exec.code).toBe(0);
+  const previous = readTask(f.ctx, f.task.id)!.run!;
+  updateTask(f.ctx, f.task.id, t => { t.attempts.push(first.attempt); });
+  const second = await runAttempt(f.ctx, cfg, readTask(f.ctx, f.task.id)!);
+  expect(second.exec.code).toBe(0);
+  const run = readTask(f.ctx, f.task.id)!.run!;
+  expect(run.remoteWorktree).toEndWith(`${f.task.id}-2`);
+  expect(run).toHaveProperty("remoteBranch", `pacer/${f.task.id}-2`);
+  expect(second.report).toContain(`fetched pacer/${f.task.id}-r2`);
+  expect(existsSync(previous.remoteDir!)).toBe(true);
+  expect(existsSync(run.remoteDir!)).toBe(true);
+  updateTask(f.ctx, f.task.id, t => { t.state = "done"; t.review = { accepted: true, kind: null, note: null, at: f.ctx.now }; });
+  expect((await hostClean(f.ctx, "box")).removed).toContain(f.task.id);
+  expect(existsSync(join(f.hostHome, ".pacer-remote/runs", f.task.id))).toBe(false);
+}, 30000);

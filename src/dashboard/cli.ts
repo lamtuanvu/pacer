@@ -4,7 +4,7 @@ import { readUpdateCheck, updateLine } from "../update/check";
 import { StringDecoder } from "node:string_decoder";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
-import { connectClient } from "../api/client";
+import { connectClient, InProcessClient } from "../api/client";
 import { emptySnapshot, type CmdData } from "../link/envelope";
 import { listStrategies } from "../link/strategies";
 import { loadStrategy } from "../config/strategy";
@@ -14,7 +14,7 @@ import { use as switchStrategy } from "../strategy/service";
 import { selfHandle, resolveWorktreePath } from "../console/cli";
 import { consoleCommands, type ConsoleDeps } from "../console/console";
 import { cards } from "./model";
-import { delegateViaClient, refreshView, runCommand } from "./data";
+import { delegateViaClient, refreshView, runCommand, withFallback } from "./data";
 import { DashboardSettings, terminalLogin } from "./settings";
 import { renderDashboard } from "./render";
 import { Keys, moveSelection, selectionAction, updateKey, UPDATE_PROMPT } from "./input";
@@ -27,11 +27,12 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  let selected=0,help=false,message="",messageUntil=0,busy=false,suspended=false,closed=false,exitError="";
  let statusTimer:ReturnType<typeof setTimeout>|undefined;
  let prompt:null|{type:"update"|"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
- const client=await connectClient(ctx);
+ const primary=await connectClient(ctx);
  let snapshot=emptySnapshot(),inFlight:Promise<void>|undefined;
  const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
  const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{settings,setup,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
  const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
+ const client=withFallback(primary,()=>new InProcessClient(fresh),()=>report("pacer serve unavailable; working locally"));
  const refresh=()=>{
   if(closed)return Promise.resolve();
   if(inFlight)return inFlight;
@@ -107,8 +108,8 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write(ENTER_SCREEN);
   process.stdin.on("data",input);process.stdin.on("end",quit);process.stdout.on("resize",draw);
   process.on("SIGINT",interrupt);process.on("SIGTERM",terminate);process.on("SIGHUP",hangup);process.on("uncaughtException",crash);process.on("unhandledRejection",crash);
-  await refresh();
-  if(!closed)unsubscribe=client.subscribe(snapshot.seq,()=>{void refresh();});
+  draw();
+  void refresh().then(()=>{if(!closed)unsubscribe=client.subscribe(snapshot.seq,()=>{void refresh();});});
   timer=setInterval(()=>{try{void refresh();}catch(e){report(String(e));}},2000);
   return {code:await done,out:"",err:exitError};
  }finally{

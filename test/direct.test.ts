@@ -3,7 +3,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { runAttempt, tail } from "../src/exec/direct";
-import { createTask, readTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {} } }, "/x");
@@ -60,6 +60,22 @@ test("launcher error becomes a failed attempt instead of throwing", async () => 
   expect(o.exec.code).toBe(127);
   expect(o.report).toContain('no launcher for provider "gemini"');
   expect(o.attempt.exitCode).toBe(127);
+});
+
+test("fallback reuses the worktree after a launcher fails before recording a run", async () => {
+  const { ctx, task } = await setup("cursor-agent", "test -f prior.txt && echo fallback; echo done > made.txt", { git: true });
+  const first = await runAttempt(ctx, { ...s.providers.codex, id: "gemini" }, task);
+  expect(first.exec.code).toBe(127);
+  const saved = readTask(ctx, task.id)!;
+  expect(saved.run).toBeUndefined();
+  expect(saved.baseBranch).toBe("main");
+  writeFileSync(join(saved.worktree!, "prior.txt"), "prior work");
+  updateTask(ctx, task.id, t => { t.attempts.push(first.attempt); });
+  const second = await runAttempt(ctx, s.providers.cursor, readTask(ctx, task.id)!);
+  expect(second.exec.code).toBe(0);
+  expect(second.worktree).toBe(saved.worktree);
+  expect(second.report).toBe("fallback");
+  expect(readFileSync(join(second.worktree!, "made.txt"), "utf8")).toBe("done\n");
 });
 
 test("tail keeps the last n characters", () => {

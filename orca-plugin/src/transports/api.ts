@@ -6,6 +6,7 @@ import type { Transport } from "./choose";
 export function apiTransport(o: { connect: () => Promise<ApiClient | null>; timers: Timers; log?: (m: string) => void }): Transport {
   let connection: Promise<ApiClient | null> | null = null;
   let seq = 0;
+  let watches = 0;
   const client = () => connection ??= Promise.resolve().then(o.connect);
   async function snapshot(): Promise<LinkSnapshot | null> {
     try {
@@ -20,11 +21,12 @@ export function apiTransport(o: { connect: () => Promise<ApiClient | null>; time
     id: "api",
     async probe() {
       let cancel = () => {}, abandoned = false;
+      const created = connection === null;
       const pending = client();
       try {
         const ready = await Promise.race([
           pending.then(async c => {
-            if (abandoned) { c?.close(); return false; }
+            if (abandoned) return false;
             if (!c) return false;
             await c.hello();
             return true;
@@ -35,12 +37,15 @@ export function apiTransport(o: { connect: () => Promise<ApiClient | null>; time
       } catch (e) { o.log?.(`pacer API probe: ${String(e)}`); }
       finally { cancel(); }
       abandoned = true;
-      connection = null;
-      void pending.then(c => c?.close()).catch(() => {});
+      if (created && watches === 0 && connection === pending) {
+        connection = null;
+        void pending.then(c => c?.close()).catch(() => {});
+      }
       return false;
     },
     snapshot,
     watch(onEnvelope, onSnapshot, onFailure) {
+      watches++;
       let stopped = false, busy = false, resetPending = false;
       let unsubscribe = () => {};
       const refresh = async () => {
@@ -72,7 +77,7 @@ export function apiTransport(o: { connect: () => Promise<ApiClient | null>; time
       };
       void start().catch(e => { o.log?.(`pacer API watch: ${String(e)}`); if (!stopped) onFailure?.(); });
       const cancelPoll = o.timers.every(10000, () => { void refresh(); });
-      return () => { stopped = true; unsubscribe(); cancelPoll(); };
+      return () => { if (stopped) return; stopped = true; watches--; unsubscribe(); cancelPoll(); };
     },
   };
 }

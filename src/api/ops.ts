@@ -30,10 +30,10 @@ export const OPS: Record<string, OpDef> = {
   "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id }), handler: (ctx, p) => summarizeTask(core.tasks.stop(ctx, p.id)) }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",
-    params: z.object({ id, executor: z.string().min(1).max(128).optional() }),
+    params: z.object({ id, executor: z.string().min(1).max(128).optional(), from_panel: z.boolean().optional() }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      const r = await core.tasks.retry(ctx, p.id, { executor: p.executor }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
+      const r = await core.tasks.retry(ctx, p.id, { executor: p.executor, fromPanel: p.from_panel }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
       return { retry: summarizeTask(r.retry), of: summarizeTask(r.of) };
     },
   }),
