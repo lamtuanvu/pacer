@@ -40,6 +40,16 @@ printf 'signoffs=%s\\n' "$(git log --format='%B' "$base..$branch" | sed -n 's/^[
 printf 'head=%s\\n' "$(git rev-parse "$branch^{commit}")"`,
   BUNDLE_OUT: `cd "$1" || exit 1
 git bundle create - "$2..pacer/$3"`,
+  CLEAN: `worktree="$1"; D="$2"; checkout="$3"; task="$4"
+case "$worktree" in '~/'*) worktree="$HOME/\${worktree#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+cd "$checkout" || exit 1
+if [ -d "$worktree" ]; then git worktree remove --force "$worktree" || exit 1; fi
+rm -rf "$D" || exit 1
+if [ -n "$task" ] && git show-ref --verify --quiet "refs/heads/pacer/$task"; then
+  git branch -D "pacer/$task" || exit 1
+fi`,
   START: `D="$1"; cwd="$2"; shift 2
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 case "$cwd" in '~/'*) cwd="$HOME/\${cwd#??}" ;; esac

@@ -43,7 +43,7 @@ const DEFAULTS: RunnerDeps = {
 
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
   const finished = updateTask(ctx, id, (t) => {
-    if(t.placement?.mode) {
+    if(t.placement?.mode && !t.run?.host) {
       const p=t.placement;
       const line=p.mode==="new"?`ran in new worktree ${t.worktree??result.worktree??"(unknown)"} (${p.why})`:`ran in current worktree (${p.why})`;
       result={...result,report:`${line}\n\n${result.report}`};
@@ -171,7 +171,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       }
       const onSpawn = (pid: number) => {
         updateTask(ctx, id, (t) => { t.childPid = pid; });
-        if (stopped(ctx, id)) killTree(pid, "SIGTERM");
+        if (stopped(ctx, id) && !resolveRunner(s, pick!)?.host) killTree(pid, "SIGTERM");
       };
       const backend = resuming || deps.runAttempt ? null : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";

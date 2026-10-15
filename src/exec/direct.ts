@@ -19,7 +19,8 @@ import { type ExecResult, executorEnv } from "./process";
 import { buildPrompt } from "./prompt";
 import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
-import { createTaskWorktree } from "../supervisor/worktree";
+import { transferBack } from "../remote/transfer";
+import { taskWorktreePath, createTaskWorktree } from "../supervisor/worktree";
 import { idleSeconds, nextProgress } from "../supervisor/progress";
 
 export const REPORT_CHARS = 4000;
@@ -185,5 +186,32 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
 /** Re-attach to an attempt whose pacer runner died (Task 6). */
 export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
   if (!task.run) throw new Error(`task ${task.id} has no run to resume`);
-  return finishRun(ctx, cfg, task, task.run, "", progressPoller(ctx, task, task.run));
+  const run = task.run;
+  const result = await finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
+  if (!run.host || result.exec.timedOut || readTask(ctx, task.id)?.state === "stopped") return result;
+  const host = loadStrategy(ctx).hosts[run.host];
+  if (result.exec.code !== 0) {
+    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree!, run.baseSha!, task.id]);
+    if (preflight.code || Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0) === 0) return result;
+  }
+  // A runner may die after transfer but before recording the attempt. Reuse the
+  // review worktree when its branch already exists; never fetch over that ref.
+  const top = await gitInfo(ctx.run, task.brief.repo);
+  const review = "error" in top ? undefined : taskWorktreePath(ctx, top.top, task.id);
+  const branch = await ctx.run(["git", "-C", task.brief.repo, "show-ref", "--verify", "--quiet", `refs/heads/pacer/${task.id}`], 10000);
+  if (branch.code === 0 && review && existsSync(review)) {
+    result.worktree = review;
+    return result;
+  }
+  const transfer = await transferBack(ctx, task, host, run);
+  if (!transfer.ok) {
+    result.exec = { ...result.exec, code: result.exec.code || 1, stderr: `${result.exec.stderr}\n${transfer.reason}`.trim() };
+    result.attempt.exitCode = result.exec.code;
+    result.report = `${transfer.reason}\n\n${result.report}`;
+    result.partial = transfer.reason;
+  } else {
+    result.worktree = transfer.reviewWorktree;
+    result.report = `ran on ${host.alias}; fetched ${transfer.branch} (${transfer.commits} commits)\n\n${result.report}`;
+  }
+  return result;
 }
