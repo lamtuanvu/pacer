@@ -41,9 +41,9 @@ A runner is identified by what runs, on which budget, where. Its id spells that 
 |---|---|
 | `claude-code` | Claude Code on its default account, this machine |
 | `claude-code#work` | Claude Code on account `work`, this machine |
-| `codex#team@vudesktop` | Codex on account `team`, running on host `vudesktop` |
+| `codex#team@box` | Codex on account `team`, running on host `box` |
 | `opencode#byteplus` | OpenCode on account `byteplus`, this machine |
-| `opencode#byteplus@vudesktop` | OpenCode on account `byteplus`, running on `vudesktop` (same budget as the line above) |
+| `opencode#byteplus@box` | OpenCode on account `byteplus`, running on `box` (same budget as the line above) |
 
 - Grammar: `<agent>[#<account>][@<host>]`; each part `[a-z0-9][a-z0-9-]*`; `@<host>` is an Orca host id or name from `orca host list`.
 - `#account` omitted: the agent's default account (the one account of its kind with no `home` / `orca_account`; at most one per kind). `@host` omitted: this machine.
