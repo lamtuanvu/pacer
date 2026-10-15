@@ -83,6 +83,166 @@ The outbox retains the last 200 entries. If a positive resume cursor predates th
 
 ## Operations
 
+### `agent.connect`
+
+Connect an agent after explicit consent to write its integration files.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    },
+    "consent": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "agent"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `agent.disconnect`
+
+Remove an agent integration using its recorded undo actions.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    }
+  },
+  "required": [
+    "agent"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `agent.preview`
+
+Preview agent integration files and the undo command before consenting.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    }
+  },
+  "required": [
+    "agent"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `config.get`
+
+Allow-listed settings with their sources and compatible planner candidates.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `config.set`
+
+Change a setting with validation, rollback and an undo command; planner requires an integration choice.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "key": {
+      "type": "string",
+      "enum": [
+        "planner",
+        "pacing.order",
+        "pacing.policy",
+        "pacing.planner_reserve",
+        "pacing.accounts",
+        "pacing.fill_threshold",
+        "update_check"
+      ]
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "integrations": {
+      "type": "string",
+      "enum": [
+        "install",
+        "skip"
+      ]
+    }
+  },
+  "required": [
+    "key",
+    "value"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `host.check`
 
 Check SSH host prerequisites, checkouts and identity.
@@ -164,6 +324,63 @@ Params JSON Schema:
   "required": [
     "provider"
   ],
+  "additionalProperties": false
+}
+```
+
+### `notifications.get`
+
+Current Orca plugin notification level.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `notifications.set`
+
+Set Orca plugin notifications to off, important or all.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "level": {
+      "type": "string",
+      "enum": [
+        "off",
+        "important",
+        "all"
+      ]
+    }
+  },
+  "required": [
+    "level"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.install`
+
+Install the Orca plugin under PACER_HOME without editing Orca settings.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": false
 }
 ```
@@ -279,6 +496,60 @@ Params JSON Schema:
   },
   "required": [
     "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `service.status`
+
+Whether the login service is installed and running, with its process id when known.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `setup.check`
+
+Read the setup checklist and outstanding steps.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `setup.init`
+
+Create a missing strategy and select a planner without connecting agents.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "planner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "planner"
   ],
   "additionalProperties": false
 }
@@ -646,6 +917,21 @@ Params JSON Schema:
   "required": [
     "id"
   ],
+  "additionalProperties": false
+}
+```
+
+### `version.get`
+
+Pacer, protocol, installed plugin and service versions or status.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": false
 }
 ```
