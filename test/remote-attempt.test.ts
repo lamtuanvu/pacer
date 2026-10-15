@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runAttempt, resumeAttempt } from "../src/exec/direct";
+import { loadStrategy } from "../src/config/strategy";
+import { runTask } from "../src/tasks/runner";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 
@@ -67,8 +69,37 @@ test("the prompt reaches the host agent unchanged", async () => {
   expect(task.worktree).toBe(`box:${task.run!.remoteWorktree}`);
   expect(task.progress?.host).toBe("box");
   expect(f.gitCalls.some(a => a.includes(task.run!.remoteWorktree!))).toBe(false);
-  expect(result.report).toBe("final report");
+  expect(result.report).toBe(`ran on box; fetched pacer/${task.id} (1 commits)\n\nfinal report`);
+  // Resuming only collects the saved run output; it does not repeat the transfer.
   expect((await resumeAttempt(f.ctx, f.cfg, task)).report).toBe("final report");
+}, 15000);
+
+test("a foreign-identity commit leaves the task partial and kept on the host", async () => {
+  const f = await setup();
+  await f.git("-C", join(f.hostHome, "src/r"), "config", "user.email", "foreign@example.invalid");
+  const acceptanceFile = join(f.repo, "acceptance-ran");
+  updateTask(f.ctx, f.task.id, t => {
+    t.state = "queued";
+    t.brief.acceptance = `touch '${acceptanceFile}'`;
+  });
+  const result = await runTask(f.ctx, f.task.id, {
+    loadStrategy,
+    computeStatus: async () => ({
+      generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
+      providers: [{ id: f.cfg.id, usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }],
+      executors: { ranked: [], excluded: [] },
+    }),
+    runAttempt,
+    verifyRepo: async () => { throw new Error("verification must not run for a refused transfer"); },
+  });
+  expect(result.state).toBe("partial");
+  expect(result.result).toMatchObject({ status: "partial", files: "(kept on host)", worktree: `box:${result.run!.remoteWorktree}` });
+  expect(result.result?.report).toContain("foreign identity foreign@example.invalid; run pacer host setup box\n\nfinal report");
+  expect(result.result?.acceptance).toBeUndefined();
+  expect(existsSync(acceptanceFile)).toBe(false);
+  expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${f.task.id}`)).toBe("");
+  expect(await f.git("-C", result.run!.remoteWorktree!, "branch", "--show-current")).toBe(`pacer/${f.task.id}`);
+  expect(await f.git("-C", result.run!.remoteWorktree!, "log", "-1", "--format=%ae")).toBe("foreign@example.invalid");
 }, 15000);
 
 test("remote env carries only the declared account folder", async () => {

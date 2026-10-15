@@ -24,7 +24,7 @@ import { idleSeconds, nextProgress } from "../supervisor/progress";
 
 export const REPORT_CHARS = 4000;
 
-export interface AttemptOutcome { attempt: Attempt; exec: ExecResult; report: string; backend?: string; worktree?: string }
+export interface AttemptOutcome { attempt: Attempt; exec: ExecResult; report: string; backend?: string; worktree?: string; partial?: string }
 
 export function tail(s: string, n: number): string {
   return s.length > n ? s.slice(-n) : s;

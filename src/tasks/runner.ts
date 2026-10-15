@@ -228,11 +228,11 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
         continue;
       }
-      const v = await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
+      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());
       const review = changed && !out.exec.timedOut && out.exec.code > 0 && out.exec.code < 126;
-      const status = !ok ? review ? "partial" : "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
+      const status = out.partial ? "partial" : !ok ? review ? "partial" : "failed" : v.acceptance && !v.acceptance.passed ? "partial" : "done";
       const report = requestedUnavailable ? `requested ${task.requestedExecutor} unavailable (${requestedUnavailable}); ran on ${pick}\n\n${out.report}` : out.report;
       const result: TaskResult = { status, executor: pick, model: cfg.model, ...v, report, backend: out.backend ?? "direct", ...(out.worktree ? { worktree: out.worktree } : {}) };
       const check = await safe(() => hooks.resultCheck(ctx, task, result), undefined);

@@ -26,6 +26,20 @@ worktree="$HOME/.pacer-remote/worktrees/$tag/$task"
 mkdir -p "$HOME/.pacer-remote/worktrees/$tag" || exit 1
 git worktree add -q -b "pacer/$task" "$worktree" "$base" || exit 1
 printf 'worktree=%s\\n' "$worktree"`,
+  PREFLIGHT: `cd "$1" || exit 1
+base="$2"; branch="pacer/$3"
+ancestor=0
+git merge-base --is-ancestor "$base" "$branch" && ancestor=1
+printf 'ancestor=%s\\n' "$ancestor"
+status=$(git -c core.quotePath=true status --porcelain --untracked-files=all) || exit 1
+printf 'dirty=%s\\n' "$(printf '%s\\n' "$status" | sed '/^$/d' | wc -l | tr -d ' ')"
+printf 'dirty_files=%s\\n' "$(printf '%s\\n' "$status" | sed '/^$/d;s/^...//' | head -n 20 | paste -sd ',' -)"
+printf 'commits=%s\\n' "$(git rev-list --count "$base..$branch")"
+printf 'emails=%s\\n' "$(git log --format='%ae%n%ce' "$base..$branch" | sed '/^$/d' | LC_ALL=C sort -u | paste -sd ',' -)"
+printf 'signoffs=%s\\n' "$(git log --format='%B' "$base..$branch" | sed -n 's/^[Ss][Ii][Gg][Nn][Ee][Dd]-[Oo][Ff][Ff]-[Bb][Yy]:.*<\\([^>]*\\)>.*/\\1/p' | LC_ALL=C sort -u | paste -sd ',' -)"
+printf 'head=%s\\n' "$(git rev-parse "$branch^{commit}")"`,
+  BUNDLE_OUT: `cd "$1" || exit 1
+git bundle create - "$2..pacer/$3"`,
   START: `D="$1"; cwd="$2"; shift 2
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 case "$cwd" in '~/'*) cwd="$HOME/\${cwd#??}" ;; esac

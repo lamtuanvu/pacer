@@ -15,6 +15,7 @@ import type { Ctx } from "../types";
 import { remoteExclusion } from "./eligibility";
 import { RemoteRunIO } from "./run-io";
 import { SCRIPTS } from "./scripts";
+import { transferBack } from "./transfer";
 import { runRemote, sshArgv } from "./ssh";
 
 const MAX_BUNDLE = 50 * 1024 * 1024;
@@ -104,6 +105,23 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const started = await new RemoteRunIO(ctx, host, remoteDir, dir).start(launch.argv, worktree, env, prompt);
     if ("error" in started) return failed(started.error);
     try { onSpawn?.(started.pid); } catch { /* observer does not own the run */ }
-    return finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
+    const result = await finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
+    if (result.exec.timedOut) return result;
+    if (result.exec.code !== 0) {
+      const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [worktree, baseSha, task.id]);
+      const commits = Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0);
+      if (preflight.code || commits === 0) return result;
+    }
+    const transfer = await transferBack(ctx, task, host, run);
+    if (!transfer.ok) {
+      result.exec = { ...result.exec, code: result.exec.code || 1, stderr: `${result.exec.stderr}\n${transfer.reason}`.trim() };
+      result.attempt.exitCode = result.exec.code;
+      result.report = `${transfer.reason}\n\n${result.report}`;
+      result.partial = transfer.reason;
+      return result;
+    }
+    result.worktree = transfer.reviewWorktree;
+    result.report = `ran on ${host.alias}; fetched ${transfer.branch} (${transfer.commits} commits)\n\n${result.report}`;
+    return result;
   } catch (e) { return failed(e instanceof Error ? e.message : String(e)); }
 }
