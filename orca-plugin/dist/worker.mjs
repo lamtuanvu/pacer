@@ -798,6 +798,7 @@ function parseTask(d) {
     ...optStr(d.brokenExecutor, 64) ? { brokenExecutor: optStr(d.brokenExecutor, 64) } : {},
     ...optStr(d.brokenReason, 500) ? { brokenReason: optStr(d.brokenReason, 500) } : {},
     ...num(d.attemptStartedAt) !== null ? { attemptStartedAt: num(d.attemptStartedAt) } : {},
+    ...isObj(d.progress) && typeof d.progress.phase === "string" && num(d.progress.files) !== null && num(d.progress.commits) !== null && num(d.progress.logBytes) !== null ? { progress: { phase: d.progress.phase.slice(0, 16), lastOutputAt: num(d.progress.lastOutputAt), files: num(d.progress.files), commits: num(d.progress.commits), logBytes: num(d.progress.logBytes) } } : {},
     ...typeof d.runnerAlive === "boolean" ? { runnerAlive: d.runnerAlive } : {}
   };
 }

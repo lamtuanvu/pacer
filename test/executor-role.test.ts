@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
+import { isExecutorSession } from "../src/install/role";
 import { io } from "../src/install/stdin";
 import { fakeCtx } from "./helpers";
 
@@ -36,3 +37,10 @@ for (const command of commands) {
     });
   }
 }
+
+test("a cwd inside a pacer task worktree is an executor session", () => {
+  const ctx = fakeCtx();
+  const cwd = join(ctx.pacerHome, "worktrees", "repo-1a2b3c4d", "t-20261014-120000-abcd", "src");
+  expect(isExecutorSession(ctx, { cwd })).toBe(true);
+  expect(isExecutorSession(ctx, { cwd: join(ctx.pacerHome, "worktrees", "repo-1a2b3c4d", "not-a-task") })).toBe(false);
+});

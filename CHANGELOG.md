@@ -7,10 +7,15 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - `pacer retry <task-id> [--executor <id>] [--json]` re-delegates a task's stored brief, refusing an already queued or running retry.
+- `pacer clean [--dry-run] [--force] [--json]` removes settled, reviewed, dismissed or resolved tasks' pacer-owned worktrees and run directories; dirty worktrees require `--force`, and branches stay.
 
 ### Changed
 
 - `pacer dismiss` reports unknown ids and exits 2 while still dismissing known ids.
+- `execution.backend: auto` uses pacer's own supervisor through the direct backend; Orca is opt-in with `execution.backend: orca`.
+- Direct execution honors new placement with a pacer-owned worktree; task reports begin `ran in new worktree <path> (<why>)`.
+- Executor timeouts send TERM to the process group, then KILL after a five-second grace period, instead of killing immediately.
+- Idle tasks stop after `execution.idle_fail_min` minutes without output or file changes (default 30).
 
 ## [0.1.24] - 2026-10-14
 

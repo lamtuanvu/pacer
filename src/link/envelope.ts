@@ -5,7 +5,7 @@ export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 
 export type Level = "info" | "warn" | "error";
 export interface ProviderLine { id: string; agent?: string; account?: string; unavailableReason?: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
-export interface TaskData { terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
+export interface TaskData { progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
@@ -49,6 +49,8 @@ function parseTask(d: unknown): TaskData | null {
     ...(optStr(d.brokenExecutor,64) ? {brokenExecutor:optStr(d.brokenExecutor,64)!} : {}),
     ...(optStr(d.brokenReason,500) ? {brokenReason:optStr(d.brokenReason,500)!} : {}),
     ...(num(d.attemptStartedAt) !== null ? {attemptStartedAt:num(d.attemptStartedAt)!} : {}),
+    ...(isObj(d.progress) && typeof d.progress.phase === "string" && num(d.progress.files) !== null && num(d.progress.commits) !== null && num(d.progress.logBytes) !== null
+      ? { progress: { phase: d.progress.phase.slice(0, 16), lastOutputAt: num(d.progress.lastOutputAt), files: num(d.progress.files)!, commits: num(d.progress.commits)!, logBytes: num(d.progress.logBytes)! } } : {}),
     ...(typeof d.runnerAlive === "boolean" ? {runnerAlive:d.runnerAlive} : {}),
   };
 }

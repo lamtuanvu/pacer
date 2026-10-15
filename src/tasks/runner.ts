@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { realpathSafe } from "../core/git";
+import { worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
 import { pidAlive } from "../link/store";
 import { readBlocked } from "../executors/blocked";
@@ -10,7 +12,7 @@ import { type Excluded, rankExecutors } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
 import { selectBackend } from "../exec/backend";
-import type { AttemptOutcome } from "../exec/direct";
+import { type AttemptOutcome, resumeAttempt } from "../exec/direct";
 import { killTree } from "../exec/process";
 import { exhaustUntil } from "../exec/limits";
 import { verifyRepo } from "../exec/verify";
@@ -76,8 +78,9 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   let duplicate:string|undefined;
   let task=await withLock(ctx,`brief-${createHash("sha256").update(key(initial)).digest("hex")}`,async()=>{
     return updateTask(ctx,id,t=>{
-      if(t.state!=="queued")return;
-      if(!t.force)duplicate=listTasks(ctx,Infinity).find(other=>other.id!==id&&other.state==="running"&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
+      const resumable = t.state === "running" && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
+      if(t.state!=="queued" && !resumable)return;
+      if(!t.force && t.state==="queued")duplicate=listTasks(ctx,Infinity).find(other=>other.id!==id&&other.state==="running"&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
       if(duplicate)return;
       started=true;t.state="running";t.runnerPid=process.pid;
     });
@@ -102,49 +105,59 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     let lastBroken: { brokenExecutor: string; brokenReason: string } | undefined;
 
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      if (stopped(ctx, id)) {
-        return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
+      const resuming = i === 0 && task.run && task.run.attempt > task.attempts.length ? task.run : null;
+      let pick: string | undefined;
+      let byId: Record<string, Status["providers"][number]> = {};
+      if (resuming) {
+        pick = resuming.executor;
+      } else {
+        if (stopped(ctx, id)) {
+          return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
+        }
+        const now = Date.now() / 1000;
+        const st = await deps.computeStatus({ ...ctx, now }, s);
+        const blocked = readBlocked({ ...ctx, now });
+        const broken = readBroken({ ...ctx, now });
+        byId = Object.fromEntries(st.providers.map((p) => [p.id, { ...p, ...(blocked[p.id] ? {blockedReason:blocked[p.id].reason,blockedUntil:blocked[p.id].until} : {}), ...(broken[p.id] ? { brokenReason: broken[p.id].reason } : {}) }]));
+        const ranking = rankExecutors(kind, s, byId);
+        excluded = ranking.excluded;
+        const rankedIds = ranking.ranked.map((e) => e.id);
+        const req = task.requestedExecutor;
+        const requested = req && !tried.has(req) && rankedIds.includes(req);
+        if (req && !requested && !requestedUnavailable) requestedUnavailable = excluded.find(e => e.id === req)?.reason ?? "not in the routing list";
+        const f = requested
+          ? rankedIds
+          : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
+        const ids = Array.isArray(f) ? rankedIds.filter((x) => f.includes(x)) : rankedIds;
+        pick = requested
+          ? req!
+          : ids.find((e) => !tried.has(e));
       }
-      const now = Date.now() / 1000;
-      const st = await deps.computeStatus({ ...ctx, now }, s);
-      const blocked = readBlocked({ ...ctx, now });
-      const broken = readBroken({ ...ctx, now });
-      const byId = Object.fromEntries(st.providers.map((p) => [p.id, { ...p, ...(blocked[p.id] ? {blockedReason:blocked[p.id].reason,blockedUntil:blocked[p.id].until} : {}), ...(broken[p.id] ? { brokenReason: broken[p.id].reason } : {}) }]));
-      const ranking = rankExecutors(kind, s, byId);
-      excluded = ranking.excluded;
-      const rankedIds = ranking.ranked.map((e) => e.id);
-      const req = task.requestedExecutor;
-      const requested = req && !tried.has(req) && rankedIds.includes(req);
-      if (req && !requested && !requestedUnavailable) requestedUnavailable = excluded.find(e => e.id === req)?.reason ?? "not in the routing list";
-      const f = requested
-        ? rankedIds
-        : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
-      const ids = Array.isArray(f) ? rankedIds.filter((x) => f.includes(x)) : rankedIds;
-      const pick = requested
-        ? req!
-        : ids.find((e) => !tried.has(e));
       if (!pick) break;
       tried.add(pick);
       const cfg = s.providers[pick];
       attemptedExecutor = pick;
+      if (resuming && !cfg) {
+        return finish(ctx, id, { status: "failed", executor: pick, model: null, files: "", report: `cannot resume: executor ${pick} is no longer configured`, backend: "direct" });
+      }
       attemptedModel = cfg.model ?? null;
 
-      if (stopped(ctx, id)) {
+      if (!resuming && stopped(ctx, id)) {
         return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
       }
       const onSpawn = (pid: number) => {
         updateTask(ctx, id, (t) => { t.childPid = pid; });
         if (stopped(ctx, id)) killTree(pid, "SIGTERM");
       };
-      const backend = deps.runAttempt ? null : await selectBackend(ctx, s, undefined, pick);
+      const backend = resuming || deps.runAttempt ? null : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       task = updateTask(ctx, id, t => {
-        t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = Date.now() / 1000;
+        t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming?.startedAt ?? Date.now() / 1000;
       });
-      const before = await repoFingerprint(ctx, task.brief.repo);
+      const before = resuming ? null : await repoFingerprint(ctx, task.brief.repo);
       let out: AttemptOutcome;
       try {
-        out = await (deps.runAttempt ?? backend!.runAttempt)(ctx, cfg, task, onSpawn);
+        out = resuming ? await resumeAttempt(ctx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(ctx, cfg, task, onSpawn);
       } catch (error) {
         if (!/ENOENT|EACCES|command not found/.test(String(error))) throw error;
         const code = /EACCES/.test(String(error)) ? 126 : 127;
@@ -156,8 +169,12 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
       if (out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
-        const after = await repoFingerprint(ctx, out.worktree ?? task.brief.repo);
-        const reason = brokenReason(out.exec, duration, before === null && after === null ? null : before !== null && before === after);
+        const isolated = !!out.worktree && realpathSafe(out.worktree) !== realpathSafe(task.brief.repo);
+        let unchanged: boolean | null;
+        if (resuming) unchanged = null;
+        else if (isolated) unchanged = await worktreeUnchanged(ctx, out.worktree!, readTask(ctx, id)?.baseBranch);
+        else { const after = await repoFingerprint(ctx, out.worktree ?? task.brief.repo); unchanged = before === null && after === null ? null : before !== null && before === after; }
+        const reason = brokenReason(out.exec, duration, unchanged);
         if (reason) out.attempt.brokenReason = reason;
       }
       attemptedBackend = out.backend ?? attemptedBackend;

@@ -49,6 +49,14 @@ Use `pacer report-limit <provider>` to record a quota limit, and
 `pacer dismiss <id...>` to hide cards. Unknown ids are reported and the command
 exits 2; known ids are still dismissed.
 
+`pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees of
+terminal tasks that have been reviewed, dismissed or resolved. Only tasks run
+in a new worktree under pacer's worktrees directory are eligible. Dirty worktrees
+are kept with `uncommitted changes; use --force` unless `--force` is given.
+`--dry-run` reports what would be removed without changing files. Cleanup deletes
+the removed tasks' run directories and always keeps their branches. Text output
+lists removed or kept task IDs and reasons, or `nothing to clean`; exit status is 0.
+
 JSON contracts:
 
 | Command | Top-level fields |
@@ -59,6 +67,7 @@ JSON contracts:
 | tasks id, wait, stop, retry | task_id, state, kind, requested_executor, placement, attempts, result, review, resolved |
 | tasks | Array of task summaries |
 | review | recorded |
+| clean | removed (task IDs), kept (objects with id and reason) |
 
 The task summary matches MCP task_status; delegate keeps returning the full task record.
 Needs attention clears for partial/failed tasks reviewed with either verdict, whose worker

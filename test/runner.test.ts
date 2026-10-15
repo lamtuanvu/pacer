@@ -2,12 +2,15 @@ import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
 import type { ProviderStatus } from "../src/engine/rank";
 import type { Status } from "../src/engine/status";
+import { chmodSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { runAttempt } from "../src/exec/direct";
 import type { AttemptOutcome } from "../src/exec/direct";
 import { type RunnerDeps, runTask } from "../src/tasks/runner";
 import { taskStop } from "../src/tasks/api";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readMarks } from "../src/usage/reactive";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 const strategy = validateStrategy({
   planner: "claude-code",
@@ -364,6 +367,14 @@ test("timed out executor with changes stays failed", async () => {
  expect((await runTask(ctx,newTask(ctx).id,d)).state).toBe("failed");
 });
 
+ test("a CLI startup error in an isolated worktree still marks the executor broken", async () => {
+  const bin = tmpDir(); writeFileSync(join(bin, "cursor-agent"), "#!/bin/sh\necho 'error: unknown option --force' >&2\nexit 2\n"); chmodSync(join(bin, "cursor-agent"), 0o755);
+  const ctx = fakeCtx({ run: realRun, env: { PATH: `${bin}:${process.env.PATH}` } }), repo = gitRepo();
+  writeFileSync(join(repo, "planner-wip.txt"), "planner changes stay in the original repo");
+  const t = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: "cursor", timeoutS: 30 });
+  const done = await runTask(ctx, t.id, { ...deps({}), runAttempt, computeStatus: async () => status({ codex: { installed: false }, agy: { installed: false } }) });
+  expect(done.attempts[0].brokenReason).toContain("unknown option");
+ });
 test('limit marks the account and carries the reset reported by a named runner',async()=>{
  const ctx=fakeCtx(),s=validateStrategy({accounts:{plan:{kind:'claude'},team:{kind:'codex',home:'~/.codex-team'}},planner:'claude-code',routing:[{default:['codex#team']}]},'test');
  const st={...status(),providers:[{id:'codex#team',usage:'quota',windows:[],binding:null,verdict:'ON_PACE',installed:true,stale:false}]} as Status;

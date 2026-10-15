@@ -2,6 +2,14 @@ import { expect, test } from "bun:test";
 import { DEFAULT_EXECUTION, ExecutionError, validateExecution } from "../src/config/execution";
 import { validateStrategy } from "../src/config/strategy";
 
+test("idle minutes: optional integers, fail after idle", () => {
+  expect(validateExecution({ idle_after_min: 5, idle_fail_min: 20 })).toMatchObject({ idleAfterS: 300, idleFailS: 1200 });
+  expect(validateExecution(undefined)).toEqual({ backend: "auto", worktree: "child-of-current", baseBranch: null });
+  for (const bad of [{ idle_after_min: 0 }, { idle_fail_min: 1.5 }, { idle_after_min: 30, idle_fail_min: 10 }, { idle_after_min: "5" }]) {
+    expect(() => validateExecution(bad)).toThrow(ExecutionError);
+  }
+});
+
 test("a missing or empty execution section uses the defaults", () => {
   expect(validateExecution(undefined)).toEqual({ backend: "auto", worktree: "child-of-current", baseBranch: null });
   expect(validateExecution(null)).toEqual(DEFAULT_EXECUTION);
