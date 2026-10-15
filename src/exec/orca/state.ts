@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, rmSync, statSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../../fsutil";
 import type { Ctx } from "../../types";
@@ -58,35 +58,4 @@ export function takeInbox(ctx: Ctx, dispatchId: string): InboxEntry | null {
   return e;
 }
 
-/** A cross-process lock file under ~/.pacer/orca/. Stale locks (older than staleMs) are taken over. */
-export async function withLock<T>(
-  ctx: Ctx, name: string, fn: () => Promise<T>, o: { timeoutMs?: number; staleMs?: number } = {},
-): Promise<T> {
-  mkdirSync(orcaDir(ctx), { recursive: true });
-  const file = join(orcaDir(ctx), `${name}.lock`);
-  const deadline = Date.now() + (o.timeoutMs ?? 20_000);
-  const staleMs = o.staleMs ?? 120_000;
-  for (;;) {
-    try {
-      closeSync(openSync(file, "wx"));
-      break;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      try {
-        if (Date.now() - statSync(file).mtimeMs > staleMs) {
-          rmSync(file, { force: true });
-          continue;
-        }
-      } catch {
-        continue; // released between our open and stat
-      }
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${file}`);
-      await Bun.sleep(50);
-    }
-  }
-  try {
-    return await fn();
-  } finally {
-    rmSync(file, { force: true });
-  }
-}
+export { withLock } from "../../core/lock";

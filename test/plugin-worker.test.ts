@@ -28,9 +28,10 @@ test("real URL-rooted worker renders managed panels and preserves marketplace in
   writeFileSync(join(root,"worker-marketplace.mjs"),readFileSync(join(root,"worker.mjs")));
   // Import-time dependencies capture this isolated environment. This fixture must
   // never execute an installed binary, use real HOME, or download from the network.
-  const previous={HOME:process.env.HOME,PACER_BIN:process.env.PACER_BIN,PACER_RELEASE_BASE:process.env.PACER_RELEASE_BASE};
+  const previous={HOME:process.env.HOME,PACER_HOME:process.env.PACER_HOME,PACER_BIN:process.env.PACER_BIN,PACER_RELEASE_BASE:process.env.PACER_RELEASE_BASE};
   const dummy=join(root,"not-executable");writeFileSync(dummy,"fixture",{mode:0o600});
-  process.env.HOME=home;process.env.PACER_BIN=dummy;process.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"release")).href;
+  // PACER_HOME wins over HOME in the worker; pacer's own runner exports it, so clear it or the fixture writes the real ~/.pacer.
+  delete process.env.PACER_HOME;process.env.HOME=home;process.env.PACER_BIN=dummy;process.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"release")).href;
   try {worker=await import(pathToFileURL(join(root,"worker.mjs")).href);}
   finally {for(const [key,value] of Object.entries(previous)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
   await worker.default({host:{call:async(m:string)=>m==="settings.get"?{settings:{transport:"bridge"}}:m==="storage.get"?{value:emptySnapshot()}:{subscribed:[]}},commands:{register(){}},events:{on(){}},log:(s:string)=>logs.push(s)});
@@ -43,8 +44,8 @@ test("real URL-rooted worker renders managed panels and preserves marketplace in
   rmSync(join(root,".pacer-managed"));
   const before=contentHash(root);
   const notices:string[]=[];
-  const marketplaceEnv={HOME:process.env.HOME,PACER_BIN:process.env.PACER_BIN,PACER_RELEASE_BASE:process.env.PACER_RELEASE_BASE};
-  process.env.HOME=home;process.env.PACER_BIN=dummy;process.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"release")).href;
+  const marketplaceEnv={HOME:process.env.HOME,PACER_HOME:process.env.PACER_HOME,PACER_BIN:process.env.PACER_BIN,PACER_RELEASE_BASE:process.env.PACER_RELEASE_BASE};
+  delete process.env.PACER_HOME;process.env.HOME=home;process.env.PACER_BIN=dummy;process.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"release")).href;
   try {worker=await import(pathToFileURL(join(root,"worker-marketplace.mjs")).href);}
   finally {for(const [key,value] of Object.entries(marketplaceEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
   await worker.default({host:{call:async(m:string,p:any)=>{if(m==="notifications.show"){notices.push(p.title);return {delivered:true};}return m==="settings.get"?{settings:{transport:"bridge"}}:m==="storage.get"?{value:emptySnapshot()}:{subscribed:[]};}},commands:{register(){}},events:{on(){}},log:(s:string)=>logs.push(s)});

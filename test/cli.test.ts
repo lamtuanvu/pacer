@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { main } from "../src/cli";
+import { cliDeps, main } from "../src/cli";
+import { createTask, readTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
 const OK_STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {}\n  local: { via: opencode, model: lmstudio/q, usage: unmetered }\n";
@@ -85,4 +86,49 @@ test("pacer tasks displays resolved placement in detail and list",async()=>{
  updateTask(ctx,task.id,t=>{t.placement={requested:"current",mode:"current",why:"agent: follow-up"};});
  for(const args of [["tasks"],["tasks",task.id]])expect((await main(args,ctx)).out).toContain("current (agent: follow-up)");
  expect(JSON.parse((await main(["tasks",task.id,"--json"],ctx)).out).placement).toMatchObject({mode:"current",why:"agent: follow-up"});
+});
+
+async function withNoSpawn<T>(fn: (spawned: string[]) => Promise<T>): Promise<T> {
+  const original = cliDeps.spawnRunner, spawned: string[] = [];
+  cliDeps.spawnRunner = (_c, id) => { spawned.push(id); return 1; };
+  try { return await fn(spawned); } finally { cliDeps.spawnRunner = original; }
+}
+
+test("retry queues a retry of a task and links them", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const t = createTask(ctx, { brief: { goal: "fix", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  await withNoSpawn(async (spawned) => {
+    const r = await main(["retry", t.id, "--executor", "local"], ctx);
+    expect(r.code).toBe(0);
+    const next = readTask(ctx, t.id)!.retriedBy!;
+    expect(r.out).toBe(`${next} queued (retry of ${t.id})`);
+    expect(spawned).toEqual([next]);
+    expect(readTask(ctx, next)?.requestedExecutor).toBe("opencode#local"); // legacy alias resolved to its runner id
+  });
+});
+
+test("retry of an unknown task exits 2", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const r = await withNoSpawn(() => main(["retry", "missing"], ctx));
+  expect(r).toMatchObject({ code: 2, err: expect.stringContaining("unknown task missing") });
+});
+
+test("dismiss dismisses known ids and exits 2 naming unknown ones", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const t = createTask(ctx, { brief: { goal: "fix", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const r = await main(["dismiss", "missing", t.id], ctx);
+  expect(r.code).toBe(2);
+  expect(r.out).toBe(`${t.id} dismissed`);
+  expect(r.err).toContain("unknown task missing");
+  expect(readTask(ctx, t.id)?.dismissed).toBe(true);
+});
+
+test("retry is refused inside an executor session, like delegate", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const t = createTask(ctx, { brief: { goal: "fix", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  ctx.env.PACER_ROLE = "executor";
+  const r = await withNoSpawn(async (spawned) => { const out = await main(["retry", t.id], ctx); expect(spawned).toEqual([]); return out; });
+  expect(r.code).toBe(2);
+  expect(r.err).toContain("pacer executors cannot delegate onward");
+  expect(readTask(ctx, t.id)?.retriedBy).toBeUndefined();
 });

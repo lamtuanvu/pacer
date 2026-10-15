@@ -6,6 +6,7 @@ import { DelegateError, type DelegateInput } from "../src/tasks/api";
 import { createTask, newTaskId } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { fakeCtx } from "./helpers";
+import { readBlocked } from "../src/executors/blocked";
 
 function harness(overrides: Partial<ConsoleDeps> = {}) {
   const ctx = fakeCtx();
@@ -294,4 +295,13 @@ test("check-setup console command rechecks and refreshes for panel and human inp
  const h=harness({checkSetup:async()=>{checks++;return "Setup checked";}});
  await h.run([encodeCmdLine({cmd:"check-setup"}),"check-setup"]);
  expect(checks).toBe(2);expect(h.output()).toContain("Setup checked");expect(h.calls).toEqual(["pump","pump"]);
+});
+
+test("console block of an unknown executor writes nothing", async () => {
+  // A stale surface list must not override the configured strategy's executors.
+  const h = harness({ configuredExecutors: () => ["codex", "gemini"] });
+  await Bun.write(`${h.ctx.pacerHome}/strategy.yaml`, "planner: claude-code\nproviders:\n  claude-code: {usage: reactive}\n  codex: {usage: reactive}\n");
+  await h.run([encodeCmdLine({ cmd: "block", executor: "gemini" })]);
+  expect(readBlocked(h.ctx)).toEqual({});
+  expect(h.output()).toContain("unknown executor gemini");
 });
