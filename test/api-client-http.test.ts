@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { ApiError, HttpClient, connectClient } from "../src/api/client";
@@ -105,3 +105,59 @@ test("a wrong token surfaces as an ApiError, not a parse error", async () => {
   expect(err).toBeInstanceOf(ApiError);
   expect(err.code).toBe("not_allowed");
 });
+
+
+for (const method of ["snapshot", "call"] as const) {
+  test(`HttpClient ${method} times out when the server never answers`, async () => {
+    const server = Bun.serve({ port: 0, fetch: () => new Promise<Response>(() => {}) });
+    stops.push(() => server.stop(true));
+    const client = new HttpClient(`http://127.0.0.1:${server.port}`, "secret", { timeoutMs: 30 });
+    stops.push(() => client.close());
+    const result = await Promise.race([
+      (method === "snapshot" ? client.snapshot() : client.call("task.list")).then(() => "resolved", () => "rejected"),
+      Bun.sleep(300).then(() => "hung"),
+    ]);
+    expect(result).toBe("rejected");
+  });
+}
+
+test("HttpClient close aborts in-flight requests, including response bodies", async () => {
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  const server = Bun.serve({ port: 0, fetch() {
+    started();
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{"protocol":')); } }));
+  } });
+  stops.push(() => server.stop(true));
+  const client = new HttpClient(`http://127.0.0.1:${server.port}`, "secret");
+  stops.push(() => client.close());
+  const request = client.snapshot().then(() => "resolved", () => "rejected");
+  await ready;
+  await Bun.sleep(10);
+  client.close();
+  expect(await Promise.race([request, Bun.sleep(300).then(() => "hung")])).toBe("rejected");
+});
+
+
+for (const method of ["snapshot", "call"] as const) {
+  test(`HttpClient ${method} aborts a stalled fetch on timeout or close`, async () => {
+    const fetcher = spyOn(globalThis, "fetch").mockImplementation((async (_input, init) => {
+      const signal = init?.signal;
+      return await new Promise<Response>((_resolve, reject) => {
+        if (signal?.aborted) reject(signal.reason);
+        else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    }) as typeof fetch);
+    try {
+      for (const close of [false, true]) {
+        const client = new HttpClient("http://127.0.0.1:12345", "secret", { timeoutMs: close ? 15000 : 30 });
+        const pending = (method === "snapshot" ? client.snapshot() : client.call("task.list"))
+          .then(() => "resolved", () => "rejected");
+        if (close) client.close();
+        const result = await Promise.race([pending, Bun.sleep(300).then(() => "hung")]);
+        client.close();
+        expect(result).toBe("rejected");
+      }
+    } finally { fetcher.mockRestore(); }
+  });
+}

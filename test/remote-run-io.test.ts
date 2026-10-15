@@ -10,6 +10,7 @@ import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
 function setup() {
   const home = tmpDir(), local = tmpDir(), log = join(tmpDir(), "ssh.log");
+  writeFileSync(join(home, ".bash_profile"), "echo hello from profile\n");
   const env = fakeSshEnv(home, log);
   // macOS has no setsid utility; provide the same session semantics on the fake host.
   if (!Bun.which("setsid")) {

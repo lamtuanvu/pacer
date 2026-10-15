@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { ApiError, InProcessClient } from "../src/api/client";
+import { ApiError, connectClient, InProcessClient } from "../src/api/client";
 import { liveSnapshot } from "../src/api/events";
 import { publish } from "../src/link/publish";
 import { createTask, updateTask } from "../src/tasks/store";
@@ -46,4 +46,21 @@ test("InProcessClient calls ops, maps errors and streams events", async () => {
   const end = Date.now() + 2000; while (!seen.length && Date.now() < end) await Bun.sleep(10);
   stop(); client.close();
   expect(seen).toEqual(["alert"]);
+});
+
+
+test("in-process clients use a live clock for op handlers", async () => {
+  const { OPS } = await import("../src/api/ops");
+  const clock = spyOn(Date, "now").mockReturnValue(2_000_000);
+  const handler = spyOn(OPS["task.list"]!, "handler").mockImplementation(ctx => ctx.now);
+  const ctx = fakeCtx();
+  const clients = [new InProcessClient(() => ctx), await connectClient({ ...ctx, env: { PACER_API: "inprocess" } })];
+  try {
+    for (const client of clients) {
+      clock.mockReturnValue(2_000_000);
+      expect(await client.call<number>("task.list")).toBe(2000);
+      clock.mockReturnValue(2_001_000);
+      expect(await client.call<number>("task.list")).toBe(2001);
+    }
+  } finally { handler.mockRestore(); clock.mockRestore(); clients.forEach(c => c.close()); }
 });

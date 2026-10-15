@@ -33,7 +33,7 @@ async function fixture() {
   ctx.run = async (argv, ms, o) => {
     const r = await run(argv, ms, o);
     if (argv[0] === "ssh" && argv.at(-1)?.includes("command -v codex") && r.code === 0)
-      return { ...r, stdout: `git=git version 2.40.0\nsetsid=/bin/setsid\ncodex=/bin/codex\nclaude=\nhome=${home}\n` };
+      return { ...r, stdout: `__PACER_BEGIN__\ngit=git version 2.40.0\nsetsid=/bin/setsid\ncodex=/bin/codex\nclaude=\nhome=${home}\n` };
     return r;
   };
   return { ctx, repo, checkout, home, git };

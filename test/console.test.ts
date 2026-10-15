@@ -1,3 +1,4 @@
+import { currentSnapshot } from "../src/link/store";
 import { currentVersion } from "../src/update/version";
 import { expect, test, spyOn } from "bun:test";
 import * as taskApi from "../src/tasks/api";
@@ -171,18 +172,18 @@ test("retry re-delegates the stored brief with explicit executor or ranking",asy
  try {
    await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})]);
     const first=readTask(h.ctx,readTask(h.ctx,task.id)!.retriedBy!)!;
-   expect(first).toMatchObject({brief:task.brief,kind:"feature",timeoutS:120,retryOf:task.id,requestedExecutor:"codex"});
+   expect(first).toMatchObject({brief:task.brief,kind:"feature",timeoutS:120,retryOf:task.id,requestedExecutor:"codex",fromPanel:true});
    updateTask(h.ctx,first.id,t=>{t.state="stopped";});
    await h.run([encodeCmdLine({cmd:"retry",taskId:task.id})]);
    const second=readTask(h.ctx,readTask(h.ctx,task.id)!.retriedBy!)!;
-   expect(second.requestedExecutor).toBeNull();expect(second.brief).toEqual(task.brief);
+   expect(second.fromPanel).toBe(true);expect(second.requestedExecutor).toBeNull();expect(second.brief).toEqual(task.brief);
    expect(h.calls.filter(c=>c==="pump")).toHaveLength(2);
  } finally {spawn.mockRestore();}
 });
 test("stop uses the task API and unknown tasks print an error",async()=>{
  const h=harness();const task=createTask(h.ctx,{brief:{goal:"stop",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
  await h.run([encodeCmdLine({cmd:"stop",taskId:task.id}),encodeCmdLine({cmd:"stop",taskId:"missing"}),encodeCmdLine({cmd:"retry",taskId:"missing"})]);
- expect(h.output()).toContain(`${task.id} stopped`);expect(h.output().match(/unknown task/g)).toHaveLength(2);expect(h.inputs).toHaveLength(0);
+ expect(h.output()).toContain(`${task.id} stopped`);expect(h.output().match(/unknown task/g)).toHaveLength(2);expect(h.output()).toContain("pacer: unknown task\n");expect(h.output()).not.toContain("unknown task missing");expect(h.inputs).toHaveLength(0);
 });
 test("invalid configured executor causes no delegation",async()=>{
  const h=harness({configuredExecutors:()=>["codex"]});
@@ -268,6 +269,7 @@ test("retry links both records and rejects a duplicate",async()=>{
    await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"}),encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})]);
    const old=readTask(h.ctx,task.id)!;expect(old.retriedBy).toBeDefined();expect(readTask(h.ctx,old.retriedBy!)?.retryOf).toBe(task.id);
    expect(h.inputs).toHaveLength(0);expect(h.output()).toContain("already has an active retry");
+   expect(currentSnapshot(h.ctx).alerts).toContainEqual(expect.objectContaining({key:`retry-${task.id}`,level:"warn",title:"Retry already running",body:expect.stringContaining("already has an active retry")}));
  } finally {spawn.mockRestore();}
 });
 

@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { handleV2 } from "../src/api/http";
 import { publish } from "../src/link/publish";
 import { appendOutbox } from "../src/link/store";
 import { startServer } from "../src/serve/http";
@@ -85,6 +86,34 @@ test("ops cap UTF-8 bodies by bytes", async () => {
   expect([r.status, (await r.json()).error.code]).toEqual([413, "too_large"]);
 });
 
+test("ops reject oversized content-length before reading the body", async () => {
+  let reads = 0;
+  const body = new ReadableStream<Uint8Array>({ pull(controller) { reads++; controller.close(); } }, { highWaterMark: 0 });
+  const req = new Request("http://localhost/v2/ops/task.get", {
+    method: "POST", headers: { "content-length": String(256 * 1024 + 1) }, body,
+  });
+  const res = await handleV2(req, { getCtx: () => fakeCtx() });
+  expect(res.status).toBe(413);
+  expect(reads).toBe(0);
+});
+
+test("ops cancel an oversized streamed body without content-length", async () => {
+  let reads = 0, cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (reads++ < 8) controller.enqueue(new Uint8Array(64 * 1024));
+      else controller.close();
+    },
+    cancel() { cancelled = true; },
+  }, { highWaterMark: 0 });
+  const req = new Request("http://localhost/v2/ops/task.get", { method: "POST", body });
+  expect(req.headers.has("content-length")).toBe(false);
+  const res = await handleV2(req, { getCtx: () => fakeCtx() });
+  expect([res.status, (await res.json()).error.code]).toEqual([413, "too_large"]);
+  expect(cancelled).toBe(true);
+  expect(reads).toBe(5);
+});
+
 test("log follow streams new output and ends when the task is done", async () => {
   const { ctx, url, h } = await serve();
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
@@ -113,4 +142,43 @@ test("log follow streams new output and ends when the task is done", async () =>
   expect(rest).not.toContain("first");
   const missing = await fetch(`${url}/v2/tasks/missing/log?follow=1`, { headers: h });
   expect([missing.status, (await missing.json()).error.code]).toEqual([404, "unknown_task"]);
+});
+
+test("log follow paces completed logs at four chunks per tick before done", async () => {
+  const ctx = fakeCtx(), dir = tmpDir(), chunkBytes = 256 * 1024;
+  const output = Array.from({ length: 12 }, (_, i) => String.fromCharCode(65 + i).repeat(chunkBytes));
+  await Bun.write(join(dir, "stdout"), output.join(""));
+  const t = createTask(ctx, { brief: { goal: "g", repo: dir }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => {
+    x.state = "done";
+    x.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current", workdir: dir, logFile: "" };
+  });
+  // Read directly so network buffering cannot merge frames from different ticks.
+  const res = await handleV2(new Request(`http://localhost/v2/tasks/${t.id}/log?follow=1`), { getCtx: () => ctx, tailMs: 10 });
+  const reader = res.body!.getReader(), decoder = new TextDecoder();
+  const batches: string[][] = [];
+  let batch: string[] = [], doneFrame = false;
+  // Each check-phase callback runs after the current timer tick's queued frames drain.
+  const flush = () => { if (batch.length) { batches.push(batch); batch = []; } };
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const frame = decoder.decode(value);
+      if (frame.startsWith("event: log\n")) {
+        const data = JSON.parse(frame.split("\ndata: ")[1]!.trim());
+        expect(doneFrame).toBe(false);
+        expect(data.stderr).toBe("");
+        batch.push(data.stdout);
+        if (batch.length === 1) setImmediate(flush);
+      } else {
+        expect(frame).toBe("event: done\ndata: {}\n\n");
+        doneFrame = true;
+      }
+    }
+    flush();
+    expect(doneFrame).toBe(true);
+    expect(batches.every(b => b.length <= 4)).toBe(true);
+    expect(batches.flat()).toEqual(output);
+  } finally { await reader.cancel(); }
 });

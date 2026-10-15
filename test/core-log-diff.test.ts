@@ -80,3 +80,29 @@ test("diff includes commits against a pacer base and caps output at one MiB", as
   expect(Buffer.byteLength(d.diff)).toBe(1024 * 1024);
   expect(d.diff).toContain("new file mode");
 });
+
+test("diff uses the fork point when the base branch advances", async () => {
+  const ctx = fakeCtx({ run: realRun }), repo = gitRepo();
+  const git = (...args: string[]) => {
+    const result = Bun.spawnSync(["git", ...args], { cwd: repo });
+    expect(result.exitCode).toBe(0);
+  };
+  git("checkout", "-q", "-b", "task");
+  writeFileSync(join(repo, "task.txt"), "task change\n");
+  git("add", "task.txt");
+  git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "task");
+  git("checkout", "-q", "main");
+  writeFileSync(join(repo, "base.txt"), "base-only change\n");
+  git("add", "base.txt");
+  git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "advance base");
+  git("checkout", "-q", "task");
+  const t = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => {
+    x.baseBranch = "main";
+    x.run = { dir: tmpDir(), attempt: 1, executor: "codex", startedAt: ctx.now, mode: "new", workdir: repo, logFile: "" };
+  });
+  const d = await tasks.diff(ctx, t.id);
+  expect(d.diff).toContain("+task change");
+  expect(d.diff).not.toContain("base.txt");
+  expect(d.diff).not.toContain("base-only change");
+});

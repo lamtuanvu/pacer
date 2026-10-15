@@ -22,6 +22,7 @@ function session(home: string, at: number, used: number, file = "rollout-test.js
 
 function fixture() {
   const home = tmpDir(), ctx = fakeCtx();
+  writeFileSync(join(home, ".bash_profile"), "echo hello from profile\n");
   ctx.env = fakeSshEnv(home, join(home, "ssh.log"));
   ctx.run = (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...ctx.env, ...o?.env } });
   mkdirSync(ctx.pacerHome, { recursive: true });
