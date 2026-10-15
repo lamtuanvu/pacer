@@ -37,5 +37,5 @@ export async function readByteplus(ctx: Ctx): Promise<UsageReading> {
       windows.push({ name: "monthly", usedPct, resetsAt, lengthS, paced: true });
     }
   }
-  return { windows, capturedAt: c.capturedAt, stale: c.stale, error: c.error };
+  return { windows, capturedAt: c.capturedAt, stale: c.stale, error: c.error, source: "provider-cli" };
 }

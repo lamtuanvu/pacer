@@ -52,6 +52,7 @@ const USAGE = `usage: pacer <command>
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
   report-limit <provider> [--until <unix-seconds>] record an executor limit
+  limits check [--json]                          where each account's usage comes from, its age and freshness
   mcp                                            run the MCP server on stdio
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
@@ -70,7 +71,7 @@ Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skill
 Identical pacer skill copies may appear; update refresh keeps them identical.`;
 
 function help(): string {
-  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
+  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "limits", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
   const extras = EXTRA_COMMANDS.filter((c) => !builtins.has(c.name));
   return extras.length ? `${USAGE}\n${extras.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
 }
@@ -276,6 +277,17 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         const lines=[...r.removed.map(id=>`${id} ${opts["dry-run"]?"would be removed":"removed"}`),...r.kept.map(k=>`${k.id} kept: ${k.reason}`)];
         return {code:0,out:lines.join("\n")||"nothing to clean",err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
+    }
+    case "limits": {
+      const { opts, pos } = parseFlags(rest, ["json"]);
+      if (pos[0] !== "check") return { code: 2, out: "", err: "usage: pacer limits check [--json]" };
+      try {
+        const rows = await core.limits.check(ctx);
+        if (opts.json) return { code: 0, out: JSON.stringify(rows, null, 1), err: "" };
+        const age = (s: number | null) => s === null ? "never" : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`;
+        const out = rows.flatMap(r => [`${r.account} (${r.kind}) · ${r.source ?? "no data"} · ${age(r.ageS)}${r.stale ? " · stale" : ""} · ${r.verdict}${r.usedPct === null ? "" : ` ${Math.round(r.usedPct)}%`}${r.window ? ` ${r.window}` : ""}`, ...(r.error || r.hint ? [`  ${r.error ?? r.hint}`] : [])]);
+        return { code: 0, out: out.join("\n") || "no accounts", err: "" };
+      } catch (e) { return { code: 2, out: "", err: explain(e) }; }
     }
     case "mcp":
       await runMcpStdio(() => fresh(ctx));

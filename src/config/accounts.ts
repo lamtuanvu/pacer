@@ -56,7 +56,7 @@ function accountCfg(name: string, c: Record<string, unknown>): AccountCfg {
   const source = orcaAccount ? "orca" : home ? "pacer" : kind === "endpoint" ? "endpoint" : "default";
   const usage = (c.usage ?? (kind === "claude" || kind === "codex" ? "quota" : kind === "endpoint" ? "metered" : "reactive")) as UsageKind;
   const quotaSource = typeof c.quota_source === "string" ? c.quota_source : null;
-  const usageSource = (c.usage_source ?? (source === "orca" ? "orca" : quotaSource === "arkcli" ? "arkcli" : usage === "quota" ? "native" : usage)) as AccountCfg["usageSource"];
+  const usageSource = (c.usage_source ?? (quotaSource === "arkcli" ? "arkcli" : usage === "quota" ? "native" : usage)) as AccountCfg["usageSource"];
   return {
     name, model: c.model === undefined ? null : String(c.model), kind, source, home, orcaAccount, usage, usageSource, quotaSource,
     weeklyTokens: isObj(c.budget) ? parseSize(c.budget.weekly_tokens) : null,
@@ -104,8 +104,8 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[]):
     if (value.home !== undefined && value.orca_account !== undefined) problems.push(`${at}: home and orca_account are mutually exclusive`);
     if (!["quota", "metered", "reactive", "unmetered"].includes(cfg.usage)) problems.push(`${at}: unknown usage kind`);
     if (!["native", "orca", "arkcli", "metered", "reactive", "unmetered"].includes(cfg.usageSource)) problems.push(`${at}: unknown usage_source`);
-    if (["cursor", "agy"].includes(cfg.kind) && cfg.usage === "quota" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage is not available; use reactive or usage_source: orca`);
-    if (cfg.kind === "endpoint" && cfg.usage === "quota" && cfg.quotaSource !== "arkcli" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage needs quota_source: arkcli or usage_source: orca`);
+    if (["cursor", "agy"].includes(cfg.kind) && cfg.usage === "quota" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage is not available for ${cfg.kind}; use reactive`);
+    if (cfg.kind === "endpoint" && cfg.usage === "quota" && cfg.quotaSource !== "arkcli" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage needs quota_source: arkcli`);
     if (cfg.usage === "metered" && (cfg.weeklyTokens === null || !Number.isFinite(cfg.weeklyTokens) || cfg.weeklyTokens <= 0)) problems.push(`${at}: metered usage needs budget.weekly_tokens`);
     if (value.cooldown !== undefined && (parseDuration(value.cooldown) === null || !Number.isFinite(cfg.cooldownS) || cfg.cooldownS < 0)) problems.push(`${at}: cooldown must look like 30m, 6h or 2d`);
     accounts[name] = cfg;

@@ -38,6 +38,7 @@ test("readCodex uses the most recently modified rollout and maps weekly windows"
   await rollout(ctx.home, "10", "new", [line({ used_percent: 100, window_minutes: 10080, resets_at: 1792060180 })], 2000);
   const r = await readCodex(ctx);
   expect(r.capturedAt).toBe(2000);
+  expect(r.source).toBe("session-log");
   expect(r.windows).toEqual([{ name: "weekly", usedPct: 100, resetsAt: 1792060180, lengthS: 604800, paced: true }]);
 });
 

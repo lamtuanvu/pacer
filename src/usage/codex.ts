@@ -71,7 +71,7 @@ export async function readCodex(ctx: Ctx, account?: AccountCfg): Promise<UsageRe
         paced: mins >= 1440,
       });
     }
-    return { windows, capturedAt: f.m, stale: false };
+    return { windows, capturedAt: f.m, stale: false, source: "session-log" };
   }
   return { windows: [], capturedAt: null, stale: false, error: "no rate_limits found in recent Codex session logs" };
 }

@@ -3,6 +3,8 @@ export type Verdict =
 
 export type UsageKind = "quota" | "metered" | "reactive" | "unmetered";
 
+export type UsageSource = "status-line" | "session-log" | "provider-cli" | "metered" | "reactive" | "unmetered";
+
 /** One usage window of one provider. Times are unix seconds. */
 export interface UsageWindow {
   name: string;            // "weekly", "5h", "monthly", "7d", "limit"
@@ -10,12 +12,14 @@ export interface UsageWindow {
   resetsAt: number | null; // null = no reset known / rolling
   lengthS: number;         // window length in seconds
   paced: boolean;          // true = compare against pace; false = only limit checks
+  stale?: boolean;         // set by markFreshness
 }
 
 export interface UsageReading {
   windows: UsageWindow[];
   capturedAt: number | null;
   stale: boolean;
+  source?: UsageSource;
   error?: string;
 }
 

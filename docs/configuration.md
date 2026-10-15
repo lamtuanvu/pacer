@@ -30,6 +30,16 @@ Native IDs are `claude-code`, `codex`, `cursor` and `agy`. Other provider IDs ne
 
 `allow_paid` defaults to false: exhausted providers are excluded. Setting it true permits routing even when exhausted; it does not purchase credits or configure billing. Durations support `s`, `m`, `h` and `d`. Native providers may set `model`; Cursor and agy cannot use `quota`.
 
+## Accounts and usage sources
+
+The `accounts` mapping names separate provider budgets. Claude and Codex accounts can use a `home` folder or link an Orca-managed account with `orca_account`; these settings are mutually exclusive. Runners select an account with an ID such as `codex#team` or `opencode#local`.
+
+pacer reads usage itself: Claude Code's status line supplies its cache, Codex session logs supply rate limits, `arkcli` supplies supported quota readings, and OpenCode stats supply metered token totals. Reactive tracking records limit errors when measured usage is unavailable.
+
+Orca-linked accounts use their own folders: pacer reads Codex session logs in the linked account's home and uses a separate Claude status-line cache for each linked Claude account. Without a Claude cache, usage remains unknown until data or a reactive limit mark is available. Orca's `account list` is never read for usage.
+
+`usage_source: orca` is deprecated and ignored. Existing configurations still load and retain the setting, with a status warning: Claude and Codex use their native readers, and other account kinds use reactive tracking.
+
 ## Pacing and routing
 
 Policies are `priority` (default), `even`, `burn-before-reset` and `cheapest-first`. Priority follows `order`, whose default is `[codex, cursor, agy, opencode]` filtered to configured providers; `opencode` expands to OpenCode-routed candidates. Expiring capacity moves forward, ahead-of-pace usage moves back and unknown usage moves down one place. Other policies score pace, remaining capacity or usage tiers. The planner, unavailable CLIs and blocked/broken executors are excluded from routing.
