@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { taskWorktreePath } from "../src/supervisor/worktree";
 import { transferBack } from "../src/remote/transfer";
-import { createTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { RunRef } from "../src/tasks/types";
 import type { HostCfg } from "../src/config/hosts";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
@@ -10,6 +11,7 @@ import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 async function setup() {
   const root = tmpDir(), hostHome = join(root, "host"), repo = join(root, "local"), origin = join(root, "origin.git"), checkout = join(hostHome, "src/r");
   mkdirSync(hostHome, { recursive: true });
+  writeFileSync(join(hostHome, ".bash_profile"), "echo hello from profile\n");
   const git = async (...args: string[]) => {
     const r = await realRun(["git", ...args], 60000);
     if (r.code) throw new Error(r.stderr);
@@ -69,13 +71,26 @@ test("pre-flight refusals leave local refs untouched", async () => {
   }
 }, 120000);
 
-test("an existing local task branch is never overwritten", async () => {
+for (const committed of [false, true]) test(`an earlier local branch ${committed ? "with commits is preserved" : "at base is advanced"}`, async () => {
   const f = await setup();
-  await f.commit("-m", "result");
+  await f.commit("-m", "remote result");
   await f.git("-C", f.repo, "branch", f.branch);
+  if (committed) {
+    await f.git("-C", f.repo, "checkout", "-q", f.branch);
+    await f.git("-C", f.repo, "commit", "-q", "--allow-empty", "-m", "local result");
+    await f.git("-C", f.repo, "checkout", "-q", "main");
+  }
+  await f.git("-C", f.repo, "worktree", "add", taskWorktreePath(f.ctx, f.repo, f.task.id), f.branch);
   const before = await f.git("-C", f.repo, "rev-parse", f.branch);
-  expect(await transferBack(f.ctx, f.task, f.host, f.run)).toEqual({ ok: false, reason: `local branch ${f.branch} exists; not overwritten` });
-  expect(await f.git("-C", f.repo, "rev-parse", f.branch)).toBe(before);
+  updateTask(f.ctx, f.task.id, t => { t.run = f.run; });
+  const result = await transferBack(f.ctx, f.task, f.host, f.run);
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.branch).toBe(committed ? `${f.branch}-r1` : f.branch);
+  const head = await f.git("-C", f.checkout, "rev-parse", "HEAD");
+  expect(await f.git("-C", f.repo, "rev-parse", result.branch)).toBe(head);
+  if (committed) expect(await f.git("-C", f.repo, "rev-parse", f.branch)).toBe(before);
+  expect(readTask(f.ctx, f.task.id)?.run).toHaveProperty("transferredHead", head);
 });
 
 test("a clean transfer fetches only pacer/<id> and opens a review worktree", async () => {

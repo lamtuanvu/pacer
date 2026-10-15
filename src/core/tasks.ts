@@ -4,6 +4,7 @@ import { loadStrategy } from "../config/strategy";
 import { repoKey } from "../config/hosts";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
+import { transferred } from "../remote/transfer";
 import { realpathSafe } from "./git";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
@@ -180,12 +181,7 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
         if (!host || !checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
           kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
         }
-        const branch = await ctx.run(["git", "-C", top, "show-ref", "--verify", "--quiet", `refs/heads/pacer/${t.id}`], 10000);
-        if (branch.code !== 0 && branch.code !== 1) {
-          kept.push({ id: t.id, reason: branch.stderr.trim() || "local branch check failed" }); continue;
-        }
-        // Empty task id preserves untransferred work on the remote task branch.
-        const remote = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, branch.code === 0 ? t.id : ""]);
+        const remote = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, await transferred(ctx, t) ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
         if (remote.code) { kept.push({ id: t.id, reason: remote.stderr.trim() || "remote cleanup failed" }); continue; }
       } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); continue; }
     }

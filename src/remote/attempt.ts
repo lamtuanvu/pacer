@@ -16,7 +16,7 @@ import { remoteExclusion } from "./eligibility";
 import { RemoteRunIO } from "./run-io";
 import { SCRIPTS } from "./scripts";
 import { transferBack } from "./transfer";
-import { runRemote, sshArgv } from "./ssh";
+import { payload, runRemote, sshArgv } from "./ssh";
 import { probeCodexUsage } from "./usage";
 
 const MAX_BUNDLE = 50 * 1024 * 1024;
@@ -67,7 +67,8 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const key = repoKey(origin.stdout.trim());
     if (!key || !host.repos[key]) return failed(`repo not set up on ${host.alias}`);
     const tag = `${key.split("/").at(-1)}-${createHash("sha1").update(key).digest("hex").slice(0, 8)}`;
-    const args = [host.repos[key], tag, task.id, baseSha, base];
+    const attempt = task.attempts.length + 1;
+    const args = [host.repos[key], tag, task.id, baseSha, base, String(attempt)];
     let prepared = await runRemote(ctx, host, SCRIPTS.PREPARE, args, { stdin: "" });
     if (prepared.code === 3 && prepared.stderr.includes("missing-base")) {
       const bundle = await baseBundle(ctx, git.top, task.id, baseSha);
@@ -75,20 +76,22 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
       const timer = setTimeout(() => proc.kill(), 60000);
       try {
         const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-        prepared = { stdout, stderr, code };
+        prepared = { stdout: payload(stdout), stderr, code };
       } finally { clearTimeout(timer); }
     }
     if (prepared.code) return failed(prepared.stderr || "remote preparation failed");
     const worktree = prepared.stdout.split("\n").find(l => l.startsWith("worktree="))?.slice(9);
     if (!worktree) return failed("remote preparation returned no worktree");
-    const attempt = task.attempts.length + 1, dir = runDir(ctx, task.id, attempt);
+    const remoteBranch = prepared.stdout.split("\n").find(l => l.startsWith("branch="))?.slice(7);
+    if (!remoteBranch) return failed("remote preparation returned no branch");
+    const dir = runDir(ctx, task.id, attempt);
     // PREPARE returns an absolute path rooted in the actual host HOME.
     const remoteDir = `${worktree.slice(0, worktree.indexOf("/.pacer-remote/"))}/.pacer-remote/runs/${task.id}/${attempt}`;
     const launch = remoteLaunch(cfg, worktree, remoteDir);
     mkdirSync(dir, { recursive: true });
     mkdirSync(tasksDir(ctx), { recursive: true });
     writeFileSync(join(dir, "argv"), launch.argv.join(" "));
-    const run: RunRef = { dir, attempt, executor: cfg.id, startedAt, mode: "new", workdir: worktree, logFile: log, host: host.alias, remoteDir, remoteWorktree: worktree, baseSha,
+    const run: RunRef = { dir, attempt, executor: cfg.id, startedAt, mode: "new", workdir: worktree, logFile: log, host: host.alias, remoteDir, remoteWorktree: worktree, remoteBranch, baseSha,
       ...(launch.lastMessageFile ? { lastMessageFile: join(dir, "last.md") } : {}) };
     updateTask(ctx, task.id, t => {
       t.run = run; t.baseBranch = base; t.worktree = `${host.alias}:${worktree}`;
@@ -98,7 +101,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const localRule = "- Do not commit, push, or change git branches.";
     const contractAt = built.lastIndexOf(localRule);
     const prompt = built.slice(0, contractAt)
-      + `- Work only on pacer/${task.id} and commit there; don't push or change git config; leave the worktree clean.`
+      + `- Work only on ${remoteBranch} and commit there; don't push or change git config; leave the worktree clean.`
       + built.slice(contractAt + localRule.length);
     const runner = resolveRunner(s, cfg.id)!, env: Record<string, string> = { PACER_ROLE: "executor" };
     const home = host.accounts[runner.account ?? ""]?.home;
@@ -110,7 +113,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     if (runner.agent === "codex") await probeCodexUsage(ctx, host, s.accounts[runner.account]);
     if (result.exec.timedOut) return result;
     if (result.exec.code !== 0) {
-      const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [worktree, baseSha, task.id]);
+      const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [worktree, baseSha, remoteBranch]);
       const commits = Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0);
       if (preflight.code || commits === 0) return result;
     }

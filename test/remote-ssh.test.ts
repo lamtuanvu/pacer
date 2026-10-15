@@ -3,7 +3,7 @@ import { chmodSync, existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { defaultRun } from "../src/ctx";
 import { SCRIPTS } from "../src/remote/scripts";
-import { controlDir, runRemote, sshArgv } from "../src/remote/ssh";
+import { controlDir, payload, payloadStream, runRemote, sshArgv } from "../src/remote/ssh";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
@@ -81,4 +81,19 @@ test("runRemote defaults to 60 seconds and forwards an explicit timeout", async 
   await runRemote(ctx, host, SCRIPTS.PROBE, []);
   await runRemote(ctx, host, SCRIPTS.PROBE, [], { timeoutMs: 1234 });
   expect(timeouts).toEqual([60_000, 1234]);
+});
+
+test("payload framing ignores partial and inline markers and preserves binary bytes", async () => {
+  const chatter = "inline __PACER_BEGIN__\nhello from profile\n";
+  expect(payload(`${chatter}__PACER_BEGIN__\nresult`)).toBe("result");
+  const bytes = Buffer.from([0, 255, 128, 10]);
+  const framed = Buffer.concat([Buffer.from(`${chatter}__PACER_BEGIN__\n`), bytes]);
+  for (let split = 0; split <= framed.length; split++) {
+    const stream = new ReadableStream<Uint8Array>({ start(c) {
+      c.enqueue(framed.subarray(0, split)); c.enqueue(framed.subarray(split)); c.close();
+    } });
+    const chunks = [];
+    for await (const chunk of payloadStream(stream)) chunks.push(chunk);
+    expect(Buffer.concat(chunks)).toEqual(bytes);
+  }
 });

@@ -19,7 +19,7 @@ import { type ExecResult, executorEnv } from "./process";
 import { buildPrompt } from "./prompt";
 import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
-import { transferBack } from "../remote/transfer";
+import { transferBack, transferred } from "../remote/transfer";
 import { taskWorktreePath, createTaskWorktree } from "../supervisor/worktree";
 import { gitFingerprint, idleSeconds, nextProgress } from "../supervisor/progress";
 
@@ -207,15 +207,14 @@ export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord
   if (!run.host || result.exec.timedOut || readTask(ctx, task.id)?.state === "stopped") return result;
   const host = loadStrategy(ctx).hosts[run.host];
   if (result.exec.code !== 0) {
-    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree!, run.baseSha!, task.id]);
+    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree!, run.baseSha!, run.remoteBranch ?? `pacer/${task.id}`]);
     if (preflight.code || Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0) === 0) return result;
   }
   // A runner may die after transfer but before recording the attempt. Reuse the
-  // review worktree when its branch already exists; never fetch over that ref.
+  // review worktree only when its branch matches the recorded transfer.
   const top = await gitInfo(ctx.run, task.brief.repo);
   const review = "error" in top ? undefined : taskWorktreePath(ctx, top.top, task.id);
-  const branch = await ctx.run(["git", "-C", task.brief.repo, "show-ref", "--verify", "--quiet", `refs/heads/pacer/${task.id}`], 10000);
-  if (branch.code === 0 && review && existsSync(review)) {
+  if (await transferred(ctx, task) && review && existsSync(review)) {
     result.worktree = review;
     return result;
   }

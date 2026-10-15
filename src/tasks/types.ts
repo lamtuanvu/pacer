@@ -62,6 +62,8 @@ export interface RunRef {
   host?: string;
   remoteDir?: string;
   remoteWorktree?: string;
+  remoteBranch?: string;
+  transferredHead?: string;
   baseSha?: string;
   dir: string;
   attempt: number;

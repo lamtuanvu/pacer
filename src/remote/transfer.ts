@@ -1,28 +1,40 @@
-import { mkdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { HostCfg } from "../config/hosts";
-import { execProcess } from "../exec/process";
 import { taskWorktreePath } from "../supervisor/worktree";
-import { tasksDir } from "../tasks/store";
+import { tasksDir, updateTask } from "../tasks/store";
 import type { RunRef, TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
-import { runRemote, sshArgv } from "./ssh";
+import { bundleToFile, runRemote } from "./ssh";
 
 type TransferResult = { ok: true; branch: string; commits: number; reviewWorktree: string } | { ok: false; reason: string; bundle?: string };
 
 /** Receive only committed task changes, after checking ancestry, cleanliness and identity. */
 export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef): Promise<TransferResult> {
-  const branch = `pacer/${task.id}`, ref = `refs/heads/${branch}`;
+  let branch = `pacer/${task.id}`, ref = `refs/heads/${branch}`;
+  const remoteBranch = run.remoteBranch ?? branch;
   let bundle: string | undefined;
   const fail = (reason: string): TransferResult => ({ ok: false, reason, ...(bundle ? { bundle } : {}) });
   const git = (...args: string[]) => ctx.run(["git", "-C", task.brief.repo, ...args], 60000);
   try {
     const exists = await git("show-ref", "--verify", "--quiet", ref);
-    if (exists.code === 0) return fail(`local branch ${branch} exists; not overwritten`);
-    if (exists.code !== 1) return fail(exists.stderr.trim() || "local branch check failed");
+    if (exists.code !== 0 && exists.code !== 1) return fail(exists.stderr.trim() || "local branch check failed");
     if (!run.remoteWorktree || !run.baseSha) return fail("remote run has no worktree or base");
-    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree, run.baseSha, task.id]);
+    let current = "";
+    if (exists.code === 0) {
+      const head = await git("rev-parse", "--verify", ref);
+      if (head.code) return fail("local branch check failed");
+      current = head.stdout.trim();
+      const ahead = await git("rev-list", "--count", `${run.baseSha}..${current}`);
+      if (ahead.code) return fail("local branch ancestry check failed");
+      if (ahead.stdout.trim() !== "0") {
+        branch += `-r${run.attempt}`;
+        ref = `refs/heads/${branch}`;
+        current = "";
+      }
+    }
+    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree, run.baseSha, remoteBranch]);
     if (preflight.code) return fail(preflight.stderr.trim() || "remote pre-flight failed");
     const facts = Object.fromEntries(preflight.stdout.trim().split("\n").map(line => {
       const at = line.indexOf("="); return [line.slice(0, at), line.slice(at + 1)];
@@ -42,25 +54,49 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
     const path = join(tasksDir(ctx), `${task.id}.bundle`);
     mkdirSync(dirname(path), { recursive: true });
     bundle = path;
-    const streamed = await execProcess({ argv: sshArgv(ctx, host, SCRIPTS.BUNDLE_OUT, [run.remoteWorktree, run.baseSha, task.id]), cwd: task.brief.repo, env: ctx.env, timeoutMs: 60000, stdoutFile: path, maxStdoutBytes: 50 * 1024 * 1024 });
+    const streamed = await bundleToFile(ctx, host, [run.remoteWorktree, run.baseSha, remoteBranch], path, 50 * 1024 * 1024);
     if (streamed.stdoutOverflow) return fail("bundle over 50 MB");
-    if (streamed.code || streamed.timedOut) return fail(streamed.stderr.trim() || "bundle stream failed");
+    if (streamed.code) return fail(streamed.stderr.trim() || "bundle stream failed");
     const verified = await git("bundle", "verify", path);
     if (verified.code) return fail(verified.stderr.trim() || "bundle verification failed");
     const heads = await git("bundle", "list-heads", path);
-    if (heads.code || heads.stdout.trim() !== `${facts.head} ${ref}`) return fail("bundle head differs from pre-flight");
-    // Fetch objects without a destination ref; create the sole allowed ref with
-    // compare-and-swap so a branch created during the stream is never overwritten.
-    const fetched = await git("fetch", "--no-tags", path, branch);
+    if (heads.code || heads.stdout.trim() !== `${facts.head} refs/heads/${remoteBranch}`) return fail("bundle head differs from pre-flight");
+    // Fetch objects without a destination ref; compare-and-swap the selected
+    // branch so changes made during the stream are never overwritten.
+    const fetched = await git("fetch", "--no-tags", path, remoteBranch);
     if (fetched.code) return fail(fetched.stderr.trim() || "bundle fetch failed");
-    const created = await git("update-ref", ref, facts.head, "0".repeat(facts.head.length));
-    if (created.code) return fail(`local branch ${branch} exists; not overwritten`);
     const top = await git("rev-parse", "--show-toplevel");
     if (top.code) return fail(top.stderr.trim() || "local repo root unavailable");
     const reviewWorktree = taskWorktreePath(ctx, top.stdout.trim(), task.id);
-    const added = await git("worktree", "add", "-q", reviewWorktree, branch);
+    const reuse = existsSync(reviewWorktree);
+    let switchBranch = false;
+    if (reuse) {
+      const checkedOut = await ctx.run(["git", "-C", reviewWorktree, "symbolic-ref", "HEAD"], 10000);
+      const status = await ctx.run(["git", "-C", reviewWorktree, "status", "--porcelain"], 10000);
+      if (checkedOut.code || ![ref, `refs/heads/pacer/${task.id}`].includes(checkedOut.stdout.trim()) || status.code || status.stdout.trim()) return fail("review worktree is occupied or dirty");
+      switchBranch = checkedOut.stdout.trim() !== ref;
+    }
+    const created = await git("update-ref", ref, facts.head, current || "0".repeat(facts.head.length));
+    if (created.code) return fail(`local branch ${branch} exists; not overwritten`);
+    let added;
+    if (reuse) {
+      added = switchBranch
+        ? await ctx.run(["git", "-C", reviewWorktree, "checkout", "-q", branch], 60000)
+        : await ctx.run(["git", "-C", reviewWorktree, "read-tree", "--reset", "-u", facts.head], 60000);
+    } else added = await git("worktree", "add", "-q", reviewWorktree, branch);
     if (added.code) return fail(added.stderr.trim() || "review worktree creation failed");
+    run.transferredHead = facts.head;
+    updateTask(ctx, task.id, t => {
+      if (t.run?.attempt === run.attempt) t.run.transferredHead = facts.head;
+    });
     unlinkSync(path);
     return { ok: true, branch, commits, reviewWorktree };
   } catch (e) { return fail(e instanceof Error ? e.message : String(e)); }
+}
+
+/** A branch name alone is not evidence that this remote result was received. */
+export async function transferred(ctx: Ctx, task: TaskRecord): Promise<boolean> {
+  if (!task.run?.transferredHead) return false;
+  const ref = await ctx.run(["git", "-C", task.brief.repo, "rev-parse", "--verify", `refs/heads/pacer/${task.id}`], 10000);
+  return ref.code === 0 && ref.stdout.trim() === task.run.transferredHead;
 }
