@@ -81,3 +81,25 @@ classifier:
 ## Named strategies
 
 Save named YAML files under `~/.pacer/strategies/`. `pacer strategy list` and `pacer strategy show` inspect them; `pacer use <name>` switches, and `pacer use default` returns to `strategy.yaml`. `pacer strategy preview` can compare a draft before saving; consult `pacer --help` for the strategy commands. `PACER=off` is the session escape hatch for planner enforcement.
+
+## Orca plugin transport
+
+The Orca plugin's `transport` setting accepts `auto | api | http | channel | bridge`
+and defaults to `auto`. This is a plugin setting, separate from `strategy.yaml`.
+
+| Value | Behavior |
+| --- | --- |
+| `auto` | Tries `api`, then `http`, `channel` and `bridge`, choosing the first reachable transport. |
+| `api` | Reads the v2 API over loopback HTTP when `pacer serve` is running, otherwise through a `pacer api --stdio` child. |
+| `http` | Uses the legacy loopback `pacer serve` link transport; requires the server. |
+| `channel` | Uses the `orca plugin send` channel transport, when available; deprecated. |
+| `bridge` | Reads the plugin storage bridge; deprecated. |
+
+Selecting a specific value forces that transport rather than automatic fallback.
+The storage bridge and channel remain supported for this release and will be
+removed in the next minor release.
+
+Panel buttons still require a live pacer console in the worktree: they send
+commands through `terminal.sendText`, and the console executes mapped commands
+as v2 operations. See the [panel commands decision](decisions/2026-10-14-orca-panel-commands.md)
+and the [upstream proposal](upstream/orca-panel-worker-call.md).

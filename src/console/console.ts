@@ -1,3 +1,5 @@
+import { runMappedCmd } from "../api/cmd";
+import { callOp } from "../api/ops";
 import { configCmd, CONFIG_KEYS } from "../commands/config";
 import { accountCmd, runnerCmd } from "../commands/accounts";
 import { pacerArgv } from "../install/self";
@@ -21,7 +23,7 @@ import { decodeCmdLine, splitCmdLines, summaryLine, type CmdData, type ConsoleDa
 import { currentSnapshot } from "../link/store";
 import { parseRunnerId } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
-import { taskStop } from "../tasks/api";
+import { spawnRunner, type taskStop } from "../tasks/api";
 import { readTask, updateTask, isTaskId, listTasks } from "../tasks/store";
 export interface ConsoleIO { lines: AsyncIterable<string>; write(text: string): void }
 export interface ConsoleDeps {
@@ -55,7 +57,7 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
   startDelegate(repo: string): void; chooseStrategy(): void; use(name: string): Promise<void>; refresh(): Promise<void>;
 }) {
   const fresh = (): Ctx => ({ ...ctx, now: Date.now() / 1000 });
-  const { startDelegate, chooseStrategy, use, refresh } = prompts;
+  const { startDelegate, chooseStrategy, refresh } = prompts;
   const validExecutor = (id?: string) => {
     if (!id) return true;
     const ids = deps.configuredExecutors?.(fresh()) ?? Object.keys(loadStrategy(fresh()).providers);
@@ -63,6 +65,8 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
     print(`pacer: unknown executor ${displayText(id)}`); return false;
   };
   return async (data: CmdData) => {
+    const r = await runMappedCmd((op, p) => callOp(fresh(), op, p, { spawnRunner }), data);
+    if (r.handled) { print(r.message); await refresh(); return; }
     switch (data.cmd) {
       case "config-set": {
         if(!data.key || !(CONFIG_KEYS as readonly string[]).includes(data.key) || typeof data.value!=="string") {print("pacer: unknown config key or missing value");break;}
@@ -132,28 +136,7 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
         } else startDelegate(repo || deps.cwd);
         break;
       }
-      case "block":
-      case "unblock": {
-        if(!data.executor || !validExecutor(data.executor))return;
-        try {
-          if(data.cmd === "block")core.runners.block(fresh(),data.executor,{for:data.for});else core.runners.unblock(fresh(),data.executor);
-        } catch(e) { print(`pacer: ${(e as Error).message}`); return; }
-        print(`${data.executor} ${data.cmd === "block" ? "Blocked by you" : "unblocked"}`);
-        await deps.pump(fresh());break;
-      }
-      case "dismiss": {
-        const ids = data.taskIds ?? (data.taskId ? [data.taskId] : []);
-        const r = core.tasks.dismiss(fresh(), ids);
-        for(const id of ids) {
-          const t = r.dismissed.find(x=>x.id===id);
-          if(!t) { print("pacer: unknown task"); continue; }
-          await publish(fresh(),[{v:1,type:"task",data:taskData(t)}]);
-          print(`${id} dismissed`);
-        }
-        await deps.pump(fresh()); break;
-      }
-      case "retry-all":
-      case "retry": {
+      case "retry-all": {
         if (!validExecutor(data.executor)) return;
         const ids = data.taskIds ?? (data.taskId ? [data.taskId] : []);
         for (const id of ids) {
@@ -173,11 +156,6 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
         }
         await deps.pump(fresh()); break;
       }
-      case "stop": {
-        const task = data.taskId ? (deps.taskStop ?? taskStop)(fresh(), data.taskId) : null;
-        print(task ? `${task.id} ${task.state}` : "pacer: unknown task");
-        if (task) await deps.pump(fresh()); break;
-      }
       case "strategy-build": {
         const selector=data.worktreeId ? `id:${data.worktreeId}` : data.branch ? `branch:${data.branch}` : "active";
         let opened=false, message="";
@@ -192,7 +170,7 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
         print(result.code===0 ? result.out : result.err);
         break;
       }
-      case "use": if (data.strategy) await use(data.strategy); else chooseStrategy(); break;
+      case "use": chooseStrategy(); break;
       case "refresh": await refresh(); break;
       case "agent-done": print(`agent finished (${data.paneKey ?? ""}); refreshing`); await deps.pump(fresh()); break;
       default: print("pacer: unknown plugin command"); break;

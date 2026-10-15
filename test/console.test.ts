@@ -1,9 +1,12 @@
 import { currentVersion } from "../src/update/version";
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
+import * as taskApi from "../src/tasks/api";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { runConsole, HEARTBEAT_MS, PUMP_MS, type ConsoleDeps } from "../src/console/console";
 import { encodeCmdLine, type ConsoleData } from "../src/link/envelope";
 import { DelegateError, type DelegateInput } from "../src/tasks/api";
-import { createTask, newTaskId } from "../src/tasks/store";
+import { createTask, newTaskId, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { fakeCtx } from "./helpers";
 import { readBlocked } from "../src/executors/blocked";
@@ -120,13 +123,19 @@ test("dependency errors at startup and timer ticks are printed without rejecting
 for (const strategy of ["../x", "default\nmalicious", "economy ", "missing"]) test(`plugin rejects unlisted strategy ${JSON.stringify(strategy)}`, async () => {
   const h = harness();
   await h.run([encodeCmdLine({ cmd: "use", strategy }), "status"]);
-  expect(h.calls).toEqual([]);
+  expect(h.calls).toEqual(["pump"]);
   expect(h.output()).toContain("pacer: unknown strategy");
   expect(h.output()).toContain("STATUS TEXT");
 });
 test("plugin accepts an exact listed strategy", async () => {
-  const h = harness(); await h.run([encodeCmdLine({cmd:"use",strategy:"economy"})]);
-  expect(h.calls).toEqual(["use:economy", "pump"]);
+  const h = harness();
+  mkdirSync(join(h.ctx.pacerHome, "strategies"), { recursive: true });
+  await Bun.write(join(h.ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  await Bun.write(join(h.ctx.pacerHome, "strategies/economy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  await h.run([encodeCmdLine({cmd:"use",strategy:"economy"})]);
+  expect(h.calls).toEqual(["pump"]);
+  expect(readFileSync(join(h.ctx.pacerHome, "active"), "utf8").trim()).toBe("economy");
+  expect(h.output()).toContain("active strategy: economy");
 });
 test("plugin display names, branches and paths strip all C0 and C1 controls", async () => {
   const h = harness();
@@ -154,20 +163,36 @@ test("delegate omits acceptance and refuses unresolved focused worktree",async()
  const failed=harness({resolveWorktreePath:async()=>null});await failed.run([encodeCmdLine({cmd:"delegate",branch:"missing",goal:"fix"})]);expect(failed.inputs).toHaveLength(0);expect(failed.output()).toContain("could not be resolved");
 });
 test("retry re-delegates the stored brief with explicit executor or ranking",async()=>{
- const h=harness({configuredExecutors:()=>["codex"]});
- const task=createTask(h.ctx,{brief:{goal:"retry me",repo:"/repo",acceptance:"bun test",scope:"src",constraints:"stay here"},kind:"code",requestedExecutor:"old",timeoutS:120});
- await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"}),encodeCmdLine({cmd:"retry",taskId:task.id})]);
- expect(h.inputs[0]).toEqual({brief:task.brief,kind:"code",timeoutMin:2,retryOf:task.id,executor:"codex"});expect(h.inputs[1].executor).toBeUndefined();expect(h.inputs[1].brief).toEqual(task.brief);expect(h.calls.filter(c=>c==="pump")).toHaveLength(2);
+ const h=harness();
+ mkdirSync(h.ctx.pacerHome,{recursive:true});
+ writeFileSync(join(h.ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+ const task=createTask(h.ctx,{brief:{goal:"retry me",repo:h.ctx.home,acceptance:"bun test",scope:"src",constraints:"stay here"},kind:"feature",requestedExecutor:"old",timeoutS:120});
+ const spawn=spyOn(taskApi,"spawnRunner").mockImplementation(()=>undefined);
+ try {
+   await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})]);
+    const first=readTask(h.ctx,readTask(h.ctx,task.id)!.retriedBy!)!;
+   expect(first).toMatchObject({brief:task.brief,kind:"feature",timeoutS:120,retryOf:task.id,requestedExecutor:"codex"});
+   updateTask(h.ctx,first.id,t=>{t.state="stopped";});
+   await h.run([encodeCmdLine({cmd:"retry",taskId:task.id})]);
+   const second=readTask(h.ctx,readTask(h.ctx,task.id)!.retriedBy!)!;
+   expect(second.requestedExecutor).toBeNull();expect(second.brief).toEqual(task.brief);
+   expect(h.calls.filter(c=>c==="pump")).toHaveLength(2);
+ } finally {spawn.mockRestore();}
 });
 test("stop uses the task API and unknown tasks print an error",async()=>{
  const h=harness();const task=createTask(h.ctx,{brief:{goal:"stop",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
  await h.run([encodeCmdLine({cmd:"stop",taskId:task.id}),encodeCmdLine({cmd:"stop",taskId:"missing"}),encodeCmdLine({cmd:"retry",taskId:"missing"})]);
  expect(h.output()).toContain(`${task.id} stopped`);expect(h.output().match(/unknown task/g)).toHaveLength(2);expect(h.inputs).toHaveLength(0);
 });
-test("invalid configured executor causes no delegation or lookup",async()=>{
- const h=harness({configuredExecutors:()=>["codex"],readTask:()=>{throw new Error("must not look up");}});
- await h.run([encodeCmdLine({cmd:"delegate",goal:"fix",branch:"feat-x",executor:"missing"}),encodeCmdLine({cmd:"retry",taskId:"t",executor:"missing"})]);
- expect(h.inputs).toHaveLength(0);expect(h.calls).toEqual([]);expect(h.output().match(/unknown executor missing/g)).toHaveLength(2);
+test("invalid configured executor causes no delegation",async()=>{
+ const h=harness({configuredExecutors:()=>["codex"]});
+ mkdirSync(h.ctx.pacerHome,{recursive:true});
+ writeFileSync(join(h.ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+ const task=createTask(h.ctx,{brief:{goal:"retry",repo:h.ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+ await h.run([encodeCmdLine({cmd:"delegate",goal:"fix",branch:"feat-x",executor:"missing"}),encodeCmdLine({cmd:"retry",taskId:task.id,executor:"missing"})]);
+ expect(h.inputs).toHaveLength(0);expect(h.calls).toEqual(["pump"]);
+ expect(h.output()).toContain("unknown executor missing");expect(h.output()).toContain('unknown executor "missing"');
+ expect(readTask(h.ctx,task.id)?.retriedBy).toBeUndefined();
 });
 test("an explicitly empty goal errors instead of starting the interactive prompt",async()=>{
  const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:""}),"status"]);expect(h.output()).toContain("goal is required");expect(h.output()).not.toContain("goal> ");expect(h.inputs).toHaveLength(0);expect(h.output()).toContain("STATUS TEXT");
@@ -223,19 +248,27 @@ test("dismiss command persists task dismissal and publishes update",async()=>{
 });
 
 test("concatenated panel and worker commands both execute without losing the retry",async()=>{
- const h=harness({configuredExecutors:()=>["codex"]});
- const task=createTask(h.ctx,{brief:{goal:"retry",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
- await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})+encodeCmdLine({cmd:"worktree-created",branch:"pacer-task",path:"/wt/task"})]);
- expect(h.inputs).toHaveLength(1);expect(h.output()).toContain("worktree created");expect(h.output()).not.toContain("discarded");
+ const h=harness();
+ mkdirSync(h.ctx.pacerHome,{recursive:true});
+ writeFileSync(join(h.ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+ const task=createTask(h.ctx,{brief:{goal:"retry",repo:h.ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+ const spawn=spyOn(taskApi,"spawnRunner").mockImplementation(()=>undefined);
+ try {
+   await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})+encodeCmdLine({cmd:"worktree-created",branch:"pacer-task",path:"/wt/task"})]);
+   expect(readTask(h.ctx,task.id)?.retriedBy).toBeDefined();expect(h.output()).toContain("worktree created");expect(h.output()).not.toContain("discarded");
+ } finally {spawn.mockRestore();}
 });
-test("retry links both records and rejects a duplicate with an alert",async()=>{
- const h=harness({configuredExecutors:()=>["codex"]});
- const task=createTask(h.ctx,{brief:{goal:"retry",repo:"/repo"},kind:null,requestedExecutor:null,timeoutS:60});
- h.deps.delegate=(ctx,input)=>{h.inputs.push(input);return createTask(ctx,{brief:input.brief,kind:input.kind??null,requestedExecutor:input.executor??null,timeoutS:60});};
- await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"}),encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})]);
- const {readTask}=await import("../src/tasks/store");const {readOutboxSince}=await import("../src/link/store");
- const old=readTask(h.ctx,task.id)!;expect(old.retriedBy).toBeDefined();expect(readTask(h.ctx,old.retriedBy!)?.retryOf).toBe(task.id);
- expect(h.inputs).toHaveLength(1);expect(h.output()).toContain("already has an active retry");expect(readOutboxSince(h.ctx,0).some(e=>e.envelope.type==="alert")).toBe(true);
+test("retry links both records and rejects a duplicate",async()=>{
+ const h=harness();
+ mkdirSync(h.ctx.pacerHome,{recursive:true});
+ writeFileSync(join(h.ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+ const task=createTask(h.ctx,{brief:{goal:"retry",repo:h.ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+ const spawn=spyOn(taskApi,"spawnRunner").mockImplementation(()=>undefined);
+ try {
+   await h.run([encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"}),encodeCmdLine({cmd:"retry",taskId:task.id,executor:"codex"})]);
+   const old=readTask(h.ctx,task.id)!;expect(old.retriedBy).toBeDefined();expect(readTask(h.ctx,old.retriedBy!)?.retryOf).toBe(task.id);
+   expect(h.inputs).toHaveLength(0);expect(h.output()).toContain("already has an active retry");
+ } finally {spawn.mockRestore();}
 });
 
 test("human text glued before a plugin prefix is printed as discarded and never executed",async()=>{

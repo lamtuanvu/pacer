@@ -1,3 +1,5 @@
+import { HttpClient } from "../../src/api/http-client";
+import { StdioClient } from "../../src/api/stdio-client";
 import { writeLiveHeartbeat, removeLiveHeartbeat } from "../../src/plugin/live";
 import { checkForUpdate, readUpdateCheck } from "../../src/update/check";
 import { execFile } from "node:child_process";
@@ -82,6 +84,22 @@ let log = (message: string) => {};
 const workerEnv = {...process.env};
 const pacerHome = workerEnv.PACER_HOME || join(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
 const plugin = createPlugin({
+  async connect(settings) {
+    const base = `http://127.0.0.1:${settings.port}`;
+    try {
+      const health = await http.get(`${base}/health`, "", 500);
+      if (health.status === 200 && health.headers?.["x-pacer"] === "1") {
+        const token = readFileSync(join(settings.pacerHome, "token"), "utf8").trim();
+        if (token) return new HttpClient(base, token);
+      }
+    } catch { /* No identified daemon with a token; use a headless client. */ }
+    try {
+      const binary = workerEnv.PACER_BIN || (existsSync(join(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+      // The binary is resolved here, so the worker never imports pacer's task code to find itself.
+      const env = { ...workerEnv, PACER_BIN: binary, PACER_HOME: settings.pacerHome };
+      return new StdioClient([binary], env, { log: m => log(m) });
+    } catch { return null; }
+  },
   version: PLUGIN_VERSION,
   cachedUpdate: () => readUpdateCheck({pacerHome,env:workerEnv}, PLUGIN_VERSION),
   reportVersion(mode, version) { mkdirSync(pacerHome, {recursive:true}); const path=join(pacerHome,"plugin-version.json"), temp=`${path}.${process.pid}.tmp`; writeFileSync(temp,JSON.stringify({mode,version})); renameSync(temp,path); },
