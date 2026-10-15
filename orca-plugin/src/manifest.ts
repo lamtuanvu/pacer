@@ -6,23 +6,18 @@ export function pluginManifest(version: string) {
     repository: "https://github.com/lamtuanvu/pacer",
     name: "pacer",
     version,
-    description: "Budget-aware delegation: pacer's budget panel, delegate and strategy commands, and worker-finished signals.",
+    description: "pacer's budget and task status at a glance. Act in the pacer app or `pacer dashboard`.",
     engines: { orca: ">=1.4.224" },
     pluginApi: 1,
     main: "worker.mjs",
     icon: "assets/pacer-mark.svg",
     contributes: {
-      panels: [{ id: "budget", title: "pacer budget", icon: "gauge", entry: "panel/live.html" }],
-      commands: [
-        { id: "delegate", title: "pacer: Delegate", context: "worktree" },
-        { id: "switch-strategy", title: "pacer: Switch strategy", context: "global" },
-        { id: "refresh-status", title: "pacer: Refresh status", context: "global" },
-        { id: "open-console", title: "pacer: Open pacer console", context: "global" },
-      ],
-      events: [{ on: "agent.status.changed" }, { on: "worktree.created" }],
+      panels: [{ id: "budget", title: "pacer", icon: "gauge", entry: "panel/live.html" }],
+      commands: [{ id: "open", title: "pacer: Open", context: "global" }],
+      events: [],
     },
     capabilities: [
-      { kind: "workspace:read" }, { kind: "terminal:send" }, { kind: "notifications:show" },
+      { kind: "workspace:read" }, { kind: "notifications:show" },
       { kind: "events:subscribe" }, { kind: "storage" }, { kind: "settings:own" },
     ],
   } as const;

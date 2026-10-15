@@ -1,51 +1,59 @@
 import type { SetupChecklist } from "../../src/setup/checklist";
 import type { PluginUpdates } from "./updates";
-import type { BootstrapState } from "./bootstrap";
-import { LIMITS, type CmdData, type LinkSnapshot } from "../../src/link/envelope";
+import { MANUAL_INSTALL, type BootstrapState } from "./bootstrap";
+import type { LinkSnapshot, ProviderLine } from "../../src/link/envelope";
 import type { TransportId } from "./transports/choose";
-import { h, jsonForScript, packPanelData } from "./panel/shared";
-import { providerLabel, initialView, rankedProviders, mutedProviders, providerDetail, unavailableDetail, tone, verdictWords } from "./panel/model";
-import { overview } from "./panel/overview";
-import { setup, checklist, legacyChecklist } from "./panel/setup";
-import { delegateView } from "./panel/delegate";
-import { style, settingsStyle } from "./panel/style";
-import { paths } from "./panel/icons";
-import { strategyView } from "./panel/strategy";
-import { client } from "./panel/client";
-import { settingsView, type SettingsView } from "./panel/settings";
+import { accountGroups } from "../../src/render/accounts";
+import { h } from "./panel/shared";
+import { providerLabel, headline, verdictWords } from "./panel/model";
+import { meter, placementLine } from "./panel/overview";
+import { displayName, mark } from "./panel/icons";
+import { style } from "./panel/style";
 export { escapeHtml, jsonForScript } from "./panel/shared";
-export interface AutoConsoleOutcome { status: string; at: number }
-export function renderPanel(s:LinkSnapshot, view:SettingsView & {setup?:SetupChecklist;updates?:PluginUpdates;nowS:number;transport:TransportId|null;reachable:boolean;autoConsole?:boolean;notifications?:"off"|"important"|"all";lastSeenAt?:number;autoConsoleOutcome?:AutoConsoleOutcome;bootstrap?:BootstrapState}):string {
- const reconnecting = !view.reachable && !!s.budget && view.lastSeenAt !== undefined && view.nowS-view.lastSeenAt >= 0 && view.nowS-view.lastSeenAt < 20;
- const consoles=[...(s.consoles ?? []), ...(s.console ? [s.console] : [])].filter(c=>c.handle && view.nowS-c.heartbeatAt<=LIMITS.heartbeatS).filter((c,i,a)=>a.findIndex(x=>x.handle===c.handle)===i), console=consoles[0], setupState=view.setup??(view.bootstrap?legacyChecklist(s,view.nowS,view.reachable,view.bootstrap):undefined), selected=setupState ? setupState.complete?"overview":"setup" : reconnecting ? "overview" : initialView(s,view.reachable,view.nowS);
- const commands:Record<string,CmdData>={checkSetup:{cmd:"check-setup"},refresh:{cmd:"refresh"},c:{cmd:"check-updates"},u:{cmd:"update"}};
- const text:Record<string,string>={};
- const connected=view.bootstrap?.agents.filter(a=>a.installed).map(a=>a.name) ?? [];
- const knownVersion=view.updates?.cli || view.updates?.plugin || s.console?.version;
- const updates = knownVersion || view.updates?.latest || view.updates?.available ? `<section class="card stack updates" data-updates><strong>${view.updates?.available ? `Update available${view.updates.latest?`: ${h(view.updates.latest)}`:""}` : knownVersion?`pacer ${h(knownVersion)}${view.updates?.latest?" · up to date":""}`:`Latest pacer ${h(view.updates?.latest)}`}</strong><div class="actions"><button data-command="c">Check for updates</button>${view.updates?.available ? '<button data-command="u">Update</button>' : ''}</div></section>` : "";
- const rows=(setupState?.complete?`<details class="card stack setup-summary"><summary>Setup ✓</summary>${checklist(setupState,!!console)}</details>`:"")+updates+(connected.length ? `<small class="muted">Connected: ${h(connected.join(", "))}</small>` : "");
- const reasonText = (view.autoConsole ?? true) ? "The pacer console for this worktree is starting. Try again in a few seconds." : "Start the console first.";
- const feedback=console?"":`<p data-status role="status" aria-live="polite" class="action-status">${h(reasonText)}</p>`;
- const main=overview(s,view.nowS,view.reachable,commands,text,rows,feedback);
- const disable=(html:string)=>console ? html : html.replace(/(data-command="[^\"]+"|data-live)(?=[ >])/g,"$1 disabled");
- const settings=settingsView(s,view,!!console,commands);
- const cfg=view.strategyConfig;
- const settingsState=cfg?{values:{planner:Object.values(cfg.runners).find(r=>r.agent===cfg.planner.agent&&r.account===cfg.planner.account)?.id??cfg.planner.agent,"pacing.order":cfg.pacing.order.join(","),"pacing.policy":cfg.pacing.policy,"pacing.planner_reserve":String(cfg.pacing.plannerReserve),"pacing.accounts":cfg.pacing.accounts,"pacing.fill_threshold":String(cfg.pacing.fillThreshold),update_check:String(view.updateCheck!==false)},accounts:Object.keys(cfg.accounts),runners:Object.keys(cfg.runners)}:undefined;
- const payload = {prefs:settingsState,focusAlerts:s.alerts.filter(a=>a.key.startsWith("focus-")),notifications:view.notifications??"important",actionErrors:s.alerts.filter(a=>(a.key.startsWith("retry-")||a.key.startsWith("focus-"))&&a.level!=="info").map(a=>({key:a.key,at:a.at,body:a.body})),sequence:s.seq,tasks:s.tasks.map(t=>({id:t.id,state:t.state,goal:t.goal,retryOf:t.retryOf,retriedBy:t.retriedBy,dismissed:t.dismissed})),autoConsole:view.autoConsole ?? true,buildAlert:s.alerts.find(a=>a.key==="strategy-build")??null,consoles:consoles.map(c=>({handle:c.handle,live:true})),strategies:s.strategies?.length?s.strategies:[s.budget?.strategy??"default"],strategy:s.budget?.strategy??"default",savedAlerts:s.alerts.filter(a=>a.key.startsWith("strategySaved-")),snapshotAt:s.budget?.generatedAt??s.at,updatedAt:s.at,reachable:view.reachable,commands,text,paths:Object.fromEntries(Object.entries(paths).filter(([id])=>[...rankedProviders(s),...mutedProviders(s)].some(p=>p.id===id))),rows:rankedProviders(s).map(p=>({id:p.id,...(p.id.includes("#")?{name:providerLabel(p)}:{}),...(p.agent?{agent:p.agent,account:p.account}:{}),usedPct:p.usedPct,pacePct:p.pacePct,detail:providerDetail(p,view.nowS),tone:tone(p.verdict),words:verdictWords(p.verdict),blocked:false})),muted:mutedProviders(s).map(p=>({id:p.id,...(p.id.includes("#")?{name:providerLabel(p)}:{}),...(p.agent?{agent:p.agent,account:p.account}:{}),verdict:p.verdict,detail:unavailableDetail(p,view.nowS),blocked:!!p.blockedReason}))};
- const strategy=strategyView(s,view.nowS,view.reachable,view.notifications??"important");
- const outcome=view.autoConsoleOutcome, waiting= !outcome || (outcome.status === "starting" && view.nowS-outcome.at<15);
- const reason=outcome ? outcome.status === "older-console" ? "An older pacer console is running here; it restarts automatically after updates. A fresh console is starting." : outcome.status === "starting" ? "Console startup is taking longer than expected." : `Auto-open: ${outcome.status}.` : "Press Enter in the terminal to start it.";
- const consoleHint=waiting && view.transport === "http" && (view.autoConsole ?? true) && view.reachable ? `<small class="muted"><span class="console-spinner" aria-hidden="true">◐</span> Starting pacer console in this worktree...</small>` : `<button type="button" data-setup="pacer console">Start console</button><small>${h(reason)}</small>`;
- const packed=packPanelData(payload), plain=jsonForScript(packed), encoded=jsonForScript({encoded:Buffer.from(JSON.stringify(packed),"utf8").toString("base64")});
- const data=encoded.length<plain.length?encoded:plain;
 
- return `<!doctype html><html lang="en" data-transport="${h(view.transport??"none")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer budget</title><style>${(style+(cfg?settingsStyle:"")).replace(/;}/g,"}").replace(/\n+/g,"")}</style></head><body>
- <main class="view" data-page="overview"${selected==="overview"?"":" hidden"}>${reconnecting?'<div role="status" class="note">Reconnecting...</div><div style="opacity:.45;pointer-events:none" inert>'+disable(main)+"</div>":disable(main)}</main>
- <main class="view" data-page="setup"${selected==="setup"?"":" hidden"}>${setup(s,view.nowS,view.reachable,view.bootstrap,setupState,!!console,`<div id="console-hint" class="note stack" hidden><strong>No pacer console in this worktree</strong>${consoleHint}</div>`)}</main>
- <main class="view" data-page="delegate" hidden>${disable(delegateView(s,view.nowS,view.reachable))}</main>
- <main class="view" data-page="strategy" hidden>${disable(strategy)}</main>
- <main class="view" data-page="settings" hidden>${settings}</main>
- <p id="status" role="status" aria-live="polite" hidden></p>
- <script type="application/json" id="pacer-actions">${data}</script><script>
-${client(!!s.budget?.providers.some(p=>p.agent)).replace(/^ *\/\/[^\n]*\n/gm, "").replace(/^ +/gm, "").replace(/\n\s*\n/g,"\n").replace(/^ *\/\/[^\n]*$/gm, "").replace(/\n/g,"")}</script></body></html>`.replace(/<button type="button"/g,"<button");
+export interface StatusView {
+ nowS:number; reachable:boolean; transport:TransportId|null;
+ updates?:PluginUpdates; setup?:SetupChecklist; bootstrap?:BootstrapState;
+}
+// Compatibility with the worker until its console controls are retired.
+export interface AutoConsoleOutcome { status:string; at:number }
+export function renderPanel(s:LinkSnapshot, view:StatusView & {autoConsole?:boolean;notifications?:"off"|"important"|"all";lastSeenAt?:number;autoConsoleOutcome?:AutoConsoleOutcome}):string {
+ return renderStatusPage(s,view);
+}
+function absolute(at:number, now:number, weekday=false):string {
+ const date=new Date(at*1000), today=new Date(now*1000);
+ const clock=date.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",hour12:false});
+ return weekday || date.toDateString()!==today.toDateString() ? `${date.toLocaleDateString("en-GB",{weekday:"short"})} ${clock}` : clock;
+}
+const percent=(p:ProviderLine)=>p.usedPct===null?"Usage unknown":`${Math.round(p.usedPct)}% used`;
+const section=(title:string,body:string)=>`<section class="stack section"><h2>${title}</h2>${body}</section>`;
+function checklist(setup:SetupChecklist):string {
+ const rows=(required:boolean)=>setup.items.filter(i=>i.required===required).map(i=>`<div class="step ${h(i.status)}"><span aria-hidden="true">${i.status==="done"?"✓":i.status==="failed"?"!":"·"}</span><div class="stack"><strong>${h(i.title)}</strong><small>${h(i.status)}${i.detail?` · ${h(i.detail)}`:""}</small></div></div>`).join("");
+ const optional=rows(false);
+ return `${rows(true)}${optional?`<div class="stack"><strong>Optional</strong>${optional}</div>`:""}`;
+}
+export function renderStatusPage(s:LinkSnapshot, view:StatusView):string {
+ const {nowS}=view, providers=s.budget?.providers??[], planner=providers.find(p=>p.id===s.budget?.planner);
+ const reset=(p:ProviderLine,weekday=false)=>p.resetsAt===null?"Reset unknown":`Resets ${absolute(p.resetsAt,nowS,weekday)}`;
+ const mode=s.mode?.mode??s.budget?.mode??"unknown";
+ const header=`<header><span class="brand name">${mark}pacer</span><span class="pill">${h(mode.replace(/^./,c=>c.toUpperCase()))}</span><span class="grow"></span><span class="live">${view.reachable?"Live · updated":"Not connected · last data"} ${h(absolute(s.at,nowS))}</span></header>`;
+ let content:string;
+ if(view.bootstrap && !s.budget && !view.setup?.complete) {
+  const steps=(["install","start"] as const).map(name=>{const step=view.bootstrap![name];return `<p><strong>${name}: ${h(step.status)}</strong>${step.detail?` · ${h(step.detail)}`:""}</p>`;}).join("");
+  content=section("Welcome to pacer","<p>pacer tracks your AI account budgets and task status. It helps you pace planning and delegate work to available executors.</p>")+section("Install",`<pre><code>${h(MANUAL_INSTALL)}</code></pre><pre><code>pacer init</code></pre>${steps}`)+section("Live panel","<p>The live panel opens automatically once pacer is installed and the plugin restarts.</p>")+section("Act in pacer","<p>Run <code>pacer dashboard</code> in a terminal to delegate, review or change settings.</p>");
+ } else {
+  const accounts=accountGroups(providers).flatMap(group=>{
+   // Legacy providers have no account identity and must retain separate budgets.
+   const rows=group.account?[group.rows]:group.rows.map(p=>[p]);
+   return rows.map(runners=>{const p=runners[0];return `<div class="account card stack"><strong>${h(group.account??providerLabel(p))}</strong><span>${h(verdictWords(p.verdict))} · ${h(percent(p))}${p.stale?' · <span class="pill">stale</span>':""}</span>${meter(p,true)}<small>${h(p.window??"Window unknown")} · ${h(reset(p))}</small><small>Runners: ${h(runners.map(providerLabel).join(", "))}</small></div>`;});
+  }).join("");
+  const running=s.tasks.filter(t=>t.state==="running"||t.state==="queued").map(t=>`<div class="card stack"><strong>${h(t.goal.slice(0,100))}</strong><small>${h(t.executor?displayName(t.executor):"Executor pending")} · ${h(t.state)} · started ${h(absolute(t.attemptStartedAt??t.updatedAt,nowS))}${t.progress?` · ${h(t.progress.phase)}`:""}</small>${placementLine(t)}</div>`).join("");
+  const waiting=s.tasks.filter(t=>!t.review&&!t.dismissed&&(t.state==="partial"||t.state==="done")).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,10).map(t=>`<div class="card stack"><strong>${h(t.goal)}</strong><small>${h(t.executor?displayName(t.executor):"Executor unknown")} · finished ${h(absolute(t.updatedAt,nowS))}</small><small>${h(t.worktree??"Worktree unknown")}</small></div>`).join("");
+  const alerts=s.alerts.filter(a=>a.level==="warn"||a.level==="error").sort((a,b)=>b.at-a.at).slice(0,5).map(a=>`<div class="card stack"><strong>${h(a.title)}</strong><p>${h(a.body.slice(0,200))}</p><small>${h(absolute(a.at,nowS))}</small></div>`).join("");
+  const versions=`<p>pacer ${h(view.updates?.cli??s.console?.version??"unknown")} · plugin ${h(view.updates?.plugin??"unknown")}</p>${view.updates?.available?`<p>Update available: ${h(view.updates.latest??"unknown")} · <code>pacer update</code></p>`:""}`;
+  content=section("Planner",`<div class="card stack">${planner?`<div class="row"><strong class="grow">${h(providerLabel(planner))}</strong><span>${h(percent(planner))}</span></div>${meter(planner)}<small>${h(reset(planner,true))}</small>`:"<small>Planner unknown · Reset unknown</small>"}<p class="headline">${h(headline(planner))}</p></div>`)+section("Accounts",accounts||"<small>No accounts reported.</small>")+section("Running",running||"<small>No tasks running.</small>")+section("Waiting for review",`${waiting||"<small>No tasks waiting for review.</small>"}<p>Review with <code>pacer review &lt;id&gt;</code> or in the pacer app.</p>`)+section("Alerts",alerts||"<small>No alerts.</small>")+section("Versions",versions);
+ }
+ if(view.setup&&!view.setup.complete)content+=section("Setup",`${checklist(view.setup)}<pre><code>pacer init</code></pre>`);
+ const footer='<footer>pacer shows information here. To delegate, review, block executors or change settings, run <code>pacer dashboard</code> in a terminal (the pacer app replaces it soon).</footer>';
+ return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
 }

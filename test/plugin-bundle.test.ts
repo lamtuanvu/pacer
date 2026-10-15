@@ -13,3 +13,8 @@ test("worker bundle excludes core modules", async () => {
   const worker = await Bun.file("orca-plugin/dist/worker.mjs").text();
   for (const marker of ["unknown operation", "rankExecutors", "runTask(", "selfCommand", "spawnRunner"]) expect(worker).not.toContain(marker);
 });
+
+test("worker bundle has no console or terminal calls", async () => {
+ const worker=await Bun.file("orca-plugin/dist/worker.mjs").text();
+ for(const token of ["terminal.sendText","/console/open","/console/forget"])expect(worker).not.toContain(token);
+});

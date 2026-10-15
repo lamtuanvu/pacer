@@ -79,7 +79,10 @@ test("downloads permit five HTTPS redirects, reject downgrade, missing location 
 test("setup panel renders real readiness and escaped failures",()=>{
  const state:BootstrapState={install:{status:"done"},start:{status:"done"},agents:[{id:"codex",name:"Codex",installed:false,files:["~/.codex/hooks.json"],undo:"pacer uninstall codex"}]};
  const html=renderPanel(emptySnapshot(),{nowS:0,transport:null,reachable:false,bootstrap:state});
- expect(html).toContain("Codex");expect(html).toContain("Optional</h2>");expect(html).toContain("Not connected");expect(html).toContain("pacer init");expect(html).toContain("Re-checks every 5 seconds");
+ expect(html).toContain("Not connected");expect(html).toContain("pacer init");
+ expect(html).toContain("install: done");expect(html).toContain("start: done");
+ const failed=renderPanel(emptySnapshot(),{nowS:0,transport:null,reachable:false,bootstrap:{...state,install:{status:"failed",detail:"<bad install>"}}});
+ expect(failed).toContain("install: failed");expect(failed).toContain("&lt;bad install&gt;");expect(failed).not.toContain("<bad install>");
 });
 
 test("bootstrap settings override release env and unsupported platform fails without downloads",async()=>{
