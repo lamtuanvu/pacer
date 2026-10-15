@@ -7922,7 +7922,19 @@ function legacyToAccounts(raw) {
     runners[agent] = { id: agent, name: agent, host: null, agent, account: agent, model: accounts[agent].model };
   return { accounts, runners, planner, runnerAliases };
 }
-function parseAccounts(raw, problems) {
+function validateRemoteRunner(reference, parsed, account, defaults, hosts, problems) {
+  if (!parsed.host)
+    return;
+  const at = `runner ${reference}`;
+  const host = Object.hasOwn(hosts, parsed.host) ? hosts[parsed.host] : undefined;
+  if (!host)
+    problems.push(`${at}: unknown host ${parsed.host} (hosts: ${Object.keys(hosts).join(", ") || "none"})`);
+  if (!["codex", "claude-code"].includes(parsed.agent))
+    problems.push(`${at}: remote runners support codex and claude-code`);
+  if (host && account && account !== defaults[parsed.agent] && !Object.hasOwn(host.accounts, account))
+    problems.push(`${at}: account ${account} on ${parsed.host} needs hosts.${parsed.host}.accounts.${account}.home`);
+}
+function parseAccounts(raw, problems, hosts = {}) {
   const accounts = {};
   const runners = {};
   if (!isObj2(raw.accounts) || !Object.keys(raw.accounts).length)
@@ -7971,7 +7983,7 @@ function parseAccounts(raw, problems) {
     problems.push("runners must be a mapping");
   for (const [name, value] of Object.entries(entries)) {
     if (isObj2(value) && value.agent && value.account)
-      runnerAliases[name] = formatRunnerId({ agent: value.agent, account: String(value.account), host: null }, defaults);
+      runnerAliases[name] = formatRunnerId({ agent: value.agent, account: String(value.account), host: parseRunnerId(name)?.host ?? null }, defaults);
   }
   const add = (reference, value = {}) => {
     const at = `runner ${reference}`;
@@ -7980,20 +7992,17 @@ function parseAccounts(raw, problems) {
       problems.push(`${at}: must be a mapping`);
     const declared = parseRunnerId(reference);
     const explicit = c.agent !== undefined || c.account !== undefined;
-    if (declared?.host && explicit)
-      problems.push("remote runners aren't supported yet");
     if (declared && explicit && (declared.agent !== c.agent || (declared.account ?? defaults[declared.agent]) !== c.account))
       problems.push(`${at}: declaration conflicts with runner id identity`);
-    const parsed = explicit ? { agent: c.agent, account: c.account, host: null } : parseRunnerId(runnerAliases[reference] ?? reference) ?? (accounts[reference]?.kind === "endpoint" ? { agent: "opencode", account: reference, host: null } : null);
+    const parsed = explicit ? { agent: c.agent, account: c.account, host: declared?.host ?? null } : parseRunnerId(runnerAliases[reference] ?? reference) ?? (accounts[reference]?.kind === "endpoint" ? { agent: "opencode", account: reference, host: null } : null);
     if (!parsed || !AGENTS.includes(parsed.agent)) {
       problems.push(`${at}: invalid runner id or unknown agent`);
       return null;
     }
-    if (parsed.host)
-      problems.push("remote runners aren't supported yet");
     if (parsed.agent === "opencode" && reference === "opencode" && !accounts.opencode)
       return null;
     const account = parsed.account ?? defaults[parsed.agent];
+    validateRemoteRunner(reference, parsed, account, defaults, hosts, problems);
     if (!account) {
       problems.push(`${at}: no default account for ${parsed.agent}`);
       return null;
@@ -8027,6 +8036,8 @@ function parseAccounts(raw, problems) {
   const plannerRaw = isObj2(raw.planner) ? raw.planner : {};
   const plannerRef = plannerRaw.agent === "opencode" && plannerRaw.account === "opencode" && !accounts.opencode ? "opencode" : typeof raw.planner === "string" ? raw.planner : formatRunnerId({ agent: plannerRaw.agent, account: plannerRaw.account, host: null }, defaults);
   const plannerRunner = add(plannerRef, typeof raw.planner === "string" ? {} : plannerRaw);
+  if (plannerRunner?.host)
+    problems.push("the planner can't run on a host");
   const planner = plannerRunner ? { agent: plannerRunner.agent, account: plannerRunner.account } : { agent: "opencode", account: "opencode" };
   if (!["claude-code", "codex", "cursor", "opencode"].includes(planner.agent))
     problems.push("planner must be one of claude-code, codex, cursor, opencode");
@@ -8053,7 +8064,7 @@ function parseRunnerId(id) {
   const m = /^([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?(?:@([a-z0-9][a-z0-9-]*))?$/.exec(id);
   if (!m || !AGENTS.includes(m[1]))
     return null;
-  return { agent: m[1], account: m[2] ?? null, host: m[3] ?? null };
+  return { agent: m[1], account: m[2] ?? null, host: m[3] === "local" ? null : m[3] ?? null };
 }
 function runnerDefaults(accounts) {
   const defaults = {};
@@ -8065,7 +8076,7 @@ function runnerDefaults(accounts) {
   return defaults;
 }
 function formatRunnerId(id, defaults) {
-  return id.agent + (id.account && id.account !== defaults[id.agent] ? `#${id.account}` : "") + (id.host ? `@${id.host}` : "");
+  return id.agent + (id.account && id.account !== defaults[id.agent] ? `#${id.account}` : "") + (id.host && id.host !== "local" ? `@${id.host}` : "");
 }
 function resolveRunner(s, idOrAlias) {
   if (Object.hasOwn(s.runners, idOrAlias))
@@ -8080,6 +8091,73 @@ function resolveRunner(s, idOrAlias) {
   delete defaults.opencode;
   const canonical = formatRunnerId(id, defaults);
   return Object.hasOwn(s.runners, canonical) ? s.runners[canonical] : null;
+}
+
+// src/config/hosts.ts
+var aliasPattern = /^[a-z0-9][a-z0-9-]*$/;
+var canonicalPattern = /^[a-z0-9][a-z0-9.-]*\/[a-z0-9._-]+\/[a-z0-9._-]+$/;
+var canonical = (key) => canonicalPattern.test(key) && !key.endsWith(".git");
+function parseHosts(raw, problems) {
+  const hosts = {};
+  if (raw === undefined)
+    return hosts;
+  if (!isObj2(raw)) {
+    problems.push("hosts must be a mapping");
+    return hosts;
+  }
+  const unknownKeys = (value, allowed, at) => {
+    for (const key of Object.keys(value))
+      if (!allowed.includes(key))
+        problems.push(`${at}: unknown key ${key}`);
+  };
+  for (const [alias, value] of Object.entries(raw)) {
+    const at = `hosts.${alias}`;
+    if (alias === "local")
+      problems.push('hosts: "local" is reserved');
+    if (!aliasPattern.test(alias))
+      problems.push(`${at}: invalid host alias`);
+    if (!isObj2(value)) {
+      problems.push(`${at} must be a mapping`);
+      continue;
+    }
+    unknownKeys(value, ["ssh", "repos", "max_tasks", "accounts"], at);
+    if (typeof value.ssh !== "string" || !/^[A-Za-z0-9._@][A-Za-z0-9._@-]*$/.test(value.ssh))
+      problems.push(`${at}.ssh must be an ssh alias`);
+    const maxTasks = value.max_tasks === undefined ? 2 : value.max_tasks;
+    if (typeof maxTasks !== "number" || !Number.isInteger(maxTasks) || maxTasks < 1 || maxTasks > 16)
+      problems.push(`${at}.max_tasks must be 1..16`);
+    const repos = {};
+    if (value.repos !== undefined && !isObj2(value.repos))
+      problems.push(`${at}.repos must be a mapping`);
+    else
+      for (const [key, path] of Object.entries(isObj2(value.repos) ? value.repos : {})) {
+        if (!canonical(key))
+          problems.push(`${at}.repos: ${key} is not a canonical repo key (host/owner/repo)`);
+        if (typeof path !== "string" || !path.trim())
+          problems.push(`${at}.repos.${key} must be a non-empty path`);
+        else
+          Object.defineProperty(repos, key, { value: path, enumerable: true, configurable: true, writable: true });
+      }
+    const accounts = {};
+    if (value.accounts !== undefined && !isObj2(value.accounts))
+      problems.push(`${at}.accounts must be a mapping`);
+    for (const [account, cfg] of Object.entries(isObj2(value.accounts) ? value.accounts : {})) {
+      const accountAt = `${at}.accounts.${account}`;
+      if (!aliasPattern.test(account))
+        problems.push(`${accountAt}: invalid account name`);
+      if (!isObj2(cfg)) {
+        problems.push(`${accountAt} must be a mapping`);
+        continue;
+      }
+      unknownKeys(cfg, ["home"], accountAt);
+      if (typeof cfg.home !== "string" || !cfg.home.trim())
+        problems.push(`${accountAt}.home must be a non-empty folder`);
+      else
+        accounts[account] = { home: cfg.home };
+    }
+    hosts[alias] = { alias, ssh: typeof value.ssh === "string" ? value.ssh : "", repos, maxTasks: typeof maxTasks === "number" ? maxTasks : 2, accounts };
+  }
+  return hosts;
 }
 
 // src/config/strategy.ts
@@ -8119,6 +8197,7 @@ function validateStrategy(raw, path, name = "default") {
   const p = [];
   if (!isObj2(raw))
     throw new StrategyError(path, ["top level must be a mapping"]);
+  const hosts = parseHosts(raw.hosts, p);
   const legacy = Object.hasOwn(raw, "providers");
   if (legacy && (raw.accounts !== undefined || raw.runners !== undefined))
     p.push("providers cannot be combined with accounts or runners");
@@ -8163,7 +8242,7 @@ function validateStrategy(raw, path, name = "default") {
       }
     }
   }
-  const { accounts, runners, planner, runnerAliases } = legacy ? legacyToAccounts(raw) : parseAccounts(raw, p);
+  const { accounts, runners, planner, runnerAliases } = legacy ? legacyToAccounts(raw) : parseAccounts(raw, p, hosts);
   for (const [id, runner] of Object.entries(runners)) {
     const account = accounts[runner.account];
     if (!account)
@@ -8198,8 +8277,8 @@ function validateStrategy(raw, path, name = "default") {
       const account = parsed ? accounts[parsed.account ?? runnerDefaults(accounts)[parsed.agent] ?? ""] : undefined;
       if (parsed && account && !allowedPair(parsed.agent, account.kind))
         p.push(`pacing.order: ${parsed.agent} cannot use ${account.kind} account "${account.name}"`);
-      if (parsed?.host)
-        p.push("remote runners aren't supported yet");
+      if (parsed)
+        validateRemoteRunner(id, parsed, parsed.account ?? runnerDefaults(accounts)[parsed.agent], runnerDefaults(accounts), hosts, p);
       if (id !== "opencode" && !Object.hasOwn(providers, id) && !account) {
         p.push(`pacing.order: unknown provider "${id}"`);
       }
@@ -8270,6 +8349,7 @@ function validateStrategy(raw, path, name = "default") {
     name,
     planner,
     accounts,
+    hosts,
     runners,
     legacy,
     runnerAliases,

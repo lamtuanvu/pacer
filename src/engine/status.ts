@@ -91,7 +91,7 @@ export async function computeStatus(
       id: runner.name, account: account.name, usage: account.usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
-      installed: ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
+      installed: runner.host !== null || ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
       stale: reading.stale,
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
       ...(broken[runner.name] ? { brokenReason: broken[runner.name].reason } : {}),
