@@ -14,16 +14,18 @@ export interface Backend {
 
 export const directBackend: Backend = { id: "direct", available: async () => true, runAttempt };
 
-/** Non-default account folders require direct execution; otherwise honor the backend override or availability. */
+/** Managed account folders and connection credentials require direct execution. */
 export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = EXTRA_BACKENDS, runnerId?: string): Promise<Backend> {
   const runner = runnerId ? resolveRunner(s, runnerId) : undefined;
   const account = runner ? s.accounts[runner.account] : undefined;
-  if (account?.source === "pacer" || account?.source === "orca") {
+  if (account?.source === "pacer" || account?.source === "orca" || account?.connection) {
     return {
       ...directBackend,
       runAttempt: async (ctx, cfg, task, onSpawn) => {
         const out = await directBackend.runAttempt(ctx, cfg, task, onSpawn);
-        appendFileSync(out.attempt.log, "direct backend: non-default account (Orca launch can't pre-approve folder trust)\n");
+        appendFileSync(out.attempt.log, account.connection
+          ? "direct backend: connection endpoint (credentials stay in the OpenCode child environment)\n"
+          : "direct backend: non-default account (Orca launch can't pre-approve folder trust)\n");
         return out;
       },
     };

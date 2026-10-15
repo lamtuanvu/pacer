@@ -8,6 +8,7 @@ import { shq } from "../install/fsx";
 import { readOrcaAccounts } from "../orca/accounts";
 import { readAccountUsage } from "../usage";
 import { CoreError, toCoreError } from "./errors";
+import { writeOpencodeConfig } from "../endpoints/opencode-config";
 import type { Ctx } from "../types";
 
 export function requireAccounts(strategy: Strategy): void {
@@ -16,6 +17,7 @@ export function requireAccounts(strategy: Strategy): void {
 export function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy>[1]): string {
   const result = editStrategy(strategyPath(ctx), change);
   if (!result.ok) throw new CoreError("invalid_input", result.error, "Check the strategy values and retry.");
+  writeOpencodeConfig(ctx);
   return result.diff;
 }
 /** A delete-home operation must never remove a shared, default, or symlinked folder. */

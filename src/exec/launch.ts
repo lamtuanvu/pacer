@@ -3,12 +3,19 @@ import { join } from "node:path";
 import { loadStrategy, MissingStrategyError, type ProviderCfg } from "../config/strategy";
 import type { RunnerCfg } from "../config/accounts";
 import type { Ctx } from "../types";
+import { readKey } from "../endpoints/keys";
+import { endpointKeyEnv, writeOpencodeConfig } from "../endpoints/opencode-config";
 import { orcaAccountHome } from "../orca/accounts";
 
-/** Select only an account's config directory; never inspect credentials. */
-export function runnerEnv(ctx: Ctx, runner: RunnerCfg): Record<string, string> {
+/** Resolve account settings and read endpoint credentials only when launching a child. */
+export async function runnerEnv(ctx: Ctx, runner: RunnerCfg): Promise<Record<string, string>> {
   const account = loadStrategy(ctx).accounts[runner.account];
   if (!account) throw new Error(`account not configured: ${runner.account}`);
+  if (account.connection) {
+    const key = await readKey(ctx, account.name, account.connection.key);
+    if (account.connection.key !== "none" && !key) throw Error(`Key missing for endpoint ${account.name}`);
+    return {OPENCODE_CONFIG: writeOpencodeConfig(ctx), ...(key ? {[endpointKeyEnv(account.name)]: key} : {})};
+  }
   if (account.source === "default" || account.source === "endpoint") return {};
   if (account.kind !== "claude" && account.kind !== "codex") return {};
   const home = account.source === "orca" ? orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") : account.home?.replace(/^~(?=\/|$)/, ctx.home);
@@ -17,7 +24,7 @@ export function runnerEnv(ctx: Ctx, runner: RunnerCfg): Record<string, string> {
 }
 
 /** Bridge backends still accepting the compatibility provider view. */
-export function providerEnv(ctx: Ctx, cfg: ProviderCfg): Record<string, string> {
+export async function providerEnv(ctx: Ctx, cfg: ProviderCfg): Promise<Record<string, string>> {
   let strategy;
   try { strategy = loadStrategy(ctx); } catch (e) {
     if (e instanceof MissingStrategyError && (cfg.via === "opencode" || !parseRunnerId(cfg.id)?.account)) return {};
