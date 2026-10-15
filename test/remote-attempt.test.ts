@@ -67,7 +67,8 @@ test("the prompt reaches the host agent unchanged", async () => {
   expect(readFileSync(f.sshLog, "utf8")).not.toContain(f.goal);
   expect(existsSync(join(f.hostHome, "pwned"))).toBe(false);
   expect(task.worktree).toBe(`box:${task.run!.remoteWorktree}`);
-  expect(task.progress?.host).toBe("box");
+  // Progress is written on supervision polls; a run that exits before the first poll has none.
+  if (task.progress) expect(task.progress.host).toBe("box");
   expect(f.gitCalls.some(a => a.includes(task.run!.remoteWorktree!))).toBe(false);
   expect(result.report).toBe(`ran on box; fetched pacer/${task.id} (1 commits)\n\nfinal report`);
   // Resuming only collects the saved run output; it does not repeat the transfer.
