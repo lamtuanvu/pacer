@@ -1,7 +1,8 @@
-import { existsSync, rmSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { realpathSafe } from "./git";
 import { removeTaskWorktree, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
+import { readRun } from "../supervisor/run";
 import { TERMINAL_STATES } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
@@ -70,6 +71,58 @@ export function dismiss(ctx: Ctx, ids: string[]): { dismissed: TaskRecord[]; unk
     if (t) dismissed.push(t); else missing.push(id);
   }
   return { dismissed, unknown: missing };
+}
+
+function readFrom(file: string | undefined, offset: number): { text: string; next: number } {
+  if (!file) return { text: "", next: offset };
+  let fd: number;
+  try { fd = openSync(file, "r"); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { text: "", next: offset };
+    throw e;
+  }
+  try {
+    const bytes = Buffer.alloc(256 * 1024);
+    const n = readSync(fd, bytes, 0, bytes.length, offset);
+    // Offsets are bytes; a UTF-8 character split at a chunk boundary may be replaced.
+    return { text: bytes.subarray(0, n).toString("utf8"), next: offset + n };
+  } finally { closeSync(fd); }
+}
+
+/** Reads output so far without refreshing liveness or restarting a task's runner. */
+export function log(ctx: Ctx, id: string, o: { stdout?: number; stderr?: number } = {}): {
+  stdout: string; stderr: string; next: { stdout: number; stderr: number }; done: boolean;
+} {
+  const task = readTask(ctx, id);
+  if (!task) throw unknown(id);
+  const stdout = o.stdout ?? 0, stderr = o.stderr ?? 0;
+  if (![stdout, stderr].every((n) => Number.isInteger(n) && n >= 0)) throw new CoreError("invalid_input", "log offsets must be non-negative integers");
+  const out = readFrom(task.run ? join(task.run.dir, "stdout") : task.attempts.at(-1)?.log, stdout);
+  const err = task.run ? readFrom(join(task.run.dir, "stderr"), stderr) : { text: "", next: 0 };
+  return {
+    stdout: out.text, stderr: err.text, next: { stdout: out.next, stderr: err.next },
+    done: TERMINAL_STATES.includes(task.state) || (task.run !== undefined && readRun(task.run.dir).exit !== null),
+  };
+}
+
+/** Diff the task's worktree against its pacer base, or HEAD for existing checkouts. */
+export async function diff(ctx: Ctx, id: string): Promise<{
+  base: string | null; worktree: string; diff: string; untracked: string[]; truncated: boolean;
+}> {
+  const task = readTask(ctx, id);
+  if (!task) throw unknown(id);
+  const worktree = task.run?.workdir ?? task.worktree ?? task.result?.worktree ?? task.brief.repo;
+  const base = task.run?.mode === "new" && task.baseBranch ? task.baseBranch : null;
+  const git = async (args: string[]) => {
+    const r = await ctx.run(["git", "-C", worktree, ...args], 10_000);
+    if (r.code !== 0) throw new CoreError("invalid_input", `cannot diff: ${r.stderr.trim().split("\n")[0] || `git exited with code ${r.code}`}`);
+    return r.stdout;
+  };
+  const output = await git(["diff", "--no-ext-diff", "--no-textconv", "--end-of-options", base ?? "HEAD", "--"]);
+  const untracked = (await git(["ls-files", "--others", "--exclude-standard", "-z"])).split("\0").filter(Boolean);
+  const bytes = Buffer.from(output, "utf8"), max = 1024 * 1024, truncated = bytes.length > max;
+  // Keep the byte cap even when the cut falls inside a UTF-8 character.
+  const text = truncated ? new TextDecoder().decode(bytes.subarray(0, max), { stream: true }) : output;
+  return { base, worktree, diff: text, untracked, truncated };
 }
 
 /** Re-delegates a task's stored brief. One active retry per task: a second call gets `conflict`. */

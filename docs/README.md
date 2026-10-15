@@ -6,6 +6,7 @@ pacer delegates coding work according to subscription usage and pace. Start with
 - [Configuration](configuration.md): strategy files, providers, pacing and routing.
 - [Executors](executors.md): CLI requirements, usage sources and execution placement.
 - [CLI and skill](cli.md): structured briefs, task commands and JSON contracts.
+- [Client protocol v2](protocol.md): HTTP + SSE and JSON-RPC transports, errors, events and operation schemas.
 - [Orca plugin](../orca-plugin/README.md): panel, console and local transports.
 - [Fresh-account onboarding test](testing/onboarding.md): manual end-to-end check that installing the Orca plugin sets up pacer.
 

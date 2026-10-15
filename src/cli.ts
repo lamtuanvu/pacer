@@ -23,6 +23,8 @@ import { makeCtx } from "./ctx";
 import { rankExecutors } from "./engine/rank";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
+import { runStdio } from "./api/stdio";
+import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
 import { renderLine } from "./render/line";
 import { renderText } from "./render/text";
@@ -54,6 +56,7 @@ const USAGE = `usage: pacer <command>
   report-limit <provider> [--until <unix-seconds>] record an executor limit
   limits check [--json]                          where each account's usage comes from, its age and freshness
   mcp                                            run the MCP server on stdio
+  api --stdio                                    client protocol v2 on stdio (JSON-RPC)
   serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
   account list [--json] | add <kind> <name> [options] | rm <name> [--delete-home]
@@ -71,7 +74,7 @@ Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skill
 Identical pacer skill copies may appear; update refresh keeps them identical.`;
 
 function help(): string {
-  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "limits", "mcp", "serve", "use", "help", "--help", "-h", "_run"]);
+  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "limits", "mcp", "api", "serve", "use", "help", "--help", "-h", "_run"]);
   const extras = EXTRA_COMMANDS.filter((c) => !builtins.has(c.name));
   return extras.length ? `${USAGE}\n${extras.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
 }
@@ -292,6 +295,25 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "mcp":
       await runMcpStdio(() => fresh(ctx));
       return { code: 0, out: "", err: "", keepAlive: true };
+    case "api": {
+      if (rest.length !== 1 || rest[0] !== "--stdio") return { code: 2, out: "", err: "usage: pacer api --stdio" };
+      async function* lines() {
+        const decoder = new StringDecoder("utf8");
+        let remainder = "";
+        for await (const chunk of process.stdin) {
+          remainder += typeof chunk === "string" ? chunk : decoder.write(chunk);
+          let newline: number;
+          while ((newline = remainder.indexOf("\n")) !== -1) {
+            yield remainder.slice(0, newline);
+            remainder = remainder.slice(newline + 1);
+          }
+        }
+        remainder += decoder.end();
+        if (remainder) yield remainder;
+      }
+      await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: cliDeps });
+      return { code: 0, out: "", err: "", keepAlive: true };
+    }
     case "serve": {
       const { opts } = parseFlags(rest, []);
       try {

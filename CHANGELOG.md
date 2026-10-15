@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Client protocol v2: `pacer serve` `/v2/*` (hello, snapshot, events with resume, ops, task log), `pacer api --stdio` JSON-RPC, and `docs/protocol.md`.
 - `pacer limits check [--json]` shows each account's usage source, capture time, age, freshness and guidance.
 - `pacer retry <task-id> [--executor <id>] [--json]` re-delegates a task's stored brief, refusing an already queued or running retry.
 - `pacer clean [--dry-run] [--force] [--json]` removes settled, reviewed, dismissed or resolved tasks' pacer-owned worktrees and run directories; dirty worktrees require `--force`, and branches stay.
