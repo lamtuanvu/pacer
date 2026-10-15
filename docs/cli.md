@@ -169,6 +169,39 @@ the running plugin. These checks never install a newer release automatically;
 bootstrap installation still only installs/updates the CLI version shipped with
 that plugin.
 
+## Remote hosts
+
+See [Remote runners over SSH](remote-hosts.md) for prerequisites and the
+`hosts:` strategy table. Host scripts run under `bash -lc`; Linux hosts need
+`setsid` from `util-linux`.
+
+```text
+pacer host list [--json]
+pacer host check <alias> [--repo <path>] [--json]
+pacer host setup <alias> [--repo <path>]
+pacer host clean <alias> [--json]
+```
+
+`list` shows configured aliases, repository keys and running task counts. JSON
+rows include `alias`, `ssh`, `maxTasks`, `repos`, `runners` and `running`.
+`check` returns `{alias, ok, checks: [{name, ok, detail}]}` in JSON, or one line
+per check in text. It exits 0 on success, 1 for failed checks and 2 for invalid
+input. `--repo` selects a local repository's mapping; without it, all mapped
+checkouts are checked against the current local repository's identity.
+
+`setup` uses the current local repository unless `--repo` is supplied. It asks
+separately before cloning a missing host checkout and before setting repo-local
+identity, then checks the result. Its y/N prompts require a TTY to approve
+changes; it has no `--json` mode. `clean` removes eligible settled tasks' host
+worktrees and run directories after review, dismissal or resolution, returning
+`{removed, kept}` in JSON. Remote branches are deleted only when their local
+task branch exists.
+
+Use `pacer delegate --executor codex@box --worktree new` to select a remote
+runner. Results return as a verified git bundle on `pacer/<task-id>` for local
+review and acceptance. The API exposes `host.list` and `host.check`; setup and
+cleanup are CLI-only.
+
 ## Accounts, runners and configuration
 
 See [Accounts and runners](accounts.md) for sign-in, endpoint budgets, Orca
@@ -219,7 +252,8 @@ pacer config set planner claude-code#work
 ```
 
 `runner add` uses the id itself, rather than a nickname, and adds the runner to
-the default routing rule. Remote `@host` ids are reserved and refused for now.
+the default routing rule. Remote `@host` ids require a declared host and support
+`codex` and `claude-code`; non-default accounts also need a host account folder.
 Account removal refuses accounts used by a runner or planner; runner removal
 refuses the planner and the last runner. Homes are retained unless
 `--delete-home` is supplied and its y/N prompt confirmed. Logins inherit the
