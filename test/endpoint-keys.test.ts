@@ -91,3 +91,23 @@ test("store paths cannot escape the secret directory", async () => {
   const ctx = fakeCtx();
   await expect(writeKey(ctx, "../escape", "file", secret)).rejects.toThrow("name");
 });
+
+test("presence checks never request a keychain password", async () => {
+  for (const code of [0, 44, 1]) {
+    const ctx = fakeCtx({run: async argv => {
+      expect(argv).toEqual(["security", "find-generic-password", "-s", "pacer", "-a", "endpoint/test-api"]);
+      expect(argv).not.toContain("-w");
+      return {code, stdout: "", stderr: ""};
+    }});
+    if (code === 1) await expect(hasKey(ctx, "test-api", "keychain")).rejects.toThrow("keychain");
+    else expect(await hasKey(ctx, "test-api", "keychain")).toBe(code === 0);
+  }
+  const ctx = fakeCtx({env: {EMPTY: "", PRESENT: secret}});
+  expect(await hasKey(ctx, "test-api", "env:EMPTY")).toBe(false);
+  expect(await hasKey(ctx, "test-api", "env:PRESENT")).toBe(true);
+  await writeKey(ctx, "test-api", "file", secret);
+  // Presence is an existence check even when a file has no contents.
+  const {writeFileSync} = await import("node:fs");
+  writeFileSync(join(ctx.pacerHome, "secrets", "test-api.key"), "");
+  expect(await hasKey(ctx, "test-api", "file")).toBe(true);
+});

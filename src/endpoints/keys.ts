@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { KeySource } from "../config/accounts";
@@ -56,7 +56,13 @@ export async function readKey(ctx: Ctx, name: string, source: KeySource): Promis
 }
 export async function hasKey(ctx: Ctx, name: string, source: KeySource): Promise<boolean> {
   validate(name, source);
-  return source === "none" || (await readKey(ctx, name, source)) !== null;
+  if (source === "none") return true;
+  if (source.startsWith("env:")) return !!ctx.env[source.slice(4)];
+  if (source === "file") return existsSync(join(ctx.pacerHome, "secrets", `${name}.key`));
+  const result = await security(ctx, ["find-generic-password", "-s", "pacer", "-a", `endpoint/${name}`]);
+  if (result.code === 44) return false;
+  check(result);
+  return true;
 }
 export async function deleteKey(ctx: Ctx, name: string, source: KeySource): Promise<void> {
   validate(name, source);
