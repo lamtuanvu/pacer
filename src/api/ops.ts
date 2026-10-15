@@ -1,5 +1,9 @@
 import { z } from "zod";
 import * as core from "../core";
+import * as accounts from "../core/accounts";
+import * as runnersConfig from "../core/runners-config";
+import * as routingConfig from "../core/routing-config";
+import { AGENTS } from "../config/accounts";
 import * as config from "../core/config";
 import * as setup from "../core/setup";
 import * as notify from "../core/notify";
@@ -26,6 +30,15 @@ async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>)
 }
 
 export const OPS: Record<string, OpDef> = {
+  "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
+  "account.add": op({ description: "Create a Claude or Codex account home without launching sign-in.", params: z.object({kind: z.enum(["claude", "codex"]), name: id, home: z.string().min(1).optional()}), handler: (ctx, p) => mutation(ctx, "accounts", async () => { await accounts.add(ctx, p); return {account: (await accounts.list(ctx)).find(a => a.name === p.name)!}; }) }),
+  "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id, delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", () => { accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true}; }) }),
+  "runner.add": op({ description: "Add an agent/account runner to the default routing rule.", params: z.object({agent: z.enum(AGENTS), account: id.optional(), host: id.optional(), model: z.string().min(1).optional()}), handler: (ctx, p) => mutation(ctx, "runners", () => ({id: runnersConfig.add(ctx, p).id})) }),
+  "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id}), handler: (ctx, p) => mutation(ctx, "runners", () => { runnersConfig.remove(ctx, p.id); return {removed: true}; }) }),
+  "routing.get": op({ description: "Routing rules and available executor ids.", params: z.object({}), handler: ctx => routingConfig.get(ctx) }),
+  "routing.set": op({ description: "Validate and replace routing rules, keeping the default last and preserving comments.", params: z.object({rules: z.array(z.object({kinds: z.array(z.string()).optional(), executors: z.array(id)}))}), handler: (ctx, p) => mutation(ctx, "routing", () => routingConfig.set(ctx, p.rules)) }),
+  "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
+  "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: (ctx, p) => mutation(ctx, "config", async () => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; }) }),
   "notifications.get": op({ description: "Current Orca plugin notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),

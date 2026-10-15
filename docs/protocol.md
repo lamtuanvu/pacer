@@ -83,6 +83,84 @@ The outbox retains the last 200 entries. If a positive resume cursor predates th
 
 ## Operations
 
+### `account.add`
+
+Create a Claude or Codex account home without launching sign-in.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "kind",
+    "name"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `account.list`
+
+Accounts, usage and sign-in commands without account emails.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `account.remove`
+
+Remove an unused account, optionally deleting its protected-path-checked home.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "delete_home": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `agent.connect`
 
 Connect an agent after explicit consent to write its integration files.
@@ -243,6 +321,35 @@ Params JSON Schema:
 }
 ```
 
+### `host.add`
+
+Add an SSH host alias without connecting to it.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "ssh": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "alias",
+    "ssh"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `host.check`
 
 Check SSH host prerequisites, checkouts and identity.
@@ -282,6 +389,30 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `host.remove`
+
+Remove an SSH host unless a runner uses it; local is reserved.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "alias"
+  ],
   "additionalProperties": false
 }
 ```
@@ -385,6 +516,21 @@ Params JSON Schema:
 }
 ```
 
+### `routing.get`
+
+Routing rules and available executor ids.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `routing.route`
 
 Rank executors for an optional task kind.
@@ -417,6 +563,51 @@ Params JSON Schema:
 }
 ```
 
+### `routing.set`
+
+Validate and replace routing rules, keeping the default last and preserving comments.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "executors": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        },
+        "required": [
+          "executors"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "rules"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `routing.status`
 
 Current budget and routing status.
@@ -428,6 +619,49 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `runner.add`
+
+Add an agent/account runner to the default routing rule.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "agy",
+        "opencode"
+      ]
+    },
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "agent"
+  ],
   "additionalProperties": false
 }
 ```
@@ -473,6 +707,30 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `runner.remove`
+
+Remove a runner and its routing and pacing order references.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
   "additionalProperties": false
 }
 ```
