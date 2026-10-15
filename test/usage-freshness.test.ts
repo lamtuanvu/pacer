@@ -23,6 +23,23 @@ test("all windows stale makes the reading stale; no capturedAt is stale", () => 
   expect(markFreshness({ windows: [w("weekly", 7 * 86400)], capturedAt: null, stale: false, source: "status-line" }, now).stale).toBe(true);
 });
 
+test("old near-limit windows stay fresh only until a known future reset", () => {
+  for (const [usedPct, resetsAt, stale] of [
+    [90, now + 3600, false],
+    [100, now + 3600, false],
+    [50, now + 3600, true],
+    [89, now + 3600, true],
+    [99, null, true],
+    [99, now, true],
+    [99, now - 1, true],
+  ] as const) {
+    const r: UsageReading = { windows: [w("5h", 5 * 3600, { usedPct, resetsAt })], capturedAt: now - 3 * 3600, stale: false, source: "status-line" };
+    const m = markFreshness(r, now);
+    expect(m.windows[0].stale).toBe(stale);
+    expect(m.stale).toBe(stale);
+  }
+});
+
 test("limit windows and reactive/unmetered readings are never stale; empty readings are not stale", () => {
   const lim = w("limit", 3600, { usedPct: 100, paced: false });
   expect(markFreshness({ windows: [lim], capturedAt: null, stale: false }, now).windows[0].stale).toBe(false);
