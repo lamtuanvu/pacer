@@ -20,6 +20,18 @@ Refresh failures warn and do not stop other integrations or fail the update.
 
 Restart a running MCP client after updating pacer. CLI commands always run the current binary.
 
+`pacer api --stdio` runs client protocol v2 as newline-delimited JSON-RPC 2.0
+on stdin/stdout, without a daemon. The `--stdio` flag is required; omitting it
+prints usage and exits 2. `hello` returns the protocol and pacer versions,
+operation names and event types; `snapshot` returns the current snapshot with
+its sequence number. Every core operation is available by its registry name
+(for example, `task.get` with `params: {"id":"<task-id>"}`).
+Requests run concurrently and responses carry the request's `id`; notifications
+without an `id` receive no response. `subscribe` accepts optional `since` (a
+non-negative sequence number), replies with `{ "subscribed": true, "last": N }`,
+and streams `event` notifications. A `reset` event means re-fetch the snapshot.
+Closing stdin stops subscription polling and drains outstanding requests.
+
 Read `pacer status --json`, choose an executor with `pacer route <kind> --json`, then
 write a brief JSON file:
 

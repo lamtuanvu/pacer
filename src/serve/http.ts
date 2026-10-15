@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { handleV2 } from "../api/http";
+import type { OpDeps } from "../api/ops";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, watch } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy } from "../config/strategy";
@@ -27,7 +29,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected status endpoint and guarded console opener (the Orca plugin's HTTP transport). */
 export function startServer(
-  getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number } = {},
+  getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
   const token = ensureToken(initialCtx);
@@ -81,6 +83,7 @@ export function startServer(
       const headers = { "X-Pacer": "1" };
       if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid }, { headers });
       if (req.headers.get("authorization") !== `Bearer ${token}`) return new Response("unauthorized\n", { status: 401 });
+      if (pathname.startsWith("/v2/")) return handleV2(req, { getCtx, opDeps: opts.opDeps, tailMs });
       if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) {
         const body=await consoleRequestBody(req);
         if(body instanceof Response)return body;
