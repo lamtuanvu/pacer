@@ -6,6 +6,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- App API operations for configuration, notifications, accounts, runners, routing, agent connections, setup, service status, plugin installation, strategies, hosts, versions and updates, with `config` events for client refreshes.
+- `pacer open` opens the daemon-served pacer app placeholder in a browser; `--print` prints a one-time sign-in link and `--logout` clears browser sessions.
+- Browser access through one-time codes and cookie sessions, with loopback Host checks, Origin and client-header checks, security headers and no CORS.
+
 - Remote runners over SSH: `hosts:` in the strategy, runner ids `<agent>[#account]@<host>`, `pacer host list|check|setup|clean`, results returned as a git bundle on `pacer/<task-id>` after an identity and ancestry pre-flight, Codex usage probed over SSH.
 - Client protocol v2: `pacer serve` `/v2/*` (hello, snapshot, events with resume, ops, task log), `pacer api --stdio` JSON-RPC, and `docs/protocol.md`.
 - `pacer limits check [--json]` shows each account's usage source, capture time, age, freshness and guidance.

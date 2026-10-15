@@ -122,6 +122,22 @@ Plugins > Development > Add folder. It waits up to five minutes for the live
 heartbeat; Enter or Ctrl-C skips with `Finish later with: pacer init`. Setup then
 prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
 
+## pacer open
+
+`pacer open [--print] [--logout] [<screen>]` opens the pacer app in your
+browser using a one-time sign-in link. The app currently shows a placeholder
+until the full app ships. An optional screen selects a page, for example
+`pacer open tasks`.
+
+The daemon must already be running (`pacer service install` installs the
+background service; `pacer serve` runs it in the foreground). If it is down,
+`pacer open` exits 1 and prints `pacer service install` as the next step.
+`PACER_PORT` selects the port (default 4317).
+
+- `--print` prints the sign-in URL instead of opening the browser. The link
+  expires after 60 seconds and works once.
+- `--logout` signs out all browser sessions and exits without opening the app.
+
 ## Terminal dashboard
 
 `pacer dashboard` opens a full-screen live budget and task dashboard. Marketplace
