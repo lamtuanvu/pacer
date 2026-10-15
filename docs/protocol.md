@@ -603,3 +603,9 @@ Params JSON Schema:
   "additionalProperties": false
 }
 ```
+
+## Clients
+
+TypeScript clients in this repository use `ApiClient` from `src/api/client.ts`. `connectClient` picks HTTP when `pacer serve` answers `/health` with `X-Pacer: 1`, and otherwise runs in-process. `PACER_API=inprocess` forces in-process.
+
+HTTP `subscribe` reconnects with `Last-Event-ID` to resume from the last seen event.
