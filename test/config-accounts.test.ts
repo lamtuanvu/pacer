@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { allowedPair, type AgentId, type AccountKind } from "../src/config/accounts";
 import { validateStrategy } from "../src/config/strategy";
 import { rankExecutors, type ProviderStatus } from "../src/engine/rank";
+import { computeStatus } from "../src/engine/status";
+import { fakeCtx } from "./helpers";
 
 const starter = {
   planner: "claude-code",
@@ -57,7 +59,7 @@ test("new form derives sources, budgets, runners and the compatibility provider 
   expect(s.legacy).toBe(false);
   expect(s.accounts.claude).toMatchObject({ name: "claude", source: "default", home: null, usage: "quota", usageSource: "native" });
   expect(s.accounts.work).toMatchObject({ source: "pacer", home: "~/.codex-work", usageSource: "native" });
-  expect(s.accounts.team).toMatchObject({ source: "orca", orcaAccount: "team-id", usageSource: "orca" });
+  expect(s.accounts.team).toMatchObject({ source: "orca", orcaAccount: "team-id", usageSource: "native" });
   expect(s.accounts.company.weeklyTokens).toBe(50_000_000);
   expect(s.providers["opencode#endpoint"]).toMatchObject({ id: "opencode#endpoint", via: "opencode", model: "coding-plan/seed", quotaSource: "arkcli" });
   expect(s.pacing.order).toEqual(["claude-code", "codex#work", "opencode#endpoint", "opencode#local"]);
@@ -129,4 +131,18 @@ test("legacy explicit runner aliases resolve to one canonical account identity",
   expect(s.runners["opencode#company"].account).toBe("company");
   expect(s.providers["opencode#company"].weeklyTokens).toBe(50_000_000);
   expect(s.pacing.order).toEqual(["opencode#company", "opencode#company"]);
+});
+
+test("orca-linked accounts default to native usage, not Orca", () => {
+  const s = validateStrategy({ accounts: { claude: { kind: "claude" }, team: { kind: "codex", orca_account: "acc-1" } }, planner: "claude-code", routing: [{ default: ["codex#team"] }] }, "test");
+  expect(s.accounts.team.usageSource).toBe("native");
+});
+
+test("legacy usage_source orca loads, is ignored and warns", async () => {
+  const raw = { accounts: { claude: { kind: "claude" }, cursor: { kind: "cursor", usage: "quota", usage_source: "orca" } }, planner: "claude-code", routing: [{ default: ["cursor"] }] };
+  const s = validateStrategy(raw, "test");
+  expect(s.accounts.cursor.usageSource).toBe("orca");
+  const st = await computeStatus(fakeCtx(), s, { profile: null });
+  expect(st.warnings).toContain("account cursor: usage_source orca is no longer read; using reactive");
+  expect(st.accounts.find((a) => a.name === "cursor")!.source).toBe("reactive");
 });

@@ -7,6 +7,14 @@ import { fakeCtx } from "./helpers";
 
 const OK_STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {}\n  local: { via: opencode, model: lmstudio/q, usage: unmetered }\n";
 
+test("pacer limits check --json lists every account", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const r = await main(["limits", "check", "--json"], ctx);
+  expect(r.code).toBe(0);
+  const rows = JSON.parse(r.out);
+  expect(rows.map((x: { account: string }) => x.account).sort()).toEqual(Object.keys((await import("../src/config/strategy")).loadStrategy(ctx).accounts).sort());
+});
+
 async function withStrategy(yaml: string) {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });

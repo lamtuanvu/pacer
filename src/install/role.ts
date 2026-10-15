@@ -62,5 +62,7 @@ export function plannerSessionStrategy(ctx: Ctx, strategy: Strategy, agent = str
 
 export async function plannerSessionStatus(ctx: Ctx, agent?: AgentId) {
   const selected = plannerSessionStrategy(ctx, loadStrategy(ctx), agent);
-  return {...await computeStatus(ctx, selected.strategy), ...(selected.warnings.length ? {warnings: selected.warnings} : {})};
+  const status = await computeStatus(ctx, selected.strategy);
+  const warnings = [...(status.warnings ?? []), ...selected.warnings];
+  return {...status, ...(warnings.length ? {warnings} : {})};
 }

@@ -21,6 +21,7 @@ test("reads weekly (paced) and 5h (unpaced) windows", async () => {
   await put(claudeCachePaths(ctx)[0], SAMPLE, 1791633891);
   const r = await readClaude(ctx);
   expect(r.error).toBeUndefined();
+  expect(r.source).toBe("status-line");
   expect(r.stale).toBe(false);
   expect(r.capturedAt).toBeCloseTo(1791633891.03);
   expect(r.windows).toEqual([
@@ -38,11 +39,11 @@ test("prefers the newer of the pacer cache and the legacy budget file", async ()
   expect((await readClaude(ctx)).windows[0].usedPct).toBe(20);
 });
 
-test("missing data is an error reading; data older than a day is flagged stale", async () => {
+test("missing data is an error reading; freshness of old data is left to the engine", async () => {
   const ctx = fakeCtx({ now: 1791640000 });
   const none = await readClaude(ctx);
   expect(none.windows).toEqual([]);
   expect(none.error).toContain("no Claude rate-limit data");
   await put(claudeCachePaths(ctx)[0], { ...SAMPLE, captured_at: 1791640000 - 90000 }, 1);
-  expect((await readClaude(ctx)).stale).toBe(true);
+  expect((await readClaude(ctx)).stale).toBe(false);
 });

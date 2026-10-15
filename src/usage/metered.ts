@@ -24,6 +24,7 @@ export async function readMetered(ctx: Ctx, cfg: ProviderCfg): Promise<UsageRead
     tokens += (toNum(m.tokens.input) ?? 0) + (toNum(m.tokens.output) ?? 0) + (toNum(m.tokens.reasoning) ?? 0);
   }
   return {
+    source: "metered",
     windows: [{ name: "7d", usedPct: (100 * tokens) / cfg.weeklyTokens, resetsAt: null, lengthS: 7 * 86400, paced: false }],
     capturedAt: c.capturedAt,
     stale: c.stale,
