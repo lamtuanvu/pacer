@@ -5,6 +5,24 @@ printf 'codex=%s\\n' "$(command -v codex || true)"
 printf 'claude=%s\\n' "$(command -v claude || true)"
 printf 'setsid=%s\\n' "$(command -v setsid || true)"
 printf 'home=%s\\n' "$HOME"`,
+  CHECK_REPO: `path="$1"; shift
+case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
+case "$1" in
+  home) test -d "$path" ;;
+  clone) git clone -- "$2" "$path" ;;
+  *)
+    if [ ! -d "$path" ]; then printf 'exists=0\\n'; exit 0; fi
+    printf 'exists=1\\n'
+    git -C "$path" rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
+    printf 'git=1\\n'
+    printf 'origin=%s\\n' "$(git -C "$path" remote get-url origin 2>/dev/null)"
+    printf 'name=%s\\n' "$(git -C "$path" config --local user.name)"
+    printf 'email=%s\\n' "$(git -C "$path" config --local user.email)"
+    ;;
+esac`,
+  SET_IDENTITY: `path="$1"
+case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
+git -C "$path" config --local user.name "$2" && git -C "$path" config --local user.email "$3"`,
   // Used only by tests and host check to verify the stdin channel.
   ECHO_STDIN: "cat",
   PREPARE: `checkout="$1"; tag="$2"; task="$3"; base="$4"; branch="$5"
