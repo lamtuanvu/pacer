@@ -1,6 +1,6 @@
 # Orca panel commands decision — 2026-10-14
 
-Status: accepted for protocol v2 migration; human live verification pending.
+Status: superseded for panel commands (D2) by the [information-only decision](2026-10-15-orca-plugin-information-only.md); D1 and D3 remain in effect. Human live verification pending.
 Source: `docs/specs/2026-10-14-core-contract-design.md`, section 5, on branch
 `docs/remote-runners-design`, and the panel restrictions recorded in the
 [earlier transport decision](2026-10-12-orca-link-transport.md).

@@ -132,7 +132,9 @@ Selecting a specific value forces that transport rather than automatic fallback.
 The storage bridge and channel remain supported for this release and will be
 removed in the next minor release.
 
-Panel buttons still require a live pacer console in the worktree: they send
-commands through `terminal.sendText`, and the console executes mapped commands
-as v2 operations. See the [panel commands decision](decisions/2026-10-14-orca-panel-commands.md)
-and the [upstream proposal](upstream/orca-panel-worker-call.md).
+The panel is a read-only status page. The worker never starts or contacts
+consoles. The `autoConsole` plugin setting has been removed; existing values are
+ignored. The only plugin command, **pacer: Open**, shows where to act: run
+`pacer dashboard` in a terminal until the pacer app ships. The bootstrap
+installer is unchanged. See the
+[information-only decision](decisions/2026-10-15-orca-plugin-information-only.md).
