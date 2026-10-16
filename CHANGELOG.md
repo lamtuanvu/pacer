@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- The Orca plugin's worker never started, so the panel kept showing the page the old plugin last wrote. Orca starts a plugin worker only for a command or a declared event; the plugin declares `agent.status.changed` and `worktree.created` again so Orca starts it soon after opening.
+
 ## [0.2.1] - 2026-10-16
 
 ### Changed

@@ -14,7 +14,9 @@ export function pluginManifest(version: string) {
     contributes: {
       panels: [{ id: "budget", title: "pacer", icon: "gauge", entry: "panel/live.html" }],
       commands: [{ id: "open", title: "pacer: Open", context: "global" }],
-      events: [],
+      // Orca starts a plugin worker only for a command or a declared event; these
+      // frequent events start it soon after Orca opens. The worker ignores them.
+      events: [{ on: "agent.status.changed" }, { on: "worktree.created" }],
     },
     capabilities: [
       { kind: "workspace:read" }, { kind: "notifications:show" },

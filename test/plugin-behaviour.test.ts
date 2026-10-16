@@ -296,7 +296,11 @@ test("open command shows where to act", async () => {
   expect(notes(f).filter(n=>n.params.title==="Open pacer")).toHaveLength(2);
   expect(sends(f)).toHaveLength(0);
   expect(f.calls.some(c=>c.method==="workspace.readContext")).toBe(false);
-  for(const event of ["agent.status.changed","worktree.created","worktree.removed"])expect(f.events.has(event)).toBe(false);
+  // Subscribed only so Orca starts the worker; handling them must not touch terminals or the workspace.
+  for(const event of ["agent.status.changed","worktree.created"]){expect(f.events.has(event)).toBe(true);await f.events.get(event)!({state:"done",paneKey:"p"});}
+  expect(f.events.has("worktree.removed")).toBe(false);
+  expect(sends(f)).toHaveLength(0);
+  expect(f.calls.some(c=>c.method==="workspace.readContext")).toBe(false);
  }finally{await f.cleanup();}
  }
 });

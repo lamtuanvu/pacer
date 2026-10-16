@@ -9,7 +9,8 @@ test("manifest mirrors verified Orca rules and omits instructional contributions
   const caps: string[] = m.capabilities.map(c => c.kind);
   expect([...caps].sort()).toEqual(["workspace:read", "notifications:show", "events:subscribe", "storage", "settings:own"].sort());
   for (const c of caps) expect(["workspace:read", "notifications:show", "events:subscribe", "storage", "settings:own", "secrets"]).toContain(c);
-  expect(m.contributes.events).toEqual([]);
+  // Orca only starts a worker for a command or a declared event (verified in Orca 1.4.x).
+  expect(m.contributes.events).toEqual([{ on: "agent.status.changed" }, { on: "worktree.created" }]);
   expect(m.contributes.commands).toEqual([{id:"open",title:"pacer: Open",context:"global"}]);
   expect(m.contributes.panels[0].title).toBe("pacer");
   expect(m.main).toBeTruthy(); expect(caps).toContain("events:subscribe");
