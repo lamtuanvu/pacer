@@ -68,12 +68,6 @@ export function readRun(dir: string): RunState {
   const out = join(dir, "stdout"), err = join(dir, "stderr");
   const stdoutBytes = size(out), stderrBytes = size(err);
   const times = [stdoutBytes ? mtime(out) : null, stderrBytes ? mtime(err) : null, mtime(join(dir, "session.activity"))].filter((t): t is number => t !== null);
-  // A human holding control suspends the idle clock. Input also touches activity,
-  // so relinquishing control resumes from the last human interaction.
-  try {
-    const state=JSON.parse(readFileSync(join(dir,"session.state"),"utf8"));
-    if(exit===null&&typeof state.controller==="string")times.push(Date.now()/1000);
-  }catch{/* pipe runs have no session metadata */}
   return {
     pid, startedAt: num(join(dir, "started")), exit, stdoutBytes, stderrBytes,
     lastOutputAt: times.length ? Math.max(...times) : null,

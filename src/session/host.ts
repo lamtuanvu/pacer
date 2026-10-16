@@ -39,7 +39,6 @@ export async function sessionHost(dir:string):Promise<number> {
   const disableRecording=()=>{
     recordingEnabled=false;
     recording.disable();
-    try { hub?.destroy(); } catch { /* even error recovery must preserve the PTY */ }
   };
   process.on("uncaughtException",disableRecording);
   process.on("unhandledRejection",disableRecording);
@@ -47,9 +46,9 @@ export async function sessionHost(dir:string):Promise<number> {
     process.off("uncaughtException",disableRecording);
     process.off("unhandledRejection",disableRecording);
   };
-  const enqueue=(fn:()=>void|Promise<void>)=>{queue=queue.then(()=>{if(recordingEnabled) return fn();}).catch(disableRecording);};
+  const enqueue=(fn:()=>void|Promise<void>)=>{queue=queue.then(fn).catch(disableRecording);};
   hub=new ViewerHub(()=>wire(FrameType.snapshot,{...recording.snapshot(),controller:hub!.controller,viewers:hub!.size}),
-    from=>recording.since(from),enqueue,(kind,label)=>recording.marker(kind,label),(viewers,controller)=>{
+    from=>recordingEnabled?recording.since(from):null,enqueue,(kind,label)=>{if(recordingEnabled)try{recording.marker(kind,label);}catch{disableRecording();}},(viewers,controller)=>{
       if(controller!==lastController){
         lastController=controller;
         try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
@@ -61,7 +60,8 @@ export async function sessionHost(dir:string):Promise<number> {
         try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
       },
       resize:(cols,rows)=>{
-        proc.terminal?.resize(cols,rows);recording.resize(cols,rows);
+        proc.terminal?.resize(cols,rows);
+        try{recording.resize(cols,rows);}catch{disableRecording();}
         send(wire(FrameType.resize,{cols,rows}));
         try{atomic('session.state',JSON.stringify({viewers:hub!.size,controller:hub!.controller,cols,rows}));}catch{/* optional metadata */}
       },
@@ -79,7 +79,7 @@ export async function sessionHost(dir:string):Promise<number> {
           writeFileSync(join(dir,"session.activity"),"",{mode:0o600});
           if(!recordingEnabled) return;
           const chunk=mask.push(Buffer.from(data));
-          if(chunk.length) enqueue(async()=>{await recording.output(chunk);send(wire(FrameType.output,chunk));});
+          if(chunk.length) enqueue(async()=>{if(recordingEnabled)await recording.output(chunk);send(wire(FrameType.output,chunk));});
         } catch { disableRecording(); }
       },exit(){terminalClosed();}},
     });
@@ -108,7 +108,6 @@ export async function sessionHost(dir:string):Promise<number> {
   let path:string | undefined;
   try { path=socketPath(dir); } catch { /* unavailable socket directory does not stop the PTY */ }
   const server=createServer(socket=>{
-    if(!recordingEnabled){socket.destroy();return;}
     hub!.add(socket);
   });
   server.on("error",()=>{/* attach is optional; the PTY continues */});

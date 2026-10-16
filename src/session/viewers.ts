@@ -91,14 +91,14 @@ export class ViewerHub {
       const body=JSON.parse(f.data.toString());
       if(this.holder===v)this.send(v,this.state(v));
       else if(!this.holder||body.force===true)this.setController(v,'taken');
-      else this.send(v,this.state(v));
+      else this.send(v,this.state(v,'refused'));
      }else if(f.type===FrameType.release){
       if(this.holder===v)this.setController(null,'released');
      }else if(this.holder===v){
       if(f.type===FrameType.input){if(f.data.length)this.control?.input(f.data);}
       else {
        const {cols,rows}=JSON.parse(f.data.toString());
-       if([cols,rows].every(n=>Number.isInteger(n)&&n>0&&n<=65535))this.control?.resize(cols,rows);
+       if([cols,rows].every(n=>Number.isInteger(n)&&n>0)&&cols<=1000&&rows<=500)this.control?.resize(cols,rows);
       }
      }
      }catch{socket.destroy();}
@@ -107,9 +107,11 @@ export class ViewerHub {
   }}catch{socket.destroy();}});
  }
  broadcast(bytes:Buffer){this.cachedSnapshot=undefined;for(const v of this.viewers)if(v.joined)this.send(v,bytes);}
- destroy(){for(const v of [...this.pending,...this.viewers])v.socket.destroy();this.pending.clear();this.viewers.clear();this.holder=null;this.cachedSnapshot=undefined;}
+ destroy(){for(const v of [...this.pending,...this.viewers])v.socket.destroy();this.pending.clear();this.viewers.clear();this.holder=null;this.cachedSnapshot=undefined;this.changed(0,null);}
  async end(code:number){
   this.closing=true;
+  this.setController(null,'ended');
+  this.changed(this.size,null);
   for(const v of this.pending)v.socket.destroy();
   await Promise.all([...this.viewers].map(v=>new Promise<void>(resolve=>{
    v.done=resolve;v.exitCode=code;

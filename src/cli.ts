@@ -54,7 +54,7 @@ const USAGE = `usage: pacer <command>
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
-  attach <task-id> [--control] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
+  attach <task-id> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
@@ -367,8 +367,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       try {return {code:await sessionHost(rest[0]),out:"",err:""};}
       catch(e) {return {code:2,out:"",err:explain(e)};}
     case "attach": {
-      const {opts,pos}=parseFlags(rest,["replay","control"]);
-      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","control","attempt","open"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--control] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"};
+      const {opts,pos}=parseFlags(rest,["replay","control","force"]);
+      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","control","force","attempt","open"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"};
       if(opts.attempt!==undefined && (typeof opts.attempt!=="string" || !/^[1-9]\d*$/.test(opts.attempt))) return {code:2,out:"",err:"--attempt requires a positive integer"};
       try {
         if(opts.open!==undefined){
@@ -382,7 +382,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         }
         const attempt=opts.attempt===undefined?undefined:Number(opts.attempt);
         const dir=attachDirectory(ctx,pos[0],attempt);
-        await attachSession(dir,{replay:opts.replay===true,control:opts.control===true,attempt},`pacer ${pos[0]}`);
+        await attachSession(dir,{replay:opts.replay===true,control:opts.control===true,force:opts.force===true,attempt},`pacer ${pos[0]}`);
         return {code:0,out:"",err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }

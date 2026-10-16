@@ -406,7 +406,7 @@ test("controller-only input and size use the queued identity even for pipelined 
     frame(a,FrameType.take);frame(a,FrameType.input,Buffer.from('hello'));frame(a,FrameType.size,{cols:90,rows:30});
     for(const fn of queued.splice(0))fn();
     expect(inputs).toEqual(['hello']);expect(sizes).toEqual([[90,30]]);
-    for(const body of [{cols:0,rows:20},{cols:90.5,rows:20},{cols:65536,rows:20}])frame(a,FrameType.size,body);
+    for(const body of [{cols:0,rows:20},{cols:90.5,rows:20},{cols:65536,rows:20},{cols:1001,rows:20},{cols:90,rows:501}])frame(a,FrameType.size,body);
     frame(a,FrameType.release);frame(a,FrameType.size,{cols:80,rows:20});
     for(const fn of queued.splice(0))fn();
     expect(sizes).toEqual([[90,30]]);
@@ -487,13 +487,23 @@ test('losing control resets an incomplete escape prefix',()=>{
   expect(new WireDecoder().push(sent[0])[0]).toMatchObject({type:FrameType.input,data:Buffer.from('r')});
 });
 
-test('supervisor activity stays current while controlled and expires after release',()=>{
+test('a stale controller on a dead host cannot refresh activity',()=>{
   const dir=temp();try{
-    writeFileSync(join(dir,'started'),'1');writeFileSync(join(dir,'session.state'),JSON.stringify({controller:'cli:human'}));
-    expect(readRun(dir).lastOutputAt).toBeGreaterThan(Date.now()/1000-1);
-    writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null}));
-    expect(readRun(dir).lastOutputAt).toBeNull();
+    writeFileSync(join(dir,'pid'),'2147483647');
+    writeFileSync(join(dir,'session.state'),JSON.stringify({controller:'cli:human'}));
+    expect(readRun(dir)).toMatchObject({alive:false,lastOutputAt:null});
   }finally{rmSync(dir,{recursive:true,force:true});}
+});
+test('a silent controller does not refresh the idle clock',async()=>{
+  const dir=temp();try{
+    startRun({dir,cwd:dir,env:process.env,session:'pipe',argv:['sleep','0.2']});
+    await until(()=>existsSync(join(dir,'child')));
+    writeFileSync(join(dir,'session.state'),JSON.stringify({controller:'cli:human'}));
+    writeFileSync(join(dir,'session.activity'),'');
+    const activity=statSync(join(dir,'session.activity')).mtimeMs/1000;
+    await Bun.sleep(40);
+    expect(readRun(dir).lastOutputAt).toBe(activity);
+  }finally{await until(()=>readRun(dir).exit!==null);rmSync(dir,{recursive:true,force:true});}
 });
 test('WebSocket app clients relay control and binary input unchanged',()=>{
   for(const body of [{type:'take'},{type:'take',force:true},{type:'release'},{type:'size',cols:90,rows:30}]){
@@ -561,3 +571,82 @@ test('resync restores controller identity after slow viewer queue overflow',()=>
     expect(JSON.parse(decoded.filter(f=>f.type===FrameType.control).at(-1)!.data.toString())).toMatchObject({controller:'app:new',you:false});
   }finally{hub.destroy();}
 });
+
+test('read-only attach ignores terminal replies across all chunk boundaries',()=>{
+  for(const reply of ['\x1b[?62;22c','\x1b[12;3R','\x1b[<0;99;113M','\x1b[I','\x1b[O','\x1b]qcc\x07','\x1b]qcc\x1b\\','\x1bPqc\x1b\\','\x1bOq','\x1bOc']){
+    for(let split=0;split<=reply.length;split++){
+      const sent:Buffer[]=[],keys=new AttachKeys(b=>sent.push(b));
+      expect(keys.push(Buffer.from(reply.slice(0,split)))).toBe(false);
+      expect(keys.push(Buffer.from(reply.slice(split)))).toBe(false);
+      expect(sent).toEqual([]);
+      keys.push(Buffer.from('c'));expect(sent).toHaveLength(1);
+      expect(keys.push(Buffer.from('q'))).toBe(true);
+    }
+  }
+});
+
+test('ending and destroying a hub publish controller null',async()=>{
+  for(const action of ['end','destroy'] as const){
+    const states:(string|null)[]=[],hub=new ViewerHub(()=>wire(FrameType.snapshot,{}),()=>null,fn=>fn(),()=>{},(_n,c)=>states.push(c));
+    class DelayedClose extends ViewerSocket {
+      override destroy(){this.destroyed=true;return this;}
+      override end(bytes:Buffer,done?:()=>void){this.write(bytes);this.destroyed=true;done?.();return this;}
+    }
+    const peer=new DelayedClose();hub.add(peer as unknown as Socket);peer.hello();peer.emit('data',wire(FrameType.take,{}));
+    await hub[action](0);expect(hub.controller).toBeNull();expect(states.at(-1)).toBeNull();hub.destroy();
+  }
+});
+
+test('attach asks before forcing a refused take and accepts only y',()=>{
+  for(const answer of ['y','Y','n','\r']){
+    const sent:Buffer[]=[],prompts:string[]=[],keys=new AttachKeys(b=>sent.push(b),s=>prompts.push(s));
+    keys.push(Buffer.from('c'));
+    keys.controlState({controller:'cli:holder',you:false});expect(prompts).toEqual([]);
+    keys.controlState({controller:'cli:holder',you:false,reason:'refused'});
+    expect(prompts).toEqual(['Someone is in control from cli:holder. Take over? [y/N] ']);
+    keys.push(Buffer.from('\x1b[?62;22c'));expect(sent).toHaveLength(1);
+    keys.push(Buffer.from(answer));
+    const frames=new WireDecoder().push(Buffer.concat(sent));
+    expect(frames).toHaveLength(answer.toLowerCase()==='y'?2:1);
+    if(frames.length===2)expect(JSON.parse(frames[1].data.toString())).toEqual({force:true});
+  }
+  const sent:Buffer[]=[],prompts:string[]=[],keys=new AttachKeys(b=>sent.push(b),s=>prompts.push(s));
+  keys.take(true);keys.controlState({controller:'cli:me',you:true});
+  expect(JSON.parse(new WireDecoder().push(sent[0])[0].data.toString())).toEqual({force:true});
+  expect(prompts).toEqual([]);
+});
+
+test.skipIf(!canBindSocket)('control survives recording failure, including new viewers',async()=>{
+  const dir=temp(),sockets:Socket[]=[];
+  const script=`import { Recording } from ${JSON.stringify(new URL('../src/session/recording.ts',import.meta.url).pathname)};
+import { sessionHost } from ${JSON.stringify(new URL('../src/session/host.ts',import.meta.url).pathname)};
+import { writeFileSync } from 'node:fs';
+const output=Recording.prototype.output;
+Recording.prototype.output=async function(data){if(Buffer.from(data).includes(Buffer.from('FAIL'))){writeFileSync(${JSON.stringify(join(dir,'failed'))},'');throw Error('disk failed');}return output.call(this,data);};
+process.exit(await sessionHost(${JSON.stringify(dir)}));`;
+  writeFileSync(join(dir,'session.json'),JSON.stringify({cwd:dir,argv:['/bin/sh','-c','exec </dev/tty; echo READY; sleep 0.3; echo FAIL; read line; echo "$line" > received; sleep 30']}));
+  const host=Bun.spawn([process.execPath,'-e',script],{cwd:dir,stdout:'ignore',stderr:'ignore'});
+  try{
+    const {sessionSocket}=await import('../src/session/service');
+    const connect=async(label:string)=>{
+      const socket=createConnection(sessionSocket(dir)),decoder=new WireDecoder(),frames:{type:number;data:Buffer}[]=[];sockets.push(socket);
+      socket.on('data',b=>frames.push(...decoder.push(Buffer.from(b))));
+      await new Promise<void>((resolve,reject)=>{socket.once('connect',resolve);socket.once('error',reject);});
+      socket.write(wire(FrameType.hello,{v:1,label}));await until(()=>frames.some(f=>f.type===FrameType.snapshot));return {socket,frames};
+    };
+    await until(()=>existsSync(sessionSocket(dir)));const a=await connect('before');
+    await until(()=>existsSync(join(dir,'failed')));await Bun.sleep(30);
+    a.socket.write(wire(FrameType.take,{}));
+    await until(()=>a.frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).you));
+    const taken=statSync(join(dir,'session.activity')).mtimeMs;
+    await Bun.sleep(30);a.socket.write(wire(FrameType.input,Buffer.from('hello\n')));
+    await until(()=>existsSync(join(dir,'received')));expect(readFileSync(join(dir,'received'),'utf8')).toBe('hello\n');
+    expect(statSync(join(dir,'session.activity')).mtimeMs).toBeGreaterThan(taken);
+    a.socket.write(wire(FrameType.size,{cols:91,rows:29}));
+    await until(()=>JSON.parse(readFileSync(join(dir,'session.state'),'utf8')).cols===91);
+    a.socket.write(wire(FrameType.release,{}));
+    await until(()=>JSON.parse(readFileSync(join(dir,'session.state'),'utf8')).controller===null);
+    const b=await connect('after');b.socket.write(wire(FrameType.take,{}));
+    await until(()=>b.frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).you));
+  }finally{for(const socket of sockets)socket.destroy();host.kill('SIGTERM');await host.exited;rmSync(dir,{recursive:true,force:true});}
+},10000);
