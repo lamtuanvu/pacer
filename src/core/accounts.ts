@@ -6,6 +6,8 @@ import { loadStrategy, strategyPath, type Strategy } from "../config/strategy";
 import { accountFolder } from "../install/role";
 import { shq } from "../install/fsx";
 import { readOrcaAccounts } from "../orca/accounts";
+import { readAuthFailures } from "../usage/auth";
+import { openInTerminal, type TerminalDeps, type TerminalOptions } from "../terminal/open";
 import { readAccountUsage } from "../usage";
 import { CoreError, toCoreError } from "./errors";
 import { writeOpencodeConfig } from "../endpoints/opencode-config";
@@ -51,7 +53,9 @@ export async function list(ctx: Ctx) {
     const folder = accountFolder(ctx,a);
     const usageReading = await readAccountUsage({...ctx,readOnly:true},a,runners);
     // Keep listing order stable when declarations precede inferred runners.
-    return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), signedIn: identity ? true : null,
+    return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), executors:runners.map(r=>r.id).sort(),
+      ...(s.planner.account === a.name ? {locked: "Planner — can't remove"} : runners.length ? {locked: `In use by ${runners.length} executor(s)`} : {}),
+      signedIn: Object.hasOwn(readAuthFailures(ctx), a.name) ? false : identity ? true : null,
       runnable: a.source !== "orca" || folder !== null, usageReading, ...await endpointRow(ctx, a)};
   }));
   return rows.map(row => {
@@ -60,7 +64,7 @@ export async function list(ctx: Ctx) {
     const signin = native && row.signedIn !== true
       ? `${row.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${shq(folder)} ${row.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` : undefined;
     // Runner ids are validated identifiers; their @host suffix is not an email.
-    return {...publicValue({...row, ...(signin ? {signin_command: signin} : {})}), runners: row.runners};
+    return {...publicValue({...row, ...(signin ? {signin_command: signin} : {})}), runners: row.runners, executors: row.executors};
   });
 }
 
@@ -129,4 +133,41 @@ export function remove(ctx: Ctx, name: string, {deleteHome = false}: {deleteHome
     const error = toCoreError(e);
     throw new CoreError(error.code, error.message, error.hint ?? "Check the account name, options and configured accounts.");
   }
+}
+
+const signinPolls = new Map<string, ReturnType<typeof setInterval>>();
+
+/** Refresh for ten minutes while an interactive login completes. */
+function watchSignin(ctx: Ctx, name: string): void {
+  const key = join(ctx.pacerHome, name);
+  clearInterval(signinPolls.get(key));
+  let remaining = 40;
+  let pending = false;
+  const timer = setInterval(async () => {
+    if (--remaining <= 0) { clearInterval(timer); signinPolls.delete(key); }
+    if (pending) return;
+    pending = true;
+    try {
+      const s = loadStrategy(ctx), account = s.accounts[name];
+      if (account) await readAccountUsage({...ctx, now: Date.now() / 1000}, account, Object.values(s.runners).filter(r => r.account === name), true);
+    } catch { /* A later poll can retry a temporary usage or configuration failure. */ }
+    finally { pending = false; }
+  }, 15000);
+  timer.unref();
+  signinPolls.set(key, timer);
+}
+
+export async function signin(ctx: Ctx, name: string, o: {target?: TerminalOptions["target"]} = {}, deps: Partial<TerminalDeps> = {}) {
+  const account = loadStrategy(ctx).accounts[name];
+  if (!account) throw new CoreError("invalid_input", `unknown account: ${name}`);
+  if (account.kind !== "claude" && account.kind !== "codex") throw new CoreError("not_allowed", `account ${name} has no supported login`);
+  const folder = accountFolder(ctx, account);
+  if (account.source === "orca" && !folder) throw new CoreError("not_allowed", "Orca account folder not found");
+  const result = await openInTerminal(ctx, {
+    argv: account.kind === "codex" ? ["codex", "login"] : ["claude"],
+    env: {[account.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"]: folder ?? join(ctx.home, account.kind === "codex" ? ".codex" : ".claude")},
+    title: `Sign in to ${name}`, target: o.target,
+  }, deps);
+  watchSignin(ctx, name);
+  return result;
 }

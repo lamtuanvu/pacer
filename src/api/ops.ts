@@ -9,6 +9,7 @@ import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { z } from "zod";
+import type { TerminalDeps } from "../terminal/open";
 import { detectAgents } from "../install/detection";
 import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
 import { build as buildStrategy } from "../strategy/launcher";
@@ -39,6 +40,7 @@ import type { Ctx } from "../types";
 export interface OpDeps {
   client?: string;
   runnerCheck?: RunnerCheckDeps;
+  terminal?: Partial<TerminalDeps>;
   spawnRunner?: SpawnRunner;
   endpoint?: endpoints.EndpointDeps;
   openTerminal?: typeof openInTerminal;
@@ -127,6 +129,7 @@ export const OPS: Record<string, OpDef> = {
   "job.list": op({ description: "List retained shared jobs, optionally for a target.", params: z.object({target: id.optional()}), handler: (ctx, p) => listJobs(ctx, p) }),
   "job.cancel": op({ description: "Cancel a job that supports cancellation.", params: z.object({id}), handler: (ctx, p) => cancelJob(ctx, p.id) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
+  "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}), handler: (ctx, p, deps) => accounts.signin(ctx, p.name, p, deps.terminal) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
     params: z.discriminatedUnion("kind", [

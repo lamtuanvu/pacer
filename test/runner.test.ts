@@ -9,6 +9,7 @@ import type { AttemptOutcome } from "../src/exec/direct";
 import { type RunnerDeps, runTask } from "../src/tasks/runner";
 import { taskStop } from "../src/tasks/api";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { readAuthFailures } from "../src/usage/auth";
 import { readMarks } from "../src/usage/reactive";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
@@ -384,4 +385,28 @@ test('limit marks the account and carries the reset reported by a named runner',
  expect(until).toBeGreaterThan(Date.now()/1000);
  const reset=new Date(until*1000);expect(reset.getUTCMonth()).toBe(9);expect(reset.getUTCDate()).toBe(18);expect(reset.getUTCHours()).toBe(6);
  expect(readMarks(ctx)['codex#team']).toBeUndefined();
+});
+
+test("attempt authentication failures in output or logs mark the bound account", async () => {
+  for (const source of ["output", "log"] as const) {
+    const ctx = fakeCtx();
+    const s = validateStrategy({accounts: {plan: {kind: "claude"}, team: {kind: "codex", home: "~/.codex-team"}}, planner: "claude-code", routing: [{default: ["codex#team"]}]}, "test");
+    const st = {...status(), providers: [{id: "codex#team", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false}]} as Status;
+    const outcome = outcomeFor("codex#team", 1, false, source === "output" ? "401 Unauthorized" : "login failed");
+    outcome.attempt.log = join(ctx.home, "attempt.log");
+    writeFileSync(outcome.attempt.log, source === "log" ? "Please log in" : "");
+    await runTask(ctx, newTask(ctx, {requestedExecutor: "codex#team"}).id, {...deps({"codex#team": outcome}, st), loadStrategy: () => s});
+    expect(readAuthFailures(ctx)).toEqual({team: outcome.attempt.endedAt});
+  }
+});
+
+test("a successful attempt whose work mentions auth errors does not sign the account out", async () => {
+  const ctx = fakeCtx();
+  const s = validateStrategy({accounts: {plan: {kind: "claude"}, team: {kind: "codex", home: "~/.codex-team"}}, planner: "claude-code", routing: [{default: ["codex#team"]}]}, "test");
+  const st = {...status(), providers: [{id: "codex#team", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false}]} as Status;
+  const outcome = outcomeFor("codex#team", 0, false, "Added a test for 401 Unauthorized responses; authentication failed path covered");
+  outcome.attempt.log = join(ctx.home, "attempt.log");
+  writeFileSync(outcome.attempt.log, "expect(res.status).toBe(401) // 401 Unauthorized");
+  await runTask(ctx, newTask(ctx, {requestedExecutor: "codex#team"}).id, {...deps({"codex#team": outcome}, st), loadStrategy: () => s});
+  expect(readAuthFailures(ctx)).toEqual({});
 });

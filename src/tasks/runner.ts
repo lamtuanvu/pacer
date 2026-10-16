@@ -3,7 +3,7 @@ import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { type SpawnRunner } from "./api";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, realpathSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { gitInfo, realpathSafe } from "../core/git";
 import { worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
@@ -24,6 +24,7 @@ import type { Ctx } from "../types";
 import { validateExecution } from "../config/execution";
 import { remoteExclusion } from "../remote/eligibility";
 import { resolveRunner } from "../config/runner-id";
+import { markAuthFailed } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
 import { listTasks, readTask, updateTask } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
@@ -267,6 +268,13 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const note = [...remoteSkipped].map(([id, reason]) => `skipped ${id}: ${reason}`).join("\n");
         out.report = `${note}\n\n${out.report}`;
         if (existsSync(out.attempt.log)) appendFileSync(out.attempt.log, `\n--- routing\n${note}\n`);
+      }
+      const account = resolveRunner(s, pick)?.account;
+      // Only a failed attempt can mean a signed-out CLI; check where the CLI prints, not the agent's report.
+      if (account && out.attempt.exitCode !== 0) {
+        let log = "";
+        try { log = readFileSync(out.attempt.log, "utf8").slice(-4096); } catch { /* Some backends only return output. */ }
+        markAuthFailed({...ctx, now: out.attempt.endedAt}, account, `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}\n${log}`, {attempt: true});
       }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
       if (out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
