@@ -1,0 +1,121 @@
+import { appendFileSync, existsSync, openSync, closeSync, readSync, statSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Launch } from "../exec/launch";
+import type { Ctx } from "../types";
+import type { Result } from "../commands/types";
+import { readTask } from "../tasks/store";
+import { validateTaskId } from "./targets";
+
+export type ReportStatus = "done" | "failed" | "needs-input" | "running" | "turn-ended";
+export interface SessionReport { status: ReportStatus; summary: string; at: number }
+const statuses = ["done", "failed", "needs-input", "running", "turn-ended"];
+const terminal = (s: string) => s === "done" || s === "failed";
+function parseReport(value: unknown): SessionReport | null {
+  const r = value as SessionReport | null;
+  return r && statuses.includes(r.status) && typeof r.summary === "string" && r.summary.trim() && r.summary.length <= 16000 && Number.isFinite(r.at) ? r : null;
+}
+export function readReport(dir: string): SessionReport | null {
+  for (const name of ["report.json", "session-status.json"]) {
+    try { const r = parseReport(JSON.parse(readFileSync(join(dir, name), "utf8"))); if (r) return r; } catch { /* absent or torn signal */ }
+  }
+  return null;
+}
+export function writeReport(dir: string, status: string, summary: string): void {
+  if (!["done", "failed", "needs-input", "running"].includes(status)) throw Error("report status must be done, failed, needs-input or running");
+  if (!summary.trim() || summary.length > 16000) throw Error("report summary must contain 1–16000 characters");
+  storeReport(dir, status as ReportStatus, summary);
+}
+function storeReport(dir: string, status: ReportStatus, summary: string): void {
+  const prev = readReport(dir);
+  if (prev && terminal(prev.status)) return;
+  const value = JSON.stringify({status, summary: summary.trim(), at: Date.now() / 1000});
+  // Completion has its own file so a concurrent late hook cannot overwrite it.
+  if (terminal(status)) {
+    try { writeFileSync(join(dir, "report.json"), value, {mode: 0o600, flag: "wx"}); }
+    catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
+  } else {
+    const tmp = join(dir, `report.${process.pid}.${crypto.randomUUID()}.tmp`);
+    writeFileSync(tmp, value, {mode: 0o600}); renameSync(tmp, join(dir, "session-status.json"));
+  }
+}
+function tailFile(path: string): string {
+  const fd = openSync(path, "r");
+  try { const size = statSync(path).size, start = Math.max(0, size - 256 * 1024), buf = Buffer.alloc(size - start); readSync(fd, buf, 0, buf.length, start); return buf.toString("utf8"); }
+  finally { closeSync(fd); }
+}
+/** Read structured assistant text only; terminal rendering is never a report. */
+export function transcriptReport(dir: string): string {
+  try { return tailFile(join(dir, "transcript-report.md")).slice(-16000).trim(); } catch { return ""; }
+}
+export function agentHook(dir: string, input: unknown): void {
+  if (!input || typeof input !== "object") return;
+  const h = input as Record<string, unknown>;
+  let text = typeof h.last_assistant_message === "string" ? h.last_assistant_message : "";
+  if (!text && typeof h.transcript_path === "string") {
+    try {
+      for (const line of tailFile(h.transcript_path).split("\n")) {
+        try {
+          const row = JSON.parse(line);
+          const message = row.type === "assistant" ? row.message : row.type === "response_item" && row.payload?.role === "assistant" ? row.payload : null;
+          if (Array.isArray(message?.content)) {
+            const content = message.content.filter((c: any) => ["text", "output_text"].includes(c.type) && typeof c.text === "string").map((c: any) => c.text).join("\n");
+            if (content) text = content;
+          }
+        } catch { /* incomplete JSONL record */ }
+      }
+    } catch { /* transcript may not yet exist */ }
+  }
+  if (text) writeFileSync(join(dir, "transcript-report.md"), text.slice(-16000), {mode: 0o600});
+  const event = h.hook_event_name;
+  if (event === "PermissionRequest" || event === "Elicitation" || (event === "PreToolUse" && ["AskUserQuestion", "request_user_input"].includes(String(h.tool_name))) || (event === "Notification" && ["permission_prompt", "idle_prompt", "elicitation_dialog"].includes(String(h.notification_type)))) {
+    writeReport(dir, "needs-input", typeof h.message === "string" && h.message.trim() ? h.message.slice(0, 16000) : "Agent is waiting for input");
+  } else if (event === "Stop") {
+    storeReport(dir, "turn-ended", "Agent finished its turn; attach to answer or report completion");
+  } else if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "ElicitationResult"].includes(String(event))) {
+    writeReport(dir, "running", "Agent is working");
+  }
+  if (typeof event === "string") appendFileSync(join(dir, "events.jsonl"), JSON.stringify({event, status: readReport(dir)?.status, at: Date.now() / 1000}) + "\n", {mode: 0o600});
+}
+const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
+export function prepareInteractive(agent: string, dir: string, launch: Launch): Launch {
+  if (!["claude-code", "codex"].includes(agent)) return launch;
+  mkdirSync(dir, {recursive: true, mode: 0o700});
+  const cli = /(^|\/)bun(?:\.exe)?$/.test(process.execPath) ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : [process.execPath];
+  const script = join(dir, "report-hook.sh");
+  writeFileSync(script, `#!/bin/sh\nexec ${[...cli, "_session-hook", dir].map(quote).join(" ")}\n`, {mode: 0o700});
+  const command = `/bin/sh ${quote(script)}`;
+  const hooks: Record<string, {matcher?: string; hooks: {type: string; command: string}[]}[]> = Object.fromEntries(["PermissionRequest", "Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"].map(event => [event, [{hooks: [{type: "command", command}]}]]));
+  if (agent === "codex") {
+    const overrides = Object.entries(hooks).flatMap(([event]) => ["-c", `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)}}]}]`]);
+    return {...launch, argv: [launch.argv[0], ...overrides, ...launch.argv.slice(1)]};
+  }
+  hooks.Elicitation = [{hooks: [{type: "command", command}]}];
+  hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
+  hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
+  const settings = join(dir, "claude-settings.json");
+  writeFileSync(settings, JSON.stringify({hooks}), {mode: 0o600});
+  return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
+}
+export function reportCommand(args: string[], ctx: Ctx): Result {
+  try {
+    let id: string | undefined, status = "", summary = "";
+    for (let i = 0; i < args.length; i++) {
+      if ((args[i] === "--status" || args[i] === "--outcome") && args[i + 1]) status = args[++i];
+      else if (args[i] === "--summary" && args[i + 1]) summary = args[++i];
+      else if (args[i] === "--task" && args[i + 1] && !id) id = args[++i];
+      else if (!args[i].startsWith("-") && !id) id = args[i];
+      else throw Error("usage: pacer report [task-id] --status done|failed|needs-input|running --summary <text>");
+    }
+    let dir = ctx.env.PACER_RUN_DIR;
+    if (id) {
+      validateTaskId(id);
+      const task = readTask(ctx, id);
+      if (!task?.run || task.run.host || task.state !== "running") throw Error("task has no active local run");
+      dir = task.run.dir;
+    }
+    if (!dir || !existsSync(join(dir, "interactive.json"))) throw Error("report requires an interactive run (pass task-id or use its launch environment)");
+    writeReport(dir, status, summary);
+    return {code: 0, out: `Reported ${status}`, err: ""};
+  } catch (e) { return {code: 2, out: "", err: `pacer: ${(e as Error).message}`}; }
+}

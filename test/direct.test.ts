@@ -152,3 +152,15 @@ for (const [agent,kind,bin,fixture] of [['claude-code','claude','claude','claude
  const out=await runAttempt(ctx,st.providers[`${agent}#team`],task);
  expect(out.attempt.exitCode).toBe(1);expect(out.attempt.limitHit).toBe(true);
 });
+
+for (const status of ["done", "failed"] as const) test(`interactive ${status} attempts use explicit results and a transcript, never screen text`, async () => {
+  const cli = join(import.meta.dir, "..", "src", "cli.ts");
+  const {ctx, task} = await setup("codex", 'test -t 0 || exit 9; echo "You have hit your usage limit"; printf "Transcript result" > "$PACER_TRANSCRIPT_REPORT"; bun "$PACER_TEST_CLI" report --task "$(basename "$(dirname "$PACER_RUN_DIR")")" --outcome "$PACER_TEST_STATUS" --summary "Explicit result"');
+  updateTask(ctx, task.id, t => {t.state = "running";});
+  const out = await runAttempt({...ctx, env: {...ctx.env, PACER_TEST_CLI: cli, PACER_TEST_STATUS: status}}, {...s.providers.codex, session: "interactive"}, task);
+  expect(out.exec.code).toBe(status === "done" ? 0 : 1);
+  expect(out.report).toContain("Explicit result");
+  expect(out.report).toContain("Transcript result");
+  expect(out.report).not.toContain("usage limit");
+  expect(out.attempt.limitHit).toBe(false);
+});
