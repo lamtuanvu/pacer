@@ -2,6 +2,8 @@ import { z } from "zod";
 import { spawn } from "node:child_process";
 import * as core from "../core";
 import * as accounts from "../core/accounts";
+import * as endpoints from "../core/endpoints";
+import { redactEndpointError } from "../endpoints/state";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -24,6 +26,7 @@ import type { Ctx } from "../types";
 type UpdateSpawnOptions = { detached: true; stdio: "ignore"; env: NodeJS.ProcessEnv };
 export interface OpDeps {
   spawnRunner?: SpawnRunner;
+  endpoint?: endpoints.EndpointDeps;
   spawnUpdate?: (argv: string[], options: UpdateSpawnOptions) => void | Promise<void>;
   update?: Partial<Pick<UpdateDeps, "standalone" | "execPath">>;
 }
@@ -35,6 +38,22 @@ const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 const agent = z.enum(["claude-code", "codex", "cursor", "opencode"]);
 const level = z.enum(["off", "important", "all"]);
 const draft = z.object({from: id, set: z.record(z.string(), z.json()).optional(), unset: z.array(z.string()).optional(), description: z.string().optional()});
+const endpointModel = z.object({id: z.string().min(1), name: z.string().optional(), context: z.number().int().positive(), output: z.number().int().positive(), tools: z.boolean()});
+const endpointFields = {
+  base_url: z.url().refine(value => /^https?:\/\//.test(value), "base URL must be HTTP(S)"),
+  key_source: z.enum(["keychain", "file", "env", "none"]),
+  key: z.string().optional(), env_var: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+  models: z.array(endpointModel).min(1), usage: z.enum(["quota", "metered", "unmetered"]),
+  weekly_tokens: z.number().int().positive().optional(), quota_source: z.string().min(1).optional(), test: z.boolean().optional(),
+};
+const endpointEdit = z.object({name: id, ...endpointFields}).partial().required({name: true});
+async function endpointAction<T>(key: string | undefined, action: () => T | Promise<T>): Promise<T> {
+  try { return await action(); }
+  catch (error) {
+    const safe = toCoreError(error);
+    throw new CoreError(safe.code, redactEndpointError(safe.message, [key ?? ""]));
+  }
+}
 async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
   try { return await action(); } catch (e) {
     const error = toCoreError(e);
@@ -71,7 +90,23 @@ async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>)
 
 export const OPS: Record<string, OpDef> = {
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
-  "account.add": op({ description: "Create a Claude or Codex account home without launching sign-in.", params: z.object({kind: z.enum(["claude", "codex"]), name: id, home: z.string().min(1).optional()}), handler: (ctx, p) => mutation(ctx, "accounts", async () => { await accounts.add(ctx, p); return {account: (await accounts.list(ctx)).find(a => a.name === p.name)!}; }) }),
+  "account.add": op({
+    description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
+    params: z.discriminatedUnion("kind", [
+      z.object({kind: z.literal("claude"), name: id, home: z.string().min(1).optional()}),
+      z.object({kind: z.literal("codex"), name: id, home: z.string().min(1).optional()}),
+      z.object({kind: z.literal("endpoint"), name: id, ...endpointFields}),
+    ]),
+    handler: (ctx, p, deps) => mutation(ctx, "accounts", async () => {
+      if (p.kind === "endpoint") return endpointAction(p.key, () => endpoints.addEndpoint(ctx, p, deps.endpoint));
+      await accounts.add(ctx, p);
+      return {account: (await accounts.list(ctx)).find(a => a.name === p.name)!};
+    }),
+  }),
+  "account.models": op({ description: "Discover endpoint models using a supplied or stored key.", params: z.object({name: id.optional(), base_url: endpointFields.base_url.optional(), key: z.string().optional()}), handler: (ctx, p, deps) => endpointAction(p.key, () => endpoints.listModels(ctx, p, deps.endpoint)) }),
+  "account.edit": op({ description: "Edit a managed endpoint and regenerate its OpenCode provider.", params: endpointEdit, handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.editEndpoint(ctx, p, deps.endpoint))) }),
+  "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),
+  "account.adopt": op({ description: "Adopt an external OpenCode provider's URL and model ids, supplying a new key source.", params: z.object({name: id, key_source: endpointFields.key_source, key: endpointFields.key, env_var: endpointFields.env_var}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.adoptEndpoint(ctx, p, deps.endpoint))) }),
   "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id, delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", () => { accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true}; }) }),
   "runner.add": op({ description: "Add an agent/account runner to the default routing rule.", params: z.object({agent: z.enum(AGENTS), account: id.optional(), host: id.optional(), model: z.string().min(1).optional()}), handler: (ctx, p) => mutation(ctx, "runners", () => ({id: runnersConfig.add(ctx, p).id})) }),
   "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id}), handler: (ctx, p) => mutation(ctx, "runners", () => { runnersConfig.remove(ctx, p.id); return {removed: true}; }) }),

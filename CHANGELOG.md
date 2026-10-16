@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Managed OpenCode endpoint accounts: connection setup, key stores, model discovery, generated config, automatic runners, test-gated Ready state, and edit/test/adopt operations through the CLI and v2 API.
 - App API operations for configuration, notifications, accounts, runners, routing, agent connections, setup, service status, plugin installation, strategies, hosts, versions and updates, with `config` events for client refreshes.
 - `pacer open` opens the daemon-served pacer app placeholder in a browser; `--print` prints a one-time sign-in link and `--logout` clears browser sessions.
 - Browser access through one-time codes and cookie sessions, with loopback Host checks, Origin and client-header checks, security headers and no CORS.
@@ -29,6 +30,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Direct execution honors new placement with a pacer-owned worktree; task reports begin `ran in new worktree <path> (<why>)`.
 - Executor timeouts send TERM to the process group, then KILL after a five-second grace period, instead of killing immediately.
 - Idle tasks stop after `execution.idle_fail_min` minutes without output or file changes (default 30).
+
+### Fixed
+
+- `pacer account add` for endpoints no longer reports success without a working connection.
 
 ## [0.1.24] - 2026-10-14
 

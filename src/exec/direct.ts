@@ -179,7 +179,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
   let launch: ReturnType<typeof launchFor>;
   let env: Record<string, string | undefined>;
   try {
-    env = executorEnv(ctx.env, providerEnv(ctx, cfg));
+    env = executorEnv(ctx.env, await providerEnv(ctx, cfg));
     launch = launchFor(cfg, prompt, workdir, rdir, task.id);
   } catch (e) {
     const exec = { code: 127, stdout: "", stderr: (e as Error).message, timedOut: false };

@@ -35,7 +35,7 @@ test("cursor, agy, claude: prompt as the last argument, cwd = repo", () => {
 
 test("opencode-routed providers always pass --agent build and their model", () => {
   expect(launchFor(s.providers["opencode#byteplus"], "P", "/repo", "/t", ID)).toEqual({
-    cwd: "/repo", argv: ["opencode", "run", "--agent", "build", "-m", "coding-plan/dola-seed-2.0-code", "--auto", "--title", `pacer ${ID}`, "P"],
+    cwd: "/repo", argv: ["opencode", "run", "--standalone", "--agent", "build", "-m", "coding-plan/dola-seed-2.0-code", "--auto", "--title", `pacer ${ID}`, "P"],
   });
 });
 

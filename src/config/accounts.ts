@@ -21,7 +21,16 @@ export function parseDuration(v: unknown): number | null {
 export const AGENTS = ["claude-code", "codex", "cursor", "agy", "opencode"] as const;
 export type AgentId = (typeof AGENTS)[number];
 export type AccountKind = "claude" | "codex" | "cursor" | "agy" | "endpoint";
+export type KeySource = "keychain" | "file" | `env:${string}` | "none";
+export interface EndpointModel { id: string; name?: string; context: number; output: number; tools: boolean }
+export interface EndpointConnection {
+  api: "openai-compatible";
+  base_url: string;
+  key: KeySource;
+  models: EndpointModel[];
+}
 export interface AccountCfg {
+  connection?: EndpointConnection;
   name: string;
   model: string | null;
   kind: AccountKind;
@@ -48,6 +57,35 @@ const ACCOUNT_KIND: Record<AgentId, AccountKind> = {
 };
 export function allowedPair(agent: AgentId, kind: AccountKind): boolean {
   return Object.hasOwn(ACCOUNT_KIND, agent) && ACCOUNT_KIND[agent] === kind;
+}
+
+function parseConnection(value: unknown, at: string, problems: string[]): EndpointConnection | undefined {
+  const start = problems.length;
+  if (!isObj(value)) { problems.push(`${at}.connection must be a mapping`); return; }
+  if (value.api !== "openai-compatible") problems.push(`${at}.connection.api must be openai-compatible`);
+  try {
+    const url = new URL(typeof value.base_url === "string" ? value.base_url : "");
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw Error();
+  } catch { problems.push(`${at}.connection.base_url must be an http(s) URL without credentials`); }
+  if (typeof value.key !== "string" || !/^(keychain|file|none|env:[A-Za-z_][A-Za-z0-9_]*)$/.test(value.key)) problems.push(`${at}.connection.key must be keychain, file, env:VAR or none`);
+  if (!Array.isArray(value.models) || !value.models.length) problems.push(`${at}.connection.models must be a non-empty list`);
+  const models: EndpointModel[] = [];
+  const ids = new Set<string>();
+  for (const [i, model] of (Array.isArray(value.models) ? value.models : []).entries()) {
+    const where = `${at}.connection.models.${i}`;
+    if (!isObj(model)) { problems.push(`${where} must be a mapping`); continue; }
+    if (typeof model.id !== "string" || !model.id.trim()) problems.push(`${where}.id must be non-empty`);
+    else if (ids.has(model.id)) problems.push(`${where}.id must be unique`);
+    else ids.add(model.id);
+    if (model.name !== undefined && (typeof model.name !== "string" || !model.name.trim())) problems.push(`${where}.name must be non-empty`);
+    for (const limit of ["context", "output"]) {
+      if (typeof model[limit] !== "number" || !Number.isSafeInteger(model[limit]) || model[limit] <= 0) problems.push(`${where}.${limit} must be a positive integer`);
+    }
+    if (typeof model.tools !== "boolean") problems.push(`${where}.tools must be a boolean`);
+    models.push({id: model.id as string, ...(model.name !== undefined ? {name: model.name as string} : {}), context: model.context as number, output: model.output as number, tools: model.tools as boolean});
+  }
+  if (problems.length !== start) return;
+  return {api: "openai-compatible", base_url: value.base_url as string, key: value.key as KeySource, models};
 }
 
 function accountCfg(name: string, c: Record<string, unknown>): AccountCfg {
@@ -104,6 +142,11 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
     const at = `accounts.${name}`;
     if (!isObj(value)) { problems.push(`${at} must be a mapping`); continue; }
     const cfg = accountCfg(name, value);
+    if (value.connection !== undefined) {
+      if (cfg.kind !== "endpoint") problems.push(`${at}: connection requires an endpoint account`);
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) problems.push(`${at}: connection account name must contain lowercase letters, digits and hyphens`);
+      cfg.connection = parseConnection(value.connection, at, problems);
+    }
     if (!["claude", "codex", "cursor", "agy", "endpoint"].includes(cfg.kind)) problems.push(`${at}: unknown account kind`);
     if (value.home !== undefined && (typeof value.home !== "string" || !value.home.trim() || !["claude", "codex"].includes(cfg.kind))) {
       problems.push(`${at}: home requires a non-empty folder on a claude or codex account`);
@@ -153,7 +196,13 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
     const id = formatRunnerId({...parsed, account}, defaults);
     if (!parseRunnerId(id)) problems.push(`${at}: invalid runner id`);
     if (runners[id] && !Object.keys(c).length) { runnerAliases[reference] = id; return runners[id]; }
-    const model = c.model === undefined ? cfg.model : typeof c.model === "string" ? c.model : null;
+    let model = c.model === undefined ? cfg.model : typeof c.model === "string" ? c.model : null;
+    if (cfg.connection) {
+      const prefix = `pacer-${account}/`;
+      const selected = model?.startsWith(prefix) ? model.slice(prefix.length) : model ?? cfg.connection.models[0].id;
+      if (!cfg.connection.models.some(m => m.id === selected)) problems.push(`${at}: model must be selected from connection.models`);
+      model = prefix + selected;
+    }
     if (Object.keys(c).length) {
       if (declarations.has(id) && declarations.get(id) !== model) problems.push(`${at}: conflicting model declarations for ${id}`);
       declarations.set(id, model);

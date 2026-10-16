@@ -8,6 +8,8 @@ import { shq } from "../install/fsx";
 import { readOrcaAccounts } from "../orca/accounts";
 import { readAccountUsage } from "../usage";
 import { CoreError, toCoreError } from "./errors";
+import { writeOpencodeConfig } from "../endpoints/opencode-config";
+import { endpointRow } from "../endpoints/row";
 import type { Ctx } from "../types";
 
 export function requireAccounts(strategy: Strategy): void {
@@ -16,6 +18,7 @@ export function requireAccounts(strategy: Strategy): void {
 export function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy>[1]): string {
   const result = editStrategy(strategyPath(ctx), change);
   if (!result.ok) throw new CoreError("invalid_input", result.error, "Check the strategy values and retry.");
+  writeOpencodeConfig(ctx);
   return result.diff;
 }
 /** A delete-home operation must never remove a shared, default, or symlinked folder. */
@@ -48,7 +51,7 @@ export async function list(ctx: Ctx) {
     const folder = accountFolder(ctx,a);
     const usageReading = await readAccountUsage({...ctx,readOnly:true},a,runners);
     return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id), signedIn: identity ? true : null,
-      runnable: a.source !== "orca" || folder !== null, usageReading};
+      runnable: a.source !== "orca" || folder !== null, usageReading, ...await endpointRow(ctx, a)};
   }));
   return rows.map(row => {
     const native = row.kind === "claude" || row.kind === "codex";

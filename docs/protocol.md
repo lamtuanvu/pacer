@@ -85,7 +85,166 @@ The outbox retains the last 200 entries. If a positive resume cursor predates th
 
 ### `account.add`
 
-Create a Claude or Codex account home without launching sign-in.
+Create a Claude or Codex account home, or configure and test a model endpoint.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "claude"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "home": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "codex"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "home": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "endpoint"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "key_source": {
+          "type": "string",
+          "enum": [
+            "keychain",
+            "file",
+            "env",
+            "none"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "env_var": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "models": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string"
+              },
+              "context": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "output": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "tools": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "context",
+              "output",
+              "tools"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "usage": {
+          "type": "string",
+          "enum": [
+            "quota",
+            "metered",
+            "unmetered"
+          ]
+        },
+        "weekly_tokens": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "quota_source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "base_url",
+        "key_source",
+        "models",
+        "usage"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+### `account.adopt`
+
+Adopt an external OpenCode provider's URL and model ids, supplying a new key source.
 
 Params JSON Schema:
 
@@ -94,25 +253,130 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "kind": {
-      "type": "string",
-      "enum": [
-        "claude",
-        "codex"
-      ]
-    },
     "name": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128
     },
-    "home": {
+    "key_source": {
       "type": "string",
-      "minLength": 1
+      "enum": [
+        "keychain",
+        "file",
+        "env",
+        "none"
+      ]
+    },
+    "key": {
+      "type": "string"
+    },
+    "env_var": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
     }
   },
   "required": [
-    "kind",
+    "name",
+    "key_source"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `account.edit`
+
+Edit a managed endpoint and regenerate its OpenCode provider.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "base_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "key_source": {
+      "type": "string",
+      "enum": [
+        "keychain",
+        "file",
+        "env",
+        "none"
+      ]
+    },
+    "key": {
+      "type": "string"
+    },
+    "env_var": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "models": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "context": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "output": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tools": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "context",
+          "output",
+          "tools"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "usage": {
+      "type": "string",
+      "enum": [
+        "quota",
+        "metered",
+        "unmetered"
+      ]
+    },
+    "weekly_tokens": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "quota_source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "test": {
+      "type": "boolean"
+    }
+  },
+  "required": [
     "name"
   ],
   "additionalProperties": false
@@ -130,6 +394,34 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `account.models`
+
+Discover endpoint models using a supplied or stored key.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "base_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "key": {
+      "type": "string"
+    }
+  },
   "additionalProperties": false
 }
 ```
@@ -152,6 +444,30 @@ Params JSON Schema:
     },
     "delete_home": {
       "type": "boolean"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `account.test`
+
+Run an endpoint test task in an isolated temporary git repository.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
     }
   },
   "required": [
