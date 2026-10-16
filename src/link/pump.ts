@@ -5,6 +5,7 @@ import type { Strategy } from "../config/strategy";
 import type { SetupChecklist } from "../setup/checklist";
 import type { EntityData } from "./envelope";
 import type { PublishOpts } from "./publish";
+import { drainQueue } from "../tasks/drain";
 import { resolveTask } from "../tasks/resolution";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient, isLiveTerminal } from "../exec/orca/client";
@@ -102,6 +103,7 @@ function statusActivity(ctx: Ctx, st: Status): void {
 
 export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Envelope[]> {
   rotateActivity(ctx);
+  await drainQueue(ctx).catch(() => {});
   const latest=readLatest(ctx),out:Envelope[]=[]; let st:Status;
   try{st=await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
     if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return out;}

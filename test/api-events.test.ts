@@ -29,7 +29,7 @@ test("a since older than the retained outbox yields reset", () => {
 test("the snapshot carries the protocol version and its seq", async () => {
   const ctx = fakeCtx();
   await publish(ctx, [alert("a", ctx.now)], { bridge: false, channel: false });
-  expect(apiSnapshot(ctx)).toMatchObject({ protocol: "2.1.0", seq: eventsSince(ctx, 0).last });
+  expect(await apiSnapshot(ctx)).toMatchObject({ protocol: "2.1.0", seq: eventsSince(ctx, 0).last });
 });
 
 test("events retain publication time and map internal entities", async () => {
@@ -63,4 +63,16 @@ test("v2 task events include repo, kind and host without changing v1 envelopes",
 test("hello advertises additive 2.1 events for clients that skip unknown event types",async()=>{
  const {helloBody}=await import("../src/api/protocol");
  expect(helloBody()).toMatchObject({protocol:"2.1.0",events:expect.arrayContaining(["budget","task","mode","alert","config","reset","executor","account","host","repo","counts"])});
+});
+
+test("snapshot reads drain queued tasks even without a daemon", async () => {
+  const {mkdirSync} = await import("node:fs"), {join} = await import("node:path");
+  const {createTask, updateTask, readTask} = await import("../src/tasks/store");
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  const t = createTask(ctx, {brief: {goal: "work", repo: ctx.home}, kind: null, requestedExecutor: "removed", timeoutS: 60});
+  updateTask(ctx, t.id, x => {x.queue = {reason: "no_slot", since: ctx.now, position: 1};});
+  await apiSnapshot(ctx);
+  expect(readTask(ctx, t.id)?.result?.report).toBe("removed was removed while the task waited");
 });

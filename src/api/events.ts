@@ -1,3 +1,4 @@
+import { drainQueueOnRead } from "../tasks/drain";
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import type { LinkSnapshot } from "../link/envelope";
 import { toBudget } from "../link/budget";
@@ -11,7 +12,8 @@ import { loadStrategy, validateStrategy } from "../config/strategy";
 import type { Ctx } from "../types";
 import { type ApiEvent, PROTOCOL_VERSION } from "./protocol";
 
-export function apiSnapshot(ctx: Ctx): { protocol: string; seq: number; snapshot: LinkSnapshot } {
+export async function apiSnapshot(ctx: Ctx): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot }> {
+  await drainQueueOnRead(ctx);
   const snapshot = currentSnapshot(ctx);
   return { protocol: PROTOCOL_VERSION, seq: snapshot.seq, snapshot };
 }
@@ -20,6 +22,7 @@ const statusCache=new Map<string,{at:number;strategy:string;value:Status}>();
 export async function liveSnapshot(
   ctx: Ctx, o: { maxBudgetAgeS?: number; status?: (c: Ctx) => Promise<Status> } = {},
 ): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot & ReadModelFields & {tasks:ApiTask[]} }> {
+  await drainQueueOnRead(ctx);
   const snapshot = currentSnapshot(ctx);
   const tasks = snapshotTasks(ctx,listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t));
   snapshot.tasks = tasks.map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...t}));

@@ -100,3 +100,20 @@ test("setup attention can be dismissed before a strategy is configured",async()=
  expect(await callOp(ctx,"attention.dismiss",{id:item.id})).toEqual({dismissed:true});
  expect((await liveSnapshot(ctx,{status})).snapshot.attention.some(i=>i.id===item.id)).toBe(false);
 });
+
+test("task reads drain waiting work without a daemon and share a five-second throttle", async () => {
+  const {updateTask} = await import("../src/tasks/store");
+  const ctx = await ctxWithStrategy(), spawned: string[] = [];
+  const make = (goal: string) => {
+    const t = createTask(ctx, {brief: {goal, repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 60});
+    return updateTask(ctx, t.id, x => {x.queue = {reason: "no_slot", since: ctx.now, position: 1};});
+  };
+  const a = make("a"), deps = {spawnRunner: (_: unknown, id: string) => {spawned.push(id); return process.pid;}};
+  expect(await callOp(ctx, "task.get", {id: a.id}, deps)).toMatchObject({state: "running", queue: null});
+  updateTask(ctx, a.id, t => {t.state = "done";});
+  const b = make("b");
+  await callOp(ctx, "task.list", {}, deps);
+  expect(spawned).toEqual([a.id]);
+  const {readTask} = await import("../src/tasks/store");
+  expect(readTask(ctx, b.id)?.state).toBe("queued");
+});
