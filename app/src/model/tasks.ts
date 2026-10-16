@@ -23,8 +23,12 @@ export function executorLabel(id: string | null | undefined, accounts: Account[]
     (agent === "claude-code" && account.folder.endsWith("/.claude"))
   ));
   const suffix = name && !defaultAccount ? ` · ${account?.name ?? name}` : "";
-  const label = agent === "opencode" ? `${account?.name ?? name ?? "OpenCode"} · Model endpoint` : `${native ?? agent}${suffix}`;
+  const label = agent === "opencode" ? `${account?.name ?? name ?? "OpenCode"}` : `${native ?? agent}${suffix}`;
   return label + (host ? ` on ${host}` : "");
+}
+export function executorCaption(account?: Account): string {
+  if (account?.kind !== "endpoint") return "Agent CLI";
+  return account.connection?.base_url_host ? `Model endpoint · ${account.connection.base_url_host}` : "External OpenCode provider";
 }
 /** A queued snapshot must not regress a task already running or complete. */
 export function mergeTask(task: TaskSummary, live?: TaskData): TaskSummary {

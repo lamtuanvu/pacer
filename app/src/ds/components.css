@@ -1,5 +1,6 @@
 /* pacer components: every value comes from tokens.css */
 .pc-btn{font:inherit;font-family:var(--font-sans);font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:var(--radius-md);border:1px solid var(--line);background:var(--surface-page);color:var(--ink);cursor:pointer;white-space:nowrap}
+a.pc-btn{text-decoration:none}
 .pc-btn:hover{background:var(--surface-lane)}
 .pc-btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .pc-btn:disabled{opacity:.5;cursor:not-allowed}
@@ -10,7 +11,7 @@
 .pc-btn--ghost{border-color:transparent;background:transparent}
 .pc-btn--ghost:hover{background:var(--surface-lane)}
 
-.pc-pill{display:inline-flex;align-items:center;gap:4px;font-family:var(--font-sans);font-size:11px;line-height:14px;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);white-space:nowrap}
+.pc-pill{display:inline-flex;align-self:flex-start;width:fit-content;max-width:100%;align-items:center;gap:4px;font-family:var(--font-sans);font-size:11px;line-height:14px;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);white-space:nowrap}
 .pc-pill--neutral{background:var(--surface-lane);color:var(--ink-secondary)}
 .pc-pill--good{background:var(--good-bg);color:var(--good-fg)}
 .pc-pill--warn{background:var(--warn-bg);color:var(--warn-fg)}

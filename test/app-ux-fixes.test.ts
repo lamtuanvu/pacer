@@ -44,7 +44,7 @@ test("task completion updates the store and both task view models", () => {
  expect(start.snapshot?.tasks[0]?.state).toBe("queued");
 });
 test("executor labels identify agents, endpoint accounts and named budgets", () => {
- for(const [id,label] of Object.entries({"claude-code":"Claude Code",codex:"Codex",cursor:"Cursor",agy:"Antigravity","codex#work":"Codex · work","opencode#fakecloud":"fakecloud · Model endpoint"})) expect(executorLabel(id,[])).toBe(label);
+ for(const [id,label] of Object.entries({"claude-code":"Claude Code",codex:"Codex",cursor:"Cursor",agy:"Antigravity","codex#work":"Codex · work","opencode#fakecloud":"fakecloud"})) expect(executorLabel(id,[])).toBe(label);
  expect(executorLabel("codex#personal",[{name:"personal",kind:"codex",source:"default"}])).toBe("Codex");
 });
 test("routing verdicts are words and unknown is neutral", () => {

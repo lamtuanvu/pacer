@@ -2,6 +2,7 @@ import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import type { StoreState } from "../store";
 import { ApiError, type BrowserApi } from "../api";
+import { draftStorage } from "../model/draft";
 import { Button } from "../ds/Button";
 import { Pill } from "../ds/Pill";
 import { executorLabel, taskHref, taskStatus, type TaskSummary } from "../model/tasks";
@@ -41,14 +42,22 @@ export function useAction() {
   return { busy, error, message, run };
 }
 export function useDraft<T extends { [K in keyof T]: string }>(key: string, defaults: T) {
-  const [draft, setDraft] = useState<T>(() => {
-    try {
-      const saved = JSON.parse(sessionStorage.getItem(key) ?? "null");
-      return { ...defaults, ...Object.fromEntries(Object.keys(defaults).filter(k => typeof saved?.[k] === "string").map(k => [k, saved[k]])) };
-    } catch { return defaults; }
+  // Resolve sessionStorage lazily too: browsers may deny access to the property.
+  const storage = draftStorage(key, defaults, {
+    getItem: name => sessionStorage.getItem(name),
+    setItem: (name, value) => sessionStorage.setItem(name, value),
+    removeItem: name => sessionStorage.removeItem(name),
   });
-  useEffect(() => { try { sessionStorage.setItem(key, JSON.stringify(draft)); } catch { /* storage unavailable */ } }, [key, draft]);
-  return [draft, setDraft] as const;
+  const [draft, update] = useState<T>(() => storage.read());
+  const current = useRef(draft);
+  const setDraft = (value: T | ((previous: T) => T)) => {
+    const next = typeof value === "function" ? value(current.current) : value;
+    current.current = next;
+    storage.write(next);
+    update(next);
+  };
+  const clearDraft = () => { current.current = defaults; storage.clear(); update(defaults); };
+  return [draft, setDraft, clearDraft] as const;
 }
 export function Dialog({ title, close, children }: { title: string; close: () => void; children: ComponentChildren }) {
   const ref = useRef<HTMLDialogElement>(null);

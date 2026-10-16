@@ -14,7 +14,7 @@ export function Signin({ command }: { command: string }) {
 export function Accounts() {
   const accounts = useQuery<Account[]>("account.list", {}), limits = useQuery<Limit[]>("limits.check", {});
   const [adding, setAdding] = useState(false), [remove, setRemove] = useState<string>();
-  const [draft, setDraft] = useDraft("pacer.add-account", { kind: "claude", name: "" });
+  const [draft, setDraft, clearDraft] = useDraft("pacer.add-account", { kind: "claude", name: "" });
   const action = useAction();
   useEffect(() => {
     if (!accounts.data?.some(a => a.kind !== "endpoint" && a.signedIn !== true && a.signin_command)) return;
@@ -28,7 +28,7 @@ export function Accounts() {
       {a.connection && <dl className="facts"><dt>Host</dt><dd>{a.connection.base_url_host}</dd><dt>Key</dt><dd>{a.connection.key === "present" ? "Present" : "Missing"}</dd><dt>Models</dt><dd>{a.connection.models.map(m => m.name ?? m.id).join(", ")}</dd></dl>}
       <div className="row"><Button size="sm" variant="secondary" onClick={() => setRemove(a.name)}>Remove</Button></div></Card>; })}
     {accounts.data?.length === 0 && <p>No accounts yet. Add a Claude or Codex account, or <a href="#/executors/add">connect a model endpoint</a>.</p>}
-    {adding && <Dialog title="Add account" close={() => setAdding(false)}><form onSubmit={e => { e.preventDefault(); void action.run("account.add", draft, () => { accounts.reload(); setAdding(false); setDraft({ ...draft, name: "" }); }); }}><label className="field">Agent<select value={draft.kind} onChange={e => setDraft({ ...draft, kind: e.currentTarget.value })}><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label><label className="field">Account name<input required pattern="[a-z0-9][a-z0-9-]*" value={draft.name} onInput={e => setDraft({ ...draft, name: e.currentTarget.value })} /></label><div aria-live="polite"><ErrorMessage error={action.error} /></div><Button type="submit" variant="primary" disabled={action.busy}>Add account</Button></form></Dialog>}
+    {adding && <Dialog title="Add account" close={() => setAdding(false)}><form onSubmit={e => { e.preventDefault(); void action.run("account.add", draft, () => { accounts.reload(); setAdding(false); clearDraft(); }); }}><label htmlFor="accounts-agent" className="field">Agent<select id="accounts-agent" value={draft.kind} onChange={e => setDraft({ ...draft, kind: e.currentTarget.value })}><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label><label htmlFor="accounts-name" className="field">Account name<input id="accounts-name" required pattern="[a-z0-9][a-z0-9-]*" value={draft.name} onInput={e => setDraft({ ...draft, name: e.currentTarget.value })} /></label><div aria-live="polite"><ErrorMessage error={action.error} /></div><Button type="submit" variant="primary" disabled={action.busy}>Add account</Button></form></Dialog>}
     {remove && <Dialog title="Remove account?" close={() => setRemove(undefined)}><p>Remove {remove}? Accounts used by an executor or planner must be disconnected first.</p><div aria-live="polite"><ErrorMessage error={action.error} /></div><Button disabled={action.busy} onClick={() => { void action.run("account.remove", { name: remove }, () => { setRemove(undefined); accounts.reload(); limits.reload(); }); }}>Remove account</Button></Dialog>}
   </section>;
 }

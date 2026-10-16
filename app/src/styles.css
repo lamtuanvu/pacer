@@ -36,7 +36,7 @@ input,select,textarea{min-height:44px;font:inherit;background:var(--surface-page
 .headline{font-size:var(--type-headline-size);font-weight:var(--type-headline-weight);line-height:var(--type-headline-line);margin:0}
 .usage-number{font-size:28px;font-weight:600}
 .task-row{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3);padding:var(--space-4) 0;border-top:1px solid var(--surface-lane)}
-.task-row .grow{flex-basis:200px;overflow-wrap:anywhere}
+.task-row .grow{flex-basis:200px;overflow-wrap:break-word;word-break:normal}
 .row-actions{display:flex;gap:var(--space-2);flex-wrap:wrap}
 .row-result{flex-basis:100%;font-size:12px}.row-result:empty{display:none}
 .tabs{display:flex;gap:var(--space-2);border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -79,4 +79,20 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .executor-more summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .executor-menu{position:absolute;right:0;top:100%;z-index:1;min-width:230px;padding:var(--space-3);display:flex;flex-direction:column;gap:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md)}
 .executor-menu label{display:flex;flex-direction:column;gap:var(--space-2)}
-@media(max-width:767px){.executor-row{gap:var(--space-1)}.executor-row>.grow{flex-basis:0}.executor-row .pc-btn,.executor-more summary{min-height:44px;min-width:44px}.executor-row .row-actions{gap:0}.executor-row .pc-pill{max-width:30%;white-space:normal}.executor-row strong{overflow-wrap:anywhere}}
+@media(max-width:767px){
+ .screen,.pc-card,.row,.top{min-width:0;max-width:100%}
+ .row>.grow{flex-basis:100%}
+ .row>h2,.row>strong{max-width:100%;overflow-wrap:break-word}
+ .task-row>.grow{flex-basis:100%;order:-1}
+ .task-row .pc-pill{white-space:normal}
+ .task-row>.row-actions{margin-left:auto}
+ .executor-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-3)}
+ .executor-row>.grow{order:initial;grid-column:2}
+ .executor-row>.pc-pill{grid-column:1 / -1;grid-row:2;justify-self:start;max-width:calc(100% - 176px)}
+ .executor-row>.row-actions{grid-column:1 / -1;grid-row:2;justify-self:end}
+ .executor-row .pc-btn,.executor-more summary{min-height:44px;min-width:44px}
+ .executor-row .row-actions{gap:0}
+ .executor-row strong{overflow-wrap:break-word}
+ .executor-choices .pc-btn{white-space:normal;text-align:left;flex-wrap:wrap}
+ fieldset{min-width:0;margin:0}
+}
