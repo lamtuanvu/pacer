@@ -41,3 +41,12 @@ a.pc-btn{text-decoration:none}
 .pc-mark-tile{display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius-md);background:#18181b}
 .pc-lockup{display:inline-flex;align-items:center;gap:.4em;color:var(--ink);font-family:var(--font-sans)}
 .pc-wordmark{font-weight:650;letter-spacing:-.03em;line-height:1}
+/* Agent marks. Brand colours mirror src/view-model/agents.ts (a test keeps them equal). */
+.pc-agent-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; color: var(--agent-color, var(--ink)); background: color-mix(in srgb, var(--agent-color, var(--ink)) 14%, transparent); }
+.pc-agent-mark--hairline { background: var(--surface-page); border: 1px solid var(--line); color: var(--ink); }
+.pc-agent-mark--unknown { background: var(--ink); color: var(--ink-on-ink); }
+.pc-agent-mark__mono { font-weight: 600; letter-spacing: 0; }
+.pc-agent-mark--claude-code { --agent-color: #D97757; }
+.pc-agent-mark--agy { --agent-color: #4285F4; }
+.pc-agent-mark--byteplus { --agent-color: #3C8CFF; }
+.pc-agent-mark--gemini { --agent-color: #8E75B2; }
