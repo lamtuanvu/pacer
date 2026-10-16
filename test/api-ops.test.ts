@@ -64,3 +64,11 @@ test("log offsets, route kinds and strategy errors are validated", async () => {
   expect(await codeOf(callOp(ctx, "routing.route", { kind: "invalid-kind" }))).toBe("invalid_input");
   expect(await codeOf(callOp(ctx, "strategy.use", { name: "missing" }))).toBe("invalid_input");
 });
+
+test("task.diff validates its optional path", async () => {
+  const ctx = await ctxWithStrategy();
+  for (const path of ["", "a\0b", "x".repeat(4097), 1]) {
+    expect(await codeOf(callOp(ctx, "task.diff", { id: "missing", path }))).toBe("invalid_input");
+  }
+  expect(await codeOf(callOp(ctx, "task.diff", { id: "missing", path: "a.txt" }))).toBe("unknown_task");
+});

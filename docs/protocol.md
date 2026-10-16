@@ -1508,6 +1508,11 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
     }
   },
   "required": [

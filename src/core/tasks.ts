@@ -110,25 +110,66 @@ export function log(ctx: Ctx, id: string, o: { stdout?: number; stderr?: number 
   };
 }
 
+export interface DiffFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  added: number;
+  removed: number;
+  binary: boolean;
+}
+
 /** Diff the task's worktree against its pacer base, or HEAD for existing checkouts. */
-export async function diff(ctx: Ctx, id: string): Promise<{
-  base: string | null; worktree: string; diff: string; untracked: string[]; truncated: boolean;
+export async function diff(ctx: Ctx, id: string, o: { path?: string } = {}): Promise<{
+  base: string | null; worktree: string; files: DiffFile[]; patch: string; diff: string;
+  untracked: string[]; truncated: boolean; note?: string;
 }> {
   const task = readTask(ctx, id);
   if (!task) throw unknown(id);
-  const worktree = task.run?.workdir ?? task.worktree ?? task.result?.worktree ?? task.brief.repo;
+  const reviewWorktree = task.result?.worktree?.startsWith(`${task.run?.host}:`) ? undefined : task.result?.worktree;
+  const worktree = task.run?.host
+    ? reviewWorktree ?? task.brief.repo
+    : task.run?.workdir ?? task.worktree ?? task.result?.worktree ?? task.brief.repo;
   const base = task.run?.mode === "new" && task.baseBranch ? task.baseBranch : null;
+  if (task.run?.host && (!reviewWorktree || task.state === "running")) {
+    return { base, worktree, files: [], patch: "", diff: "", untracked: [], truncated: false, note: `changes are on ${task.run.host} until the run ends` };
+  }
   const git = async (args: string[]) => {
-    const r = await ctx.run(["git", "-C", worktree, ...args], 10_000);
+    const r = await ctx.run(["git", "--literal-pathspecs", "-C", worktree, ...args], 10_000);
     if (r.code !== 0) throw new CoreError("invalid_input", `cannot diff: ${r.stderr.trim().split("\n")[0] || `git exited with code ${r.code}`}`);
     return r.stdout;
   };
-  const output = await git(["diff", ...(base ? ["--merge-base"] : []), "--no-ext-diff", "--no-textconv", "--end-of-options", base ?? "HEAD", "--"]);
-  const untracked = (await git(["ls-files", "--others", "--exclude-standard", "-z"])).split("\0").filter(Boolean);
-  const bytes = Buffer.from(output, "utf8"), max = 1024 * 1024, truncated = bytes.length > max;
+  const args = ["diff", ...(base ? ["--merge-base"] : []), "--no-ext-diff", "--no-textconv", "-M"];
+  const against = ["--end-of-options", base ?? "HEAD", "--"];
+  const names = (await git([...args, "--name-status", "-z", ...against])).split("\0");
+  const statuses = new Map<string, DiffFile["status"]>();
+  const renamedFrom = new Map<string, string>();
+  for (let i = 0; i < names.length && names[i];) {
+    const status = names[i++];
+    let path = names[i++];
+    if (status.startsWith("R") || status.startsWith("C")) {
+      const source = path;
+      path = names[i++];
+      renamedFrom.set(path, source);
+    }
+    statuses.set(path, status.startsWith("R") ? "renamed" : status === "A" || status.startsWith("C") ? "added" : status === "D" ? "deleted" : "modified");
+  }
+  const stats = (await git([...args, "--numstat", "-z", ...against])).split("\0");
+  const files: DiffFile[] = [];
+  for (let i = 0; i < stats.length && stats[i];) {
+    const entry = stats[i++];
+    const first = entry.indexOf("\t"), second = entry.indexOf("\t", first + 1);
+    const added = entry.slice(0, first), removed = entry.slice(first + 1, second);
+    let path = entry.slice(second + 1);
+    if (!path) { i++; path = stats[i++]; } // -z encodes a rename as old NUL new NUL.
+    files.push({ path, status: statuses.get(path) ?? "modified", added: added === "-" ? 0 : Number(added), removed: removed === "-" ? 0 : Number(removed), binary: added === "-" || removed === "-" });
+  }
+  const paths = o.path === undefined ? [] : [...new Set([renamedFrom.get(o.path), o.path].filter((p): p is string => p !== undefined))];
+  const output = await git([...args, ...against, ...paths]);
+  const untracked = (await git(["ls-files", "--others", "--exclude-standard", "-z", ...(o.path === undefined ? [] : ["--", o.path])])).split("\0").filter(Boolean);
+  const bytes = Buffer.from(output, "utf8"), max = (o.path === undefined ? 1 : 4) * 1024 * 1024, truncated = bytes.length > max;
   // Keep the byte cap even when the cut falls inside a UTF-8 character.
-  const text = truncated ? new TextDecoder().decode(bytes.subarray(0, max), { stream: true }) : output;
-  return { base, worktree, diff: text, untracked, truncated };
+  const patch = truncated ? new TextDecoder().decode(bytes.subarray(0, max), { stream: true }) : output;
+  return { base, worktree, files, patch, diff: patch, untracked, truncated };
 }
 
 /** Re-delegates a task's stored brief. One active retry per task: a second call gets `conflict`. */
