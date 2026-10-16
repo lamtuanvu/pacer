@@ -8,7 +8,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Managed OpenCode endpoint accounts: connection setup, key stores, model discovery, generated config, automatic runners, test-gated Ready state, and edit/test/adopt operations through the CLI and v2 API.
 - App API operations for configuration, notifications, accounts, runners, routing, agent connections, setup, service status, plugin installation, strategies, hosts, versions and updates, with `config` events for client refreshes.
-- `pacer open` opens the daemon-served pacer app placeholder in a browser; `--print` prints a one-time sign-in link and `--logout` clears browser sessions.
+- The daemon-served pacer app, with setup, live budgets and tasks, delegation and review, executor and account management, strategies, hosts and settings. Open it with `pacer open`; `--print` prints a one-time sign-in link and `--logout` clears browser sessions. See the [app guide](docs/app.md).
 - Browser access through one-time codes and cookie sessions, with loopback Host checks, Origin and client-header checks, security headers and no CORS.
 
 - Remote runners over SSH: `hosts:` in the strategy, runner ids `<agent>[#account]@<host>`, `pacer host list|check|setup|clean`, results returned as a git bundle on `pacer/<task-id>` after an identity and ancestry pre-flight, Codex usage probed over SSH.
