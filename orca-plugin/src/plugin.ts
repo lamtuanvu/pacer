@@ -15,6 +15,7 @@ import { bridgeTransport } from "./transports/bridge";
 import { channelTransport } from "./transports/channel";
 import { notifyNewAlerts } from "./notify";
 import { renderStatusPage } from "./panel";
+import { serveOwnsPanel } from "../../src/plugin/panel-owner";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
   connect?(settings: { port: number; pacerHome: string }): Promise<ApiClient | null>;
@@ -138,7 +139,10 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         try {
           const nowS = deps.nowS();
           const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
-          if (html !== renderedHtml) {
+          // Serve uses local setup probes; defer while it owns the page, then
+          // force one render because serve may have replaced our last HTML.
+          if (serveOwnsPanel(deps.pluginRoot, path => deps.fs.readText(path), nowS)) renderedHtml = null;
+          else if (html !== renderedHtml) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
               deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), html);
               renderedHtml = html; lastRenderAt=nowS; userOutcome=false;
