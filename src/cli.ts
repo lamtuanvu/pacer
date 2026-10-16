@@ -2,7 +2,7 @@
 import { readLatest } from "./link/store";
 import { resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
-import { reportCommand, agentHook } from "./session/reports";
+import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
 import { sessionHost } from "./session/host";
 import { attachDirectory, attachSession } from "./session/attach";
@@ -416,8 +416,12 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "report": return reportCommand(rest, ctx);
     case "_session-hook":
       if (rest.length !== 1) return {code: 2, out: "", err: "usage: pacer _session-hook <run-dir>"};
-      try { agentHook(rest[0], JSON.parse(await Bun.stdin.text())); } catch { /* hooks must never block the agent */ }
-      return {code: 0, out: "", err: ""};
+      try {
+        const {dir, source} = reportDestination(ctx);
+        if (source !== "agent" || (await import("node:fs")).realpathSync(rest[0]) !== dir) throw Error("invalid hook destination");
+        agentHook(dir, JSON.parse(await Bun.stdin.text()));
+        return {code: 0, out: "", err: ""};
+      } catch (e) { return {code: 2, out: "", err: explain(e)}; }
     case "_session":
       if(rest.length!==1) return {code:2,out:"",err:"usage: pacer _session <run-dir>"};
       try {return {code:await sessionHost(rest[0]),out:"",err:""};}

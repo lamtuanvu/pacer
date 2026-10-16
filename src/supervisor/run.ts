@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readReport, type SessionReport } from "../session/reports";
 import type { RunIO } from "./io";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync, chmodSync } from "node:fs";
@@ -31,7 +32,8 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     const ctx=makeCtx({env:spec.env,...(taskRun?{pacerHome:dirname(dirname(dirname(spec.dir)))}:{})});
     try { execution=validateExecution(loadStrategy(ctx).execution); } catch { /* absent strategy keeps pipe default */ }
     const interactive = spec.session === "interactive";
-    if (interactive) writeFileSync(join(spec.dir, "interactive.json"), "{}", {mode: 0o600});
+    const reportToken = interactive ? randomBytes(32).toString("hex") : undefined;
+    if (interactive) writeFileSync(join(spec.dir, "interactive.json"), JSON.stringify({reportToken}), {mode: 0o600});
     const pty=interactive || (spec.session ?? execution?.session)==="pty";
     let command=["/bin/sh", script, spec.dir, ...spec.argv];
     if(pty) {
@@ -44,7 +46,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
       pruneSessions(ctx,execution?.sessionRetentionDays ?? 14);
     }
     const proc = Bun.spawn(command, {
-      detached: true, cwd: spec.cwd, env: spec.env, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+      detached: true, cwd: spec.cwd, env: interactive ? {...spec.env, PACER_REPORT_TOKEN: reportToken} : spec.env, stdin: "ignore", stdout: "ignore", stderr: "ignore",
     });
     proc.unref();
     writeFileSync(join(spec.dir, "pid"), String(proc.pid));
@@ -73,9 +75,10 @@ export function readRun(dir: string): RunState {
   const times = [stdoutBytes ? mtime(out) : null, stderrBytes ? mtime(err) : null, mtime(join(dir, "session.activity"))].filter((t): t is number => t !== null);
   let controller: string | null = null;
   try { const state = JSON.parse(readFileSync(join(dir, "session.state"), "utf8")); if (typeof state.controller === "string") controller = state.controller; } catch { /* optional session state */ }
+  const interactive = existsSync(join(dir, "interactive.json"));
   return {
-    ...(controller ? {controller} : {}),
-    ...(existsSync(join(dir, "interactive.json")) ? {interactive: true, report: readReport(dir)} : {}),
+    ...(interactive && controller ? {controller} : {}),
+    ...(interactive ? {interactive: true, report: readReport(dir)} : {}),
     pid, startedAt: num(join(dir, "started")), exit, stdoutBytes, stderrBytes,
     lastOutputAt: times.length ? Math.max(...times) : null,
     alive: exit === null && pid !== null && wrapperAlive(pid, dir),

@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, openSync, closeSync, readSync, statSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, openSync, closeSync, readSync, statSync, readFileSync, writeFileSync, renameSync, mkdirSync, realpathSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Launch } from "../exec/launch";
 import type { Ctx } from "../types";
@@ -8,12 +8,13 @@ import { readTask } from "../tasks/store";
 import { validateTaskId } from "./targets";
 
 export type ReportStatus = "done" | "failed" | "needs-input" | "running" | "turn-ended";
-export interface SessionReport { status: ReportStatus; summary: string; at: number }
+export interface SessionReport { status: ReportStatus; summary: string; at: number; source?: "agent" | "user" }
+export const cleanSummary = (summary: string) => summary.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
 const statuses = ["done", "failed", "needs-input", "running", "turn-ended"];
 const terminal = (s: string) => s === "done" || s === "failed";
 function parseReport(value: unknown): SessionReport | null {
   const r = value as SessionReport | null;
-  return r && statuses.includes(r.status) && typeof r.summary === "string" && r.summary.trim() && r.summary.length <= 16000 && Number.isFinite(r.at) ? r : null;
+  return r && statuses.includes(r.status) && typeof r.summary === "string" && r.summary.trim() && r.summary.length <= 16000 && Number.isFinite(r.at) ? {...r, summary: cleanSummary(r.summary)} : null;
 }
 export function readReport(dir: string): SessionReport | null {
   for (const name of ["report.json", "session-status.json"]) {
@@ -21,15 +22,16 @@ export function readReport(dir: string): SessionReport | null {
   }
   return null;
 }
-export function writeReport(dir: string, status: string, summary: string): void {
+export function writeReport(dir: string, status: string, summary: string, source?: "agent" | "user"): void {
+  summary = cleanSummary(summary);
   if (!["done", "failed", "needs-input", "running"].includes(status)) throw Error("report status must be done, failed, needs-input or running");
   if (!summary.trim() || summary.length > 16000) throw Error("report summary must contain 1–16000 characters");
-  storeReport(dir, status as ReportStatus, summary);
+  storeReport(dir, status as ReportStatus, summary, source);
 }
-function storeReport(dir: string, status: ReportStatus, summary: string): void {
+function storeReport(dir: string, status: ReportStatus, summary: string, source?: "agent" | "user"): void {
   const prev = readReport(dir);
   if (prev && terminal(prev.status)) return;
-  const value = JSON.stringify({status, summary: summary.trim(), at: Date.now() / 1000});
+  const value = JSON.stringify({status, summary: cleanSummary(summary).trim(), at: Date.now() / 1000, ...(source ? {source} : {})});
   // Completion has its own file so a concurrent late hook cannot overwrite it.
   if (terminal(status)) {
     try { writeFileSync(join(dir, "report.json"), value, {mode: 0o600, flag: "wx"}); }
@@ -97,25 +99,47 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch): 
   writeFileSync(settings, JSON.stringify({hooks}), {mode: 0o600});
   return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
 }
+/** Bind agent reports to the active attempt, including when --task is supplied. */
+export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): {dir: string; source: "agent" | "user"} {
+  const fromRun = ctx.env.PACER_RUN_DIR;
+  const insideRun = fromRun !== undefined;
+  if (!insideRun && (ctx.env.PACER_ROLE || ctx.env.PACER_REPORT_TOKEN !== undefined || !explicitTask)) {
+    throw Error("user reports require an explicit --task from the user's own CLI");
+  }
+  id ??= insideRun ? basename(dirname(realpathSync(fromRun))) : undefined;
+  if (!id) throw Error("report requires --task or its launch environment");
+  validateTaskId(id);
+  const task = readTask(ctx, id);
+  if (!task?.run || task.run.host || task.state !== "running") throw Error("task has no active local run");
+  const dir = realpathSync(task.run.dir);
+  if (insideRun && realpathSync(fromRun) !== dir) throw Error("report run directory does not match the task's current attempt");
+  const metadata = JSON.parse(readFileSync(join(dir, "interactive.json"), "utf8"));
+  if (insideRun && (typeof metadata.reportToken !== "string" || !metadata.reportToken || ctx.env.PACER_REPORT_TOKEN !== metadata.reportToken)) {
+    throw Error("invalid or missing PACER_REPORT_TOKEN for this attempt");
+  }
+  return {dir, source: insideRun ? "agent" : "user"};
+}
+
+/** Conservative version floor for the per-invocation hook configuration we support. */
+export async function requireCodexInteractive(ctx: Ctx, env: Record<string, string | undefined>): Promise<void> {
+  const version = await ctx.run(["codex", "--version"], 5000, {env});
+  const match = /^codex-cli (\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(version.stdout.trim());
+  const supported = match && (Number(match[1]) > 0 || Number(match[2]) > 162 || (Number(match[2]) === 162 && Number(match[3]) >= 1));
+  if (version.code !== 0 || !supported) throw Error("Codex interactive mode requires per-run hook overrides (codex-cli >= 0.162.1); upgrade this runner or use session: headless");
+}
+
 export function reportCommand(args: string[], ctx: Ctx): Result {
   try {
-    let id: string | undefined, status = "", summary = "";
+    let id: string | undefined, status = "", summary = "", explicitTask = false;
     for (let i = 0; i < args.length; i++) {
       if ((args[i] === "--status" || args[i] === "--outcome") && args[i + 1]) status = args[++i];
       else if (args[i] === "--summary" && args[i + 1]) summary = args[++i];
-      else if (args[i] === "--task" && args[i + 1] && !id) id = args[++i];
+      else if (args[i] === "--task" && args[i + 1] && !id) {id = args[++i]; explicitTask = true;}
       else if (!args[i].startsWith("-") && !id) id = args[i];
       else throw Error("usage: pacer report [task-id] --status done|failed|needs-input|running --summary <text>");
     }
-    let dir = ctx.env.PACER_RUN_DIR;
-    if (id) {
-      validateTaskId(id);
-      const task = readTask(ctx, id);
-      if (!task?.run || task.run.host || task.state !== "running") throw Error("task has no active local run");
-      dir = task.run.dir;
-    }
-    if (!dir || !existsSync(join(dir, "interactive.json"))) throw Error("report requires an interactive run (pass task-id or use its launch environment)");
-    writeReport(dir, status, summary);
+    const {dir, source} = reportDestination(ctx, id, explicitTask);
+    writeReport(dir, status, summary, source);
     return {code: 0, out: `Reported ${status}`, err: ""};
   } catch (e) { return {code: 2, out: "", err: `pacer: ${(e as Error).message}`}; }
 }

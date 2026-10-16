@@ -8,7 +8,9 @@ import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {} } }, "/x");
 
-test("progress is recorded while the agent runs, and a silent agent is stopped as idle", async () => {
+// Wrapper identity checks require ps, which restricted test environments may deny.
+const canInspectProcesses = (() => {try {return Bun.spawnSync(["ps", "-p", String(process.pid)]).exitCode === 0;} catch {return false;}})();
+test.skipIf(!canInspectProcesses)("progress is recorded while the agent runs, and a silent agent is stopped as idle", async () => {
   const { ctx, task } = await setup("cursor-agent", "echo start; sleep 30", { git: true });
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  cursor: {}\nexecution:\n  idle_after_min: 1\n  idle_fail_min: 2\n");
   const o = await runAttempt({ ...ctx, env: { ...ctx.env, PACER_IDLE_SCALE: "0.01" } }, s.providers.cursor, task);
@@ -156,6 +158,8 @@ for (const [agent,kind,bin,fixture] of [['claude-code','claude','claude','claude
 for (const status of ["done", "failed"] as const) test(`interactive ${status} attempts use explicit results and a transcript, never screen text`, async () => {
   const cli = join(import.meta.dir, "..", "src", "cli.ts");
   const {ctx, task} = await setup("codex", 'test -t 0 || exit 9; echo "You have hit your usage limit"; printf "Transcript result" > "$PACER_TRANSCRIPT_REPORT"; bun "$PACER_TEST_CLI" report --task "$(basename "$(dirname "$PACER_RUN_DIR")")" --outcome "$PACER_TEST_STATUS" --summary "Explicit result"');
+  const priorRun = ctx.run;
+  ctx.run = (argv, ms, options) => argv.join(" ") === "codex --version" ? Promise.resolve({code: 0, stdout: "codex-cli 0.162.1", stderr: ""}) : priorRun(argv, ms, options);
   updateTask(ctx, task.id, t => {t.state = "running";});
   const out = await runAttempt({...ctx, env: {...ctx.env, PACER_TEST_CLI: cli, PACER_TEST_STATUS: status}}, {...s.providers.codex, session: "interactive"}, task);
   expect(out.exec.code).toBe(status === "done" ? 0 : 1);
@@ -163,4 +167,13 @@ for (const status of ["done", "failed"] as const) test(`interactive ${status} at
   expect(out.report).toContain("Transcript result");
   expect(out.report).not.toContain("usage limit");
   expect(out.attempt.limitHit).toBe(false);
+});
+
+test("interactive Codex refuses a runner without per-run hook support", async () => {
+  const {ctx, task} = await setup("codex", 'echo should-not-launch');
+  ctx.run = async () => ({code: 0, stdout: "codex-cli 0.100.0", stderr: ""});
+  const out = await runAttempt(ctx, {...s.providers.codex, session: "interactive"}, task);
+  expect(out.exec.code).toBe(127);
+  expect(out.report).toContain("per-run hook overrides");
+  expect(readTask(ctx, task.id)?.run).toBeUndefined();
 });
