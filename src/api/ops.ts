@@ -8,6 +8,8 @@ import { drainQueueOnRead } from "../tasks/drain";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { z } from "zod";
+import { detectAgents } from "../install/detection";
+import { getJob, listJobs, cancelJob } from "../jobs/registry";
 import { spawn } from "node:child_process";
 import * as core from "../core";
 import * as accounts from "../core/accounts";
@@ -120,6 +122,10 @@ export const OPS: Record<string, OpDef> = {
   "delegation.resume": op({description: "Resume delegation.", params: z.object({}), handler: ctx => mutation(ctx, "delegation", () => delegationPause.resume(ctx))}),
   "mode.hold": op({description: "Hold a mode until a timestamp or the planner window resets.", params: z.object({mode: z.enum(["strict", "normal", "relaxed", "emergency"]), until: z.number().optional()}), handler: (ctx, p) => mutation(ctx, "mode", () => modeHold.holdMode(ctx, p))}),
   "mode.release": op({description: "Release the held mode and return to pace-derived mode.", params: z.object({}), handler: ctx => mutation(ctx, "mode", () => modeHold.releaseMode(ctx))}),
+  "agent.detect": op({ description: "Detect installed agent CLIs and their versions.", params: z.object({host: id.optional()}), handler: (ctx, p) => detectAgents(ctx, p) }),
+  "job.get": op({ description: "Read a shared job.", params: z.object({id}), handler: (ctx, p) => getJob(ctx, p.id) }),
+  "job.list": op({ description: "List retained shared jobs, optionally for a target.", params: z.object({target: id.optional()}), handler: (ctx, p) => listJobs(ctx, p) }),
+  "job.cancel": op({ description: "Cancel a job that supports cancellation.", params: z.object({id}), handler: (ctx, p) => cancelJob(ctx, p.id) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
