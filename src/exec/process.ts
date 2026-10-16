@@ -5,6 +5,7 @@ export function executorEnv(base: Record<string, string | undefined>, account: R
   delete env.CLAUDE_CONFIG_DIR;
   delete env.CODEX_HOME;
   delete env.PACER_RUN_DIR;
+  delete env.PACER_REPORT_TOKEN;
   delete env.PACER_TRANSCRIPT_REPORT;
   return {...env, ...account, PACER_ROLE: "executor"};
 }

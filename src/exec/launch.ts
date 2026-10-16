@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { join } from "node:path";
 import { loadStrategy, MissingStrategyError, type ProviderCfg } from "../config/strategy";
@@ -40,13 +41,19 @@ export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessa
 export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string): Launch {
   const model = cfg.model;
   if (cfg.session === "interactive") {
+    if (Buffer.byteLength(prompt, "utf8") > 32 * 1024) {
+      mkdirSync(taskDir, {recursive: true, mode: 0o700});
+      const promptFile = join(taskDir, "prompt.md");
+      writeFileSync(promptFile, prompt, {mode: 0o600});
+      prompt = `Read the complete task instructions in ${JSON.stringify(promptFile)} and carry them out.`;
+    }
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
     const models = model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", model] : [];
     const argv = cfg.via === "opencode" ? ["opencode", "--standalone", "--agent", "build", ...models, "--prompt", prompt]
-      : agent === "codex" ? ["codex", "--no-daemon", "-C", repo, "-s", "workspace-write", "--add-dir", taskDir, ...models, prompt]
-      : agent === "claude-code" ? ["claude", "--permission-mode", "acceptEdits", ...models, prompt]
-      : agent === "cursor" ? ["cursor-agent", "--workspace", repo, ...models, prompt]
-      : agent === "agy" ? ["agy", "--sandbox", "--add-dir", repo, ...models, prompt] : null;
+      : agent === "codex" ? ["codex", "--no-daemon", "-c", `projects.${JSON.stringify(repo)}.trust_level="trusted"`, "-C", repo, "-s", "workspace-write", "--add-dir", taskDir, ...models, "--", prompt]
+      : agent === "claude-code" ? ["claude", "--permission-mode", "acceptEdits", ...models, "--", prompt]
+      : agent === "cursor" ? ["cursor-agent", "--workspace", repo, ...models, "--", prompt]
+      : agent === "agy" ? ["agy", "--sandbox", "--add-dir", repo, ...models, "--", prompt] : null;
     if (!argv) throw new Error(`no interactive launcher for provider "${cfg.id}"`);
     return {cwd: repo, argv};
   }
