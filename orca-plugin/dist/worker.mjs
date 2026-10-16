@@ -615,7 +615,7 @@ var package_default = {
   },
   scripts: {
     test: "TZ=Asia/Ho_Chi_Minh bun test",
-    typecheck: "tsc --noEmit",
+    typecheck: "tsc --noEmit && tsc -p app",
     build: "bun build --compile src/cli.ts --outfile dist/pacer",
     release: "bun scripts/release/build.ts",
     "release:prepare": "bun scripts/release/prepare.ts",
@@ -624,10 +624,12 @@ var package_default = {
     "protocol:doc": "bun scripts/protocol-doc.ts",
     "release:npm": "bun scripts/release/npm.ts",
     "release:homebrew": "bun scripts/release/homebrew.ts",
-    "brand:render": "bun scripts/brand/render.ts"
+    "brand:render": "bun scripts/brand/render.ts",
+    "app:build": "bun app/build.ts"
   },
   dependencies: {
     "@modelcontextprotocol/sdk": "1.32.1",
+    preact: "10.29.8",
     yaml: "2.8.2",
     zod: "4.6.5"
   },
@@ -1828,7 +1830,7 @@ function renderStatusPage(s, view) {
       const step = view.bootstrap[name];
       return `<p><strong>${name}: ${h(step.status)}</strong>${step.detail ? ` · ${h(step.detail)}` : ""}</p>`;
     }).join("");
-    content = section("Welcome to pacer", "<p>pacer tracks your AI account budgets and task status. It helps you pace planning and delegate work to available executors.</p>") + section("Install", `<pre><code>${h(MANUAL_INSTALL)}</code></pre><pre><code>pacer init</code></pre>${steps}`) + section("Live panel", "<p>The live panel opens automatically once pacer is installed and the plugin restarts.</p>") + section("Act in pacer", "<p>Run <code>pacer dashboard</code> in a terminal to delegate, review or change settings.</p>");
+    content = section("Welcome to pacer", "<p>pacer tracks your AI account budgets and task status. It helps you pace planning and delegate work to available executors.</p>") + section("Install", `<pre><code>${h(MANUAL_INSTALL)}</code></pre><pre><code>pacer init</code></pre>${steps}`) + section("Live panel", "<p>The live panel opens automatically once pacer is installed and the plugin restarts.</p>") + section("Act in pacer", "<p>Run <code>pacer open</code> in a terminal to open the pacer app, where you delegate, review and change settings.</p>");
   } else {
     const accounts = accountGroups(providers).flatMap((group) => {
       const rows = group.account ? [group.rows] : group.rows.map((p) => [p]);
@@ -1845,7 +1847,7 @@ function renderStatusPage(s, view) {
   }
   if (view.setup && !view.setup.complete)
     content += section("Setup", `${checklist(view.setup)}<pre><code>pacer init</code></pre>`);
-  const footer = "<footer>pacer shows information here. To delegate, review, block executors or change settings, run <code>pacer dashboard</code> in a terminal (the pacer app replaces it soon).</footer>";
+  const footer = "<footer>pacer shows information here. To delegate, review, block executors or change settings, run <code>pacer open</code> in a terminal to open the pacer app.</footer>";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
 }
 
@@ -1885,7 +1887,7 @@ function createPlugin(deps) {
     ctx.commands.register("open", async () => {
       await ctx.host.call("notifications.show", {
         title: "Open pacer",
-        body: "Run `pacer dashboard` in a terminal. The pacer app opens from here once it ships."
+        body: "Run `pacer open` in a terminal to open the pacer app."
       });
       return { ok: true };
     });

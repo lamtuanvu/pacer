@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { extname } from "node:path";
 import { APP_FILES } from "../app/assets.generated";
 import type { Ctx } from "../types";
@@ -32,8 +33,19 @@ export function appRoute(req: Request, ctx: Ctx): Response {
   const file = APP_FILES.find(f => f.path === (path || "index.html"))
     ?? (!extname(path) ? APP_FILES.find(f => f.path === "index.html") : undefined);
   if (!file) return appPage("Not found.", 404);
-  return new Response(req.method === "HEAD" ? null : file.text, { headers: {
-    ...APP_HEADERS, "Content-Type": file.type,
-    ...(file.path === "index.html" ? { "Cache-Control": "no-store" } : {}),
-  } });
+  if (file.path === "index.html") {
+    return new Response(req.method === "HEAD" ? null : file.text, { headers: { ...APP_HEADERS, "Content-Type": file.type, "Cache-Control": "no-store" } });
+  }
+  // Revalidate assets on every load so an updated pacer never runs a cached old app.
+  const etag = `"${etagOf(file.text)}"`;
+  const headers = { ...APP_HEADERS, "Content-Type": file.type, "Cache-Control": "no-cache", ETag: etag };
+  if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+  return new Response(req.method === "HEAD" ? null : file.text, { headers });
+}
+
+const etags = new Map<string, string>();
+function etagOf(text: string): string {
+  let tag = etags.get(text);
+  if (!tag) { tag = createHash("sha256").update(text).digest("hex").slice(0, 32); etags.set(text, tag); }
+  return tag;
 }

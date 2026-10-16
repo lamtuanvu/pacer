@@ -1,3 +1,4 @@
+import { clip, LIMITS } from "../link/envelope";
 import { resolveRunner } from "../config/runner-id";
 import { z } from "zod";
 import { appendLabel } from "./labels";
@@ -29,7 +30,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return { task_id:t.id, state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null,
+  return { task_id:t.id, goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null,
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     result:t.result??null, review:t.review??null, resolved:t.resolved??null };
 }

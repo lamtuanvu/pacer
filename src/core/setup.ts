@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
 import { parseRunnerId } from "../config/runner-id";
+import { migrateStrategy } from "../config/migrate";
 import { detect, starterStrategy } from "../install/init";
 import { agentPlans, type AgentId } from "../install/detection";
 import { installPlanner } from "../install";
@@ -32,6 +33,7 @@ export async function init(ctx: Ctx, planner: string) {
       validateStrategy(Bun.YAML.parse(text), path);
       mkdirSync(ctx.pacerHome, {recursive: true});
       writeFileSync(path, text);
+      migrateStrategy(path);
     }
     return {strategy: path};
   } catch (e) { throw toCoreError(e); }

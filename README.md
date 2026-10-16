@@ -124,9 +124,17 @@ pacer serve
 
 Add the managed development directory printed by the installer to Orca Settings > Plugins and enable its declared capabilities. Re-running `pacer plugin install` migrates an older `pacer.pacer` development install in the same directory; reload and enable the new identity in Orca. The plugin targets Orca >=1.4.224 and shows a read-only status page with budgets, tasks, alerts, versions and setup instructions, plus notifications. The worker never starts or contacts consoles. Its only command, **pacer: Open**, points to `pacer dashboard` in a terminal for delegating, reviewing, blocking executors and changing settings until the pacer app ships. `pacer console` is deprecated. The bootstrap installer is unchanged. See the [information-only decision](docs/decisions/2026-10-15-orca-plugin-information-only.md), the [plugin guide](orca-plugin/README.md) and its [known limitations](orca-plugin/README.md#known-limitations-orca-pluginapi-1-verified-on-orca-14224).
 
+## App
+
 With the service running, `pacer open` opens the pacer app in your browser.
-It shows a placeholder until the full app ships. See the [CLI reference](docs/cli.md#pacer-open)
-for sign-in links and sign-out.
+Track budgets and pace, delegate and review tasks, manage executors and accounts,
+and change strategies, hosts and settings. Setup guides you through required
+items; account sign-in and service installation show commands to run in a terminal.
+
+The app is served locally by the daemon and signs you in through a one-time link.
+Use `pacer open tasks` to open a screen, `pacer open --print` to print the sign-in
+link, or `pacer open --logout` to sign out all browser sessions. See the
+[app guide](docs/app.md) for screens, security and troubleshooting.
 
 ## Privacy
 

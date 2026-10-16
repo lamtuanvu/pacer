@@ -6,7 +6,7 @@ export function pluginManifest(version: string) {
     repository: "https://github.com/lamtuanvu/pacer",
     name: "pacer",
     version,
-    description: "pacer's budget and task status at a glance. Act in the pacer app or `pacer dashboard`.",
+    description: "pacer's budget and task status at a glance. Act in the pacer app: `pacer open`.",
     engines: { orca: ">=1.4.224" },
     pluginApi: 1,
     main: "worker.mjs",
