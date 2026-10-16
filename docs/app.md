@@ -58,6 +58,25 @@ current page content and shows “pacer isn't responding. Retrying…”. It ref
 when the connection returns. Unsent form drafts are kept in the tab's
 `sessionStorage`; endpoint keys are not retained there.
 
+## Needs you and review
+
+Home reads the service's attention queue in its supplied order: blocked items,
+problems, then decisions, oldest first within each group. The service includes
+review work, failed or limited tasks, stuck work, sign-in and executor problems,
+planner quota, setup and updates. Dismissed and snoozed items stay hidden as
+managed by the service. Counts and the review tab use the same snapshot.
+Planner-delegated work enters the review queue after ten minutes without a
+verdict; other work enters immediately. Older services retain client fallback
+behavior.
+
+The API supports four review verdicts: accept, reject, send back with feedback
+to the same executor, and retry on another executor. Send back requires a note;
+retry requires an executor. Both create a linked retry and record a rejected
+review on the original. The current task detail screen exposes accept, reject
+and retry; API clients can use all four verdicts. Task detail also exposes the
+routing explanation, acceptance duration and summary, per-file diffstat, cost
+readings when attributable, retry options and activity timeline through the API.
+
 ## Security model
 
 The app is local to one OS user and daemon. The server binds to loopback only;

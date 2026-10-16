@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { tasksModel, delegateParams, recentRepos, nextTaskLimit, taskActions, executorLabel } from "../app/src/model/tasks";
+import { emptySnapshot } from "../src/link/envelope";
+import { homeModel } from "../app/src/model/home";
+import { tasksModel, taskCounts, delegateParams, recentRepos, nextTaskLimit, taskActions, executorLabel } from "../app/src/model/tasks";
 
 const task = (task_id: string, state: string, extra = {}) => ({ task_id, state, kind: "tests", requested_executor: null, attempts: [], result: null, review: null, resolved: null, ...extra });
 test("tabs distinguish active, unreviewed and historical tasks and preserve snapshot titles", () => {
@@ -29,4 +31,15 @@ test("pagination grows bounded API limits; delegate validates input and omits au
 });
 test("dismissed history stays hidden when a task is older than the snapshot", () => {
   expect(tasksModel([task("old", "failed")], [], "history", ["old"])).toEqual([]);
+});
+
+test("service review attention controls review and history membership", () => {
+  const live = { ...emptySnapshot(), attention: [{ id: "review:d", taskId: "d", kind: "review" as const, severity: "decide" as const, repo: null, title: "Review", detail: "", raisedAt: 1, since: 1, notify: "important" as const, actions: [] }] };
+  const tasks = [task("d", "done"), task("planner", "done")];
+  expect(tasksModel(tasks, live, "review").map(t => t.id)).toEqual(["d"]);
+  expect(tasksModel(tasks, live, "history").map(t => t.id)).toEqual(["planner"]);
+  expect(tasksModel(tasks, { ...live, attention: [] }, "review")).toEqual([]);
+  const counts = { attention: 9, problems: 2, review: 7, running: 3, queued: 2, ready: 1, executors: 1, setupOpen: 0, hostsWithProblems: 0, byRepo: {} };
+  expect(taskCounts({ ...live, counts })).toEqual({ running: 5, review: 7 });
+  expect(homeModel({ ...live, counts }, []).attentionCount).toBe(9);
 });
