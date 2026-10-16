@@ -1,3 +1,4 @@
+import { validateTerminalOpen } from "../session/targets";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx, UsageKind } from "../types";
@@ -46,6 +47,7 @@ export interface Strategy {
   routing: RouteRule[];
   execution: Record<string, unknown>;
   classifier: Record<string, unknown>;
+  terminal?: {open:string};
 }
 
 export class StrategyError extends Error {
@@ -207,6 +209,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing,
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
+    ...(isObj(raw.terminal) && raw.terminal.open !== undefined ? {terminal:{open:validateTerminalOpen(String(raw.terminal.open))}} : {}),
   };
 }
 
