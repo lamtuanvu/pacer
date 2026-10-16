@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { RemoteRunIO } from "../src/remote/run-io";
 import { Unreachable, type RunIO } from "../src/supervisor/io";
@@ -10,13 +10,18 @@ import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
 function setup() {
   const home = tmpDir(), local = tmpDir(), log = join(tmpDir(), "ssh.log");
-  writeFileSync(join(home, ".bash_profile"), "echo hello from profile\n");
+  writeFileSync(join(home, ".bash_profile"), 'echo hello from profile\nexport PATH="$HOME/bin:$PATH"\n');
   const env = fakeSshEnv(home, log);
   // macOS has no setsid utility; provide the same session semantics on the fake host.
   if (!Bun.which("setsid")) {
     const bin = join(home, "bin"); mkdirSync(bin);
     writeFileSync(join(bin, "setsid"), `#!${Bun.which("python3")}\nimport os, sys\nos.setsid()\nos.execvp(sys.argv[1], sys.argv[1:])\n`, { mode: 0o755 });
     env.PATH = `${bin}:${env.PATH}`;
+  }
+  if (Bun.which("gtail")) {
+    const bin=join(home,"bin");mkdirSync(bin,{recursive:true});
+    symlinkSync(Bun.which("gtail")!,join(bin,"tail"));
+    env.PATH=`${bin}:${env.PATH}`;
   }
   const ctx = fakeCtx({ env: { ...process.env, ...env }, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...process.env, ...env } }) });
   const remote = join(home, ".pacer-remote/runs/t/1");
@@ -78,8 +83,8 @@ test("mirrors capped byte chunks without losing a split UTF-8 character", async 
   const output = "a".repeat(262143) + "🦊" + "z";
   writeFileSync(join(remote, "stdout"), output);
   const first = await io.read();
-  expect(readFileSync(join(local, "stdout")).length).toBe(262144);
-  expect(first.exit).toBeNull();
+  expect(readFileSync(join(local, "stdout")).length).toBe(Buffer.byteLength(output));
+  expect(first.exit).toBe(0);
   expect((await io.read()).exit).toBe(0);
   expect(readFileSync(join(local, "stdout"), "utf8")).toBe(output);
 }, 10000);
@@ -140,7 +145,6 @@ test("raw mirror derives phase-1 files, masks secrets, drains chunks, rotates an
   const text = "x".repeat(262140) + "🦊\u001b[31mred\u001b[0m\r\nprivate-secret\ntail";
   writeFileSync(join(remote,"session.raw"), `Script started on date [COMMAND=\"agent\"]\n${text}\nScript done on date [COMMAND_EXIT_CODE=\"3\"]\n`);
   writeFileSync(join(remote,"exit"),"3");
-  expect((await io.read()).exit).toBeNull();
   expect((await io.read()).exit).toBe(3);
   const expected = "x".repeat(262140)+"🦊red\n****\ntail";
   expect(readFileSync(join(local,"stdout"),"utf8")).toBe(expected);
@@ -161,6 +165,7 @@ test.skipIf(!await canListen())("a read-only viewer streams over the ControlMast
   mkdirSync(remote,{recursive:true});
   writeFileSync(join(remote,"session.host"),"pty");
   writeFileSync(join(remote,"session.raw"),'Script started on date [COMMAND="agent"]\nfirst\r\n');
+  writeFileSync(join(remote,"pid"),String(process.pid));
   await io.read();
   const { createConnection } = await import("node:net");
   const { socketPath } = await import("../src/session/host");
@@ -215,6 +220,7 @@ test("viewer protocol streams raw bytes with fake SSH and kills tail on detach",
   mkdirSync(remote,{recursive:true});
   const raw='Script started on date [COMMAND="agent"]\nfirst\r\n';
   writeFileSync(join(remote,"session.raw"),raw);
+  writeFileSync(join(remote,"pid"),String(process.pid));
   const recording=new RemoteRecording(ctx,local);
   await recording.output(Buffer.from(raw));
   let queue:Promise<unknown>=Promise.resolve();
@@ -265,3 +271,113 @@ function canInspectProcesses(): boolean {
   try {return Bun.spawnSync(["ps","-p",String(process.pid),"-o","args="]).exitCode === 0;}
   catch {return false;}
 }
+
+
+test("mirror drains up to 4 MiB each poll and resumes the persisted raw cursor", async () => {
+  const {io,ctx,remote,local}=setup();
+  mkdirSync(remote,{recursive:true});
+  writeFileSync(join(remote,"session.host"),"pty");
+  writeFileSync(join(remote,"session.raw"),'Script started on date [COMMAND="agent"]\n'+"line\n".repeat(900000));
+  writeFileSync(join(remote,"exit"),"0");
+  expect((await io.read()).exit).toBeNull();
+  const first=readFileSync(join(local,"stdout"));
+  expect(first.length).toBeGreaterThan(4*1024*1024-100);
+  expect(first.length).toBeLessThanOrEqual(4*1024*1024);
+  const run=ctx.run; const offsets:number[]=[];
+  ctx.run=async(argv,ms,o)=>{if(argv.at(-1)?.includes("# Hex mode")) offsets.push(Number(argv.at(-1)!.match(/session.raw[\' ]+(\d+)/)?.[1]));return run(argv,ms,o);};
+  const resumed=new RemoteRunIO(ctx,host,remote,local);
+  expect((await resumed.read()).exit).toBe(0);
+  expect(offsets[0]).toBeGreaterThan(4*1024*1024-100);
+  expect(readFileSync(join(local,"stdout"),"utf8")).toBe("line\n".repeat(900000));
+},20000);
+
+test.skipIf(!await canListen())("viewer removes stale sockets and retries a failed listen next poll", async()=>{
+  const {io,remote,local}=setup();
+  const {socketPath}=await import("../src/session/host");
+  const {rmSync}=await import("node:fs");
+  mkdirSync(remote,{recursive:true});writeFileSync(join(remote,"session.host"),"pty");
+  writeFileSync(join(remote,"session.raw"),"header\nfirst\n");
+  const path=socketPath(local);
+  mkdirSync(path); // unlink must fail on a directory, without preventing recording.
+  await io.read();
+  rmSync(path,{recursive:true});
+  writeFileSync(path,"stale socket");
+  await io.read();
+  const {createConnection}=await import("node:net");const socket=createConnection(path);
+  try {await new Promise<void>((resolve,reject)=>{socket.once("connect",resolve);socket.once("error",reject);});}
+  finally {socket.destroy();writeFileSync(join(remote,"exit"),"0");await io.read();}
+});
+
+test("FOLLOW ends when the recorded run pid exits", async()=>{
+  const {ctx,remote}=setup();const {SCRIPTS}=await import("../src/remote/scripts");
+  const {runRemote}=await import("../src/remote/ssh");
+  const tail=Bun.spawnSync([Bun.which("gtail") ?? "tail","--version"]);
+  if(!tail.stdout.toString().includes("GNU coreutils")) return;
+  mkdirSync(remote,{recursive:true});writeFileSync(join(remote,"session.raw"),"first\n");
+  const child=Bun.spawn(["sleep","1"],{stdout:"ignore",stderr:"ignore"});
+  writeFileSync(join(remote,"pid"),String(child.pid));
+  const result=await runRemote(ctx,host,SCRIPTS.FOLLOW,[remote,"0"],{timeoutMs:4000});
+  expect(result.code).toBe(0);expect(result.stdout).toBe("first\n");
+},6000);
+
+test("restart preserves a partial line and rereads withheld secret bytes",async()=>{
+  const {ctx,local}=setup();
+  const {RemoteRecording}=await import("../src/remote/recording");
+  ctx.env.PACER_KEY_TEST="restart-private-value";
+  const raw=Buffer.from('Script started on date [COMMAND="agent"]\nprefix \x1b[31mrestart-private-value\x1b[0m after\r\n\nScript done on date [COMMAND_EXIT_CODE="0"]\n');
+  const first=new RemoteRecording(ctx,local);
+  await first.output(raw.subarray(0,raw.indexOf(Buffer.from("value"))));
+  const state=readFileSync(join(local,"session.remote.json"),"utf8");
+  expect(state).not.toContain("restart-private");
+  const resumed=new RemoteRecording(ctx,local);await resumed.ready;
+  expect(resumed.offset).toBeGreaterThan(0);
+  await resumed.output(raw.subarray(resumed.offset));await resumed.close();
+  expect(readFileSync(join(local,"stdout"),"utf8")).toBe("prefix **** after\n");
+  const {replayRecording}=await import("../src/session/recording");
+  const replay=await replayRecording(local);expect(replay.plain()).toContain("prefix **** after");replay.dispose();
+  first.recording.dispose();
+});
+
+test("PTY wrapper conversion rejects an unrecognized wrapper",async()=>{
+  const {ptyWrapper}=await import("../src/remote/run-io");
+  expect(()=>ptyWrapper("#!/bin/sh\necho changed\n")).toThrow("replacement failed");
+});
+
+test("PTY script uses the bash resolved on the remote PATH",async()=>{
+  const {io,home,remote}=setup();const bin=join(home,"bin");mkdirSync(bin,{recursive:true});
+  symlinkSync(Bun.which("bash")!,join(bin,"bash"));
+  writeFileSync(join(bin,"script"),'#!/bin/sh\nprintf "%s" "$SHELL" > "$HOME/selected-shell"\nexec "$SHELL" -c "$2"\n',{mode:0o755});
+  expect(await io.start(["true"],home,{},"",{session:"pty"})).toHaveProperty("pid");
+  for(let n=0;n<100&&!existsSync(join(remote,"exit"));n++) await Bun.sleep(20);
+  expect(readFileSync(join(home,"selected-shell"),"utf8")).toBe(join(bin,"bash"));
+});
+
+test("service exit kills its live stream SSH child",async()=>{
+  const {ctx,home,local}=setup();const bin=join(home,"stream-bin");mkdirSync(bin);
+  const pidFile=join(home,"stream-pid");
+  writeFileSync(join(bin,"ssh"),'#!/bin/sh\necho $$ > "$STREAM_PID"\nprintf "__PACER_BEGIN__\\n"\nexec sleep 30\n',{mode:0o755});
+  const file=join(home,"service.ts");
+  writeFileSync(file,`
+    import {EventEmitter} from "node:events";
+    import {existsSync} from "node:fs";
+    import {RemoteViewer} from ${JSON.stringify(new URL("../src/remote/viewer.ts",import.meta.url).pathname)};
+    import {RemoteRecording} from ${JSON.stringify(new URL("../src/remote/recording.ts",import.meta.url).pathname)};
+    import {wire,FrameType} from ${JSON.stringify(new URL("../src/session/framing.ts",import.meta.url).pathname)};
+    const ctx={pacerHome:process.env.PACER_HOME,env:process.env} as any;
+    const recording=new RemoteRecording(ctx,process.env.LOCAL!);await recording.ready;
+    const viewer=new RemoteViewer(ctx,{ssh:"unused"} as any,"unused",recording,fn=>fn());
+    class Socket extends EventEmitter {writableLength=0;write(){return true;}destroy(){this.emit("close");}}
+    const socket=new Socket();viewer.accept(socket as any);
+    socket.emit("data",wire(FrameType.hello,{v:1}));
+    for(let n=0;n<100&&!existsSync(process.env.STREAM_PID!);n++)await Bun.sleep(10);
+    process.exit(existsSync(process.env.STREAM_PID!)?0:2);
+  `);
+  const proc=Bun.spawn([process.execPath,file],{env:{...ctx.env,PATH:`${bin}:${ctx.env.PATH}`,STREAM_PID:pidFile,PACER_HOME:ctx.pacerHome,LOCAL:local},stdout:"ignore",stderr:"pipe"});
+  expect(await proc.exited).toBe(0);
+  const pid=Number(readFileSync(pidFile,"utf8"));
+  const alive=()=>{try{process.kill(pid,0);return true;}catch{return false;}};
+  try {
+    for(let n=0;n<100&&alive();n++)await Bun.sleep(10);
+    expect(alive()).toBe(false);
+  }finally{try{process.kill(pid,"SIGKILL");}catch{}}
+},5000);

@@ -289,3 +289,20 @@ for (const fault of ["callback", "exception", "rejection"] as const) {
     } finally {host.kill();rmSync(dir,{recursive:true,force:true});}
   },10000);
 }
+
+
+test("attach selects a remote task's local mirror and replays it offline", async()=>{
+  const home=temp(),ctx=makeCtx({pacerHome:home});
+  const {attachDirectory,attachSession}=await import("../src/session/attach");
+  const task=createTask(ctx,{brief:{goal:"remote",repo:"."},kind:"small",requestedExecutor:null,timeoutS:30});
+  const dir=join(home,"runs",task.id,"1");mkdirSync(dir,{recursive:true});
+  updateTask(ctx,task.id,t=>{t.run={host:"box",attempt:1} as NonNullable<typeof t.run>;});
+  const recording=new Recording(dir);await recording.output(Buffer.from("remote mirror\n"));await recording.close();
+  const original=process.stdout.write;let drawn="";
+  try {
+    expect(attachDirectory(ctx,task.id)).toBe(dir);
+    process.stdout.write=((data: string | Uint8Array)=>{drawn+=data.toString();return true;}) as typeof original;
+    await attachSession(dir);
+    expect(drawn).toContain("remote mirror");
+  }finally{process.stdout.write=original;rmSync(home,{recursive:true,force:true});}
+});

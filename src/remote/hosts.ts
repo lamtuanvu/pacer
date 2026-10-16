@@ -129,7 +129,7 @@ async function prepareCheck(ctx: Ctx, alias: string, o: { repo?: string }) {
   if (o.repo && (!local.key || !host.repos[local.key])) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   const repos = o.repo ? [[local.key!, host.repos[local.key!]]] : Object.entries(host.repos);
   const agents = new Set(Object.values(s.runners).filter(r => r.host === alias).map(r => r.agent));
-  const names = ["ssh", "git", "setsid", "script", ...(agents.has("codex") ? ["codex"] : []), ...(agents.has("claude-code") ? ["claude"] : []), "account homes", ...repos.flatMap(([key]) => [`checkout ${key}`, `identity ${key}`])];
+  const names = ["ssh", "git", "setsid", "script", "tail", ...(agents.has("codex") ? ["codex"] : []), ...(agents.has("claude-code") ? ["claude"] : []), "account homes", ...repos.flatMap(([key]) => [`checkout ${key}`, `identity ${key}`])];
   return { host, s, local, repos, names };
 }
 export async function checkJob(ctx: Ctx, alias: string, o: { repo?: string } = {}) {
@@ -173,7 +173,13 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
   steps?.start("setsid");
   add("setsid", !!tools.setsid, tools.setsid || "missing");
   steps?.start("script");
-  add("script", /util-linux/.test(tools.script ?? ""), tools.script || "util-linux script missing");
+  const scriptVersion = /util-linux (\d+)\.(\d+)/.exec(tools.script ?? "");
+  const scriptOk = !!scriptVersion && (+scriptVersion[1] > 2 || (+scriptVersion[1] === 2 && +scriptVersion[2] >= 35));
+  add("script", scriptOk, scriptOk ? tools.script : `${tools.script || "util-linux script missing"}; requires >= 2.35 (stdin EOF issue)`);
+  steps?.start("tail");
+  // Live viewing follows session.raw with a plain tail -f; any POSIX tail works.
+  const tailOk = !!tools.tail;
+  add("tail", tailOk, tailOk ? tools.tail : "tail missing");
   for (const agent of ["codex", "claude"]) if (names.includes(agent)) {
     steps?.start(agent);
     add(agent, !!tools[agent], tools[agent] || `${agent} not on login PATH`);

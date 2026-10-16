@@ -3,7 +3,6 @@ import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostCfg } from "../config/hosts";
 import type { Ctx } from "../types";
-import { killTree } from "../exec/process";
 import { socketPath } from "../session/host";
 import { FrameType, WireDecoder, wire } from "../session/framing";
 import { payloadStream, sshArgv } from "./ssh";
@@ -20,12 +19,15 @@ export class RemoteViewer {
   private joined = false;
   private resync = false;
   private closed = false;
+  private onExit = () => { this.proc?.kill("SIGKILL"); };
   constructor(private ctx: Ctx, private host: HostCfg, private remoteDir: string,
     private mirror: RemoteRecording, private serial: <T>(fn:()=>Promise<T>)=>Promise<T>) {}
 
   get active() { return !!this.proc; }
   async listen() {
+    if (this.server?.listening) return;
     const path = socketPath(this.mirror.dir);
+    rmSync(path, {force:true});
     const server = createServer(socket=>this.accept(socket));
     this.server=server;
     // Socket failure affects viewing only; SSH supervision and recording continue.
@@ -85,9 +87,10 @@ export class RemoteViewer {
   private start() {
     if(this.proc || this.closed || !this.viewer) return;
     const proc=Bun.spawn(sshArgv(this.ctx,this.host,SCRIPTS.FOLLOW,[this.remoteDir,String(this.mirror.offset)]),{
-      env:this.ctx.env,stdin:"ignore",stdout:"pipe",stderr:"ignore",detached:true,
+      env:this.ctx.env,stdin:"ignore",stdout:"pipe",stderr:"ignore",
     });
     this.proc=proc;
+    process.once("exit",this.onExit);
     this.streaming=(async()=>{
       try {
         for await(const bytes of payloadStream(proc.stdout)) {
@@ -95,14 +98,15 @@ export class RemoteViewer {
         }
       } catch { /* polling resumes at the last successfully consumed byte */ }
       finally {
-        if(proc.exitCode===null) killTree(proc.pid,"SIGKILL");
+        if(proc.exitCode===null) proc.kill("SIGKILL");
         await proc.exited;
+        process.off("exit",this.onExit);
         if(this.proc===proc) this.proc=undefined;
       }
     })();
   }
   async stopStream() {
-    if(this.proc) killTree(this.proc.pid,"SIGKILL");
+    if(this.proc) this.proc.kill("SIGKILL");
     await this.streaming;
   }
   async close(code: number) {

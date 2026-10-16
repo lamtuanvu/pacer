@@ -18,6 +18,12 @@ const fields = (text: string) => Object.fromEntries(text.trim().split("\n").map(
 const number = (s: string | undefined): number | null => s?.trim() && Number.isFinite(Number(s)) ? Number(s) : null;
 const size = (file: string) => { try { return statSync(file).size; } catch { return 0; } };
 
+export function ptyWrapper(wrapper: string): string {
+  const converted = wrapper.replace(/^if \[ -f .* & fi$/m, '\"$@\" > /dev/null 2> \"$D/stderr\" &');
+  if (converted === wrapper) throw new Error("PTY wrapper replacement failed");
+  return converted;
+}
+
 /** SSH access to a detached wrapper, with a local file record for existing log readers. */
 export class RemoteRunIO implements RunIO {
   private recording?: RemoteRecording;
@@ -43,12 +49,12 @@ export class RemoteRunIO implements RunIO {
       let execution;
       try { execution = validateExecution(loadStrategy(this.ctx).execution); } catch { /* absent strategy keeps pipe default */ }
       const mode = options.session ?? execution?.session ?? "pipe";
-      const wrapper = mode === "pty" ? WRAPPER_SH.replace(/^if \[ -f .* & fi$/m, '"$@" > /dev/null 2> "$D/stderr" &') : WRAPPER_SH;
+      const wrapper = mode === "pty" ? ptyWrapper(WRAPPER_SH) : WRAPPER_SH;
       const result = await this.run(SCRIPTS.START, [this.remoteDir, cwd, mode, ...Object.entries(env).map(([key, value]) => `${key}=${value}`), "--", ...argv], `${wrapper}__PACER_STDIN__\n${stdin}`);
       const pid = number(fields(result.stdout).pid);
       if (pid === null) return { error: "remote start did not return a pid" };
       mkdirSync(this.localDir, { recursive: true });
-      for (const file of ["pid", "started", "exit", "stdout", "stderr", "session.log", "session.log.1", "session.ckpt", "session.json"]) rmSync(join(this.localDir, file), { force: true });
+      for (const file of ["pid", "started", "exit", "stdout", "stderr", "session.log", "session.log.1", "session.ckpt", "session.json", "session.remote.json"]) rmSync(join(this.localDir, file), { force: true });
       writeFileSync(join(this.localDir, "pid"), String(pid));
       if (mode === "pty") writeFileSync(join(this.localDir,"session.json"), JSON.stringify({capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024}), {mode:0o600});
       return { pid };
@@ -65,17 +71,22 @@ export class RemoteRunIO implements RunIO {
     const pty = report.session === "pty" || report.session === "script";
     if (pty) {
       this.recording ??= new RemoteRecording(this.ctx, this.localDir);
-      if (!this.viewer && number(report.exit) === null) {
-        this.viewer = new RemoteViewer(this.ctx, this.host, this.remoteDir, this.recording, this.serial);
+      await this.recording.ready;
+      if (number(report.exit) === null) {
+        this.viewer ??= new RemoteViewer(this.ctx, this.host, this.remoteDir, this.recording, this.serial);
         try { await this.viewer.listen(); } catch { /* viewing is optional */ }
       }
       const total = number(report.raw) ?? 0;
       if (number(report.exit) !== null) await this.viewer?.stopStream();
       await this.serial(async () => {
         const recording = this.recording!;
-        if (!this.viewer?.active && total > recording.offset) {
-          const chunk = await this.run(SCRIPTS.READ_FROM, [this.remoteDir,"session.raw",String(recording.offset),"262144","hex"]);
-          const bytes = await recording.output(Buffer.from(chunk.stdout,"hex"));
+        let budget = 4*1024*1024;
+        while (!this.viewer?.active && total > recording.offset && budget > 0) {
+          const chunk = await this.run(SCRIPTS.READ_FROM, [this.remoteDir,"session.raw",String(recording.offset),String(Math.min(262144,budget)),"hex"]);
+          const raw = Buffer.from(chunk.stdout,"hex");
+          if (!raw.length) break;
+          budget -= raw.length;
+          const bytes = await recording.output(raw);
           this.viewer?.send(bytes);
         }
         if (number(report.exit) === null) this.viewer?.resume();
@@ -89,10 +100,14 @@ export class RemoteRunIO implements RunIO {
     }
     for (const [stream, key] of [["stdout", "out"], ["stderr", "err"]] as const) {
       if (pty && stream === "stdout") continue;
-      const file = join(this.localDir, stream), offset = size(file), total = number(report[key]) ?? 0;
-      if (total > offset) {
-        const chunk = await this.run(SCRIPTS.READ_FROM, [this.remoteDir, stream, String(offset), "262144", "hex"]);
-        appendFileSync(file, Buffer.from(chunk.stdout, "hex"));
+      const file = join(this.localDir, stream), total = number(report[key]) ?? 0;
+      let budget = 4*1024*1024;
+      while (total > size(file) && budget > 0) {
+        const chunk = await this.run(SCRIPTS.READ_FROM, [this.remoteDir, stream, String(size(file)), String(Math.min(262144,budget)), "hex"]);
+        const bytes = Buffer.from(chunk.stdout,"hex");
+        if (!bytes.length) break;
+        appendFileSync(file, bytes);
+        budget -= bytes.length;
       }
       if (size(file) < total) pending = true;
     }
