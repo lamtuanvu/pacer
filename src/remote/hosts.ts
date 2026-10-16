@@ -40,7 +40,7 @@ export async function check(ctx: Ctx, alias: string, o: { repo?: string } = {}):
   if (o.repo && (!local.key || !host.repos[local.key])) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   const repos = o.repo ? [[local.key!, host.repos[local.key!]]] : Object.entries(host.repos);
   const agents = new Set(Object.values(s.runners).filter(r => r.host === alias).map(r => r.agent));
-  const names = ["ssh", "git", "setsid", ...(agents.has("codex") ? ["codex"] : []), ...(agents.has("claude-code") ? ["claude"] : []), "account homes", ...repos.flatMap(([key]) => [`checkout ${key}`, `identity ${key}`])];
+  const names = ["ssh", "git", "setsid", "script", ...(agents.has("codex") ? ["codex"] : []), ...(agents.has("claude-code") ? ["claude"] : []), "account homes", ...repos.flatMap(([key]) => [`checkout ${key}`, `identity ${key}`])];
   const checks: HostCheck["checks"] = [];
   const add = (name: string, ok: boolean, detail = "") => { checks.push({ name, ok, detail }); };
   // A no-op isolates connectivity from tool failures in the diagnostic probe.
@@ -54,6 +54,7 @@ export async function check(ctx: Ctx, alias: string, o: { repo?: string } = {}):
   const gitOk = !!version && (+version[1] > 2 || (+version[1] === 2 && +version[2] >= 30));
   add("git", gitOk, gitOk ? tools.git : `${tools.git || "git missing"} < 2.30`);
   add("setsid", !!tools.setsid, tools.setsid || "missing");
+  add("script", /util-linux/.test(tools.script ?? ""), tools.script || "util-linux script missing");
   for (const agent of ["codex", "claude"]) if (names.includes(agent)) add(agent, !!tools[agent], tools[agent] || "missing");
   const missing: string[] = [];
   for (const [account, cfg] of Object.entries(host.accounts)) {
