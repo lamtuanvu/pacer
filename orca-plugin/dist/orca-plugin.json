@@ -4,7 +4,7 @@
   "publisher": "lamtuanvu",
   "repository": "https://github.com/lamtuanvu/pacer",
   "name": "pacer",
-  "version": "0.1.24",
+  "version": "0.2.0",
   "description": "pacer's budget and task status at a glance. Act in the pacer app: `pacer open`.",
   "engines": {
     "orca": ">=1.4.224"
