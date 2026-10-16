@@ -371,6 +371,18 @@ small, planner-independent path:
   - `acceptance` as in the snapshot, plus `tail` (last 4 KiB).
   - `summary`: the executor's report (today `report`).
   - `branch`, `base`, `machine` (host alias or null), `startedAt`, `endedAt`.
+  - `files`: the diffstat per file (the same list `task.diff` returns, without
+    the patch), so the review screen needs one call plus a per-file
+    `task.diff` when a file is opened.
+  - `retryOptions`: the same list `task.retry_options` returns.
+  - `timeline`: `[{ at, text }]` for the Session and Review side panels
+    ("Routed to Codex · on pace, free slot", "Worktree created from main",
+    "Commit 3f2a91c", "Testing"). It is built from the task's activity
+    entries plus phase changes and commits the supervisor already sees.
+- **Changes so far.** `task.diff` works on a running task too: it diffs the
+  task's worktree against its base as it is now. The Session view's
+  "Changes so far · 6" tab uses it, refreshed when `progress.files` or
+  `progress.commits` changes.
 - **`task.diff` additions.** `{ files: [{ path, status: "added" | "modified" |
   "deleted" | "renamed", added, removed, binary }], patch, truncated }`. The
   patch is capped at 1 MiB; `task.diff { id, path }` returns one file's patch
@@ -385,6 +397,8 @@ small, planner-independent path:
   | `send_back` | Records a rejected verdict with the note, then calls `task.retry` on the same executor with the note added to the brief as "Review feedback". |
   | `retry` (with `executor`) | Records a rejected verdict and retries on that executor. |
 
+  Every verdict returns `{ task, retry? }`: the reviewed task as it is now,
+  and the new task when the verdict started one.
   `kind` corrects the classifier as today (`appendLabel` in
   `src/tasks/labels.ts`); `kindSource` becomes `review`.
 - **Retry choices.** `task.retry_options { id }` returns the executors that
@@ -402,7 +416,11 @@ interface ExecutorRow {
   rank: number | "planner";      // routing order; "next in line" is the first ready one
   enabled: boolean;
   state: "ready" | "busy" | "full" | "failing" | "down" | "blocked" | "exhausted" | "disabled" | "checking";
+  tone: "good" | "info" | "warn" | "bad" | "muted";
+  sub: string;                   // "on pace · this Mac + devbox", written by the service
   reason?: string;               // "2 recent failures", "no subscription"
+  usedPct: number | null; pacePct: number | null;   // from the account, repeated for the row
+  paceReason?: string;           // why pace is null: "unmetered", "no limit reported"
   slots: { used: number; max: number };
   lastCheck: { at: number; passed: boolean; detail?: string } | null;
   recentFailures: number;        // last 24 h
@@ -417,7 +435,7 @@ interface PlannerMeter {
   runner: string; agent: string;  // any of PLANNERS
   usedPct: number | null; pacePct: number | null; deltaPts: number | null;
   verdict: "behind" | "on_pace" | "ahead" | "out" | "unknown";
-  activeHoursLeft: number | null; resetsAt: number | null; window: string | null;
+  activeHoursLeft: number | null; resetsAt: number | null; window: string | null; stale: boolean;
   advice: string;                 // "14 pts under pace — spend it."
   mode: string; modeHeldUntil?: number;
 }
@@ -669,7 +687,7 @@ Two small controls from the tray and notifications:
   built-in fallback) opens the app at the item.
 - **Badges.** Rail, tray dot, status-line ⚑ and the Orca panel all read
   `counts`:
-  `{ attention, review, problems, running, queued, ready, executors, byRepo: { [key]: { attention, running } } }`.
+  `{ attention, review, problems, running, queued, ready, executors, setupOpen, hostsWithProblems, byRepo: { [key]: { attention, running } } }`.
 
 ### 11. The client contract
 
@@ -737,6 +755,29 @@ Two small controls from the tray and notifications:
 - **Status line offline state.** When the service is not running, the status
   line prints "pacer not running · pacer serve" from the stored snapshot age,
   as the board shows. It never starts the service.
+
+## Requirements from the UI implementation spec
+
+The companion spec lists 15 needs in its "Needs from the service" section.
+Where each one is met:
+
+| # | Need | Here |
+| --- | --- | --- |
+| 1 | Needs-you items with kind, severity, entity, detail, actions | §2 |
+| 2 | Capacity rows with sub-line, tone, used/pace or a reason, slots, state | §4 `ExecutorRow` |
+| 3 | Planner meter with stale flag and mode | §4 `PlannerMeter` |
+| 4 | Badge counts, including setup items and hosts with problems | §10 `counts` |
+| 5 | Repos with key and label, `repo` on every task | §1 `RepoRef` |
+| 6 | Entity events; jobs with progress | §1 events, §8 |
+| 7 | Review detail in one op, retry targets | §3 `task.get` |
+| 8 | Verdict ops returning the resulting state | §3 verdicts |
+| 9 | Done today and activity | §6 |
+| 10 | Desktop sign-in without a terminal; tell the service a desktop is connected | §11 token exchange; §10 `client.register`. `pacer open --print` also still works for a shell that prefers the code flow |
+| 11 | No double notifications while a desktop client is connected; actions and click target | §10 notifier lease; `ui.open` actions |
+| 12 | Session endpoint, changes so far, timeline | live-sessions spec; §3 |
+| 13 | Executor order, enabled flag, last check; host detail | §7 |
+| 14 | Pause delegation; switch strategy | §9; `strategy.use` (exists) |
+| 15 | Protocol version in `/v2/hello` to gate features | §11 |
 
 ## What exists today and the gaps
 
