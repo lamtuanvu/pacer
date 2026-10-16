@@ -5,20 +5,46 @@ import { FrameType, WireDecoder, wire } from "./framing";
 import { readRecording } from "./recording";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
-export interface AttachOptions { replay?:boolean; attempt?:number; control?:boolean }
+export interface AttachOptions { replay?:boolean; attempt?:number; control?:boolean; force?:boolean }
 /** Stateful byte parser: escape sequences may cross stdin chunks. */
 export class AttachKeys {
   private controlling=false;
   private escaped=false;
-  constructor(private send:(bytes:Buffer)=>void){}
+  private terminalEscape: 'esc'|'csi'|'ss3'|'string'|'stringEsc'|null=null;
+  private requested=false;
+  private confirming=false;
+  constructor(private send:(bytes:Buffer)=>void,private prompt:(message:string)=>void=()=>{}){}
+  take(force=false){this.requested=true;this.send(wire(FrameType.take,force?{force:true}:{}));}
+  controlState(state:{you?:boolean;controller?:string|null;reason?:string}){
+    this.setControl(state.you===true);
+    if(this.requested && (state.you||state.reason==='refused')){
+      this.requested=false;
+      if(!state.you&&state.controller){
+        this.confirming=true;
+        this.prompt(`Someone is in control from ${state.controller.replace(/[\x00-\x1f\x7f]/g,'')}. Take over? [y/N] `);
+      }
+    }
+    if(state.you||!state.controller)this.confirming=false;
+  }
   setControl(you:boolean){if(this.controlling!==you)this.escaped=false;this.controlling=you;}
   push(data:Buffer):boolean {
     const pending:number[]=[];
     const flush=()=>{if(pending.length){this.send(wire(FrameType.input,Buffer.from(pending)));pending.length=0;}};
     for(const byte of data){
       if(!this.controlling){
+        // Terminal replies are protocol bytes, including when split across chunks.
+        if(this.terminalEscape){
+          const state=this.terminalEscape;
+          if(state==='esc')this.terminalEscape=byte===91?'csi':byte===79?'ss3':[93,80,94,95,88].includes(byte)?'string':byte>=0x30&&byte<=0x7e?null:'esc';
+          else if(state==='csi'||state==='ss3'){if(byte>=0x40&&byte<=0x7e)this.terminalEscape=null;}
+          else if(byte===7||(state==='stringEsc'&&byte===92))this.terminalEscape=null;
+          else this.terminalEscape=byte===27?'stringEsc':'string';
+          continue;
+        }
+        if(byte===27){this.terminalEscape='esc';continue;}
+        if(this.confirming){this.confirming=false;this.prompt('\n');if(byte===121||byte===89)this.take(true);continue;}
         if(byte===113||byte===3)return true;
-        if(byte===99)this.send(wire(FrameType.take,{}));
+        if(byte===99)this.take();
       }else if(this.escaped){
         this.escaped=false;
         if(byte===100){flush();return true;}
@@ -63,7 +89,7 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
   const detached=new Promise<void>(resolve=>{detach=()=>{didDetach=true;resolve();};});
   let send:(bytes:Buffer)=>void=()=>{};
   let controlling=false;
-  const keys=new AttachKeys(bytes=>send(bytes));
+  const keys=new AttachKeys(bytes=>send(bytes),message=>process.stderr.write(message));
   const input=(data:Buffer)=>{if(keys.push(data))detach();};
   const title=()=>{if(stdout.isTTY)stdout.write(`\x1b]0;${label.replace(/[\x00-\x1f\x7f]/g,"")} · ${controlling?'controlling':'watching'}\x07`);};
   const resize=()=>{if(controlling)send(wire(FrameType.size,{cols:stdout.columns??120,rows:stdout.rows??40}));};
@@ -71,9 +97,10 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
   const draw=(type:number,data:Buffer)=>{
     if(type===FrameType.control){
       const state=JSON.parse(data.toString()),wasControlling=controlling;
-      controlling=state.you===true;keys.setControl(controlling);title();
+      controlling=state.you===true;title();
       if(controlling&&!wasControlling)resize();
-      if(!controlling&&state.controller)process.stderr.write(`Control is held from ${String(state.controller).replace(/[\x00-\x1f\x7f]/g,'')}.\n`);
+      if(!controlling&&state.controller&&state.reason!=='refused')process.stderr.write(`Control is held from ${String(state.controller).replace(/[\x00-\x1f\x7f]/g,'')}.\n`);
+      keys.controlState(state);
     }
     if(renderSessionFrame(type,data,stdout))detach();
   };
@@ -90,7 +117,7 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
         socket.on("close",detach);socket.on("error",detach);
         send=bytes=>{if(!socket.destroyed)socket.write(bytes);};
         send(wire(FrameType.hello,{v:1,client:"cli",label:process.env.TERM_PROGRAM??process.env.TERM??"cli",cols:stdout.columns ?? 120,rows:stdout.rows ?? 40}));
-        if(options.control)send(wire(FrameType.take,{}));
+        if(options.control)keys.take(options.force);
         await detached;return;
       } catch { /* a dead host still has an offline recording */ }
       finally {send=()=>{};socket.destroy();}
