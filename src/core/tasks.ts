@@ -1,6 +1,8 @@
 import { resolveRepo } from "./repos";
 import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { appendActivity, type ActivityEntry } from "../activity/log";
+import { executorName, shortGoal } from "../link/notification";
 import { loadStrategy } from "../config/strategy";
 import { repoKey } from "../config/hosts";
 import { SCRIPTS } from "../remote/scripts";
@@ -22,6 +24,12 @@ import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
 import { withLock } from "./lock";
 
+function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], text: string): void {
+  const executor = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor;
+  appendActivity(ctx, { kind, level: "info", text, repo: basename(task.brief.repo), taskId: task.id,
+    ...(executor ? { executor } : {}), ...(task.run?.host ? { host: task.run.host } : {}) });
+}
+
 export const WAIT_MIN_S = 1;
 export const WAIT_MAX_S = 3000;
 
@@ -40,7 +48,10 @@ export function list(ctx: Ctx, o: { limit?: number } = {}): TaskRecord[] {
 
 export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): TaskRecord {
   try {
-    return s ? apiDelegate(ctx, input, spawn, s) : apiDelegate(ctx, input, spawn);
+    const task = s ? apiDelegate(ctx, input, spawn, s) : apiDelegate(ctx, input, spawn);
+    // Retry records its own entry, including when the API injects this delegate.
+    if (!input.retryOf) taskActivity(ctx, task, "task_started", `Delegated “${shortGoal(task.brief.goal, 60)}” to ${executorName(task.executor ?? task.requestedExecutor)}`);
+    return task;
   } catch (e) {
     throw toCoreError(e);
   }
@@ -56,14 +67,19 @@ export async function wait(ctx: Ctx, id: string, timeoutS: number): Promise<Task
 }
 
 export function stop(ctx: Ctx, id: string): TaskRecord {
+  const before = readTask(ctx, id);
   const t = taskStop(ctx, id);
   if (!t) throw unknown(id);
+  if (before && !TERMINAL_STATES.includes(before.state)) taskActivity(ctx, t, "task_settled", `Stopped “${shortGoal(t.brief.goal, 60)}”`);
   return t;
 }
 
 export function review(ctx: Ctx, id: string, v: { accepted: boolean; kind?: string; note?: string }): { recorded: true } {
   try {
-    return taskReview(ctx, id, v.accepted, v.kind, v.note);
+    const result = taskReview(ctx, id, v.accepted, v.kind, v.note);
+    const task = readTask(ctx, id)!;
+    taskActivity(ctx, task, "verdict", `${v.accepted ? "Accepted" : "Rejected"} “${shortGoal(task.brief.goal, 60)}”`);
+    return result;
   } catch (e) {
     throw toCoreError(e);
   }
@@ -74,7 +90,10 @@ export function dismiss(ctx: Ctx, ids: string[]): { dismissed: TaskRecord[]; unk
   const dismissed: TaskRecord[] = [], missing: string[] = [];
   for (const id of ids) {
     const t = taskDismiss(ctx, id);
-    if (t) dismissed.push(t); else missing.push(id);
+    if (t) {
+      dismissed.push(t);
+      taskActivity(ctx, t, "verdict", `Dismissed “${shortGoal(t.brief.goal, 60)}”`);
+    } else missing.push(id);
   }
   return { dismissed, unknown: missing };
 }
@@ -200,7 +219,9 @@ export async function retry(
     }
     if (readTask(ctx, next.id)) updateTask(ctx, next.id, (t) => { t.retryOf = task.id; if (o.fromPanel) t.fromPanel = true; });
     const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; });
-    return { retry: readTask(ctx, next.id) ?? next, of };
+    const retried = readTask(ctx, next.id) ?? next;
+    taskActivity(ctx, retried, "retry", `Delegated “${shortGoal(retried.brief.goal, 60)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
+    return { retry: retried, of };
   });
 }
 

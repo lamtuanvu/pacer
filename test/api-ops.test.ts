@@ -15,7 +15,7 @@ async function ctxWithStrategy() {
 const codeOf = async (p: Promise<unknown>) => { try { await p; return "no error"; } catch (e) { return toApiError(e).code; } };
 
 test("the registry names the task operations", () => {
-  expect(opNames()).toEqual(expect.arrayContaining(["task.get", "task.list", "task.delegate", "task.wait", "task.stop", "task.retry", "task.review", "task.dismiss"]));
+  expect(opNames()).toEqual(expect.arrayContaining(["task.get", "task.list", "task.delegate", "task.wait", "task.stop", "task.retry", "task.review", "task.dismiss", "activity.list"]));
 });
 
 test("task.get and task.list return task summaries", async () => {

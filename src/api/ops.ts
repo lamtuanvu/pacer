@@ -1,4 +1,5 @@
 import { resolveRepo } from "../core/repos";
+import { ACTIVITY_KINDS, readActivity } from "../activity/log";
 import { z } from "zod";
 import { spawn } from "node:child_process";
 import * as core from "../core";
@@ -91,6 +92,11 @@ async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>)
 }
 
 export const OPS: Record<string, OpDef> = {
+  "activity.list": op({
+    description: "Activity log, newest first, with optional repo, kind and task filters.",
+    params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
+    handler: (ctx, p) => readActivity(ctx, p),
+  }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
@@ -117,7 +123,7 @@ export const OPS: Record<string, OpDef> = {
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
-  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: (ctx, p) => mutation(ctx, "config", async () => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; }) }),
+  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; } }),
   "notifications.get": op({ description: "Current Orca plugin notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set Orca plugin notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: ctx => setup.check(ctx) }),

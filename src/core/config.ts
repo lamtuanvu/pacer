@@ -1,3 +1,4 @@
+import { publishConfigChange } from "./events";
 import { readFileSync } from "node:fs";
 import { atomicStrategyWrite, editStrategy, StrategyDoc } from "../config/edit";
 import { formatRunnerId, parseRunnerId, runnerDefaults } from "../config/runner-id";
@@ -96,6 +97,7 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
         }
       }
     } else diff=applyEdit(d=>Array.isArray(value)?d.setList(key.split('.'),value):d.setIn(key.split('.'),value));
+    await publishConfigChange(ctx, "config");
     return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes};
   } catch (e) { throw toCoreError(e); }
 }
