@@ -24,6 +24,7 @@ import {
 import { isTaskId, listTasks, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
+import { isExecutorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
 
@@ -63,6 +64,28 @@ export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
       && (o.executor === undefined || (t.result?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? t.requestedExecutor) === o.executor)
       && (o.since === undefined || t.createdAt >= o.since))
     .slice(0, o.limit ?? 20);
+}
+
+export function requireAskingExecutor(ctx: Ctx, id = ctx.env.PACER_TASK_ID): string {
+  if (!isExecutorSession(ctx) || !ctx.env.PACER_TASK_ID || id !== ctx.env.PACER_TASK_ID) {
+    throw new CoreError("not_allowed", "pacer ask works only inside a delegated task");
+  }
+  return id;
+}
+
+/** Record one question for the current attempt. Transport callers enforce executor identity. */
+export async function ask(ctx: Ctx, id: string, text: string): Promise<TaskRecord> {
+  if (!isTaskId(id)) throw unknown(id);
+  if (typeof text !== "string" || text.length < 1 || text.length > 1000) {
+    throw new CoreError("invalid_input", "question must contain 1–1000 characters");
+  }
+  return withLock(ctx, `ask-${id}`, async () => {
+    const task = readTask(ctx, id);
+    if (!task) throw unknown(id);
+    if (task.question && task.question.answer === undefined) throw new CoreError("conflict", "already asked; stop and wait for the answer");
+    if (task.state !== "running") throw new CoreError("conflict", "task is not running");
+    return updateTask(ctx, id, t => { t.question = { text, at: ctx.now }; });
+  });
 }
 
 export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): TaskRecord {

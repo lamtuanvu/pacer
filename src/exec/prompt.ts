@@ -5,6 +5,7 @@ Executor contract (from pacer): you are executing a plan made by another enginee
 - Do exactly the task above, within the stated scope. Do not redesign, re-plan or expand scope.
 - Do not commit, push, or change git branches.
 - Run the acceptance check if one is given, and fix failures within scope.
+- If you cannot continue without a decision from the user, run pacer ask "<one question>" once, then stop. Ask only when you cannot continue; otherwise make a reasonable choice and say so in your report.
 - Finish with a short report: files changed, what you did, the acceptance check result (command and pass/fail), and anything you could not do or are unsure about.`;
 
 export function buildPrompt(brief: Brief, taskId: string): string {

@@ -58,6 +58,7 @@ const USAGE = `usage: pacer <command>
   stop <task-id> [--json]                         stop a running task
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
+  ask "<question>" record one question and stop the delegated task
   report-limit <provider> [--until <unix-seconds>] record an executor limit
   host list [--json] | check <alias> [--repo <path>] [--json] | setup <alias> [--repo <path>] | clean <alias> [--json]
   limits check [--json]                          where each account's usage comes from, its age and freshness
@@ -248,6 +249,14 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "config": return configCmd(rest, ctx);
     case "dashboard": return runDashboard(rest, ctx);
     case "setup": return setupCmd(rest, ctx);
+    case "ask": {
+      try {
+        const id = core.tasks.requireAskingExecutor(ctx);
+        if (rest.length !== 1) throw new Error("usage: pacer ask \"<one question>\"");
+        await core.tasks.ask(ctx, id, rest[0]);
+        return {code:0, out:"Question recorded; stop and wait for the answer.", err:""};
+      } catch (e) { return {code:2, out:"", err:e instanceof Error ? e.message : String(e)}; }
+    }
     case "report-limit": {
       const {opts,pos}=parseFlags(rest,[]);
       try{const raw=str(opts.until);const r=core.limits.report(ctx,pos[0],raw===undefined?undefined:Number(raw));

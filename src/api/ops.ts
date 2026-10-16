@@ -130,6 +130,10 @@ export const OPS: Record<string, OpDef> = {
   "job.get": op({ description: "Read a shared job.", params: z.object({id}), handler: (ctx, p) => getJob(ctx, p.id) }),
   "job.list": op({ description: "List retained shared jobs, optionally for a target.", params: z.object({target: id.optional()}), handler: (ctx, p) => listJobs(ctx, p) }),
   "job.cancel": op({ description: "Cancel a job that supports cancellation.", params: z.object({id}), handler: (ctx, p) => cancelJob(ctx, p.id) }),
+  "task.ask": op({ description: "Record one question from the current executor, then stop.", params: z.object({id, text:z.string().min(1).max(1000)}), handler: (ctx,p) => {
+    core.tasks.requireAskingExecutor(ctx,p.id);
+    return core.tasks.ask(ctx,p.id,p.text);
+  }}),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}), handler: (ctx, p, deps) => accounts.signin(ctx, p.name, p, deps.terminal) }),
   "account.add": op({
@@ -191,7 +195,7 @@ export const OPS: Record<string, OpDef> = {
   "repo.remove": op({ description: "Remove a repository from the registry.", params: z.object({key:z.string().min(1)}), handler: (ctx,p) => removeRepo(ctx,p.key) }),
   "task.list": op({ description: "Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.", params: z.object({
     limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
-    states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
+    states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
   }), handler: (ctx,p) => {
     if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))return core.tasks.list(ctx,p).map(summarizeTask);
     const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});

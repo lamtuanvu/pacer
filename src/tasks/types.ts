@@ -3,8 +3,8 @@ import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
 
-export type TaskState = "queued" | "running" | "done" | "partial" | "failed" | "limit" | "stopped";
-export const TERMINAL_STATES: readonly TaskState[] = ["done", "partial", "failed", "limit", "stopped"];
+export type TaskState = "queued" | "running" | "done" | "partial" | "failed" | "limit" | "stopped" | "needs_input";
+export const TERMINAL_STATES: readonly TaskState[] = ["done", "partial", "failed", "limit", "stopped", "needs_input"];
 
 /** What the planner hands over. `repo` is an absolute path; `acceptance` is a shell command run in it. */
 export interface Brief {
@@ -105,6 +105,7 @@ export interface TaskRecord {
   /** Checkpoint for the in-flight attempt, retained when its runner resumes. */
   pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart">;
   rev: number;
+  question?: { text: string; at: number; answer?: string; answeredAt?: number };
   run?: RunRef;
   progress?: Progress;
   resumeSpawnedAt?: number;

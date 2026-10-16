@@ -91,10 +91,14 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
 }
 
 function workerSpec(task: TaskRecord, p: Ready): string {
-  if (p.placement.kind === "existing") return buildPrompt(task.brief, task.id);
-  const where = `The current working directory: a new Orca worktree of ${p.top} branched from ${p.base}` +
-    `${p.sub ? `. Work in its ${p.sub}/ subdirectory` : ""}. Do not edit ${p.top} itself.`;
-  return buildPrompt({ ...task.brief, repo: where }, task.id);
+  const where = p.placement.kind === "existing" ? task.brief.repo
+    : `The current working directory: a new Orca worktree of ${p.top} branched from ${p.base}` +
+      `${p.sub ? `. Work in its ${p.sub}/ subdirectory` : ""}. Do not edit ${p.top} itself.`;
+  const prompt = buildPrompt({ ...task.brief, repo: where }, task.id);
+  // Orca worker-start has no environment option. Supply identity on the ask command itself.
+  const command = 'run pacer ask "<one question>"';
+  const at = prompt.lastIndexOf(command);
+  return prompt.slice(0, at) + `run PACER_ROLE=executor PACER_TASK_ID=${task.id} pacer ask "<one question>"` + prompt.slice(at + command.length);
 }
 
 function mapWait(w: WaitResult): Mapped {
@@ -251,7 +255,7 @@ async function runOrcaAttempt(
     } else {
       before = await repoFingerprint(ctx, worktree ?? task.brief.repo);
       m = mapWait(await waitForWorker(ctx, c, {
-        providerId: cfg.id, prompt, coordinator: p.coordinator, run: p.run, dispatchId, terminal,
+        taskId: task.id, providerId: cfg.id, prompt, coordinator: p.coordinator, run: p.run, dispatchId, terminal,
         deadlineMs: deps.now() + task.timeoutS * 1000,
         isStopped: () => readTask(ctx, task.id)?.state === "stopped",
         sliceMs: deps.sliceMs, now: deps.now, sleep: deps.sleep, log,
