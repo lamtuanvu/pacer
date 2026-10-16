@@ -706,9 +706,38 @@ test("an explicit report ends the interactive host even without a supervisor", a
 test("interactive readRun exposes controller ownership to the idle policy", () => {
   const dir = temp();
   try {
+    writeFileSync(join(dir, "interactive.json"), "{}");
     writeFileSync(join(dir, "session.state"), JSON.stringify({controller: "human"}));
     expect(readRun(dir).controller).toBe("human");
     writeFileSync(join(dir, "session.state"), JSON.stringify({controller: null}));
     expect(readRun(dir).controller ?? null).toBeNull();
   } finally {rmSync(dir, {recursive: true, force: true});}
+});
+
+test("headless session metadata does not expose a controller to supervision", () => {
+  const dir = temp();
+  try {
+    writeFileSync(join(dir, "session.state"), JSON.stringify({controller: "human"}));
+    expect(readRun(dir).controller).toBeUndefined();
+    writeFileSync(join(dir, "interactive.json"), "{}");
+    expect(readRun(dir).controller).toBe("human");
+  } finally {rmSync(dir, {recursive: true, force: true});}
+});
+
+test("interactive starts generate a private token per attempt and export it to the child", async () => {
+  const dir = temp();
+  try {
+    const tokens: string[] = [];
+    for (let n = 0; n < 2; n++) {
+      const result = startRun({dir, argv: ["/bin/sh", "-c", 'printf "%s" "$PACER_REPORT_TOKEN" > token-seen'], cwd: dir, session: "interactive", env: {...process.env}});
+      expect(result).not.toHaveProperty("error");
+      await until(() => readRun(dir).exit !== null);
+      const meta = JSON.parse(readFileSync(join(dir, "interactive.json"), "utf8"));
+      expect(meta.reportToken).toMatch(/^[a-f0-9]{64}$/);
+      expect(readFileSync(join(dir, "token-seen"), "utf8")).toBe(meta.reportToken);
+      expect(statSync(join(dir, "interactive.json")).mode & 0o777).toBe(0o600);
+      tokens.push(meta.reportToken);
+    }
+    expect(tokens[0]).not.toBe(tokens[1]);
+  } finally {await stopRun(dir, {graceMs: 100}); rmSync(dir, {recursive: true, force: true});}
 });
