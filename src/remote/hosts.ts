@@ -129,7 +129,7 @@ async function prepareCheck(ctx: Ctx, alias: string, o: { repo?: string }) {
   if (o.repo && (!local.key || !host.repos[local.key])) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   const repos = o.repo ? [[local.key!, host.repos[local.key!]]] : Object.entries(host.repos);
   const agents = new Set(Object.values(s.runners).filter(r => r.host === alias).map(r => r.agent));
-  const names = ["ssh", "git", "setsid", ...(agents.has("codex") ? ["codex"] : []), ...(agents.has("claude-code") ? ["claude"] : []), "account homes", ...repos.flatMap(([key]) => [`checkout ${key}`, `identity ${key}`])];
+  const names = ["ssh", "git", "setsid", "script", ...(agents.has("codex") ? ["codex"] : []), ...(agents.has("claude-code") ? ["claude"] : []), "account homes", ...repos.flatMap(([key]) => [`checkout ${key}`, `identity ${key}`])];
   return { host, s, local, repos, names };
 }
 export async function checkJob(ctx: Ctx, alias: string, o: { repo?: string } = {}) {
@@ -172,6 +172,8 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
   add("git", gitOk, gitOk ? tools.git : `${tools.git || "git missing"} < 2.30`);
   steps?.start("setsid");
   add("setsid", !!tools.setsid, tools.setsid || "missing");
+  steps?.start("script");
+  add("script", /util-linux/.test(tools.script ?? ""), tools.script || "util-linux script missing");
   for (const agent of ["codex", "claude"]) if (names.includes(agent)) {
     steps?.start(agent);
     add(agent, !!tools[agent], tools[agent] || `${agent} not on login PATH`);
