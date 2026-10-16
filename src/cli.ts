@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
+import { sessionHost } from "./session/host";
+import { attachDirectory, attachSession } from "./session/attach";
 import { createInterface } from "node:readline/promises";
 import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
@@ -55,6 +57,7 @@ const USAGE = `usage: pacer <command>
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
+  attach <task-id> [--replay] [--attempt <n>]     watch a local PTY session (read-only)
   stop <task-id> [--json]                         stop a running task
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
@@ -363,6 +366,21 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       } catch (e) {
         return { code: 2, out: "", err: explain(e) };
       }
+    }
+    case "_session":
+      if(rest.length!==1) return {code:2,out:"",err:"usage: pacer _session <run-dir>"};
+      try {return {code:await sessionHost(rest[0]),out:"",err:""};}
+      catch(e) {return {code:2,out:"",err:explain(e)};}
+    case "attach": {
+      const {opts,pos}=parseFlags(rest,["replay"]);
+      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","attempt"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--replay] [--attempt <n>]"};
+      if(opts.attempt!==undefined && (typeof opts.attempt!=="string" || !/^[1-9]\d*$/.test(opts.attempt))) return {code:2,out:"",err:"--attempt requires a positive integer"};
+      try {
+        const attempt=opts.attempt===undefined?undefined:Number(opts.attempt);
+        const dir=attachDirectory(ctx,pos[0],attempt);
+        await attachSession(dir,{replay:opts.replay===true,attempt},`pacer ${pos[0]}`);
+        return {code:0,out:"",err:""};
+      } catch(e) {return {code:2,out:"",err:explain(e)};}
     }
     case "_run":
       if (!rest[0]) return { code: 2, out: "", err: USAGE };
