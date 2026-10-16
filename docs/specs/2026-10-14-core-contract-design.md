@@ -260,4 +260,4 @@ Accounts (`feat/accounts-0.1.23`) lands before or alongside phase 3. Its runner 
 4. **Orca executor backend: opt-in adapter.** The default is pacer's own supervisor. `execution.backend: orca` keeps agents in visible Orca terminals for those who want it. Orca is never a usage source.
 5. **Headless agent verification: local runs approved** (one tiny task per installed agent on this Mac, in a scratch repo). Remote agent runs need a separate OK.
 6. **Phase order 1→6 as listed.**
-7. **Clients after the core**: dashboard (TUI), Orca plugin, VS Code / Open VSX extension, and a **pacer desktop app** (native, like VS Code or Orca; no web UI).
+7. **Clients after the core**: dashboard (TUI), Orca plugin, VS Code / Open VSX extension, and a **pacer desktop app** (native, like VS Code or Orca; no web UI). (superseded by [the app web UI decision](../decisions/2026-10-15-app-web-ui.md))

@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { checkSession, safeEqual } from "./app-auth";
+import { appPage, appRoute } from "./app-routes";
 import { handleV2 } from "../api/http";
 import type { OpDeps } from "../api/ops";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, watch } from "node:fs";
@@ -78,11 +80,29 @@ export function startServer(
     hostname: "127.0.0.1",
     port: opts.port ?? DEFAULT_PORT,
     idleTimeout: 0,
-    async fetch(req) {
+    async fetch(req, server) {
       const { pathname } = new URL(req.url);
+      const hosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
+      if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
+      if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
       const headers = { "X-Pacer": "1" };
       if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid }, { headers });
-      if (req.headers.get("authorization") !== `Bearer ${token}`) return new Response("unauthorized\n", { status: 401 });
+      if (pathname === "/app/auth") return appRoute(req, getCtx());
+      const app = pathname.startsWith("/app/");
+      const bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
+      if (!bearer) {
+        const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
+        if (!(app || pathname.startsWith("/v2/")) || !value || !checkSession(getCtx(), value)) {
+          return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
+        }
+        const site = req.headers.get("sec-fetch-site");
+        if ((site !== null && !["same-origin", "none"].includes(site)) ||
+            (!["GET", "HEAD"].includes(req.method) &&
+             (!hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "") || req.headers.get("x-pacer-client") !== "app"))) {
+          return app ? appPage("Forbidden.", 403) : new Response("forbidden\n", { status: 403 });
+        }
+      }
+      if (app) return appRoute(req, getCtx());
       if (pathname.startsWith("/v2/")) return handleV2(req, { getCtx, opDeps: opts.opDeps, tailMs, status });
       if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) {
         const body=await consoleRequestBody(req);

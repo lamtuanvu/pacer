@@ -1,5 +1,6 @@
 import { type HostCfg, repoKey } from "../config/hosts";
 import { loadStrategy } from "../config/strategy";
+import { applyEdit } from "../core/accounts";
 import { CoreError } from "../core/errors";
 import { shq } from "../install/fsx";
 import { listTasks } from "../tasks/store";
@@ -110,4 +111,21 @@ export async function clean(ctx: Ctx, alias: string) {
     } catch { kept.push({ id: t.id, reason: "remote cleanup failed" }); }
   }
   return { removed, kept };
+}
+
+/** Add an SSH alias using the strategy validator, without connecting to it. */
+export function add(ctx: Ctx, {alias, ssh}: {alias: string; ssh: string}) {
+  const s = loadStrategy(ctx);
+  if (alias === "local" || !/^[a-z0-9][a-z0-9-]*$/.test(alias)) throw new CoreError("invalid_input", "invalid or reserved host alias", "Use lowercase letters, digits and hyphens; local is reserved.");
+  if (Object.hasOwn(s.hosts, alias)) throw new CoreError("conflict", `host ${alias} already exists`, "Choose a different alias or remove the existing host.");
+  applyEdit(ctx, doc => doc.setIn(["hosts", alias], {ssh}));
+  return {alias};
+}
+export function remove(ctx: Ctx, alias: string) {
+  if (alias === "local") throw new CoreError("invalid_input", "local is reserved", "Only configured SSH hosts can be removed.");
+  const s = loadStrategy(ctx);
+  configured(ctx, alias);
+  if (Object.values(s.runners).some(r => r.host === alias)) throw new CoreError("conflict", `host ${alias} is in use`, "Remove its runners first.");
+  applyEdit(ctx, doc => doc.deleteIn(["hosts", alias]));
+  return {removed: true as const};
 }

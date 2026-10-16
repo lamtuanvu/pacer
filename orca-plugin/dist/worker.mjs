@@ -1192,6 +1192,12 @@ function parseEnvelope(raw) {
   if (!isObj(raw) || raw.v !== 1)
     return null;
   switch (raw.type) {
+    case "config": {
+      const d = raw.data;
+      if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null)
+        return null;
+      return { v: 1, type: "config", data: { area: optStr(d.area, 128), at: num(d.at) } };
+    }
     case "budget": {
       const data = parseBudget(raw.data);
       return data && { v: 1, type: "budget", data };
@@ -1227,6 +1233,8 @@ function parseSnapshot(raw) {
 function reduce(s, e, at) {
   const next = { ...s, seq: s.seq + 1, at };
   switch (e.type) {
+    case "config":
+      break;
     case "budget":
       next.budget = e.data;
       break;
