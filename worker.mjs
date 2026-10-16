@@ -609,7 +609,7 @@ var package_default = {
     "@types/bun": "^1.4.2",
     typescript: "^7.0.2"
   },
-  version: "0.2.2",
+  version: "0.2.3",
   bin: {
     pacer: "src/cli.ts"
   },
@@ -1063,7 +1063,7 @@ function createBootstrap(d) {
 // orca-plugin/src/worker.ts
 import { get, request } from "node:http";
 import { existsSync as existsSync3, readFileSync as readFileSync6, writeFileSync as writeFileSync4, renameSync as renameSync4, unlinkSync as unlinkSync3 } from "node:fs";
-import { dirname, join as join8, resolve } from "node:path";
+import { dirname, join as join9, resolve } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // orca-plugin/src/updates.ts
@@ -1086,7 +1086,7 @@ async function notifyUpdates(host, mode, plugin, check, cli) {
 }
 
 // orca-plugin/src/plugin.ts
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 
 // orca-plugin/src/settings.ts
 function readSettings(raw, home) {
@@ -1851,6 +1851,18 @@ function renderStatusPage(s, view) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
 }
 
+// src/plugin/panel-owner.ts
+import { join as join7 } from "node:path";
+var PANEL_OWNER_MARKER = ".pacer-panel-serve.json";
+function serveOwnsPanel(root, readText, nowS) {
+  try {
+    const marker = JSON.parse(readText(join7(root, PANEL_OWNER_MARKER)) ?? "null");
+    return typeof marker?.at === "number" && Number.isFinite(marker.at) && nowS >= marker.at && nowS - marker.at < 60;
+  } catch {
+    return false;
+  }
+}
+
 // orca-plugin/src/plugin.ts
 function createPlugin(deps) {
   let stopped = false;
@@ -2019,9 +2031,11 @@ function createPlugin(deps) {
         try {
           const nowS = deps.nowS();
           const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
-          if (html !== renderedHtml) {
+          if (serveOwnsPanel(deps.pluginRoot, (path) => deps.fs.readText(path), nowS))
+            renderedHtml = null;
+          else if (html !== renderedHtml) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
-              deps.fs.writeTextAtomic(join7(deps.pluginRoot, "panel", "live.html"), html);
+              deps.fs.writeTextAtomic(join8(deps.pluginRoot, "panel", "live.html"), html);
               renderedHtml = html;
               lastRenderAt = nowS;
               userOutcome = false;
@@ -2041,7 +2055,7 @@ function createPlugin(deps) {
     if (deps.bootstrap) {
       let checking = false, nextCheckAt = 0, request = null;
       const checkSetup = async () => {
-        const latest = deps.fs.readText(join7(settings.pacerHome, "check-setup-request.json"));
+        const latest = deps.fs.readText(join8(settings.pacerHome, "check-setup-request.json"));
         if (latest !== request) {
           request = latest;
           nextCheckAt = 0;
@@ -2347,7 +2361,7 @@ var http = {
 var pluginRoot = dirname(fileURLToPath3(import.meta.url));
 var PLUGIN_VERSION = (() => {
   try {
-    const version = JSON.parse(readFileSync6(join8(pluginRoot, "orca-plugin.json"), "utf8")).version;
+    const version = JSON.parse(readFileSync6(join9(pluginRoot, "orca-plugin.json"), "utf8")).version;
     if (isVersion(version))
       return version;
   } catch {}
@@ -2355,20 +2369,20 @@ var PLUGIN_VERSION = (() => {
 })();
 var log = (message) => {};
 var workerEnv = { ...process.env };
-var pacerHome = workerEnv.PACER_HOME || join8(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
+var pacerHome = workerEnv.PACER_HOME || join9(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
 var plugin = createPlugin({
   async connect(settings) {
     const base = `http://127.0.0.1:${settings.port}`;
     try {
       const health = await http.get(`${base}/health`, "", 500);
       if (health.status === 200 && health.headers?.["x-pacer"] === "1") {
-        const token = readFileSync6(join8(settings.pacerHome, "token"), "utf8").trim();
+        const token = readFileSync6(join9(settings.pacerHome, "token"), "utf8").trim();
         if (token)
           return new HttpClient(base, token);
       }
     } catch {}
     try {
-      const binary = workerEnv.PACER_BIN || (existsSync3(join8(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join8(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+      const binary = workerEnv.PACER_BIN || (existsSync3(join9(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join9(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
       const env = { ...workerEnv, PACER_BIN: binary, PACER_HOME: settings.pacerHome };
       return new StdioClient([binary], env, { log: (m) => log(m) });
     } catch {
@@ -2379,13 +2393,13 @@ var plugin = createPlugin({
   cachedUpdate: () => readUpdateCheck({ pacerHome, env: workerEnv }, PLUGIN_VERSION),
   reportVersion(mode, version) {
     mkdirSync4(pacerHome, { recursive: true });
-    const path = join8(pacerHome, "plugin-version.json"), temp = `${path}.${process.pid}.tmp`;
+    const path = join9(pacerHome, "plugin-version.json"), temp = `${path}.${process.pid}.tmp`;
     writeFileSync4(temp, JSON.stringify({ mode, version }));
     renameSync4(temp, path);
   },
   async checkUpdates() {
     const check = await checkForUpdate({ pacerHome, env: workerEnv, now: Date.now() / 1000 }, { force: true, current: PLUGIN_VERSION });
-    const binary = workerEnv.PACER_BIN || (existsSync3(join8(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join8(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+    const binary = workerEnv.PACER_BIN || (existsSync3(join9(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join9(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
     const cli = await new Promise((resolve) => execFile2(binary, ["--version"], { timeout: 3000, env: workerEnv }, (error, stdout) => resolve(error ? null : stdout.trim().replace(/^pacer\s+/, ""))));
     return { check, cli };
   },
