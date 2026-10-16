@@ -10,7 +10,6 @@ import type { Strategy } from "../../config/strategy";
 import type { HostCfg } from "../../config/hosts";
 import type { SetupChecklist } from "../../setup/checklist";
 import { check } from "../../core/setup";
-import { list as accountList } from "../../core/accounts";
 import { listRepos, labelsFor } from "../../core/repos";
 import { PROTOCOL_VERSION } from "../protocol";
 import { buildExecutors, buildAccounts, buildPlanner } from "./capacity";
@@ -21,7 +20,8 @@ const startedAt=Math.floor(Date.now()/1000-process.uptime());
 const cache=new Map<string,{at:number;promise:Promise<{setup:SetupChecklist;accounts:{name:string;signedIn:boolean|null}[]}>}>();
 export async function readModelContext(ctx:Ctx) {
  const hit=cache.get(ctx.pacerHome);if(hit&&ctx.now>=hit.at&&ctx.now-hit.at<60)return hit.promise;
- const promise=Promise.all([check({...ctx,readOnly:true}),accountList({...ctx,readOnly:true}).catch(()=>[])]).then(([setup,accounts])=>({setup,accounts:accounts.map(a=>({name:a.name,signedIn:a.signedIn}))}));
+ // account.list spawns `orca account list`; the snapshot reads sign-in state from stored auth marks instead.
+ const promise=check({...ctx,readOnly:true}).then(setup=>({setup,accounts:[] as {name:string;signedIn:boolean|null}[]}));
  cache.set(ctx.pacerHome,{at:ctx.now,promise});
  try{return await promise;}catch(e){cache.delete(ctx.pacerHome);throw e;}
 }
