@@ -39,7 +39,7 @@ test("account metadata survives the link and appears in dashboard and panel",asy
  expect(renderDashboard(s,150,24,st.generatedAt,{selected:0,noColor:true}).split("\n")[2]).toContain("Claude");
  const html=overview(s,st.generatedAt,true,{},{});
  expect(html).toContain("Claude");
- expect(renderPanel(s,{nowS:st.generatedAt,transport:null,reachable:true})).toContain('"account":"team"');
+ expect(renderPanel(s,{nowS:st.generatedAt,transport:null,reachable:true})).toContain("<strong>team</strong>");
 });
 test("panel runner commands accept account ids and still refuse unsafe executor text",()=>{
  const context={branch:"feature",displayName:"Feature",terminals:[{id:"terminal"}]};

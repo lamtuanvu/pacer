@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { emptySnapshot, parseSnapshot, parseCmd, type TaskData } from "../src/link/envelope";
+import { emptySnapshot, parseSnapshot, type TaskData } from "../src/link/envelope";
 import { taskData, pumpOnce } from "../src/link/pump";
 import { writeJsonAtomic } from "../src/fsutil";
 import { latestPath } from "../src/link/paths";
 import { attentionGroups, attentionText, unavailableDetail } from "../orca-plugin/src/panel/model";
-import { overview } from "../orca-plugin/src/panel/overview";
+import { renderStatusPage } from "../orca-plugin/src/panel";
 import { createTask } from "../src/tasks/store";
 import { taskStatus } from "../src/tasks/api";
 import { fakeCtx } from "./helpers";
@@ -14,16 +14,11 @@ test("dismissed, expired and successfully retried failures leave attention",()=>
   s.tasks=[failure("dismissed",{dismissed:true}),failure("old",{updatedAt:1}),failure("original"),failure("retry",{state:"done",retryOf:"original"})];
   expect(attentionGroups(s,300000)).toEqual([]);
 });
-test("broken failures share one group with retry-all and dismissal commands",()=>{
-  const s=emptySnapshot();
-  s.budget={generatedAt:1000,strategy:"default",planner:"claude-code",mode:"normal",providers:[{id:"codex",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false}],ranked:[{id:"codex",verdict:"OK"}]};
-  s.tasks=[failure("t-1",{brokenExecutor:"agy",brokenReason:"bad argv"}),failure("t-2",{brokenExecutor:"agy",brokenReason:"bad argv"})];
-  const g=attentionGroups(s,1200);
-  expect(g).toHaveLength(1);expect(attentionText(g[0],1200)).toBe("Antigravity is not working: bad argv · 2 tasks affected");
-  const commands:any={},text:any={};const html=overview(s,1200,true,commands,text);
-  expect(html).toContain("Retry all on");expect(html).toContain("Dismiss");
-  expect(Object.values(commands)).toContainEqual({cmd:"retry-all",taskIds:["t-1","t-2"],executor:"codex"});
-  expect(parseCmd({v:1,type:"cmd",data:{cmd:"dismiss",taskId:"t-1"}})?.data.cmd).toBe("dismiss");
+test("broken failures share one attention group",()=>{
+ const s=emptySnapshot();
+ s.tasks=[failure("t-1",{brokenExecutor:"agy",brokenReason:"bad argv"}),failure("t-2",{brokenExecutor:"agy",brokenReason:"bad argv"})];
+ const groups=attentionGroups(s,1200);expect(groups).toHaveLength(1);
+ expect(attentionText(groups[0],1200)).toBe("Antigravity is not working: bad argv · 2 tasks affected");
 });
 test("live runners and started attempts never appear as waiting for executor",()=>{
   const s=emptySnapshot();
@@ -54,21 +49,18 @@ test("broken executor detail identifies why it is unavailable",()=>{
 test("an active retry clears original attention and appears in Running",()=>{
  const s=emptySnapshot();s.tasks=[failure("old",{retriedBy:"new"}),failure("new",{state:"running",retryOf:"old",executor:"codex",attemptStartedAt:1100})];
  expect(attentionGroups(s,1200)).toEqual([]);
- const html=overview(s,1200,true,{},{});expect(html).toContain("Running on Codex");expect(html).toContain("Retry of old");
+ const html=renderStatusPage(s,{nowS:1200,reachable:true,transport:"http"});expect(html).toContain("<h2>Running</h2>");expect(html).toContain("Codex");expect(html).toContain("new");
 });
 
-test("partial work appears for review with worktree and primary dismissal",()=>{
+test("partial work appears on the status page for review with worktree",()=>{
  const s=emptySnapshot();
  s.budget={generatedAt:1000,strategy:"default",planner:"claude-code",mode:"normal",providers:[{id:"codex",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false}],ranked:[{id:"codex",verdict:"OK"}]};
  s.tasks=[failure("review",{state:"partial",worktree:"/work/review"})];
  const groups=attentionGroups(s,1200);expect(groups).toHaveLength(1);
  expect(attentionText(groups[0],1200)).toBe("Needs review on Antigravity");
- const commands:any={},text:any={},html=overview(s,1200,true,commands,text);
- expect(html).toContain("/work/review");
- expect(html).toContain('class="primary" data-command="attention-0-dismiss"');
- expect(html).toContain('class="" data-command="attention-0"');
- expect(commands["attention-0-dismiss"]).toEqual({cmd:"dismiss",taskId:"review"});
- expect(commands["attention-0"]).toEqual({cmd:"retry",taskId:"review",executor:"codex"});
+ const html=renderStatusPage(s,{nowS:1200,reachable:true,transport:"http"});
+ expect(html).toContain("<h2>Waiting for review</h2>");expect(html).toContain("/work/review");
+ expect(html).toContain("pacer review &lt;id&gt;");expect(html).not.toContain("data-command");
 });
 
 for(const state of ["partial","failed","limit","stopped"] as const) test(`retry ending ${state} keeps original hidden and chain count`,()=>{

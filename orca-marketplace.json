@@ -9,7 +9,7 @@
         "url": "https://github.com/lamtuanvu/pacer.git",
         "ref": "orca-plugin-v0.1.24"
       },
-      "description": "Budget-aware delegation: pacer's budget panel, delegate and strategy commands, and worker-finished signals.",
+      "description": "pacer's budget and task status at a glance. Act in the pacer app or `pacer dashboard`.",
       "categories": [
         "productivity"
       ]

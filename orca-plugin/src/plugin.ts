@@ -1,11 +1,10 @@
-import { setupKey, type SetupChecklist } from "../../src/setup/checklist";
+import type { SetupChecklist } from "../../src/setup/checklist";
 import { notifyUpdates, UPDATE_INTERVAL_MS, type PluginUpdates } from "./updates";
 import { updateAvailable, type UpdateCheck } from "../../src/update/check";
 import { pluginMode } from "./mode";
 import type { Bootstrap } from "./bootstrap";
 import { join } from "node:path";
-import { clip, LIMITS, liveConsole, summaryLine, type CmdData } from "../../src/link/envelope";
-import type { AgentStatusChanged, OrcaWorkerContext, WorktreeCreated } from "./orca-api";
+import type { OrcaWorkerContext } from "./orca-api";
 import { readSettings } from "./settings";
 import { LinkStore } from "./store";
 import { chooseTransport, type Transport } from "./transports/choose";
@@ -14,10 +13,8 @@ import { apiTransport } from "./transports/api";
 import { httpTransport, type HttpPort } from "./transports/http";
 import { bridgeTransport } from "./transports/bridge";
 import { channelTransport } from "./transports/channel";
-import { NO_CONSOLE, sendToConsole, focusedConsole } from "./console-link";
-import { notifyNewAlerts, deliverNotification } from "./notify";
-import { readPanelSettings } from "./panel/settings";
-import { renderPanel, type AutoConsoleOutcome } from "./panel";
+import { notifyNewAlerts } from "./notify";
+import { renderStatusPage } from "./panel";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
   connect?(settings: { port: number; pacerHome: string }): Promise<ApiClient | null>;
@@ -47,6 +44,13 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
   async function activate(ctx: OrcaWorkerContext): Promise<void> {
     stopped = false;
     const mode = pluginMode(deps.pluginRoot, deps.fs);
+    ctx.commands.register("open", async () => {
+      await ctx.host.call("notifications.show", {
+        title: "Open pacer",
+        body: "Run `pacer dashboard` in a terminal. The pacer app opens from here once it ships.",
+      });
+      return { ok: true };
+    });
     let updates: PluginUpdates | undefined;
     let updateBusy = false;
     const runUpdateCheck = async () => {
@@ -108,24 +112,12 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     ];
     let active: Transport | null = null, reachable = false, connecting: Promise<void> | null = null;
     let lastSeenAt: number | undefined;
-    const reconnecting = () => !reachable && lastSeenAt !== undefined && deps.nowS()-lastSeenAt < 20;
     let processing = Promise.resolve();
     let httpFailures = 0;
     let setup:SetupChecklist|undefined;
-    let renderedKey: string | null = null;
+    let renderedHtml: string | null = null;
     let lastRenderAt=-Infinity;
     let userOutcome=false;
-    const outcomes = new Map<string, AutoConsoleOutcome>();
-    let focusedWorktree: string | null = null, attempted = false;
-    const panelOutcome = (): AutoConsoleOutcome => (focusedWorktree ? outcomes.get(focusedWorktree) : undefined) ?? { status: "starting", at: activatedAtS };
-    const hintKey = () => {
-      if (!settings.autoConsole || active?.id !== "http" || !reachable) return null;
-      const outcome = focusedWorktree ? outcomes.get(focusedWorktree) : undefined;
-      const hasLive = [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle && deps.nowS()-c.heartbeatAt <= LIMITS.heartbeatS);
-      if ((outcome?.status === "registered" || !outcome) && hasLive) return null;
-      const current = panelOutcome();
-      return { ...current, expired: current.status === "starting" && deps.nowS()-current.at >= 15 };
-    };
     const panelUpdates = (): PluginUpdates | undefined => {
       if (!deps.version) return updates;
       const cached = deps.cachedUpdate?.();
@@ -134,23 +126,6 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       const check = { checkedAt: deps.nowS(), latest, current: deps.version };
       return { plugin: deps.version, cli, latest, available: updateAvailable(check) || (!!cli && updateAvailable({...check,current:cli})) };
     };
-    const consoleKey = () => [...new Set([...(store.snapshot.consoles ?? []).map(c=>c.handle), store.snapshot.console?.handle].filter(Boolean))].sort().map(handle => ({
-        handle, live: [...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle === handle && deps.nowS() - c.heartbeatAt <= LIMITS.heartbeatS),
-      }));
-    const configuredSettings = () => {
-      const activeName=deps.fs.readText(join(settings.pacerHome,"active"))?.trim();
-      const name=activeName && /^[a-z0-9][a-z0-9-]{0,39}$/.test(activeName) ? activeName : "default";
-      const result=readPanelSettings(path=>deps.fs.readText(path),settings.pacerHome,name);
-      return {strategyConfig:result.strategyConfig,updateCheck:result.updateCheck,settingsError:result.error};
-    };
-    const contentPanelKey = () => setup && !setup.complete ? JSON.stringify({setup:setupKey(setup),consoles:consoleKey()}) : JSON.stringify({
-      updates: panelUpdates(), setup: setup ? setupKey(setup) : undefined, notifications:settings.notifications,
-      budget: store.snapshot.budget ? { ...store.snapshot.budget, generatedAt: undefined } : null,
-      mode: store.snapshot.mode ? { ...store.snapshot.mode, at: undefined } : null,
-      serviceInstalled: store.snapshot.serviceInstalled, reconnecting: reconnecting(), tasks: store.snapshot.tasks.map(({updatedAt,...task})=>task), alerts: store.snapshot.alerts,
-      consoles: consoleKey(), autoConsoleOutcome: hintKey(), strategies: store.snapshot.strategies, transport: store.transport, reachable,
-    });
-    const panelKey = () => JSON.stringify({content:contentPanelKey(),...configuredSettings(),autoConsole:settings.autoConsole,notifications:settings.notifications});
     const logError = (e: unknown) => ctx.log(`pacer: ${e instanceof Error ? e.message : String(e)}`);
     const scheduleRender = (immediate=false) => {
       if(immediate){userOutcome=true;cancelRender?.();cancelRender=null;}
@@ -159,11 +134,12 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         cancelRender = null;
         if (stopped) return;
         try {
-          const key = panelKey(), nowS = deps.nowS();
-          if (key !== renderedKey) {
+          const nowS = deps.nowS();
+          const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
+          if (html !== renderedHtml) {
             if (pluginMode(deps.pluginRoot, deps.fs) === "live") {
-              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), renderPanel(store.snapshot, { ...configuredSettings(), nowS, transport: store.transport, reachable, lastSeenAt, autoConsole: settings.autoConsole, notifications:settings.notifications, autoConsoleOutcome: panelOutcome(), setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() }));
-              renderedKey = key; lastRenderAt=nowS; userOutcome=false;
+              deps.fs.writeTextAtomic(join(deps.pluginRoot, "panel", "live.html"), html);
+              renderedHtml = html; lastRenderAt=nowS; userOutcome=false;
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
         } catch (e) { logError(e); }
@@ -194,23 +170,21 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       refreshingSettings=true;
       void ctx.host.call("settings.get").then(result=>{
         if(stopped)return;
-        const updated=readSettings(result.settings,deps.home),changed=settings.notifications!==updated.notifications || settings.autoConsole!==updated.autoConsole;
+        const updated=readSettings(result.settings,deps.home),changed=settings.notifications!==updated.notifications;
         settings.lastAlertAt=Math.max(settings.lastAlertAt,updated.lastAlertAt);
         settings.deliveredAlerts=[...(settings.deliveredAlerts??[]),...(updated.deliveredAlerts??[])].slice(-200);
         settings.notifications=updated.notifications;
-        settings.autoConsole=updated.autoConsole;
         settings.settingsReady=true;
         if(changed)scheduleRender(true);
       }).catch(()=>{}).finally(()=>{refreshingSettings=false;});
     });
     store.onChange(()=>scheduleRender());
     timers.every(1000,()=>{processing=processing.then(async()=>{if(!stopped)await notifyNewAlerts(ctx.host,store.snapshot,settings,activatedAtS,deps.nowS());}).catch(logError);});
-    timers.every(15000, () => { if (panelKey() !== renderedKey) scheduleRender(); });
+    timers.every(15000, () => { scheduleRender(); });
     const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
       const previous=store.snapshot;
-      const consoleChanged=!!snapshot.console?.handle!==!!previous.console?.handle;
-      const initiated=consoleChanged||snapshot.budget?.strategy!==previous.budget?.strategy || snapshot.tasks.some(t=>!previous.tasks.some(p=>p.id===t.id)||t.dismissed!==previous.tasks.find(p=>p.id===t.id)?.dismissed||t.retriedBy!==previous.tasks.find(p=>p.id===t.id)?.retriedBy) || snapshot.alerts.some(a=>a.key==="strategy-build"&&!previous.alerts.some(p=>p.key===a.key&&p.at===a.at)) || snapshot.budget?.providers.some(p=>p.blockedReason!==previous.budget?.providers.find(x=>x.id===p.id)?.blockedReason);
+      const initiated=snapshot.budget?.strategy!==previous.budget?.strategy || snapshot.tasks.some(t=>!previous.tasks.some(p=>p.id===t.id)||t.dismissed!==previous.tasks.find(p=>p.id===t.id)?.dismissed||t.retriedBy!==previous.tasks.find(p=>p.id===t.id)?.retriedBy) || snapshot.alerts.some(a=>a.key==="strategy-build"&&!previous.alerts.some(p=>p.key===a.key&&p.at===a.at)) || snapshot.budget?.providers.some(p=>p.blockedReason!==previous.budget?.providers.find(x=>x.id===p.id)?.blockedReason);
       if(initiated){userOutcome=true;if(cancelRender){cancelRender();cancelRender=null;}}
       store.replace(snapshot);
     };
@@ -245,9 +219,6 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       }
       return connecting;
     }
-    const notify = async (title: string, body?: string) => {
-      try { if(settings.notifications!=="all")return;const plain=title.startsWith("pacer ")&&!title.includes("console")?"Budget refreshed":title.replace(/\bpacer\b\s*/gi,"");await deliverNotification(ctx.host, { title: clip(plain, 60), body:body?.startsWith("terminal ")?"Nothing to do.":title.startsWith("pacer ")&&!title.includes("console")?"Open the pacer panel for the current budget.":clip(body??"Nothing to do.",1000) },deps.nowS()); } catch (e) { logError(e); }
-    };
     const handleHttpFailure = async () => {
       const failures = ++httpFailures;
       const snapshot = await bridge.snapshot();
@@ -283,134 +254,6 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         await ensureConnected();
       })().catch(logError).finally(() => { probing = false; });
     });
-    const failureLogged = new Map<string, number>();
-    let opening = false;
-    timers.every(5000, () => {
-      if (stopped || opening || !settings.autoConsole || active?.id !== "http" || !reachable) return;
-      opening = true;
-      let worktree = "unknown";
-      void (async () => {
-        const context = await ctx.host.call("workspace.readContext");
-        if (stopped) return;
-        if (!context || !context.branch) { focusedWorktree = null; attempted = false; scheduleRender(); return; }
-        worktree = context.worktreeId || context.branch;
-        if (focusedWorktree !== worktree) { focusedWorktree = worktree; attempted = false; outcomes.delete(worktree); scheduleRender(true); }
-        const now = deps.nowS(), ids = new Set(context.terminals.map(t => t.id));
-        if ([...(store.snapshot.consoles ?? []), ...(store.snapshot.console ? [store.snapshot.console] : [])].some(c => c.handle && ids.has(c.handle) && now - c.heartbeatAt <= LIMITS.heartbeatS)) {
-          if (outcomes.get(worktree)?.status !== "registered") { outcomes.set(worktree, { status: "registered", at: now }); scheduleRender(true); } return;
-        }
-        if (attempted) {
-          const outcome = outcomes.get(worktree);
-          if (outcome?.status === "registered" || (outcome?.status === "starting" && now-outcome.at >= 30)) {
-            outcomes.set(worktree, { status: "gave-up", at: now }); scheduleRender(true);
-          }
-          return;
-        }
-        attempted = true; outcomes.set(worktree, { status: "starting", at: now }); scheduleRender(true);
-        // Verify the loopback listener's identity immediately before sending the bearer token.
-        const base = `http://127.0.0.1:${settings.port}`;
-        const health = await deps.http.get(`${base}/health`, "", 1500);
-        if (stopped || active?.id !== "http") return;
-        if (health.status !== 200 || health.headers?.["x-pacer"] !== "1") throw new Error("unidentified HTTP listener");
-        const token = deps.fs.readText(`${settings.pacerHome}/token`)?.trim();
-        if (!token || !deps.http.post) throw new Error("HTTP console opening unavailable");
-        const response = await deps.http.post(`${base}/console/open`, token, { ...(context.terminals[0] ? { terminal: context.terminals[0].id } : {}), branch: context.branch }, 1500);
-        if (response.headers?.["x-pacer"] !== "1") throw new Error(`HTTP ${response.status}`);
-        const result = JSON.parse(response.body);
-        if (!result.ok) {
-          outcomes.set(worktree, { status: typeof result.reason === "string" ? result.reason : "orca-unavailable", at: deps.nowS() }); scheduleRender(true);
-        } else if (result.warning === "older-console") { outcomes.set(worktree, { status: "older-console", at: deps.nowS() }); scheduleRender(true); } else if (response.status !== 200 && !(response.status === 202 && result.queued === true)) throw new Error(`HTTP ${response.status}`);
-      })().catch(e => {
-        const now = deps.nowS();
-        outcomes.set(worktree, { status: "orca-unavailable", at: now }); scheduleRender(true);
-        if (now - (failureLogged.get(worktree) ?? -Infinity) >= 300) {
-          failureLogged.set(worktree, now); ctx.log(`pacer: auto console in ${worktree}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }).finally(() => { opening = false; });
-    });
-    const sendFresh = async (data: CmdData) => {
-      await refreshSnapshot();
-      if (stopped) return "no-console" as const;
-      return sendToConsole(ctx.host, store.snapshot, data, deps.nowS());
-    };
-    const send = async (data: CmdData) => {
-      const result = await sendFresh(data);
-      if (result === "no-console") { await notify(NO_CONSOLE.title, NO_CONSOLE.body); return { ok: false, message: NO_CONSOLE.title }; }
-      if (result === "rejected") {
-        const message = "Orca refused to type into the pacer console";
-        await notify(message, "Focus the console's worktree and retry, or run `pacer console --open` here.");
-        return { ok: false, message };
-      }
-      const message = "Sent to pacer console"; await notify(message); return { ok: true, message };
-    };
-    ctx.commands.register("delegate", async () => {
-      await ensureConnected();
-      let context = null;
-      try { context = await ctx.host.call("workspace.readContext"); } catch (e) { logError(e); }
-      return send({ cmd: "delegate", ...(context ? { branch: context.branch, displayName: context.displayName, ...(context.worktreeId ? {worktreeId:context.worktreeId} : {}) } : {}) });
-    });
-    ctx.commands.register("switch-strategy", async () => { await ensureConnected(); return send({ cmd: "use" }); });
-    ctx.commands.register("refresh-status", async () => {
-      await ensureConnected();
-      if (active?.id === "api") await refreshSnapshot();
-      else {
-        const result = await sendFresh({ cmd: "refresh" });
-        if (result === "rejected") await notify("Orca refused to type into the pacer console", "Focus the console's worktree and retry, or run `pacer console --open` here.");
-      }
-      scheduleRender();
-      const message = summaryLine(store.snapshot.budget);
-      await notify(message, (store.snapshot.budget?.providers ?? []).map(p => `${p.id} ${p.verdict} ${p.usedPct === null ? "?" : `${Math.round(p.usedPct)}%`}`).join("\n"));
-      return { ok: true, message };
-    });
-    ctx.commands.register("open-console", async () => {
-      await ensureConnected();
-      await refreshSnapshot();
-      const c = await focusedConsole(ctx.host, store.snapshot, deps.nowS());
-      const message = c ? "pacer console is running" : NO_CONSOLE.title;
-      await notify(message, c ? `terminal ${c.handle}` : NO_CONSOLE.body);
-      return { ok: !!c, message };
-    });
-    const paneLast = new Map<string, number>(); let lastDone = -Infinity;
-    ctx.events.on("agent.status.changed", async payload => {
-      await ensureConnected();
-      if (!payload || typeof payload !== "object") return;
-      const p = payload as AgentStatusChanged;
-      if (p.state !== "done" || (p.mainAgent?.state ?? "done") !== "done" || typeof p.paneKey !== "string") return;
-      await refreshSnapshot();
-      const now = deps.nowS();
-      if (stopped || now - lastDone < 5 || now - (paneLast.get(p.paneKey) ?? -Infinity) < 5 || !liveConsole(store.snapshot, now)) return;
-      // Reserve the debounce window before terminal IPC can yield.
-      lastDone = now; paneLast.set(p.paneKey, now);
-      await new Promise(resolve=>setTimeout(resolve,1000));
-      await refreshSnapshot();
-      await sendToConsole(ctx.host, store.snapshot, { cmd: "agent-done", paneKey: p.paneKey, ...(typeof p.worktreeId === "string" ? { worktreeId: p.worktreeId } : {}) }, now);
-    });
-    ctx.events.on("worktree.created", async payload => {
-      await ensureConnected();
-      if (!payload || typeof payload !== "object") return;
-      const p = payload as WorktreeCreated;
-      if (typeof p.branch !== "string" || !/(^|\/)pacer-/.test(p.branch) || typeof p.worktreeId !== "string" || typeof p.path !== "string") return;
-      await new Promise(resolve=>setTimeout(resolve,1000));
-      await sendFresh({ cmd: "worktree-created", worktreeId: p.worktreeId, path: p.path, branch: p.branch });
-    });
-    ctx.events.on("worktree.removed", async payload => {
-      if (stopped || !payload || typeof payload !== "object" || !("worktreeId" in payload)) return;
-      const id = payload.worktreeId;
-      if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}(?:::[^\x00-\x1f\x7f]{1,900})?$/.test(id)) return;
-      outcomes.delete(id); failureLogged.delete(id);
-      if (focusedWorktree === id) { focusedWorktree = null; attempted = false; }
-      scheduleRender();
-      try {
-        const base = `http://127.0.0.1:${settings.port}`;
-        const health = await deps.http.get(`${base}/health`, "", 1500);
-        if (stopped || health.status !== 200 || health.headers?.["x-pacer"] !== "1") return;
-        const token = deps.fs.readText(`${settings.pacerHome}/token`)?.trim();
-        if (!token || !deps.http.post) return;
-        await deps.http.post(`${base}/console/forget`, token, { worktreeId: id }, 1500);
-      } catch (e) { logError(e); }
-    });
-    try { void ctx.host.call("events.subscribe", { events: ["agent.status.changed", "worktree.created", "worktree.removed"] }).catch(logError); }
-    catch (e) { logError(e); }
     void ensureConnected();
   }
   return {
