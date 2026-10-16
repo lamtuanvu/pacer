@@ -1,4 +1,5 @@
 import { resolveRepo } from "../core/repos";
+import {setLevel, type NotificationLevel} from "../core/notify";
 import { runMappedCmd } from "../api/cmd";
 import { callOp } from "../api/ops";
 import { configCmd, CONFIG_KEYS } from "../commands/config";
@@ -176,8 +177,8 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
         break;
       }
       case "notify-level": {
-        const result=await pluginCli(["set","notifications",data.level ?? ""],fresh());
-        print(result.code===0 ? result.out : result.err);
+        const result=setLevel(fresh(),data.level as NotificationLevel);
+        print(`notifications: ${result.level}`);
         break;
       }
       case "use": chooseStrategy(); break;

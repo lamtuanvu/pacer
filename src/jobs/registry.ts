@@ -1,3 +1,4 @@
+import { currentVersion } from "../update/version";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -18,7 +19,7 @@ export interface Job {
   cancellable: boolean;
 }
 export interface StepApi {
-  start(name: string): void;
+  start(name: string, detail?: string): void;
   pass(name: string, detail?: string): void;
   fail(name: string, detail: string): void;
   skip(name: string, detail?: string): void;
@@ -100,7 +101,12 @@ export function cancelJob(ctx: Ctx, id: string, onChange?: OnChange): Job {
 }
 export function recoverJobs(ctx: Ctx, onChange?: OnChange): void {
   for (const job of listJobs(ctx)) {
-    if (job.state !== "running" || alive(job.pid)) continue;
+    if(job.state !== "running") continue;
+    const restart=job.kind==='update.apply' ? job.steps.find(s=>s.name==='Restart' && s.state==='running') : undefined;
+    if(restart?.detail===currentVersion()) {
+      restart.state='passed';job.state='passed';job.endedAt=ctx.now;save(ctx,job,onChange);continue;
+    }
+    if(alive(job.pid)) continue;
     job.state = "failed"; job.endedAt = ctx.now;
     job.error = { code: "interrupted", message: "pacer restarted while this was running" };
     settleSteps(job); save(ctx, job, onChange);
@@ -108,7 +114,7 @@ export function recoverJobs(ctx: Ctx, onChange?: OnChange): void {
 }
 export async function startJob(
   ctx: Ctx, kind: Job["kind"], target: string, steps: string[], run: (step: StepApi) => Promise<void>,
-  o: { cancellable?: boolean; onChange?: OnChange } = {},
+  o: { cancellable?: boolean; onChange?: OnChange; awaitRestart?: boolean } = {},
 ): Promise<Job> {
   // Only creation is locked: work must not block a second caller reading its id.
   const { job, created } = await withLock(ctx, "jobs", async () => {
@@ -135,10 +141,10 @@ export async function startJob(
       if (getJob(ctx, job.id).state === "cancelled") controller.abort();
     }, 100) : undefined;
     try {
-      await run({ start: name => update(name, "running"), pass: (name, detail) => update(name, "passed", detail), fail: (name, detail) => update(name, "failed", detail), skip: (name, detail) => update(name, "skipped", detail), signal: controller.signal });
+      await run({ start: (name, detail) => update(name, "running", detail), pass: (name, detail) => update(name, "passed", detail), fail: (name, detail) => update(name, "failed", detail), skip: (name, detail) => update(name, "skipped", detail), signal: controller.signal });
       const failed = job.steps.find(s => s.state === "failed");
       if (failed) throw Error(failed.detail ?? `step failed: ${failed.name}`);
-      job.state = "passed";
+      job.state = o.awaitRestart && job.steps.some(s=>s.name==='Restart' && s.state==='running') ? "running" : "passed";
     } catch (e) {
       job.state = "failed";
       job.error = { code: e instanceof CoreError ? e.code : "failed", message: e instanceof Error ? e.message : String(e) };
@@ -146,7 +152,8 @@ export async function startJob(
       clearInterval(timer); controllers.delete(key(ctx, job.id)); observers.delete(key(ctx, job.id));
     }
     const stored = getJob(ctx, job.id);
-    if (stored.state === "cancelled") return stored;
+    if (stored.state !== "running") return stored;
+    if(job.state==='running') return job;
     job.endedAt = now(); settleSteps(job); save(ctx, job, o.onChange);
     return job;
   };

@@ -117,3 +117,35 @@ test("task reads drain waiting work without a daemon and share a five-second thr
   const {readTask} = await import("../src/tasks/store");
   expect(readTask(ctx, b.id)?.state).toBe("queued");
 });
+
+test('update.apply refuses source installs and exposes advancing job steps',async()=>{
+ const ctx=await ctxWithStrategy();
+ expect(await codeOf(callOp(ctx,'update.apply',{}, {update:{standalone:false}}))).toBe('not_allowed');
+ const result=await callOp(ctx,'update.apply',{}, {update:{standalone:true},runUpdate:async(_o,d)=>{
+  for(const name of ['Download','Verify','Replace','Refresh integrations','Restart'] as const) {d.progress?.(name,'running');d.progress?.(name,'passed');}
+  return {code:0,out:'updated',err:''};
+ }}) as any;
+ expect(result.job.state).toBe('passed');expect(result.job.steps.map((s:any)=>s.state)).toEqual(Array(5).fill('passed'));
+});
+test('runner mutations are exposed and validate input',async()=>{
+ const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});await Bun.write(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - kinds: [docs]\n    executors: [codex]\n  - default: [codex]\n');
+ expect(await callOp(ctx,'runner.set',{id:'codex',enabled:false})).toMatchObject({id:'codex',warnings:expect.any(Array)});
+ expect(await codeOf(callOp(ctx,'runner.reorder',{ids:[]}))).toBe('invalid_input');
+ expect(await codeOf(callOp(ctx,'runner.set',{id:'codex',max_tasks:0}))).toBe('invalid_input');
+ expect(await callOp(ctx,'runner.add',{agent:'cursor',kinds:['docs'],test:false,max_tasks:2,rank:0})).toEqual({id:'cursor'});
+});
+
+test('update restart is confirmed on boot by the installed version',async()=>{
+ const {recoverJobs,getJob}=await import('../src/jobs/registry');
+ const {currentVersion}=await import('../src/update/version');const ctx=await ctxWithStrategy();
+ const {job}=await callOp(ctx,'update.apply',{}, {update:{standalone:true},runUpdate:async(_o,d)=>{
+  for(const name of ['Download','Verify','Replace','Refresh integrations'] as const) d.progress?.(name,'passed');
+  d.progress?.('Restart','running',currentVersion());return {code:0,out:'',err:''};
+ }}) as any;
+ expect(job.state).toBe('running');recoverJobs(ctx);expect(getJob(ctx,job.id)).toMatchObject({state:'passed',steps:expect.arrayContaining([{name:'Restart',state:'passed',detail:currentVersion()}])});
+});
+test('strategy.build op uses the selected planner and returns terminal result',async()=>{
+ const ctx=await ctxWithStrategy();expect(await callOp(ctx,'strategy.build',{agent:'cursor',from:'default',brief:'Help'}, {openTerminal:async(_c,o)=>{
+ expect(o.argv[0]).toBe('cursor-agent');expect(o.argv[1]).toContain('Help');return {opened:true,target:'terminal',command:'safe command'};
+ }})).toEqual({opened:true,target:'terminal',command:'safe command'});
+});
