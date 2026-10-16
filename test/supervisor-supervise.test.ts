@@ -32,3 +32,24 @@ test("lost when the wrapper vanished without an exit record", async () => {
   process.kill(-r.pid, "SIGKILL");
   expect(await supervise({ io: localRunIO(dir), deadlineMs: Date.now() + 5000, isStopped: () => false, ...fast })).toEqual({ kind: "lost", code: 137 });
 });
+
+for (const status of ["done", "failed"] as const) {
+  test(`interactive ${status} report stops the TUI and supplies the result code`, async () => {
+    let stopped = false;
+    const io = {
+      read: async () => ({pid: 123, startedAt: 1, alive: true, exit: null, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true, report: {status, summary: "Explicit result", at: 2}}),
+      stop: async () => {stopped = true; return {code: 143, killed: false};},
+    };
+    expect(await supervise({io, deadlineMs: Date.now() + 5000, isStopped: () => false, ...fast}))
+      .toEqual({kind: "reported", code: status === "done" ? 0 : 1});
+    expect(stopped).toBe(true);
+  });
+}
+
+test("a clean interactive exit without an explicit report is not success", async () => {
+  const dir = tmpDir();
+  startRun({dir, argv: ["sh", "-c", "echo done; exit 0"], cwd: dir, env, session: "interactive"});
+  while ((await localRunIO(dir).read()).exit === null) await Bun.sleep(25);
+  expect(await supervise({io: localRunIO(dir), deadlineMs: Date.now() + 5000, isStopped: () => false, ...fast}))
+    .toEqual({kind: "exited", code: 1});
+});

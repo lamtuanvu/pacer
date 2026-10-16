@@ -1,3 +1,4 @@
+import { prepareInteractive, readReport, transcriptReport } from "../session/reports";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
@@ -38,7 +39,7 @@ export function outcome(cfg: ProviderCfg, startedAt: number, exec: ExecResult, l
     report,
     attempt: {
       executor: cfg.id, model: cfg.model, startedAt, endedAt: Date.now() / 1000,
-      exitCode: exec.code, timedOut: exec.timedOut, limitHit: detectLimit(cfg.id, exec), log,
+      exitCode: exec.code, timedOut: exec.timedOut, limitHit: detectLimit(cfg.id, cfg.session === "interactive" ? {...exec, stdout: report, stderr: ""} : exec), log,
     },
   };
 }
@@ -55,9 +56,13 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   const idleAfter = (ex.idleAfterS ?? IDLE_AFTER_S) * scale, idleFail = (ex.idleFailS ?? IDLE_FAIL_S) * scale;
   let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = false;
   let fingerprint: string | undefined;
+  let waiting = false, controlled = false;
+  let resumedAt = 0;
   let prev = readTask(ctx, task.id)?.progress;
   return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle"> => {
     const now = Date.now() / 1000;
+    if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !s.controller)) resumedAt = now;
+    controlled = !!s.controller;
     let changed = false;
     if (!run.host && now - gitAt >= 30) {
       gitAt = now;
@@ -84,7 +89,16 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
         }
       } catch { /* git progress is best effort, including when git is unavailable */ }
     }
-    const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: s.lastOutputAt, files, commits, prev, host: run.host, changed }, idleAfter);
+    const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: Math.max(s.interactive ? s.report?.at ?? 0 : s.lastOutputAt ?? 0, resumedAt) || null, files, commits, prev, host: run.host, changed }, idleAfter);
+    const turnEnded = s.interactive && s.report?.status === "turn-ended";
+    const needsInput = s.interactive && (s.report?.status === "needs-input" || (turnEnded && !controlled && now - Math.max(s.report!.at, p.lastChangeAt ?? 0, resumedAt) >= 120));
+    if (needsInput) {
+      if (!waiting) {
+        try { await publish(ctx, [{v: 1, type: "alert", data: {key: `needs-input-${task.id}`, level: "warn", title: "Task needs input: attach to answer", body: s.report!.summary.slice(0, 1000), at: Math.floor(now)}}]); } catch { /* best effort */ }
+      }
+      p.phase = "needs-input";
+    } else if (controlled || turnEnded) p.phase = "working";
+    waiting = !!needsInput;
     if (p.phase !== prev?.phase || now - writtenAt >= 10) {
       updateTask(ctx, task.id, t => { t.progress = p; });
       writtenAt = now;
@@ -96,7 +110,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       } catch { /* alerts are best effort */ }
     }
     prev = p;
-    return idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
+    return !needsInput && !controlled && !turnEnded && idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
   };
 }
 
@@ -122,10 +136,20 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   try {
     writeFileSync(run.logFile, `$ ${launchArgv(run)}\n--- stdout\n${exec.stdout}\n--- stderr\n${exec.stderr}\n--- exit ${exec.code}${exec.timedOut ? " (timed out)" : ""}\n`);
   } catch { /* the run directory keeps the full record */ }
-  let report = tail(exec.stdout.trim() || exec.stderr.trim(), REPORT_CHARS);
-  if (run.lastMessageFile && existsSync(run.lastMessageFile)) report = tail(readFileSync(run.lastMessageFile, "utf8").trim(), REPORT_CHARS) || report;
+  const interactive = existsSync(join(run.dir, "interactive.json"));
+  const signal = interactive ? readReport(run.dir) : null;
+  const completed = end.kind === "reported";
+  let report = interactive
+    ? completed ? signal!.summary : `Interactive session ${end.kind} without an explicit completion report${signal ? `\n\n${signal.summary}` : ""}`
+    : tail(exec.stdout.trim() || exec.stderr.trim(), REPORT_CHARS);
+  if (interactive) {
+    const transcript = transcriptReport(run.dir);
+    if (transcript) report += `\n\n${tail(transcript, REPORT_CHARS)}`;
+    if (end.kind === "exited" && !completed) exec.stderr += "\npacer: interactive agent exited without an explicit completion report";
+  }
+  if (!interactive && run.lastMessageFile && existsSync(run.lastMessageFile)) report = tail(readFileSync(run.lastMessageFile, "utf8").trim(), REPORT_CHARS) || report;
   return {
-    ...outcome(cfg, run.startedAt, exec, run.logFile, note + report),
+    ...outcome(interactive ? {...cfg, session: "interactive"} : cfg, run.startedAt, exec, run.logFile, note + report),
     ...(run.mode === "new" ? { worktree: run.host ? `${run.host}:${run.remoteWorktree}` : run.workdir } : {}),
   };
 }
@@ -180,7 +204,15 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
   let env: Record<string, string | undefined>;
   try {
     env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
-    launch = launchFor(cfg, prompt, workdir, rdir, task.id);
+    const interactive = cfg.session === "interactive";
+    const instructions = interactive ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
+    launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id);
+    if (interactive) {
+      launch = prepareInteractive(parseRunnerId(cfg.id)?.agent ?? cfg.id, rdir, launch);
+      env.PACER_HOME = ctx.pacerHome;
+      env.PACER_RUN_DIR = rdir;
+      env.PACER_TRANSCRIPT_REPORT = join(rdir, "transcript-report.md");
+    }
   } catch (e) {
     const exec = { code: 127, stdout: "", stderr: (e as Error).message, timedOut: false };
     await Bun.write(log, `--- launch error\n${exec.stderr}\n`);
@@ -190,7 +222,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
   writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
   const run: RunRef = { dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
   updateTask(ctx, task.id, t => { t.run = run; });
-  const started = startRun({ dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env });
+  const started = startRun({ dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}) });
   if ("error" in started) {
     const exec = { code: 127, stdout: "", stderr: started.error, timedOut: false };
     return outcome(cfg, startedAt, exec, log, note + started.error);
