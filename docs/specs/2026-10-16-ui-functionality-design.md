@@ -203,7 +203,8 @@ interface Snapshot {            // existing fields kept: v, seq, at, budget, mod
   - `diffstat?: { files, added, removed }`;
   - `idleS?: number` when running and quiet;
   - `session?` from the live-sessions spec;
-  - `rev: number`, incremented on every change, used for conflict checks.
+  - `rev: number`, incremented on every change, used for conflict checks
+    (added in phase 4 with `expect_rev`).
 - **`RepoRef`** is `{ key, label, path }`.
   - `key` is the canonical `host/owner/repo` from `repoKey()` in
     `src/config/hosts.ts`, or `local:<sha256(path)[:12]>` for a repo with no
@@ -277,7 +278,7 @@ Kinds and the rules that raise and clear them:
 | `review` | A task settles `done` or `partial` and has no verdict. For a task with `source: "planner"`, only after 10 minutes without a verdict, because the planner normally reviews what it delegated | `task.review` (a planner's or the user's), `task.retry`, dismiss | Review (opens), Accept |
 | `failed` | A task settles `failed` and no retry is active | Retry started, reviewed, dismissed | Retry on `<suggested>`, See error |
 | `limit` | A task stopped on the executor's limit and nothing took over | Retried or dismissed | Retry on `<suggested>` |
-| `stuck` | A running task has no output for `stuck_after` (default 5 min) while not in `testing` | Output resumes, task ends | Open terminal (`task.attach`), Stop |
+| `stuck` | A running task's progress phase is `idle`: no output or file change for `execution.idle_after_min` (default 10 min, the existing idle threshold) | Output resumes, task ends | Open terminal (`task.attach`), Stop |
 | `question` | The executor reported a question (below) | Answered, stopped | Answer, Open terminal |
 | `account_signin` | An account an enabled executor uses reads as signed out: its usage read or a task attempt fails with an authentication error. Today `signedIn` is only `true` or `null`, so this needs a `false` value set from those failures | Sign-in detected on the next usage read | Sign in (`account.signin`), Disable executor |
 | `executor_down` | An enabled executor fails its check or is marked broken | It passes again, is disabled or removed | Run check, Disable |
@@ -343,8 +344,9 @@ small, planner-independent path:
   attaching and typing. The item clears when the session reports progress
   again or ends.
 - For a **headless** run, the agent is told in its prompt to ask only when it
-  cannot continue, then stop. The task settles as `blocked` (a new terminal
-  state, shown with `failed` in the UI). "Answer" calls
+  cannot continue, then stop. The task settles as `needs_input` (a new
+  terminal state, shown as "Needs your answer"; not `blocked`, which
+  already names a runner state). "Answer" calls
   `task.answer { id, text }`, which retries the task on the same executor with
   the stored brief plus a "Question / Answer" section. This is `task.retry`
   with an extra brief section, and it keeps one active retry per task.
@@ -708,7 +710,7 @@ Two small controls from the tray and notifications:
 
 - **Hello and capabilities.** `GET /v2/hello` keeps `{ protocol, pacer, ops,
   events }`. A client checks `ops` before showing a button for an operation
-  added in a later minor, and hides it if absent. This is how a 2.1 client
+  added in a later minor, and hides it if absent. This is how a newer 2.x client
   talks to a 2.0 service.
 - **Client identity.** Every request may carry `X-Pacer-Client:
   <kind>/<version>` (`app`, `desktop`, `orca`, `tui`, `status`, `tray`, `cli`,
@@ -723,22 +725,25 @@ Two small controls from the tray and notifications:
     running task is `conflict`) as today.
   - Delegation is idempotent with `request_id`; jobs are shared per target.
 - **Versioning.**
-  - This design is protocol **2.1** (additive) for the read model, attention,
-    review, delegate and activity changes, and **2.2** for jobs, hosts,
-    executors and notifier changes. Each minor bumps `PROTOCOL_VERSION` and
-    regenerates `docs/protocol.md`.
+  - Every phase below is one additive minor release: 2.1 (read model),
+    2.2 (needs you and review), 2.3 (slots and queue), 2.4 (jobs and
+    settings), 2.5 (hosts), 2.6 (clients and notifications) and 2.7
+    (questions). Each bumps `PROTOCOL_VERSION` and regenerates
+    `docs/protocol.md`.
   - The v1 link envelope (`src/link/envelope.ts`) is frozen: no new fields
     except those the live-sessions spec adds for one minor release. The Orca
-    panel moves fully to v2 (it already reads v2 for data); its commands
-    stop going through the console terminal and become direct ops in
-    phase 4. The `CMD_NAMES` line protocol is then retired.
+    panel is read-only (the information-only decision) and already reads
+    v2. The TUI and `pacer console` commands stop going through the line
+    protocol and become direct ops in phase 4. The `CMD_NAMES` line
+    protocol is then retired in 3.0.
   - Panel commands without a v2 op get one before the switch:
     `task.retry_all { ids }` for `retry-all`; `strategy.build` (section 7)
     for `strategy-build`; `account.signin` and `task.attach` for
     `open-terminal` and `focus`.
-  - The legacy bearer-only routes `/state`, `/link` and `/events` and the
-    `/console/*` routes are deprecated in 2.1 and removed in 3.0; the status
-    line and Orca worker move to `/v2` first.
+  - The legacy bearer-only routes: `/state` and `/console/*` have no
+    callers and are removed in phase 4; `/link` and `/events` carry
+    deprecation headers from phase 4 and are removed in 3.0, after the
+    doctor, setup check, `pacer link` and the Orca worker move to `/v2`.
   - **3.0** removes the v1-shaped snapshot fields (`v`, `budget`, `alerts`,
     `console`) in favour of `planner`, `accounts`, `attention` and the
     client registry, and renames `accepted` to `verdict` in `task.review`.
@@ -796,7 +801,7 @@ Gaps this design fills, by area:
 | Task detail | `summarizeTask` drops timestamps, progress, retry links, dismissal and the full brief, so clients merge it with snapshot `TaskData` |
 | Needs you | No attention concept. Two client heuristics disagree: `attentionGroups` in `src/view-model/panel.ts` (failed, limit, partial, stuck queued) and `needsReview` in the app's `app/src/model/tasks.ts` (done or partial, unreviewed). Alerts are notification-shaped, capped at 10 and carry no actions |
 | Sign-in | `signedIn` is only `true` or `null`; nothing detects a logged-out account |
-| Questions | Executors cannot ask; no `blocked` state |
+| Questions | Executors cannot ask; no `needs_input` state |
 | Review | No verdict variants (send back, retry elsewhere), routing explanation, cost, diffstat, acceptance duration |
 | Scheduling | No slot accounting per executor or for this machine; no queue reason |
 | Delegate | No repo list, base branch, idempotency key or source |
@@ -841,21 +846,21 @@ tests in `test/api` against a temp `PACER_HOME`.
    summary, `today`, `setup` summary; new event types; outbox 1000;
    `X-Pacer-Client`. Unblocks Overview, panel, TUI, status line and tray
    reading the same data.
-2. **Needs you and review (2.1).** Attention store and rules (without
+2. **Needs you and review (2.2).** Attention store and rules (without
    `question`), `attention.dismiss/snooze`, actions, routing explanation,
    diffstat, acceptance details, verdict variants, `task.retry_options`,
    `task.list` filters, activity log, delegate `request_id`, `base`,
    `source`, repo ops. The panel's `attentionGroups` and the app's
    `needsReview` are replaced by `snapshot.attention`.
-3. **Capacity and settings (2.2).** Slot scheduling and `queue`, jobs,
+3. **Capacity and settings (2.3–2.5).** Slot scheduling and `queue`, jobs,
    `runner.set/reorder/check`, `agent.detect`, `account.signin`,
    `strategy.build` for any planner, host ops and reachability probe,
    notifications level in pacer's own settings, `delegation.pause`,
    `mode.hold`.
-4. **Notifications and clients (2.2).** Notifier registration, built-in
-   fallback notifier, desktop token exchange, Orca panel commands as direct
-   ops, `expect_rev`.
-5. **Questions (2.2).** `pacer ask`, `blocked` state, `task.answer`, the
+4. **Notifications and clients (2.6).** Notifier registration, built-in
+   fallback notifier, desktop token exchange, TUI and console commands as
+   direct ops, `expect_rev`, legacy route retirement.
+5. **Questions (2.7).** `pacer ask`, `needs_input` state, `task.answer`, the
    `question` item; interactive answers follow live-sessions phase 3.
 6. **3.0.** Remove v1-shaped fields and the `CMD_NAMES` line protocol after
    one minor release with both.
@@ -869,8 +874,8 @@ tests in `test/api` against a temp `PACER_HOME`.
   (one job).
 - Reconnect after a gap longer than the outbox: one `reset`, then a
   consistent snapshot.
-- A 2.0 client against a 2.2 service sees no errors and ignores new fields
-  and events; a 2.2 client against a 2.0 service hides buttons whose ops are
+- A 2.0 client against a 2.7 service sees no errors and ignores new fields
+  and events; a 2.7 client against a 2.0 service hides buttons whose ops are
   missing from `hello.ops`.
 - Repo identity: a worktree, a main checkout and a remote mapping of the same
   repo resolve to one `RepoRef.key`; two repos with the same `owner/repo`
@@ -900,12 +905,12 @@ These were not settled with the owner and are the author's calls:
   when the run settles.
 - `send_back` retries on the same executor with the note; "Retry on" is a
   separate verdict.
-- Executors ask questions only by stopping (`blocked`) in headless runs.
+- Executors ask questions only by stopping (`needs_input`) in headless runs.
 - Slot defaults: this machine 2, each local executor 1, hosts keep 2.
 - The service shows notifications itself when no notifier client is
   registered.
 - The desktop app reads the token file and exchanges it for a cookie.
-- Two protocol minors (2.1, 2.2) before a 3.0 that drops v1 shapes.
+- One protocol minor per phase (2.1–2.7) before a 3.0 that drops v1 shapes.
 
 ## Open questions
 
