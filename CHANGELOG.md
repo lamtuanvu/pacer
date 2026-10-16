@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Executor questions raise blocked Needs you items with Answer and Stop actions; `pacer answer`, `task.answer` and MCP `task_answer` retry on the same executor with cumulative question/answer brief context (protocol 2.7.0).
+
 - Protocol 2.5.0 completes executor and host controls: configured slot limits, a wait queue, delegation pause/resume and mode holds.
 - Shared jobs and readiness checks, enabled executor settings, account sign-in attention and job entity events.
 - Host capacity and pause controls, repo/account setup, cleanup previews and a 300-second probe that raises attention after two failures.

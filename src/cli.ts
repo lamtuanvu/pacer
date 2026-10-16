@@ -56,6 +56,7 @@ const USAGE = `usage: pacer <command>
   executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   stop <task-id> [--json]                         stop a running task
+  answer <task-id> "<text>"                       answer a question and retry on the same executor
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
   ask "<question>" record one question and stop the delegated task
@@ -81,7 +82,7 @@ Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skill
 Identical pacer skill copies may appear; update refresh keeps them identical.`;
 
 function help(): string {
-  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "host", "limits", "mcp", "api", "serve", "use", "help", "--help", "-h", "_run"]);
+  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "answer", "clean", "host", "limits", "mcp", "api", "serve", "use", "help", "--help", "-h", "_run"]);
   const extras = EXTRA_COMMANDS.filter((c) => !builtins.has(c.name));
   return extras.length ? `${USAGE}\n${extras.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
 }
@@ -249,6 +250,13 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "config": return configCmd(rest, ctx);
     case "dashboard": return runDashboard(rest, ctx);
     case "setup": return setupCmd(rest, ctx);
+    case "answer": {
+      try {
+        if (rest.length !== 2) throw new Error('usage: pacer answer <task> "<text>"');
+        const result = await callOp(ctx,"task.answer",{id:rest[0],text:rest[1]},{spawnRunner:cliDeps.spawnRunner});
+        return {code:0,out:JSON.stringify(result),err:""};
+      } catch(e) {return {code:2,out:"",err:explain(e)};}
+    }
     case "ask": {
       try {
         const id = core.tasks.requireAskingExecutor(ctx);

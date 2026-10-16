@@ -15,6 +15,7 @@ export interface Brief {
   constraints?: string;
   context?: string;
   feedback?: string;
+  qa?: { q: string; a: string }[];
   base?: string;
 }
 

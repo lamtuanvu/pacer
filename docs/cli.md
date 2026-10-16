@@ -57,6 +57,17 @@ Use `pacer stop <id> --json` to cancel.
 `pacer retry <task-id> [--executor <id>] [--json]`: Re-delegate a task's stored brief.
 `--executor` picks the runner; otherwise routing chooses. Refused while the task
 already has a queued or running retry.
+Executors that cannot continue run `pacer ask "<one question>"` once and stop.
+This requires an executor session with `PACER_TASK_ID`; the task settles as
+`needs_input` and raises a question under Needs you. Use
+`pacer answer <task-id> "<text>"` to retry on the same executor. The retry brief
+includes cumulative `qa: [{ q, a }]`, rendered as `## Question / Answer`.
+Answers contain 1–2000 characters. Answering twice or answering a task that is
+not waiting for input returns a conflict. `pacer stop <id>` closes a waiting question.
+API clients use `task.answer { id, text, expect_rev? }`; MCP planners use
+`task_answer { task_id, text, expect_rev? }`. Both return `{ task, retry }`. Task summaries (including MCP `task_status`)
+include the question, its timestamp and any recorded answer.
+
 Use `pacer report-limit <provider>` to record a quota limit, and
 `pacer dismiss <id...>` to hide cards. Unknown ids are reported and the command
 exits 2; known ids are still dismissed.

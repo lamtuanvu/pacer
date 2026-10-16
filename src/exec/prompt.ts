@@ -13,6 +13,7 @@ export function buildPrompt(brief: Brief, taskId: string): string {
   if (brief.scope?.trim()) parts.push(`## Scope\n${brief.scope.trim()}`);
   if (brief.context?.trim()) parts.push(`## Context\n${brief.context.trim()}`);
   if (brief.constraints?.trim()) parts.push(`## Constraints\n${brief.constraints.trim()}`);
+  if (brief.qa?.length) parts.push(`## Question / Answer\n${brief.qa.map(({q,a}) => `Q: ${q}\nA: ${a}`).join("\n\n")}`);
   if (brief.feedback?.trim()) parts.push(`## Review feedback\n${brief.feedback.trim()}`);
   parts.push(`## Done when\n${brief.acceptance?.trim()
     ? `\`${brief.acceptance.trim()}\` passes.`
