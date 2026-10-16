@@ -28,6 +28,9 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`);
   const p = Bun.spawn([process.execPath, "run", "plugin:build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
   if (await p.exited !== 0) throw new Error("plugin:build failed; fix the build and rerun bun run plugin:build before committing");
+  // The app embeds APP_VERSION, which the release build checks against package.json.
+  const a = Bun.spawn([process.execPath, "run", "app:build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
+  if (await a.exited !== 0) throw new Error("app:build failed; fix the build and rerun bun run app:build before committing");
 }
 
 if (import.meta.main) {

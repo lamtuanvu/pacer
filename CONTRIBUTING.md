@@ -38,7 +38,7 @@ bun run typecheck
 bun run test
 ```
 
-The preparation script updates `package.json` and the marketplace ref in `orca-marketplace.json` to `orca-plugin-v<x.y.z>`, rebuilds the bundled Orca plugin assets, and moves the Unreleased changelog content into a dated release section while leaving a fresh empty Unreleased section. Review and include the generated plugin files. Submit a PR with a DCO-signed commit titled `chore: release x.y.z`; merge it before tagging the resulting `main` commit. Validate the prepared version through a dry run before releasing:
+The preparation script updates `package.json` and the marketplace ref in `orca-marketplace.json` to `orca-plugin-v<x.y.z>`, rebuilds the bundled Orca plugin and pacer app assets, and moves the Unreleased changelog content into a dated release section while leaving a fresh empty Unreleased section. Review and include the generated plugin and app files. Submit a PR with a DCO-signed commit titled `chore: release x.y.z`; merge it before tagging the resulting `main` commit. Validate the prepared version through a dry run before releasing:
 
 ```sh
 gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
