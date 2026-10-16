@@ -6,14 +6,27 @@ interface Viewer {
  snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void;
 }
 /** Bounded output queues. Snapshot state is shared, and streamed in small writes. */
+export interface ControlHandlers { input:(bytes:Buffer)=>void; resize:(cols:number,rows:number)=>void }
 export class ViewerHub {
+ private holder:Viewer|null=null;
+ get controller(){return this.holder?.label??null;}
  private viewers=new Set<Viewer>();
  private pending=new Set<Viewer>();
  private cachedSnapshot?:Buffer;
  private closing=false;
  get size(){return this.viewers.size;}
  constructor(private snapshot:()=>Buffer,private since:(from:number)=>Buffer[]|null,
-  private enqueue:(fn:()=>void)=>void,private marker:(kind:string,label:string)=>void=()=>{},private changed:(viewers:number)=>void=()=>{}){}
+  private enqueue:(fn:()=>void)=>void,private marker:(kind:string,label:string)=>void=()=>{},private changed:(viewers:number,controller:string|null)=>void=()=>{},
+  private control?:ControlHandlers){}
+ private state(v:Viewer,reason?:string){return wire(FrameType.control,{controller:this.controller,you:this.holder===v,...(reason?{reason}:{})});}
+ private setController(v:Viewer|null,reason:string){
+  const old=this.holder;if(old===v)return;
+  this.holder=v;this.cachedSnapshot=undefined;
+  if(old)this.marker('control-released',old.label);
+  if(v)this.marker('control-taken',v.label);
+  this.changed(this.size,this.controller);
+  for(const viewer of this.viewers)this.send(viewer,this.state(viewer,reason));
+ }
  private freshSnapshot(){return this.cachedSnapshot??=this.snapshot();}
  private flush(v:Viewer){
   while(!v.blocked&&!v.socket.destroyed){
@@ -23,7 +36,7 @@ export class ViewerHub {
     if(end===state.bytes.length)v.snapshot=undefined;
    }else if(v.resync){
     v.resync=false;v.blocked=!v.socket.write(wire(FrameType.resync,{}));
-    v.snapshot={bytes:this.freshSnapshot(),offset:0};
+    v.snapshot={bytes:Buffer.concat([this.freshSnapshot(),this.state(v)]),offset:0};
    }else if(v.pending.length){
     const bytes=v.pending.shift()!;v.bytes-=bytes.length;v.blocked=!v.socket.write(bytes);
    }else{
@@ -48,7 +61,8 @@ export class ViewerHub {
   socket.on('close',()=>{
    clearTimeout(helloTimer);this.pending.delete(v);
    const joined=this.viewers.delete(v);v.pending=[];v.snapshot=undefined;v.done?.();
-   if(joined){this.cachedSnapshot=undefined;this.changed(this.size);}
+   if(this.holder===v)this.setController(null,'disconnected');
+   if(joined){this.cachedSnapshot=undefined;this.changed(this.size,this.controller);}
    if(v.joined&&!this.closing)this.enqueue(()=>this.marker('detach',v.label));
   });
   socket.on('drain',()=>this.enqueue(()=>{v.blocked=false;this.flush(v);}));
@@ -61,20 +75,39 @@ export class ViewerHub {
      if(socket.destroyed||v.joined||this.closing)return;
      if(this.size>=16){socket.end(wire(FrameType.exit,{code:1,reason:'Session already has 16 viewers; detach a viewer and try again.'}));return;}
      this.pending.delete(v);this.viewers.add(v);v.joined=true;
-     v.label=`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').slice(0,64)}`;
-     this.cachedSnapshot=undefined;this.changed(this.size);
+     v.label=`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').replace(/[\x00-\x1f\x7f]/g,'').slice(0,64)}`;
+     this.cachedSnapshot=undefined;this.changed(this.size,this.controller);
      const missing=h.from===undefined?null:this.since(h.from);
-     if(missing===null){v.snapshot={bytes:this.freshSnapshot(),offset:0};this.flush(v);}
-     else for(const b of missing)this.send(v,wire(FrameType.output,b));
+     if(missing===null){v.snapshot={bytes:Buffer.concat([this.freshSnapshot(),this.state(v)]),offset:0};this.flush(v);}
+     else {for(const b of missing)this.send(v,wire(FrameType.output,b));this.send(v,this.state(v));}
      this.marker('attach',v.label);
     });
-   }else if(f.type===FrameType.take||f.type===FrameType.release){
-    this.send(v,wire(FrameType.control,{controller:null,you:false,reason:'Read-only session: control is not available.'}));
+   }else if(f.type===FrameType.take||f.type===FrameType.release||f.type===FrameType.input||f.type===FrameType.size){
+    // Serialize admission, control and PTY actions with output/snapshot updates.
+    this.enqueue(()=>{
+     if(!v.joined||socket.destroyed||this.closing)return;
+     try {
+     if(f.type===FrameType.take){
+      const body=JSON.parse(f.data.toString());
+      if(this.holder===v)this.send(v,this.state(v));
+      else if(!this.holder||body.force===true)this.setController(v,'taken');
+      else this.send(v,this.state(v));
+     }else if(f.type===FrameType.release){
+      if(this.holder===v)this.setController(null,'released');
+     }else if(this.holder===v){
+      if(f.type===FrameType.input){if(f.data.length)this.control?.input(f.data);}
+      else {
+       const {cols,rows}=JSON.parse(f.data.toString());
+       if([cols,rows].every(n=>Number.isInteger(n)&&n>0&&n<=65535))this.control?.resize(cols,rows);
+      }
+     }
+     }catch{socket.destroy();}
+    });
    }
   }}catch{socket.destroy();}});
  }
  broadcast(bytes:Buffer){this.cachedSnapshot=undefined;for(const v of this.viewers)if(v.joined)this.send(v,bytes);}
- destroy(){for(const v of [...this.pending,...this.viewers])v.socket.destroy();this.pending.clear();this.viewers.clear();this.cachedSnapshot=undefined;}
+ destroy(){for(const v of [...this.pending,...this.viewers])v.socket.destroy();this.pending.clear();this.viewers.clear();this.holder=null;this.cachedSnapshot=undefined;}
  async end(code:number){
   this.closing=true;
   for(const v of this.pending)v.socket.destroy();

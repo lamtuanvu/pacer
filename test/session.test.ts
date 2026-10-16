@@ -386,3 +386,195 @@ test("auto terminal settings resolve to a detected terminal instead of an auto e
     expect(terminalSetting(ctx)).toBe("kitty");
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+function controlFrames(socket:ViewerSocket) {
+  return socket.frames.flatMap(b=>new WireDecoder().push(b)).filter(f=>f.type===FrameType.control).map(f=>JSON.parse(f.data.toString()));
+}
+test("one controller, force takeover, release and disconnect are labeled and immediate", () => {
+  const {hub,connect,markers}=viewerFixture(),a=connect(),b=connect();
+  const frame=(s:ViewerSocket,type:number,body:unknown={})=>s.emit('data',wire(type,body));
+  try {
+    a.hello('cli','one');b.hello('app','two');
+    frame(a,FrameType.take);
+    expect(controlFrames(a).at(-1)).toMatchObject({controller:'cli:one',you:true});
+    frame(b,FrameType.take);
+    expect(controlFrames(b).at(-1)).toMatchObject({controller:'cli:one',you:false});
+    frame(b,FrameType.take,{force:true});
+    expect(controlFrames(a).at(-1)).toMatchObject({controller:'app:two',you:false,reason:'taken'});
+    frame(a,FrameType.release);
+    expect(hub.controller).toBe('app:two');
+    frame(b,FrameType.release);
+    expect(hub.controller).toBeNull();
+    frame(a,FrameType.take);a.destroy();
+    expect(controlFrames(b).at(-1)).toMatchObject({controller:null,you:false,reason:'disconnected'});
+    expect(markers).toEqual(['attach:cli:one','attach:app:two','control-taken:cli:one','control-released:cli:one','control-taken:app:two','control-released:app:two','control-taken:cli:one','control-released:cli:one','detach:cli:one']);
+  } finally {hub.destroy();}
+});
+test("controller-only input and size use the queued identity even for pipelined hello", () => {
+  const queued:(()=>void)[]=[],inputs:string[]=[],sizes:unknown[]=[];
+  const hub=new ViewerHub(()=>wire(FrameType.snapshot,{}),()=>null,fn=>queued.push(fn),()=>{},()=>{}, {
+    input:bytes=>inputs.push(bytes.toString()),resize:(cols,rows)=>sizes.push([cols,rows]),
+  });
+  const a=new ViewerSocket(),b=new ViewerSocket();hub.add(a as unknown as Socket);hub.add(b as unknown as Socket);
+  const frame=(s:ViewerSocket,type:number,body:unknown={})=>s.emit('data',wire(type,body));
+  try {
+    frame(a,FrameType.take);a.hello();b.hello();
+    frame(b,FrameType.input,Buffer.from('ignored'));frame(b,FrameType.size,{cols:1,rows:1});
+    frame(a,FrameType.take);frame(a,FrameType.input,Buffer.from('hello'));frame(a,FrameType.size,{cols:90,rows:30});
+    for(const fn of queued.splice(0))fn();
+    expect(inputs).toEqual(['hello']);expect(sizes).toEqual([[90,30]]);
+    for(const body of [{cols:0,rows:20},{cols:90.5,rows:20},{cols:65536,rows:20}])frame(a,FrameType.size,body);
+    frame(a,FrameType.release);frame(a,FrameType.size,{cols:80,rows:20});
+    for(const fn of queued.splice(0))fn();
+    expect(sizes).toEqual([[90,30]]);
+  } finally {hub.destroy();}
+});
+
+test.skipIf(!canBindSocket)("live control resizes PTY, preserves last size and records labeled changes", async () => {
+  const dir=temp(),sockets:Socket[]=[];
+  try {
+    startRun({dir,cwd:dir,env:process.env,session:'pty',argv:['/bin/sh','-c','echo READY; sleep 30']});
+    const {sessionSocket}=await import('../src/session/service');
+    await until(()=>existsSync(sessionSocket(dir)));
+    const connect=async(label:string)=>{
+      const socket=createConnection(sessionSocket(dir)),decoder=new WireDecoder(),frames:{type:number;data:Buffer}[]=[];sockets.push(socket);
+      socket.on('data',b=>frames.push(...decoder.push(Buffer.from(b))));
+      await new Promise<void>((resolve,reject)=>{socket.once('connect',resolve);socket.once('error',reject);});
+      socket.write(wire(FrameType.hello,{v:1,client:'cli',label,cols:80,rows:24}));
+      await until(()=>frames.some(f=>f.type===FrameType.snapshot));return {socket,frames};
+    };
+    const a=await connect('driver'),b=await connect('watcher');
+    expect(JSON.parse(a.frames[0].data.toString())).toMatchObject({cols:120,rows:40,controller:null});
+    a.socket.write(wire(FrameType.take,{}));
+    await until(()=>a.frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).you));
+    a.socket.write(wire(FrameType.size,{cols:92,rows:31}));
+    await until(()=>a.frames.some(f=>f.type===FrameType.resize));
+    const state=JSON.parse(readFileSync(join(dir,'session.state'),'utf8'));
+    expect(state).toMatchObject({cols:92,rows:31,controller:'cli:driver'});
+    b.socket.write(wire(FrameType.size,{cols:1,rows:1}));
+    a.socket.write(wire(FrameType.release,{}));
+    await until(()=>a.frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).reason==='released'));
+    const c=await connect('late');
+    expect(JSON.parse(c.frames[0].data.toString())).toMatchObject({cols:92,rows:31,controller:null});
+    const replay=await replayRecording(dir);expect(replay.snapshot()).toMatchObject({cols:92,rows:31});replay.dispose();
+    const markers=decodeLog(readFileSync(join(dir,'session.log'))).frames.filter(f=>f.type===3).map(f=>JSON.parse(f.data.toString()));
+    expect(markers).toContainEqual({event:'control-taken',label:'cli:driver'});
+    expect(markers).toContainEqual({event:'control-released',label:'cli:driver'});
+  } finally {for(const socket of sockets)socket.destroy();await stopRun(dir,{graceMs:1500});rmSync(dir,{recursive:true,force:true});}
+},10000);
+
+test('recorded resize survives replay without output',async()=>{
+  const dir=temp();try{
+    const r=new Recording(dir);r.resize(91,29);await r.close();
+    const replay=await replayRecording(dir);expect(replay.snapshot()).toMatchObject({cols:91,rows:29});replay.dispose();
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+test('builtin host advertises control and resize',async()=>{
+  const {BuiltinSessionHost}=await import('../src/session/service');
+  expect(new BuiltinSessionHost('unused').capabilities).toMatchObject({control:true,resize:true});
+});
+
+import { AttachKeys } from '../src/session/attach';
+test('attach read-only keys detach or request control',()=>{
+  const sent:Buffer[]=[],keys=new AttachKeys(bytes=>sent.push(bytes));
+  expect(keys.push(Buffer.from('ignored'))).toBe(false);
+  expect(sent).toEqual([]);
+  expect(keys.push(Buffer.from('c'))).toBe(false);
+  expect(new WireDecoder().push(sent[0])[0].type).toBe(FrameType.take);
+  expect(keys.push(Buffer.from('q'))).toBe(true);
+  expect(keys.push(Buffer.from([3]))).toBe(true);
+});
+test('attach control forwards bytes and parses split escape commands',()=>{
+  const sent:Buffer[]=[],keys=new AttachKeys(bytes=>sent.push(bytes));keys.setControl(true);
+  expect(keys.push(Buffer.from('qc\x03你好'))).toBe(false);
+  expect(new WireDecoder().push(Buffer.concat(sent))[0].data.toString()).toBe('qc\x03你好');sent.length=0;
+  expect(keys.push(Buffer.from([29]))).toBe(false);
+  expect(keys.push(Buffer.from([29]))).toBe(false);
+  expect(new WireDecoder().push(sent[0])[0].data).toEqual(Buffer.from([29]));sent.length=0;
+  keys.push(Buffer.from([29]));keys.push(Buffer.from('r'));
+  expect(new WireDecoder().push(sent[0])[0].type).toBe(FrameType.release);
+  // Await the host's response before switching input modes.
+  keys.setControl(false);keys.push(Buffer.from('c'));
+  expect(new WireDecoder().push(sent[1])[0].type).toBe(FrameType.take);
+  keys.setControl(true);expect(keys.push(Buffer.from('\x1dd'))).toBe(true);
+});
+test('losing control resets an incomplete escape prefix',()=>{
+  const sent:Buffer[]=[],keys=new AttachKeys(bytes=>sent.push(bytes));keys.setControl(true);
+  keys.push(Buffer.from([29]));keys.setControl(false);keys.setControl(true);keys.push(Buffer.from('r'));
+  expect(new WireDecoder().push(sent[0])[0]).toMatchObject({type:FrameType.input,data:Buffer.from('r')});
+});
+
+test('supervisor activity stays current while controlled and expires after release',()=>{
+  const dir=temp();try{
+    writeFileSync(join(dir,'started'),'1');writeFileSync(join(dir,'session.state'),JSON.stringify({controller:'cli:human'}));
+    expect(readRun(dir).lastOutputAt).toBeGreaterThan(Date.now()/1000-1);
+    writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null}));
+    expect(readRun(dir).lastOutputAt).toBeNull();
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+test('WebSocket app clients relay control and binary input unchanged',()=>{
+  for(const body of [{type:'take'},{type:'take',force:true},{type:'release'},{type:'size',cols:90,rows:30}]){
+    const [f]=new WireDecoder().push(viewerMessageFrames(JSON.stringify(body))[0]);
+    const {type,...payload}=body;expect(f.type).toBe(FrameType[type as keyof typeof FrameType]);
+    expect(JSON.parse(f.data.toString())).toEqual(payload);
+  }
+  const input=wire(FrameType.input,Buffer.from([0,3,29,255]));
+  expect(viewerMessageFrames(input)).toEqual([input]);
+  const {hub,connect}=viewerFixture(),socket=connect();
+  try{
+    for(const bytes of viewerMessageFrames(JSON.stringify({type:'hello',v:1,client:'cli',label:'browser'})))socket.emit('data',bytes);
+    for(const bytes of viewerMessageFrames(JSON.stringify({type:'take'})))socket.emit('data',bytes);
+    expect(controlFrames(socket).at(-1)).toMatchObject({controller:'app:browser',you:true});
+  }finally{hub.destroy();}
+});
+
+test('a forced takeover drops the old controller input and size immediately',()=>{
+  const input:string[]=[],sizes:number[]=[],hub=new ViewerHub(()=>wire(FrameType.snapshot,{}),()=>null,fn=>fn(),()=>{},()=>{}, {
+    input:b=>input.push(b.toString()),resize:cols=>sizes.push(cols),
+  });
+  const a=new ViewerSocket(),b=new ViewerSocket();hub.add(a as unknown as Socket);hub.add(b as unknown as Socket);a.hello('cli','first');b.hello('app','second');
+  const frame=(s:ViewerSocket,type:number,body:unknown={})=>s.emit('data',wire(type,body));
+  try{
+    frame(a,FrameType.take);frame(a,FrameType.take);expect(controlFrames(a).at(-1)?.you).toBe(true);
+    frame(b,FrameType.take,{force:true});
+    frame(a,FrameType.input,Buffer.from('old'));frame(a,FrameType.size,{cols:80,rows:24});
+    frame(b,FrameType.input,Buffer.from('new'));frame(b,FrameType.size,{cols:90,rows:30});
+    expect(input).toEqual(['new']);expect(sizes).toEqual([90]);
+    b.destroy();frame(a,FrameType.input,Buffer.from('released'));expect(input).toEqual(['new']);
+    frame(a,FrameType.take);expect(hub.controller).toBe('cli:first');
+  }finally{hub.destroy();}
+});
+
+test('task CLI progress shows the active controller label',async()=>{
+  const home=temp(),ctx=makeCtx({pacerHome:home,env:{}});
+  try{
+    const {main}=await import('../src/cli');
+    const task=createTask(ctx,{brief:{goal:'fixture',repo:'.'},kind:'small',requestedExecutor:null,timeoutS:30});
+    updateTask(ctx,task.id,t=>{t.state='running';});
+    const dir=join(home,'runs',task.id,'1');mkdirSync(dir,{recursive:true});
+    writeFileSync(join(dir,'session.log'),'');writeFileSync(join(dir,'session.sock'),'socket fixture');writeFileSync(join(dir,'pid'),String(process.pid));
+    writeFileSync(join(dir,'session.state'),JSON.stringify({controller:'cli:Ghostty',viewers:2}));
+    for(const args of [['tasks'],['tasks',task.id]])expect((await main(args,ctx)).out).toContain('controlled from cli:Ghostty');
+    writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null,viewers:2}));
+    expect((await main(['tasks',task.id],ctx)).out).not.toContain('controlled from');
+  }finally{rmSync(home,{recursive:true,force:true});}
+});
+
+test('resync restores controller identity after slow viewer queue overflow',()=>{
+  class SlowSocket extends ViewerSocket {
+    blocked=false;
+    override write(bytes:Buffer){super.write(bytes);return !this.blocked;}
+  }
+  const hub=new ViewerHub(()=>wire(FrameType.snapshot,{controller:hub.controller}),()=>null,fn=>fn());
+  const slow=new SlowSocket(),other=new ViewerSocket();hub.add(slow as unknown as Socket);hub.add(other as unknown as Socket);
+  try{
+    slow.hello('cli','slow');other.hello('app','new');slow.emit('data',wire(FrameType.take,{}));
+    slow.blocked=true;
+    for(let i=0;i<18;i++)hub.broadcast(wire(FrameType.output,Buffer.alloc(65536)));
+    other.emit('data',wire(FrameType.take,{force:true}));
+    slow.blocked=false;slow.emit('drain');
+    const decoded=new WireDecoder().push(Buffer.concat(slow.frames));
+    expect(decoded.some(f=>f.type===FrameType.resync)).toBe(true);
+    expect(JSON.parse(decoded.filter(f=>f.type===FrameType.control).at(-1)!.data.toString())).toMatchObject({controller:'app:new',you:false});
+  }finally{hub.destroy();}
+});
