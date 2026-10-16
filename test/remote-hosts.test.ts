@@ -141,16 +141,15 @@ test("host check rejects BSD or missing script", async () => {
 });
 
 
-test("host check diagnoses old util-linux script and tail without GNU --pid",async()=>{
+test("host check diagnoses old util-linux script and a missing tail",async()=>{
   const {ctx,repo}=await fixture();const run=ctx.run;
   for(const [from,to,name] of [
     ["script from util-linux 2.40","script from util-linux 2.34","script"],
-    ["tail_pid=1","tail_pid=0","tail"],
-    ["tail (GNU coreutils) 9.5","BSD tail","tail"],
+    ["tail=tail (GNU coreutils) 9.5","tail=","tail"],
   ]) {
     ctx.run=async(argv,ms,o)=>{const r=await run(argv,ms,o);return {...r,stdout:r.stdout.replace(from,to)};};
     const check=(await hosts.check(ctx,"box",{repo})).checks.find(c=>c.name===name);
     expect(check?.ok).toBe(false);
-    expect(check?.detail).toContain(name==="script"?"2.35":"--pid");
+    expect(check?.detail).toContain(name==="script"?"2.35":"missing");
   }
 });

@@ -20,8 +20,7 @@ printf 'codex=%s\\n' "$(command -v codex || true)"
 printf 'claude=%s\\n' "$(command -v claude || true)"
 printf 'setsid=%s\\n' "$(command -v setsid || true)"
 printf 'script=%s\\n' "$(script --version 2>/dev/null || true)"
-printf 'tail=%s\\n' "$(tail --version 2>/dev/null | head -1)"
-printf 'tail_pid=%s\\n' "$(tail --pid=$$ -c 0 /dev/null >/dev/null 2>&1 && echo 1 || echo 0)"
+printf 'tail=%s\\n' "$(command -v tail)"
 printf 'home=%s\\n' "$HOME"`,
   CHECK_REPO: `path="$1"; shift
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
@@ -181,7 +180,10 @@ else
 fi`,
   FOLLOW: `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-exec tail -c +"$(($2 + 1))" --pid="$(cat "$D/pid")" -f "$D/session.raw"`,
+p="$(cat "$D/pid" 2>/dev/null)"; me=$$
+# Portable stand-in for tail --pid: a watcher with no inherited output ends the tail after the run exits.
+[ -n "$p" ] && ( while kill -0 "$p" 2>/dev/null; do sleep 1; done; sleep 1; kill "$me" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+exec tail -c +"$(($2 + 1))" -f "$D/session.raw"`,
   STOP: `D="$1"; grace="$2"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; exit 0; fi
