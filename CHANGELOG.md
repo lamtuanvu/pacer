@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-16
+
 ### Changed
 
 - `pacer open` opens the app in an Orca browser tab when Orca is running; `--browser` uses the default browser.
