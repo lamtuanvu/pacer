@@ -59,3 +59,13 @@ dialog::backdrop{background:rgb(0 0 0 / .4)}
 .diff span{display:block;min-height:1.6em;white-space:pre-wrap;overflow-wrap:anywhere}
 .diff-added{background:var(--good-bg);color:var(--good-fg)}.diff-removed{background:var(--bad-bg);color:var(--bad-fg)}.diff-hunk{background:var(--surface-lane);color:var(--ink-secondary)}
 @media(max-width:767px){.task-row>.grow{flex-basis:65%}.facts{grid-template-columns:80px minmax(0,1fr)}dialog .pc-btn{min-height:44px}}
+.wizard-steps{list-style:none;display:flex;gap:var(--space-3);padding:0;flex-wrap:wrap;color:var(--ink-muted)}
+.wizard-steps li{border:1px solid var(--line);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3)}
+.wizard-steps [aria-current=step]{color:var(--ink);background:var(--surface-lane);font-weight:600}
+.executor-choices{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
+.executor-choices .pc-btn{justify-content:space-between;border-radius:0;min-height:60px}
+.executor-choices [aria-pressed=true]{background:var(--surface-lane);border-color:var(--ink)}
+.budget-window{margin:var(--space-4) 0}
+.model-choice{display:flex;align-items:center;gap:var(--space-3);min-height:44px}
+fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:flex;flex-direction:column;gap:var(--space-3)}
+[hidden]{display:none!important}
