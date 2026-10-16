@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export type Phase = "starting" | "working" | "idle" | "lost-contact";
+export type Phase = "needs-input" | "starting" | "working" | "idle" | "lost-contact";
 export interface Progress { phase: Phase; lastOutputAt: number | null; lastChangeAt: number | null; files: number; commits: number; logBytes: number; host: string; updatedAt: number }
 
 export function idleSeconds(p: Pick<Progress, "lastOutputAt" | "lastChangeAt">, startedAt: number, now: number): number {

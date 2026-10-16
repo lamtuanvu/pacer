@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { reportCommand, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
 import { sessionHost } from "./session/host";
 import { attachDirectory, attachSession } from "./session/attach";
@@ -54,6 +55,7 @@ const USAGE = `usage: pacer <command>
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
+  report --task <task-id> --outcome done|failed|needs-input|running --summary <text>
   attach <task-id> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
@@ -362,6 +364,11 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         return { code: 2, out: "", err: explain(e) };
       }
     }
+    case "report": return reportCommand(rest, ctx);
+    case "_session-hook":
+      if (rest.length !== 1) return {code: 2, out: "", err: "usage: pacer _session-hook <run-dir>"};
+      try { agentHook(rest[0], JSON.parse(await Bun.stdin.text())); } catch { /* hooks must never block the agent */ }
+      return {code: 0, out: "", err: ""};
     case "_session":
       if(rest.length!==1) return {code:2,out:"",err:"usage: pacer _session <run-dir>"};
       try {return {code:await sessionHost(rest[0]),out:"",err:""};}

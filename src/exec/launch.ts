@@ -39,6 +39,17 @@ export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessa
 
 export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string): Launch {
   const model = cfg.model;
+  if (cfg.session === "interactive") {
+    const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+    const models = model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", model] : [];
+    const argv = cfg.via === "opencode" ? ["opencode", "--standalone", "--agent", "build", ...models, "--prompt", prompt]
+      : agent === "codex" ? ["codex", "--no-daemon", "-C", repo, "-s", "workspace-write", "--add-dir", taskDir, ...models, prompt]
+      : agent === "claude-code" ? ["claude", "--permission-mode", "acceptEdits", ...models, prompt]
+      : agent === "cursor" ? ["cursor-agent", "--workspace", repo, ...models, prompt]
+      : agent === "agy" ? ["agy", "--sandbox", "--add-dir", repo, ...models, prompt] : null;
+    if (!argv) throw new Error(`no interactive launcher for provider "${cfg.id}"`);
+    return {cwd: repo, argv};
+  }
   if (cfg.via === "opencode") {
     return {
       cwd: repo,

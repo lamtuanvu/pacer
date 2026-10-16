@@ -58,3 +58,38 @@ for (const id of ["agy", "cursor", "claude-code", "codex", "byteplus"]) {
     expect(value(["codex", "byteplus"].includes(id) ? "-m" : "--model")).toBe("chosen-model");
   });
 }
+
+test("runner interactive setting survives validation and rejects invalid or remote sessions", () => {
+  const raw = { planner: "codex", accounts: { main: { kind: "codex" } }, runners: { codex: { session: "interactive" } } };
+  const strategy = validateStrategy(raw, "/x");
+  expect(strategy.runners.codex.session).toBe("interactive");
+  expect(strategy.providers.codex.session).toBe("interactive");
+  expect(() => validateStrategy({ ...raw, runners: { codex: { session: "screen" } } }, "/x")).toThrow("session");
+});
+
+for (const id of ["codex", "claude-code", "cursor", "agy", "opencode#byteplus"]) {
+  test(`${id}: interactive launch keeps PTY stdin and omits headless switches`, () => {
+    const l = launchFor({ ...s.providers[id], session: "interactive" }, "PROMPT", "/repo", "/run", ID);
+    expect(l.stdin).toBeUndefined();
+    expect(l.argv).not.toContain("-p");
+    expect(l.argv).not.toContain("exec");
+    expect(l.argv).not.toContain("run");
+    expect(l.argv).not.toContain("--output-format");
+    expect(l.argv.join(" ")).toContain("PROMPT");
+  });
+}
+
+test("interactive Codex keeps launch environment private and permits run-local reports", () => {
+  const l = launchFor({...s.providers.codex, session: "interactive"}, "P", "/repo", "/run", ID);
+  expect(l.argv).toContain("--no-daemon");
+  expect(l.argv[l.argv.indexOf("--add-dir") + 1]).toBe("/run");
+});
+
+test("interactive OpenCode uses a private server for endpoint credentials", () => {
+  const l = launchFor({...s.providers["opencode#byteplus"], session: "interactive"}, "P", "/repo", "/run", ID);
+  expect(l.argv).toContain("--standalone");
+});
+
+test("remote runner cannot opt into a local interactive PTY", () => {
+  expect(() => validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, hosts: {box: {ssh: "box"}}, runners: {"codex@box": {session: "interactive"}}}, "/x")).toThrow("interactive sessions require a local runner");
+});

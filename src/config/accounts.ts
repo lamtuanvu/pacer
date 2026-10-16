@@ -44,7 +44,7 @@ export interface AccountCfg {
   cooldownS: number;
   allowPaid: boolean;
 }
-export interface RunnerCfg { id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
+export interface RunnerCfg { session?: "headless" | "interactive"; id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
 export interface PlannerCfg { agent: AgentId; account: string }
 export interface AccountsModel {
   accounts: Record<string, AccountCfg>;
@@ -180,7 +180,9 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
     const at = `runner ${reference}`;
     const c = isObj(value) ? value : {};
     if (!isObj(value)) problems.push(`${at}: must be a mapping`);
+    if (c.session !== undefined && c.session !== "headless" && c.session !== "interactive") problems.push(`${at}: session must be headless or interactive`);
     const declared = parseRunnerId(reference);
+    if (c.session === "interactive" && declared?.host) problems.push(`${at}: interactive sessions require a local runner`);
     const explicit = c.agent !== undefined || c.account !== undefined;
     if (declared && explicit && (declared.agent !== c.agent || (declared.account ?? defaults[declared.agent]) !== c.account)) problems.push(`${at}: declaration conflicts with runner id identity`);
     const parsed = explicit ? {agent: c.agent as AgentId, account: c.account as string, host: declared?.host ?? null} : parseRunnerId(runnerAliases[reference] ?? reference)
@@ -207,7 +209,7 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
       if (declarations.has(id) && declarations.get(id) !== model) problems.push(`${at}: conflicting model declarations for ${id}`);
       declarations.set(id, model);
     }
-    const runner = {id, name: id, host: parsed.host, agent: parsed.agent, account, model};
+    const runner: RunnerCfg = {...(c.session !== undefined ? {session: c.session as RunnerCfg["session"]} : {}), id, name: id, host: parsed.host, agent: parsed.agent, account, model};
     if (!runners[id] || Object.keys(c).length) runners[id] = runner;
     runnerAliases[reference] = id;
     return runners[id];

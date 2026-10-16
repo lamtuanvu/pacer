@@ -650,3 +650,48 @@ process.exit(await sessionHost(${JSON.stringify(dir)}));`;
     await until(()=>b.frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).you));
   }finally{for(const socket of sockets)socket.destroy();host.kill('SIGTERM');await host.exited;rmSync(dir,{recursive:true,force:true});}
 },10000);
+
+test("interactive PTY keeps stdin attached to the terminal", async () => {
+  const dir = temp();
+  try {
+    startRun({dir, cwd: dir, env: process.env, session: "interactive", argv: ["/bin/sh", "-c", "test -t 0 || exit 9; echo terminal-input; exit 0"]});
+    await until(() => readRun(dir).exit !== null);
+    expect(readRun(dir).exit).toBe(0);
+    expect(readRun(dir).interactive).toBe(true);
+    expect(readOutput(dir).stdout).toContain("terminal-input");
+  } finally { await stopRun(dir, {graceMs: 100}); rmSync(dir, {recursive: true, force: true}); }
+}, 10000);
+
+test("builtin host preserves interactive mode instead of forcing headless stdin", async () => {
+  const {BuiltinSessionHost} = await import("../src/session/service");
+  const dir = temp();
+  try {
+    const host = new BuiltinSessionHost(dir);
+    await host.start({dir, cwd: dir, env: process.env, session: "interactive", argv: ["/bin/sh", "-c", "test -t 0 || exit 9"]});
+    await until(() => readRun(dir).exit !== null);
+    expect((await host.read()).interactive).toBe(true);
+    expect(readRun(dir).exit).toBe(0);
+  } finally { await stopRun(dir, {graceMs: 100}); rmSync(dir, {recursive: true, force: true}); }
+}, 10000);
+
+test("an explicit report ends the interactive host even without a supervisor", async () => {
+  const {writeReport} = await import("../src/session/reports");
+  const dir = temp();
+  try {
+    startRun({dir, cwd: dir, env: process.env, session: "interactive", argv: ["/bin/sh", "-c", "echo ready; sleep 30"]});
+    await until(() => readOutput(dir).stdout.includes("ready"));
+    writeReport(dir, "done", "Finished");
+    await until(() => readRun(dir).exit !== null, 1500);
+    expect(readRun(dir).report?.status).toBe("done");
+  } finally {await stopRun(dir, {graceMs: 100}); rmSync(dir, {recursive: true, force: true});}
+}, 10000);
+
+test("interactive readRun exposes controller ownership to the idle policy", () => {
+  const dir = temp();
+  try {
+    writeFileSync(join(dir, "session.state"), JSON.stringify({controller: "human"}));
+    expect(readRun(dir).controller).toBe("human");
+    writeFileSync(join(dir, "session.state"), JSON.stringify({controller: null}));
+    expect(readRun(dir).controller ?? null).toBeNull();
+  } finally {rmSync(dir, {recursive: true, force: true});}
+});
