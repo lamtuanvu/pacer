@@ -1,3 +1,4 @@
+import { toApiError } from "../src/api/protocol";
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +25,12 @@ test("request_id dedupes concurrent calls through 600 seconds and expires at 601
  expect((await callOp({...ctx,now:ctx.now+600},"task.delegate",params,deps) as any).task_id).toBe(a.task_id);
  expect((await callOp({...ctx,now:ctx.now+601},"task.delegate",params,deps) as any).task_id).not.toBe(a.task_id);
  expect(listTasks(ctx,Infinity)).toHaveLength(2);
+});
+
+test("a reused request_id with a different brief is a conflict, not the old task",async()=>{
+ const ctx=await setup(),repo=gitRepo(),deps={spawnRunner:()=>1};
+ await callOp(ctx,"task.delegate",{goal:"first",repo,request_id:"r-1"},deps);
+ expect(await callOp(ctx,"task.delegate",{goal:"second",repo,request_id:"r-1"},deps).catch(e=>toApiError(e).code)).toBe("conflict");
 });
 
 test("delegate accepts repo keys and persists explicit and client-default source",async()=>{

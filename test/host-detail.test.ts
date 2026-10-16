@@ -58,7 +58,7 @@ test("host.get assembles checks, repo status, executors and weekly host task cou
   }
   expect(await callOp(ctx, "host.get", { alias: "devbox" })).toMatchObject({
     alias: "devbox", state: "needs_setup", checkedAt: ctx.now - 60, reachableAt: null, running: 1, slots: { used: 1, max: 2 },
-    facts: { git: "2.43.0" }, executors: ["codex@devbox"], doneThisWeek: { done: 2, accepted: 1 },
+    facts: { git: "2.43.0" }, executors: [{id:"codex@devbox",host:"devbox",enabled:true}], doneThisWeek: { done: 2, accepted: 1 },
     repos: [{ key: "github.com/o/r", path: "~/src/r", origin: "differs", identity: "matches" }],
     accounts: [{ name: "codex", home: "~/.codex", signedIn: null }], worktrees: [],
   });
@@ -68,13 +68,13 @@ test("host state follows paused, down, checking, needs_setup, ready priority", a
   const ctx = fixture(), unregister = registerJobDaemon(ctx);
   let release!: () => void;
   try {
-    expect(hosts.detail(ctx, "devbox").state).toBe("ready");
+    expect((await hosts.detail(ctx, "devbox")).state).toBe("ready");
     const job = await startJob(ctx, "host.check", "devbox", [], async () => { await new Promise<void>(r => { release = r; }); });
-    expect(hosts.detail(ctx, "devbox").state).toBe("checking");
+    expect((await hosts.detail(ctx, "devbox")).state).toBe("checking");
     writeJsonAtomic(join(ctx.pacerHome, "cache/hosts.json"), { devbox: { target: createHash("sha256").update("dev-ssh").digest("hex"), at: ctx.now - 1, reachable: false, failures: 2 } });
-    expect(hosts.detail(ctx, "devbox")).toMatchObject({ state: "down", reachableAt: ctx.now - 1 });
+    expect(await hosts.detail(ctx, "devbox")).toMatchObject({ state: "down", reachableAt: ctx.now - 1 });
     await callOp(ctx, "host.set", { alias: "devbox", paused: true });
-    expect(hosts.detail(ctx, "devbox").state).toBe("paused");
+    expect((await hosts.detail(ctx, "devbox")).state).toBe("paused");
     expect(job.state).toBe("running");
   } finally { release?.(); unregister(); }
 });

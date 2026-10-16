@@ -1,4 +1,6 @@
+import { readHold } from "../core/mode-hold";
 import { drainQueueOnRead } from "../tasks/drain";
+import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import type { LinkSnapshot } from "../link/envelope";
 import { toBudget } from "../link/budget";
@@ -24,7 +26,9 @@ export async function liveSnapshot(
 ): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot & ReadModelFields & {tasks:ApiTask[]} }> {
   await drainQueueOnRead(ctx);
   const snapshot = currentSnapshot(ctx);
-  const tasks = snapshotTasks(ctx,listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t));
+  // Only records the snapshot can show need a live status read; the rest are settled history.
+  const recent = (t: TaskRecord) => !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
+  const tasks = snapshotTasks(ctx,listTasks(ctx,Infinity).filter(recent).map(t=>taskStatus(ctx,t.id)??t));
   snapshot.tasks = tasks.map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...t}));
   let strategy;
   try{strategy=loadStrategy(ctx);}catch{
@@ -32,7 +36,7 @@ export async function liveSnapshot(
     strategy.runners={};strategy.accounts={};strategy.providers={};strategy.routing=[];
   }
   const status = o.status ?? (c => computeStatus({ ...c, readOnly: true }, strategy));
-  const key=JSON.stringify(strategy),cached=statusCache.get(ctx.pacerHome);
+  const key=JSON.stringify([strategy,readHold(ctx)]),cached=statusCache.get(ctx.pacerHome);
   let statusAvailable=false;
   const refresh=async():Promise<Status>=>{
     if(!o.status && cached && cached.strategy===key && ctx.now-cached.at>=0 && ctx.now-cached.at< (o.maxBudgetAgeS??60)){statusAvailable=true;return cached.value;}

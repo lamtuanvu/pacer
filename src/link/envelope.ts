@@ -9,11 +9,11 @@ export interface TaskData { progress?: { phase: string; lastOutputAt: number | n
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export interface ConfigData { area: string; at: number }
-export interface EntityData { kind: "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity"; id: string; value?: unknown; removed?: true }
+export interface EntityData { kind: "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job"; id: string; value?: unknown; removed?: true }
 export type Envelope = { v: 1; type: "entity"; data: EntityData } | { v: 1; type: "config"; data: ConfigData } | { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
-export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
+export interface LinkSnapshot { attention?: import("../attention/types").AttentionItem[]; counts?: import("../api/read-model/types").Counts; serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
 export const CMD_NAMES = ["check-setup", "check-updates", "update", "focus", "delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build", "notify-level", "config-set", "account-remove", "runner-remove", "open-terminal"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
 export interface CmdData { cmd: CmdName; key?: string; value?: string; name?: string; command?: "account-add" | "account-add-orca" | "runner-add" | "init"; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
@@ -77,7 +77,7 @@ export function parseEnvelope(raw: unknown): Envelope | null {
   switch (raw.type) {
     case "entity": {
       const d=raw.data;
-      if(!isObj(d) || !["executor","account","host","repo","counts","attention","activity"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>128)return null;
+      if(!isObj(d) || !["executor","account","host","repo","counts","attention","activity","job"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>128)return null;
       return {v:1,type:"entity",data:{kind:d.kind as EntityData["kind"],id:d.id,...(d.removed===true?{removed:true}:{value:d.value})}};
     }
     case "config": {

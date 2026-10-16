@@ -1,4 +1,4 @@
-import type { AccountSummary, ApiTask, ExecutorRow, PlannerMeter, SetupSummary } from "../api/read-model/types";
+import type { AccountSummary, ApiTask, ExecutorRow, HostSummary, PlannerMeter, SetupSummary } from "../api/read-model/types";
 import { needsReview } from "../api/read-model/tasks";
 import { parseRunnerId } from "../config/runner-id";
 import { executorName } from "../link/notification";
@@ -6,7 +6,7 @@ import type { Action, AttentionItem, AttentionKind } from "./types";
 
 export interface RuleInput {
   now: number; tasks: ApiTask[]; executors: ExecutorRow[]; accounts: AccountSummary[];
-  planner: PlannerMeter | null; setup: SetupSummary;
+  hosts?: HostSummary[]; planner: PlannerMeter | null; setup: SetupSummary;
   update: { latest: string; available: boolean } | null;
   retryTarget(t: ApiTask): string | null;
 }
@@ -38,14 +38,19 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     }
   }
   for (const a of input.accounts) if (a.signedIn === false && input.executors.some(e=>e.account===a.name && e.enabled)) {
-    add("account_signin",a.name,`Sign in to ${executorName(a.agent)}`,"Account is signed out",[open("Sign in",{view:"settings",section:"accounts"})],{account:a.name});
+    add("account_signin",a.name,`Sign in to ${executorName(a.agent)}`,"Account is signed out",[{label:"Sign in",op:"account.signin",params:{name:a.name}},...input.executors.filter(e=>e.account===a.name&&e.enabled&&e.rank!=="planner").map(e=>({label:"Disable",op:"runner.set",params:{id:e.id,enabled:false}}))],{account:a.name});
   }
-  for (const e of input.executors) if (e.enabled && e.rank!=="planner" && e.state==="down") {
-    add("executor_down",e.id,`${displayName(e.id)} needs attention`,"Executor is not working",[open("Open settings",{view:"settings",section:"executors"}),{label:"Disable",op:"runner.block",params:{id:e.id}}],{executor:e.id,...(e.host?{host:e.host}:{})});
+  for (const e of input.executors) if (e.enabled && e.rank!=="planner" && (e.state==="down"||e.lastCheck?.passed===false&&e.state!=="checking")) {
+    add("executor_down",e.id,`${displayName(e.id)} needs attention`,"Executor is not working",[open("Open settings",{view:"settings",section:"executors"}),{label:"Disable",op:"runner.set",params:{id:e.id,enabled:false}}],{executor:e.id,...(e.host?{host:e.host}:{})});
+  }
+  for(const h of input.hosts??[])if(h.state==="down"&&input.executors.some(e=>e.host===h.alias&&e.enabled)){
+    const candidates=input.executors.filter(e=>e.enabled&&e.rank!=="planner"&&e.host!==h.alias&&["ready","busy"].includes(e.state));
+    const next=candidates.find(e=>e.next)??candidates[0];
+    add("host_down",h.alias,`${h.alias} is down`,`${h.running} task(s) running there. New work goes to ${next?displayName(next.id):"the next available executor"} until it is back.`,[{label:"Run checks",op:"host.check",params:{alias:h.alias}},{label:"Pause host",op:"host.set",params:{alias:h.alias,paused:true}}],{host:h.alias});
   }
   const p=input.planner;
-  if (p && (p.verdict === "out" || p.verdict === "ahead" && ["strict","emergency"].includes(p.mode))) {
-    add("planner_quota",p.runner,`${displayName(p.runner)} ${p.verdict === "out" ? "is out of quota" : "is ahead of pace"}`,p.advice,[open("Open planner settings",{view:"settings",section:"planner"})],{executor:p.runner});
+  if (p && !(p.modeHeldUntil && p.modeHeldUntil>input.now) && (p.verdict === "out" || p.verdict === "ahead" && ["strict","emergency"].includes(p.mode))) {
+    add("planner_quota",p.runner,`${displayName(p.runner)} ${p.verdict === "out" ? "is out of quota" : "is ahead of pace"}`,p.advice,[open("Open planner settings",{view:"settings",section:"planner"}),{label:"Keep normal",op:"mode.hold",params:{mode:"normal"}}],{executor:p.runner});
   }
   for (const s of input.setup.items) if (s.required && s.status!=="done") add("setup",s.id,s.title,"Setup required",[open("Open settings",{view:"settings",section:s.id})]);
   if (input.update?.available) add("update",input.update.latest,`Update to ${input.update.latest}`,"An update is available",[{label:"Update",op:"update.apply",params:{}},{label:"Later",op:"attention.dismiss",params:{id:`update:${input.update.latest}`}}]);

@@ -1,3 +1,5 @@
+import { publish } from "../link/publish";
+import { redactEndpointError } from "../endpoints/state";
 import { currentVersion } from "../update/version";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -39,13 +41,23 @@ function path(ctx: Ctx, id: string): string {
   if (!/^[a-zA-Z0-9-]+$/.test(id)) throw new CoreError("invalid_input", "invalid job id");
   return join(directory(ctx), `${id}.json`);
 }
+const publications = new Map<string, Promise<unknown>>();
+function jobChanged(ctx: Ctx, job: Job) {
+  const secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
+  const safe=(text:string)=>redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
+  const value={...job,steps:job.steps.map(s=>({...s,...(s.detail?{detail:safe(s.detail)}:{})})),...(job.error?{error:{...job.error,message:safe(job.error.message),...(job.error.hint?{hint:safe(job.error.hint)}:{})}}:{})};
+  const home=resolve(ctx.pacerHome);
+  const pending=(publications.get(home)??Promise.resolve()).then(()=>publish(ctx,[{v:1,type:"entity",data:{kind:"job",id:job.id,value}}],{channel:false,bridge:false})).catch(()=>{});
+  publications.set(home,pending);
+  void pending.finally(()=>{if(publications.get(home)===pending)publications.delete(home);});
+}
 function save(ctx: Ctx, job: Job, onChange?: OnChange) {
   mkdirSync(directory(ctx), { recursive: true });
   const file = path(ctx, job.id), temp = `${file}.${randomUUID()}.tmp`;
   writeFileSync(temp, JSON.stringify(job), { mode: 0o600 });
   renameSync(temp, file);
   // Observers must never interrupt the work they are observing.
-  try { onChange?.(structuredClone(job)); } catch { /* best-effort notification */ }
+  try { jobChanged(ctx, structuredClone(job)); onChange?.(structuredClone(job)); } catch { /* best-effort notification */ }
 }
 /** Marks calls in this serving process as background work; release on server stop. */
 export function registerJobDaemon(ctx: Ctx): () => void {
@@ -155,6 +167,7 @@ export async function startJob(
     if (stored.state !== "running") return stored;
     if(job.state==='running') return job;
     job.endedAt = now(); settleSteps(job); save(ctx, job, o.onChange);
+    await publications.get(resolve(ctx.pacerHome));
     return job;
   };
   const completion = execute();

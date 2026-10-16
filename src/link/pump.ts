@@ -1,3 +1,4 @@
+import { probeHosts } from "../remote/eligibility";
 import { repoFor, backfillRepos } from "../core/repos";
 import { buildReadModel, readModelContext } from "../api/read-model";
 import { snapshotTasks } from "../api/read-model/tasks";
@@ -27,7 +28,7 @@ import { budgetKey, toBudget } from "./budget";
 import { type AlertData, type Envelope, LIMITS, type TaskData, clip } from "./envelope";
 import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
-export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:Envelope[],opts?:PublishOpts):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
+export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:Envelope[],opts?:PublishOpts):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
 export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t),publish:(ctx,envs,opts)=>publish(ctx,envs,opts)};
 export function taskData(t:TaskRecord):TaskData {
   const last=t.attempts.at(-1); return {id:t.id,state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0),
@@ -107,6 +108,12 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   const latest=readLatest(ctx),out:Envelope[]=[]; let st:Status;
   try{st=await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
     if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return out;}
+  const hold=readJson<{mode:string;until:number}>(join(ctx.pacerHome,"state","mode-hold.json"));
+  const holdEndedPath=join(ctx.pacerHome,"state","mode-hold-ended.json");
+  if(hold&&hold.until<=ctx.now&&readJson<number>(holdEndedPath)!==hold.until){
+    appendActivity(ctx,{kind:"mode",level:"info",text:`Mode hold ended · back to ${modeName(st.mode)}`});
+    writeJsonAtomic(holdEndedPath,hold.until);
+  }
   statusActivity(ctx, st);
   const b=toBudget(st); if(budgetKey(b)!==budgetKey(latest.budget))out.push({v:1,type:"budget",data:b});
   const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({v:1,type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`Budget mode changed to ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
@@ -178,6 +185,11 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   let strategy:Strategy|undefined;
   try{strategy=(deps.strategy??loadStrategy)(ctx);}catch{/* No configured strategy yet. */}
   if(strategy){
+    const probePath=join(ctx.pacerHome,"state","host-probe-at.json"),lastProbe=readJson<number>(probePath);
+    if(lastProbe===null||ctx.now<lastProbe||ctx.now-lastProbe>=300){
+      await (deps.probeHosts??probeHosts)(ctx,{strategy:()=>strategy!});
+      writeJsonAtomic(probePath,ctx.now);
+    }
     const context=deps.setup?{setup:await deps.setup(ctx),accounts:[]}:await readModelContext(ctx);
     const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
     const rows:{kind:EntityData["kind"];id:string;value:unknown}[]=[

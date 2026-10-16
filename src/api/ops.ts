@@ -3,7 +3,8 @@ import { taskDetail, retryOptions } from "../core/task-detail";
 import { isAbsolute } from "node:path";
 import { resolveRepo, resolveRepoInput, listReposWithBranches, addRepo, removeRepo } from "../core/repos";
 import { apiTask } from "./read-model/tasks";
-import { ACTIVITY_KINDS, readActivity } from "../activity/log";
+import { appendActivity, readActivity } from "../activity/log";
+import { ACTIVITY_KINDS } from "../activity/types";
 import { drainQueueOnRead } from "../tasks/drain";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
@@ -122,8 +123,8 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
     handler: (ctx, p) => readActivity(ctx, p),
   }),
-  "delegation.pause": op({description: "Pause new delegation for up to seven days.", params: z.object({for: z.string(), reason: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "delegation", () => delegationPause.pause(ctx, p))}),
-  "delegation.resume": op({description: "Resume delegation.", params: z.object({}), handler: ctx => mutation(ctx, "delegation", () => delegationPause.resume(ctx))}),
+  "delegation.pause": op({description: "Pause new delegation for up to seven days.", params: z.object({for: z.string(), reason: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "delegation", () => {const result=delegationPause.pause(ctx,p);appendActivity(ctx,{kind:"config",level:"info",text:`Delegation paused for ${p.for}`});return result;})}),
+  "delegation.resume": op({description: "Resume delegation.", params: z.object({}), handler: ctx => mutation(ctx, "delegation", () => {const result=delegationPause.resume(ctx);appendActivity(ctx,{kind:"config",level:"info",text:"Delegation resumed"});return result;})}),
   "mode.hold": op({description: "Hold a mode until a timestamp or the planner window resets.", params: z.object({mode: z.enum(["strict", "normal", "relaxed", "emergency"]), until: z.number().optional()}), handler: (ctx, p) => mutation(ctx, "mode", () => modeHold.holdMode(ctx, p))}),
   "mode.release": op({description: "Release the held mode and return to pace-derived mode.", params: z.object({}), handler: ctx => mutation(ctx, "mode", () => modeHold.releaseMode(ctx))}),
   "agent.detect": op({ description: "Detect installed agent CLIs and their versions.", params: z.object({host: id.optional()}), handler: (ctx, p) => detectAgents(ctx, p) }),
