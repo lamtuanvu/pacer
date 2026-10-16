@@ -607,6 +607,7 @@ var package_default = {
   private: true,
   devDependencies: {
     "@types/bun": "^1.4.2",
+    "preact-render-to-string": "^6.8.1",
     typescript: "^7.0.2"
   },
   version: "0.2.3",
