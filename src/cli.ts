@@ -48,7 +48,7 @@ const USAGE = `usage: pacer <command>
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-reason <text>]
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
-  review <task-id> --accept|--reject [--kind <k>] [--json] record review
+  review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
@@ -70,7 +70,7 @@ const USAGE = `usage: pacer <command>
 JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors.
 route: kind, ranked, excluded. delegate: TaskRecord (id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields).
 tasks <id>, wait, stop, retry: task_id, state, kind, requested_executor, placement, attempts, result, review, resolved.
-tasks: array of those task summaries. review: recorded. Flags override brief-file fields; repo defaults to cwd.
+tasks: array of those task summaries. review: { task, retry? }. Flags override brief-file fields; repo defaults to cwd.
 install <planner> [--mcp|--no-mcp]: skill and hooks; MCP is optional.
 update refreshes installed skills, policy and hooks; --no-reinstall skips refresh.
 Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skills.
@@ -256,12 +256,15 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "dismiss":
     case "retry":
     case "stop": {
-      const {opts,pos}=parseFlags(rest,["json","accept","reject"]);
+      const {opts,pos}=parseFlags(rest,["json","accept","reject","send-back"]);
       if(!pos[0])return {code:2,out:"",err:USAGE};
       try {
         if(cmd==="review") {
-          if(!!opts.accept===!!opts.reject)throw new Error("give exactly one of --accept or --reject");
-          const result=core.tasks.review(ctx,pos[0],{accepted:!!opts.accept,kind:str(opts.kind)});
+          if([opts.accept,opts.reject,opts["send-back"],opts["retry-on"]].filter(Boolean).length!==1)throw new Error("give exactly one of --accept, --reject, --send-back or --retry-on <executor>");
+          if(opts["retry-on"]===true)throw new Error("--retry-on requires an executor");
+          if((opts["send-back"]||opts["retry-on"])&&isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
+          const verdict=opts.accept?"accept":opts.reject?"reject":opts["send-back"]?"send_back":"retry";
+          const result=await core.tasks.review(ctx,pos[0],{verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note)}, {delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner)});
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
         }
         if(cmd==="dismiss") {

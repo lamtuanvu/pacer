@@ -19,7 +19,7 @@ import {
   taskStop, taskWait,
 } from "../tasks/api";
 import { isTaskId, listTasks, readTask, updateTask, withTaskLock } from "../tasks/store";
-import type { TaskRecord } from "../tasks/types";
+import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
 import { withLock } from "./lock";
@@ -81,15 +81,50 @@ export function stop(ctx: Ctx, id: string): TaskRecord {
   return t;
 }
 
-export function review(ctx: Ctx, id: string, v: { accepted: boolean; kind?: string; note?: string }): { recorded: true } {
-  try {
-    const result = taskReview(ctx, id, v.accepted, v.kind, v.note);
-    const task = readTask(ctx, id)!;
-    taskActivity(ctx, task, "verdict", `${v.accepted ? "Accepted" : "Rejected"} “${shortGoal(task.brief.goal, 60)}”`);
-    return result;
-  } catch (e) {
-    throw toCoreError(e);
+export type ReviewVerdict = "accept" | "reject" | "send_back" | "retry";
+export interface ReviewOptions {
+  verdict?: ReviewVerdict;
+  accepted?: boolean;
+  executor?: string;
+  kind?: string;
+  note?: string;
+  expect_state?: TaskState;
+}
+type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord };
+const reviewSummary = (t: TaskRecord): Record<string, unknown> & { rev: number } => ({ ...summarizeTask(t), rev: t.rev });
+
+export async function review(
+  ctx: Ctx, id: string, v: ReviewOptions, deps: RetryDeps = {},
+): Promise<{ task: ReturnType<typeof reviewSummary>; retry?: ReturnType<typeof reviewSummary> }> {
+  // Record synchronously while taskMutation's revision lock is still held.
+  const { task, verdict, executor } = withTaskLock(ctx, id, () => {
+    const task = readTask(ctx, id);
+    if (!task) throw unknown(id);
+    const verdict = v.verdict ?? (v.accepted === undefined ? undefined : v.accepted ? "accept" : "reject");
+    if (!verdict || !["accept", "reject", "send_back", "retry"].includes(verdict)) {
+      throw new CoreError("invalid_input", "give a verdict or accepted");
+    }
+    if (verdict === "send_back" && !v.note?.trim()) throw new CoreError("invalid_input", "send_back requires a note");
+    if (verdict === "retry" && !v.executor?.trim()) throw new CoreError("invalid_input", "retry requires an executor");
+    if (!TERMINAL_STATES.includes(task.state) || (v.expect_state !== undefined && v.expect_state !== task.state)) {
+      throw new CoreError("conflict", "task state changed", undefined, { task: reviewSummary(task) });
+    }
+    const executor = verdict === "send_back" ? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor ?? undefined : v.executor;
+    if (verdict === "send_back" && !executor) throw new CoreError("invalid_input", "task has no executor to send back to");
+    try {
+      taskReview(ctx, id, verdict === "accept", v.kind, v.note);
+      const reviewed = readTask(ctx, id)!, goal = shortGoal(reviewed.brief.goal, 60);
+      taskActivity(ctx, reviewed, "verdict", verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`);
+    } catch (e) {
+      throw toCoreError(e);
+    }
+    return { task: readTask(ctx, id)!, verdict, executor };
+  });
+  if (verdict === "send_back" || verdict === "retry") {
+    const result = await retry(ctx, id, { executor, ...(verdict === "send_back" ? { feedback: v.note } : {}) }, deps);
+    return { task: reviewSummary(result.of), retry: reviewSummary(result.retry) };
   }
+  return { task: reviewSummary(task) };
 }
 
 /** Dismisses every known id; unknown ids are returned, never thrown, so one bad id can't stop the rest. */
@@ -200,10 +235,13 @@ export async function diff(ctx: Ctx, id: string, o: { path?: string } = {}): Pro
 
 /** Re-delegates a task's stored brief. One active retry per task: a second call gets `conflict`. */
 export async function retry(
-  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; expectRev?: number } = {},
-  deps: { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord } = {},
+  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; feedback?: string; expectRev?: number } = {},
+  deps: RetryDeps = {},
 ): Promise<{ retry: TaskRecord; of: TaskRecord }> {
   if (!isTaskId(id)) throw unknown(id);
+  // Resolve repo identity before taking the synchronous task lock (it runs git).
+  const before = readTask(ctx, id);
+  const repoRef = before ? before.repo ?? await resolveRepo(ctx, before.brief.repo) : undefined;
   return withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
@@ -213,7 +251,7 @@ export async function retry(
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
     const input: DelegateInput = {
-      brief: { ...task.brief }, repoRef: task.repo ?? await resolveRepo(ctx,task.brief.repo), kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      brief: { ...task.brief, ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
       ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
       ...(task.force ? { force: true } : {}),

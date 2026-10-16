@@ -1542,6 +1542,11 @@ Params JSON Schema:
         "minLength": 1,
         "maxLength": 128
       }
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
     }
   },
   "required": [
@@ -1646,6 +1651,11 @@ Params JSON Schema:
       "minLength": 1,
       "maxLength": 128
     },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
     "executor": {
       "type": "string",
       "minLength": 1,
@@ -1678,8 +1688,25 @@ Params JSON Schema:
       "minLength": 1,
       "maxLength": 128
     },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "accept",
+        "reject",
+        "send_back",
+        "retry"
+      ]
+    },
     "accepted": {
       "type": "boolean"
+    },
+    "executor": {
+      "type": "string"
     },
     "kind": {
       "type": "string"
@@ -1687,11 +1714,22 @@ Params JSON Schema:
     "note": {
       "type": "string",
       "maxLength": 2000
+    },
+    "expect_state": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "running",
+        "done",
+        "partial",
+        "failed",
+        "limit",
+        "stopped"
+      ]
     }
   },
   "required": [
-    "id",
-    "accepted"
+    "id"
   ],
   "additionalProperties": false
 }
@@ -1712,6 +1750,11 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
     }
   },
   "required": [

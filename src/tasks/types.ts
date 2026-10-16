@@ -14,6 +14,7 @@ export interface Brief {
   acceptance?: string;
   constraints?: string;
   context?: string;
+  feedback?: string;
 }
 
 export interface RoutingNote {

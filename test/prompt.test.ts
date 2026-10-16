@@ -37,3 +37,11 @@ test("every executor prompt begins with exactly one role marker", () => {
   expect(prompt.split("\n")[0]).toBe(marker);
   expect(prompt.split(marker)).toHaveLength(2);
 });
+
+test("review feedback appears after constraints and before acceptance", () => {
+  const p = buildPrompt({ goal: "g", repo: "/r", constraints: "Only this file", feedback: "  name it keepalive_s  ", acceptance: "bun test" }, "t-x");
+  expect(p).toContain("## Review feedback\nname it keepalive_s");
+  expect(p.indexOf("## Review feedback")).toBeGreaterThan(p.indexOf("## Constraints"));
+  expect(p.indexOf("## Done when")).toBeGreaterThan(p.indexOf("## Review feedback"));
+  expect(buildPrompt({ goal: "g", repo: "/r", feedback: " " }, "t-x")).not.toContain("## Review feedback");
+});

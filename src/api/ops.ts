@@ -169,7 +169,22 @@ export const OPS: Record<string, OpDef> = {
       return { retry: summarizeTask(r.retry), of: summarizeTask(r.of) };
     },
   }),
-  "task.review": op({ description: "Record the planner's verdict on a task.", params: z.object({ id, expect_rev, accepted: z.boolean(), kind: z.string().optional(), note: z.string().max(2000).optional() }), handler: (ctx, p) => taskMutation(ctx, p.id, p.expect_rev, () => core.tasks.review(ctx, p.id, { accepted: p.accepted, kind: p.kind, note: p.note })) }),
+  "task.review": op({
+    description: "Record the planner's verdict on a task.",
+    params: z.object({
+      id, expect_rev,
+      verdict: z.enum(["accept", "reject", "send_back", "retry"]).optional(),
+      accepted: z.boolean().optional(), executor: z.string().optional(), kind: z.string().optional(),
+      note: z.string().max(2000).optional(),
+      expect_state: z.enum(["queued", "running", "done", "partial", "failed", "limit", "stopped"]).optional(),
+    }).refine(p => p.verdict !== undefined || p.accepted !== undefined, "give a verdict or accepted")
+      .refine(p => p.verdict !== "send_back" || !!p.note?.trim(), "send_back requires a note")
+      .refine(p => p.verdict !== "retry" || !!p.executor?.trim(), "retry requires an executor"),
+    handler: (ctx, p, deps) => {
+      if ((p.verdict === "send_back" || p.verdict === "retry") && isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
+      return taskMutation(ctx, p.id, p.expect_rev, () => core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) }));
+    },
+  }),
   "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: (ctx, p) => {
     const dismissed: string[] = [], unknown: string[] = [];
     // Lock in a stable order and check every revision before dismissing any task.
