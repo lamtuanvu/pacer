@@ -609,7 +609,7 @@ var package_default = {
     "@types/bun": "^1.4.2",
     typescript: "^7.0.2"
   },
-  version: "0.2.2",
+  version: "0.2.3",
   bin: {
     pacer: "src/cli.ts"
   },
