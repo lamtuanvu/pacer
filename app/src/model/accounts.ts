@@ -13,12 +13,14 @@ export function accountsModel(accounts: Account[], limits: Limit[]) {
     const captured = limit?.capturedAt ?? account.usageReading?.capturedAt;
     const stale = limit?.stale ?? account.usageReading?.stale;
     return { ...account, signin: account.kind === "endpoint" || account.signedIn === true ? undefined : signinCommand(account),
-      windows: account.usageReading?.windows.length ? account.usageReading.windows : limit?.window ? [{ name: limit.window, usedPct: limit.usedPct ?? null, resetsAt: limit.resetsAt ?? null }] : [],
+      windows: (account.usageReading?.windows.length ? account.usageReading.windows : limit?.window ? [{ name: limit.window, usedPct: limit.usedPct ?? null, resetsAt: limit.resetsAt ?? null }] : []).map(w => ({ ...w, tone: legacyWindowTone(w.usedPct) })),
       freshness: captured == null ? "Usage not available yet" : `${stale ? "Stale since" : "Updated"} ${clock(captured)}`,
       source: limit?.source ?? account.usageReading?.source ?? "Unknown source", error: limit?.error, hint: limit?.hint ? limit.hint[0]!.toUpperCase() + limit.hint.slice(1) : limit?.hint };
   });
 }
 
+/** Account windows carry no service verdict yet; this keeps the old meter colour until Phase 3 rewrites Accounts on executors[]. */
+const legacyWindowTone = (used: number | null): "good" | "bad" => used !== null && used >= 97 ? "bad" : "good";
 function signinCommand(account: Account): string | undefined {
   const folder = account.folder?.replace(/\/$/, "");
   if (account.kind === "claude" && folder?.endsWith("/.claude")) return "claude\n# Then run /login to sign in.";

@@ -36,7 +36,7 @@ test("meter uses the tone it is given", () => {
 
 test("unknown usage draws no fill", () => {
   const html = renderToString(<UsageMeter used={null} pace={null} tone="neutral" size="row" label="x" />);
-  expect(html).toContain('aria-valuetext="usage unknown"');
+  expect(html).toContain('aria-label="x: usage unknown"');
   expect(html).not.toContain("aria-valuenow");
   expect(html).not.toContain("pc-meter__fill");
 });
@@ -71,4 +71,11 @@ test("tooltip is referenced by its trigger and starts hidden", () => {
 
 test("kbd renders a key", () => {
   expect(renderToString(<Kbd>g o</Kbd>)).toBe('<kbd class="pc-kbd">g o</kbd>');
+});
+
+test("an unknown meter is an image with words, not a meter without a value", () => {
+  const html = renderToString(<UsageMeter used={null} pace={null} tone="neutral" size="row" label="Codex" />);
+  expect(html).not.toContain('role="meter"');
+  expect(html).toContain('role="img"');
+  expect(html).toContain('aria-label="Codex: usage unknown"');
 });

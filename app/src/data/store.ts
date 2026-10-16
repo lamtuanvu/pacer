@@ -37,24 +37,28 @@ function upsert<T>(list: T[] | undefined, data: Keyed, key: string, place: "end"
   if (place === "start") return [data as T, ...items];
   return place([...items, data as T]);
 }
-function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventType, data: unknown, seq: number): StoreState {
+function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventType, data: unknown, seq: number, at: number): StoreState {
   if (!isObj(data)) return state;
-  const patch = (fields: Partial<SnapshotV2>): StoreState => ({ ...state, snapshot: { ...snapshot, ...fields, seq } });
+  const patch = (fields: Partial<SnapshotV2>): StoreState => ({ ...state, snapshot: { ...snapshot, ...fields, seq, at } });
   const list = <K extends "tasks" | "attention" | "executors" | "accounts" | "hosts" | "repos">(field: K, key: string, place: Parameters<typeof upsert>[3]) => {
     const next = upsert(snapshot[field] as unknown[] | undefined, data, key, place);
     return next ? patch({ [field]: next } as Partial<SnapshotV2>) : state;
   };
   switch (type) {
     case "task": return list("tasks", "id", items => [items.at(-1)!, ...items.slice(0, -1)].slice(0, TASK_CAP));
-    case "attention": return list("attention", "id", items => (items as AttentionItem[]).sort(attentionOrder));
+    case "attention": {
+      // Re-sort on update too: a changed severity or raisedAt moves the item.
+      const next = upsert(snapshot.attention, data, "id", "end");
+      return next ? patch({ attention: next.sort(attentionOrder) }) : state;
+    }
     case "executor": return list("executors", "id", "end");
     case "account": return list("accounts", "name", "end");
     case "host": return list("hosts", "alias", "end");
     case "repo": return list("repos", "key", "start");
     case "counts": return patch({ counts: data as unknown as SnapshotV2["counts"] });
-    case "pause": return patch({ pause: (Object.keys(data).length ? data : null) as SnapshotV2["pause"] });
-    case "job": return typeof data.id === "string" ? { ...state, jobs: { ...state.jobs, [data.id]: data as unknown as Job }, snapshot: { ...snapshot, seq } } : state;
-    case "activity": return typeof data.id === "string" ? { ...state, activity: [data as unknown as ActivityEntry, ...state.activity].slice(0, ACTIVITY_CAP), snapshot: { ...snapshot, seq } } : state;
+    case "pause": return patch({ pause: (data.removed === true || !Object.keys(data).length ? null : data) as SnapshotV2["pause"] });
+    case "job": return typeof data.id === "string" ? { ...state, jobs: { ...state.jobs, [data.id]: data as unknown as Job }, snapshot: { ...snapshot, seq, at } } : state;
+    case "activity": return typeof data.id === "string" ? { ...state, activity: [data as unknown as ActivityEntry, ...state.activity].slice(0, ACTIVITY_CAP), snapshot: { ...snapshot, seq, at } } : state;
     default: return state;
   }
 }
@@ -70,7 +74,7 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       if (event.type === "reset") return { ...state, needsSnapshot: true };
       if (!state.snapshot || state.needsSnapshot || event.seq <= state.snapshot.seq) return state;
       // 2.1 entities carry fields the v1 envelope parser would strip, so they skip it.
-      if (state.features.readModel && (event.type === "task" || (ENTITY_EVENT_TYPES as readonly string[]).includes(event.type))) return reduceReadModel(state, state.snapshot, event.type, event.data, event.seq);
+      if (state.features.readModel && (event.type === "task" || (ENTITY_EVENT_TYPES as readonly string[]).includes(event.type))) return reduceReadModel(state, state.snapshot, event.type, event.data, event.seq, event.at);
       const envelope = parseEnvelope({ v: 1, type: event.type, data: event.data });
       if (!envelope) return state;
       const snapshot = { ...state.snapshot, ...reduce(state.snapshot as LinkSnapshot, envelope, event.at), seq: event.seq } as SnapshotV2;

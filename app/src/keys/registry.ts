@@ -2,7 +2,7 @@
 export interface Shortcut { keys: string; label: string; scope: "global" | string; run: () => void; allowInControl?: boolean }
 export interface KeyInput {
   key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean;
-  target: unknown; preventDefault(): void;
+  target: unknown; preventDefault(): void; defaultPrevented?: boolean;
 }
 const NOT_TEXT_INPUTS = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file"]);
 /** Single keys must not fire while someone is typing. Duck-typed so it works on DOM elements and test doubles alike. */
@@ -26,7 +26,7 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; timeoutM
     setScope(next: string | null) { scope = next; pending = null; },
     list: (): Shortcut[] => [...shortcuts],
     handle(e: KeyInput): boolean {
-      if (e.metaKey || e.altKey) return false;
+      if (e.defaultPrevented || e.metaKey || e.altKey) return false;
       const token = e.ctrlKey ? `Ctrl-${e.key}` : e.key;
       if (e.ctrlKey && e.key === "Control") return false;
       // Escape and Ctrl combinations stay available in text fields; plain keys do not.

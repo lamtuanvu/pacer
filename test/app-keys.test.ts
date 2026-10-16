@@ -101,3 +101,11 @@ test("unregister removes a shortcut from the list", () => {
   off();
   expect(registry.list().map(s => s.keys)).toEqual(["?"]);
 });
+
+test("a key a dialog already handled does not also run a global shortcut", () => {
+  const { registry, ran, add } = setup();
+  add("Escape");
+  const e = { ...key("Escape"), defaultPrevented: true };
+  expect(registry.handle(e)).toBe(false);
+  expect(ran).toEqual([]);
+});

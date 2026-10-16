@@ -179,3 +179,22 @@ test("the live store listens to every event type the service announces", async (
   expect(store.getState().snapshot?.counts?.attention).toBe(7);
   stop();
 });
+
+test("2.1 events move the snapshot time so snoozes end and 'updated' stays current", () => {
+  const start = v2State();
+  const next = reduceStore(start, { type: "event", event: { seq: 121, at: v2.at + 300, type: "counts", data: { ...v2.counts } } });
+  expect(next.snapshot?.at).toBe(v2.at + 300);
+  const job = reduceStore(start, { type: "event", event: { seq: 121, at: v2.at + 5, type: "job", data: { id: "j", kind: "host.check", target: "x", state: "running", steps: [], startedAt: 1 } } });
+  expect(job.snapshot?.at).toBe(v2.at + 5);
+});
+
+test("an attention update that changes severity moves the item to its place", () => {
+  const start = v2State();
+  const moved = reduceStore(start, ev(121, "attention", { ...review, severity: "blocked" }));
+  expect(moved.snapshot?.attention?.[0]?.id).toBe("review:t-0412");
+});
+
+test("a pause removal clears the pause", () => {
+  const paused = reduceStore(v2State(), ev(121, "pause", { until: 5, by: "tray" }));
+  expect(reduceStore(paused, ev(122, "pause", { id: "pause", removed: true })).snapshot?.pause).toBeNull();
+});

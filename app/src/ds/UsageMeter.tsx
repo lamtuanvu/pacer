@@ -12,7 +12,8 @@ export function UsageMeter({ used, pace, tone, size, label, verdict, paceReason,
   const words = used === null ? "usage unknown" : [meterText(used, pace, "full").replace(" · ", ", "), reason, verdict && verdictWords(verdict).toLowerCase()].filter(Boolean).join(", ");
   const caption = [meterText(used, pace, text === "compact" ? "compact" : "full"), reason, stale && staleAt !== undefined ? `as of ${clock(staleAt, now)}` : null].filter(Boolean).join(" · ");
   return <span className={["pc-usage", `pc-usage--${size}`, stale && "pc-meter--stale"].filter(Boolean).join(" ")}>
-    <span role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={used === null ? undefined : clamp(used)} aria-valuetext={words} className={`pc-meter pc-meter--${size}`}>
+    {/* ARIA meters need a value; with none, the bar is an image named in words. */}
+    <span {...(used === null ? { role: "img" as const, "aria-label": `${label}: ${words}` } : { role: "meter" as const, "aria-label": label, "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": clamp(used), "aria-valuetext": words })} className={`pc-meter pc-meter--${size}`}>
       {used !== null && <span className={`pc-meter__fill pc-meter__fill--${tone}`} style={{ "--used": clamp(used) }} />}
       {pace !== null && <span className="pc-meter__pace" style={{ "--pace": clamp(pace) }} />}
     </span>
