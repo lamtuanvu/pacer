@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - Executor questions raise blocked Needs you items with Answer and Stop actions; `pacer answer`, `task.answer` and MCP `task_answer` retry on the same executor with cumulative question/answer brief context (protocol 2.7.0).
+- Protocol 2.6.0: client registry with a notifier lease, one delivery per notification with a built-in system-notification fallback, notify events, `task.retry_all`, console and TUI commands as v2 operations, status line running and needs-you counts.
 
 - Protocol 2.5.0 completes executor and host controls: configured slot limits, a wait queue, delegation pause/resume and mode holds.
 - Shared jobs and readiness checks, enabled executor settings, account sign-in attention and job entity events.
@@ -18,6 +19,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Idempotent delegation with request ids, base refs and source labels; repository operations, task list filters and goal-based routing previews.
 - Task revisions and optional `expect_rev` checks on task mutations return the current task on conflicts.
 - Bearer-authenticated `POST /v2/session/exchange` creates an app cookie session without a sign-in URL.
+
+### Removed
+
+- `/state` and `/console/open|forget`. `/link` and the legacy `/events` stream are deprecated until 3.0.
 
 ## [0.2.3] - 2026-10-16
 

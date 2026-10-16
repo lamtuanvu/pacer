@@ -5,12 +5,12 @@ import { opNames } from "./ops";
 export const PROTOCOL_VERSION = "2.7.0";
 
 export function helloBody(): { protocol: string; pacer: string; ops: string[]; events: string[] } {
-  return { protocol: PROTOCOL_VERSION, pacer: pkg.version, ops: opNames(), events: ["budget", "task", "mode", "alert", "config", "reset", "executor", "account", "host", "repo", "counts", "attention", "activity", "job"] };
+  return { protocol: PROTOCOL_VERSION, pacer: pkg.version, ops: opNames(), events: ["budget", "task", "mode", "alert", "config", "reset", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"] };
 }
 
 export type ApiErrorCode = CoreErrorCode | "unknown_op" | "too_large" | "internal";
 export interface ApiErrorBody { error: { code: ApiErrorCode; message: string; hint?: string; data?: Record<string, unknown> } }
-export interface ApiEvent { seq: number; at: number; type: "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "budget" | "task" | "mode" | "alert" | "config" | "reset"; data: unknown }
+export interface ApiEvent { seq: number; at: number; type: "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "budget" | "task" | "mode" | "alert" | "config" | "reset"; data: unknown }
 
 const STATUS: Record<ApiErrorCode, number> = {
   invalid_input: 400, not_allowed: 403, unknown_task: 404, unknown_executor: 404, unknown_op: 404, conflict: 409, too_large: 413, internal: 500,

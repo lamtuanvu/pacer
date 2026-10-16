@@ -504,7 +504,8 @@ Params JSON Schema:
     "name": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 128
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
     },
     "delete_home": {
       "type": "boolean"
@@ -526,27 +527,53 @@ Params JSON Schema:
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "name": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "orca",
+            "terminal",
+            "tmux"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
     },
-    "target": {
-      "type": "string",
-      "enum": [
-        "auto",
-        "orca",
-        "terminal",
-        "tmux"
-      ]
+    {
+      "type": "object",
+      "properties": {
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "interactive": {
+          "type": "string",
+          "enum": [
+            "account-add",
+            "account-add-orca",
+            "init"
+          ]
+        }
+      },
+      "required": [
+        "interactive"
+      ],
+      "additionalProperties": false
     }
-  },
-  "required": [
-    "name"
-  ],
-  "additionalProperties": false
+  ]
 }
 ```
 
@@ -787,6 +814,84 @@ Params JSON Schema:
   "required": [
     "id",
     "for"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `client.heartbeat`
+
+Renew a client lease, which lapses after 45 seconds without a heartbeat.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "client_id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `client.list`
+
+Registered clients with live leases.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `client.register`
+
+Register a client with an optional notifier lease; heartbeat every 30 seconds.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "app",
+        "desktop",
+        "orca",
+        "tui",
+        "status",
+        "tray",
+        "cli"
+      ]
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "notifier": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "kind",
+    "version"
   ],
   "additionalProperties": false
 }
@@ -1635,70 +1740,92 @@ Params JSON Schema:
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "agent": {
-      "type": "string",
-      "enum": [
-        "claude-code",
-        "codex",
-        "cursor",
-        "agy",
-        "opencode"
-      ]
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "interactive": {
+          "type": "string",
+          "const": "runner-add"
+        }
+      },
+      "required": [
+        "interactive"
+      ],
+      "additionalProperties": false
     },
-    "account": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
-    },
-    "host": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
-    },
-    "model": {
-      "type": "string",
-      "minLength": 1
-    },
-    "rank": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 9007199254740991
-    },
-    "kinds": {
-      "minItems": 1,
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "boilerplate",
-          "tests",
-          "docs",
-          "rename",
-          "migration",
-          "feature",
-          "debug",
-          "refactor",
-          "performance",
-          "unfamiliar-code",
-          "research"
-        ]
-      }
-    },
-    "max_tasks": {
-      "type": "integer",
-      "exclusiveMinimum": 0,
-      "maximum": 9007199254740991
-    },
-    "test": {
-      "type": "boolean"
+    {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "cursor",
+            "agy",
+            "opencode"
+          ]
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kinds": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "boilerplate",
+              "tests",
+              "docs",
+              "rename",
+              "migration",
+              "feature",
+              "debug",
+              "refactor",
+              "performance",
+              "unfamiliar-code",
+              "research"
+            ]
+          }
+        },
+        "max_tasks": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "test": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "additionalProperties": false
     }
-  },
-  "required": [
-    "agent"
-  ],
-  "additionalProperties": false
+  ]
 }
 ```
 
@@ -1976,6 +2103,11 @@ Params JSON Schema:
     "brief": {
       "type": "string",
       "maxLength": 2000
+    },
+    "worktree": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
     }
   },
   "additionalProperties": false
@@ -2622,6 +2754,43 @@ Params JSON Schema:
 }
 ```
 
+### `task.retry_all`
+
+Retry stored briefs, reporting skipped tasks individually.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ids": {
+      "minItems": 1,
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "executor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "from_panel": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ids"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `task.retry_options`
 
 Executors available for retry in routing order.
@@ -2817,6 +2986,10 @@ Params JSON Schema:
 ```
 
 ## Clients
+
+Clients register with `client.register { kind, version, notifier? }` (kinds `app`, `desktop`, `orca`, `tui`, `status`, `tray`, `cli`) and renew with `client.heartbeat { client_id }` every 30 seconds; a lease lapses after 45 seconds. `client.list` returns live clients and the snapshot's `service.notifier` names the active notifier. The service decides what to notify from attention items and the notification level (`off`, `important`, `all`) and delivers each `notify` event once per attention occurrence to the most recently registered live notifier. With no notifier it posts a system notification itself (osascript on macOS, notify-send on Linux) without actions.
+
+`/state` and `/console/*` were removed in 2.6. The bearer-only `/link` and legacy `/events` routes answer with `Deprecation: true` and `Sunset: 3.0` and are removed in 3.0; use `/v2/snapshot` and `/v2/events`. `task.retry_all { ids }` retries several tasks and reports the ones it skipped.
 
 `X-Pacer-Client: <kind>/<version>` labels delegated tasks; it is never authentication. Valid labels match `/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/`; invalid labels are ignored. The existing `X-Pacer-Client: app` cookie-write check is unchanged.
 

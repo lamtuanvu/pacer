@@ -13,7 +13,7 @@ import { apiTransport } from "./transports/api";
 import { httpTransport, type HttpPort } from "./transports/http";
 import { bridgeTransport } from "./transports/bridge";
 import { channelTransport } from "./transports/channel";
-import { notifyNewAlerts } from "./notify";
+import { deliverNotification, notifyNewAlerts } from "./notify";
 import { renderStatusPage } from "./panel";
 import { serveOwnsPanel } from "../../src/plugin/panel-owner";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
@@ -99,7 +99,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
-      apiTransport({ timers, log: m => ctx.log(m), connect: async () => {
+      apiTransport({ timers, notifier: {version:deps.version ?? "0",deliver:data=>deliverNotification(ctx.host,{title:data.title,body:data.body},deps.nowS(),true)}, log: m => ctx.log(m), connect: async () => {
         const client = await deps.connect?.(settings) ?? null;
         if (stopped) { client?.close(); return null; }
         if (client && !clients.has(client)) {
@@ -150,7 +150,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
           }
         } catch (e) { logError(e); }
         const snapshot = store.snapshot;
-        processing = processing.then(async () => { if (!stopped) await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS()); }).catch(logError);
+        processing = processing.then(async () => { if (!stopped && active?.id !== "api") await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS()); }).catch(logError);
       });
     };
     if (deps.bootstrap) {
@@ -185,7 +185,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       }).catch(()=>{}).finally(()=>{refreshingSettings=false;});
     });
     store.onChange(()=>scheduleRender());
-    timers.every(1000,()=>{processing=processing.then(async()=>{if(!stopped)await notifyNewAlerts(ctx.host,store.snapshot,settings,activatedAtS,deps.nowS());}).catch(logError);});
+    timers.every(1000,()=>{processing=processing.then(async()=>{if(!stopped && active?.id!=="api")await notifyNewAlerts(ctx.host,store.snapshot,settings,activatedAtS,deps.nowS());}).catch(logError);});
     timers.every(15000, () => { scheduleRender(); });
     const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;

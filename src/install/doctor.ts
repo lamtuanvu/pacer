@@ -167,11 +167,11 @@ export async function linkLatencyCheck(ctx:Ctx):Promise<Check> {
     const samples:number[]=[];
     for(let i=0;i<3;i++) {
       const start=performance.now();
-      const r=await fetch(`http://127.0.0.1:${port}/link`,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(5000)});
+      const r=await fetch(`http://127.0.0.1:${port}/v2/snapshot`,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(5000)});
       if(!r.ok)throw Error(`HTTP ${r.status}`);
       await r.arrayBuffer();samples.push(performance.now()-start);
     }
     const max=Math.max(...samples);
-    return {name:"Link latency",level:max<50?"ok":"warn",detail:`/link max ${max.toFixed(1)} ms across 3 requests (target < 50 ms)`};
+    return {name:"Link latency",level:max<50?"ok":"warn",detail:`/v2/snapshot max ${max.toFixed(1)} ms across 3 requests (target < 50 ms)`};
   }catch(e){return {name:"Link latency",level:"warn",detail:`serve unavailable: ${errorText(e)}`};}
 }

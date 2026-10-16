@@ -1196,7 +1196,7 @@ function parseEnvelope(raw) {
   switch (raw.type) {
     case "entity": {
       const d = raw.data;
-      if (!isObj(d) || !["executor", "account", "host", "repo", "counts", "attention", "activity", "job"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > 128)
+      if (!isObj(d) || !["executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
         return null;
       return { v: 1, type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
     }
@@ -1289,7 +1289,7 @@ class LinkStore {
 }
 
 // orca-plugin/src/transports/choose.ts
-var TRANSPORT_ORDER = ["api", "http", "channel", "bridge"];
+var TRANSPORT_ORDER = ["api", "channel", "bridge"];
 async function chooseTransport(ts, forced) {
   const probe = async (t) => {
     try {
@@ -1313,6 +1313,7 @@ async function chooseTransport(ts, forced) {
 // orca-plugin/src/transports/api.ts
 function apiTransport(o) {
   let connection = null;
+  let hello = null;
   let seq = 0;
   let watches = 0;
   const client = () => connection ??= Promise.resolve().then(o.connect);
@@ -1342,7 +1343,7 @@ function apiTransport(o) {
               return false;
             if (!c)
               return false;
-            await c.hello();
+            hello = await c.hello();
             return true;
           }),
           new Promise((resolve) => {
@@ -1367,7 +1368,10 @@ function apiTransport(o) {
     watch(onEnvelope, onSnapshot, onFailure) {
       watches++;
       let stopped = false, busy = false, resetPending = false;
-      let unsubscribe = () => {};
+      let unsubscribe = () => {}, cancelHeartbeat = () => {};
+      let clientId = null;
+      const delivered = new Set;
+      let deliveries = Promise.resolve();
       const refresh = async () => {
         if (stopped || busy)
           return;
@@ -1395,9 +1399,48 @@ function apiTransport(o) {
         const c = await client();
         if (stopped || !c)
           return;
+        const capabilities = hello ??= await c.hello();
+        if (o.notifier && capabilities.ops.includes("client.register") && capabilities.events.includes("notify")) {
+          const register = async () => {
+            const result = await c.call("client.register", { kind: "orca", version: o.notifier.version, notifier: true });
+            clientId = result.client_id;
+          };
+          await register();
+          if (stopped)
+            return;
+          let renewing = false;
+          cancelHeartbeat = o.timers.every(30000, () => {
+            if (stopped || renewing)
+              return;
+            renewing = true;
+            c.call("client.heartbeat", { client_id: clientId }).catch(async (e) => {
+              if (!stopped && e?.code === "invalid_input")
+                await register();
+              else
+                o.log?.(`pacer notifier heartbeat: ${String(e)}`);
+            }).catch((e) => o.log?.(`pacer notifier registration: ${String(e)}`)).finally(() => {
+              renewing = false;
+            });
+          });
+        }
+        if (stopped)
+          return;
         unsubscribe = c.subscribe(seq, (e) => {
           if (stopped)
             return;
+          if (e.type === "notify") {
+            const data = e.data;
+            if (!clientId || !data || data.client_id !== clientId || typeof data.key !== "string" || typeof data.title !== "string" || typeof data.body !== "string")
+              return;
+            deliveries = deliveries.then(async () => {
+              if (stopped || delivered.has(data.key))
+                return;
+              const result = await o.notifier.deliver(data);
+              if (result !== false)
+                delivered.add(data.key);
+            }).catch((e) => o.log?.(`pacer notification: ${String(e)}`));
+            return;
+          }
           if (e.type === "reset") {
             if (busy)
               resetPending = true;
@@ -1427,6 +1470,7 @@ function apiTransport(o) {
         watches--;
         unsubscribe();
         cancelPoll();
+        cancelHeartbeat();
       };
     }
   };
@@ -1640,8 +1684,8 @@ function shortGoal(goal, max = 90) {
 
 // orca-plugin/src/notify.ts
 var shownAt = new WeakMap;
-async function deliverNotification(host, message, nowS) {
-  if (nowS - (shownAt.get(host) ?? -Infinity) < 5)
+async function deliverNotification(host, message, nowS, serviceDecided = false) {
+  if (!serviceDecided && nowS - (shownAt.get(host) ?? -Infinity) < 5)
     return false;
   const previous = shownAt.get(host);
   shownAt.set(host, nowS);
@@ -1979,7 +2023,7 @@ function createPlugin(deps) {
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
-      apiTransport({ timers, log: (m) => ctx.log(m), connect: async () => {
+      apiTransport({ timers, notifier: { version: deps.version ?? "0", deliver: (data) => deliverNotification(ctx.host, { title: data.title, body: data.body }, deps.nowS(), true) }, log: (m) => ctx.log(m), connect: async () => {
         const client = await deps.connect?.(settings) ?? null;
         if (stopped) {
           client?.close();
@@ -2055,7 +2099,7 @@ function createPlugin(deps) {
         }
         const snapshot = store.snapshot;
         processing = processing.then(async () => {
-          if (!stopped)
+          if (!stopped && active?.id !== "api")
             await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS());
         }).catch(logError);
       });
@@ -2111,7 +2155,7 @@ function createPlugin(deps) {
     store.onChange(() => scheduleRender());
     timers.every(1000, () => {
       processing = processing.then(async () => {
-        if (!stopped)
+        if (!stopped && active?.id !== "api")
           await notifyNewAlerts(ctx.host, store.snapshot, settings, activatedAtS, deps.nowS());
       }).catch(logError);
     });

@@ -129,3 +129,17 @@ For the background service, install it with the chosen port using
 `PACER_PORT=4318 pacer service install`, then use the same `PACER_PORT` with
 `pacer open`. Do not run both a foreground daemon and the service on the same
 port.
+
+## Client compatibility
+
+Console commands and TUI actions use v2 operations. The TUI hides actions
+missing from `hello.ops`; task focus uses the console until live sessions ship.
+`/state` and `/console/*` have been removed. Internal status probes use
+`/v2/snapshot`. `/link` and `/events` remain available with
+`Deprecation: true` and `Sunset: 3.0` for older plugins. Automatic Orca transport
+selection tries API, channel, then bridge; HTTP can still be selected explicitly.
+
+`pacer status --line` adds `▸<running> ⚑<attention>` from the service counts.
+It waits up to 300 ms, then uses local budget data without counts. When the
+service is unavailable and the stored snapshot is over 120 seconds old, it
+prints `pacer not running · pacer serve`.

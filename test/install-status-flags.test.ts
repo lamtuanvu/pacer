@@ -72,7 +72,9 @@ test("status --hook configured planner renders subscription budget context", asy
 });
 
 test("status --line renders the budget line", async () => {
-  const r = await main(["status", "--line"], await withStrategy());
+  const ctx=await withStrategy();
+  await Bun.write(join(ctx.pacerHome,"link/latest.json"),JSON.stringify({v:1,seq:0,at:ctx.now,budget:null,mode:null,tasks:[],alerts:[],console:null}));
+  const r = await main(["status", "--line"], ctx);
   expect(r.code).toBe(0);
   expect(r.out).toContain("◆ Budget");
   expect(r.err).toBe("");
@@ -81,7 +83,7 @@ test("status --line renders the budget line", async () => {
 test("status --line exits zero without a strategy", async () => {
   const r = await main(["status", "--line"], fakeCtx());
   expect(r.code).toBe(0);
-  expect(r.out).toContain("◆ Budget ? (no strategy found");
+  expect(r.out).toBe("pacer not running · pacer serve");
   expect(r.err).toBe("");
 });
 
