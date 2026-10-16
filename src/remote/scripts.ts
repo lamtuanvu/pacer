@@ -13,7 +13,9 @@ sort -rn | head -n 15 | while read -r mtime file; do
   printf 'mtime=%s\\n%s\\n' "$mtime" "$line"
   break
 done`,
-  PROBE: `printf 'git=%s\\n' "$(git --version)"
+  PROBE: `printf 'os=%s\\n' "$(uname -s)"
+printf 'arch=%s\\n' "$(uname -m)"
+printf 'git=%s\\n' "$(git --version)"
 printf 'codex=%s\\n' "$(command -v codex || true)"
 printf 'claude=%s\\n' "$(command -v claude || true)"
 printf 'setsid=%s\\n' "$(command -v setsid || true)"

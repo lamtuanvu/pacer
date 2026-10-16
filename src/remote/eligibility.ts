@@ -10,7 +10,11 @@ import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
 
-type Reading = { target: string; at: number; reachable: boolean };
+type Reading = { target: string; at: number; reachable: boolean; failures?: number };
+export function readHostReachability(ctx: Ctx, host: HostCfg): Reading | null {
+  const reading = readJson<Record<string, Reading>>(join(ctx.pacerHome, "cache", "hosts.json"))?.[host.alias];
+  return reading?.target === targetKey(host) && Number.isFinite(reading.at) ? reading : null;
+}
 const memory = new Map<string, Record<string, Reading>>();
 const inFlight = new Map<string, Promise<boolean>>();
 const targetKey = (host: HostCfg) => createHash("sha256").update(host.ssh).digest("hex");
@@ -53,6 +57,7 @@ export async function remoteExclusion(
   const alias = resolveRunner(s, runnerId)?.host;
   if (!alias) return null;
   const host = s.hosts[alias];
+  if (host.paused) return `${alias} paused`;
   const up = await (deps.reachable ? deps.reachable(host).catch(() => false) : reachable(ctx, host));
   if (!up) return `host ${alias} unreachable`;
   if (!task) return null;

@@ -5,6 +5,7 @@ export interface HostCfg {
   ssh: string;
   repos: Record<string, string>;
   maxTasks: number;
+  paused?: boolean;
   accounts: Record<string, { home: string }>;
 }
 
@@ -41,8 +42,9 @@ export function parseHosts(raw: unknown, problems: string[]): Record<string, Hos
     if (alias === "local") problems.push('hosts: "local" is reserved');
     if (!aliasPattern.test(alias)) problems.push(`${at}: invalid host alias`);
     if (!isObj(value)) { problems.push(`${at} must be a mapping`); continue; }
-    unknownKeys(value, ["ssh", "repos", "max_tasks", "accounts"], at);
+    unknownKeys(value, ["ssh", "repos", "max_tasks", "accounts", "paused"], at);
     if (typeof value.ssh !== "string" || !/^[A-Za-z0-9._@][A-Za-z0-9._@-]*$/.test(value.ssh)) problems.push(`${at}.ssh must be an ssh alias`);
+    if (value.paused !== undefined && typeof value.paused !== "boolean") problems.push(`${at}.paused must be a boolean`);
     const maxTasks = value.max_tasks === undefined ? 2 : value.max_tasks;
     if (typeof maxTasks !== "number" || !Number.isInteger(maxTasks) || maxTasks < 1 || maxTasks > 16) problems.push(`${at}.max_tasks must be 1..16`);
     const repos: Record<string, string> = {};
@@ -63,7 +65,7 @@ export function parseHosts(raw: unknown, problems: string[]): Record<string, Hos
       if (typeof cfg.home !== "string" || !cfg.home.trim()) problems.push(`${accountAt}.home must be a non-empty folder`);
       else accounts[account] = { home: cfg.home };
     }
-    hosts[alias] = { alias, ssh: typeof value.ssh === "string" ? value.ssh : "", repos, maxTasks: typeof maxTasks === "number" ? maxTasks : 2, accounts };
+    hosts[alias] = { alias, ssh: typeof value.ssh === "string" ? value.ssh : "", repos, maxTasks: typeof maxTasks === "number" ? maxTasks : 2, accounts, paused: value.paused === true };
   }
   return hosts;
 }

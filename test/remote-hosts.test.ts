@@ -82,7 +82,7 @@ test("host CLI exit codes and read-only ops", async () => {
   expect((await main(["host", "list", "--json"], ctx)).code).toBe(0);
   expect((await hosts.list(ctx))[0]).toMatchObject({ alias: "box", running: 0, runners: ["codex@box", "codex#team@box"] });
   expect(await callOp(ctx, "host.list", {})).toEqual(await hosts.list(ctx));
-  expect(await callOp(ctx, "host.check", { alias: "box", repo })).toMatchObject({ ok: true });
+  expect(await callOp(ctx, "host.check", { alias: "box", repo })).toMatchObject({ job: { state: "passed" } });
   ctx.env.PACER_FAKE_SSH_DOWN = "box-ssh";
   const failed = await main(["host", "check", "box", "--repo", repo], ctx);
   expect(failed.code).toBe(1);
