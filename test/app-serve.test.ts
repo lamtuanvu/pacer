@@ -17,3 +17,16 @@ test("app serves embedded HTML, JavaScript and CSS with content types and CSP", 
     expect(await head.text()).toBe("");
   }
 });
+
+test("app assets revalidate on every load so an update never runs a cached old app", () => {
+  const ctx = fakeCtx();
+  const first = appRoute(new Request("http://localhost:4317/app/app.js"), ctx);
+  expect(first.headers.get("cache-control")).toBe("no-cache");
+  const etag = first.headers.get("etag");
+  expect(etag).toMatch(/^"[0-9a-f]{32}"$/);
+  const again = appRoute(new Request("http://localhost:4317/app/app.js", { headers: { "if-none-match": etag! } }), ctx);
+  expect(again.status).toBe(304);
+  const stale = appRoute(new Request("http://localhost:4317/app/app.js", { headers: { "if-none-match": '"old"' } }), ctx);
+  expect(stale.status).toBe(200);
+  expect(appRoute(new Request("http://localhost:4317/app/"), ctx).headers.get("cache-control")).toBe("no-store");
+});
