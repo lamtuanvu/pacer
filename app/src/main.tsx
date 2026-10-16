@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { createApi } from "./api";
+import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./store";
 import { resolveRoute, type Route } from "./router";
@@ -43,8 +44,15 @@ function App() {
     window.addEventListener("hashchange", navigate);
     return () => { unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
   }, []);
-  // Task 4 adds the complete setup checklist. Only known required failures gate this scaffold.
-  const setupComplete = state.snapshot?.serviceInstalled !== false && !!state.snapshot?.budget?.planner;
+  const [checklist, setChecklist] = useState<SetupChecklist>();
+  useEffect(() => {
+    let active = true;
+    const refresh = () => { void api.call<SetupChecklist>("setup.check", {}).then(result => { if (active) setChecklist(result); }, () => {}); };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, [api, state.invalidations.setup, state.connected]);
+  const setupComplete = checklist?.complete ?? false;
   const route = resolveRoute(hash, setupComplete);
   return <TaskContext.Provider value={{ state, api }}><Shell state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} route={route}><Screen route={route} /></Shell></TaskContext.Provider>;
 }
