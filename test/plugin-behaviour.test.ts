@@ -291,7 +291,7 @@ test("open command shows where to act", async () => {
  for(const managed of [true,false]) {
  const f=fixture(100,managed);try {
   await f.start();expect(await f.commands.get("open")!()).toEqual({ok:true});
-  expect(notes(f).at(-1)!.params).toEqual({title:"Open pacer",body:"Run `pacer dashboard` in a terminal. The pacer app opens from here once it ships."});
+  expect(notes(f).at(-1)!.params).toEqual({title:"Open pacer",body:"Run `pacer open` in a terminal to open the pacer app."});
   expect(await f.commands.get("open")!()).toEqual({ok:true});
   expect(notes(f).filter(n=>n.params.title==="Open pacer")).toHaveLength(2);
   expect(sends(f)).toHaveLength(0);

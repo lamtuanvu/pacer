@@ -47,7 +47,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     ctx.commands.register("open", async () => {
       await ctx.host.call("notifications.show", {
         title: "Open pacer",
-        body: "Run `pacer dashboard` in a terminal. The pacer app opens from here once it ships.",
+        body: "Run `pacer open` in a terminal to open the pacer app.",
       });
       return { ok: true };
     });
