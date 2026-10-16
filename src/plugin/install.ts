@@ -8,6 +8,7 @@ import { orcaUserDataDir, PLUGIN_RECORD } from "../link/paths";
 import type { Ctx } from "../types";
 import { PANEL_PLACEHOLDER, PLUGIN_FILES, PLUGIN_VERSION } from "./assets.generated";
 import { clearLegacyBridge, legacyPluginInstalled } from "./migration";
+import { PANEL_OWNER_MARKER } from "./panel-owner";
 
 export const MANAGED_MARKER = ".pacer-managed";
 export const LIVE_PANEL = join("panel", "live.html");
@@ -55,7 +56,9 @@ export async function uninstallPlugin(ctx: Ctx, platform?: NodeJS.Platform): Pro
   const report = await uninstallPlanner(ctx, PLUGIN_RECORD);
   if (!report) return null;
   const dir = pluginDir(ctx), live = join(dir, LIVE_PANEL);
-  if (existsSync(live)) { rmSync(live); report.removed.push(live); }
+  for (const path of [live, join(dir, PANEL_OWNER_MARKER)]) {
+    if (existsSync(path)) { rmSync(path); report.removed.push(path); }
+  }
   for (const d of [join(dir, "panel"), join(dir, "assets"), dir]) {
     try { if (existsSync(d) && readdirSync(d).length === 0) rmdirSync(d); } catch { /* keep non-empty */ }
   }
