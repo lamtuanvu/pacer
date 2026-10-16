@@ -5,7 +5,7 @@ import { fakeCtx } from "./helpers";
 import { callOp } from "../src/api/ops";
 import { createTask } from "../src/tasks/store";
 import { emptySnapshot, LIMITS, clip } from "../src/link/envelope";
-import { initialState, reduceStore } from "../app/src/store";
+import { initialState, reduceStore } from "../app/src/data/store";
 import { mergeTask, tasksModel } from "../app/src/model/tasks";
 import { executorLabel } from "../src/view-model/words";
 import { executorStatus, routingStatus } from "../app/src/model/executors";
