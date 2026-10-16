@@ -1766,11 +1766,44 @@ function escapeHtml(s) {
 }
 var h = (v) => escapeHtml(String(v ?? ""));
 
+// src/view-model/words.ts
+var tones = {
+  good: "good",
+  info: "info",
+  warn: "warn",
+  bad: "bad",
+  muted: "neutral",
+  EXHAUSTED: "bad",
+  AHEAD: "warn",
+  NEAR_LIMIT: "warn",
+  EXPIRING: "warn",
+  EXPIRING_SOON: "warn",
+  OK: "good",
+  ON_PACE: "good",
+  BEHIND: "good",
+  UNMETERED: "good"
+};
+var toneFor = (value) => Object.hasOwn(tones, value) ? tones[value] : "neutral";
+var verdicts = {
+  ON_PACE: "Available",
+  OK: "Available",
+  UNMETERED: "Available",
+  AHEAD: "Ahead of pace",
+  BEHIND: "Behind pace",
+  EXPIRING: "Expiring soon",
+  EXPIRING_SOON: "Expiring soon",
+  NEAR_LIMIT: "Near limit",
+  EXHAUSTED: "Out of quota",
+  behind: "Behind pace",
+  on_pace: "On pace",
+  ahead: "Ahead of pace",
+  out: "Out of quota",
+  unknown: "Usage unknown"
+};
+var verdictWords = (v) => Object.hasOwn(verdicts, v) ? verdicts[v] : "Unknown";
+
 // src/view-model/panel.ts
 var providerLabel = (p) => p.agent ? runnerLabel(p) : displayName2(p.id);
-var words = { ON_PACE: "Available", OK: "Available", UNMETERED: "Available", AHEAD: "Ahead of pace", BEHIND: "Behind pace", EXPIRING: "Expiring soon", EXPIRING_SOON: "Expiring soon", NEAR_LIMIT: "Near limit", EXHAUSTED: "Out of quota" };
-var verdictWords = (v) => Object.hasOwn(words, v) ? words[v] : "Unknown";
-var tone = (v) => v === "EXHAUSTED" ? "bad" : ["AHEAD", "NEAR_LIMIT", "EXPIRING", "EXPIRING_SOON"].includes(v) ? "warn" : ["OK", "ON_PACE", "BEHIND", "UNMETERED"].includes(v) ? "good" : "neutral";
 function headline(p, _now = 0) {
   const name = p?.agent ? providerLabel(p) : "Claude";
   switch (p?.verdict) {
@@ -1796,7 +1829,7 @@ function meter(p, slim = false) {
   if (p.usedPct === null)
     return "";
   const used = Math.max(0, Math.min(100, p.usedPct)), pace = p.pacePct == null ? null : Math.max(0, Math.min(100, p.pacePct));
-  return `<div class="meter ${slim ? "slim" : ""} ${tone(p.verdict)}" role="progressbar" aria-label="${h(providerLabel(p))} usage${pace === null ? "" : `, pace ${pace}%`}" aria-valuenow="${used}" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:${used}%"></div>${pace === null ? "" : `<div class="pace" style="left:${pace}%"></div>`}</div>`;
+  return `<div class="meter ${slim ? "slim" : ""} ${toneFor(p.verdict)}" role="progressbar" aria-label="${h(providerLabel(p))} usage${pace === null ? "" : `, pace ${pace}%`}" aria-valuenow="${used}" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:${used}%"></div>${pace === null ? "" : `<div class="pace" style="left:${pace}%"></div>`}</div>`;
 }
 // orca-plugin/src/panel/icons.ts
 var mark = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><rect x="4" y="20" width="40" height="8" rx="4" fill="var(--border)"></rect><rect x="4" y="20" width="22" height="8" rx="4" fill="currentColor"></rect><rect class="brand-tick" x="29" y="12" width="4" height="24" rx="2"></rect></svg>`;

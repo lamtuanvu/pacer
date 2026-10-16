@@ -5,7 +5,8 @@ import { ApiError, type BrowserApi } from "../api";
 import { draftStorage } from "../model/draft";
 import { Button } from "../ds/Button";
 import { Pill } from "../ds/Pill";
-import { executorLabel, taskHref, taskStatus, type TaskSummary } from "../model/tasks";
+import { taskHref, type TaskSummary } from "../model/tasks";
+import { executorLabel, taskStatus } from "../../../src/view-model/words";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
 export const useTaskContext = () => useContext(TaskContext);
 export function ErrorMessage({ error }: { error: unknown }) {

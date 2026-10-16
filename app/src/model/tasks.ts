@@ -1,7 +1,7 @@
+import { executorLabel, taskStatus } from "../../../src/view-model/words";
 import type { Account } from "./accounts";
 import type { TaskData } from "../../../src/link/envelope";
 import type { TaskResult } from "../../../src/tasks/types";
-export type Tone = "good" | "warn" | "bad" | "info" | "neutral";
 export type TaskTab = "running" | "review" | "history";
 export interface TaskSummary {
   task_id: string; goal?: string; state: string; kind: string | null; requested_executor: string | null;
@@ -11,37 +11,12 @@ export interface TaskSummary {
 }
 export const kinds = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
 export const taskHref = (id: string) => `#/tasks/${encodeURIComponent(id)}`;
-/** Public labels shared by every screen; account names distinguish endpoints. */
-export function executorLabel(id: string | null | undefined, accounts: Account[] = []): string {
-  if (!id) return "Automatic";
-  const [local, host] = id.split("@");
-  const [agent, name] = local!.split("#");
-  const account = accounts.find(a => a.runners?.includes(id) || a.name === name);
-  const native = ({"claude-code":"Claude Code",claude:"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",antigravity:"Antigravity"} as Record<string,string>)[agent!];
-  const defaultAccount = account?.source === "default" || (account?.folder && (
-    (agent === "codex" && account.folder.endsWith("/.codex")) ||
-    (agent === "claude-code" && account.folder.endsWith("/.claude"))
-  ));
-  const suffix = name && !defaultAccount ? ` · ${account?.name ?? name}` : "";
-  const label = agent === "opencode" ? `${account?.name ?? name ?? "OpenCode"}` : `${native ?? agent}${suffix}`;
-  return label + (host ? ` on ${host}` : "");
-}
-export function executorCaption(account?: Account): string {
-  if (account?.kind !== "endpoint") return "Agent CLI";
-  return account.connection?.base_url_host ? `Model endpoint · ${account.connection.base_url_host}` : "External OpenCode provider";
-}
 /** A queued snapshot must not regress a task already running or complete. */
 export function mergeTask(task: TaskSummary, live?: TaskData): TaskSummary {
   return {...task, ...(live ? {state: (live.state === "queued" && task.state === "running") || (activeTask(live.state) && !activeTask(task.state)) ? task.state : live.state, review: live.review ?? task.review, resolved: live.resolved ?? task.resolved, goal: live.goal || task.goal} : {})};
 }
 export const activeTask = (state: string) => state === "running" || state === "queued";
 export const needsReview = (task: { state: string; review?: unknown; resolved?: string | null; dismissed?: boolean }) => ["done", "partial"].includes(task.state) && !task.review && !task.resolved && !task.dismissed;
-export function taskStatus(task: { state: string; review?: { accepted: boolean } | null }): { label: string; tone: Tone } {
-  if (task.review) return { label: task.review.accepted ? "Accepted" : "Rejected", tone: task.review.accepted ? "good" : "bad" };
-  const labels: Record<string, [string, Tone]> = { running: ["Working", "info"], queued: ["Queued", "neutral"], done: ["Done", "good"], partial: ["Partial", "warn"], failed: ["Failed", "bad"], limit: ["Out of quota", "warn"], stopped: ["Stopped", "neutral"] };
-  const [label, tone] = labels[task.state] ?? [task.state, "neutral"];
-  return { label, tone };
-}
 export function taskActions(task: { state: string }): ("stop" | "retry" | "dismiss")[] { return activeTask(task.state) ? ["stop"] : ["retry", "dismiss"]; }
 export function tasksModel(tasks: TaskSummary[], live: TaskData[], tab: TaskTab, dismissed: string[] = [], accounts: Account[] = []) {
   return tasks.map(task => {

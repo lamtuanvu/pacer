@@ -5,7 +5,7 @@ import { Button } from "../ds/Button";
 import { UsageMeter } from "../ds/UsageMeter";
 import { homeModel, type Routing, type Runner } from "../model/home";
 import { executorStatus, runnerAccount, routingStatus } from "../model/executors";
-import { executorLabel } from "../model/tasks";
+import { executorLabel } from "../../../src/view-model/words";
 import { Delegate } from "./Delegate";
 import { ErrorMessage, SnapshotRow, useQuery, useTaskContext } from "./task-shared";
 export const resetTime = (at: number) => new Date(at * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });

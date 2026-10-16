@@ -5,9 +5,7 @@ export const providerLabel=(p:ProviderLine)=>p.agent ? runnerLabel(p) : displayN
 export function initialView(s: LinkSnapshot, reachable: boolean, now: number): "overview" | "setup" {
  return reachable && s.budget && [...(s.consoles ?? []), ...(s.console ? [s.console] : [])].some(c=>c.handle && now-c.heartbeatAt<=30) ? "overview" : "setup";
 }
-const words:Record<string,string> = {ON_PACE:"Available",OK:"Available",UNMETERED:"Available",AHEAD:"Ahead of pace",BEHIND:"Behind pace",EXPIRING:"Expiring soon",EXPIRING_SOON:"Expiring soon",NEAR_LIMIT:"Near limit",EXHAUSTED:"Out of quota"};
-export const verdictWords = (v: string) => Object.hasOwn(words,v) ? words[v] : "Unknown";
-export const tone = (v: string) => v === "EXHAUSTED" ? "bad" : ["AHEAD","NEAR_LIMIT","EXPIRING","EXPIRING_SOON"].includes(v) ? "warn" : ["OK","ON_PACE","BEHIND","UNMETERED"].includes(v) ? "good" : "neutral";
+export { verdictWords, toneFor as tone } from "./words";
 export function rankedProviders(s: LinkSnapshot): ProviderLine[] {
  const b=s.budget;
  return (b?.ranked ?? []).filter((r,i,a)=>r.id!==b?.planner && a.findIndex(x=>x.id===r.id)===i).map(r => b?.providers.find(p=>p.id===r.id) ?? { ...r, usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false }).filter(p=>p.verdict!=="EXHAUSTED"&&!p.brokenReason&&!p.blockedReason&&!p.unavailableReason);

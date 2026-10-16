@@ -5,7 +5,8 @@ import { Pill } from "../ds/Pill";
 import { parseDiff } from "../model/diff";
 import { routingStatus } from "../model/executors";
 import type { Routing } from "../model/home";
-import { activeTask, executorLabel, mergeTask, needsReview, taskHref, taskStatus, type TaskSummary } from "../model/tasks";
+import { activeTask, mergeTask, needsReview, taskHref, type TaskSummary } from "../model/tasks";
+import { executorLabel, taskStatus } from "../../../src/view-model/words";
 import { resolveRoute } from "../router";
 import { ErrorMessage, useAction, useDraft, useQuery, useTaskContext } from "./task-shared";
 interface TaskDiff { base: string | null; worktree: string; diff: string; untracked: string[]; truncated: boolean }

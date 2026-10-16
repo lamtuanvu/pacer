@@ -6,7 +6,7 @@ import { executorStatus, runnerAccount, reorderRules, type Rule, type RoutingRul
 import type { Account } from "../model/accounts";
 import type { SetupChecklist } from "../../../src/setup/checklist";
 import type { Routing, Runner } from "../model/home";
-import { executorLabel, executorCaption } from "../model/tasks";
+import { executorLabel, executorCaption } from "../../../src/view-model/words";
 import { Dialog, ErrorMessage, useAction, useQuery } from "./task-shared";
 export function Executors() {
   const routing = useQuery<RoutingRules>("routing.get", {}), runners = useQuery<Runner[]>("runner.list", {}), accounts = useQuery<Account[]>("account.list", {});

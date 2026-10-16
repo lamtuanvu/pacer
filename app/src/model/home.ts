@@ -1,5 +1,6 @@
 import type { LinkSnapshot } from "../../../src/link/envelope";
-import { activeTask, executorLabel, needsReview, taskHref, taskStatus, type Tone } from "./tasks";
+import { activeTask, needsReview, taskHref } from "./tasks";
+import { executorLabel, taskStatus, type Tone } from "../../../src/view-model/words";
 import type { Account } from "./accounts";
 export interface Runner { id: string; state: "ok" | "blocked" | "broken" | "exhausted"; until: number | null; reason: string | null }
 export interface Routing { ranked: { id: string; verdict: string; reason: string }[]; excluded: { id: string; reason: string }[] }

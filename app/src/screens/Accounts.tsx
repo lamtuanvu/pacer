@@ -3,7 +3,7 @@ import { Button } from "../ds/Button";
 import { Card } from "../ds/Card";
 import { Pill } from "../ds/Pill";
 import { UsageMeter } from "../ds/UsageMeter";
-import { executorLabel } from "../model/tasks";
+import { executorLabel } from "../../../src/view-model/words";
 import { executorStatus } from "../model/executors";
 import { accountsModel, clock, type Account, type Limit } from "../model/accounts";
 import { Dialog, ErrorMessage, useAction, useDraft, useQuery } from "./task-shared";
