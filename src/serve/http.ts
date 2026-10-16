@@ -1,3 +1,5 @@
+import { currentVersion } from "../update/version";
+import { refreshManagedPlugin, type PluginRefreshDeps } from "./plugin-refresh";
 import { randomBytes } from "node:crypto";
 import { checkSession, safeEqual } from "./app-auth";
 import { appPage, appRoute } from "./app-routes";
@@ -31,7 +33,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected status endpoint and guarded console opener (the Orca plugin's HTTP transport). */
 export function startServer(
-  getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
+  getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; pluginRefreshDeps?: Partial<PluginRefreshDeps> } = {},
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
   const token = ensureToken(initialCtx);
@@ -167,6 +169,7 @@ export function startServer(
       return new Response("not found\n", { status: 404 });
     },
   });
+  void refreshManagedPlugin(initialCtx, currentVersion(), opts.pluginRefreshDeps).finally(refreshSnapshot);
   let busy = false;
   const tick = () => {
     if (busy) return;

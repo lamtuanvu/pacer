@@ -29,7 +29,9 @@ test("plugin install records generated files and leaves panel output untracked",
   expect(readManifest(ctx).planners["orca-plugin"]?.files.map(f => f.action)).toEqual(["created", "created", "created", "created"]);
   expect(readManifest(ctx).planners["orca-plugin"]?.files.some(f => f.path.endsWith("live.html"))).toBe(false);
   expect(r.out).toContain("development plugin paths");
-  for (const cap of ["workspace:read", "terminal:send", "notifications:show", "events:subscribe", "storage", "settings:own"]) expect(r.out).toContain(cap);
+  const manifest = JSON.parse(PLUGIN_FILES.find(f => f.rel === "orca-plugin.json")!.text);
+  const listed = r.out.match(/It asks for: ([^;]+);/)![1]!.split(", ");
+  expect(listed).toEqual(manifest.capabilities.map((cap: { kind: string }) => cap.kind));
   expect(fake.calls).toEqual([]);
 });
 

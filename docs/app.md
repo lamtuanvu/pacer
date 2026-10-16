@@ -13,6 +13,11 @@ With the background service installed and running:
 pacer open
 ```
 
+When Orca is running, the app opens in an Orca browser tab; otherwise it opens
+in your default browser. `pacer open --browser` always uses the default browser.
+A browser that was not opened by `pacer open` has no session and shows
+"Session ended"; run `pacer open` again to sign it in.
+
 If you have not installed the service, run `pacer service install` first.
 Alternatively, keep `pacer serve` running in a terminal. `pacer open` requires
 a running daemon; it does not start one.

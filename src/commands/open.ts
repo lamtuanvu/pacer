@@ -3,16 +3,25 @@ import type { Command, Result } from "./types";
 import { clearSessions, createCode } from "../serve/app-auth";
 import { DEFAULT_PORT } from "../serve/http";
 
-export const OPEN_USAGE = "open [--print] [--logout] [<screen>]             open the pacer app (requires pacer serve)";
+export const OPEN_USAGE = "open [--print] [--logout] [--browser] [<screen>]  open the pacer app (requires pacer serve)";
 export type OpenDeps = { opener: (url: string) => Promise<void> };
 const defaultOpener: OpenDeps["opener"] = async url => {
   const result = await Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], { stdout: "ignore", stderr: "ignore" }).exited;
   if (result !== 0) throw Error("could not open the browser; run pacer open --print");
 };
 
+/** Open the app in an Orca browser tab when Orca is running, so it lives next to the work. */
+export async function openInOrca(ctx: Ctx, url: string): Promise<boolean> {
+  if (!ctx.which("orca")) return false;
+  const status = await ctx.run(["orca", "status"], 5000).catch(() => null);
+  if (!status || status.code !== 0 || !/runtimeReachable:\s*true/.test(status.stdout)) return false;
+  const tab = await ctx.run(["orca", "tab", "create", "--url", url, "--worktree", "active"], 10000).catch(() => null);
+  return !!tab && tab.code === 0;
+}
+
 export async function openCmd(args: string[], ctx: Ctx, deps: OpenDeps = { opener: defaultOpener }): Promise<Result> {
   const screens = args.filter(a => !a.startsWith("--"));
-  if (args.some(a => a.startsWith("--") && !["--print", "--logout"].includes(a)) || screens.length > 1) {
+  if (args.some(a => a.startsWith("--") && !["--print", "--logout", "--browser"].includes(a)) || screens.length > 1) {
     return { code: 2, out: "", err: `usage: pacer ${OPEN_USAGE}` };
   }
   try {
@@ -32,6 +41,7 @@ export async function openCmd(args: string[], ctx: Ctx, deps: OpenDeps = { opene
     url.searchParams.set("code", createCode(ctx));
     if (screens[0]) url.hash = `/${screens[0].replace(/^\/+/, "")}`;
     if (args.includes("--print")) return { code: 0, out: url.href, err: "" };
+    if (!args.includes("--browser") && await openInOrca(ctx, url.href)) return { code: 0, out: "Opened the pacer app in an Orca browser tab.", err: "" };
     await deps.opener(url.href);
     return { code: 0, out: "", err: "" };
   } catch (e) {

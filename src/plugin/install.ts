@@ -20,12 +20,14 @@ export function marketplacePluginInstalled(ctx: Pick<Ctx, "home" | "env">): bool
   return existsSync(marketplacePluginDir(ctx));
 }
 export function installSteps(dir: string, marketplace = false): string[] {
+  const manifest = JSON.parse(PLUGIN_FILES.find(file => file.rel === "orca-plugin.json")!.text) as { capabilities: { kind: string }[] };
+  const capabilities = manifest.capabilities.map(cap => cap.kind).join(", ");
   return [
     `pacer Orca plugin ${PLUGIN_VERSION} (${PLUGIN_KEY}) is in ${dir}`,
     "In Orca Settings > Plugins (pacer never edits Orca's settings):",
     marketplace ? "  1. Uninstall the marketplace pacer first." : "  1. Uninstall the marketplace pacer if installed; turn on the plugin system.",
     `  2. Under Development, add ${dir} to the development plugin paths.`,
-    '  3. Enable pacer. It asks for: workspace:read, terminal:send, notifications:show, events:subscribe, storage, settings:own; its worker runs as a normal local process.',
+    `  3. Enable pacer. It asks for: ${capabilities}; its worker runs as a normal local process.`,
     "Orca only refreshes plugin panels added as a development folder, so the live budget panel runs from there.",
   ];
 }
