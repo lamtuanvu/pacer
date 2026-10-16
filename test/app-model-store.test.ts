@@ -61,6 +61,10 @@ test("live store snapshots before streaming and refetches on reset and reconnect
   const store = createStore(api, FakeEvents as any);
   const stop = store.start();
   await flush();
+  expect(store.getState().snapshot?.tasks).toEqual([]);
+  FakeEvents.instances[0]!.emit("task", { id: "live", goal: "Live title", state: "running", executor: "codex", backend: null, worktree: null, updatedAt: 6 }, "6");
+  FakeEvents.instances[0]!.emit("task", { id: "live", goal: "Live title", state: "done", executor: "codex", backend: null, worktree: null, updatedAt: 7 }, "7");
+  expect(store.getState().snapshot?.tasks[0]).toMatchObject({goal:"Live title",state:"done"});
   expect(FakeEvents.instances[0]?.url).toBe("/v2/events?since=5");
   FakeEvents.instances[0]!.emit("open");
   FakeEvents.instances[0]!.emit("error");

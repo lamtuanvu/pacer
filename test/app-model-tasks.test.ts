@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { tasksModel, delegateParams, recentRepos, nextTaskLimit, taskActions, executorName } from "../app/src/model/tasks";
+import { tasksModel, delegateParams, recentRepos, nextTaskLimit, taskActions, executorLabel } from "../app/src/model/tasks";
 
 const task = (task_id: string, state: string, extra = {}) => ({ task_id, state, kind: "tests", requested_executor: null, attempts: [], result: null, review: null, resolved: null, ...extra });
 test("tabs distinguish active, unreviewed and historical tasks and preserve snapshot titles", () => {
@@ -11,7 +11,7 @@ test("tabs distinguish active, unreviewed and historical tasks and preserve snap
   expect(tasksModel(tasks, snapshot, "history").map(t => t.id)).toEqual(["a", "f"]);
   expect(taskActions(task("q", "queued"))).toEqual(["stop"]);
   expect(taskActions(task("f", "failed"))).toEqual(["retry", "dismiss"]);
-  expect(executorName("claude-code#work@box")).toBe("Claude Code on box");
+  expect(executorLabel("claude-code#work@box")).toBe("Claude Code · work on box");
 });
 test("snapshot events override stale query states and reviews", () => {
   const live = [{ id: "r", goal: "Done now", state: "done", executor: "codex", backend: null, worktree: null, updatedAt: 2 }];

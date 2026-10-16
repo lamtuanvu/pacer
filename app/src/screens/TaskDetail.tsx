@@ -3,8 +3,9 @@ import { Button } from "../ds/Button";
 import { Card } from "../ds/Card";
 import { Pill } from "../ds/Pill";
 import { parseDiff } from "../model/diff";
+import { routingStatus } from "../model/executors";
 import type { Routing } from "../model/home";
-import { activeTask, executorName, needsReview, taskHref, taskStatus, type TaskSummary } from "../model/tasks";
+import { activeTask, executorLabel, mergeTask, needsReview, taskHref, taskStatus, type TaskSummary } from "../model/tasks";
 import { resolveRoute } from "../router";
 import { ErrorMessage, useAction, useDraft, useQuery, useTaskContext } from "./task-shared";
 interface TaskDiff { base: string | null; worktree: string; diff: string; untracked: string[]; truncated: boolean }
@@ -46,12 +47,13 @@ function Changes({ id, revision }: { id: string; revision: string }) {
 }
 function Review({ task, reload }: { task: TaskSummary; reload: () => void }) {
   const [draft, setDraft] = useDraft(`pacer.review.${task.task_id}`, { note: "", executor: "" });
+  const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
   const routing = useQuery<Routing>("routing.route", task.kind ? { kind: task.kind } : {});
   const action = useAction();
   const review = (accepted: boolean) => { void action.run("task.review", { id: task.task_id, accepted, ...(draft.note.trim() ? { note: draft.note.trim() } : {}) }, () => { setDraft({ ...draft, note: "" }); reload(); }); };
   return <Card><h2>Your review</h2>{task.review && <><Pill tone={task.review.accepted ? "good" : "bad"}>{task.review.accepted ? "Accepted" : "Rejected"}</Pill>{task.review.note && <p>{task.review.note}</p>}</>}
     {needsReview(task) && <><label className="field">Note (optional)<textarea maxLength={2000} value={draft.note} onInput={e => setDraft({ ...draft, note: e.currentTarget.value })} /></label><div className="row"><Button variant="primary" disabled={action.busy} onClick={() => review(true)}>Accept</Button><Button disabled={action.busy} onClick={() => review(false)}>Reject</Button></div><p className="muted">Accepting records your review. The branch stays for you to merge.</p></>}
-    {!activeTask(task.state) && <div className="form-row"><label className="field">Retry executor (optional)<select value={draft.executor} onChange={e => setDraft({ ...draft, executor: e.currentTarget.value })}><option value="">Automatic</option>{routing.data?.ranked.map(r => <option value={r.id} key={r.id}>{executorName(r.id)} · {r.reason}</option>)}</select></label><Button disabled={action.busy} onClick={() => { void action.run<{ retry: TaskSummary }>("task.retry", { id: task.task_id, ...(draft.executor ? { executor: draft.executor } : {}) }, result => { location.hash = taskHref(result.retry.task_id); }); }}>Retry</Button><ErrorMessage error={routing.error} /></div>}
+    {!activeTask(task.state) && <div className="form-row"><label className="field">Retry executor (optional)<select value={draft.executor} onChange={e => setDraft({ ...draft, executor: e.currentTarget.value })}><option value="">Automatic</option>{routing.data?.ranked.map(r => <option value={r.id} key={r.id}>{executorLabel(r.id, accounts.data ?? [])} · {routingStatus(r).label}</option>)}</select></label><Button disabled={action.busy} onClick={() => { void action.run<{ retry: TaskSummary }>("task.retry", { id: task.task_id, ...(draft.executor ? { executor: draft.executor } : {}) }, result => { location.hash = taskHref(result.retry.task_id); }); }}>Retry</Button><ErrorMessage error={routing.error} /></div>}
     {activeTask(task.state) && <Button disabled={action.busy} onClick={() => { void action.run("task.stop", { id: task.task_id }, reload); }}>Stop</Button>}
     <div aria-live="polite"><ErrorMessage error={action.error} />{action.message}</div>
   </Card>;
@@ -67,12 +69,13 @@ function Task({ id }: { id: string }) {
   const revision = JSON.stringify(live);
   const query = useQuery<TaskSummary>("task.get", { id }, revision);
   const [tab, setTab] = useState("changes");
-  const task = query.data;
-  const status = taskStatus({ state: live?.state ?? task?.state ?? "Loading", review: live?.review ?? task?.review });
-  return <section className="screen"><a href="#/tasks">← Tasks</a><div className="top"><h1>{live?.goal || id}</h1><Pill tone={status.tone}>{status.label}{task && needsReview(task) ? " · waiting for review" : ""}</Pill></div><ErrorMessage error={query.error} />{query.error && <Button onClick={query.reload}>Try again</Button>}
-    {task && <><Card><dl className="facts"><dt>Executor</dt><dd>{executorName(live?.executor ?? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requested_executor)}</dd><dt>Kind</dt><dd>{task.kind ?? "Not specified"}</dd><dt>Where</dt><dd><code>{live?.worktree ?? task.result?.worktree ?? "Not available"}</code></dd><dt>Changes</dt><dd>{live?.progress ? `${live.progress.files} files · ${live.progress.commits} commits` : task.result?.files || "Not available"}</dd>{task.result?.acceptance && <><dt>Acceptance</dt><dd><Pill tone={task.result.acceptance.passed ? "good" : "bad"}>{task.result.acceptance.passed ? "Passed" : "Failed"}</Pill><pre className="acceptance-output">{task.result.acceptance.tail}</pre></dd></>}</dl></Card>
+  const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
+  const task = query.data && mergeTask(query.data, live);
+  const status = taskStatus({ state: task?.state ?? live?.state ?? "Loading", review: live?.review ?? task?.review });
+  return <section className="screen"><a href="#/tasks">← Tasks</a><div className="top"><h1>{task?.goal || live?.goal || id}</h1><Pill tone={status.tone}>{status.label}{task && needsReview(task) ? " · waiting for review" : ""}</Pill></div><ErrorMessage error={query.error} />{query.error && <Button onClick={query.reload}>Try again</Button>}
+    {task && <><Card><dl className="facts"><dt>Executor</dt><dd>{executorLabel(live?.executor ?? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requested_executor, accounts.data ?? [])}</dd><dt>Kind</dt><dd>{task.kind ?? "Not specified"}</dd><dt>Where</dt><dd><code>{live?.worktree ?? task.result?.worktree ?? "Not available"}</code></dd><dt>Changes</dt><dd>{live?.progress ? `${live.progress.files} files · ${live.progress.commits} commits` : task.result?.files || "Not available"}</dd>{task.result?.acceptance && <><dt>Acceptance</dt><dd><Pill tone={task.result.acceptance.passed ? "good" : "bad"}>{task.result.acceptance.passed ? "Passed" : "Failed"}</Pill><pre className="acceptance-output">{task.result.acceptance.tail}</pre></dd></>}</dl></Card>
     <div className="tabs" aria-label="Task view">{["changes", "log", "brief"].map(key => <Button className={tab === key ? "tab on" : "tab"} aria-pressed={tab === key} key={key} onClick={() => setTab(key)}>{key === "changes" ? "Changes" : key === "log" ? "Log" : "Brief"}</Button>)}</div>
-    {tab === "changes" && <Changes id={id} revision={revision} />}{tab === "log" && <LiveLog id={id} />}{tab === "brief" && <Card><h2>Goal</h2><p>{live?.goal ?? "The API does not include the stored brief."}</p><h2>Executor report</h2><pre className="report">{task.result?.report || "No report yet."}</pre></Card>}
+    {tab === "changes" && <Changes id={id} revision={revision} />}{tab === "log" && <LiveLog id={id} />}{tab === "brief" && <Card><h2>Goal</h2><p>{task.goal || live?.goal || "Goal not available."}</p><h2>Executor report</h2><pre className="report">{task.result?.report || "No report yet."}</pre></Card>}
     <Review task={task} reload={query.reload} /></>}
   </section>;
 }

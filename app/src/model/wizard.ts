@@ -1,6 +1,6 @@
 import type { Model } from "./accounts";
 export type Step = 1 | 2 | 3 | 4;
-export const agents = [{ id: "claude-code", name: "Claude Code" }, { id: "codex", name: "Codex" }, { id: "cursor", name: "Cursor" }, { id: "antigravity", name: "Antigravity" }, { id: "opencode", name: "Model endpoint (OpenCode)" }];
+export const agents = [{ id: "claude-code", name: "Claude Code" }, { id: "codex", name: "Codex" }, { id: "cursor", name: "Cursor" }, { id: "agy", name: "Antigravity" }, { id: "opencode", name: "Model endpoint (OpenCode)" }];
 export const blankWizard = { agent: "claude-code", account: "", name: "", base_url: "", key_source: "file", env_var: "", models: "[]", usage: "unmetered" };
 export type WizardDraft = typeof blankWizard;
 export const nextStep = (step: Step, agent: string): Step => step === 2 && agent !== "opencode" ? 4 : Math.min(4, step + 1) as Step;
@@ -24,3 +24,8 @@ export function endpointParams(draft: WizardDraft, key: string) {
     ...(key && ["keychain", "file"].includes(draft.key_source) ? { key } : {}), ...(draft.key_source === "env" ? { env_var: draft.env_var } : {}),
     models: (JSON.parse(draft.models) as Model[]).map(m => ({ ...m, tools: m.tools ?? true })), usage: draft.usage, test: true };
 }
+
+export function endpointResult(added: {state: string | {state: string; detail?: string}; detail?: string}): {state:string;detail?:string} {
+  return typeof added.state === "string" ? {state:added.state,...(added.detail ? {detail:added.detail} : {})} : added.state;
+}
+export const modelsFound = (count: number) => `${count} ${count === 1 ? "model" : "models"} found. Choose models below.`;

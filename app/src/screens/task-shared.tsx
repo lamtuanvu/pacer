@@ -4,7 +4,7 @@ import type { StoreState } from "../store";
 import { ApiError, type BrowserApi } from "../api";
 import { Button } from "../ds/Button";
 import { Pill } from "../ds/Pill";
-import { executorName, taskHref, taskStatus, type TaskSummary } from "../model/tasks";
+import { executorLabel, taskHref, taskStatus, type TaskSummary } from "../model/tasks";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
 export const useTaskContext = () => useContext(TaskContext);
 export function ErrorMessage({ error }: { error: unknown }) {
@@ -61,6 +61,7 @@ export function TaskRow({ task, reload, onDismiss }: { task: ReturnType<typeof i
   return <div className="task-row"><Pill tone={task.status.tone}>{task.status.label}</Pill><div className="grow"><TaskLink id={task.id}>{task.goal}</TaskLink><div className="muted">{task.executor}{task.kind && ` · ${task.kind}`}{task.placement?.mode && ` · ${task.placement.mode} worktree`}</div></div><div className="row-actions">{task.actions.map(op => <Button key={op} size="sm" disabled={action.busy} onClick={() => { void action.run<{ retry?: TaskSummary; dismissed?: string[]; unknown?: string[] }>(`task.${op}`, op === "dismiss" ? { ids: [task.id] } : { id: task.id }, result => { if (result.dismissed) onDismiss(result.dismissed); reload(); if (result.unknown?.length) throw new Error(`Unknown task: ${result.unknown.join(", ")}`); if (result.retry) location.hash = taskHref(result.retry.task_id); }); }}>{op === "stop" ? "Stop" : op === "retry" ? "Retry" : "Dismiss"}</Button>)}</div><div className="row-result" aria-live="polite"><ErrorMessage error={action.error} />{action.message}</div></div>;
 }
 export function SnapshotRow({ task }: { task: import("../../../src/link/envelope").TaskData }) {
+  const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
   const status = taskStatus(task);
-  return <div className="task-row"><Pill tone={status.tone}>{status.label}</Pill><div className="grow"><TaskLink id={task.id}>{task.goal}</TaskLink><div className="muted">{executorName(task.executor)}{task.progress && ` · ${task.progress.files} files · ${task.progress.commits} commits`}</div></div><TaskLink id={task.id}>Open</TaskLink></div>;
+  return <div className="task-row"><Pill tone={status.tone}>{status.label}</Pill><div className="grow"><TaskLink id={task.id}>{task.goal}</TaskLink><div className="muted">{executorLabel(task.executor, accounts.data ?? [])}{task.progress && ` · ${task.progress.files} files · ${task.progress.commits} commits`}</div></div><TaskLink id={task.id}>Open</TaskLink></div>;
 }

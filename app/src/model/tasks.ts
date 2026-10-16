@@ -1,20 +1,34 @@
+import type { Account } from "./accounts";
 import type { TaskData } from "../../../src/link/envelope";
 import type { TaskResult } from "../../../src/tasks/types";
 export type Tone = "good" | "warn" | "bad" | "info" | "neutral";
 export type TaskTab = "running" | "review" | "history";
 export interface TaskSummary {
-  task_id: string; state: string; kind: string | null; requested_executor: string | null;
+  task_id: string; goal?: string; state: string; kind: string | null; requested_executor: string | null;
   attempts: { executor: string; exit_code?: number; limit_hit?: boolean; timed_out?: boolean; log?: string }[];
   result: TaskResult | null; review: { accepted: boolean; note?: string | null; kind?: string | null; at?: number } | null;
   resolved: string | null; placement?: { mode?: string; why?: string } | null;
 }
 export const kinds = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
 export const taskHref = (id: string) => `#/tasks/${encodeURIComponent(id)}`;
-export function executorName(id: string | null | undefined): string {
+/** Public labels shared by every screen; account names distinguish endpoints. */
+export function executorLabel(id: string | null | undefined, accounts: Account[] = []): string {
   if (!id) return "Automatic";
-  const [agent, host] = id.split("@");
-  const name = agent!.split("#")[0]!;
-  return ({ "claude-code": "Claude Code", claude: "Claude", codex: "Codex", cursor: "Cursor", antigravity: "Antigravity", opencode: "Model endpoint" }[name] ?? name) + (host ? ` on ${host}` : "");
+  const [local, host] = id.split("@");
+  const [agent, name] = local!.split("#");
+  const account = accounts.find(a => a.runners?.includes(id) || a.name === name);
+  const native = ({"claude-code":"Claude Code",claude:"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",antigravity:"Antigravity"} as Record<string,string>)[agent!];
+  const defaultAccount = account?.source === "default" || (account?.folder && (
+    (agent === "codex" && account.folder.endsWith("/.codex")) ||
+    (agent === "claude-code" && account.folder.endsWith("/.claude"))
+  ));
+  const suffix = name && !defaultAccount ? ` · ${account?.name ?? name}` : "";
+  const label = agent === "opencode" ? `${account?.name ?? name ?? "OpenCode"} · Model endpoint` : `${native ?? agent}${suffix}`;
+  return label + (host ? ` on ${host}` : "");
+}
+/** A queued snapshot must not regress a task already running or complete. */
+export function mergeTask(task: TaskSummary, live?: TaskData): TaskSummary {
+  return {...task, ...(live ? {state: (live.state === "queued" && task.state === "running") || (activeTask(live.state) && !activeTask(task.state)) ? task.state : live.state, review: live.review ?? task.review, resolved: live.resolved ?? task.resolved, goal: live.goal || task.goal} : {})};
 }
 export const activeTask = (state: string) => state === "running" || state === "queued";
 export const needsReview = (task: { state: string; review?: unknown; resolved?: string | null; dismissed?: boolean }) => ["done", "partial"].includes(task.state) && !task.review && !task.resolved && !task.dismissed;
@@ -25,11 +39,11 @@ export function taskStatus(task: { state: string; review?: { accepted: boolean }
   return { label, tone };
 }
 export function taskActions(task: { state: string }): ("stop" | "retry" | "dismiss")[] { return activeTask(task.state) ? ["stop"] : ["retry", "dismiss"]; }
-export function tasksModel(tasks: TaskSummary[], live: TaskData[], tab: TaskTab, dismissed: string[] = []) {
+export function tasksModel(tasks: TaskSummary[], live: TaskData[], tab: TaskTab, dismissed: string[] = [], accounts: Account[] = []) {
   return tasks.map(task => {
     const update = live.find(t => t.id === task.task_id);
-    const merged = { ...task, ...(update ? { state: update.state, review: update.review ?? task.review, resolved: update.resolved ?? task.resolved } : {}) };
-    return { ...merged, id: task.task_id, goal: update?.goal || task.task_id, executor: executorName(update?.executor ?? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requested_executor), status: taskStatus(merged), actions: taskActions(merged), dismissed: dismissed.includes(task.task_id) || (update?.dismissed ?? false) };
+    const merged = mergeTask(task, update);
+    return { ...merged, id: task.task_id, goal: merged.goal || task.task_id, executor: executorLabel(update?.executor ?? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requested_executor, accounts), status: taskStatus(merged), actions: taskActions(merged), dismissed: dismissed.includes(task.task_id) || (update?.dismissed ?? false) };
   }).filter(task => !task.dismissed && (tab === "running" ? activeTask(task.state) : tab === "review" ? needsReview(task) : !activeTask(task.state) && !needsReview(task)));
 }
 export function nextTaskLimit(limit: number): number | null { return limit >= 200 ? null : Math.min(200, limit + 20); }

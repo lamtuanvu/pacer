@@ -9,7 +9,7 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
 function setup(){const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  local: { via: opencode, model: local/q, usage: unmetered }\n");return ctx;}
-const summaryKeys=["task_id","state","kind","requested_executor","placement","attempts","result","review","resolved"].sort();
+const summaryKeys=["task_id","goal","state","kind","requested_executor","placement","attempts","result","review","resolved"].sort();
 test("CLI status and route pin JSON top-level keys",async()=>{
  const ctx=setup();
  expect(Object.keys(JSON.parse((await main(["status","--json"],ctx)).out)).sort()).toEqual(["generatedAt","strategy","planner","mode","disabled","calendarPace","accounts","providers","executors"].sort());
