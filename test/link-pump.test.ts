@@ -199,3 +199,12 @@ test("a failed task publishes attention and counts, then clears attention on ret
  Object.assign(record,{retriedBy:"next"});
  expect((await pumpOnce({...ctx,now:ctx.now+2},deps)).find(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject({data:{id:`failed:${record.id}`,removed:true}});
 });
+
+test("pump dispatches attention notifications once to the active notifier",async()=>{
+ const {capacityFixture}=await import("./read-model-helpers"),{publish}=await import("../src/link/publish"),{register}=await import("../src/clients/registry");
+ const {s,st}=capacityFixture(),ctx=fakeCtx();register(ctx,{kind:"orca",version:"1",notifier:true});
+ const record={...task("failed"),createdAt:ctx.now,brief:{goal:"failed goal",repo:ctx.home},attempts:[]};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,envs,opts)=>publish(c,envs,{...opts,channel:false,bridge:false})};
+ expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(1);
+ expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(0);
+});

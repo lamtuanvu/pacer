@@ -201,3 +201,26 @@ for (const fails of [false, true]) test(`plugin owns API client lifecycle (faile
  } finally { await plugin.deactivate(); }
  expect(closes).toBe(1);
 });
+
+test("API worker registers and renews its notifier, delivering only targeted service notifications", async()=>{
+ const timers=new ManualTimers(),calls:{op:string;params:unknown}[]=[],shown:unknown[]=[];
+ const client=fakeClient({hello:async()=>({protocol:"2.6.0",pacer:"1",ops:["client.register","client.heartbeat"],events:["notify"]}),call:async<T>(op:string,params:unknown)=>{calls.push({op,params});return (op==="client.register"?{client_id:"orca-1",lease_s:30}:{ok:true}) as T;}});
+ const originalSnapshot=client.snapshot;
+ client.snapshot=async()=>{const result=await originalSnapshot();result.snapshot.alerts=[{key:"legacy",at:1,level:"warn",title:"Legacy alert",body:"body",notification:{kind:"failed",fromPanel:true}}];return result;};
+ const plugin=createPlugin({connect:async()=>client,timers,nowS:()=>timers.now/1000,version:"1",home:"/tmp/plugin-fixture",pluginRoot:"/tmp/plugin-fixture",fs:{exists:()=>true,readText:()=>null,writeTextAtomic(){}},http:{get:async()=>({status:401,body:""}),stream:()=>()=>{}}});
+ const ctx={host:{call:async(method:string,params:unknown)=>{if(method==="notifications.show"){shown.push(params);return {delivered:true};}return method==="settings.get"?{settings:{transport:"api",notifications:"all"}}:{value:null};}},commands:{register(){}},events:{on(){}},log(){}} as unknown as OrcaWorkerContext;
+ try{
+  await plugin.activate(ctx);await flush();
+  expect(calls).toContainEqual({op:"client.register",params:{kind:"orca",version:"1",notifier:true}});
+  const data={key:"k",title:"Needs you",body:"Review",actions:[],url:"/app/#tasks/t",client_id:"another"};
+  client.emit({seq:6,at:0,type:"notify",data});await flush();expect(shown).toEqual([]);
+  client.emit({seq:7,at:0,type:"notify",data:{...data,client_id:"orca-1"}});await flush();
+  client.emit({seq:8,at:0,type:"notify",data:{...data,client_id:"orca-1",key:"second"}});await flush();
+  expect(shown).toEqual([{title:"Needs you",body:"Review"},{title:"Needs you",body:"Review"}]);
+  client.emit({seq:9,at:0,type:"notify",data:{...data,client_id:"orca-1"}});await flush();expect(shown).toHaveLength(2);
+  await timers.advance(30000);
+  expect(calls).toContainEqual({op:"client.heartbeat",params:{client_id:"orca-1"}});
+  expect(shown).toHaveLength(2);
+ }finally{await plugin.deactivate();}
+ const count=calls.length;await timers.advance(60000);expect(calls).toHaveLength(count);
+});
