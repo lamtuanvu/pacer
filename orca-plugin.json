@@ -4,8 +4,8 @@
   "publisher": "lamtuanvu",
   "repository": "https://github.com/lamtuanvu/pacer",
   "name": "pacer",
-  "version": "0.1.24",
-  "description": "Budget-aware delegation: pacer's budget panel, delegate and strategy commands, and worker-finished signals.",
+  "version": "0.2.0",
+  "description": "pacer's budget and task status at a glance. Act in the pacer app: `pacer open`.",
   "engines": {
     "orca": ">=1.4.224"
   },
@@ -16,48 +16,23 @@
     "panels": [
       {
         "id": "budget",
-        "title": "pacer budget",
+        "title": "pacer",
         "icon": "gauge",
         "entry": "panel/live.html"
       }
     ],
     "commands": [
       {
-        "id": "delegate",
-        "title": "pacer: Delegate",
-        "context": "worktree"
-      },
-      {
-        "id": "switch-strategy",
-        "title": "pacer: Switch strategy",
-        "context": "global"
-      },
-      {
-        "id": "refresh-status",
-        "title": "pacer: Refresh status",
-        "context": "global"
-      },
-      {
-        "id": "open-console",
-        "title": "pacer: Open pacer console",
+        "id": "open",
+        "title": "pacer: Open",
         "context": "global"
       }
     ],
-    "events": [
-      {
-        "on": "agent.status.changed"
-      },
-      {
-        "on": "worktree.created"
-      }
-    ]
+    "events": []
   },
   "capabilities": [
     {
       "kind": "workspace:read"
-    },
-    {
-      "kind": "terminal:send"
     },
     {
       "kind": "notifications:show"
