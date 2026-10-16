@@ -69,6 +69,9 @@ export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = sp
   const create = () => {
     if (input.requestId) {
       const prior = listTasks(ctx, Infinity).find(t => t.requestId === input.requestId && ctx.now - t.createdAt >= 0 && ctx.now - t.createdAt <= 600);
+      if (prior && (prior.brief.goal !== input.brief.goal || prior.brief.repo !== input.brief.repo)) {
+        throw new CoreError("conflict", "request_id was already used for a different brief", "use a new request_id for a new task");
+      }
       if (prior) return prior;
     }
     try {
@@ -113,8 +116,7 @@ type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord };
 export async function review(
   ctx: Ctx, id: string, v: ReviewOptions, deps: RetryDeps = {},
 ): Promise<{ task: ApiTask; retry?: ApiTask }> {
-  // Record synchronously while taskMutation's revision lock is still held.
-  const { task, verdict, executor } = withTaskLock(ctx, id, () => {
+  const check = () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
     const verdict = v.verdict ?? (v.accepted === undefined ? undefined : v.accepted ? "accept" : "reject");
@@ -128,6 +130,9 @@ export async function review(
     }
     const executor = verdict === "send_back" ? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor ?? undefined : v.executor;
     if (verdict === "send_back" && !executor) throw new CoreError("invalid_input", "task has no executor to send back to");
+    return { verdict, executor };
+  };
+  const record = (verdict: ReviewVerdict, executor: string | undefined) => withTaskLock(ctx, id, () => {
     try {
       taskReview(ctx, id, verdict === "accept", v.kind, v.note);
       const reviewed = readTask(ctx, id)!, goal = shortGoal(reviewed.brief.goal, 60);
@@ -135,13 +140,15 @@ export async function review(
     } catch (e) {
       throw toCoreError(e);
     }
-    return { task: readTask(ctx, id)!, verdict, executor };
+    return readTask(ctx, id)!;
   });
+  const { verdict, executor } = withTaskLock(ctx, id, check);
   if (verdict === "send_back" || verdict === "retry") {
+    // Start the retry first: a verdict is recorded only when its retry exists.
     const result = await retry(ctx, id, { executor, ...(verdict === "send_back" ? { feedback: v.note } : {}) }, deps);
-    return { task: apiTask(ctx, result.of), retry: apiTask(ctx, result.retry) };
+    return { task: apiTask(ctx, record(verdict, executor)), retry: apiTask(ctx, readTask(ctx, result.retry.id) ?? result.retry) };
   }
-  return { task: apiTask(ctx, task) };
+  return { task: apiTask(ctx, record(verdict, executor)) };
 }
 
 /** Dismisses every known id; unknown ids are returned, never thrown, so one bad id can't stop the rest. */

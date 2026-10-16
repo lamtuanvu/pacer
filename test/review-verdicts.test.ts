@@ -119,3 +119,11 @@ test("task.review schema requires a verdict or legacy accepted and verdict-speci
     expect(schema.safeParse({ id: "t-x", ...input }).success).toBe(true);
   }
 });
+
+test("a send back whose retry cannot start records no verdict", async () => {
+  const { ctx, task } = fixture();
+  const failing = () => { throw new Error("executor unavailable"); };
+  await expect(tasks.review(ctx, task.id, { verdict: "send_back", note: "again" }, { delegate: failing })).rejects.toThrow();
+  expect(readTask(ctx, task.id)?.review).toBeUndefined();
+  expect(readLabels(ctx).filter(l => l.type === "task_review")).toHaveLength(0);
+});
