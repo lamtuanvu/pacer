@@ -51,6 +51,7 @@ test("delegate queues a task and task_status/task_wait/task_stop work on it", as
   expect(d.isError).toBeFalsy();
   const id = d.structuredContent.task_id;
   expect(spawned).toEqual([id]);
+  expect(readTask(ctx,id)?.source).toBe("planner");
   expect(d.structuredContent).toMatchObject({ state: "queued", kind: "debug" });
   expect((await call("task_status", { task_id: id })).structuredContent.state).toBe("queued");
   updateTask(ctx, id, (t) => { t.state = "done"; });

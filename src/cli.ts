@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { resolveRepo } from "./core/repos";
+import { resolveRepoInput } from "./core/repos";
 import { createInterface } from "node:readline/promises";
 import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
@@ -15,7 +15,7 @@ import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
 import { io } from "./install/stdin";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
 import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, strategyPath } from "./config/strategy";
@@ -201,7 +201,8 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
     const input=parseDelegateBrief(raw,process.cwd());
-    const t=core.tasks.delegate(ctx,{...input,repoRef:await resolveRepo(ctx,input.brief.repo),force:opts.force===true},cliDeps.spawnRunner);
+    const repoRef=await resolveRepoInput(ctx,input.brief.repo);
+    const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };

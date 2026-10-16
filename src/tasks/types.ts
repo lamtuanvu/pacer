@@ -15,6 +15,7 @@ export interface Brief {
   constraints?: string;
   context?: string;
   feedback?: string;
+  base?: string;
 }
 
 export interface RoutingNote {
@@ -97,6 +98,8 @@ export interface RunRef {
 }
 
 export interface TaskRecord {
+  source?: "planner" | "ui" | "cli";
+  requestId?: string;
   repo?: RepoRef;
   client?: string;
   /** Checkpoint for the in-flight attempt, retained when its runner resumes. */
@@ -127,7 +130,6 @@ export interface TaskRecord {
   retriedBy?: string;
   force?: boolean;
   fromPanel?: boolean;
-  source?: "planner" | "ui" | "cli";
   childPid?: number;
   attempts: Attempt[];
   result?: TaskResult;

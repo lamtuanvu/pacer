@@ -1,5 +1,6 @@
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
+import { createHash } from "node:crypto";
 import { repoFor, resolveRepo } from "./repos";
 import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -24,7 +25,7 @@ import { isTaskId, listTasks, readTask, updateTask, withTaskLock } from "../task
 import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
-import { withLock } from "./lock";
+import { withLock, withLockSync } from "./lock";
 
 function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], text: string): void {
   const executor = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor;
@@ -49,20 +50,36 @@ export function get(ctx: Ctx, id: string): TaskRecord {
   return t;
 }
 
-/** Newest first; each task's liveness is re-checked like `get`. */
-export function list(ctx: Ctx, o: { limit?: number } = {}): TaskRecord[] {
-  return listTasks(ctx, o.limit ?? 20).map((t) => taskStatus(ctx, t.id) ?? t);
+export interface ListOptions {
+  limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
+}
+
+/** Newest first; filter before taking the page. */
+export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
+  return listTasks(ctx, Infinity).filter(t => o.before === undefined || t.id < o.before)
+    .map(t => taskStatus(ctx, t.id) ?? t)
+    .filter(t => (o.repo === undefined || (t.repo ?? repoFor(ctx,t.brief.repo)).key === o.repo)
+      && (o.states === undefined || o.states.includes(t.state))
+      && (o.executor === undefined || (t.result?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? t.requestedExecutor) === o.executor)
+      && (o.since === undefined || t.createdAt >= o.since))
+    .slice(0, o.limit ?? 20);
 }
 
 export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): TaskRecord {
-  try {
-    const task = s ? apiDelegate(ctx, input, spawn, s) : apiDelegate(ctx, input, spawn);
-    // Retry records its own entry, including when the API injects this delegate.
-    if (!input.retryOf) taskActivity(ctx, task, "task_started", `Delegated “${shortGoal(task.brief.goal, 60)}” to ${executorName(task.executor ?? task.requestedExecutor)}`);
-    return task;
-  } catch (e) {
-    throw toCoreError(e);
-  }
+  const create = () => {
+    if (input.requestId) {
+      const prior = listTasks(ctx, Infinity).find(t => t.requestId === input.requestId && ctx.now - t.createdAt >= 0 && ctx.now - t.createdAt <= 600);
+      if (prior) return prior;
+    }
+    try {
+      const task = s ? apiDelegate(ctx, input, spawn, s) : apiDelegate(ctx, input, spawn);
+      if (!input.retryOf) taskActivity(ctx, task, "task_started", `Delegated “${shortGoal(task.brief.goal, 60)}” to ${executorName(task.executor ?? task.requestedExecutor)}`);
+      return task;
+    } catch (e) { throw toCoreError(e); }
+  };
+  // Delegate is synchronous for CLI/retry callers. This shares withLock's files;
+  // hashing keeps arbitrary client request ids out of filesystem paths.
+  return input.requestId === undefined ? create() : withLockSync(ctx, `delegate-request-${createHash("sha256").update(input.requestId).digest("hex")}`, create);
 }
 
 export async function wait(ctx: Ctx, id: string, timeoutS: number): Promise<TaskRecord> {
@@ -251,7 +268,7 @@ export async function retry(
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
     const input: DelegateInput = {
-      brief: { ...task.brief, ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      source: task.source, brief: { ...task.brief, ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
       ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
       ...(task.force ? { force: true } : {}),

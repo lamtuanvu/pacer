@@ -1,6 +1,8 @@
 import * as attention from "../core/attention";
 import { taskDetail, retryOptions } from "../core/task-detail";
-import { resolveRepo } from "../core/repos";
+import { isAbsolute } from "node:path";
+import { resolveRepo, resolveRepoInput, listReposWithBranches, addRepo, removeRepo } from "../core/repos";
+import { apiTask } from "./read-model/tasks";
 import { ACTIVITY_KINDS, readActivity } from "../activity/log";
 import { z } from "zod";
 import { spawn } from "node:child_process";
@@ -152,13 +154,26 @@ export const OPS: Record<string, OpDef> = {
   "host.check": op({ description: "Check SSH host prerequisites, checkouts and identity.", params: z.object({ alias: id, repo: z.string().min(1).optional() }), handler: (ctx, p) => core.hosts.check(ctx, p.alias, { repo: p.repo }) }),
   "task.get": op({ description: "One task's state and result.", params: z.object({ id }), handler: (ctx, p) => taskDetail(ctx, p.id) }),
   "task.retry_options": op({ description: "Executors available for retry in routing order.", params: z.object({ id }), handler: (ctx, p) => retryOptions(ctx, p.id) }),
-  "task.list": op({ description: "Recent tasks, newest first.", params: z.object({ limit: z.number().int().min(1).max(200).optional() }), handler: (ctx, p) => core.tasks.list(ctx, { limit: p.limit }).map(summarizeTask) }),
+  "repo.list": op({ description: "Registered repos with local branches, current first.", params: z.object({}), handler: ctx => listReposWithBranches(ctx) }),
+  "repo.add": op({ description: "Register a git repository.", params: z.object({path:z.string().min(1).max(4096)}), handler: (ctx,p) => addRepo(ctx,p.path) }),
+  "repo.remove": op({ description: "Remove a repository from the registry.", params: z.object({key:z.string().min(1)}), handler: (ctx,p) => removeRepo(ctx,p.key) }),
+  "task.list": op({ description: "Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.", params: z.object({
+    limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
+    states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
+  }), handler: (ctx,p) => {
+    if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))return core.tasks.list(ctx,p).map(summarizeTask);
+    const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
+    return {tasks:rows.slice(0,limit).map(t=>apiTask(ctx,t)),next:rows.length>limit?rows[limit-1].id:null};
+  } }),
   "task.delegate": op({
     description: "Hand a brief to an executor chosen by budget and priority (or `executor`).",
     params: z.object({ ...delegateSchema, repo: z.string().min(1) }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      return summarizeTask(core.tasks.delegate(ctx, {...parseDelegateBrief(p, p.repo), repoRef: await resolveRepo(ctx,p.repo), client: deps.client}, deps.spawnRunner ?? spawnRunner));
+      const repoRef=await resolveRepoInput(ctx,p.repo);
+      const input=parseDelegateBrief({...p,repo:isAbsolute(p.repo)?p.repo:repoRef.path},repoRef.path);
+      const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
+      return summarizeTask(core.tasks.delegate(ctx, {...input, repoRef, client: deps.client, source}, deps.spawnRunner ?? spawnRunner));
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
@@ -211,7 +226,7 @@ export const OPS: Record<string, OpDef> = {
   "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
-  "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null) }),
+  "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
   "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(async () => ({name: p.name, path: await strategy.use(ctx, p.name)}))) }),
   "strategy.show": op({ description: "Show a strategy's YAML, summary and active status.", params: z.object({name: id}), handler: (ctx, p) => strategyAction(() => strategy.show(ctx, p.name)) }),

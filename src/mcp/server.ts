@@ -1,4 +1,5 @@
-import { resolveRepo } from "../core/repos";
+import { isAbsolute } from "node:path";
+import { resolveRepoInput } from "../core/repos";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -47,7 +48,8 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     const ctx = getCtx();
     if (isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
     const input = parseDelegateBrief(a, process.cwd());
-    const t = core.tasks.delegate(ctx, {...input, repoRef: await resolveRepo(ctx,input.brief.repo)}, spawnFn);
+    const repoRef=await resolveRepoInput(ctx,input.brief.repo);
+    const t = core.tasks.delegate(ctx, {...input, brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path}, source:"planner", repoRef}, spawnFn);
     return json(summarizeTask(t));
   });
 

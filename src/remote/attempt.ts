@@ -59,7 +59,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const placement = resolvePlacement(task, ex.worktree, false, git.dirty);
     const excluded = await remoteExclusion(ctx, s, cfg.id, { repo: task.brief.repo, placement: placement.mode });
     if (excluded) return failed(excluded);
-    const base = ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch;
+    const base = task.brief.base ?? (ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch);
     const sha = await ctx.run(["git", "-C", git.top, "rev-parse", `${base}^{commit}`], 10000);
     if (sha.code) return failed(sha.stderr || "base is not a commit");
     const baseSha = sha.stdout.trim();
