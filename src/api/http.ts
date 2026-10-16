@@ -23,6 +23,7 @@ function sse(tailMs: number, poll: (send: (frame: string) => void) => boolean): 
         } catch (e) { clear(); controller.error(e); return true; }
         return false;
       };
+      send(": connected\n\n");
       if (tick()) return;
       timer = setInterval(tick, tailMs);
       keepalive = setInterval(() => {

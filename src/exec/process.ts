@@ -35,7 +35,9 @@ function spawn(spec: ExecSpec) {
   return Bun.spawn(spec.argv, {
     detached: true,
     cwd: spec.cwd,
-    env: spec.env,
+    // Tools that resolve paths from $PWD (OpenCode does) must see the child's
+    // directory, not the parent's.
+    env: { ...(spec.env ?? process.env), PWD: spec.cwd },
     stdin: spec.stdin !== undefined ? new Blob([spec.stdin]) : "ignore",
     stdout: "pipe",
     stderr: "pipe",

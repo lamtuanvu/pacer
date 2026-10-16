@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy } from "../config/strategy";
-import { agentPlans } from "../install/detection";
+import { AGENT_BINS, agentPlans } from "../install/detection";
 import { serviceBackend } from "../service";
 import { currentVersion } from "../update/version";
 import { readLiveHeartbeat } from "../plugin/live";
@@ -16,7 +16,11 @@ export async function checkSetup(ctx:Ctx):Promise<SetupChecklist> {
    const linked=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT||4317}/link`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(2000)});
    link=linked.ok&&linked.headers.get("x-pacer")==="1";
   }}catch{}
- return setupChecklist({version:currentVersion(),planner,service,link,live:!!readLiveHeartbeat(ctx.pacerHome),agents:agentPlans(ctx.home,ctx.pacerHome,ctx.which,ctx.env),errors},Date.now()/1000);
+ const plans=agentPlans(ctx.home,ctx.pacerHome,ctx.which,ctx.env);
+
+ const agents=[{id:"claude-code",name:"Claude Code",bin:"claude"},{id:"codex",name:"Codex",bin:"codex"},{id:"cursor",name:"Cursor",bin:"cursor-agent"},{id:"agy",name:"Antigravity",bin:"agy"},{id:"opencode",name:"OpenCode",bin:"opencode"}].map(a=>({id:a.id,name:a.name,installed:plans.find(p=>p.id===a.id)?.installed??false,cliInstalled:(a.id === "agy" ? [a.bin] : AGENT_BINS[a.id as keyof typeof AGENT_BINS]).some(bin=>!!ctx.which(bin))}));
+ const checklist=setupChecklist({version:currentVersion(),planner,service,link,live:!!readLiveHeartbeat(ctx.pacerHome),agents,errors},Date.now()/1000);
+ return {...checklist,items:checklist.items.map(item=>item.id.startsWith("agent:") ? {...item,installed:agents.find(a=>`agent:${a.id}`===item.id)?.cliInstalled??false} : item)};
 }
 export async function checkSetupCommand(ctx:Ctx):Promise<string> {
  const result=await checkSetup(ctx);

@@ -1,4 +1,4 @@
-export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; detail?:string; command?:string }
+export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string }
 export interface SetupChecklist { checkedAt:number; complete:boolean; items:SetupItem[] }
 export interface SetupFacts {
  version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean; live:boolean;

@@ -135,6 +135,6 @@ removed in the next minor release.
 The panel is a read-only status page. The worker never starts or contacts
 consoles. The `autoConsole` plugin setting has been removed; existing values are
 ignored. The only plugin command, **pacer: Open**, shows where to act: run
-`pacer dashboard` in a terminal until the pacer app ships. The bootstrap
+`pacer open` in a terminal to open the [pacer app](app.md). The bootstrap
 installer is unchanged. See the
 [information-only decision](decisions/2026-10-15-orca-plugin-information-only.md).

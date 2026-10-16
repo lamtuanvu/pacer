@@ -48,7 +48,7 @@ test("open prints a working single-use URL and serves the protected app and hell
   const headers = { cookie: cookie.split(";")[0]! };
   const page = await fetch(url + "/app/", { headers });
   expect(page.status).toBe(200);
-  expect(await page.text()).toContain("pacer app — coming soon");
+  expect(await page.text()).toContain('<div id="app"></div>');
   expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
   expect(page.headers.get("x-content-type-options")).toBe("nosniff");
   expect(page.headers.get("referrer-policy")).toBe("no-referrer");
@@ -173,7 +173,7 @@ test("app routes exchange codes, set security headers, and serve only embedded a
   for (const path of ["/app/", "/app/tasks/one"]) {
     const page = appRoute(new Request(`http://localhost:4317${path}`), ctx);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("pacer app — coming soon");
+    expect(await page.text()).toContain('<div id="app"></div>');
     expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
     expect(page.headers.get("cache-control")).toBe("no-store");
   }

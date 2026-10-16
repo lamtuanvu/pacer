@@ -24,7 +24,7 @@ const post = (url: string, h: Record<string, string>, body: string) => fetch(url
 
 async function readSse(res: Response, n: number): Promise<string> {
   const reader = res.body!.getReader(), dec = new TextDecoder(); let text = "";
-  while ((text.match(/\n\n/g) ?? []).length < n) { const { value, done } = await reader.read(); if (done) break; text += dec.decode(value); }
+  while ((text.match(/(?:^|\n)event:/g) ?? []).length < n) { const { value, done } = await reader.read(); if (done) break; text += dec.decode(value); }
   await reader.cancel(); return text;
 }
 
@@ -127,7 +127,8 @@ test("log follow streams new output and ends when the task is done", async () =>
   const res = await fetch(`${url}/v2/tasks/${t.id}/log?follow=1`, { headers: h });
   expect(res.status).toBe(200);
   const reader = res.body!.getReader(), dec = new TextDecoder();
-  const first = dec.decode((await reader.read()).value);
+  let first = "";
+  while (!first.includes("event: log\n")) { const chunk = await reader.read(); if (chunk.done) break; first += dec.decode(chunk.value); }
   expect(first).toContain('event: log\ndata: {"stdout":"first\\n","stderr":"warning\\n"}');
   await Bun.write(join(dir, "stdout"), "first\nsecond\n");
   updateTask(ctx, t.id, x => { x.state = "done"; });
@@ -171,7 +172,7 @@ test("log follow paces completed logs at four chunks per tick before done", asyn
         expect(data.stderr).toBe("");
         batch.push(data.stdout);
         if (batch.length === 1) setImmediate(flush);
-      } else {
+      } else if (!frame.startsWith(":")) {
         expect(frame).toBe("event: done\ndata: {}\n\n");
         doneFrame = true;
       }
@@ -181,4 +182,19 @@ test("log follow paces completed logs at four chunks per tick before done", asyn
     expect(batches.every(b => b.length <= 4)).toBe(true);
     expect(batches.flat()).toEqual(output);
   } finally { await reader.cancel(); }
+});
+
+test("idle SSE events and log follow deliver the first chunk within one second", async () => {
+  const ctx = fakeCtx(), dir = tmpDir();
+  const task = createTask(ctx, { brief: { goal: "g", repo: dir }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current", workdir: dir, logFile: "" }; });
+  for (const path of ["/v2/events", `/v2/tasks/${task.id}/log?follow=1`]) {
+    const response = await handleV2(new Request(`http://localhost${path}`), { getCtx: () => ctx });
+    const reader = response.body!.getReader();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const chunk = await Promise.race([reader.read(), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("first SSE chunk exceeded 1 s")), 1000); })]);
+      expect(new TextDecoder().decode(chunk.value)).toBe(": connected\n\n");
+    } finally { clearTimeout(timeout); await reader.cancel(); }
+  }
 });

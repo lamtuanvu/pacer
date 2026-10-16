@@ -105,6 +105,10 @@ export async function buildRelease(o: BuildOptions): Promise<{ dir: string; mani
   if (o.version === undefined && existsSync(assets) && !readFileSync(assets, "utf8").includes(`PLUGIN_VERSION = ${JSON.stringify(version)};`)) {
     throw new Error(`the bundled Orca plugin assets are not built for ${version}; run bun run plugin:build first`);
   }
+  const appAssets = join(o.root, "src", "app", "assets.generated.ts");
+  if (o.version === undefined && existsSync(appAssets) && !readFileSync(appAssets, "utf8").includes(`APP_VERSION = ${JSON.stringify(version)};`)) {
+    throw new Error(`the bundled app assets are not built for ${version}; run bun run app:build first`);
+  }
   const outRoot = o.outRoot ?? join(o.root, "dist", "release");
   const targets = o.targets ?? TARGETS;
   const log = o.log ?? (() => {});

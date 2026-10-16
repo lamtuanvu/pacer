@@ -120,3 +120,9 @@ test("stdout file preserves binary bytes and overflow kills the process", async 
   expect((await Bun.file(file).size)).toBeLessThanOrEqual(1024);
   expect(Date.now() - started).toBeLessThan(10000);
 });
+
+test("children see PWD set to their own directory, not the parent's", async () => {
+  const dir = tmpDir();
+  const r = await execProcess({ argv: ["sh", "-c", 'printf %s "$PWD"'], cwd: dir, env: { ...env, PWD: "/somewhere/else" }, timeoutMs: 15000 });
+  expect(r.stdout).toBe(dir);
+});

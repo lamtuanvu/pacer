@@ -12,7 +12,7 @@
   },
   "scripts": {
     "test": "TZ=Asia/Ho_Chi_Minh bun test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p app",
     "build": "bun build --compile src/cli.ts --outfile dist/pacer",
     "release": "bun scripts/release/build.ts",
     "release:prepare": "bun scripts/release/prepare.ts",
@@ -21,10 +21,12 @@
     "protocol:doc": "bun scripts/protocol-doc.ts",
     "release:npm": "bun scripts/release/npm.ts",
     "release:homebrew": "bun scripts/release/homebrew.ts",
-    "brand:render": "bun scripts/brand/render.ts"
+    "brand:render": "bun scripts/brand/render.ts",
+    "app:build": "bun app/build.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
+    "preact": "10.29.8",
     "yaml": "2.8.2",
     "zod": "4.6.5"
   },
