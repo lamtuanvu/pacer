@@ -26,6 +26,23 @@ test("channel errors preserve successful transports", async () => {
   const c = fakeCtx({ run: async (argv) => argv[1] === "agent-context" ? ({ code: 0, stdout: '{"commands":[{"path":["plugin","send"]}]}', stderr: "" }) : ({ code: 1, stdout: "", stderr: "channel unavailable" }) }); writeManifest(c, { version: 1, planners: { "orca-plugin": { planner: "orca-plugin", installedAt: 1, pacerArgv: [], files: [], commands: [], notes: [] } } });
   const r = await publish(c, [b], { platform: "darwin" }); expect(r.transports).toContain("outbox"); expect(r.transports).toContain("bridge"); expect(r.errors).toHaveLength(1);
 });
+test("entity envelopes stay in the outbox even when the channel is available", async () => {
+  const calls: string[][] = [];
+  const c = fakeCtx({run:async argv=>{calls.push(argv);return {code:0,stdout:'{"commands":[{"path":["plugin","send"]}]}',stderr:""};}});
+  const entity = {v:1 as const,type:"entity" as const,data:{kind:"counts" as const,id:"counts",value:{running:1}}};
+  writeManifest(c,{version:1,planners:{"orca-plugin":{planner:"orca-plugin",installedAt:1,pacerArgv:[],files:[],commands:[],notes:[]}}});
+  await publish(c,[b],{channel:false});
+  const storage=join(pluginDataDir(c),"storage.json"),before=readFileSync(storage,"utf8");
+  const report = await publish(c,[entity]);
+  expect(report.transports).toEqual(["outbox"]);
+  expect(calls).toEqual([]);
+  expect(readFileSync(storage,"utf8")).toBe(before);
+  expect(readOutboxSince(c,1)[0]?.envelope).toEqual(entity);
+  await publish(c,[entity,b],{bridge:false});
+  const sent=calls.filter(argv=>argv[1]==="plugin"&&argv[2]==="send");
+  expect(sent).toHaveLength(1);
+  expect(JSON.parse(sent[0]![sent[0]!.indexOf("--data")+1]!)).toEqual(b);
+});
 test("current snapshot keeps recent console registrations with live pids", () => {
   const c = fakeCtx(); mkdirSync(join(c.pacerHome, "link"), { recursive: true }); const p = join(c.pacerHome, "link", "console.json");
   writeFileSync(p, JSON.stringify({ handle: "h", paneKey: null, pid: 1, startedAt: c.now, heartbeatAt: c.now })); expect(currentSnapshot(c, () => true).console?.handle).toBe("h"); expect(currentSnapshot(c, () => false).console).toBeNull();

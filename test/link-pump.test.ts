@@ -103,7 +103,7 @@ test("pump persists entity changes only after outbox success, never sends them t
  const {s,st}=capacityFixture(),ctx=fakeCtx();
  let success=true,backfilled:string[]=[];
  const deps:PumpDeps={status:async()=>st,tasks:()=>[],strategy:()=>s,backfillRepos:async(_c,paths)=>{backfilled=paths;},setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:async(c,envs,opts)=>{
-  if(envs.some(e=>e.type==="entity"))expect(opts?.channel).toBe(false);
+  if(envs.some(e=>e.type==="entity")){expect(opts?.channel).toBe(false);expect(opts?.bridge).toBe(false);}
   return success?publish(c,envs,{bridge:false,channel:false}):{seq:0,transports:[],errors:["disk full"]};
  }};
  await pumpOnce(ctx,deps);const before=eventsSince(ctx,0).last;
@@ -142,4 +142,46 @@ test("running tasks beyond the legacy 20-row cache still stream progress",async(
  const out=await pumpOnce({...ctx,now:ctx.now+1},deps);
  expect(out.filter(e=>e.type==="task")).toHaveLength(1);
  expect(out.find(e=>e.type==="task")).toMatchObject({data:{id:"t20",progress:{files:1}}});
+});
+
+test("entity batches preserve the installed v1 bridge snapshot",async()=>{
+ const {capacityFixture}=await import("./read-model-helpers");
+ const {publish}=await import("../src/link/publish");
+ const {writeManifest}=await import("../src/install/manifest");
+ const {pluginDataDir}=await import("../src/link/paths");
+ const {readJson}=await import("../src/fsutil");
+ const {join}=await import("node:path");
+ const {eventsSince}=await import("../src/api/events");
+ const {readLatest}=await import("../src/link/store");
+ const {s,st}=capacityFixture(),ctx=fakeCtx();
+ writeManifest(ctx,{version:1,planners:{"orca-plugin":{planner:"orca-plugin",installedAt:1,pacerArgv:[],files:[],commands:[],notes:[]}}});
+ const batches:Envelope[][]=[];
+ await pumpOnce(ctx,{status:async()=>st,tasks:()=>[],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:async(c,envs,opts)=>{
+  batches.push([...envs]);return publish(c,envs,{...opts,channel:false});
+ }});
+ const stored=readJson<{link:ReturnType<typeof emptySnapshot>}>(join(pluginDataDir(ctx),"storage.json"))!.link;
+ expect(Object.keys(stored).sort()).toEqual([...Object.keys(emptySnapshot()),"serviceInstalled"].sort());
+ expect(stored.seq).toBe(batches[0]!.length);
+ expect(readLatest(ctx).seq).toBeGreaterThan(stored.seq);
+ expect(eventsSince(ctx,stored.seq).events.some(e=>e.type==="executor")).toBe(true);
+ expect(stored.tasks).toEqual([]);
+});
+
+test("terminal receipt changes publish immediately alongside entity events",async()=>{
+ const {capacityFixture}=await import("./read-model-helpers");
+ const {publish}=await import("../src/link/publish");
+ const {updateOrcaState}=await import("../src/exec/orca/state");
+ const {s,st}=capacityFixture(),ctx=fakeCtx();let connected=true;
+ const record={...task("running"),brief:{goal:"g",repo:ctx.home},attempts:[]};
+ updateOrcaState(ctx,state=>{state.workers.d={dispatchId:"d",taskId:record.id,terminal:"term_worker",executor:"codex",worktree:null,startedAt:ctx.now};});
+ ctx.run=async argv=>argv[0]==="orca"&&argv[1]==="terminal"
+  ? {code:0,stdout:JSON.stringify({ok:true,result:{terminal:{handle:"term_worker",connected,writable:true}}}),stderr:""}
+  : {code:1,stdout:"",stderr:"offline"};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,envs,opts)=>publish(c,envs,{...opts,channel:false,bridge:false})};
+ const first=await pumpOnce(ctx,deps);
+ expect(first.find(e=>e.type==="task")).toMatchObject({data:{terminalPresent:true}});
+ expect(first.some(e=>e.type==="entity")).toBe(true);
+ connected=false;
+ expect((await pumpOnce(ctx,deps)).find(e=>e.type==="task")).toMatchObject({data:{terminalPresent:false}});
+ expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="task")).toHaveLength(0);
 });

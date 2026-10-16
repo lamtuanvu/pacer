@@ -127,7 +127,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     const diff=entityDiff(prev,rows);
     if(ctx.now-countsAt<1){diff.envelopes=diff.envelopes.filter(e=>e.type!=="entity"||e.data.kind!=="counts");if(prev["counts:counts"]!==undefined)diff.next["counts:counts"]=prev["counts:counts"];else delete diff.next["counts:counts"];}
     if(diff.envelopes.length){
-      const entities=await deps.publish(ctx,diff.envelopes,{channel:false});out.push(...diff.envelopes);
+      const entities=await deps.publish(ctx,diff.envelopes,{channel:false,bridge:false});out.push(...diff.envelopes);
       if(entities.transports.includes("outbox")){writeJsonAtomic(path,diff.next);if(diff.envelopes.some(e=>e.type==="entity"&&e.data.kind==="counts"))writeJsonAtomic(countsPath,ctx.now);}
     }
   }
