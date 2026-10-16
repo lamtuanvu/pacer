@@ -1,3 +1,10 @@
+import { backfillRepos } from "../core/repos";
+import { buildReadModel, readModelContext } from "../api/read-model";
+import { snapshotTasks } from "../api/read-model/tasks";
+import type { Strategy } from "../config/strategy";
+import type { SetupChecklist } from "../setup/checklist";
+import type { EntityData } from "./envelope";
+import type { PublishOpts } from "./publish";
 import { resolveTask } from "../tasks/resolution";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient, isLiveTerminal } from "../exec/orca/client";
@@ -18,8 +25,8 @@ import { budgetKey, toBudget } from "./budget";
 import { type AlertData, type Envelope, LIMITS, type TaskData, clip } from "./envelope";
 import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
-export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:Envelope[]):Promise<PublishReport> }
-export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,LIMITS.tasks).map(t=>taskStatus(ctx,t.id)??t),publish:(ctx,envs)=>publish(ctx,envs)};
+export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:Envelope[],opts?:PublishOpts):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
+export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t),publish:(ctx,envs,opts)=>publish(ctx,envs,opts)};
 export function taskData(t:TaskRecord):TaskData {
   const last=t.attempts.at(-1); return {id:t.id,state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0),
     ...(t.placement?.mode && t.placement.why!==undefined ? {placement:{mode:t.placement.mode,why:t.placement.why}} : {}),
@@ -30,6 +37,12 @@ export function taskData(t:TaskRecord):TaskData {
     ...(t.progress && ["running","queued"].includes(t.state) ? {progress:{phase:t.progress.phase,lastOutputAt:t.progress.lastOutputAt,files:t.progress.files,commits:t.progress.commits,logBytes:t.progress.logBytes}} : {}),
     ...(["running","queued"].includes(t.state) ? {runnerAlive:!!t.runnerPid && pidAlive(t.runnerPid)} : {}),
   };
+}
+export function entityDiff(prev:Record<string,string>,rows:{kind:EntityData["kind"];id:string;value:unknown}[]):{envelopes:Envelope[];next:Record<string,string>} {
+ const next:Record<string,string>={},envelopes:Envelope[]=[];
+ for(const row of rows){const key=`${row.kind}:${row.id}`,value=JSON.stringify(row.value);next[key]=value;if(prev[key]!==value)envelopes.push({v:1,type:"entity",data:{kind:row.kind,id:row.id,value:row.value}});}
+ for(const key of Object.keys(prev))if(!Object.hasOwn(next,key)){const split=key.indexOf(":");envelopes.push({v:1,type:"entity",data:{kind:key.slice(0,split) as EntityData["kind"],id:key.slice(split+1),removed:true}});}
+ return {envelopes,next};
 }
 const alert=(a:AlertData):Envelope=>({v:1,type:"alert",data:a});
 export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Envelope[]> {
@@ -44,11 +57,18 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   let statesChanged=false;
   const workers=Object.values(loadOrcaState(ctx).workers), client=new OrcaClient(ctx.run,ctx.env);
   const records=deps.tasks(ctx).map(t=>resolveTask(ctx,t));
+  await (deps.backfillRepos??backfillRepos)(ctx,records.map(t=>t.brief.repo).filter((p):p is string=>typeof p==="string"));
+  const timesPath=join(ctx.pacerHome,"link","task-events-at.json"),times=readJson<Record<string,number>>(timesPath)??{};
+  let timesChanged=false;
+  const dataPath=join(ctx.pacerHome,"link","task-data-seen.json"),seenData=readJson<Record<string,TaskData>>(dataPath)??{};
+  const nextData:Record<string,TaskData>={...seenData};
   const terminals=await Promise.all(records.map(async t=>{const handle=workers.find(w=>w.taskId===t.id)?.terminal;if(!handle)return false;try{return isLiveTerminal(await client.terminalShow(handle));}catch{return false;}}));
-  for(const [index,t] of records.entries()){const d={...taskData(t),terminalPresent:terminals[index]},prev=latest.tasks.find(x=>x.id===d.id),before=known[d.id]??prev?.state;
+  for(const [index,t] of records.entries()){const d={...taskData(t),terminalPresent:terminals[index]},prev=latest.tasks.find(x=>x.id===d.id)??seenData[d.id],before=known[d.id]??prev?.state;
     if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;}
-    if(!prev&&before===d.state)continue;
-    if(prev && Object.keys({...prev,...d}).every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])))continue;out.push({v:1,type:"task",data:d});
+    if(prev && Object.keys({...prev,...d}).every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])))continue;
+    // Coalesce progress-only changes; state transitions always publish immediately.
+    if(prev && prev.state===d.state && Object.keys({...prev,...d}).filter(k=>k!=="progress").every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])) && ctx.now-(times[d.id]??-Infinity)<1)continue;
+    out.push({v:1,type:"task",data:d});times[d.id]=ctx.now;nextData[d.id]=d;timesChanged=true;
     const terminal=TERMINAL_STATES.includes(d.state as TaskState);
     if(terminal&&before!==d.state&&(before!==undefined||latest.seq>0)) {
       const last=t.attempts.at(-1), name=executorName(d.executor), next=b.ranked.find(x=>x.id!==d.executor)?.id;
@@ -87,7 +107,30 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     out.push(alert({key:`strategySaved-${entry.name}`,level:"info",title:Object.hasOwn(seen,entry.name)?`Strategy "${entry.name}" updated`:`New strategy "${entry.name}" saved`,body:`${entry.summary} · by ${who}`,at:ctx.now}));
   }
   const report=out.length ? await deps.publish(ctx,out) : null;
-  if(statesChanged)writeJsonAtomic(statesPath,known);
+  if(statesChanged && report?.transports.includes("outbox"))writeJsonAtomic(statesPath,known);
+  if(timesChanged && report?.transports.includes("outbox")){writeJsonAtomic(timesPath,times);writeJsonAtomic(dataPath,nextData);}
+  let strategy:Strategy|undefined;
+  try{strategy=(deps.strategy??loadStrategy)(ctx);}catch{/* No configured strategy yet. */}
+  if(strategy){
+    const context=deps.setup?{setup:await deps.setup(ctx),accounts:[]}:await readModelContext(ctx);
+    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts)});
+    model.accounts=model.accounts.map(a=>({...a,signedIn:context.accounts.find(row=>row.name===a.name)?.signedIn??null}));
+    const rows:{kind:EntityData["kind"];id:string;value:unknown}[]=[
+      ...model.executors.map(value=>({kind:"executor" as const,id:value.id,value})),
+      ...model.accounts.map(value=>({kind:"account" as const,id:value.name,value})),
+      ...model.hosts.map(value=>({kind:"host" as const,id:value.alias,value})),
+      ...model.repos.map(value=>({kind:"repo" as const,id:value.key,value})),
+      {kind:"counts",id:"counts",value:model.counts},
+    ];
+    const path=join(ctx.pacerHome,"link","entities-seen.json"),prev=readJson<Record<string,string>>(path)??{};
+    const countsPath=join(ctx.pacerHome,"link","counts-at.json"),countsAt=readJson<number>(countsPath)??-Infinity;
+    const diff=entityDiff(prev,rows);
+    if(ctx.now-countsAt<1){diff.envelopes=diff.envelopes.filter(e=>e.type!=="entity"||e.data.kind!=="counts");if(prev["counts:counts"]!==undefined)diff.next["counts:counts"]=prev["counts:counts"];else delete diff.next["counts:counts"];}
+    if(diff.envelopes.length){
+      const entities=await deps.publish(ctx,diff.envelopes,{channel:false});out.push(...diff.envelopes);
+      if(entities.transports.includes("outbox")){writeJsonAtomic(path,diff.next);if(diff.envelopes.some(e=>e.type==="entity"&&e.data.kind==="counts"))writeJsonAtomic(countsPath,ctx.now);}
+    }
+  }
   if(quotaChanged && report?.transports.includes("outbox"))writeJsonAtomic(quotaPath,quotaSeen);
   // Only acknowledge changes after the durable alert reached the link outbox.
   if((!report || report.transports.includes("outbox")) && JSON.stringify(previousSeen)!==JSON.stringify(next))writeJsonAtomic(seenPath,next);

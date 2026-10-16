@@ -13,9 +13,9 @@ test("publish sequences outbox and persists current snapshot", async () => {
   expect(readFileSync(outboxPath(c), "utf8").trim().split("\n").map(x => JSON.parse(x).seq)).toEqual([1, 2]);
   expect(JSON.parse(readFileSync(latestPath(c), "utf8")).tasks).toHaveLength(1); const second = await publish(c, [t], { bridge: false, channel: false }); expect(second.seq).toBe(3); expect(readOutboxSince(c, 1).map(x => x.seq)).toEqual([2, 3]);
 });
-test("outbox rotation keeps the last 200 records", async () => {
-  const c = fakeCtx(); const entries = Array.from({ length: 210 }, (_, i) => ({ seq: i + 1, envelope: { v: 1 as const, type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x".repeat(2000), body: "", at: i } } }));
-  const { appendOutbox } = await import("../src/link/store"); appendOutbox(c, entries); expect(readFileSync(outboxPath(c), "utf8").trim().split("\n")).toHaveLength(200);
+test("outbox rotation keeps the last 1000 records", async () => {
+  const c = fakeCtx(); const entries = Array.from({ length: 1010 }, (_, i) => ({ seq: i + 1, envelope: { v: 1 as const, type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x".repeat(2000), body: "", at: i } } }));
+  const { appendOutbox } = await import("../src/link/store"); appendOutbox(c, entries); expect(readFileSync(outboxPath(c), "utf8").trim().split("\n")).toHaveLength(1000);
 });
 test("bridge skips missing plugin record and writes when installed", async () => {
   const c = fakeCtx(); expect((await publish(c, [b], { platform: "darwin", channel: false })).transports).toEqual(["outbox"]);

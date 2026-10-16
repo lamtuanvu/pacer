@@ -88,3 +88,58 @@ test("resolved placement changes publish once while unchanged objects stay quiet
  why="agent: exploratory";expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="task")).toHaveLength(1);
  expect(await pumpOnce(ctx,deps)).toEqual([]);
 });
+
+test("entityDiff publishes changed rows and tombstones only",async()=>{
+ const {entityDiff}=await import("../src/link/pump");
+ const rows=["a","b"].map(id=>({kind:"executor" as const,id,value:{id}}));
+ const first=entityDiff({},rows);expect(first.envelopes).toHaveLength(2);
+ expect(entityDiff(first.next,rows).envelopes).toHaveLength(0);
+ expect(entityDiff(first.next,rows.slice(0,1)).envelopes).toEqual([{v:1,type:"entity",data:{kind:"executor",id:"b",removed:true}}]);
+});
+test("pump persists entity changes only after outbox success, never sends them to channel",async()=>{
+ const {capacityFixture}=await import("./read-model-helpers");
+ const {publish}=await import("../src/link/publish");
+ const {eventsSince}=await import("../src/api/events");
+ const {s,st}=capacityFixture(),ctx=fakeCtx();
+ let success=true,backfilled:string[]=[];
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[],strategy:()=>s,backfillRepos:async(_c,paths)=>{backfilled=paths;},setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:async(c,envs,opts)=>{
+  if(envs.some(e=>e.type==="entity"))expect(opts?.channel).toBe(false);
+  return success?publish(c,envs,{bridge:false,channel:false}):{seq:0,transports:[],errors:["disk full"]};
+ }};
+ await pumpOnce(ctx,deps);const before=eventsSince(ctx,0).last;
+ st.providers.find(p=>p.id==="codex")!.brokenReason="not working";
+ success=false;await pumpOnce({...ctx,now:ctx.now+1},deps);
+ success=true;const changed=await pumpOnce({...ctx,now:ctx.now+2},deps);
+ expect(changed.filter(e=>e.type==="entity"&&e.data.kind==="executor")).toHaveLength(1);
+ expect(eventsSince(ctx,before).events.find(e=>e.type==="executor")?.data).toMatchObject({state:"down"});
+ expect(backfilled).toEqual([]);
+ expect((await pumpOnce({...ctx,now:ctx.now+3},deps)).filter(e=>e.type==="entity")).toHaveLength(0);
+});
+
+test("counts and progress coalesce, while state transitions are immediate",async()=>{
+ const {capacityFixture}=await import("./read-model-helpers");
+ const {publish}=await import("../src/link/publish");
+ const {s,st}=capacityFixture(),ctx=fakeCtx(),record={...task("running"),brief:{goal:"g",repo:"/missing/api"},executor:"codex",progress:{phase:"working",lastOutputAt:ctx.now,files:0,commits:0,logBytes:0}};
+ const paths:string[][]=[];
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),backfillRepos:async(_c,p)=>{paths.push(p);},publish:(c,e,o)=>publish(c,e,{...o,bridge:false,channel:false})};
+ await pumpOnce(ctx,deps);
+ record.progress.files=1;
+ expect((await pumpOnce({...ctx,now:ctx.now+0.2},deps)).filter(e=>e.type==="task")).toHaveLength(0);
+ record.state="done";
+ const transition=await pumpOnce({...ctx,now:ctx.now+0.4},deps);
+ expect(transition.filter(e=>e.type==="task")).toHaveLength(1);
+ expect(transition.filter(e=>e.type==="entity"&&e.data.kind==="counts")).toHaveLength(0);
+ const later=await pumpOnce({...ctx,now:ctx.now+1},deps);
+ expect(later.filter(e=>e.type==="entity"&&e.data.kind==="counts")).toHaveLength(1);
+ expect(paths[0]).toEqual(["/missing/api"]);
+});
+
+test("running tasks beyond the legacy 20-row cache still stream progress",async()=>{
+ const {publish}=await import("../src/link/publish");const ctx=fakeCtx();
+ const tasks=Array.from({length:21},(_,i)=>({...task("running",`t${i}`),createdAt:ctx.now-i,attempts:[],progress:{phase:"working",lastOutputAt:ctx.now,files:0,commits:0,logBytes:0}}));
+ const deps:PumpDeps={status:async()=>status(),tasks:()=>tasks,publish:(c,e)=>publish(c,e,{bridge:false,channel:false})};
+ await pumpOnce(ctx,deps);tasks[20]!.progress.files=1;
+ const out=await pumpOnce({...ctx,now:ctx.now+1},deps);
+ expect(out.filter(e=>e.type==="task")).toHaveLength(1);
+ expect(out.find(e=>e.type==="task")).toMatchObject({data:{id:"t20",progress:{files:1}}});
+});

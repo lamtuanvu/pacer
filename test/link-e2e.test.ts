@@ -110,6 +110,7 @@ test("installed bridge carries pump snapshots to the read-only panel", async () 
     await handlers.get("open")!();
     expect(calls.some(c => c.method === "terminal.sendText")).toBe(false);
     expect(Object.keys(JSON.parse(readFileSync(storage, "utf8")))).toContain("link");
-    expect(fake.calls).toEqual([]);
+    // Only the one-time repo identity lookup (read model) may touch git; nothing writes.
+    expect(fake.calls.filter(c => !(c[0] === "git" && (c.includes("rev-parse") || c.includes("get-url"))))).toEqual([]);
   } finally { await plugin.deactivate(); }
 });

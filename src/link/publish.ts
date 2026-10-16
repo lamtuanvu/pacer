@@ -14,7 +14,7 @@ export async function publish(ctx:Ctx,envs:Envelope[],o:PublishOpts={}):Promise<
   const report:PublishReport={seq:0,transports:[],errors:[]}; let snap:LinkSnapshot|null=null;
   try {
     await withLock(ctx,"link",async()=>{let s=readLatest(ctx); const entries:OutboxEntry[]=[];
-      for(const envelope of envs){s=reduce(s,envelope,ctx.now);entries.push({seq:s.seq,envelope});}
+      for(const envelope of envs){s=reduce(s,envelope,ctx.now);entries.push({seq:s.seq,at:ctx.now,envelope});}
       if(entries.length){appendOutbox(ctx,entries);writeJsonAtomic(latestPath(ctx),s);} report.seq=s.seq; snap=currentSnapshot(ctx);
     },{timeoutMs:5000}); report.transports.push("outbox");
   } catch(e){report.errors.push(`outbox: ${msg(e)}`);return report;}
