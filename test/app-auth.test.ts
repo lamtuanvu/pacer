@@ -252,3 +252,15 @@ test("HTTP browser access and open work through the server handler without a lis
     expect((await main(["open", "--print"], ctx)).code).toBe(1);
   } finally { fetchSpy.mockRestore(); }
 });
+
+test("open prefers an Orca browser tab when Orca is running, and --browser skips it", async () => {
+  const { openInOrca } = await import("../src/commands/open");
+  const calls: string[][] = [];
+  const running = fakeCtx({ run: async argv => { calls.push(argv); return argv[1] === "status" ? { code: 0, stdout: "appRunning: true\nruntimeReachable: true\n", stderr: "" } : { code: 0, stdout: "", stderr: "" }; } });
+  expect(await openInOrca(running, "http://127.0.0.1:4317/app/auth?code=x")).toBe(true);
+  expect(calls.at(-1)).toEqual(["orca", "tab", "create", "--url", "http://127.0.0.1:4317/app/auth?code=x", "--worktree", "active"]);
+  const stopped = fakeCtx({ run: async () => ({ code: 0, stdout: "runtimeReachable: false\n", stderr: "" }) });
+  expect(await openInOrca(stopped, "u")).toBe(false);
+  const absent = fakeCtx({ which: () => null });
+  expect(await openInOrca(absent, "u")).toBe(false);
+});

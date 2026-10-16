@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- `pacer open` opens the app in an Orca browser tab when Orca is running; `--browser` uses the default browser.
+
 ### Fixed
 
 - `pacer serve` refreshes an installed managed Orca plugin after any binary update and reports how to reload it. Plugin installation instructions now list capabilities from the bundled manifest.

@@ -124,8 +124,9 @@ prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
 
 ## pacer open
 
-`pacer open [--print] [--logout] [<screen>]` opens the pacer app in your
-browser using a one-time sign-in link. The app currently shows a placeholder
+`pacer open [--print] [--logout] [--browser] [<screen>]` opens the pacer app
+using a one-time sign-in link: in an Orca browser tab when Orca is running,
+otherwise in your default browser (`--browser` forces the default browser). The app currently shows a placeholder
 until the full app ships. An optional screen selects a page, for example
 `pacer open tasks`.
 
