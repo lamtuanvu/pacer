@@ -1,0 +1,43 @@
+import { expect, test } from "bun:test";
+import { pause, resume, readPause } from "../src/core/pause";
+import { callOp } from "../src/api/ops";
+import { delegate } from "../src/tasks/api";
+import { validateStrategy } from "../src/config/strategy";
+import { computeStatus } from "../src/engine/status";
+import { renderHook } from "../src/render/hook";
+import { sessionStart } from "../src/install/session";
+import { main } from "../src/cli";
+import { fakeCtx } from "./helpers";
+const strategy = () => validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}}, "test");
+test("pause persists, refuses delegation before spawning, expires and resumes", async () => {
+  const ctx = fakeCtx();
+  const state = pause(ctx, {for: "1h", reason: "break", by: "planner"});
+  expect(state).toEqual({until: ctx.now + 3600, reason: "break", by: "planner"});
+  expect(readPause(ctx)).toEqual(state);
+  expect(() => delegate(ctx, {brief: {goal: "work", repo: ctx.home}}, () => {throw Error("spawned");}, strategy())).toThrow(expect.objectContaining({code: "not_allowed", hint: "delegation paused until 20:00", message: "delegation paused until 20:00"}));
+  const st = await computeStatus(ctx, strategy(), {profile: null});
+  expect(st.paused).toEqual(state);
+  const line = "Delegation paused until 20:00 — do the work yourself or wait.";
+  expect(renderHook(st, "codex")).toContain(line);
+  expect(await sessionStart(ctx, "claude-code", {status: async () => st})).toContain(line);
+  expect(readPause({...ctx, now: state.until!})).toBeNull();
+  expect(resume(ctx)).toEqual({resumed: true});
+  expect(readPause(ctx)).toBeNull();
+});
+test("pause operations reject invalid durations and resume clears state", async () => {
+  const ctx = fakeCtx();
+  for (const duration of ["8d", "0m", "-1h", "1.5h", "1s"]) await expect(callOp(ctx, "delegation.pause", {for: duration})).rejects.toMatchObject({code: "invalid_input"});
+  expect(await callOp(ctx, "delegation.pause", {for: "7d"})).toMatchObject({until: ctx.now + 604800});
+  expect(await callOp(ctx, "delegation.resume", {})).toEqual({resumed: true});
+  expect(readPause(ctx)).toBeNull();
+});
+test("pause and resume CLI validate arguments and update state", async () => {
+  const ctx = fakeCtx();
+  expect((await main(["pause", "1h"], ctx)).code).toBe(0);
+  expect(readPause(ctx)?.until).toBe(ctx.now + 3600);
+  expect((await main(["resume"], ctx)).code).toBe(0);
+  expect(readPause(ctx)).toBeNull();
+  expect((await main(["pause", "8d"], ctx)).code).toBe(2);
+  expect((await main(["resume", "extra"], ctx)).code).toBe(2);
+});
+test.skip("paused delegation queues and starts on drain after expiry (requires phase 3a Task 2–3)", () => {});

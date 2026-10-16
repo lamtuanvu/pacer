@@ -270,7 +270,7 @@ test("registered as the extra backend; selectBackend picks it only when opted in
 });
 
 const statusFor = (id: string): Status => ({
-  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
+  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
   executors: { ranked: [], excluded: [] },
   providers: [{ id, usage: "reactive", windows: [], binding: null, verdict: "OK", installed: true, stale: false } as ProviderStatus],
 });

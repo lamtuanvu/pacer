@@ -1,4 +1,6 @@
 import type { RepoRef } from "../api/read-model/types";
+import { readPause, pauseTime } from "../core/pause";
+import { CoreError } from "../core/errors";
 import { clip, LIMITS } from "../link/envelope";
 import { resolveRunner } from "../config/runner-id";
 import { z } from "zod";
@@ -115,6 +117,11 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
 export function delegate(
   ctx: Ctx, input: DelegateInput, spawnFn: SpawnRunner = spawnRunner, s: Strategy = loadStrategy(ctx),
 ): TaskRecord {
+  const paused = readPause(ctx);
+  if (paused) {
+    const hint = `delegation paused until ${pauseTime(paused)}`;
+    throw new CoreError("not_allowed", hint, hint);
+  }
   if (input.executor) input = {...input, executor: resolveRunner(s, input.executor)?.id ?? input.executor};
   const problems = validateInput(s, input);
   if(input.executor && Object.keys(readBlocked(ctx)).some(id => (resolveRunner(s,id)?.id ?? id) === input.executor))problems.push(`${input.executor}: Blocked by you; run pacer executor unblock ${input.executor}`);

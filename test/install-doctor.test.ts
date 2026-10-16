@@ -29,7 +29,7 @@ routing:
 function status(): Status {
   return {
     generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal",
-    disabled: false, calendarPace: true, executors: { ranked: [], excluded: [] },
+    disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] },
     providers: ["claude-code", "codex", "cursor", "agy", "opencode#byteplus"].map(id => ({
       id, usage: "quota", windows: [], binding: null, verdict: "OK", installed: true, stale: false,
     })),

@@ -4,6 +4,8 @@ import { isAbsolute } from "node:path";
 import { resolveRepo, resolveRepoInput, listReposWithBranches, addRepo, removeRepo } from "../core/repos";
 import { apiTask } from "./read-model/tasks";
 import { ACTIVITY_KINDS, readActivity } from "../activity/log";
+import * as delegationPause from "../core/pause";
+import * as modeHold from "../core/mode-hold";
 import { z } from "zod";
 import { spawn } from "node:child_process";
 import * as core from "../core";
@@ -113,6 +115,10 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
     handler: (ctx, p) => readActivity(ctx, p),
   }),
+  "delegation.pause": op({description: "Pause new delegation for up to seven days.", params: z.object({for: z.string(), reason: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "delegation", () => delegationPause.pause(ctx, p))}),
+  "delegation.resume": op({description: "Resume delegation.", params: z.object({}), handler: ctx => mutation(ctx, "delegation", () => delegationPause.resume(ctx))}),
+  "mode.hold": op({description: "Hold a mode until a timestamp or the planner window resets.", params: z.object({mode: z.enum(["strict", "normal", "relaxed", "emergency"]), until: z.number().optional()}), handler: (ctx, p) => mutation(ctx, "mode", () => modeHold.holdMode(ctx, p))}),
+  "mode.release": op({description: "Release the held mode and return to pace-derived mode.", params: z.object({}), handler: ctx => mutation(ctx, "mode", () => modeHold.releaseMode(ctx))}),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, or configure and test a model endpoint.",

@@ -1,3 +1,4 @@
+import { slotBlock, slotUse } from "../engine/slots";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { type HostCfg, repoKey } from "../config/hosts";
@@ -59,9 +60,7 @@ export async function remoteExclusion(
   const key = origin?.code === 0 ? repoKey(origin.stdout.trim()) : null;
   if (!key || !Object.hasOwn(host.repos, key)) return `repo not set up on ${alias} (add hosts.${alias}.repos.${key ?? "<key>"})`;
   if (task.placement === "current") return "remote runners need a new worktree";
-  // RunRef gains its declared host field in the remote-attempt task. Read the
-  // persisted field now so old and new records are both handled without migration.
-  const count = deps.running?.(alias) ?? listTasks(ctx, Infinity).filter(t =>
-    t.state === "running" && (t.run as (typeof t.run & { host?: string }))?.host === alias).length;
-  return count >= host.maxTasks ? `${alias} busy (${count}/${host.maxTasks})` : null;
+  const use = slotUse(listTasks(ctx, Infinity));
+  if (deps.running) use.byHost[alias] = deps.running(alias);
+  return slotBlock(s, runnerId, use);
 }

@@ -22,7 +22,7 @@ function status(overrides: Record<string, Partial<ProviderStatus>> = {}): Status
   const providers = Object.keys(strategy.providers).map((id) => ({
     id, usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false, ...overrides[id],
   })) as ProviderStatus[];
-  return { generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true, providers, executors: { ranked: [], excluded: [] } };
+  return { generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, providers, executors: { ranked: [], excluded: [] } };
 }
 
 function outcomeFor(executor: string, code: number, limitHit = false, report = `${executor} report`): AttemptOutcome {
