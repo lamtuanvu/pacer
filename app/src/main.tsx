@@ -1,5 +1,7 @@
 import { render } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
+import { createApi } from "./api";
+import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./store";
 import { resolveRoute, type Route } from "./router";
 import { Shell } from "./shell/Shell";
@@ -31,6 +33,8 @@ function Screen({ route }: { route: Route }) {
 }
 function App() {
   const [state, setState] = useState(store.getState);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
@@ -42,6 +46,6 @@ function App() {
   // Task 4 adds the complete setup checklist. Only known required failures gate this scaffold.
   const setupComplete = state.snapshot?.serviceInstalled !== false && !!state.snapshot?.budget?.planner;
   const route = resolveRoute(hash, setupComplete);
-  return <Shell state={state} route={route}><Screen route={route} /></Shell>;
+  return <TaskContext.Provider value={{ state, api }}><Shell state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} route={route}><Screen route={route} /></Shell></TaskContext.Provider>;
 }
 render(<App />, document.getElementById("app")!);
