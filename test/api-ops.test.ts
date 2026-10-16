@@ -72,3 +72,31 @@ test("task.diff validates its optional path", async () => {
   }
   expect(await codeOf(callOp(ctx, "task.diff", { id: "missing", path: "a.txt" }))).toBe("unknown_task");
 });
+
+test("attention dismiss is idempotent for concurrent clients and dismisses a review task", async () => {
+ const {updateTask,readTask}=await import("../src/tasks/store");
+ const ctx=await ctxWithStrategy(),t=createTask(ctx,{brief:{goal:"review me",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+ updateTask(ctx,t.id,t=>{t.state="done";});
+ const id=`review:${t.id}`;
+ expect(await Promise.all([callOp(ctx,"attention.dismiss",{id}),callOp(ctx,"attention.dismiss",{id})])).toEqual([{dismissed:true},{dismissed:true}]);
+ expect(readTask(ctx,t.id)?.dismissed).toBe(true);
+ expect(await codeOf(callOp(ctx,"attention.dismiss",{id:"review:missing"}))).toBe("unknown_task");
+});
+test("attention snooze validates duration and returns its expiry",async()=>{
+ const {updateTask}=await import("../src/tasks/store");
+ const ctx=await ctxWithStrategy(),t=createTask(ctx,{brief:{goal:"review me",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+ updateTask(ctx,t.id,t=>{t.state="done";});
+ expect(await callOp(ctx,"attention.snooze",{id:`review:${t.id}`,for:"1h"})).toEqual({until:ctx.now+3600});
+ expect(await codeOf(callOp(ctx,"attention.snooze",{id:`review:${t.id}`,for:"2h"}))).toBe("invalid_input");
+});
+
+test("setup attention can be dismissed before a strategy is configured",async()=>{
+ const ctx=fakeCtx();
+ const {liveSnapshot}=await import("../src/api/events");
+ const status=async()=>{throw new Error("not configured");};
+ const before=await liveSnapshot(ctx,{status});
+ const item=before.snapshot.attention.find(i=>i.kind==="setup")!;
+ expect(item).toBeDefined();
+ expect(await callOp(ctx,"attention.dismiss",{id:item.id})).toEqual({dismissed:true});
+ expect((await liveSnapshot(ctx,{status})).snapshot.attention.some(i=>i.id===item.id)).toBe(false);
+});

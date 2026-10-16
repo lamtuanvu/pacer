@@ -7,7 +7,7 @@ import type { ApiTask } from "./types";
 
 export function apiTask(ctx: Ctx,t: TaskRecord): ApiTask {
  const repo=t.repo??repoFor(ctx,t.brief.repo),labels=labelsFor([...listRepos(ctx),repo]);
- return {...taskData(t),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null};
+ return {...taskData(t),...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null};
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=records.map(t=>apiTask(ctx,t)),labels=labelsFor([...listRepos(ctx),...rows.map(t=>t.repo)]);

@@ -177,13 +177,13 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   try{strategy=(deps.strategy??loadStrategy)(ctx);}catch{/* No configured strategy yet. */}
   if(strategy){
     const context=deps.setup?{setup:await deps.setup(ctx),accounts:[]}:await readModelContext(ctx);
-    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts)});
-    model.accounts=model.accounts.map(a=>({...a,signedIn:context.accounts.find(row=>row.name===a.name)?.signedIn??null}));
+    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
     const rows:{kind:EntityData["kind"];id:string;value:unknown}[]=[
       ...model.executors.map(value=>({kind:"executor" as const,id:value.id,value})),
       ...model.accounts.map(value=>({kind:"account" as const,id:value.name,value})),
       ...model.hosts.map(value=>({kind:"host" as const,id:value.alias,value})),
       ...model.repos.map(value=>({kind:"repo" as const,id:value.key,value})),
+      ...model.attention.map(value=>({kind:"attention" as const,id:value.id,value})),
       {kind:"counts",id:"counts",value:model.counts},
     ];
     const path=join(ctx.pacerHome,"link","entities-seen.json"),prev=readJson<Record<string,string>>(path)??{};

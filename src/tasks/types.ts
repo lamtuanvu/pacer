@@ -127,6 +127,7 @@ export interface TaskRecord {
   retriedBy?: string;
   force?: boolean;
   fromPanel?: boolean;
+  source?: "planner" | "ui" | "cli";
   childPid?: number;
   attempts: Attempt[];
   result?: TaskResult;

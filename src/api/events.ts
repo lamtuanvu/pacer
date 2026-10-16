@@ -38,8 +38,7 @@ export async function liveSnapshot(
   };
   const [st,context]=await Promise.all([refresh(),readModelContext(ctx)]);
   if (statusAvailable && (!snapshot.budget || ctx.now - snapshot.budget.generatedAt > (o.maxBudgetAgeS ?? 60))) snapshot.budget = toBudget(st);
-  const fields=buildReadModel(ctx,{status:st,strategy,tasks,setup:context.setup,hosts:Object.values(strategy.hosts)});
-  fields.accounts=fields.accounts.map(a=>({...a,signedIn:context.accounts.find(row=>row.name===a.name)?.signedIn??null}));
+  const fields=buildReadModel(ctx,{status:st,strategy,tasks,setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
   const result={...snapshot,...fields,tasks:snapshot.tasks as ApiTask[]};
   return { protocol: PROTOCOL_VERSION, seq: snapshot.seq, snapshot: result };
 }

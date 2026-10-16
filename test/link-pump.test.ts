@@ -185,3 +185,16 @@ test("terminal receipt changes publish immediately alongside entity events",asyn
  expect((await pumpOnce(ctx,deps)).find(e=>e.type==="task")).toMatchObject({data:{terminalPresent:false}});
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="task")).toHaveLength(0);
 });
+
+test("a failed task publishes attention and counts, then clears attention on retry",async()=>{
+ const {capacityFixture}=await import("./read-model-helpers");
+ const {publish}=await import("../src/link/publish");
+ const {s,st}=capacityFixture(),ctx=fakeCtx(),record={...task("running"),createdAt:ctx.now,brief:{goal:"g",repo:ctx.home},attempts:[]};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,e,o)=>publish(c,e,{...o,channel:false,bridge:false})};
+ await pumpOnce(ctx,deps);record.state="failed";
+ const out=await pumpOnce({...ctx,now:ctx.now+1},deps);
+ expect(out.filter(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject([{data:{id:`failed:${record.id}`,value:{kind:"failed"}}}]);
+ expect(out.find(e=>e.type==="entity"&&e.data.kind==="counts")).toMatchObject({data:{value:{attention:1,problems:1}}});
+ Object.assign(record,{retriedBy:"next"});
+ expect((await pumpOnce({...ctx,now:ctx.now+2},deps)).find(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject({data:{id:`failed:${record.id}`,removed:true}});
+});

@@ -1,3 +1,4 @@
+import * as attention from "../core/attention";
 import { resolveRepo } from "../core/repos";
 import { ACTIVITY_KINDS, readActivity } from "../activity/log";
 import { z } from "zod";
@@ -185,6 +186,8 @@ export const OPS: Record<string, OpDef> = {
       return taskMutation(ctx, p.id, p.expect_rev, () => core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) }));
     },
   }),
+  "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
+  "attention.snooze": op({ description: "Snooze a raised attention item.", params: z.object({id:z.string().min(1).max(256),for:z.enum(["1h","4h","1d"])}), handler: (ctx,p) => attention.snooze(ctx,p.id,p.for) }),
   "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: (ctx, p) => {
     const dismissed: string[] = [], unknown: string[] = [];
     // Lock in a stable order and check every revision before dismissing any task.
