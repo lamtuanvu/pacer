@@ -228,15 +228,20 @@ cleanup are CLI-only.
 
 ## Accounts, runners and configuration
 
-See [Accounts and runners](accounts.md) for sign-in, endpoint budgets, Orca
-links and account folder behavior.
+See [Accounts and runners](accounts.md) for sign-in, endpoint connections and
+budgets, Orca links and account folder behavior.
 
 ```text
 pacer account list [--json]
+pacer account add
 pacer account add <claude|codex> <name> [--home <dir>] [--no-login]
 pacer account add <claude|codex> <name> --orca <id>
 pacer account add endpoint <name> --usage <quota|metered|unmetered> [--quota-source arkcli] [--weekly-tokens <n>]
-pacer account rm <name> [--delete-home]
+pacer account add endpoint <name> --base-url <url> --key <keychain|file|env:VAR|none> --models <id,...> --usage <quota|metered|unmetered> [--context <n>] [--output <n>] [--quota-source arkcli] [--weekly-tokens <n>] [--no-test]
+pacer account models <name> [--refresh]
+pacer account test <name>
+pacer account edit <name> [--base-url <url>] [--key <keychain|file|env:VAR|none>] [--models <id,...>] [--context <n>] [--output <n>] [--usage <quota|metered|unmetered>] [--quota-source arkcli] [--weekly-tokens <n>]
+pacer account rm <name> [--delete-home] [--delete-key]
 pacer runner list [--json]
 pacer runner add <agent#account> [--model <m>]
 pacer runner rm <agent#account>
@@ -244,6 +249,23 @@ pacer config get [key] [--json]
 pacer config set <key> <value>
 pacer config migrate
 ```
+
+Interactive `account add` offers **Model endpoint (OpenCode)**: URL, hidden key,
+model discovery/selection, limits, usage and an optional test. The explicit
+connection form creates the provider and runner automatically and tests by
+default; `--no-test` leaves it Not tested. Only a passing test reports Ready.
+For `--key keychain` or `file`, read the key from stdin; `env:VAR` refers to an
+environment variable, and `none` requires no key. Model limits default to 128K
+context and 16K output; size flags accept `K`, `M` and `G` suffixes.
+
+`account models` lists selected models; `--refresh` discovers and prompts for
+a new selection. `account edit` without flags is interactive and offers adoption
+for an External OpenCode provider, asking for a new key rather than copying one
+from OpenCode's config. Flag-based edits and model refreshes leave the endpoint
+Not tested; use `account test` to rerun the temporary-repo test. Not working and
+Key missing runners are excluded from routing. `account rm --delete-key` removes
+a stored Keychain/file key; environment keys remain untouched. The usage-only
+endpoint add form above retains the legacy externally configured provider flow.
 
 Commands write the active strategy and validate the whole result. Refused edits
 leave its bytes unchanged; successful edits preserve comments and untouched
