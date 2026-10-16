@@ -29,5 +29,5 @@ test("a since older than the retained outbox yields reset", () => {
 test("the snapshot carries the protocol version and its seq", async () => {
   const ctx = fakeCtx();
   await publish(ctx, [alert("a", ctx.now)], { bridge: false, channel: false });
-  expect(apiSnapshot(ctx)).toMatchObject({ protocol: "2.0.0", seq: eventsSince(ctx, 0).last });
+  expect(apiSnapshot(ctx)).toMatchObject({ protocol: "2.1.0", seq: eventsSince(ctx, 0).last });
 });

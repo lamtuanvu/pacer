@@ -1,3 +1,4 @@
+import { sessionTaskData } from "../session/link";
 import { resolveTask } from "../tasks/resolution";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient, isLiveTerminal } from "../exec/orca/client";
@@ -45,7 +46,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   const workers=Object.values(loadOrcaState(ctx).workers), client=new OrcaClient(ctx.run,ctx.env);
   const records=deps.tasks(ctx).map(t=>resolveTask(ctx,t));
   const terminals=await Promise.all(records.map(async t=>{const handle=workers.find(w=>w.taskId===t.id)?.terminal;if(!handle)return false;try{return isLiveTerminal(await client.terminalShow(handle));}catch{return false;}}));
-  for(const [index,t] of records.entries()){const d={...taskData(t),terminalPresent:terminals[index]},prev=latest.tasks.find(x=>x.id===d.id),before=known[d.id]??prev?.state;
+  for(const [index,t] of records.entries()){const d=await sessionTaskData(ctx,taskData(t),terminals[index]),prev=latest.tasks.find(x=>x.id===d.id),before=known[d.id]??prev?.state;
     if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;}
     if(!prev&&before===d.state)continue;
     if(prev && Object.keys({...prev,...d}).every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])))continue;out.push({v:1,type:"task",data:d});

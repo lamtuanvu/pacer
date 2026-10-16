@@ -25,17 +25,17 @@ export function renderDashboard(s:LinkSnapshot,width:number,height:number,now:nu
  const fixed=[header,`${live?"Live":"Updated"} · ${s.at?new Date(s.at*1000).toISOString().slice(11,19):"waiting for local data"}`,`Planner ${runnerLabel(p ?? {id:b?.planner??"?"})}: ${p?.usedPct==null?"?":Math.round(p.usedPct)+"%"} ${budgetBar(p?.usedPct??null,p?.pacePct??null,Math.max(4,Math.min(compact?12:24,width-24)))}`];
  if(v.setup && !v.setup.complete)fixed.splice(1,0,...setupText(v.setup).split("\n"));
  if(v.updateLine)fixed.push(v.updateLine);
- const body:{text:string;selected:boolean}[]=[];let index=0;
+ const body:{text:string;selected:boolean}[]=[];let index=0,attachSelected=false;
  for(const group of cards(s,now)) {
   body.push({text:group.title,selected:false});
   if(!group.cards.length) body.push({text:"  (none)",selected:false});
   let account:string|undefined;
-  for(const card of group.cards) {if(card.account && card.account!==account) {body.push({text:`  Account ${card.account}`,selected:false});account=card.account;}const selected=index++===v.selected;body.push({text:`${selected?">":" "} ${card.text}`,selected});}
+  for(const card of group.cards) {if(card.account && card.account!==account) {body.push({text:`  Account ${card.account}`,selected:false});account=card.account;}const selected=index++===v.selected;if(selected&&card.sessionTaskId)attachSelected=true;body.push({text:`${selected?">":" "} ${card.text}`,selected});}
  }
- if(v.help) {body.splice(0,body.length,...["Keys", "↑/↓ or j/k: select · Enter: primary action", "d: delegate · x: dismiss · b: block/unblock", "s: strategy · ,: settings · r: refresh · c: check updates · u: update · ?: help · q: quit", "Running: Enter focuses its terminal, or stops it.", "Esc cancels prompts. Budget bar: # used, | pace."].map(text=>({text,selected:false})));}
+ if(v.help) {body.splice(0,body.length,...["Keys", "↑/↓ or j/k: select · Enter: primary action", "d: delegate · x: dismiss · b: block/unblock", "s: strategy · ,: settings · r: refresh · c: check updates · u: update · ?: help · q: quit", "Sessions: Enter attaches here · t: terminal window · m: tmux pane.", "Esc cancels prompts. Budget bar: # used, | pace."].map(text=>({text,selected:false})));}
  const space=Math.max(0,height-fixed.length-2), selected=body.findIndex(row=>row.selected), offset=selected>=space?Math.min(Math.max(0,body.length-space),selected-space+1):0;
  const lines=[...fixed,...body.slice(offset,offset+space).map(row=>row.selected&&!v.noColor?`\x1b[7m${safeText(row.text).slice(0,width)}\x1b[0m`:safeText(row.text).slice(0,width))];
  while(lines.length<height-2)lines.push("");
- lines.push(v.prompt??v.message??"",compact?"j/k Enter d x b s , r c u ? q":"↑/↓/j/k select · Enter action · d x b s , r c u ? q");
+ lines.push(v.prompt??v.message??"",attachSelected?"Enter Attach · t terminal window · m tmux · q quit":compact?"j/k Enter d x b s , r c u ? q":"↑/↓/j/k select · Enter action · d x b s , r c u ? q");
  return lines.slice(0,height).map(line=>line.includes("\x1b[7m")?line:safeText(line).slice(0,width)).join("\n");
 }

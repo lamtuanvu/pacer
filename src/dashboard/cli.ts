@@ -1,3 +1,5 @@
+import { attachDirectory, attachSession } from "../session/attach";
+import { openSession, sessionInfo } from "../session/service";
 import { checkSetup } from "../setup/check";
 import type { SetupChecklist } from "../setup/checklist";
 import { readUpdateCheck, updateLine } from "../update/check";
@@ -17,7 +19,7 @@ import { cards } from "./model";
 import { delegateViaClient, refreshView, runCommand, withFallback } from "./data";
 import { DashboardSettings, terminalLogin } from "./settings";
 import { renderDashboard } from "./render";
-import { Keys, moveSelection, selectionAction, updateKey, UPDATE_PROMPT } from "./input";
+import { Keys, moveSelection, selectionAction, viewerAction, updateKey, UPDATE_PROMPT } from "./input";
 export const ENTER_SCREEN="\x1b[?1049h\x1b[?25l";
 export const LEAVE_SCREEN="\x1b[0m\x1b[?25h\x1b[?1049l";
 export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
@@ -87,7 +89,17 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   else if(key==="r"){nextSetupAt=0;refresh();}
   else if(key==="c")await command(updateKey(key) as import("../link/envelope").CmdData);
   else if(updateKey(key)==="confirm")prompt={type:"update",step:0,value:"",goal:"",repo:"",names:[]};
-  else {const action=selectionAction(key,card);if(action)await command(action);}
+  else {
+   const viewer=viewerAction(key,card);
+   if(viewer){
+    const c=fresh(), info=await sessionInfo(c,viewer.id,undefined,false);
+    if(viewer.target==='here'&&info.host==='builtin'){
+     suspended=true;clearTimeout(escapeTimer);keys.flush();process.stdin.off('data',input);process.stdin.setRawMode(false);process.stdout.write(LEAVE_SCREEN);
+     try{await attachSession(attachDirectory(c,viewer.id),{},`pacer ${viewer.id}`);}
+     finally{if(!closed){process.stdin.setRawMode(true);process.stdout.write(ENTER_SCREEN);process.stdin.on('data',input);process.stdin.resume();suspended=false;void refresh();}}
+    }else{const result=await openSession(c,viewer.id,viewer.target==='here'?'orca':viewer.target);report(result.opened?'Opened task session.':result.command??'Task session unavailable.');}
+   }else{const action=selectionAction(key,card);if(action)await command(action);}
+  }
   draw();
  };
  const keys=new Keys(),decoder=new StringDecoder("utf8");let escapeTimer:ReturnType<typeof setTimeout>|undefined;

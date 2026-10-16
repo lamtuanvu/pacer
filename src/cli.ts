@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { openSession, sessionInfo } from "./session/service";
 import { sessionHost } from "./session/host";
 import { attachDirectory, attachSession } from "./session/attach";
 import { createInterface } from "node:readline/promises";
@@ -53,7 +54,7 @@ const USAGE = `usage: pacer <command>
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
-  attach <task-id> [--replay] [--attempt <n>]     watch a local PTY session (read-only)
+  attach <task-id> [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
@@ -356,9 +357,18 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       catch(e) {return {code:2,out:"",err:explain(e)};}
     case "attach": {
       const {opts,pos}=parseFlags(rest,["replay"]);
-      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","attempt"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--replay] [--attempt <n>]"};
+      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","attempt","open"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"};
       if(opts.attempt!==undefined && (typeof opts.attempt!=="string" || !/^[1-9]\d*$/.test(opts.attempt))) return {code:2,out:"",err:"--attempt requires a positive integer"};
       try {
+        if(opts.open!==undefined){
+          const target=opts.open===true?'terminal':opts.open;
+          if(!['terminal','tmux','orca'].includes(String(target)))throw Error('--open requires terminal, tmux or orca');
+          const result=await openSession(ctx,pos[0],target as 'terminal'|'tmux'|'orca');
+          return {code:0,out:result.opened?'Opened task session.':result.command??'',err:''};
+        }
+        if((await sessionInfo(ctx,pos[0],undefined,false)).host==='orca'){
+          const result=await openSession(ctx,pos[0],'orca');return {code:result.opened?0:2,out:result.opened?'Opened task session.':'',err:result.opened?'':'This task no longer has an Orca terminal.'};
+        }
         const attempt=opts.attempt===undefined?undefined:Number(opts.attempt);
         const dir=attachDirectory(ctx,pos[0],attempt);
         await attachSession(dir,{replay:opts.replay===true,attempt},`pacer ${pos[0]}`);

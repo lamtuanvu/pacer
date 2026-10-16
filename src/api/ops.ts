@@ -1,3 +1,4 @@
+import { sessionOps } from "./ops-session";
 import { z } from "zod";
 import { spawn } from "node:child_process";
 import * as core from "../core";
@@ -88,7 +89,7 @@ async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>)
   return result;
 }
 
-export const OPS: Record<string, OpDef> = {
+export const OPS: Record<string, OpDef> = { ...sessionOps,
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, or configure and test a model endpoint.",

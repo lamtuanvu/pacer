@@ -1,3 +1,4 @@
+import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
 import { createManagedPanelWriter } from "./panel";
 import { checkSetup } from "../setup/check";
 import { MANAGED_MARKER, pluginDir } from "../plugin/install";
@@ -107,12 +108,14 @@ export function startServer(
 
   let pendingJobs=0;
   const jobs=new Set<ReturnType<typeof setTimeout>>();
-  const server = Bun.serve({
+  const server = Bun.serve<SessionWS>({
+    websocket: sessionWebSocket,
     hostname: "127.0.0.1",
     port: opts.port ?? DEFAULT_PORT,
     idleTimeout: 0,
     async fetch(req, server) {
       const { pathname } = new URL(req.url);
+      const sessionRoute=pathname.match(/^\/v2\/tasks\/([A-Za-z0-9_-]+)\/session$/);
       const hosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
       if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
@@ -127,13 +130,14 @@ export function startServer(
           return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
         }
         const site = req.headers.get("sec-fetch-site");
-        if ((site !== null && !["same-origin", "none"].includes(site)) ||
+        if ((sessionRoute && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
             (!["GET", "HEAD"].includes(req.method) &&
              (!hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "") || req.headers.get("x-pacer-client") !== "app"))) {
           return app ? appPage("Forbidden.", 403) : new Response("forbidden\n", { status: 403 });
         }
       }
       if (app) return appRoute(req, getCtx());
+      if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
       if (pathname.startsWith("/v2/")) return handleV2(req, { getCtx, opDeps: opts.opDeps, tailMs, status });
       if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) {
         const body=await consoleRequestBody(req);
