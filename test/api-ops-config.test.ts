@@ -118,3 +118,39 @@ test("config envelopes validate and advance the sequence without changing snapsh
   expect(parseEnvelope({v: 1, type: "config", data: {area: "setup"}})).toBeNull();
   expect(parseEnvelope({v: 1, type: "future", data: {}})).toBeNull();
 });
+
+test("cookie config-set restricts terminal presets while bearer and CLI allow templates", async () => {
+  const {spyOn}=await import("bun:test");
+  const {startServer}=await import("../src/serve/http");
+  const {createCode}=await import("../src/serve/app-auth");
+  const ctx=await configured();
+  let handler!: (req:Request, server:{port:number})=>Promise<Response>;
+  const spy=spyOn(Bun,"serve").mockImplementation(((opts:{fetch:typeof handler})=>{
+    handler=opts.fetch;return {port:4317,stop(){}};
+  }) as typeof Bun.serve);
+  let server:ReturnType<typeof startServer>;
+  try {server=startServer(()=>ctx,{pumpMs:0});} finally {spy.mockRestore();}
+  const origin="http://127.0.0.1:4317";
+  const request=(path:string,init:RequestInit={})=>handler(new Request(origin+path,{...init,headers:{host:"127.0.0.1:4317",...init.headers}}),{port:4317});
+  try {
+    const auth=await request(`/app/auth?code=${createCode(ctx)}`),cookie=auth.headers.get("set-cookie")!.split(";")[0];
+    const set=(value:string,bearer=false)=>request("/v2/ops/config.set",{method:"POST",headers:bearer
+      ?{authorization:`Bearer ${server.token}`}:{cookie,origin,"x-pacer-client":"app"},body:JSON.stringify({key:"terminal.open",value})});
+    const path=join(ctx.pacerHome,"strategy.yaml"),before=readFileSync(path,"utf8");
+    const denied=await set("foot {cmd}");
+    expect(denied.status).toBe(400);
+    expect(await denied.json()).toMatchObject({error:{message:expect.stringContaining("preset"),hint:expect.stringContaining("pacer config set")}});
+    expect(readFileSync(path,"utf8")).toBe(before);expect(eventsSince(ctx,0).events).toEqual([]);
+    // Request fields cannot grant template permission to the app.
+    const spoof=await request("/v2/ops/config.set",{method:"POST",headers:{cookie,origin,"x-pacer-client":"app"},body:JSON.stringify({key:"terminal.open",value:"foot {cmd}",allowTerminalTemplate:true})});
+    expect(spoof.status).toBe(400);
+    for(const preset of ["ghostty","iterm","terminal-app","wezterm","kitty","alacritty","gnome-terminal","x-terminal-emulator","auto"])
+      expect((await set(preset)).status).toBe(200);
+    const allowed=await set("foot {cmd}",true);
+    expect(await allowed.json()).toMatchObject({result:{value:"foot {cmd}"}});
+    expect(allowed.status).toBe(200);
+    expect(loadStrategy(ctx).terminal?.open).toBe("foot {cmd}");
+    await config.set(ctx,"terminal.open","alacritty -e {cmd}");
+    expect(loadStrategy(ctx).terminal?.open).toBe("alacritty -e {cmd}");
+  } finally {server.stop();}
+});

@@ -11,8 +11,8 @@ function task(ctx:ReturnType<typeof fakeCtx>){writeJsonAtomic(join(ctx.pacerHome
 test('terminal presets produce executable argv and custom templates split without shell',()=>{
  const expected:Record<string,string>={ghostty:'ghostty',iterm:'osascript','terminal-app':'osascript',wezterm:'wezterm',kitty:'kitty',alacritty:'alacritty','gnome-terminal':'gnome-terminal','x-terminal-emulator':'x-terminal-emulator'};
  for(const [preset,exe] of Object.entries(expected))expect(terminalRecipe(preset,id,'linux')[0]).toBe(exe);
- expect(terminalRecipe('my-terminal --title "watch now" -- {cmd}',id,'linux')).toEqual(['my-terminal','--title','watch now','--',`pacer attach ${id}`]);
- expect(terminalRecipe('my-terminal --command {cmd}',id,'linux').slice(-1)).toEqual([`pacer attach ${id}`]);
+ expect(terminalRecipe('my-terminal --title "watch now" -- {cmd}',id,'linux')).toEqual(['my-terminal','--title','watch now','--','pacer','attach',id]);
+ expect(terminalRecipe('my-terminal --command {cmd}',id,'linux').slice(-3)).toEqual(['pacer','attach',id]);
  expect(terminalRecipe('ghostty',id,'darwin').slice(0,4)).toEqual(['open','-na','Ghostty','--args']);
  expect(()=>terminalRecipe('kitty','x;touch BAD','linux')).toThrow();
  expect(()=>terminalRecipe('custom missing placeholder',id,'linux')).toThrow();
@@ -38,9 +38,9 @@ test('builtin and Orca adapters conform to RunIO and refuse unsupported control'
  expect(orca.id).toBe('orca');expect(orca.attachTarget()).toEqual({kind:'orca',terminal:'term'});
  expect(await orca.start({dir:ctx.home,argv:[],cwd:ctx.home,env:{}})).toHaveProperty('error');
 });
-test('custom template substitutes the entire generated command as one argv element',()=>{
- expect(terminalRecipe('viewer --command {cmd}',id,'linux')).toEqual(['viewer','--command',`pacer attach ${id}`]);
- expect(terminalRecipe('viewer --command "{cmd}"',id,'linux')).toEqual(['viewer','--command',`pacer attach ${id}`]);
+test('custom template expands standalone placeholders, including quoted argv words',()=>{
+ expect(terminalRecipe('viewer --command {cmd}',id,'linux')).toEqual(['viewer','--command','pacer','attach',id]);
+ expect(terminalRecipe('viewer --command "{cmd}"',id,'linux')).toEqual(['viewer','--command','pacer','attach',id]);
 });
 test('Orca adapter uses worker lifecycle receipts for read and stop',async()=>{
  const calls:string[][]=[];const ctx=fakeCtx({run:async argv=>{

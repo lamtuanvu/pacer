@@ -138,7 +138,7 @@ export function startServer(
       }
       if (app) return appRoute(req, getCtx());
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
-      if (pathname.startsWith("/v2/")) return handleV2(req, { getCtx, opDeps: opts.opDeps, tailMs, status });
+      if (pathname.startsWith("/v2/")) return handleV2(req, { getCtx, opDeps: {...opts.opDeps, terminalPresetsOnly: !bearer}, tailMs, status });
       if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) {
         const body=await consoleRequestBody(req);
         if(body instanceof Response)return body;

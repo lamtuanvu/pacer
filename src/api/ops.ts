@@ -26,6 +26,7 @@ import type { Ctx } from "../types";
 
 type UpdateSpawnOptions = { detached: true; stdio: "ignore"; env: NodeJS.ProcessEnv };
 export interface OpDeps {
+  terminalPresetsOnly?: boolean;
   spawnRunner?: SpawnRunner;
   endpoint?: endpoints.EndpointDeps;
   spawnUpdate?: (argv: string[], options: UpdateSpawnOptions) => void | Promise<void>;
@@ -116,7 +117,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
-  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: (ctx, p) => mutation(ctx, "config", async () => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; }) }),
+  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: (ctx, p, deps) => mutation(ctx, "config", async () => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly}); return result; }) }),
   "notifications.get": op({ description: "Current Orca plugin notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set Orca plugin notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: ctx => setup.check(ctx) }),

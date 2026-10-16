@@ -12,7 +12,7 @@ const types=(p:Peer)=>p.frames.flatMap(b=>new WireDecoder().push(b)).map(f=>f.ty
 function setup(){return new ViewerHub(()=>wire(FrameType.snapshot,{outputOffset:4}),from=>from===2?[Buffer.from('ab')]:null,fn=>fn());}
 test('16 viewers join, 17th refused and disconnect frees capacity',()=>{
  const hub=setup(),peers=Array.from({length:17},()=>new Peer());
- for(const p of peers)hub.add(p as any);
+ for(const p of peers){hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1}));}
  expect(hub.size).toBe(16);expect(types(peers[16])).toEqual([FrameType.exit]);
  peers[0].destroy();expect(hub.size).toBe(15);
 });
@@ -44,9 +44,9 @@ test('exit flushes queued output before its exit frame',async()=>{
  const ending=hub.end(0);p.blocked=false;p.emit('drain');await ending;expect(types(p).slice(-3)).toEqual([3,3,7]);
 });
 test('rejected viewers have an error handler before refusal is written',()=>{
- const hub=setup();for(let i=0;i<16;i++)hub.add(new Peer() as any);
+ const hub=setup();for(let i=0;i<16;i++){const p=new Peer();hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1}));}
  class Reset extends Peer{end(b:Buffer){this.emit('error',Error('reset'));super.end(b);}}
- expect(()=>hub.add(new Reset() as any)).not.toThrow();expect(hub.size).toBe(16);
+ expect(()=>{const p=new Reset();hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1}));}).not.toThrow();expect(hub.size).toBe(16);
 });
 test('large snapshots stream in bounded writes while preserving one complete frame',()=>{
  const snapshot=wire(2,{screenAnsi:'x'.repeat(2*1024*1024)});

@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs';
 import type { Ctx } from '../types';
 import { shq } from '../install/fsx';
 export type ViewerTarget='app'|'orca'|'here'|'terminal'|'tmux';
-export const TERMINAL_PRESETS=['ghostty','iterm','terminal-app','wezterm','kitty','alacritty','gnome-terminal','x-terminal-emulator'] as const;
+import { TERMINAL_PRESETS } from './terminal-presets';
+export { TERMINAL_PRESETS } from './terminal-presets';
 export function validateTaskId(id:string){if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw Error('invalid session task id');}
 export function attachCommand(id:string){validateTaskId(id);return `pacer attach ${shq(id)}`;}
 /** Shell-like quoting for argv only: no substitutions, pipes, redirects or shell execution. */
@@ -25,18 +26,22 @@ export function validateTerminalOpen(value:string){
  splitArgv(value);
  return value;
 }
+/** AppleScript string literals escape only backslashes and double quotes. */
+export function appleScriptString(value:string):string{
+ return '"'+value.replaceAll('\\','\\\\').replaceAll('"','\\"')+'"';
+}
 export function terminalRecipe(setting:string,id:string,platform:NodeJS.Platform=process.platform):string[]{
  validateTerminalOpen(setting);const command=attachCommand(id),argv=['pacer','attach',id];
  switch(setting){
   case 'ghostty':return platform==='darwin'?['open','-na','Ghostty','--args','-e',...argv]:['ghostty','-e',...argv];
-  case 'iterm':return ['osascript','-e',`tell application "iTerm" to create window with default profile command ${JSON.stringify(command)}`];
-  case 'terminal-app':return ['osascript','-e',`tell application "Terminal" to do script ${JSON.stringify(command)}`];
+  case 'iterm':return ['osascript','-e',`tell application "iTerm" to create window with default profile command ${appleScriptString(command)}`];
+  case 'terminal-app':return ['osascript','-e',`tell application "Terminal" to do script ${appleScriptString(command)}`];
   case 'wezterm':return ['wezterm','start','--',...argv];
   case 'kitty':return ['kitty',...argv];
   case 'alacritty':return ['alacritty','-e',...argv];
   case 'gnome-terminal':return ['gnome-terminal','--',...argv];
   case 'x-terminal-emulator':return ['x-terminal-emulator','-e',...argv];
-  default:return splitArgv(setting).map(arg=>arg.replaceAll('{cmd}',command));
+  default:return splitArgv(setting).flatMap(arg=>arg==='{cmd}'?argv:[arg.replaceAll('{cmd}',command)]);
  }
 }
 export function hasDesktop(ctx:Ctx,platform:NodeJS.Platform=process.platform):boolean{

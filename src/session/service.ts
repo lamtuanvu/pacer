@@ -80,7 +80,7 @@ export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTar
  if(terminalSetting(ctx))info.targets.push('terminal');if(ctx.env.TMUX&&ctx.which('tmux'))info.targets.push('tmux');
  return info;
 }
-export function terminalSetting(ctx:Ctx):string|null{if(!hasDesktop(ctx))return null;try{return loadStrategy(ctx).terminal?.open||detectTerminal(ctx);}catch{return detectTerminal(ctx);}}
+export function terminalSetting(ctx:Ctx):string|null{if(!hasDesktop(ctx))return null;try{const setting=loadStrategy(ctx).terminal?.open;return !setting||setting==='auto'?detectTerminal(ctx):setting;}catch{return detectTerminal(ctx);}}
 export async function openSession(ctx:Ctx,id:string,target:ViewerTarget):Promise<{opened:boolean;command?:string}>{
  const fallback={opened:false,command:attachCommand(id)};const info=await sessionInfo(ctx,id);
  if(!info.targets.includes(target)||target==='app'||target==='here')return fallback;

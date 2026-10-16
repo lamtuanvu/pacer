@@ -8,6 +8,7 @@ interface Viewer {
 /** Bounded output queues. Snapshot state is shared, and streamed in small writes. */
 export class ViewerHub {
  private viewers=new Set<Viewer>();
+ private pending=new Set<Viewer>();
  private cachedSnapshot?:Buffer;
  private closing=false;
  get size(){return this.viewers.size;}
@@ -40,11 +41,14 @@ export class ViewerHub {
   // Even a rejected connection must never surface an unhandled socket error in the host.
   socket.on('error',()=>socket.destroy());
   if(this.closing){socket.destroy();return;}
-  if(this.size>=16){socket.end(wire(FrameType.exit,{code:1,reason:'Session already has 16 viewers; detach a viewer and try again.'}));return;}
   const v:Viewer={socket,joined:false,blocked:false,pending:[],bytes:0,resync:false,label:'viewer'};
-  this.viewers.add(v);this.cachedSnapshot=undefined;this.changed(this.size);const decoder=new WireDecoder();
+  this.pending.add(v);
+  const helloTimer=setTimeout(()=>socket.destroy(),5000);helloTimer.unref();
+  const decoder=new WireDecoder();
   socket.on('close',()=>{
-   this.viewers.delete(v);v.pending=[];v.snapshot=undefined;v.done?.();this.cachedSnapshot=undefined;this.changed(this.size);
+   clearTimeout(helloTimer);this.pending.delete(v);
+   const joined=this.viewers.delete(v);v.pending=[];v.snapshot=undefined;v.done?.();
+   if(joined){this.cachedSnapshot=undefined;this.changed(this.size);}
    if(v.joined&&!this.closing)this.enqueue(()=>this.marker('detach',v.label));
   });
   socket.on('drain',()=>this.enqueue(()=>{v.blocked=false;this.flush(v);}));
@@ -52,9 +56,13 @@ export class ViewerHub {
    if(f.type===FrameType.hello&&!v.joined){
     const h=JSON.parse(f.data.toString());
     if(h.v!==1||(h.from!==undefined&&(!Number.isSafeInteger(h.from)||h.from<0))){socket.destroy();return;}
+    clearTimeout(helloTimer);
     this.enqueue(()=>{
      if(socket.destroyed||v.joined||this.closing)return;
-     v.joined=true;v.label=String(h.label??'viewer').slice(0,64);
+     if(this.size>=16){socket.end(wire(FrameType.exit,{code:1,reason:'Session already has 16 viewers; detach a viewer and try again.'}));return;}
+     this.pending.delete(v);this.viewers.add(v);v.joined=true;
+     v.label=`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').slice(0,64)}`;
+     this.cachedSnapshot=undefined;this.changed(this.size);
      const missing=h.from===undefined?null:this.since(h.from);
      if(missing===null){v.snapshot={bytes:this.freshSnapshot(),offset:0};this.flush(v);}
      else for(const b of missing)this.send(v,wire(FrameType.output,b));
@@ -66,9 +74,10 @@ export class ViewerHub {
   }}catch{socket.destroy();}});
  }
  broadcast(bytes:Buffer){this.cachedSnapshot=undefined;for(const v of this.viewers)if(v.joined)this.send(v,bytes);}
- destroy(){for(const v of this.viewers)v.socket.destroy();this.viewers.clear();this.cachedSnapshot=undefined;}
+ destroy(){for(const v of [...this.pending,...this.viewers])v.socket.destroy();this.pending.clear();this.viewers.clear();this.cachedSnapshot=undefined;}
  async end(code:number){
   this.closing=true;
+  for(const v of this.pending)v.socket.destroy();
   await Promise.all([...this.viewers].map(v=>new Promise<void>(resolve=>{
    v.done=resolve;v.exitCode=code;
    if(v.socket.destroyed){resolve();return;}

@@ -71,3 +71,17 @@ test('interactive endpoint add collects usage settings for the shared validator'
 test('command-only terminal actions resolve Orca focus rather than the worker directory',async()=>{const h=harness();h.ctx.run=async argv=>{h.calls.push(argv);return {code:0,stderr:'',stdout:JSON.stringify({ok:true,result:argv[1]==='worktree'?{worktree:{id:'repo::/focused'}}:{terminal:{handle:'term_settings'}}})};};await h.run({cmd:'open-terminal',command:'init'});expect(h.calls).toEqual([['orca','worktree','show','--worktree','active','--json'],['orca','terminal','create','--worktree','id:repo::/focused','--title','pacer settings','--command','pacer init','--json']]);expect(h.output()).toContain('term_settings');});
 
 for(const cmd of ['account-remove','runner-remove'] as const)for(const name of ['--help','-x','foo bar','foo#-bar'])test(`direct console ${cmd} rejects malformed name ${name}`,async()=>{const h=harness(),messages:string[]=[],before=readFileSync(h.path,'utf8');let refreshed=false;await consoleCommands(h.ctx,h.deps,s=>messages.push(s),{startDelegate(){},chooseStrategy(){},use:async()=>{},refresh:async()=>{refreshed=true;}})({cmd,name});expect(messages.join(' ')).toContain('invalid');expect(refreshed).toBe(false);expect(readFileSync(h.path,'utf8')).toBe(before);});
+
+test('Orca terminal settings write presets and explain rejected custom templates',async()=>{
+ const h=harness();
+ for(const value of ['ghostty','iterm','terminal-app','wezterm','kitty','alacritty','gnome-terminal','x-terminal-emulator','auto']){
+  await h.run({cmd:'config-set',key:'terminal.open',value});
+  expect(loadStrategy(h.ctx).terminal?.open).toBe(value);
+ }
+ const before=readFileSync(h.path,'utf8');
+ await h.run({cmd:'config-set',key:'terminal.open',value:'foot {cmd}'});
+ expect(h.output()).toContain('terminal.open requires a preset');
+ expect(h.output()).toContain('use pacer config set terminal.open');
+ expect(readFileSync(h.path,'utf8')).toBe(before);
+ expect(h.calls).toEqual([]);
+});

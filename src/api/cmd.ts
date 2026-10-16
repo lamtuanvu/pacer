@@ -1,6 +1,7 @@
 import { ApiError } from "./client";
 import { CoreError } from "../core/errors";
 import type { CmdData } from "../link/envelope";
+import { isTerminalPreset, TERMINAL_PRESET_ERROR } from "../session/terminal-presets";
 
 export function cmdToOp(data: CmdData, options: { fromPanel?: boolean } = {}): { op: string; params: Record<string, unknown> } | null {
   switch (data.cmd) {
@@ -39,6 +40,9 @@ export async function runMappedCmd(
   data: CmdData,
   options: { fromPanel?: boolean } = {},
 ): Promise<{ handled: false } | { handled: true; ok: boolean; message: string }> {
+  // Reject at the console boundary so structured link commands get a useful error.
+  if(data.cmd==='config-set' && data.key==='terminal.open' && !isTerminalPreset(data.value??''))
+    return {handled:true,ok:false,message:`pacer: ${TERMINAL_PRESET_ERROR}`};
   const command = cmdToOp(data, options);
   if (!command) return { handled: false };
   try {
