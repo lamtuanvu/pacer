@@ -18,6 +18,8 @@ printf 'codex=%s\\n' "$(command -v codex || true)"
 printf 'claude=%s\\n' "$(command -v claude || true)"
 printf 'setsid=%s\\n' "$(command -v setsid || true)"
 printf 'script=%s\\n' "$(script --version 2>/dev/null || true)"
+printf 'tail=%s\\n' "$(tail --version 2>/dev/null | head -1)"
+printf 'tail_pid=%s\\n' "$(tail --pid=$$ -c 0 /dev/null >/dev/null 2>&1 && echo 1 || echo 0)"
 printf 'home=%s\\n' "$HOME"`,
   CHECK_REPO: `path="$1"; shift
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
@@ -135,7 +137,7 @@ if [ "$mode" = pty ]; then
   for arg in "$@"; do printf -v quoted "%q" "$arg"; command="$command $quoted"; done
   printf -v input "%q" "$D/stdin"
   command="$command < $input"
-  export TERM=xterm-256color SHELL=/bin/bash
+  export TERM=xterm-256color SHELL="$BASH"
   exec sh "$D/run.sh" "$D" script -qfec "$command" "$D/session.raw"
 fi
 exec sh "$D/run.sh" "$D" "$@"
@@ -172,7 +174,7 @@ else
 fi`,
   FOLLOW: `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-exec tail -c +"$(($2 + 1))" -f "$D/session.raw"`,
+exec tail -c +"$(($2 + 1))" --pid="$(cat "$D/pid")" -f "$D/session.raw"`,
   STOP: `D="$1"; grace="$2"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; exit 0; fi

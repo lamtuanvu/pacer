@@ -33,7 +33,7 @@ async function fixture() {
   ctx.run = async (argv, ms, o) => {
     const r = await run(argv, ms, o);
     if (argv[0] === "ssh" && argv.at(-1)?.includes("command -v codex") && r.code === 0)
-      return { ...r, stdout: `__PACER_BEGIN__\ngit=git version 2.40.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ncodex=/bin/codex\nclaude=\nhome=${home}\n` };
+      return { ...r, stdout: `__PACER_BEGIN__\ngit=git version 2.40.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=tail (GNU coreutils) 9.5\ntail_pid=1\ncodex=/bin/codex\nclaude=\nhome=${home}\n` };
     return r;
   };
   return { ctx, repo, checkout, home, git };
@@ -43,7 +43,7 @@ test("check passes on a prepared host and names each failure", async () => {
   const { ctx, repo, checkout, git } = await fixture();
   const check = () => hosts.check(ctx, "box", { repo });
   expect(await check()).toMatchObject({ alias: "box", ok: true });
-  expect((await check()).checks.map(c => c.name)).toEqual(["ssh", "git", "setsid", "script", "codex", "account homes", "checkout github.com/o/r", "identity github.com/o/r"]);
+  expect((await check()).checks.map(c => c.name)).toEqual(["ssh", "git", "setsid", "script", "tail", "codex", "account homes", "checkout github.com/o/r", "identity github.com/o/r"]);
   await git(checkout, "config", "--local", "user.email", "wrong@example.invalid");
   expect((await check()).checks.find(c => c.name.startsWith("identity"))?.ok).toBe(false);
   await git(checkout, "remote", "set-url", "origin", "https://github.com/other/repo");
@@ -137,5 +137,20 @@ test("host check rejects BSD or missing script", async () => {
       return {...r, stdout:r.stdout.replace("script=script from util-linux 2.40", `script=${value}`)};
     };
     expect((await hosts.check(ctx,"box",{repo})).checks.find(c=>c.name==="script")?.ok).toBe(false);
+  }
+});
+
+
+test("host check diagnoses old util-linux script and tail without GNU --pid",async()=>{
+  const {ctx,repo}=await fixture();const run=ctx.run;
+  for(const [from,to,name] of [
+    ["script from util-linux 2.40","script from util-linux 2.34","script"],
+    ["tail_pid=1","tail_pid=0","tail"],
+    ["tail (GNU coreutils) 9.5","BSD tail","tail"],
+  ]) {
+    ctx.run=async(argv,ms,o)=>{const r=await run(argv,ms,o);return {...r,stdout:r.stdout.replace(from,to)};};
+    const check=(await hosts.check(ctx,"box",{repo})).checks.find(c=>c.name===name);
+    expect(check?.ok).toBe(false);
+    expect(check?.detail).toContain(name==="script"?"2.35":"--pid");
   }
 });
