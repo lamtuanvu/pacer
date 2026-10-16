@@ -59,7 +59,7 @@ test('terminal viewers return promptly while keeping a long-lived process alive'
  const { launchViewer }=await import('../src/session/targets');
  const ctx=fakeCtx({env:{PATH:process.env.PATH}}),marker=join(ctx.home,'viewer-alive');
  const began=Date.now();
- expect(await launchViewer(ctx,[process.execPath,'-e',`setTimeout(()=>Bun.write(${JSON.stringify(marker)},'alive'),400)`])).toBe(true);
+ expect(await launchViewer(ctx,[process.execPath,'-e',"setTimeout(()=>Bun.write(process.argv.at(-1),'alive'),400)",marker])).toBe(true);
  expect(Date.now()-began).toBeLessThan(350);
  for(let i=0;i<30;i++){if((await Bun.file(marker).exists()))break;await Bun.sleep(25);}
  expect(await Bun.file(marker).text()).toBe('alive');
