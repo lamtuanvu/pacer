@@ -14,7 +14,6 @@ import { openInTerminal } from "../terminal/open";
 import { detectAgents } from "../install/detection";
 import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
 import { build as buildStrategy } from "../strategy/launcher";
-import type { openInTerminal } from "../terminal/open";
 import * as core from "../core";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";

@@ -473,6 +473,39 @@ Params JSON Schema:
 }
 ```
 
+### `account.signin`
+
+Open the account login in an available terminal, or return its command.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "target": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "orca",
+        "terminal",
+        "tmux"
+      ]
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `account.test`
 
 Run an endpoint test task in an isolated temporary git repository.
@@ -577,6 +610,27 @@ Params JSON Schema:
   "required": [
     "agent"
   ],
+  "additionalProperties": false
+}
+```
+
+### `agent.detect`
+
+Detect installed agent CLIs and their versions.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
   "additionalProperties": false
 }
 ```
@@ -729,7 +783,8 @@ Params JSON Schema:
         "pacing.planner_reserve",
         "pacing.accounts",
         "pacing.fill_threshold",
-        "update_check"
+        "update_check",
+        "terminal.app"
       ]
     },
     "value": {
@@ -762,6 +817,81 @@ Params JSON Schema:
   "required": [
     "key",
     "value"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `delegation.pause`
+
+Pause new delegation for up to seven days.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "for": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "for"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `delegation.resume`
+
+Resume delegation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `host.account.add`
+
+Map a host account folder and return its login command.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "alias",
+    "account",
+    "home"
   ],
   "additionalProperties": false
 }
@@ -824,6 +954,57 @@ Params JSON Schema:
 }
 ```
 
+### `host.clean`
+
+Preview host branch fates or clean worktrees as a job.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "dry_run": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `host.get`
+
+Host facts, checks, capacity and recent work.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `host.list`
 
 Configured SSH hosts and running task counts.
@@ -859,6 +1040,222 @@ Params JSON Schema:
   "required": [
     "alias"
   ],
+  "additionalProperties": false
+}
+```
+
+### `host.repo.map`
+
+Map a canonical repo key to a host checkout.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "alias",
+    "key",
+    "path"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `host.repo.setup`
+
+Clone and set repo identity with explicit consent, as a job.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "clone": {
+      "type": "boolean"
+    },
+    "identity": {
+      "type": "boolean"
+    },
+    "consent": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "alias",
+    "key",
+    "consent"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `host.set`
+
+Set host capacity and pause new work.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "max_tasks": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "paused": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `host.suggest`
+
+SSH aliases not already configured as hosts.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `host.terminal`
+
+Open an SSH terminal for a host.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `job.cancel`
+
+Cancel a job that supports cancellation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `job.get`
+
+Read a shared job.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `job.list`
+
+List retained shared jobs, optionally for a target.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
   "additionalProperties": false
 }
 ```
@@ -905,9 +1302,55 @@ Params JSON Schema:
 }
 ```
 
+### `mode.hold`
+
+Hold a mode until a timestamp or the planner window resets.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "strict",
+        "normal",
+        "relaxed",
+        "emergency"
+      ]
+    },
+    "until": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "mode"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `mode.release`
+
+Release the held mode and return to pace-derived mode.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `notifications.get`
 
-Current Orca plugin notification level.
+Current notification level.
 
 Params JSON Schema:
 
@@ -922,7 +1365,7 @@ Params JSON Schema:
 
 ### `notifications.set`
 
-Set Orca plugin notifications to off, important or all.
+Set notifications to off, important or all.
 
 Params JSON Schema:
 
@@ -1173,6 +1616,39 @@ Params JSON Schema:
     "model": {
       "type": "string",
       "minLength": 1
+    },
+    "rank": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "kinds": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "boilerplate",
+          "tests",
+          "docs",
+          "rename",
+          "migration",
+          "feature",
+          "debug",
+          "refactor",
+          "performance",
+          "unfamiliar-code",
+          "research"
+        ]
+      }
+    },
+    "max_tasks": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "test": {
+      "type": "boolean"
     }
   },
   "required": [
@@ -1212,6 +1688,30 @@ Params JSON Schema:
 }
 ```
 
+### `runner.check`
+
+Check executor CLI, sign-in, usage and a scratch test task.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `runner.list`
 
 Configured executors and their availability.
@@ -1242,6 +1742,81 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `runner.reorder`
+
+Replace executor priority order.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    }
+  },
+  "required": [
+    "ids"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `runner.set`
+
+Edit an executor's settings and rank.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "max_tasks": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "rank": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
     }
   },
   "required": [
@@ -1325,6 +1900,40 @@ Params JSON Schema:
   "required": [
     "planner"
   ],
+  "additionalProperties": false
+}
+```
+
+### `strategy.build`
+
+Open a strategy planning session.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    },
+    "from": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "brief": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
   "additionalProperties": false
 }
 ```
@@ -2050,7 +2659,7 @@ Params JSON Schema:
 
 ### `update.apply`
 
-Start pacer update in a detached child; package-manager and source installs are refused.
+Apply pacer update as a shared job; package-manager and source installs are refused.
 
 Params JSON Schema:
 
