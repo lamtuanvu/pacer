@@ -1,3 +1,4 @@
+import { endpointRow } from "../endpoints/row";
 import { orcaAccountHome } from "../orca/accounts";
 import { parseRunnerId, formatRunnerId, runnerDefaults, resolveRunner } from "../config/runner-id";
 import type { AccountCfg } from "../config/accounts";
@@ -83,15 +84,18 @@ export async function computeStatus(
     const live = windows.filter(w => !w.stale);
     const binding = bindingWindow(live) ?? bindingWindow(windows);
     const verdict: Verdict = account.usage === "unmetered" && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
-    return { account, runners, reading: fresh, windows, binding, verdict };
+    const endpoint = await endpointRow(ctx, account);
+    const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
+    return { account, runners, reading: fresh, windows, binding, verdict, endpointReason };
   }));
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
-    const { account, reading, windows, binding, verdict } = byAccount[runner.account];
+    const { account, reading, windows, binding, verdict, endpointReason } = byAccount[runner.account];
     return {
       id: runner.name, account: account.name, usage: account.usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
+      ...(endpointReason ? {unavailableReason: endpointReason} : {}),
       installed: runner.host !== null || ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
       stale: reading.stale,
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),

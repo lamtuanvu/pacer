@@ -32,10 +32,10 @@ then exit to return to pacer. Codex runs `codex login` with `CODEX_HOME` set.
 The login process inherits your terminal. `--no-login` configures the account
 without starting a login. A failed login leaves the account configured.
 
-pacer never reads or copies credentials or Keychain entries. It only selects the
-agent's config folder. Default accounts have neither `home` nor `orca_account`,
-and pacer does not set account environment variables for them. There is at most
-one default account per native account kind.
+For native accounts, pacer never reads or copies credentials or Keychain entries.
+It only selects the agent's config folder. Default accounts have neither `home`
+nor `orca_account`, and pacer does not set account environment variables for
+them. There is at most one default account per native account kind.
 
 ## Link an Orca account
 
@@ -52,7 +52,108 @@ This is a workaround tracked in [#19](https://github.com/lamtuanvu/pacer/issues/
 If the derived folder is missing, the account remains available for usage
 reporting but cannot execute tasks or become an installed planner.
 
-## Endpoint budgets
+## Endpoint accounts (OpenCode)
+
+Run `pacer account add` and choose **Model endpoint (OpenCode)**. Enter a name,
+an HTTP(S) base URL and a hidden API key (leave it empty for a local server with
+no key). pacer discovers models through `/models`, lets you choose which to use,
+and asks for context and output limits when the server does not provide them
+(defaults: 128K context and 16K output). Choose quota, metered or unmetered usage,
+then accept the optional test task.
+
+If the URL is unreachable, pacer asks you to check it and try again. A 401/403
+asks for the key again; a server without `/models` allows manual model ids.
+A name already in use points you to `pacer account edit <name>`.
+
+pacer generates the provider and creates `opencode#<name>`, using
+`pacer-<name>/<model-id>`, at the end of routing's default rule. The test runs
+only in a temporary git repo, asks OpenCode to create `hello.txt` containing `ok`,
+checks the file and removes the repo. It has a two-minute timeout and consumes
+a small number of tokens. Only a passing test reports **Ready**. A failed test
+keeps the account, reports **Not working** with a reason, and excludes its runner
+from routing until repaired and retested.
+
+For scripts, supply the connection explicitly:
+
+```sh
+pacer account add endpoint acme --base-url https://api.example.com/v1 \
+  --key env:ACME_API_KEY --models coder --usage unmetered
+pacer account add endpoint local --base-url http://localhost:1234/v1 \
+  --key none --models qwen3 --usage unmetered --no-test
+```
+
+With `--key keychain` or `--key file`, pipe the key on stdin; never put its value
+in command arguments. `--context` and `--output` set model limits (defaults 128K
+and 16K). Metered usage also needs `--weekly-tokens`, and quota usage needs
+`--quota-source arkcli`.
+
+### Keys and generated config
+
+| Key source | Storage |
+| --- | --- |
+| `keychain` | macOS login Keychain, service `pacer`, account `endpoint/<name>`; interactive default on macOS |
+| `file` | `$PACER_HOME/secrets/<name>.key`, mode 0600 in a 0700 directory; interactive default on Linux |
+| `env:VAR` | Reads `VAR` from pacer's environment at launch; manage it yourself |
+| `none` | No key, for local servers that do not require authentication |
+
+`PACER_HOME` defaults to `~/.pacer`. Keys never appear in the strategy, generated
+config, task records, logs, events or API results. At launch pacer reads the key
+from its source and supplies `PACER_KEY_<NAME>` only to the OpenCode child
+(uppercase account name, with hyphens replaced by underscores).
+
+pacer writes `$PACER_HOME/opencode/opencode.json` atomically, mode 0600 in a
+0700 directory, after account changes and refreshes it at launch. It contains
+`pacer-<name>` providers and environment placeholders for keys. `OPENCODE_CONFIG`
+merges this file with OpenCode's config; pacer never edits the user's config.
+pacer runs `opencode run --standalone` so its private server inherits the
+generated config and key even when the user runs OpenCode's background service.
+Managed endpoint runners always use the direct backend, including when Orca is
+selected; the Orca executor backend never receives their keys.
+
+### State, edits and removal
+
+`pacer account list --json` includes a safe connection summary (`api`,
+`base_url_host`, `key: present|missing`, and models), plus the endpoint state,
+optional detail and last test time (`checked_at`).
+
+| State | Meaning |
+| --- | --- |
+| Ready (`ready`) | Last test task passed |
+| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit |
+| Not working (`not_working`) | Test failed; reason is recorded and routing excludes the runner |
+| Key missing (`key_missing`) | Stored key or environment variable is absent; routing excludes the runner |
+| External OpenCode provider (`external`) | Legacy endpoint without a managed connection |
+
+State lives in `$PACER_HOME/endpoints/state.json` (0600), separate from
+`strategy.yaml`. Tests update this file rather than rewriting the strategy.
+`pacer route` shows the reason for excluding a Not working or Key missing runner.
+
+```sh
+pacer account models acme
+pacer account models acme --refresh
+pacer account edit acme
+pacer account test acme
+pacer runner rm opencode#acme
+pacer account rm acme --delete-key
+```
+
+`models` lists configured models; `--refresh` discovers them again and prompts
+for a new selection. Interactive `edit` changes the URL, key, models or usage
+and offers a test. Flag-based edits leave the connection Not tested; run
+`account test` to verify it.
+
+For an external provider, interactive `edit` offers to adopt it: pacer reads only
+the provider's base URL and model definitions from the user's OpenCode config
+and asks for a new key. It never copies a literal key from that config.
+
+Remove the runner before removing its account. Removal drops the generated
+provider and asks whether to delete a stored Keychain or file key;
+`--delete-key` deletes it without that prompt. Environment keys are never deleted.
+
+### Legacy endpoint budgets
+
+Accounts without `connection` remain **External OpenCode provider** accounts
+and work as before with providers configured by the user:
 
 ```sh
 pacer account add endpoint acme --usage metered --weekly-tokens 50M

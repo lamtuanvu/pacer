@@ -35,21 +35,21 @@ function setup() {
   return {ctx, s, home};
 }
 
-test("runnerEnv sets only non-default Claude and Codex account homes", () => {
+test("runnerEnv sets only non-default Claude and Codex account homes", async () => {
   const {ctx, s, home} = setup();
-  expect(launch.runnerEnv(ctx, s.runners["claude-code#team"])).toEqual({CLAUDE_CONFIG_DIR: home});
-  expect(launch.runnerEnv(ctx, s.runners["codex#work"])).toEqual({CODEX_HOME: home});
-  expect(launch.runnerEnv(ctx, s.runners["claude-code"])).toEqual({});
-  expect(launch.runnerEnv(ctx, s.runners.codex)).toEqual({});
-  expect(launch.runnerEnv(ctx, s.runners["opencode#local"])).toEqual({});
+  expect(await launch.runnerEnv(ctx, s.runners["claude-code#team"])).toEqual({CLAUDE_CONFIG_DIR: home});
+  expect(await launch.runnerEnv(ctx, s.runners["codex#work"])).toEqual({CODEX_HOME: home});
+  expect(await launch.runnerEnv(ctx, s.runners["claude-code"])).toEqual({});
+  expect(await launch.runnerEnv(ctx, s.runners.codex)).toEqual({});
+  expect(await launch.runnerEnv(ctx, s.runners["opencode#local"])).toEqual({});
 });
 
-test("Orca account home is resolved only when its folder exists", () => {
+test("Orca account home is resolved only when its folder exists", async () => {
   const {ctx, s} = setup();
-  expect(() => launch.runnerEnv(ctx, s.runners["codex#managed"])).toThrow("account folder not found");
+  await expect(launch.runnerEnv(ctx, s.runners["codex#managed"])).rejects.toThrow("account folder not found");
   const home = join(ctx.env.ORCA_USER_DATA_PATH!, "codex-accounts", "cx-team", "home");
   mkdirSync(home, {recursive: true});
-  expect(launch.runnerEnv(ctx, s.runners["codex#managed"])).toEqual({CODEX_HOME: home});
+  expect(await launch.runnerEnv(ctx, s.runners["codex#managed"])).toEqual({CODEX_HOME: home});
 });
 
 test("missing Orca folder keeps usage visible but excludes the runner from routing", async () => {
@@ -119,11 +119,11 @@ test("direct launch passes the account env and clears an inherited planner accou
   expect(defaultAccount.exec.stdout).toBe("||executor");
 });
 
-test("pacer-managed home expands the user's home before launch", () => {
+test("pacer-managed home expands the user's home before launch", async () => {
   const {ctx, s} = setup();
   const file = join(ctx.pacerHome, "strategy.yaml");
   const rawStrategy = JSON.parse(readFileSync(file, "utf8"));
   rawStrategy.accounts.team.home = "~/.claude-team";
   writeFileSync(file, JSON.stringify(rawStrategy));
-  expect(launch.runnerEnv(ctx, s.runners["claude-code#team"])).toEqual({CLAUDE_CONFIG_DIR: join(ctx.home, ".claude-team")});
+  expect(await launch.runnerEnv(ctx, s.runners["claude-code#team"])).toEqual({CLAUDE_CONFIG_DIR: join(ctx.home, ".claude-team")});
 });

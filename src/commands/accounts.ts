@@ -1,15 +1,24 @@
 import { sep } from "node:path";
+import { Writable } from "node:stream";
 import { createInterface } from "node:readline/promises";
 import { parseRunnerId } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import * as accounts from "../core/accounts";
 import { requireAccounts } from "../core/accounts";
 import * as runners from "../core/runners-config";
+import { parseSize, type EndpointModel, type KeySource } from "../config/accounts";
 import type { Ctx } from "../types";
 import type { Result } from "./types";
 import { table } from "../render/table";
 
-export interface AccountDeps {
+import * as endpoints from "../core/endpoints";
+import {deleteKey} from "../endpoints/keys";
+import {redactEndpointError, type EndpointState} from "../endpoints/state";
+import type {DiscoveredModel, DiscoveryResult} from "../endpoints/models";
+
+export interface AccountDeps extends endpoints.EndpointDeps {
+  promptSecret?: (question: string) => Promise<string>;
+  readStdin?: () => Promise<string>;
   prompt?: (question: string) => Promise<string>;
   login?: (argv: string[], env: Record<string, string>) => Promise<number>;
   confirm?: (question: string) => Promise<boolean>;
@@ -54,29 +63,50 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
   try {
     if(args[0]==="add" && (args.length===1 || (args.length===2 && args[1]==="--orca"))) {
       const ask=deps.prompt ?? promptArgument;
-      const kind=await ask("Account kind (claude, codex, endpoint)");
-      const name=await ask("Account name");
+      const selected=await ask("What do you want to add? 1. Claude Code account  2. Codex account  3. Model endpoint (OpenCode)");
+      const kind=({'1':'claude','2':'codex','3':'endpoint'} as Record<string,string>)[selected] ?? selected;
+      const name=await ask("Name (lowercase, e.g. terastorai)");
+      if(kind==='endpoint' && args[1]!=="--orca") return await endpointWizard(ctx,name,deps);
       const options=args[1]==="--orca" ? ["--orca",await ask("Orca account id")] : [];
-      if(kind==="endpoint" && args[1]!=="--orca") {
-        const usage=await ask("Usage (quota, metered, unmetered)");options.push("--usage",usage);
-        if(usage==="metered") options.push("--weekly-tokens",await ask("Weekly token budget"));
-        if(usage==="quota") {
-          const source=await ask("Quota source (arkcli, empty for manual)");
-          if(source) options.push("--quota-source",source);
-        }
-      }
       return accountCmd(["add",kind,name,...options],ctx,deps);
     }
     const [verb, ...rest] = args;
-    const {pos, flags} = commandArgs(rest, verb === "add" ? ["home","orca","usage","quota-source","weekly-tokens"] : [], verb === "list" ? ["json"] : verb === "add" ? ["no-login"] : ["delete-home"]);
+    const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
     const s = loadStrategy(ctx);
     if (verb === "list" && !pos.length) {
       const rows = await accounts.list(ctx);
       return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
     }
     requireAccounts(s);
+    if (verb === 'test' && pos.length===1) return ok(endpointMessage(pos[0],await endpoints.testEndpoint(ctx,pos[0],deps)));
+    if (verb === 'models' && pos.length===1) {
+      const a=s.accounts[pos[0]];
+      if (!a?.connection) throw Error("a configured endpoint connection is required");
+      if (!flags.refresh) return ok(table(['MODEL','CONTEXT','OUTPUT'],a.connection.models.map(m=>[m.id,String(m.context),String(m.output)])));
+      const discovered=await endpoints.listModels(ctx,{name:pos[0]},deps);
+      const models=await chooseModels(discovered,deps);
+      const result=await endpoints.editEndpoint(ctx,{name:pos[0],models},deps);
+      return ok(endpointMessage(pos[0],result));
+    }
+    if (verb==='edit' && pos.length===1) {
+      const a=s.accounts[pos[0]];
+      if (!a || a.kind!=='endpoint') throw Error("an endpoint account is required");
+      if (!Object.keys(flags).length) return await endpointWizard(ctx,pos[0],deps,true);
+      if (!a.connection) throw Error(`External OpenCode provider; use pacer account edit ${pos[0]} to adopt it`);
+      const input=await endpointFlags(pos[0],flags,deps,true);
+      const result=await endpoints.editEndpoint(ctx,input,deps);
+      return ok(endpointMessage(pos[0],result));
+    }
+    if (verb==='add' && pos[0]==='endpoint' && pos.length===2 && (['base-url','key','models','context','output','no-test'].some(k=>flags[k]))) {
+      if (s.accounts[pos[1]]) throw Error(`account ${pos[1]} already exists; use pacer account edit ${pos[1]}`);
+      const input=await endpointFlags(pos[1],flags,deps);
+      const result=await endpoints.addEndpoint(ctx,input as endpoints.EndpointInput,deps);
+      return ok(endpointMessage(pos[1],result,true));
+    }
     if (verb === "add" && pos.length === 2) {
       const [kind,name] = pos;
+      if (kind !== 'endpoint' && ['base-url','key','models','context','output','no-test'].some(k=>flags[k])) throw Error("connection options are only supported for endpoints");
+      if (s.accounts[name]) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
       const {folder, diff} = await accounts.add(ctx, {kind, name, home: flags.home as string | undefined, orca: flags.orca as string | undefined, usage: flags.usage as string | undefined, quotaSource: flags['quota-source'] as string | undefined, weeklyTokens: flags['weekly-tokens'] as string | undefined, noLogin: flags['no-login'] === true});
       const lines=[`Added account ${name}.`, diff];
       if (folder && !flags['no-login']) {
@@ -92,10 +122,13 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       if (s.planner.account===name || Object.values(s.runners).some(r=>r.account===name)) throw Error(`account ${name} is in use`);
       const folder=flags['delete-home'] ? accounts.deletionHome(ctx,s,name) : null;
       if (folder && !await (deps.confirm ?? confirmDeletion)(`Delete account home ${folder}?`)) throw Error('account removal cancelled');
+      const stored=a.connection?.key;
+      const removeKey=stored && ['file','keychain'].includes(stored) && (flags['delete-key'] || await (deps.confirm ?? confirmDeletion)(`Delete stored key for endpoint ${name}?`));
       const {diff}=accounts.remove(ctx,name,{deleteHome: !!flags['delete-home']});
+      if (removeKey) await deleteKey(ctx,name,stored!);
       return ok(`Removed account ${name}.\n${diff}`);
     }
-    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | rm <name> [--delete-home]');
+    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | models <name> [--refresh] | test <name> | edit <name> | rm <name> [--delete-home] [--delete-key]');
   } catch(e) {return fail(e);}
 }
 
@@ -123,4 +156,138 @@ export async function runnerCmd(args: string[], ctx: Ctx, deps: Pick<AccountDeps
     }
     throw Error('usage: pacer runner list [--json] | add <agent#account> [--model <m>] | rm <agent#account>');
   } catch(e) {return fail(e);}
+}
+
+async function hiddenKey(question: string): Promise<string> {
+  if (!process.stdin.isTTY) throw Error("interactive endpoint setup requires a terminal");
+  // Bun readline does not reliably disable terminal echo for a muted output.
+  // Enter raw mode explicitly before displaying the prompt.
+  const muted=new Writable({write(_chunk,_encoding,done){done();}});
+  const wasRaw=process.stdin.isRaw;
+  process.stdin.setRawMode(true);
+  const rl=createInterface({input:process.stdin,output:muted,terminal:true});
+  try {process.stdout.write(`${question}> `);return await rl.question('');}
+  finally {rl.close();process.stdin.setRawMode(!!wasRaw);process.stdout.write('\n');}
+}
+function endpointMessage(name: string, state: EndpointState, added=false): string {
+  const label={ready:'Ready',not_tested:'Not tested',not_working:'Not working',key_missing:'Key missing'}[state.state];
+  return `${label}: opencode#${name}${state.detail ? ` · ${state.detail}` : ''}`+
+    (state.state==='not_working' ? `\nRetry: pacer account test ${name}` : '')+
+    (added ? '\nRouting: added to the end of the default rule. Move it in the app’s Executors screen.' : '');
+}
+function positiveLimit(value: string | true | undefined, fallback: number): number {
+  const n=value===undefined || value==='' ? fallback : parseSize(value);
+  if (!n || !Number.isSafeInteger(n) || n<=0) throw Error('model limits must be positive integers');
+  return n;
+}
+async function chooseModels(result: DiscoveryResult, deps: AccountDeps): Promise<EndpointModel[]> {
+  const ask=deps.prompt ?? promptArgument, print=deps.print ?? console.log;
+  let selected: DiscoveredModel[];
+  if (result.listed && result.models.length) {
+    result.models.forEach((m,i)=>print(`${i+1}. ${m.id}${m.context ? ` · ${m.context} context` : ''}`));
+    for (;;) {
+      const choices=(await ask('Models to use (e.g. 1,3)')).split(',').map(n=>Number(n.trim()));
+      if (choices.length && choices.every(n=>Number.isInteger(n) && n>=1 && n<=result.models.length)) {
+        selected=[...new Set(choices)].map(n=>result.models[n-1]);break;
+      }
+      print('Choose model numbers from the list.');
+    }
+  } else {
+    print(result.listed ? "This endpoint doesn't list models. Enter model ids." : result.detail);
+    const ids=await ask('Model ids (comma separated)');
+    selected=[...new Set(ids.split(',').map(id=>id.trim()).filter(Boolean))].map(id=>({id}));
+    if (!selected.length) throw Error('at least one model id is required');
+  }
+  let context=128000, output=16000;
+  if (selected.some(m=>!m.context || !m.output)) {
+    for (;;) {
+      const contextInput=await ask('Context size (default 128K)'), outputInput=await ask('Output size (default 16K)');
+      try {
+        context=positiveLimit(contextInput,128000);
+        output=positiveLimit(outputInput,16000);break;
+      } catch {print('Model limits must be positive integers.');}
+    }
+  }
+  return selected.map(m=>({...m,context:m.context ?? context,output:m.output ?? output,tools:m.tools ?? true}));
+}
+async function usagePrompts(ask: (q: string)=>Promise<string>, current?: string) {
+  const usage=(await ask(`Usage (quota, metered, unmetered)${current ? ` [${current}]` : ''}`)) || current || '';
+  if (!['quota','metered','unmetered'].includes(usage)) throw Error('usage must be quota, metered or unmetered');
+  const weekly_tokens=usage==='metered'?positiveLimit(await ask('Weekly token budget'),0):undefined;
+  const quota_source=usage==='quota'?await ask('Quota source (arkcli)'):undefined;
+  return {usage,weekly_tokens,quota_source};
+}
+async function endpointWizard(ctx: Ctx, name: string, deps: AccountDeps, editing=false): Promise<Result> {
+  const s=loadStrategy(ctx), existing=s.accounts[name], readAnswer=deps.prompt ?? promptArgument, print=deps.print ?? console.log;
+  const ask=async (question: string) => {
+    const answer=await readAnswer(question);
+    if (typeof answer!=='string') throw Error('endpoint setup cancelled: no input');
+    return answer;
+  };
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw Error('invalid endpoint name');
+  if (!editing && existing) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
+  requireAccounts(s);
+  const adopting=editing && !existing?.connection;
+  let external: ReturnType<typeof endpoints.externalEndpoint> | undefined;
+  if (adopting) {
+    external=endpoints.externalEndpoint(ctx,name);
+    print(`External OpenCode provider: ${external.provider}`);
+    if (!/^y(?:es)?$/i.test(await ask('Adopt this provider? [y/N]'))) throw Error('adoption cancelled');
+  }
+  let base_url=existing?.connection?.base_url ?? external?.base_url ?? '';
+  let key_source: KeySource=process.platform==='darwin'?'keychain':'file';
+  let key: string | undefined;
+  const promptKey=async () => {
+    if (editing) {
+      key_source=((await ask('Key source (keychain, file, env:VAR, none)')) || existing?.connection?.key || key_source) as KeySource;
+      if (key_source==='none' || key_source.startsWith('env:')) {key=undefined;return;}
+    }
+    key=await (deps.promptSecret ?? hiddenKey)('API key (hidden, empty for none)');
+    if (!key) key_source='none';
+    else if (key_source==='none' || key_source.startsWith('env:')) key_source=process.platform==='darwin'?'keychain':'file';
+  };
+  let keyAsked=false;
+  let models: EndpointModel[];
+  if (external) {await promptKey();models=external.models;}
+  else {
+    let discovery: DiscoveryResult;
+    for (;;) {
+      const entered=await ask(`Base URL${base_url ? ` [${base_url}]` : ''}`);
+      base_url=entered || base_url;
+      try {
+        const url=new URL(base_url);
+        if (!['http:','https:'].includes(url.protocol) || url.username || url.password) throw Error();
+      } catch {print('Check the URL and try again.');continue;}
+      if (!keyAsked) {await promptKey();keyAsked=true;}
+      for (;;) {
+        discovery=await endpoints.listModels(ctx,{base_url,key:key_source.startsWith('env:') ? ctx.env[key_source.slice(4)] : key},deps);
+        if (!discovery.listed && discovery.error==='refused') {print('The key was refused.');await promptKey();continue;}
+        break;
+      }
+      if (!discovery.listed && ['unreachable','invalid_url','timeout'].includes(discovery.error)) {print('Endpoint unreachable. Check the URL and try again.');continue;}
+      break;
+    }
+    models=await chooseModels(discovery!,deps);
+  }
+  const usage=await usagePrompts(ask,existing?.usage);
+  const test=!/^n(?:o)?$/i.test(await ask('Test with a short task now? Uses a few hundred tokens. [Y/n]'));
+  const input={name,base_url,key_source,key,models,...usage,test};
+  try {
+    const result=await (adopting ? endpoints.adoptEndpoint : editing ? endpoints.editEndpoint : endpoints.addEndpoint)(ctx,input,deps);
+    return ok(endpointMessage(name,result,!editing));
+  } catch(e) {throw Error(redactEndpointError(e instanceof Error?e.message:String(e),[key ?? '']));}
+}
+async function endpointFlags(name: string, flags: Record<string,string|true>, deps: AccountDeps, editing=false): Promise<endpoints.EndpointEdit> {
+  if (flags.home || flags.orca || flags['no-login']) throw Error('endpoint accounts do not have a home or login');
+  if (!editing && (!flags['base-url'] || !flags.key || !flags.models || !flags.usage)) throw Error('endpoint requires --base-url, --key, --models and --usage');
+  const key_source=flags.key as KeySource | undefined;
+  let key: string | undefined;
+  if (key_source==='keychain' || key_source==='file') {
+    if (!deps.readStdin && process.stdin.isTTY) throw Error('pipe the endpoint key on stdin');
+    key=(await (deps.readStdin ?? (()=>Bun.stdin.text()))()).replace(/\r?\n$/,'');
+  }
+  const models=typeof flags.models==='string'?flags.models.split(',').map(id=>({id:id.trim(),context:positiveLimit(flags.context,128000),output:positiveLimit(flags.output,16000),tools:true})):undefined;
+  return {name,...(typeof flags['base-url']==='string'?{base_url:flags['base-url']}:{}),...(key_source?{key_source}:{}),...(key!==undefined?{key}:{}),
+    ...(models?{models}:{}),...(typeof flags.usage==='string'?{usage:flags.usage}:{}),
+    ...(flags['weekly-tokens']?{weekly_tokens:positiveLimit(flags['weekly-tokens'],0)}:{}),...(typeof flags['quota-source']==='string'?{quota_source:flags['quota-source']}:{}),test:editing?false:!flags['no-test']};
 }

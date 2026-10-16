@@ -45,7 +45,28 @@ test('fixed Orca link command prompts for label-safe identity and writes the lin
  const r=await accountCmd(['add','--orca'],h.ctx,{prompt:async()=>answers.shift()!});
  expect(r.code).toBe(0);expect(loadStrategy(h.ctx).accounts.team.orcaAccount).toBe('team-id');expect(r.out).not.toContain('private@example.invalid');
 });
-test('interactive endpoint add collects usage settings for the shared validator',async()=>{const {accountCmd}=await import('../src/commands/accounts');const h=harness(),answers=['endpoint','metered-api','metered','1M'];const r=await accountCmd(['add'],h.ctx,{prompt:async()=>answers.shift()!});expect(r.code).toBe(0);expect(loadStrategy(h.ctx).accounts['metered-api'].weeklyTokens).toBe(1_000_000);});
+test('interactive endpoint add collects usage settings for the shared validator',async()=>{
+ const {accountCmd}=await import('../src/commands/accounts');const h=harness();
+ const answers=['endpoint','metered-api','http://endpoint.invalid/v1','1','metered','1M','y'];
+ const questions:string[]=[];let hidden=0,discovered=0,tested=0;
+ const key='sk-console-endpoint-private';
+ // Exercise an in-memory keychain, never the real user's store.
+ h.ctx.run=async(argv,_timeout,options)=>{
+  if(argv[1]==='-i')expect(Buffer.from(options!.stdin!.match(/-X ([0-9a-f]+)/)![1],'hex').toString()).toBe(key);
+  return {code:0,stderr:'',stdout:argv.includes('-w')?key:''};
+ };
+ const r=await accountCmd(['add'],h.ctx,{
+  prompt:async question=>{questions.push(question);expect(answers.length).toBeGreaterThan(0);return answers.shift()!;},
+  promptSecret:async question=>{expect(question).toContain('hidden');hidden++;return key;},
+  print:()=>{},fetch:async(url,init)=>{discovered++;expect(String(url)).toBe('http://endpoint.invalid/v1/models');expect((init!.headers as Record<string,string>).Authorization).toBe(`Bearer ${key}`);return Response.json({data:[{id:'model-a',context_length:128000,max_output_tokens:16000}]});},
+  spawn:async spec=>{tested++;expect(spec.env.PACER_KEY_METERED_API).toBe(key);writeFileSync(join(spec.cwd,'hello.txt'),'ok');return {code:0,stdout:'',stderr:'',timedOut:false};},
+ });
+ expect(r.code).toBe(0);expect(r.out).toContain('Ready: opencode#metered-api');
+ expect([hidden,discovered,tested]).toEqual([1,1,1]);expect(answers).toEqual([]);
+ expect(questions.join('\n')).toContain('Models to use');expect(questions.join('\n')).toContain('Test with a short task');
+ const account=loadStrategy(h.ctx).accounts['metered-api'];expect(account.weeklyTokens).toBe(1_000_000);expect(account.connection!.models[0].id).toBe('model-a');
+ for(const text of [r.out,r.err,readFileSync(h.path,'utf8'),readFileSync(join(h.ctx.pacerHome,'opencode/opencode.json'),'utf8')])expect(text).not.toContain(key);
+});
 
 test('command-only terminal actions resolve Orca focus rather than the worker directory',async()=>{const h=harness();h.ctx.run=async argv=>{h.calls.push(argv);return {code:0,stderr:'',stdout:JSON.stringify({ok:true,result:argv[1]==='worktree'?{worktree:{id:'repo::/focused'}}:{terminal:{handle:'term_settings'}}})};};await h.run({cmd:'open-terminal',command:'init'});expect(h.calls).toEqual([['orca','worktree','show','--worktree','active','--json'],['orca','terminal','create','--worktree','id:repo::/focused','--title','pacer settings','--command','pacer init','--json']]);expect(h.output()).toContain('term_settings');});
 
