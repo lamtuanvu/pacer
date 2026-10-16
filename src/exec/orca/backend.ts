@@ -209,7 +209,6 @@ async function runOrcaAttempt(
   const dispatchId = r.dispatchId;
   const root = worktreePathOf(r.effects);
   const worktree = p.placement.kind === "existing" ? task.brief.repo : root ? (p.sub ? join(root, p.sub) : root) : null;
-  if(worktree)updateTask(ctx,task.id,t=>{t.worktree=worktree;});
   const terminal = agentTerminalOf(r.effects);
   log(`worker-start ${dispatchId}: ${r.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
   const forget = async () => {
@@ -228,6 +227,8 @@ async function runOrcaAttempt(
   let tailText = "";
   try {
     try {
+      // Once started, even a task/worker registration failure must keep supervision active.
+      if(worktree)updateTask(ctx,task.id,t=>{t.worktree=worktree;});
       await withLock(ctx, "coordinator", async () => {
         updateOrcaState(ctx, (s) => {
           s.workers[dispatchId] = { dispatchId, taskId: task.id, executor: cfg.id, worktree, terminal, startedAt };

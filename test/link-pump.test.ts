@@ -161,7 +161,8 @@ test("entity batches preserve the installed v1 bridge snapshot",async()=>{
  }});
  const stored=readJson<{link:ReturnType<typeof emptySnapshot>}>(join(pluginDataDir(ctx),"storage.json"))!.link;
  expect(Object.keys(stored).sort()).toEqual([...Object.keys(emptySnapshot()),"serviceInstalled"].sort());
- expect(stored.seq).toBe(batches[0]!.length);
+ // Activity can publish before the legacy batch; only later entity batches leave the bridge untouched.
+ expect(stored.seq).toBe(readLatest(ctx).seq-batches.slice(1).flat().length);
  expect(readLatest(ctx).seq).toBeGreaterThan(stored.seq);
  expect(eventsSince(ctx,stored.seq).events.some(e=>e.type==="executor")).toBe(true);
  expect(stored.tasks).toEqual([]);

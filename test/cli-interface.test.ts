@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { apiTask } from "../src/api/read-model/tasks";
 import { main } from "../src/cli";
 import { io } from "../src/install/stdin";
 import { delegate, parseDelegateBrief, summarizeTask } from "../src/tasks/api";
@@ -40,7 +41,7 @@ test("task, list, wait, stop and review JSON contracts; review and dismiss persi
  updateTask(ctx,t.id,x=>{x.state="failed";});
  for(const cmd of ["tasks","wait","stop"]){const result=await main([cmd,t.id,"--json"],ctx);expect(result.code).toBe(0);expect(Object.keys(JSON.parse(result.out)).sort()).toEqual(summaryKeys);expect(JSON.parse(result.out)).toEqual(summarizeTask(readTask(ctx,t.id)!));}
  expect(Object.keys(JSON.parse((await main(["tasks","--json"],ctx)).out)[0]).sort()).toEqual(summaryKeys);
- for(const flag of ["--accept","--reject"]){const r=await main(["review",t.id,flag,"--kind","debug","--json"],ctx);expect(JSON.parse(r.out)).toEqual({task:{...summarizeTask(readTask(ctx,t.id)!),rev:readTask(ctx,t.id)!.rev}});expect(readTask(ctx,t.id)).toMatchObject({resolved:"reviewed",review:{accepted:flag==="--accept",kind:"debug"}});}
+ for(const flag of ["--accept","--reject"]){const r=await main(["review",t.id,flag,"--kind","debug","--json"],ctx);expect(JSON.parse(r.out)).toEqual({task:apiTask(ctx,readTask(ctx,t.id)!)});expect(readTask(ctx,t.id)).toMatchObject({resolved:"reviewed",review:{accepted:flag==="--accept",kind:"debug"}});}
  expect((await main(["review",t.id,"--accept","--reject"],ctx)).code).toBe(2);
  const other=createTask(ctx,{brief:{goal:"h",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
  expect((await main(["dismiss",t.id,other.id],ctx)).code).toBe(0);expect(readTask(ctx,t.id)?.dismissed).toBe(true);expect(readTask(ctx,other.id)?.dismissed).toBe(true);
