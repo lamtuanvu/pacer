@@ -8,6 +8,7 @@ import { transferred } from "../remote/transfer";
 import { realpathSafe } from "./git";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
+import { cleanSettledSessions } from "../session/retention";
 import { TERMINAL_STATES } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
@@ -192,5 +193,6 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
     rmSync(join(ctx.pacerHome, "runs", t.id), { recursive: true, force: true });
     removed.push(t.id);
   }
+  if (!o.dryRun) cleanSettledSessions(ctx);
   return { removed, kept };
 }

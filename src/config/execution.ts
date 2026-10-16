@@ -8,6 +8,9 @@ export type ExecBackend = (typeof EXEC_BACKENDS)[number];
 export type WorktreeMode = (typeof WORKTREE_MODES)[number];
 
 export interface ExecutionCfg {
+  session?: "pty" | "pipe";
+  sessionLogMb?: number;
+  sessionRetentionDays?: number;
   backend: ExecBackend;
   worktree: WorktreeMode;
   baseBranch: string | null;
@@ -18,7 +21,7 @@ export interface ExecutionCfg {
 
 export const DEFAULT_EXECUTION: ExecutionCfg = { backend: "auto", worktree: "child-of-current", baseBranch: null };
 
-const KEYS = ["backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
+const KEYS = ["session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
 
 export class ExecutionError extends Error {
   constructor(readonly problems: string[]) {
@@ -65,8 +68,16 @@ export function validateExecution(raw: unknown): ExecutionCfg {
   };
   const idleAfter = mins("idle_after_min"), idleFail = mins("idle_fail_min");
   if ((idleFail ?? IDLE_FAIL_S / 60) <= (idleAfter ?? IDLE_AFTER_S / 60)) p.push("execution.idle_fail_min must be greater than execution.idle_after_min");
+  if (raw.session !== undefined && raw.session !== "pty" && raw.session !== "pipe") p.push("execution.session must be pipe or pty");
+  for (const [key, max] of [["session_log_mb", 256], ["session_retention_days", 3650]] as const) {
+    const v = raw[key];
+    if (v !== undefined && (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > max)) p.push(`execution.${key} must be an integer between 1 and ${max}`);
+  }
   if (p.length) throw new ExecutionError(p);
   return {
+    ...(raw.session !== undefined ? {session: raw.session as "pty" | "pipe"} : {}),
+    ...(raw.session_log_mb !== undefined ? {sessionLogMb: raw.session_log_mb as number} : {}),
+    ...(raw.session_retention_days !== undefined ? {sessionRetentionDays: raw.session_retention_days as number} : {}),
     backend: backend as ExecBackend, worktree: worktree as WorktreeMode, baseBranch,
     ...(registerRepos !== undefined ? { registerRepos: registerRepos as boolean } : {}),
     ...(idleAfter !== undefined ? { idleAfterS: idleAfter * 60 } : {}),
