@@ -314,7 +314,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           const r = await core.hosts.clean(ctx, alias);
           return { code: 0, out: opts.json ? JSON.stringify(r) : [...r.removed.map(id => `${id} removed`), ...r.kept.map(k => `${k.id} kept: ${k.reason}`)].join("\n") || "nothing to clean", err: "" };
         }
-        const r = action === "setup" ? await core.hosts.setup(ctx, alias, str(opts.repo) ?? process.cwd(), async question => {
+        const r = action === "setup" ? await core.hosts.confirmSetup(ctx, alias, str(opts.repo) ?? process.cwd(), async question => {
           if (!process.stdin.isTTY) { process.stdout.write(`${question} [y/N] (confirmation required)\n`); return false; }
           const rl = createInterface({ input: process.stdin, output: process.stdout });
           try { return /^y(?:es)?$/i.test((await rl.question(`${question} [y/N] `)).trim()); } finally { rl.close(); }

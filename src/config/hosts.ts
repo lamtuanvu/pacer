@@ -11,7 +11,7 @@ export interface HostCfg {
 
 const aliasPattern = /^[a-z0-9][a-z0-9-]*$/;
 const canonicalPattern = /^[a-z0-9][a-z0-9.-]*\/[a-z0-9._-]+\/[a-z0-9._-]+$/;
-const canonical = (key: string) => canonicalPattern.test(key) && !key.endsWith(".git");
+export const canonical = (key: string) => canonicalPattern.test(key) && !key.endsWith(".git");
 
 /** Return the canonical host/owner/repo identity of a supported git URL. */
 export function repoKey(url: string): string | null {

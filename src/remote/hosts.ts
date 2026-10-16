@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { listJobs, startJob, type StepApi } from "../jobs/registry";
-import { type HostCfg, repoKey } from "../config/hosts";
+import { type HostCfg, canonical, repoKey } from "../config/hosts";
 import { loadStrategy } from "../config/strategy";
 import { applyEdit } from "../core/accounts";
 import { CoreError } from "../core/errors";
@@ -9,6 +9,7 @@ import { shq } from "../install/fsx";
 import { listTasks } from "../tasks/store";
 import { TERMINAL_STATES } from "../tasks/types";
 import type { Ctx } from "../types";
+import { openInTerminal } from "../terminal/open";
 import { readHostReachability } from "./eligibility";
 import { sshAliases } from "./ssh-config";
 import { SCRIPTS } from "./scripts";
@@ -189,43 +190,126 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
   return finish();
 }
 
-export async function setup(ctx: Ctx, alias: string, repo: string, confirm: (question: string) => Promise<boolean>): Promise<HostCheck> {
+export function mapRepo(ctx: Ctx, alias: string, key: string, path: string) {
+  configured(ctx, alias);
+  key = key.toLowerCase();
+  if (!canonical(key)) throw new CoreError("invalid_input", "invalid repo key", "Use the canonical host/owner/repo form, e.g. github.com/acme/api.");
+  applyEdit(ctx, doc => doc.setIn(["hosts", alias, "repos", key], path));
+  return { alias, key, path };
+}
+
+export function addAccount(ctx: Ctx, alias: string, account: string, home: string) {
+  configured(ctx, alias);
+  const cfg = loadStrategy(ctx).accounts[account];
+  if (!cfg || !["codex", "claude"].includes(cfg.kind)) throw new CoreError("invalid_input", "host account must be a configured codex or claude account");
+  applyEdit(ctx, doc => doc.setIn(["hosts", alias, "accounts", account, "home"], home));
+  // Tilde expansion is safe only outside quotes; quote the rest as one shell word.
+  const folder = home.startsWith("~/") ? `~/${shq(home.slice(2))}` : shq(home);
+  return { command: `${cfg.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${folder} ${cfg.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` };
+}
+
+export interface SetupOptions { clone?: boolean; identity?: boolean; consent: boolean; steps?: StepApi }
+export async function setup(ctx: Ctx, alias: string, repo: string, o: SetupOptions): Promise<HostCheck> {
+  if (o.consent !== true) throw new CoreError("invalid_input", "host repo setup requires consent: true");
+  const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
+  if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
+  if (o.clone !== false) {
+    o.steps?.start("Clone");
+    const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "check"]);
+    if (r.code) throw new CoreError("invalid_input", `host ${alias} unreachable`);
+    if (fields(r.stdout).exists !== "1") {
+      const cloned = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "clone", local.origin]);
+      if (cloned.code) throw new CoreError("invalid_input", `clone failed on ${alias}`);
+      o.steps?.pass("Clone");
+    } else o.steps?.skip("Clone", "checkout already exists");
+  } else o.steps?.skip("Clone");
+  if (o.identity !== false) {
+    o.steps?.start("Set identity");
+    if (!local.name || !local.email) throw new CoreError("invalid_input", "local repo needs user.name and user.email");
+    const set = await runRemote(ctx, host, SCRIPTS.SET_IDENTITY, [path, local.name, local.email]);
+    if (set.code) throw new CoreError("invalid_input", `identity setup failed on ${alias}`);
+    o.steps?.pass("Set identity");
+  } else o.steps?.skip("Set identity");
+  o.steps?.start("Check");
+  const result = await check(ctx, alias, { repo });
+  if (result.ok) o.steps?.pass("Check");
+  else o.steps?.fail("Check", result.checks.filter(c => !c.ok).map(c => `${c.name}: ${c.detail}`).join("; "));
+  return result;
+}
+
+/** The API has a canonical key, so find its local checkout among known repos. */
+export async function setupJob(ctx: Ctx, alias: string, key: string, o: Omit<SetupOptions, "steps">) {
+  if (o.consent !== true) throw new CoreError("invalid_input", "host repo setup requires consent: true");
+  const host = configured(ctx, alias);
+  key = key.toLowerCase();
+  if (!canonical(key) || !Object.hasOwn(host.repos, key)) throw new CoreError("invalid_input", `repo not mapped on ${alias}`, "Use a mapped canonical host/owner/repo key.");
+  const candidates = new Set([process.cwd(), ...listTasks(ctx, Infinity).map(t => t.brief.repo)]);
+  let repo: string | undefined;
+  for (const candidate of candidates) if ((await localRepo(ctx, candidate)).key === key) { repo = candidate; break; }
+  if (!repo) throw new CoreError("invalid_input", "local repo checkout not found", "Run pacer host setup from the local checkout, or delegate a task for that repo first.");
+  return startJob(ctx, "host.repo.setup", `${alias}:${key}`, ["Clone", "Set identity", "Check"], async steps => {
+    await setup(ctx, alias, repo!, { ...o, steps });
+  });
+}
+
+/** CLI-only interactive consent; API setup never prompts. */
+export async function confirmSetup(ctx: Ctx, alias: string, repo: string, confirm: (question: string) => Promise<boolean>) {
   const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "check"]);
   if (r.code) throw new CoreError("invalid_input", `host ${alias} unreachable`);
-  if (fields(r.stdout).exists !== "1") {
-    const target = path.startsWith("~/") ? `"$HOME"/${shq(path.slice(2))}` : shq(path);
-    const command = `git clone -- ${shq(local.origin)} ${target}`;
-    if (await confirm(`Run on ${alias}: ${command}?`)) {
-      const cloned = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "clone", local.origin]);
-      if (cloned.code) throw new CoreError("invalid_input", `clone failed on ${alias}`);
-    }
-  }
+  const target = path.startsWith("~/") ? `"$HOME"/${shq(path.slice(2))}` : shq(path);
+  const clone = fields(r.stdout).exists !== "1" && await confirm(`Run on ${alias}: git clone -- ${shq(local.origin)} ${target}?`);
   if (!local.name || !local.email) throw new CoreError("invalid_input", "local repo needs user.name and user.email");
-  if (await confirm(`Set repo-local identity on ${alias} to ${local.name} <${local.email}>?`)) {
-    const set = await runRemote(ctx, host, SCRIPTS.SET_IDENTITY, [path, local.name, local.email]);
-    if (set.code) throw new CoreError("invalid_input", `identity setup failed on ${alias}`);
-  }
-  return check(ctx, alias, { repo });
+  const identity = await confirm(`Set repo-local identity on ${alias} to ${local.name} <${local.email}>?`);
+  return setup(ctx, alias, repo, { clone, identity, consent: true });
+}
+
+export function terminal(ctx: Ctx, alias: string, opener = openInTerminal) {
+  const host = configured(ctx, alias);
+  return opener(ctx, { argv: ["ssh", host.ssh], title: `SSH ${alias}` });
 }
 
 /** Host-only cleanup; preserve branches whose results have not been transferred. */
-export async function clean(ctx: Ctx, alias: string) {
+export interface HostWorktree { branch: string; state: string; fate: "will remove" | "in use" | "kept" }
+export function clean(ctx: Ctx, alias: string, o: { dryRun: true }): Promise<{ worktrees: HostWorktree[] }>;
+export function clean(ctx: Ctx, alias: string, o?: { dryRun?: false }): Promise<{ removed: string[]; kept: { id: string; reason: string }[] }>;
+export async function clean(ctx: Ctx, alias: string, o: { dryRun?: boolean } = {}) {
   const host = configured(ctx, alias), removed: string[] = [], kept: { id: string; reason: string }[] = [];
+  const worktrees: HostWorktree[] = [];
   for (const t of listTasks(ctx, Infinity)) {
-    if (t.run?.host !== alias || t.run.mode !== "new" || !TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved)) continue;
+    if (t.run?.host !== alias || t.run.mode !== "new") continue;
+    const eligible = TERMINAL_STATES.includes(t.state) && !!(t.review || t.dismissed || t.resolved);
+    const received = eligible && await transferred(ctx, t).catch(() => false);
+    let removable = received && !!t.run.remoteWorktree && !!t.run.remoteDir;
+    if (removable && o.dryRun) {
+      const local = await localRepo(ctx, t.brief.repo).catch(() => null);
+      removable = !!local?.key && Object.hasOwn(host.repos, local.key);
+    }
+    worktrees.push({ branch: t.run.remoteBranch ?? `pacer/${t.id}`, state: t.state,
+      fate: !TERMINAL_STATES.includes(t.state) ? "in use" : removable ? "will remove" : "kept" });
+    if (o.dryRun || !eligible) continue;
     try {
       const local = await localRepo(ctx, t.brief.repo), checkout = local.key && host.repos[local.key];
       if (!checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
         kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
       }
-      const r = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, await transferred(ctx, t) ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
+      const r = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, received ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
       if (r.code) kept.push({ id: t.id, reason: "remote cleanup failed" });
       else removed.push(t.id);
     } catch { kept.push({ id: t.id, reason: "remote cleanup failed" }); }
   }
-  return { removed, kept };
+  return o.dryRun ? { worktrees } : { removed, kept };
+}
+
+export function cleanJob(ctx: Ctx, alias: string) {
+  configured(ctx, alias);
+  return startJob(ctx, "host.clean", alias, ["Clean"], async steps => {
+    steps.start("Clean");
+    const result = await clean(ctx, alias);
+    if (result.kept.length) steps.fail("Clean", result.kept.map(k => `${k.id}: ${k.reason}`).join("; "));
+    else steps.pass("Clean");
+  });
 }
 
 /** Add an SSH alias using the strategy validator, without connecting to it. */
@@ -240,7 +324,9 @@ export function remove(ctx: Ctx, alias: string) {
   if (alias === "local") throw new CoreError("invalid_input", "local is reserved", "Only configured SSH hosts can be removed.");
   const s = loadStrategy(ctx);
   configured(ctx, alias);
-  if (Object.values(s.runners).some(r => r.host === alias)) throw new CoreError("conflict", `host ${alias} is in use`, "Remove its runners first.");
+  // Strategy runners include explicit declarations even when enabled: false.
+  const reference = Object.values(s.runners).find(r => r.host === alias);
+  if (reference) throw new CoreError("conflict", `${alias} is used by ${reference.id}`, "Remove its runners first.");
   applyEdit(ctx, doc => doc.deleteIn(["hosts", alias]));
   return {removed: true as const};
 }

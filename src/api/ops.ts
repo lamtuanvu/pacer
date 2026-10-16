@@ -10,6 +10,7 @@ import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
+import { openInTerminal } from "../terminal/open";
 import { detectAgents } from "../install/detection";
 import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
 import { build as buildStrategy } from "../strategy/launcher";
@@ -41,6 +42,7 @@ export interface OpDeps {
   client?: string;
   runnerCheck?: RunnerCheckDeps;
   terminal?: Partial<TerminalDeps>;
+  openInTerminal?: typeof openInTerminal;
   spawnRunner?: SpawnRunner;
   endpoint?: endpoints.EndpointDeps;
   openTerminal?: typeof openInTerminal;
@@ -162,6 +164,11 @@ export const OPS: Record<string, OpDef> = {
   "host.suggest": op({ description: "SSH aliases not already configured as hosts.", params: z.object({}), handler: ctx => core.hosts.suggest(ctx) }),
   "host.get": op({ description: "Host facts, checks, capacity and recent work.", params: z.object({alias: id}), handler: (ctx, p) => core.hosts.detail(ctx, p.alias) }),
   "host.set": op({ description: "Set host capacity and pause new work.", params: z.object({alias: id, max_tasks: z.number().int().min(1).max(16).optional(), paused: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.set(ctx, p.alias, p)) }),
+  "host.repo.map": op({ description: "Map a canonical repo key to a host checkout.", params: z.object({alias: id, key: id, path: z.string().trim().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.mapRepo(ctx, p.alias, p.key, p.path)) }),
+  "host.repo.setup": op({ description: "Clone and set repo identity with explicit consent, as a job.", params: z.object({alias: id, key: id, clone: z.boolean().optional(), identity: z.boolean().optional(), consent: z.literal(true)}), handler: async (ctx, p) => ({job: await core.hosts.setupJob(ctx, p.alias, p.key, p)}) }),
+  "host.account.add": op({ description: "Map a host account folder and return its login command.", params: z.object({alias: id, account: id, home: z.string().trim().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.addAccount(ctx, p.alias, p.account, p.home)) }),
+  "host.clean": op({ description: "Preview host branch fates or clean worktrees as a job.", params: z.object({alias: id, dry_run: z.boolean().optional()}), handler: async (ctx, p) => p.dry_run ? core.hosts.clean(ctx, p.alias, {dryRun: true}) : {job: await core.hosts.cleanJob(ctx, p.alias)} }),
+  "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, deps.openInTerminal) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: (ctx, p) => mutation(ctx, "config", async () => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; }) }),
