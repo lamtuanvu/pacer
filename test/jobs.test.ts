@@ -90,3 +90,25 @@ test("concurrent creation is locked and cancellation notifies the starting obser
     expect(states).toContain("cancelled");
   } finally { unregister(); }
 });
+
+test("job changes publish job entity events without secrets",async()=>{
+ const {eventsSince}=await import("../src/api/events");
+ const {helloBody}=await import("../src/api/protocol");
+ const ctx=fakeCtx();
+ const job=await startJob(ctx,"runner.check","codex",["test"],async step=>{step.start("test");step.pass("test","sk-private-test-token person@example.test");});
+ let events=eventsSince(ctx,0).events;
+ for(let i=0;i<100&&events.filter(e=>e.type==="job").length<4;i++){await Bun.sleep(10);events=eventsSince(ctx,0).events;}
+ const jobs=events.filter(e=>e.type==="job");
+ expect(jobs).toHaveLength(4);
+ expect(jobs.every(e=>(e.data as Job).id===job.id)).toBe(true);
+ expect(jobs.some(e=>(e.data as Job).state==="passed")).toBe(true);
+ expect(JSON.stringify(jobs)).not.toContain("sk-private-test-token");
+ expect(JSON.stringify(jobs)).not.toContain("person@example.test");
+ expect(helloBody().events).toContain("job");
+});
+
+test("job event order preserves final state",async()=>{
+ const {eventsSince}=await import("../src/api/events");const ctx=fakeCtx();
+ await startJob(ctx,"runner.check","codex",["a","b"],async s=>{s.start("a");s.pass("a");s.start("b");s.pass("b");});
+ expect(eventsSince(ctx,0).events.filter(e=>e.type==="job").map(e=>(e.data as Job).state)).toEqual(["running","running","running","running","running","passed"]);
+});

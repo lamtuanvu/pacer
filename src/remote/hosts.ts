@@ -1,3 +1,6 @@
+import { appendActivity } from "../activity/log";
+import type { ExecutorRow } from "../api/read-model/types";
+import { listRepos } from "../core/repos";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { listJobs, startJob, type StepApi } from "../jobs/registry";
@@ -63,7 +66,7 @@ export interface HostDetail extends Omit<HostSummary, "repos"> {
   reachableAt: number | null;
   facts: HostFacts | null;
   checks: HostCheck["checks"];
-  executors: string[];
+  executors: ExecutorRow[];
   doneThisWeek: { done: number; accepted: number };
   repos: { key: string; path: string; origin: "matches" | "differs" | "no_checkout" | "unknown"; identity: "matches" | "differs" | "unknown" }[];
   accounts: { name: string; home: string; signedIn: boolean | null }[];
@@ -74,7 +77,7 @@ function summary(ctx: Ctx, host: HostCfg): HostSummary {
   const running = listTasks(ctx, Infinity).filter(t => t.state === "running" && t.run?.host === host.alias).length;
   const state = host.paused ? "paused" : (reachability?.failures ?? 0) >= 2 ? "down"
     : listJobs(ctx, { target: host.alias }).some(j => j.kind === "host.check" && j.state === "running") ? "checking"
-    : stored?.checks.some(c => !c.ok) ? "needs_setup" : "ready";
+    : stored?.checks.some(c => !c.ok) || listRepos(ctx).some(r=>!r.key.startsWith("local:")&&!host.repos[r.key]&&Object.values(s.runners).some(e=>e.host===host.alias&&e.enabled!==false)) ? "needs_setup" : "ready";
   return { alias: host.alias, ssh: host.ssh, maxTasks: host.maxTasks, paused: host.paused ?? false, state,
     repos: Object.keys(host.repos), runners: Object.values(s.runners).filter(r => r.host === host.alias).map(r => r.id),
     running, slots: { used: running, max: host.maxTasks } };
@@ -87,14 +90,19 @@ export function suggest(ctx: Ctx): string[] {
   return sshAliases(ctx.home).filter(alias => !used.has(alias));
 }
 export function set(ctx: Ctx, alias: string, o: { max_tasks?: number; paused?: boolean }): HostSummary {
-  configured(ctx, alias);
+  const before=configured(ctx, alias);
   applyEdit(ctx, doc => {
     if (o.max_tasks !== undefined) doc.setIn(["hosts", alias, "max_tasks"], o.max_tasks);
     if (o.paused !== undefined) doc.setIn(["hosts", alias, "paused"], o.paused);
   });
+  if(o.paused===true&&!before.paused)appendActivity(ctx,{kind:"host_state",level:"info",host:alias,text:`${alias} paused · new work goes elsewhere`});
   return summary(ctx, configured(ctx, alias));
 }
-export function detail(ctx: Ctx, alias: string): HostDetail {
+export async function detail(ctx: Ctx, alias: string): Promise<HostDetail> {
+  // Read-model tasks depend on the pump; load them after host operations initialize.
+  const [{buildExecutors},{snapshotTasks},{computeStatus}]=await Promise.all([
+    import("../api/read-model/capacity"),import("../api/read-model/tasks"),import("../engine/status"),
+  ]);
   const host = configured(ctx, alias), row = summary(ctx, host), stored = readHostCheck(ctx, alias);
   const checks = stored?.checks ?? [];
   const done = listTasks(ctx, Infinity).filter(t => {
@@ -103,7 +111,7 @@ export function detail(ctx: Ctx, alias: string): HostDetail {
     return t.run?.host === alias && t.state === "done" && at >= ctx.now - 7 * 86400 && at <= ctx.now;
   });
   return { ...row, checkedAt: stored?.at ?? null, reachableAt: readHostReachability(ctx, host)?.at ?? null,
-    facts: stored?.facts ?? null, checks, executors: row.runners,
+    facts: stored?.facts ?? null, checks, executors: buildExecutors(await computeStatus({...ctx,readOnly:true},loadStrategy(ctx)),loadStrategy(ctx),snapshotTasks(ctx,listTasks(ctx,Infinity)),ctx.now,ctx).filter(e=>e.host===alias),
     doneThisWeek: { done: done.length, accepted: done.filter(t => t.review?.accepted).length },
     repos: Object.entries(host.repos).map(([key, path]) => {
       const checkout = checks.find(c => c.name === `checkout ${key}`), identity = checks.find(c => c.name === `identity ${key}`);

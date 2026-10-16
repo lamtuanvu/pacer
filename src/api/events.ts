@@ -1,3 +1,4 @@
+import { readHold } from "../core/mode-hold";
 import { drainQueueOnRead } from "../tasks/drain";
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import type { LinkSnapshot } from "../link/envelope";
@@ -32,7 +33,7 @@ export async function liveSnapshot(
     strategy.runners={};strategy.accounts={};strategy.providers={};strategy.routing=[];
   }
   const status = o.status ?? (c => computeStatus({ ...c, readOnly: true }, strategy));
-  const key=JSON.stringify(strategy),cached=statusCache.get(ctx.pacerHome);
+  const key=JSON.stringify([strategy,readHold(ctx)]),cached=statusCache.get(ctx.pacerHome);
   let statusAvailable=false;
   const refresh=async():Promise<Status>=>{
     if(!o.status && cached && cached.strategy===key && ctx.now-cached.at>=0 && ctx.now-cached.at< (o.maxBudgetAgeS??60)){statusAvailable=true;return cached.value;}

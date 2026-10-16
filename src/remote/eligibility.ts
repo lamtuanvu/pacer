@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { type HostCfg, repoKey } from "../config/hosts";
 import { resolveRunner } from "../config/runner-id";
-import type { Strategy } from "../config/strategy";
+import { loadStrategy, type Strategy } from "../config/strategy";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { listTasks } from "../tasks/store";
 import type { Ctx } from "../types";
@@ -21,6 +21,16 @@ const targetKey = (host: HostCfg) => createHash("sha256").update(host.ssh).diges
 const fresh = (ctx: Ctx, host: HostCfg, r: Reading | undefined): r is Reading =>
   !!r && r.target === targetKey(host) && typeof r.reachable === "boolean" && Number.isFinite(r.at) && ctx.now >= r.at && ctx.now - r.at < 60;
 
+function recordReachability(ctx: Ctx, host: HostCfg, ok: boolean): Reading {
+  const file=join(ctx.pacerHome,"cache","hosts.json");
+  const disk=readJson<Record<string,Reading>>(file)??{},prev=disk[host.alias];
+  const failures=ok?0:(prev?.target===targetKey(host)?prev.failures??0:0)+1;
+  const reading={target:targetKey(host),at:ctx.now,reachable:ok,failures};
+  memory.set(file,{...memory.get(file),[host.alias]:reading});
+  if(!ctx.readOnly){try{writeJsonAtomic(file,{...disk,[host.alias]:reading});}catch{/* Cache failures must not prevent routing. */}}
+  return reading;
+}
+
 async function reachable(ctx: Ctx, host: HostCfg): Promise<boolean> {
   const file = join(ctx.pacerHome, "cache", "hosts.json");
   const cached = memory.get(file)?.[host.alias];
@@ -37,11 +47,7 @@ async function reachable(ctx: Ctx, host: HostCfg): Promise<boolean> {
     // The allowlisted cat program with empty stdin is a no-op connectivity check.
     const ok = await runRemote(ctx, host, SCRIPTS.ECHO_STDIN, [], { stdin: "", timeoutMs: 15_000 })
       .then(r => r.code === 0, () => false);
-    const reading = { target: targetKey(host), at: ctx.now, reachable: ok };
-    memory.set(file, { ...memory.get(file), [host.alias]: reading });
-    if (!ctx.readOnly) {
-      try { writeJsonAtomic(file, { ...(readJson<Record<string, Reading>>(file) ?? {}), [host.alias]: reading }); } catch {}
-    }
+    recordReachability(ctx,host,ok);
     return ok;
   })();
   inFlight.set(key, probe);
@@ -69,4 +75,19 @@ export async function remoteExclusion(
   const use = slotUse(listTasks(ctx, Infinity));
   if (deps.running) use.byHost[alias] = deps.running(alias);
   return slotBlock(s, runnerId, use);
+}
+
+export interface HostProbeDeps {
+  strategy?: (ctx: Ctx) => Strategy;
+  reachable?: (host: HostCfg) => Promise<boolean>;
+}
+/** Probe enabled hosts without changing running tasks or trusting the routing TTL. */
+export async function probeHosts(ctx: Ctx, deps: HostProbeDeps = {}): Promise<{alias: string; reachable: boolean; failures: number}[]> {
+  const strategy=(deps.strategy??loadStrategy)(ctx);
+  const hosts=Object.values(strategy.hosts).filter(h=>!h.paused&&Object.values(strategy.runners).some(r=>r.host===h.alias&&r.enabled!==false));
+  return Promise.all(hosts.map(async host=>{
+    const ok=await (deps.reachable?deps.reachable(host):runRemote(ctx,host,SCRIPTS.ECHO_STDIN,[],{stdin:"",timeoutMs:15_000}).then(r=>r.code===0)).catch(()=>false);
+    const reading=recordReachability(ctx,host,ok);
+    return {alias:host.alias,reachable:ok,failures:reading.failures??0};
+  }));
 }

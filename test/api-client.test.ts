@@ -39,7 +39,7 @@ test("liveSnapshot refreshes capacity status while preserving fresh budgets and 
 test("InProcessClient calls ops, maps errors and streams events", async () => {
   const ctx = await ctxWithStrategy();
   const client = new InProcessClient(() => ctx, { pollMs: 20, status: fakeStatus(ctx.now) });
-  expect((await client.hello()).protocol).toBe("2.1.0");
+  expect((await client.hello()).protocol).toBe("2.5.0");
   const err = await client.call("task.get", { id: "missing" }).catch((e) => e);
   expect(err).toBeInstanceOf(ApiError);
   if (!(err instanceof ApiError)) throw new Error("expected an ApiError");
