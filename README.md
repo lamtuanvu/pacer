@@ -122,7 +122,7 @@ pacer plugin install
 pacer serve
 ```
 
-Add the managed development directory printed by the installer to Orca Settings > Plugins and enable its declared capabilities. Re-running `pacer plugin install` migrates an older `pacer.pacer` development install in the same directory; reload and enable the new identity in Orca. The plugin targets Orca >=1.4.224 and shows a budget snapshot, task cards and notifications. With the HTTP service running, it can open a pacer console in the focused worktree. Run `pacer console` manually when needed. See the [plugin guide](orca-plugin/README.md) and its [known limitations](orca-plugin/README.md#known-limitations-orca-pluginapi-1-verified-on-orca-14224).
+Add the managed development directory printed by the installer to Orca Settings > Plugins and enable its declared capabilities. Re-running `pacer plugin install` migrates an older `pacer.pacer` development install in the same directory; reload and enable the new identity in Orca. The plugin targets Orca >=1.4.224 and shows a read-only status page with budgets, tasks, alerts, versions and setup instructions, plus notifications. The worker never starts or contacts consoles. Its only command, **pacer: Open**, points to `pacer dashboard` in a terminal for delegating, reviewing, blocking executors and changing settings until the pacer app ships. `pacer console` is deprecated. The bootstrap installer is unchanged. See the [information-only decision](docs/decisions/2026-10-15-orca-plugin-information-only.md), the [plugin guide](orca-plugin/README.md) and its [known limitations](orca-plugin/README.md#known-limitations-orca-pluginapi-1-verified-on-orca-14224).
 
 ## Privacy
 

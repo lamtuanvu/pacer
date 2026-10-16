@@ -12,12 +12,12 @@ test("required checks gate readiness; optional agents and live panel do not",()=
  expect(setupChecklist({...facts,live:false},10).complete).toBe(true);
  expect(setupKey(ready)).toBe(setupKey(setupChecklist(facts,70)));
 });
-test("setup switches to operations and retains optional agent details",()=>{
+test("status page shows incomplete setup and optional agent details",()=>{
  const render=(link:boolean)=>renderPanel(emptySnapshot(),{nowS:10,transport:"http",reachable:true,setup:setupChecklist({...facts,link},10)});
- expect(render(false)).toContain('data-page="setup">');expect(render(false)).toContain("Re-checks every 5 seconds");
- expect(render(true)).toContain('data-page="overview">');expect(render(true)).toContain("Setup ✓");expect(render(true)).toContain("Codex");
- const snapshot={...emptySnapshot(),console:{handle:"term",pid:1,paneKey:null,startedAt:0,heartbeatAt:10}};
- expect(renderPanel(snapshot,{nowS:10,transport:"http",reachable:true,setup:setupChecklist({...facts,link:false},10)})).toContain('data-command="checkSetup"');
+ const incomplete=render(false);
+ expect(incomplete).toContain("<h2>Setup</h2>");expect(incomplete).toContain("Optional");expect(incomplete).toContain("Codex");expect(incomplete).toContain("pacer init");
+ expect(incomplete).not.toContain("data-command");
+ expect(render(true)).not.toContain("<h2>Setup</h2>");expect(render(true)).toContain("<h2>Running</h2>");
 });
 test("dashboard puts the same incomplete checklist above budgets",()=>{
  const html=renderDashboard(emptySnapshot(),100,30,10,{selected:0,setup:setupChecklist({...facts,link:false},10)});
@@ -35,8 +35,8 @@ test("worker polls incomplete setup at 5 seconds, complete at 60 and does not re
  const ctx={host:{call:async(m:string)=>m==="settings.get"?{settings:{transport:"bridge",autoConsole:false}}:m==="storage.get"?{value:snapshot}:{terminals:[]}},commands:{register(){}},events:{on(){}},log(){}} as any;
  await plugin.activate(ctx);await flush();await timers.advance(1000);expect(writes).toHaveLength(1);
  await timers.advance(10000);expect(checked).toEqual([0,5000,10000]);expect(writes).toHaveLength(1);
- snapshot={...snapshot,budget:{generatedAt:11,strategy:"default",planner:"codex",mode:"normal",providers:[],ranked:[]}};await timers.advance(3000);expect(writes).toHaveLength(1);
- complete=true;await timers.advance(2000);expect(writes).toHaveLength(2);expect(writes[1]).toContain('data-page="overview">');
+ await timers.advance(3000);expect(writes).toHaveLength(1);
+ complete=true;await timers.advance(2000);expect(writes).toHaveLength(2);expect(writes[1]).not.toContain("<h2>Setup</h2>");expect(writes[1]).toContain("<h2>Running</h2>");
  await timers.advance(58000);expect(checked).toHaveLength(4);expect(writes).toHaveLength(2);
  await timers.advance(2000);expect(checked.at(-1)).toBe(75000);expect(writes).toHaveLength(2);
  request="force";await timers.advance(5000);expect(checked.at(-1)).toBe(80000);expect(writes).toHaveLength(2);

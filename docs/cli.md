@@ -158,8 +158,8 @@ strategy YAML to disable checks (including explicit checks). No telemetry is sen
 the only release request is a GET of `latest.json`. `PACER_RELEASE_BASE`, including
 `file://` bases, works as it does for `pacer update`.
 
-The live panel's Updates card sends `check-updates` and `update` through the pacer
-console. The console also accepts these commands directly. In the dashboard, `c`
+The live panel shows versions and update availability, with `pacer update` as
+selectable text. Run it in a terminal to update. In the dashboard, `c`
 checks immediately and `u` asks `Run pacer update? (y/n)` before updating; Escape or
 `n` cancels. After an update, turn pacer off and on in Orca Settings > Plugins.
 Marketplace plugins check on startup and every six hours, notifying once per new
@@ -168,6 +168,14 @@ show the panel Update instruction. The worker also warns if the CLI is newer tha
 the running plugin. These checks never install a newer release automatically;
 bootstrap installation still only installs/updates the CLI version shipped with
 that plugin.
+
+## Console (deprecated)
+
+`pacer console` is deprecated and remains available for one release. Use
+`pacer dashboard` to delegate, review, block executors or change settings until
+the pacer app ships. The Orca plugin shows a read-only status page and never
+starts or contacts consoles; **pacer: Open** directs you to the dashboard.
+The bootstrap installer still opens setup or the dashboard as before.
 
 ## Remote hosts
 

@@ -4,10 +4,9 @@ import { get as nodeGet } from "node:http";
 import { join } from "node:path";
 import { createPlugin } from "../orca-plugin/src/plugin";
 import type { OrcaHost, OrcaWorkerContext } from "../orca-plugin/src/orca-api";
-import { contentKey, decodeCmdLine, summaryLine } from "../src/link/envelope";
+import { contentKey, summaryLine } from "../src/link/envelope";
 import { pluginDataDir } from "../src/link/paths";
 import { pumpOnce } from "../src/link/pump";
-import { runConsole } from "../src/console/console";
 import { writeConsole } from "../src/link/store";
 import { publish } from "../src/link/publish";
 import { refreshBridge } from "../src/link/publish";
@@ -79,7 +78,7 @@ test("HTTP and installed storage bridge converge on the same envelopes", async (
   } finally { server.stop(); }
 });
 
-test("installed bridge connects pump snapshots and plugin console commands", async () => {
+test("installed bridge carries pump snapshots to the read-only panel", async () => {
   const home = tmpDir(), userData = join(home, "orca-data"), timers = new TestTimers();
   const fake = fakeRun([]);
   const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer"), env: { PACER_BIN: "/opt/pacer", PACER_ORCA_USER_DATA: userData }, run: fake.run });
@@ -90,13 +89,11 @@ test("installed bridge connects pump snapshots and plugin console commands", asy
   await pumpOnce(ctx, { status: async () => status, tasks: () => [task], publish: async (c, es) => { const { publish } = await import("../src/link/publish"); return publish(c, es, { channel: false }); } });
   const storage = join(pluginDataDir(ctx), "storage.json");
   const calls: { method: string; params: any }[] = [], handlers = new Map<string, (p?: unknown) => unknown>(), events = new Map<string, (p: unknown) => unknown>();
-  let sent = "";
   const host = { call: async (method: string, params: any) => {
     calls.push({ method, params });
     if (method === "settings.get") return { settings: { transport: "bridge", pollSeconds: 5 } };
     if (method === "storage.get") return { value: JSON.parse(readFileSync(storage, "utf8")).link };
     if (method === "workspace.readContext") return { branch: "feat-x", displayName: "feat-x", terminals: [{ id: "term_x" }] };
-    if (method === "terminal.sendText") { sent = params.text; return { accepted: true }; }
     return { delivered: true };
   } } as OrcaHost;
   const root = join(ctx.pacerHome, "orca-plugin");
@@ -108,25 +105,10 @@ test("installed bridge connects pump snapshots and plugin console commands", asy
     expect(stored.tasks[0].goal).toBe("ship feature");
     await timers.advance(2000);
     expect(readFileSync(join(root, "panel/live.html"), "utf8")).toContain("Budget unknown.");
-    await handlers.get("delegate")!();
-    expect(decodeCmdLine(sent).cmd?.data).toEqual({ cmd: "delegate", branch: "feat-x", displayName: "feat-x" });
-    const userKeys = Object.keys(JSON.parse(readFileSync(storage, "utf8")));
-    expect(userKeys).toContain("link");
-    const delegated: unknown[] = [];
-    const consoleDeps = {
-      delegate: (_ctx: typeof ctx, input: unknown) => { delegated.push(input); return task; },
-      useStrategy: () => "", listStrategies: () => [], statusText: async () => "", pump: async () => [],
-      heartbeat: () => {}, resolveWorktreePath: async () => "/wt/feat-x", selfHandle: async () => ({ handle: "term_x", paneKey: "pane" }),
-      every: () => () => {}, pid: process.pid, cwd: home,
-    };
-    await runConsole(ctx, { lines: (async function* () { yield sent; yield "ship it"; yield ""; yield ""; yield ""; yield "feature"; yield "quit"; })(), write: () => {} }, consoleDeps);
-    expect(delegated).toEqual([{ brief: { goal: "ship it", repo: "/wt/feat-x" }, kind: "feature" }]);
-    await events.get("agent.status.changed")!({ worktreeId: "wt", paneKey: "pane-done", state: "done", receivedAt: ctx.now });
-    const doneLine = sent;
-    expect(decodeCmdLine(doneLine).cmd?.data).toEqual({ cmd: "agent-done", paneKey: "pane-done", worktreeId: "wt" });
-    let pumps = 0;
-    await runConsole(ctx, { lines: (async function* () { yield doneLine; yield "quit"; })(), write: () => {} }, { ...consoleDeps, pump: async () => { pumps++; return []; } });
-    expect(pumps).toBe(1);
+    expect([...handlers.keys()]).toEqual(["open"]);
+    await handlers.get("open")!();
+    expect(calls.some(c => c.method === "terminal.sendText")).toBe(false);
+    expect(Object.keys(JSON.parse(readFileSync(storage, "utf8")))).toContain("link");
     expect(fake.calls).toEqual([]);
   } finally { await plugin.deactivate(); }
 });

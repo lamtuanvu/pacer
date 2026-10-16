@@ -7,10 +7,11 @@ test("manifest mirrors verified Orca rules and omits instructional contributions
   expect(m.manifestVersion).toBe(1); expect(m.pluginApi).toBe(1); expect(m.version).toBe(pkg.version);
   expect(m.engines.orca).toMatch(/^>=\d+\.\d+\.\d+$/);
   const caps: string[] = m.capabilities.map(c => c.kind);
-  expect([...caps].sort()).toEqual(["workspace:read", "terminal:send", "notifications:show", "events:subscribe", "storage", "settings:own"].sort());
-  for (const c of caps) expect(["workspace:read", "terminal:send", "notifications:show", "events:subscribe", "storage", "settings:own", "secrets"]).toContain(c);
-  expect(m.contributes.events.map(e => e.on).sort()).toEqual(["agent.status.changed", "worktree.created"]);
-  for (const e of m.contributes.events) expect(["worktree.created", "worktree.removed", "agent.status.changed"]).toContain(e.on);
+  expect([...caps].sort()).toEqual(["workspace:read", "notifications:show", "events:subscribe", "storage", "settings:own"].sort());
+  for (const c of caps) expect(["workspace:read", "notifications:show", "events:subscribe", "storage", "settings:own", "secrets"]).toContain(c);
+  expect(m.contributes.events).toEqual([]);
+  expect(m.contributes.commands).toEqual([{id:"open",title:"pacer: Open",context:"global"}]);
+  expect(m.contributes.panels[0].title).toBe("pacer");
   expect(m.main).toBeTruthy(); expect(caps).toContain("events:subscribe");
   for (const c of m.contributes.commands) expect(c.id).toMatch(/^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$/);
   for (const p of m.contributes.panels) { expect(p.entry).not.toMatch(/^(?:\/|[a-z]+:)/i); expect(p.entry.split("/")).not.toContain(".."); }
