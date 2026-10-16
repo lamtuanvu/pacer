@@ -1,4 +1,4 @@
-import { backfillRepos } from "../core/repos";
+import { repoFor, backfillRepos } from "../core/repos";
 import { buildReadModel, readModelContext } from "../api/read-model";
 import { snapshotTasks } from "../api/read-model/tasks";
 import type { Strategy } from "../config/strategy";
@@ -14,7 +14,7 @@ import { isObj } from "../util";
 import { statSync } from "node:fs";
 import { list, show, pathFor } from "../strategy/service";
 import { readJson, writeJsonAtomic } from "../fsutil";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { appendActivity, rotateActivity } from "../activity/log";
 import { loadStrategy } from "../config/strategy";
 import { type Status, computeStatus } from "../engine/status";
@@ -134,7 +134,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
       if (d.state !== "stopped") appendActivity(ctx, {
         kind: "task_settled", level: d.state === "done" ? "info" : "warn",
         text: d.state === "done" ? `${name} finished “${shortGoal(t.brief.goal, 60)}” · waiting for review` : `${name} failed “${shortGoal(t.brief.goal, 60)}”`,
-        ...(t.brief.repo ? { repo: basename(t.brief.repo) } : {}), taskId: t.id,
+        ...(t.brief.repo ? { repo: (t.repo ?? repoFor(ctx, t.brief.repo)).key } : {}), taskId: t.id,
         ...(d.executor ? { executor: d.executor } : {}), ...(t.run?.host ? { host: t.run.host } : {}),
       });
       if(kind!=="done"||t.fromPanel||((last?.endedAt??ctx.now)-t.createdAt)>600) out.push(alert({key:`task-${d.id}`,level:kind==="failed"?"warn":"info",title:`Task ${kind} on ${name}`,body:`${shortGoal(d.goal)}\n${kind==="done"?"Nothing to do.":next?`Open the pacer panel to retry on ${executorName(next)}.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind,fromPanel:t.fromPanel===true,executor:d.executor??undefined,goal:d.goal,...(next?{nextExecutor:next}:{})}}));

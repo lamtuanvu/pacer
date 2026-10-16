@@ -23,8 +23,8 @@ function fixture(state: "done" | "running" | "queued" = "done") {
 test("send back records rejection and retries on the same executor with accumulated feedback", async () => {
   const { ctx, task, delegate } = fixture();
   const result = await tasks.review(ctx, task.id, { verdict: "send_back", note: "name it keepalive_s" }, { delegate });
-  expect(result.task).toMatchObject({ task_id: task.id, review: { accepted: false, note: "name it keepalive_s" }, rev: 4 });
-  const child = readTask(ctx, String(result.retry?.task_id))!;
+  expect(result.task).toMatchObject({ id: task.id, review: { accepted: false, note: "name it keepalive_s" }, rev: 4 });
+  const child = readTask(ctx, String(result.retry?.id))!;
   expect(child.requestedExecutor).toBe("codex#codex");
   expect(child.brief.feedback).toBe("Keep the existing API\n\nname it keepalive_s");
   expect(buildPrompt(child.brief, child.id)).toContain("## Review feedback\nKeep the existing API\n\nname it keepalive_s");
@@ -36,12 +36,12 @@ test("retry verdict records rejection and requests the specified executor", asyn
   const { ctx, task, delegate } = fixture();
   const result = await tasks.review(ctx, task.id, { verdict: "retry", executor: "cursor#cursor" }, { delegate });
   expect(result.task.review).toMatchObject({ accepted: false });
-  expect(result.retry).toMatchObject({ requested_executor: "cursor#cursor", rev: 2 });
+  expect(result.retry).toMatchObject({ executor: null, rev: 2 });
 });
 
 test("legacy accepted works through task.review and returns the reviewed task", async () => {
   const { ctx, task } = fixture();
-  expect(await callOp(ctx, "task.review", { id: task.id, accepted: true })).toMatchObject({ task: { task_id: task.id, rev: 3, review: { accepted: true } } });
+  expect(await callOp(ctx, "task.review", { id: task.id, accepted: true })).toMatchObject({ task: { id: task.id, rev: 3, review: { accepted: true } } });
 });
 
 for (const state of ["running", "queued"] as const) test(`reviewing ${state} conflicts without side effects`, async () => {
@@ -76,8 +76,8 @@ test("CLI send back uses core review with note and the runner stub", async () =>
     expect(r.code).toBe(0);
     const result = JSON.parse(r.out);
     expect(result.task.review).toMatchObject({ accepted: false, note: "name it keepalive_s" });
-    expect(spawned).toEqual([result.retry.task_id]);
-    expect(readTask(ctx, result.retry.task_id)?.brief.feedback).toContain("name it keepalive_s");
+    expect(spawned).toEqual([result.retry.id]);
+    expect(readTask(ctx, result.retry.id)?.brief.feedback).toContain("name it keepalive_s");
   } finally { cliDeps.spawnRunner = original; }
 });
 
@@ -88,7 +88,7 @@ test("task.review send back uses the API runner dependency", async () => {
   const spawned: string[] = [];
   const result = await callOp(ctx, "task.review", { id: task.id, verdict: "send_back", note: "fix it", expect_rev: 2 }, { spawnRunner: (_c, id) => { spawned.push(id); return 1; } }) as any;
   expect(result.task.review.accepted).toBe(false);
-  expect(spawned).toEqual([result.retry.task_id]);
+  expect(spawned).toEqual([result.retry.id]);
 });
 
 test("CLI retry-on passes executor and note to the review", async () => {
@@ -101,8 +101,8 @@ test("CLI retry-on passes executor and note to the review", async () => {
     expect(r.code).toBe(0);
     const result = JSON.parse(r.out);
     expect(result.task.review).toMatchObject({ accepted: false, note: "try elsewhere" });
-    expect(result.retry.requested_executor).toBe("cursor");
-    expect(spawned).toEqual([result.retry.task_id]);
+    expect(readTask(ctx, result.retry.id)?.requestedExecutor).toBe("cursor");
+    expect(spawned).toEqual([result.retry.id]);
     for (const flags of [["--retry-on"], ["--retry-on", "cursor", "--accept"], ["--send-back"]]) {
       expect((await main(["review", task.id, ...flags], ctx)).code).toBe(2);
     }

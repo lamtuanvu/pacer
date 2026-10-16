@@ -1,4 +1,5 @@
 import * as attention from "../core/attention";
+import { taskDetail, retryOptions } from "../core/task-detail";
 import { resolveRepo } from "../core/repos";
 import { ACTIVITY_KINDS, readActivity } from "../activity/log";
 import { z } from "zod";
@@ -99,7 +100,7 @@ function taskMutation<T>(ctx: Ctx, id: string, expect: number | undefined, actio
   return withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
     if (!task) throw new CoreError("unknown_task", `unknown task ${id}`);
-    core.tasks.checkRev(task, expect);
+    core.tasks.checkRev(ctx, task, expect);
     return action();
   });
 }
@@ -149,7 +150,8 @@ export const OPS: Record<string, OpDef> = {
   "version.get": op({ description: "Pacer, protocol, installed plugin and service versions or status.", params: z.object({}), handler: ctx => setup.version(ctx) }),
   "host.list": op({ description: "Configured SSH hosts and running task counts.", params: z.object({}), handler: ctx => core.hosts.list(ctx) }),
   "host.check": op({ description: "Check SSH host prerequisites, checkouts and identity.", params: z.object({ alias: id, repo: z.string().min(1).optional() }), handler: (ctx, p) => core.hosts.check(ctx, p.alias, { repo: p.repo }) }),
-  "task.get": op({ description: "One task's state and result.", params: z.object({ id }), handler: (ctx, p) => summarizeTask(core.tasks.get(ctx, p.id)) }),
+  "task.get": op({ description: "One task's state and result.", params: z.object({ id }), handler: (ctx, p) => taskDetail(ctx, p.id) }),
+  "task.retry_options": op({ description: "Executors available for retry in routing order.", params: z.object({ id }), handler: (ctx, p) => retryOptions(ctx, p.id) }),
   "task.list": op({ description: "Recent tasks, newest first.", params: z.object({ limit: z.number().int().min(1).max(200).optional() }), handler: (ctx, p) => core.tasks.list(ctx, { limit: p.limit }).map(summarizeTask) }),
   "task.delegate": op({
     description: "Hand a brief to an executor chosen by budget and priority (or `executor`).",
@@ -194,7 +196,7 @@ export const OPS: Record<string, OpDef> = {
     const ids = [...new Set<string>(p.ids)].sort();
     const locked = (index: number): void => {
       if (index < ids.length) { withTaskLock(ctx, ids[index]!, () => locked(index + 1)); return; }
-      for (const id of p.ids) { const t = readTask(ctx, id); if (t) core.tasks.checkRev(t, p.expect_rev); }
+      for (const id of p.ids) { const t = readTask(ctx, id); if (t) core.tasks.checkRev(ctx, t, p.expect_rev); }
       const r = core.tasks.dismiss(ctx, p.ids);
       dismissed.push(...r.dismissed.map(t => t.id)); unknown.push(...r.unknown);
     };

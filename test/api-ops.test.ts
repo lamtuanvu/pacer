@@ -18,10 +18,10 @@ test("the registry names the task operations", () => {
   expect(opNames()).toEqual(expect.arrayContaining(["task.get", "task.list", "task.delegate", "task.wait", "task.stop", "task.retry", "task.review", "task.dismiss", "activity.list"]));
 });
 
-test("task.get and task.list return task summaries", async () => {
+test("task.get returns detail and task.list keeps summaries", async () => {
   const ctx = await ctxWithStrategy();
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  expect(await callOp(ctx, "task.get", { id: t.id })).toMatchObject({ task_id: t.id, state: "queued" });
+  expect(await callOp(ctx, "task.get", { id: t.id })).toMatchObject({ id: t.id, state: "queued", brief: { goal: "g" } });
   expect((await callOp(ctx, "task.list", {})) as unknown[]).toHaveLength(1);
 });
 

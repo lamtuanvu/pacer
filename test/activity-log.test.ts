@@ -1,6 +1,7 @@
+import { repoFor } from "../src/core/repos";
 import { expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { appendActivity, readActivity, rotateActivity } from "../src/activity/log";
 import * as tasks from "../src/core/tasks";
 import { callOp } from "../src/api/ops";
@@ -21,13 +22,13 @@ async function configured() {
   return ctx;
 }
 
-test("delegate then review records exact texts, newest first, with repo basename", async () => {
+test("delegate then review records exact texts, newest first, with repo key", async () => {
   const ctx = await configured();
   const task = tasks.delegate(ctx, { brief: { goal: "Add SSH keepalive", repo: ctx.home }, executor: "codex" }, () => 1);
   updateTask(ctx, task.id, t => { t.state = "done"; });
   tasks.review(ctx, task.id, { accepted: true });
   expect(readActivity(ctx, {}).entries).toMatchObject([
-    { kind: "verdict", text: "Accepted “Add SSH keepalive”", taskId: task.id, repo: basename(ctx.home) },
+    { kind: "verdict", text: "Accepted “Add SSH keepalive”", taskId: task.id, repo: repoFor(ctx, ctx.home).key },
     { kind: "task_started", text: "Delegated “Add SSH keepalive” to Codex", taskId: task.id },
   ]);
 });
@@ -190,4 +191,19 @@ test("activity text redacts credential patterns and account emails before persis
   const persisted = readFileSync(file(ctx), "utf8");
   for (const secret of ["person@example.com", "private-value", "sensitive"]) expect(persisted).not.toContain(secret);
   expect(observed).toEqual([readActivity(ctx, {}).entries[0]!.text]);
+});
+
+test("append publishes activity through the entity envelope and advertises it", async () => {
+  const { eventsSince } = await import("../src/api/events");
+  const { helloBody } = await import("../src/api/protocol");
+  const ctx = fakeCtx();
+  const entry = appendActivity(ctx, { kind: "config", level: "info", text: "Changed" });
+  let events: ReturnType<typeof eventsSince>;
+  for (let i = 0; i < 100; i++) {
+    events = eventsSince(ctx, 0);
+    if (events.events.some(e => e.type === "activity")) break;
+    await Bun.sleep(10);
+  }
+  expect(events!.events).toContainEqual(expect.objectContaining({ type: "activity", data: entry }));
+  expect(helloBody().events).toContain("activity");
 });

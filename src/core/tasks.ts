@@ -1,6 +1,8 @@
-import { resolveRepo } from "./repos";
+import { apiTask } from "../api/read-model/tasks";
+import type { ApiTask } from "../api/read-model/types";
+import { repoFor, resolveRepo } from "./repos";
 import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { appendActivity, type ActivityEntry } from "../activity/log";
 import { executorName, shortGoal } from "../link/notification";
 import { loadStrategy } from "../config/strategy";
@@ -15,7 +17,7 @@ import { TERMINAL_STATES } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
 import {
-  type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, summarizeTask, taskDismiss, taskReview, taskStatus,
+  type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
 import { isTaskId, listTasks, readTask, updateTask, withTaskLock } from "../tasks/store";
@@ -26,14 +28,13 @@ import { withLock } from "./lock";
 
 function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], text: string): void {
   const executor = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor;
-  appendActivity(ctx, { kind, level: "info", text, repo: basename(task.brief.repo), taskId: task.id,
+  appendActivity(ctx, { kind, level: "info", text, repo: (task.repo ?? repoFor(ctx, task.brief.repo)).key, taskId: task.id,
     ...(executor ? { executor } : {}), ...(task.run?.host ? { host: task.run.host } : {}) });
 }
 
-/** Current task summary is the phase-1 read-model integration fallback. */
-export function checkRev(t: TaskRecord, expect?: number): void {
+export function checkRev(ctx: Ctx, t: TaskRecord, expect?: number): void {
   if (expect !== undefined && expect !== t.rev) {
-    throw new CoreError("conflict", "task changed", undefined, { task: { ...summarizeTask(t), rev: t.rev } });
+    throw new CoreError("conflict", "task changed", undefined, { task: apiTask(ctx, t) });
   }
 }
 
@@ -91,11 +92,10 @@ export interface ReviewOptions {
   expect_state?: TaskState;
 }
 type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord };
-const reviewSummary = (t: TaskRecord): Record<string, unknown> & { rev: number } => ({ ...summarizeTask(t), rev: t.rev });
 
 export async function review(
   ctx: Ctx, id: string, v: ReviewOptions, deps: RetryDeps = {},
-): Promise<{ task: ReturnType<typeof reviewSummary>; retry?: ReturnType<typeof reviewSummary> }> {
+): Promise<{ task: ApiTask; retry?: ApiTask }> {
   // Record synchronously while taskMutation's revision lock is still held.
   const { task, verdict, executor } = withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
@@ -107,7 +107,7 @@ export async function review(
     if (verdict === "send_back" && !v.note?.trim()) throw new CoreError("invalid_input", "send_back requires a note");
     if (verdict === "retry" && !v.executor?.trim()) throw new CoreError("invalid_input", "retry requires an executor");
     if (!TERMINAL_STATES.includes(task.state) || (v.expect_state !== undefined && v.expect_state !== task.state)) {
-      throw new CoreError("conflict", "task state changed", undefined, { task: reviewSummary(task) });
+      throw new CoreError("conflict", "task state changed", undefined, { task: apiTask(ctx, task) });
     }
     const executor = verdict === "send_back" ? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor ?? undefined : v.executor;
     if (verdict === "send_back" && !executor) throw new CoreError("invalid_input", "task has no executor to send back to");
@@ -122,9 +122,9 @@ export async function review(
   });
   if (verdict === "send_back" || verdict === "retry") {
     const result = await retry(ctx, id, { executor, ...(verdict === "send_back" ? { feedback: v.note } : {}) }, deps);
-    return { task: reviewSummary(result.of), retry: reviewSummary(result.retry) };
+    return { task: apiTask(ctx, result.of), retry: apiTask(ctx, result.retry) };
   }
-  return { task: reviewSummary(task) };
+  return { task: apiTask(ctx, task) };
 }
 
 /** Dismisses every known id; unknown ids are returned, never thrown, so one bad id can't stop the rest. */
@@ -245,7 +245,7 @@ export async function retry(
   return withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
-    checkRev(task, o.expectRev);
+    checkRev(ctx, task, o.expectRev);
     const prior = task.retriedBy ? readTask(ctx, task.retriedBy) : null;
     if (prior && ["queued", "running"].includes(prior.state)) {
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);

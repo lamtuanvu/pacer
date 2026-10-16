@@ -157,7 +157,7 @@ test("task_review supports verdicts and retries with the configured runner", asy
   const r = await call("task_review", { task_id: id, verdict: "retry", executor: "cursor#cursor" });
   expect(r.isError).toBeFalsy();
   expect(r.structuredContent.task.review.accepted).toBe(false);
-  expect(r.structuredContent.retry.requested_executor).toBe("cursor");
-  expect(spawned).toEqual([id, r.structuredContent.retry.task_id]);
+  expect(readTask(ctx, r.structuredContent.retry.id)?.requestedExecutor).toBe("cursor");
+  expect(spawned).toEqual([id, r.structuredContent.retry.id]);
   await client.close();
 });

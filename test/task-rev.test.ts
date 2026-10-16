@@ -36,7 +36,7 @@ test("stale review returns the current task in conflict data without recording a
   updateTask(ctx, task.id, t => { t.state = "done"; });
   updateTask(ctx, task.id, () => {});
   const result = await callOp(ctx, "task.review", { id: task.id, accepted: true, expect_rev: 1 }).catch(toApiError);
-  expect(result).toMatchObject({ code: "conflict", message: "task changed", data: { task: { task_id: task.id, rev: 3 } } });
+  expect(result).toMatchObject({ code: "conflict", message: "task changed", data: { task: { id: task.id, rev: 3, repo: { key: expect.any(String) } } } });
   expect(readTask(ctx, task.id)?.review).toBeUndefined();
 });
 
