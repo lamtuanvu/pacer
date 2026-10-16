@@ -18,7 +18,7 @@ test("setup.init leaves editable current accounts and runners", async () => {
  const ctx = fakeCtx();
  await callOp(ctx, "setup.init", {planner:"claude-code"});
  await expect(callOp(ctx,"account.add",{kind:"codex",name:"work"})).resolves.toMatchObject({account:{name:"work"}});
- await expect(callOp(ctx,"runner.add",{agent:"codex",account:"work"})).resolves.toEqual({id:"codex#work"});
+ await expect(callOp(ctx,"runner.add",{agent:"codex",account:"work"})).resolves.toMatchObject({id:"codex#work",job:{kind:"runner.check",target:"codex#work"}});
 });
 test("task summaries include the clipped brief goal", async () => {
  const ctx=fakeCtx(), goal="Goal ".repeat(100);

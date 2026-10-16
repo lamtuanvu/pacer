@@ -50,7 +50,8 @@ export async function list(ctx: Ctx) {
     const identity = a.orcaAccount && (a.kind === "claude" || a.kind === "codex") ? orca?.[a.kind].find(v=>v.id===a.orcaAccount) : undefined;
     const folder = accountFolder(ctx,a);
     const usageReading = await readAccountUsage({...ctx,readOnly:true},a,runners);
-    return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id), signedIn: identity ? true : null,
+    // Keep listing order stable when declarations precede inferred runners.
+    return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), signedIn: identity ? true : null,
       runnable: a.source !== "orca" || folder !== null, usageReading, ...await endpointRow(ctx, a)};
   }));
   return rows.map(row => {

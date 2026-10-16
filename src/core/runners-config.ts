@@ -24,7 +24,8 @@ function change(ctx: Ctx, verb: "add" | "rm", reference: string, options: AddOpt
     if(verb==='add') {
       if(s.runners[id]) throw Error(`runner ${id} already exists`);
       const diff=applyEdit(ctx,doc=>{
-        doc.addMappingEntry('runners',id,{...(options.model ? {model:options.model} : {}), ...(options.max_tasks !== undefined ? {max_tasks:options.max_tasks}:{}), test:options.test ?? true});
+        const settings = {...(options.model ? {model:options.model} : {}), ...(options.max_tasks !== undefined ? {max_tasks:options.max_tasks}:{}), ...(options.test !== undefined ? {test:options.test}:{})};
+        if(Object.keys(settings).length) doc.addMappingEntry('runners',id,settings);
         // Materialize the effective routing before adding a runner, preserving every rule.
         const raw=docValue(doc,['routing']);
         if(!Array.isArray(raw)) doc.setIn(['routing'],s.routing.map(r=>r.kinds?{kinds:r.kinds,executors:r.executors}:{default:r.executors}));
