@@ -22,7 +22,7 @@ const cache=new Map<string,{at:number;promise:Promise<{setup:SetupChecklist;acco
 export async function readModelContext(ctx:Ctx) {
  const hit=cache.get(ctx.pacerHome);if(hit&&ctx.now>=hit.at&&ctx.now-hit.at<60)return hit.promise;
  // account.list spawns `orca account list`; the snapshot reads sign-in state from stored auth marks instead.
- const promise=check({...ctx,readOnly:true}).then(setup=>({setup,accounts:[] as {name:string;signedIn:boolean|null}[]}));
+ const promise=check({...ctx,readOnly:true},{snapshotProbe:false}).then(setup=>({setup,accounts:[] as {name:string;signedIn:boolean|null}[]}));
  cache.set(ctx.pacerHome,{at:ctx.now,promise});
  try{return await promise;}catch(e){cache.delete(ctx.pacerHome);throw e;}
 }

@@ -736,8 +736,8 @@ Two small controls from the tray and notifications:
     `task.retry_all { ids }` for `retry-all`; `strategy.build` (section 7)
     for `strategy-build`; `account.signin` and `task.attach` for
     `open-terminal` and `focus`.
-  - The legacy bearer-only routes `/state`, `/link` and `/events` and the
-    `/console/*` routes are deprecated in 2.1 and removed in 3.0; the status
+  - `/state` and `/console/*` are removed in phase 4. The legacy bearer-only
+    `/link` and `/events` routes carry `Deprecation: true` and `Sunset: 3.0`; they are removed in 3.0; the status
     line and Orca worker move to `/v2` first.
   - **3.0** removes the v1-shaped snapshot fields (`v`, `budget`, `alerts`,
     `console`) in favour of `planner`, `accounts`, `attention` and the

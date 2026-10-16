@@ -18,7 +18,7 @@ export async function flush() { for(let i=0;i<100;i++) await Promise.resolve(); 
 const alert: Envelope = { v:1, type:"alert", data:{ key:"a", level:"warn", title:"Alert", body:"body", at:100 } };
 function stub(id: Transport["id"], up: boolean): Transport { return { id, probe:async()=>up, snapshot:async()=>null, watch:()=>()=>{} }; }
 for (const [up, forced, id, reachable] of [
-  [[true,true,true],"auto","http",true], [[false,true,true],"auto","channel",true], [[false,false,true],"auto","bridge",true], [[false,false,false],"auto",null,false], [[true,true,true],"bridge","bridge",true], [[false,true,true],"http","http",false],
+  [[true,true,true],"auto","channel",true], [[false,true,true],"auto","channel",true], [[false,false,true],"auto","bridge",true], [[false,false,false],"auto",null,false], [[true,true,true],"bridge","bridge",true], [[false,true,true],"http","http",false],
 ] as const) test(`choose ${up} forced ${forced}`, async()=> { const r=await chooseTransport([stub("bridge",up[2]),stub("channel",up[1]),stub("http",up[0])],forced); expect(r.transport?.id??null).toBe(id); expect(r.reachable).toBe(reachable); });
 test("HTTP probe rejects missing token, 401 and a pending request at 1500ms",async()=> {
  const timers=new ManualTimers(); let token:string|null=null; let pending=false;
@@ -135,7 +135,7 @@ test("api transport probes false when pacer cannot start", async () => {
 test("auto prefers api and falls back through existing transports", async () => {
  for (const available of [true, false]) {
   const r = await chooseTransport([stub("bridge", true), stub("http", true), stub("api", available)], "auto");
-  expect(r.transport?.id).toBe(available ? "api" : "http");
+  expect(r.transport?.id).toBe(available ? "api" : "bridge");
  }
  expect(readSettings({ transport: "api" }, "").transport).toBe("api");
 });

@@ -500,7 +500,8 @@ Params JSON Schema:
     "name": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 128
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
     },
     "delete_home": {
       "type": "boolean"
@@ -522,27 +523,53 @@ Params JSON Schema:
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "name": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "orca",
+            "terminal",
+            "tmux"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
     },
-    "target": {
-      "type": "string",
-      "enum": [
-        "auto",
-        "orca",
-        "terminal",
-        "tmux"
-      ]
+    {
+      "type": "object",
+      "properties": {
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "interactive": {
+          "type": "string",
+          "enum": [
+            "account-add",
+            "account-add-orca",
+            "init"
+          ]
+        }
+      },
+      "required": [
+        "interactive"
+      ],
+      "additionalProperties": false
     }
-  },
-  "required": [
-    "name"
-  ],
-  "additionalProperties": false
+  ]
 }
 ```
 
@@ -783,6 +810,84 @@ Params JSON Schema:
   "required": [
     "id",
     "for"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `client.heartbeat`
+
+Renew a client lease, which lapses after 45 seconds without a heartbeat.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "client_id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `client.list`
+
+Registered clients with live leases.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `client.register`
+
+Register a client with an optional notifier lease; heartbeat every 30 seconds.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "app",
+        "desktop",
+        "orca",
+        "tui",
+        "status",
+        "tray",
+        "cli"
+      ]
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "notifier": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "kind",
+    "version"
   ],
   "additionalProperties": false
 }
@@ -1631,70 +1736,92 @@ Params JSON Schema:
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "agent": {
-      "type": "string",
-      "enum": [
-        "claude-code",
-        "codex",
-        "cursor",
-        "agy",
-        "opencode"
-      ]
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "interactive": {
+          "type": "string",
+          "const": "runner-add"
+        }
+      },
+      "required": [
+        "interactive"
+      ],
+      "additionalProperties": false
     },
-    "account": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
-    },
-    "host": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
-    },
-    "model": {
-      "type": "string",
-      "minLength": 1
-    },
-    "rank": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 9007199254740991
-    },
-    "kinds": {
-      "minItems": 1,
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "boilerplate",
-          "tests",
-          "docs",
-          "rename",
-          "migration",
-          "feature",
-          "debug",
-          "refactor",
-          "performance",
-          "unfamiliar-code",
-          "research"
-        ]
-      }
-    },
-    "max_tasks": {
-      "type": "integer",
-      "exclusiveMinimum": 0,
-      "maximum": 9007199254740991
-    },
-    "test": {
-      "type": "boolean"
+    {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "cursor",
+            "agy",
+            "opencode"
+          ]
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kinds": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "boilerplate",
+              "tests",
+              "docs",
+              "rename",
+              "migration",
+              "feature",
+              "debug",
+              "refactor",
+              "performance",
+              "unfamiliar-code",
+              "research"
+            ]
+          }
+        },
+        "max_tasks": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "test": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "additionalProperties": false
     }
-  },
-  "required": [
-    "agent"
-  ],
-  "additionalProperties": false
+  ]
 }
 ```
 
@@ -1972,6 +2099,11 @@ Params JSON Schema:
     "brief": {
       "type": "string",
       "maxLength": 2000
+    },
+    "worktree": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
     }
   },
   "additionalProperties": false
@@ -2547,6 +2679,43 @@ Params JSON Schema:
   },
   "required": [
     "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `task.retry_all`
+
+Retry stored briefs, reporting skipped tasks individually.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ids": {
+      "minItems": 1,
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "executor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "from_panel": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ids"
   ],
   "additionalProperties": false
 }

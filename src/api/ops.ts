@@ -1,3 +1,5 @@
+import { parseRunnerId } from "../config/runner-id";
+import { pacerArgv } from "../install/self";
 import * as attention from "../core/attention";
 import { taskDetail, retryOptions } from "../core/task-detail";
 import { isAbsolute } from "node:path";
@@ -36,11 +38,12 @@ import { checkForUpdate, installedPlugin, updateAvailable } from "../update/chec
 import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
 import { currentVersion } from "../update/version";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
-import { readTask, withTaskLock } from "../tasks/store";
+import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 
 export interface OpDeps {
   client?: string;
+  delegate?: typeof core.tasks.delegate;
   runnerCheck?: RunnerCheckDeps;
   terminal?: Partial<TerminalDeps>;
   openInTerminal?: typeof openInTerminal;
@@ -117,6 +120,21 @@ function taskMutation<T>(ctx: Ctx, id: string, expect: number | undefined, actio
   });
 }
 
+const interactive = z.object({
+  interactive: z.enum(["account-add", "account-add-orca", "runner-add", "init"]),
+  worktree: z.string().min(1).max(4096).optional(),
+});
+
+async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, deps: OpDeps) {
+  const commands = {
+    "account-add": ["account", "add"], "account-add-orca": ["account", "add", "--orca"],
+    "runner-add": ["runner", "add"], init: ["init"],
+  };
+  return (deps.openTerminal ?? openInTerminal)(ctx, {
+    argv: [...pacerArgv(ctx.env), ...commands[p.interactive]], title: "pacer settings", worktree: p.worktree,
+  }, deps.terminal);
+}
+
 export const OPS: Record<string, OpDef> = {
   "activity.list": op({
     description: "Activity log, newest first, with optional repo, kind and task filters.",
@@ -135,7 +153,7 @@ export const OPS: Record<string, OpDef> = {
   "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat.", params: z.object({client_id: id}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
-  "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}), handler: (ctx, p, deps) => accounts.signin(ctx, p.name, p, deps.terminal) }),
+  "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, p, deps.terminal) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
     params: z.discriminatedUnion("kind", [
@@ -153,15 +171,15 @@ export const OPS: Record<string, OpDef> = {
   "account.edit": op({ description: "Edit a managed endpoint and regenerate its OpenCode provider.", params: endpointEdit, handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.editEndpoint(ctx, p, deps.endpoint))) }),
   "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),
   "account.adopt": op({ description: "Adopt an external OpenCode provider's URL and model ids, supplying a new key source.", params: z.object({name: id, key_source: endpointFields.key_source, key: endpointFields.key, env_var: endpointFields.env_var}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.adoptEndpoint(ctx, p, deps.endpoint))) }),
-  "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id, delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", () => { accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true}; }) }),
-  "runner.add": op({ description: "Add an agent/account runner to the default routing rule.", params: z.object({agent: z.enum(AGENTS), account: id.optional(), host: id.optional(), model: z.string().min(1).optional(), rank: z.number().int().nonnegative().optional(), kinds: z.array(z.enum(KINDS)).min(1).optional(), max_tasks: z.number().int().positive().optional(), test: z.boolean().optional()}), handler: (ctx, p, deps) => mutation(ctx, "runners", async () => {
+  "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id.regex(/^[a-z0-9][a-z0-9-]*$/, "invalid account name"), delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", () => { accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true}; }) }),
+  "runner.add": op({ description: "Add an agent/account runner to the default routing rule.", params: z.union([interactive.omit({interactive:true}).extend({interactive:z.literal("runner-add")}),z.object({agent: z.enum(AGENTS), account: id.optional(), host: id.optional(), model: z.string().min(1).optional(), rank: z.number().int().nonnegative().optional(), kinds: z.array(z.enum(KINDS)).min(1).optional(), max_tasks: z.number().int().positive().optional(), test: z.boolean().optional()})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : mutation(ctx, "runners", async () => {
     const {id} = runnersConfig.add(ctx, p);
     return {id, ...(p.test !== false ? {job: await checkRunner(ctx, id, deps.runnerCheck)} : {})};
   }) }),
   "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
-  "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id}), handler: (ctx, p) => mutation(ctx, "runners", () => { runnersConfig.remove(ctx, p.id); return {removed: true}; }) }),
+  "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", () => { runnersConfig.remove(ctx, p.id); return {removed: true}; }) }),
   "routing.get": op({ description: "Routing rules and available executor ids.", params: z.object({}), handler: ctx => routingConfig.get(ctx) }),
   "routing.set": op({ description: "Validate and replace routing rules, keeping the default last and preserving comments.", params: z.object({rules: z.array(z.object({kinds: z.array(z.string()).optional(), executors: z.array(id)}))}), handler: (ctx, p) => mutation(ctx, "routing", () => routingConfig.set(ctx, p.rules)) }),
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
@@ -209,7 +227,11 @@ export const OPS: Record<string, OpDef> = {
       const repoRef=await resolveRepoInput(ctx,p.repo);
       const input=parseDelegateBrief({...p,repo:isAbsolute(p.repo)?p.repo:repoRef.path},repoRef.path);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
-      return summarizeTask(core.tasks.delegate(ctx, {...input, repoRef, client: deps.client, source}, deps.spawnRunner ?? spawnRunner));
+      const task = (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, client: deps.client, source}, deps.spawnRunner ?? spawnRunner);
+      // The v1 notifier still uses this marker for short tasks started in a UI.
+      const result = source === "ui" && readTask(ctx, task.id)
+        ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
+      return summarizeTask(result);
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
@@ -221,6 +243,27 @@ export const OPS: Record<string, OpDef> = {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
       const r = await core.tasks.retry(ctx, p.id, { executor: p.executor, fromPanel: p.from_panel, expectRev: p.expect_rev }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
       return { retry: summarizeTask(r.retry), of: summarizeTask(r.of) };
+    },
+  }),
+  "task.retry_all": op({
+    description: "Retry stored briefs, reporting skipped tasks individually.",
+    params: z.object({ ids: z.array(id).min(1).max(100), executor: id.optional(), from_panel: z.boolean().optional() }),
+    handler: async (ctx, p, deps) => {
+      if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
+      const retried: { of: ReturnType<typeof summarizeTask>; retry: ReturnType<typeof summarizeTask> }[] = [];
+      const skipped: { id: string; reason: string }[] = [];
+      for (const id of [...new Set<string>(p.ids)]) {
+        try {
+          const r = await core.tasks.retry(ctx, id, { executor: p.executor, fromPanel: p.from_panel }, {
+            delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner),
+          });
+          retried.push({ of: summarizeTask(r.of), retry: summarizeTask(r.retry) });
+        } catch (error) {
+          if (!(error instanceof CoreError)) throw error;
+          skipped.push({ id, reason: error.code === "conflict" ? "retry already running" : error.message });
+        }
+      }
+      return { retried, skipped };
     },
   }),
   "task.review": op({
@@ -263,7 +306,7 @@ export const OPS: Record<string, OpDef> = {
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
   "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
-  "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const {opened,target,command}=await buildStrategy(ctx,p,{open:deps.openTerminal});return {opened,target,command};})}),
+  "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional(),worktree:z.string().min(1).max(4096).optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const result=await buildStrategy(ctx,p,{open:deps.openTerminal});await publish(ctx,[{v:1,type:"alert",data:{key:"strategy-build",level:result.opened?"info":"error",title:result.opened?"Strategy session opened":"Strategy session failed",body:result.opened?"":result.message,at:ctx.now}}]);return {opened:result.opened,target:result.target,command:result.command};})}),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
   "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(async () => ({name: p.name, path: await strategy.use(ctx, p.name)}))) }),
   "strategy.show": op({ description: "Show a strategy's YAML, summary and active status.", params: z.object({name: id}), handler: (ctx, p) => strategyAction(() => strategy.show(ctx, p.name)) }),

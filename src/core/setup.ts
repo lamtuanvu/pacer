@@ -17,8 +17,8 @@ import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
 import * as config from "./config";
 
-export async function check(ctx: Ctx) {
-  try { return await checkSetup(ctx); } catch (e) { throw toCoreError(e); }
+export async function check(ctx: Ctx, options: {snapshotProbe?:boolean} = {}) {
+  try { return await checkSetup(ctx,options); } catch (e) { throw toCoreError(e); }
 }
 
 /** Initialize configuration only; connecting agents requires separate consent. */
