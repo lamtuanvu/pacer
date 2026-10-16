@@ -8,7 +8,8 @@ export interface BudgetData { generatedAt: number; strategy: string; planner: st
 export interface TaskData { progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
-export type Envelope = { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
+export interface ConfigData { area: string; at: number }
+export type Envelope = { v: 1; type: "config"; data: ConfigData } | { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
@@ -73,6 +74,11 @@ function parseConsole(d: unknown): ConsoleData | null {
 export function parseEnvelope(raw: unknown): Envelope | null {
   if (!isObj(raw) || raw.v !== 1) return null;
   switch (raw.type) {
+    case "config": {
+      const d = raw.data;
+      if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null) return null;
+      return {v: 1, type: "config", data: {area: optStr(d.area, 128)!, at: num(d.at)!}};
+    }
     case "budget": { const data = parseBudget(raw.data); return data && { v: 1, type: "budget", data }; }
     case "task": { const data = parseTask(raw.data); return data && { v: 1, type: "task", data }; }
     case "mode": { const data = parseMode(raw.data); return data && { v: 1, type: "mode", data }; }
@@ -90,6 +96,7 @@ export function parseSnapshot(raw: unknown): LinkSnapshot | null {
 export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
   const next: LinkSnapshot = { ...s, seq: s.seq + 1, at };
   switch (e.type) {
+    case "config": break; // Refresh signal only; no snapshot content changes.
     case "budget": next.budget = e.data; break;
     case "mode": next.mode = e.data; break;
     case "task": next.tasks = [e.data, ...s.tasks.filter(t => t.id !== e.data.id)].sort((a,b) => b.updatedAt-a.updatedAt).slice(0,LIMITS.tasks); break;
