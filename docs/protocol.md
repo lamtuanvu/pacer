@@ -497,6 +497,59 @@ Params JSON Schema:
 }
 ```
 
+### `activity.list`
+
+Activity log, newest first, with optional repo, kind and task filters.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "before": {
+      "type": "string",
+      "minLength": 1
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kinds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "task_started",
+          "task_settled",
+          "verdict",
+          "retry",
+          "mode",
+          "budget_refreshed",
+          "executor_state",
+          "host_state",
+          "account_state",
+          "config",
+          "update"
+        ]
+      }
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `agent.connect`
 
 Connect an agent after explicit consent to write its integration files.
@@ -579,6 +632,63 @@ Params JSON Schema:
   },
   "required": [
     "agent"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `attention.dismiss`
+
+Dismiss a raised attention item.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `attention.snooze`
+
+Snooze a raised attention item.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "for": {
+      "type": "string",
+      "enum": [
+        "1h",
+        "4h",
+        "1d"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "for"
   ],
   "additionalProperties": false
 }
@@ -852,6 +962,68 @@ Params JSON Schema:
 }
 ```
 
+### `repo.add`
+
+Register a git repository.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `repo.list`
+
+Registered repos with local branches, current first.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `repo.remove`
+
+Remove a repository from the registry.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "key": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "key"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `routing.get`
 
 Routing rules and available executor ids.
@@ -893,6 +1065,14 @@ Params JSON Schema:
         "unfamiliar-code",
         "research"
       ]
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "additionalProperties": false
@@ -1428,6 +1608,24 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "base": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "planner",
+        "ui",
+        "cli"
+      ]
+    },
     "goal": {
       "type": "string",
       "minLength": 1
@@ -1582,7 +1780,7 @@ Params JSON Schema:
 
 ### `task.list`
 
-Recent tasks, newest first.
+Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.
 
 Params JSON Schema:
 
@@ -1595,6 +1793,39 @@ Params JSON Schema:
       "type": "integer",
       "minimum": 1,
       "maximum": 200
+    },
+    "before": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "states": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "done",
+          "partial",
+          "failed",
+          "limit",
+          "stopped"
+        ]
+      }
+    },
+    "executor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "since": {
+      "type": "number",
+      "minimum": 0
     }
   },
   "additionalProperties": false
@@ -1663,6 +1894,30 @@ Params JSON Schema:
     },
     "from_panel": {
       "type": "boolean"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `task.retry_options`
+
+Executors available for retry in routing order.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
     }
   },
   "required": [
