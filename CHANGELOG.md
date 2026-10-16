@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-16
+
 ### Added
 
 - Managed OpenCode endpoint accounts: connection setup, key stores, model discovery, generated config, automatic runners, test-gated Ready state, and edit/test/adopt operations through the CLI and v2 API.
