@@ -42,7 +42,9 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
   if (cfg.via === "opencode") {
     return {
       cwd: repo,
-      argv: ["opencode", "run", "--agent", "build", "-m", model ?? "", "--auto", "--title", `pacer ${taskId}`, prompt],
+      // --standalone: a private server inherits this process's env (OPENCODE_CONFIG,
+      // endpoint keys); the shared background service would ignore both.
+      argv: ["opencode", "run", "--standalone", "--agent", "build", "-m", model ?? "", "--auto", "--title", `pacer ${taskId}`, prompt],
     };
   }
   switch (parseRunnerId(cfg.id)?.agent ?? cfg.id) {
