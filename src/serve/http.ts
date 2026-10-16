@@ -126,6 +126,7 @@ export function startServer(
         if (!(app || pathname.startsWith("/v2/")) || !value || !checkSession(getCtx(), value)) {
           return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
         }
+        if (pathname === "/v2/session/exchange") return new Response("forbidden\n", { status: 403 });
         const site = req.headers.get("sec-fetch-site");
         if ((site !== null && !["same-origin", "none"].includes(site)) ||
             (!["GET", "HEAD"].includes(req.method) &&

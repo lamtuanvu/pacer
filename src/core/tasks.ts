@@ -15,10 +15,10 @@ import { TERMINAL_STATES } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
 import {
-  type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
+  type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, summarizeTask, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
-import { isTaskId, listTasks, readTask, updateTask } from "../tasks/store";
+import { isTaskId, listTasks, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
@@ -28,6 +28,13 @@ function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], t
   const executor = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor;
   appendActivity(ctx, { kind, level: "info", text, repo: basename(task.brief.repo), taskId: task.id,
     ...(executor ? { executor } : {}), ...(task.run?.host ? { host: task.run.host } : {}) });
+}
+
+/** Current task summary is the phase-1 read-model integration fallback. */
+export function checkRev(t: TaskRecord, expect?: number): void {
+  if (expect !== undefined && expect !== t.rev) {
+    throw new CoreError("conflict", "task changed", undefined, { task: { ...summarizeTask(t), rev: t.rev } });
+  }
 }
 
 export const WAIT_MIN_S = 1;
@@ -193,13 +200,14 @@ export async function diff(ctx: Ctx, id: string, o: { path?: string } = {}): Pro
 
 /** Re-delegates a task's stored brief. One active retry per task: a second call gets `conflict`. */
 export async function retry(
-  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean } = {},
+  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; expectRev?: number } = {},
   deps: { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord } = {},
 ): Promise<{ retry: TaskRecord; of: TaskRecord }> {
   if (!isTaskId(id)) throw unknown(id);
-  return withLock(ctx, `retry-${id}`, async () => {
+  return withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
+    checkRev(task, o.expectRev);
     const prior = task.retriedBy ? readTask(ctx, task.retriedBy) : null;
     if (prior && ["queued", "running"].includes(prior.state)) {
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
@@ -222,7 +230,7 @@ export async function retry(
     const retried = readTask(ctx, next.id) ?? next;
     taskActivity(ctx, retried, "retry", `Delegated “${shortGoal(retried.brief.goal, 60)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
     return { retry: retried, of };
-  });
+  }));
 }
 
 /** Removes settled, reviewed/dismissed/resolved task worktrees. Local branches stay. */

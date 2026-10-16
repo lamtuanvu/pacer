@@ -100,6 +100,7 @@ export interface TaskRecord {
   client?: string;
   /** Checkpoint for the in-flight attempt, retained when its runner resumes. */
   pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart">;
+  rev: number;
   run?: RunRef;
   progress?: Progress;
   resumeSpawnedAt?: number;

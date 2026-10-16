@@ -19,7 +19,7 @@ function harness(overrides: Partial<ConsoleDeps> = {}) {
   const timers = new Map<number, () => void>();
   const cancelled: number[] = [];
   let out = "";
-  const task: TaskRecord = { id: "t-20261012-120000-abcd", createdAt: ctx.now, brief: { goal: "fix", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60, state: "queued", attempts: [] };
+  const task: TaskRecord = { rev: 1, id: "t-20261012-120000-abcd", createdAt: ctx.now, brief: { goal: "fix", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60, state: "queued", attempts: [] };
   const deps: ConsoleDeps = {
     delegate: (_ctx, input) => { calls.push("delegate"); inputs.push(input); return task; },
     useStrategy: (_ctx, name) => { calls.push(`use:${name}`); return `/strategies/${name}.yaml`; },
