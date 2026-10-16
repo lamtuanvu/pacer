@@ -20,3 +20,8 @@ test("attention includes unreviewed work, limits and broken runners once; runnin
   expect(model.attention[2]?.detail).toContain("Key rejected");
   expect(model.running.map(t => t.id)).toEqual(["t3"]);
 });
+
+test("planner tone comes from the service verdict, not from used minus pace", () => {
+  const snapshot = { ...emptySnapshot(), budget: { generatedAt: 1, planner: "claude-code", strategy: "default", mode: "normal", providers: [{ id: "claude-code", verdict: "ON_PACE", usedPct: 70, pacePct: 40, resetsAt: 900, window: "weekly", stale: false }], ranked: [] } };
+  expect(homeModel(snapshot, []).planner).toMatchObject({ tone: "good", label: "On pace" });
+});

@@ -1,12 +1,21 @@
-export interface UsageMeterProps { used: number; pace?: number | null; tone?: "good" | "warn" | "bad"; size?: "md" | "slim"; label?: string; className?: string }
-const clamp = (n: number) => Math.max(0, Math.min(100, Number(n) || 0));
-export function UsageMeter(props: UsageMeterProps) {
-  const used = clamp(props.used), hasPace = props.pace !== undefined && props.pace !== null;
-  const pace = hasPace ? clamp(props.pace!) : 0;
-  const tone = props.tone || (used >= 97 ? "bad" : hasPace && used - pace > 10 ? "warn" : "good");
-  const label = `${props.label || "Usage"} ${Math.round(used)} percent${hasPace ? `, pace ${Math.round(pace)} percent` : ""}`;
-  return <div role="progressbar" aria-label={label} aria-valuenow={Math.round(used)} aria-valuemin={0} aria-valuemax={100} className={["pc-meter", props.size === "slim" && "pc-meter--slim", props.className].filter(Boolean).join(" ")}>
-    <div className={`pc-meter__fill pc-meter__fill--${tone}`} style={{ width: `${used}%` }} />
-    {hasPace && <div className="pc-meter__pace" style={{ left: `calc(${pace}% - 1px)` }} />}
-  </div>;
+import { clock, meterText } from "../../../src/view-model/format";
+import { verdictWords, type StatusTone } from "../../../src/view-model/words";
+
+export interface UsageMeterProps {
+  used: number | null; pace: number | null; tone: StatusTone; size: "top" | "bar" | "row"; label: string;
+  verdict?: string; paceReason?: string; stale?: boolean; staleAt?: number; now?: number; text?: "full" | "compact" | "none";
+}
+const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+/** The tone comes from the service's verdict; the meter never judges the numbers itself. */
+export function UsageMeter({ used, pace, tone, size, label, verdict, paceReason, stale, staleAt, now = Date.now() / 1000, text = "full" }: UsageMeterProps) {
+  const reason = pace === null && used !== null && paceReason ? paceReason : null;
+  const words = used === null ? "usage unknown" : [meterText(used, pace, "full").replace(" · ", ", "), reason, verdict && verdictWords(verdict).toLowerCase()].filter(Boolean).join(", ");
+  const caption = [meterText(used, pace, text === "compact" ? "compact" : "full"), reason, stale && staleAt !== undefined ? `as of ${clock(staleAt, now)}` : null].filter(Boolean).join(" · ");
+  return <span className={["pc-usage", `pc-usage--${size}`, stale && "pc-meter--stale"].filter(Boolean).join(" ")}>
+    <span role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={used === null ? undefined : clamp(used)} aria-valuetext={words} className={`pc-meter pc-meter--${size}`}>
+      {used !== null && <span className={`pc-meter__fill pc-meter__fill--${tone}`} style={{ "--used": clamp(used) }} />}
+      {pace !== null && <span className="pc-meter__pace" style={{ "--pace": clamp(pace) }} />}
+    </span>
+    {text !== "none" && <span className="pc-usage__text">{caption}</span>}
+  </span>;
 }

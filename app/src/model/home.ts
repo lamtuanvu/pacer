@@ -1,12 +1,12 @@
 import type { LinkSnapshot } from "../../../src/link/envelope";
 import { activeTask, needsReview, taskHref } from "./tasks";
-import { executorLabel, taskStatus, type Tone } from "../../../src/view-model/words";
+import { executorLabel, taskStatus, toneFor, type Tone } from "../../../src/view-model/words";
 import type { Account } from "./accounts";
 export interface Runner { id: string; state: "ok" | "blocked" | "broken" | "exhausted"; until: number | null; reason: string | null }
 export interface Routing { ranked: { id: string; verdict: string; reason: string }[]; excluded: { id: string; reason: string }[] }
 export function homeModel(snapshot: LinkSnapshot, runners: Runner[], accounts: Account[] = []) {
   const provider = snapshot.budget?.providers.find(p => p.id === snapshot.budget?.planner);
-  const tone = provider?.usedPct == null ? "neutral" : provider?.verdict === "EXHAUSTED" ? "bad" : provider && (provider.verdict === "AHEAD" || (provider.usedPct !== null && provider.pacePct !== null && provider.usedPct - provider.pacePct > 10)) ? "warn" : "good";
+  const tone = provider?.usedPct == null ? "neutral" : toneFor(provider.verdict);
   const planner = provider ? { name: executorLabel(provider.id, accounts), used: provider.usedPct, pace: provider.pacePct, resetsAt: provider.resetsAt, window: provider.window, stale: provider.stale, tone: tone as "good" | "warn" | "bad" | "neutral", label: provider.usedPct === null ? "Usage unknown" : tone === "bad" ? "Out of quota" : tone === "warn" ? "Ahead of pace" : "On pace" } : null;
   const attention: { key: string; label: string; tone: Tone; title: string; detail: string; href: string; until?: number | null }[] = snapshot.tasks.filter(needsReview).map(t => ({ key: t.id, label: "Review", tone: "info", title: t.goal, detail: `${taskStatus(t).label} on ${executorLabel(t.executor, accounts)} · waiting for review`, href: taskHref(t.id) }));
   // Prefer runner.list, and retain budget-only failures while that query loads.
