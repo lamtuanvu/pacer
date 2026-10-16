@@ -28,7 +28,14 @@
         "context": "global"
       }
     ],
-    "events": []
+    "events": [
+      {
+        "on": "agent.status.changed"
+      },
+      {
+        "on": "worktree.created"
+      }
+    ]
   },
   "capabilities": [
     {

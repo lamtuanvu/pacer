@@ -1891,6 +1891,8 @@ function createPlugin(deps) {
       });
       return { ok: true };
     });
+    for (const event of ["agent.status.changed", "worktree.created"])
+      ctx.events.on(event, () => {});
     let updates;
     let updateBusy = false;
     const runUpdateCheck = async () => {

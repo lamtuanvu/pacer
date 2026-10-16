@@ -51,6 +51,8 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       });
       return { ok: true };
     });
+    // Declared only so Orca starts the worker; the panel refreshes from the API.
+    for (const event of ["agent.status.changed", "worktree.created"]) ctx.events.on(event, () => {});
     let updates: PluginUpdates | undefined;
     let updateBusy = false;
     const runUpdateCheck = async () => {
