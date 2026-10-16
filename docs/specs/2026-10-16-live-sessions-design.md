@@ -44,7 +44,8 @@ Two Orca lessons shape this design:
 4. **Attach protocol.** One framed protocol on a Unix socket owned by the session host. `pacer serve` bridges it to a WebSocket for the app. `pacer attach <task>` speaks it directly from any terminal. The Orca plugin opens an Orca terminal that runs `pacer attach`.
 5. **Read-only by default.** At most one controller. Taking control is explicit, and stealing it notifies the previous holder.
 6. **Headless in a PTY first; interactive TUIs per runner later.** Interactive completion comes from an explicit report command and agent hooks, never from the screen.
-7. **Remote hosts.** Read-only recording first, under util-linux `script(1)` (the package that provides the `setsid` hosts already need), mirrored over the existing SSH ControlMaster. Full sessions on hosts come later, by uploading the pacer binary, as Orca does with its server.
+7. **Hosts and viewers are separate.** A `SessionHost` (`builtin` or `orca`) owns the PTY and the task's guarantees. Any terminal can be a viewer: the app, an Orca terminal, the calling terminal, a new window of the user's terminal app (presets or a template), or a tmux pane. A terminal app never hosts a task.
+8. **Remote hosts.** Read-only recording first, under util-linux `script(1)` (the package that provides the `setsid` hosts already need), mirrored over the existing SSH ControlMaster. Full sessions on hosts come later, by uploading the pacer binary, as Orca does with its server.
 
 ## Architecture
 
@@ -80,6 +81,83 @@ Lifecycle:
 
 `wrapperAlive` (`src/supervisor/run.ts`) currently matches `run.sh` in the process command line. It must also accept `_session <run-dir>`. The remote `REPORT` and `STOP` scripts keep matching `run.sh` until phase 5.
 
+## Hosts and viewers
+
+A live session has two separate roles, and each sits behind its own small abstraction:
+
+- The **host** owns the PTY. It decides how long the agent lives, and it provides the exit code, stop and recording.
+- A **viewer** displays the session and forwards keystrokes when it holds control.
+
+Any terminal can be a viewer. Only something that can keep the task's guarantees can be a host.
+
+### Hosts
+
+```ts
+interface SessionHost {
+  id: "builtin" | "orca";
+  capabilities: { snapshot: boolean; control: boolean; record: boolean; resize: boolean };
+  start(spec: RunSpec): Promise<{ pid: number } | { error: string }>;
+  state(): Promise<RunState>;                                // same shape supervise() polls today
+  stop(o: { graceMs: number }): Promise<{ code: number; killed: boolean }>;
+  attachTarget(): AttachTarget;                              // how a viewer reaches it
+}
+```
+
+`RunIO` (`src/supervisor/io.ts`) already has `read` and `stop`. `SessionHost` extends it with `start`, `capabilities` and `attachTarget`. The local wrapper, `RemoteRunIO` and the session host then all sit behind one interface.
+
+| Host | Owns the PTY | Exit and stop | Recording and snapshot | Control | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `builtin` | pacer session host | `exit` file, `stopRun` | Yes (section 4) | Yes | The default for direct runs, local, and remote in phase 5b |
+| `orca` | Orca's terminal daemon | Orca worker status and `worker-stop` (the existing `orca` backend) | Orca keeps its own history; pacer reads text with `orca terminal read` | Orca's (no read-only mode) | Wraps the existing backend; viewers attach through Orca |
+
+Two candidates are **not** hosts:
+
+- **A terminal app (iTerm, Ghostty, Terminal.app).** If the app owned the PTY, closing its window would kill a delegated task. pacer could not record it, detect limits, see its exit code or let anyone else watch. Opening a terminal app as a *viewer* of a `builtin` session gives the same experience without those losses.
+- **tmux.** It works as a host, but the user's `.tmux.conf`, key bindings and nesting leak into every session. It adds no capability `builtin` lacks. A tmux pane is a fine viewer.
+
+### Viewers
+
+Every viewer is either the app's xterm.js view or something that runs `pacer attach <task>`. A viewer needs no code in pacer, only a launch recipe:
+
+| Target | How it opens | Where it is offered |
+| --- | --- | --- |
+| `app` | The app's terminal view over `/v2/tasks/<id>/session` | App task page |
+| `orca` | `orca terminal create --worktree <wt> --title "pacer <id>" --command "pacer attach <id>"`; for an `orca`-hosted task, `orca terminal switch` instead | Orca panel; app, when Orca is running |
+| `here` | The calling terminal: the TUI dashboard suspends itself, runs the attach in place and returns when you detach | `pacer dashboard`, `pacer attach` |
+| `terminal` | A new window of the user's terminal app, from a preset or a template (below) | App, dashboard, `pacer attach <id> --open` |
+| `tmux` | `tmux split-window "pacer attach <id>"` (or `new-window`), only when `$TMUX` is set | Dashboard, CLI |
+
+Terminal-app presets. pacer picks one by detection (`$TERM_PROGRAM`, then the installed apps); the user can override it with a new setting, `terminal.open` (added to the `config.set` allow-list):
+
+| Preset | Command |
+| --- | --- |
+| `ghostty` | macOS `open -na Ghostty --args -e {cmd}`; Linux `ghostty -e {cmd}` |
+| `iterm` | AppleScript: `create window with default profile command "{cmd}"` |
+| `terminal-app` | AppleScript: `tell application "Terminal" to do script "{cmd}"` |
+| `wezterm` | `wezterm start -- {cmd}` |
+| `kitty` | `kitty {cmd}` |
+| `alacritty` | `alacritty -e {cmd}` |
+| `gnome-terminal` | `gnome-terminal -- {cmd}` |
+| `x-terminal-emulator` | `x-terminal-emulator -e {cmd}` (Debian alternatives) |
+| custom | `terminal.open: "<template with {cmd}>"` |
+
+Rules for templates:
+
+- `{cmd}` is always `pacer attach <id>` built by pacer. The task id already matches `^[A-Za-z0-9_-]+$` (`parseCmd`), and the whole command is shell-quoted with `shq` before substitution. A template can never receive user text.
+- The template runs with `argv` splitting, not through a shell, except for the AppleScript presets. Those get the quoted command as an AppleScript string literal.
+- Phase 0 checks each preset on its platform. A preset that fails falls back to printing `pacer attach <id>` with a "copy" button in the app.
+
+### One attach call
+
+All three surfaces send the same request: the `attach` command (section 5) with a `target`. It is resolved in the console (for Orca), in the app (for `app`), or in `pacer serve` (for `terminal`, which spawns the terminal app as the user, because the daemon runs in the user's login session). Each target has its own guard:
+
+- `orca` requires Orca to be running.
+- `tmux` requires `$TMUX`.
+- `terminal` requires a desktop session.
+  - On Linux, the systemd user service needs `DISPLAY` or `WAYLAND_DISPLAY` imported into its environment.
+  - On macOS, the AppleScript presets trigger a one-time Automation permission prompt for the pacer service.
+  - Over SSH, the CLI prints the command instead.
+
 ## 1. The local PTY
 
 | Option | macOS + Linux | Release build | Attach, input, resize | Verdict |
@@ -94,7 +172,7 @@ Two checks before phase 1 (phase 0 spike):
 - `Bun.Terminal` works in the compiled binary on all four targets: the release dry run builds them, and CI runs `ubuntu-latest` and `macos-latest`.
 - `@xterm/headless` and `@xterm/addon-serialize` (pure JavaScript, what Orca uses) bundle into the compiled binary.
 
-If `Bun.Terminal` is unavailable at run time, the session host falls back to the current pipe wrapper, and the task reports `session.kind: "none"`. A run never fails because a PTY is missing.
+If `Bun.Terminal` is unavailable at run time, the session host falls back to the current pipe wrapper, and the task reports `session.host: "none"`. A run never fails because a PTY is missing.
 
 Prompt delivery stays as it is today. The session host runs the agent through `/bin/sh -c 'exec "$@" < "$1"'`, so stdin comes from the run directory's `stdin` file (Codex `exec -`) or argv (the others), while stdout and stderr are the PTY.
 
@@ -241,8 +319,11 @@ Offline sessions (the session host has exited, or the run is remote and not live
 The protocol moves from 2.0.0 to 2.1.0 (additive). `docs/protocol.md` is regenerated with `bun run protocol:doc`.
 
 - **`task.session` op:**
-  - Takes `{ id }` and returns `{ kind: "pty" | "orca" | "none", live, host: string | null, cols, rows, controller: string | null, viewers, attach: { cli: "pacer attach <id>", ws: "/v2/tasks/<id>/session" } }`.
-  - `kind: "orca"` means the task runs on the `orca` backend; attaching it switches to its Orca terminal (today's `focus`).
+  - Takes `{ id }` and returns `{ host: "builtin" | "orca" | "none", capabilities, live, machine: string | null, cols, rows, controller: string | null, viewers, targets: ("app" | "orca" | "here" | "terminal" | "tmux")[], attach: { cli: "pacer attach <id>", ws: "/v2/tasks/<id>/session" } }`.
+  - `machine` is the SSH host alias for a remote run, or null for local runs.
+  - `targets` lists the viewers that can open this session right now.
+  - `host: "orca"` means the task runs on the `orca` backend; attaching it switches to its Orca terminal (today's `focus`).
+- **`task.attach` op:** takes `{ id, target }`, opens the viewer (section "Hosts and viewers") and returns `{ opened: true }`. When the target cannot open, it returns `{ opened: false, command: "pacer attach <id>" }`.
 - **`GET /v2/tasks/<id>/session`:**
   - A WebSocket upgrade on the existing `Bun.serve` in `src/serve/http.ts`, with the same Host, bearer and cookie rules as the rest of `/v2`. Cookie clients also need the same Origin and `Sec-Fetch-Site` checks that non-GET requests get, because browsers do not preflight WebSockets.
   - The bridge relays session-socket frames unchanged in both directions: binary WebSocket messages carry binary frames, text messages carry JSON frames.
@@ -250,21 +331,28 @@ The protocol moves from 2.0.0 to 2.1.0 (additive). `docs/protocol.md` is regener
 
 ### Link envelope (`src/link/envelope.ts`)
 
-- **`TaskData.session?`** is `{ kind: "pty" | "orca" | "none"; live: boolean; controller: string | null; viewers: number }`, parsed with the same clipping helpers as the other fields (labels up to 64 chars, viewers up to 99). The pump publishes it with the task and throttles changes to one per second.
-- **`terminalPresent`** stays for one minor release, set to `session.kind === "orca" && session.live`, so an older Orca plugin keeps working.
-- **New `attach` command.** It is added to `CMD_NAMES`, with `taskId` required.
-  - For `kind: "pty"`, the console runs `orca terminal create --worktree <task worktree> --title "pacer <id>" --command "pacer attach <id>"`, the same pattern `open-terminal` uses (`src/console/console.ts`).
-  - For `kind: "orca"`, it does what `focus` does now: `orca terminal switch`.
-- **`focus`** remains as an alias of `attach` for one minor release.
+- **`TaskData.session?`** is `{ host: "builtin" | "orca" | "none"; live: boolean; controller: string | null; viewers: number }`, parsed with the same clipping helpers as the other fields (labels up to 64 chars, viewers up to 99). The pump publishes it with the task and throttles changes to one per second.
+- **`terminalPresent`** stays for one minor release, set to `session.host === "orca" && session.live`, so an older Orca plugin keeps working.
+- **New `attach` command.** It is added to `CMD_NAMES`, with `taskId` required and an optional `target` (`orca` | `terminal`, default `orca`). `parseCmd` validates `target` against that list.
+  - `target: "orca"` with `host: "builtin"`: the console runs `orca terminal create --worktree <task worktree> --title "pacer <id>" --command "pacer attach <id>"`, the same pattern `open-terminal` uses (`src/console/console.ts`).
+  - `target: "orca"` with `host: "orca"`: it does what `focus` does now, `orca terminal switch`.
+  - `target: "terminal"` calls `task.attach` with the same target.
+- **`focus`** remains as an alias of `attach { target: "orca" }` for one minor release.
 - **`open-terminal`** keeps its current meaning (settings commands).
 
-All three surfaces then attach the same way: the app over the WebSocket, Orca and any terminal through `pacer attach`, and the TUI dashboard's Focus action becomes **Attach** for every task with `session.kind !== "none"`.
+All surfaces then attach the same way, through `attach`/`task.attach` with a target:
+
+- The app offers `app`, `orca` and `terminal`.
+- The Orca panel offers `orca` and `terminal`.
+- The TUI dashboard's Focus action becomes **Attach** (`here`), with `t` for a terminal window and `m` for a tmux pane, for every task whose `session.host` is not `"none"`.
 
 ### `pacer attach <task>` (new CLI)
 
 ```
-pacer attach <task> [--control] [--replay] [--export cast] [--attempt <n>]
+pacer attach <task> [--control] [--replay] [--export cast] [--attempt <n>] [--open [terminal|tmux|orca]]
 ```
+
+Without `--open`, it attaches in the calling terminal (`here`). `--open` opens the session in another viewer and returns, as described under "Hosts and viewers".
 
 - **Viewing.** It puts the local terminal in raw mode, draws the snapshot, then streams. It sets the window title to `pacer <id> · <executor> · watching`. It works the same in iTerm, Ghostty, Terminal.app and tmux, and over SSH to the machine running pacer.
 - **Keys when read-only.** `q` or `Ctrl-C` detaches; `c` asks for control.
@@ -301,6 +389,11 @@ The plan follows the existing layout: `bun test` units in `test/`, fixtures in `
 **Unit tests (pure, every platform):**
 
 - The `session.log` frame codec, including recovery from a torn last frame.
+- Viewer launch recipes:
+  - each preset expands to the expected argv, or to an AppleScript literal;
+  - a hostile task id is rejected before expansion;
+  - target guards (no `$TMUX`, no desktop session, Orca not running) fall back to printing the command.
+- `SessionHost` conformance: one shared suite runs against `builtin` and a recorded-receipt `orca` host (the existing Orca backend tests already answer from receipts).
 - The plain-text normalizer: escapes split across chunks, `\r` overwrites, wide characters.
 - Secret masking across chunk boundaries.
 - The control state machine: take, force, release, disconnect, input from a non-controller.
@@ -335,12 +428,12 @@ The plan follows the existing layout: `bun test` units in `test/`, fixtures in `
 | --- | --- | --- |
 | 0. Spike | `Bun.Terminal` in compiled binaries on four targets; `@xterm/headless` bundling; what each agent's headless launch shows in a PTY; util-linux `script` with stdin from a file | Not shipped |
 | 1. Recording | Session host for local direct runs, `session.log`/`.ckpt`, derived `stdout`, masking, `pacer attach` read-only, retention changes | Opt-in: `execution.session: pty` |
-| 2. Live viewers | Session socket fan-out, `task.session`, WebSocket bridge, app terminal view (xterm.js), `attach` command for Orca, dashboard Attach, protocol 2.1.0 | **On** for local direct runs once phase 1 has been used for a release |
+| 2. Live viewers | Session socket fan-out, `SessionHost` interface (`builtin`, and `orca` wrapping the existing backend), `task.session`/`task.attach`, WebSocket bridge, app terminal view (xterm.js), viewer targets (`app`, `orca`, `here`, `terminal` presets and template, `tmux`), dashboard Attach, protocol 2.1.0 | **On** for local direct runs once phase 1 has been used for a release |
 | 3. Take control | `take`/`release`, `--control`, app "Take control", idle-timer pause, marker frames | On |
 | 4. Interactive mode | `session: interactive` per runner, `pacer report`, per-launch hooks, transcript reports, `needs-input` alerts | Opt-in per runner |
 | 5. Remote | (a) `script -qfec` recording on hosts with read-only mirroring, then (b) uploading the pacer binary to hosts (hash-checked, like Orca's runtime upload) and running the same session host there, with the socket reached through the ControlMaster | (a) on; (b) opt-in |
 
-The `orca` backend is unchanged throughout. Its tasks report `session.kind: "orca"`, and `attach` switches to their Orca terminal.
+The `orca` backend keeps its behaviour throughout; phase 2 only puts it behind `SessionHost`. Its tasks report `session.host: "orca"`, and `attach` switches to their Orca terminal.
 
 ## Remote hosts in more detail (phase 5)
 
