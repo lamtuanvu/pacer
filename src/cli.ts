@@ -54,7 +54,7 @@ const USAGE = `usage: pacer <command>
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
-  attach <task-id> [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
+  attach <task-id> [--control] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
@@ -212,12 +212,20 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
   }
 }
 
-function tasksCmd(args: string[], ctx: Ctx): Result {
+async function controlProgress(ctx:Ctx,t:TaskRecord):Promise<string> {
+  if(t.state!=="running")return "";
+  try {
+    const info=await sessionInfo(ctx,t.id,false,false);
+    return info.controller?`controlled from ${info.controller.replace(/[\x00-\x1f\x7f]/g,"")}`:"";
+  }catch{return "";}
+}
+
+async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
   const { opts, pos } = parseFlags(args, ["json"]);
   if (pos[0]) {
     try {
       const t = core.tasks.get(ctx, pos[0]);
-      return { code: 0, out: opts.json ? JSON.stringify(summarizeTask(t), null, 1) : renderTask(t), err: "" };
+      return { code: 0, out: opts.json ? JSON.stringify(summarizeTask(t), null, 1) : [renderTask(t),(await controlProgress(ctx,t))].filter(Boolean).join("\n"), err: "" };
     } catch (e) { return { code: 2, out: "", err: explain(e) }; }
   }
   const list = core.tasks.list(ctx);
@@ -225,7 +233,10 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
   if (!list.length) return { code: 0, out: "no tasks yet", err: "" };
   return {
     code: 0,
-    out: list.map((t) => `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}`).join("\n"),
+    out: (await Promise.all(list.map(async (t) => {
+      const control=await controlProgress(ctx,t);
+      return `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
+    }))).join("\n"),
     err: "",
   };
 }
@@ -356,8 +367,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       try {return {code:await sessionHost(rest[0]),out:"",err:""};}
       catch(e) {return {code:2,out:"",err:explain(e)};}
     case "attach": {
-      const {opts,pos}=parseFlags(rest,["replay"]);
-      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","attempt","open"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"};
+      const {opts,pos}=parseFlags(rest,["replay","control"]);
+      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","control","attempt","open"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--control] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"};
       if(opts.attempt!==undefined && (typeof opts.attempt!=="string" || !/^[1-9]\d*$/.test(opts.attempt))) return {code:2,out:"",err:"--attempt requires a positive integer"};
       try {
         if(opts.open!==undefined){
@@ -371,7 +382,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         }
         const attempt=opts.attempt===undefined?undefined:Number(opts.attempt);
         const dir=attachDirectory(ctx,pos[0],attempt);
-        await attachSession(dir,{replay:opts.replay===true,attempt},`pacer ${pos[0]}`);
+        await attachSession(dir,{replay:opts.replay===true,control:opts.control===true,attempt},`pacer ${pos[0]}`);
         return {code:0,out:"",err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }
