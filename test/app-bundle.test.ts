@@ -30,3 +30,10 @@ test("release refuses stale embedded app versions before compiling", async () =>
   writeFileSync(join(root, "src/app/assets.generated.ts"), 'export const APP_VERSION = "0.0.0";');
   await expect(buildRelease({ root, targets: [] })).rejects.toThrow("run bun run app:build first");
 });
+
+test("app.js stays under the 60 KB gzip budget", async () => {
+  const { APP_JS_BUDGET } = await import("../app/build");
+  const appJs = (await buildApp()).find(f => f.path === "app.js")!.text;
+  expect(APP_JS_BUDGET).toBe(60 * 1024);
+  expect(Bun.gzipSync(appJs).byteLength).toBeLessThan(APP_JS_BUDGET);
+});
