@@ -24,6 +24,7 @@ import { AGENTS } from "../config/accounts";
 import * as config from "../core/config";
 import * as setup from "../core/setup";
 import * as notify from "../core/notify";
+import * as clients from "../clients/registry";
 import { publishConfigChange } from "../core/events";
 import { KINDS, loadStrategy } from "../config/strategy";
 import { CoreError, toCoreError } from "../core/errors";
@@ -129,6 +130,9 @@ export const OPS: Record<string, OpDef> = {
   "job.get": op({ description: "Read a shared job.", params: z.object({id}), handler: (ctx, p) => getJob(ctx, p.id) }),
   "job.list": op({ description: "List retained shared jobs, optionally for a target.", params: z.object({target: id.optional()}), handler: (ctx, p) => listJobs(ctx, p) }),
   "job.cancel": op({ description: "Cancel a job that supports cancellation.", params: z.object({id}), handler: (ctx, p) => cancelJob(ctx, p.id) }),
+  "client.register": op({ description: "Register a client with an optional notifier lease; heartbeat every 30 seconds.", params: z.object({kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1), notifier: z.boolean().optional()}), handler: (ctx, p) => clients.register(ctx, p) }),
+  "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat.", params: z.object({client_id: id}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id) }),
+  "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}), handler: (ctx, p, deps) => accounts.signin(ctx, p.name, p, deps.terminal) }),
   "account.add": op({
