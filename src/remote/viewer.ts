@@ -19,7 +19,9 @@ export class RemoteViewer {
   private joined = false;
   private resync = false;
   private closed = false;
-  private onExit = () => { this.proc?.kill("SIGKILL"); };
+  private onExit = () => { this.killStream(); };
+  // The stream runs in its own process group: a shell that does not exec (dash) must not leave the tail holding the pipe.
+  private killStream() { const pid=this.proc?.pid; if(!pid) return; try { process.kill(-pid,"SIGKILL"); } catch { this.proc?.kill("SIGKILL"); } }
   constructor(private ctx: Ctx, private host: HostCfg, private remoteDir: string,
     private mirror: RemoteRecording, private serial: <T>(fn:()=>Promise<T>)=>Promise<T>) {}
 
@@ -87,7 +89,7 @@ export class RemoteViewer {
   private start() {
     if(this.proc || this.closed || !this.viewer) return;
     const proc=Bun.spawn(sshArgv(this.ctx,this.host,SCRIPTS.FOLLOW,[this.remoteDir,String(this.mirror.offset)]),{
-      env:this.ctx.env,stdin:"ignore",stdout:"pipe",stderr:"ignore",
+      env:this.ctx.env,stdin:"ignore",stdout:"pipe",stderr:"ignore",detached:true,
     });
     this.proc=proc;
     process.once("exit",this.onExit);
@@ -98,7 +100,7 @@ export class RemoteViewer {
         }
       } catch { /* polling resumes at the last successfully consumed byte */ }
       finally {
-        if(proc.exitCode===null) proc.kill("SIGKILL");
+        if(proc.exitCode===null) { try { process.kill(-proc.pid,"SIGKILL"); } catch { proc.kill("SIGKILL"); } }
         await proc.exited;
         process.off("exit",this.onExit);
         if(this.proc===proc) this.proc=undefined;
@@ -106,7 +108,7 @@ export class RemoteViewer {
     })();
   }
   async stopStream() {
-    if(this.proc) this.proc.kill("SIGKILL");
+    this.killStream();
     await this.streaming;
   }
   async close(code: number) {

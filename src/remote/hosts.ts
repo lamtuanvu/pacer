@@ -57,8 +57,9 @@ export async function check(ctx: Ctx, alias: string, o: { repo?: string } = {}):
   const scriptVersion = /util-linux (\d+)\.(\d+)/.exec(tools.script ?? "");
   const scriptOk = !!scriptVersion && (+scriptVersion[1] > 2 || (+scriptVersion[1] === 2 && +scriptVersion[2] >= 35));
   add("script", scriptOk, scriptOk ? tools.script : `${tools.script || "util-linux script missing"}; requires >= 2.35 (stdin EOF issue)`);
-  const tailOk = /GNU coreutils/.test(tools.tail ?? "") && tools.tail_pid === "1";
-  add("tail", tailOk, tailOk ? tools.tail : "GNU coreutils tail with --pid support required");
+  // Live viewing follows session.raw with a plain tail -f; any POSIX tail works.
+  const tailOk = !!tools.tail;
+  add("tail", tailOk, tailOk ? tools.tail : "tail missing");
   for (const agent of ["codex", "claude"]) if (names.includes(agent)) add(agent, !!tools[agent], tools[agent] || "missing");
   const missing: string[] = [];
   for (const [account, cfg] of Object.entries(host.accounts)) {
