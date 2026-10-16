@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- The Orca panel stays current even when Orca does not start the plugin worker.
+
 ## [0.2.2] - 2026-10-16
 
 ### Fixed

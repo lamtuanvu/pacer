@@ -73,7 +73,8 @@ test("HTTP and installed storage bridge converge on the same envelopes", async (
     while (Date.now() < until && contentKey(a.snapshot) !== contentKey(b.snapshot)) await new Promise(resolve => setTimeout(resolve, 20));
     expect(contentKey(a.snapshot)).toBe(contentKey(b.snapshot));
     expect(a.snapshot.tasks[0]?.state).toBe("done");
-    expect(fake.calls).toEqual([]);
+    // serve may check its own service status for the panel; it never drives Orca.
+    expect(fake.calls.filter(c => c[0] !== "launchctl" && c[0] !== "systemctl")).toEqual([]);
     stopA(); stopB();
   } finally { server.stop(); }
 });

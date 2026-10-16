@@ -19,11 +19,12 @@ function fixture(heartbeat: number|null=100, marker=true, connect?: PluginDeps["
  const root=mkdtempSync(join(tmpdir(),"pacer-plugin-"));const timers=new ManualTimers();let now=100;
  let snapshot:LinkSnapshot={...emptySnapshot(),console:heartbeat===null?null:{handle:"term",paneKey:"pane",pid:1,startedAt:0,heartbeatAt:heartbeat}};
  const calls:{method:string;params:any}[]=[];const commands=new Map<string,(args?:unknown)=>unknown>();const events=new Map<string,(p:unknown)=>void|Promise<void>>();const writes:{path:string;text:string}[]=[];
+ let ownerText:string|null=null;
  let accepted=true,throwSend=false,pending=false,context:any={branch:"pacer-task",displayName:"Project",terminals:[{id:"term"}]};
  const host={call:async(method:string,params:any)=>{calls.push({method,params});switch(method){case "settings.get":return {settings:{notifications:"all"}};case "events.subscribe":throw Error("invalid enum");case "storage.get":return {value:snapshot};case "workspace.readContext":return context;case "terminal.sendText":if(throwSend)throw Object.assign(Error("denied"),{code:"capability_denied"});return {accepted};case "notifications.show":return {delivered:true};case "settings.set":return {ok:true};default:throw Error(method);}}} as OrcaHost;
- const plugin=createPlugin({connect,home:root,pluginRoot:root,nowS:()=>now,timers,http:{get:async()=>pending?await new Promise(()=>{}):{status:401,body:""},stream:()=>()=>{}},fs:{readText:()=>"token",exists:p=>marker && p===join(root,".pacer-managed"),writeTextAtomic:(path,text)=>writes.push({path,text})}});
+ const plugin=createPlugin({connect,home:root,pluginRoot:root,nowS:()=>now,timers,http:{get:async()=>pending?await new Promise(()=>{}):{status:401,body:""},stream:()=>()=>{}},fs:{readText:p=>p.endsWith(".pacer-panel-serve.json")?ownerText:"token",exists:p=>marker && p===join(root,".pacer-managed"),writeTextAtomic:(path,text)=>writes.push({path,text})}});
  const ctx:OrcaWorkerContext={host,commands:{register:(id,h)=>commands.set(id,h)},events:{on:(id,h)=>events.set(id,h)},grantedCapabilities:[],log:()=>{}};
- return {plugin,ctx,host,timers,calls,commands,events,writes,get snapshot(){return snapshot;},set snapshot(s){snapshot=s;},set accepted(v:boolean){accepted=v;},set throwSend(v:boolean){throwSend=v;},set pending(v:boolean){pending=v;},set context(v:any){context=v;},set now(v:number){now=v;},async start(){await plugin.activate(ctx);await flush();},async cleanup(){await plugin.deactivate();rmSync(root,{recursive:true,force:true});}};
+ return {plugin,ctx,host,timers,calls,commands,events,writes,get snapshot(){return snapshot;},set snapshot(s){snapshot=s;},set ownerText(v:string|null){ownerText=v;},set accepted(v:boolean){accepted=v;},set throwSend(v:boolean){throwSend=v;},set pending(v:boolean){pending=v;},set context(v:any){context=v;},set now(v:number){now=v;},async start(){await plugin.activate(ctx);await flush();},async cleanup(){await plugin.deactivate();rmSync(root,{recursive:true,force:true});}};
 }
 const sends=(f:ReturnType<typeof fixture>)=>f.calls.filter(c=>c.method==="terminal.sendText");
 const notes=(f:ReturnType<typeof fixture>)=>f.calls.filter(c=>c.method==="notifications.show");
@@ -318,4 +319,30 @@ test("panel writes only on visible change", async () => {
   await f.timers.advance(15000);expect(f.writes).toHaveLength(2);
   expect(f.writes[1].text).toContain("Visible change");
  }finally{await f.cleanup();}
+});
+
+test("worker leaves the panel to serve until its ownership marker expires", async () => {
+ const f=fixture();
+ try {
+  f.ownerText=JSON.stringify({at:100});
+  await f.start();await f.timers.advance(2000);
+  expect(f.writes).toHaveLength(0);
+  f.now=159;await f.timers.advance(15000);
+  expect(f.writes).toHaveLength(0);
+  f.now=160;await f.timers.advance(15000);
+  expect(f.writes).toHaveLength(1);
+ } finally {await f.cleanup();}
+});
+
+test("worker can restore its page after serve ownership expires", async () => {
+ const f=fixture();
+ try {
+  await f.start();await f.timers.advance(2000);
+  expect(f.writes).toHaveLength(1);
+  f.ownerText=JSON.stringify({at:100});
+  await f.timers.advance(30000);
+  expect(f.writes).toHaveLength(1);
+  f.now=160;await f.timers.advance(30000);
+  expect(f.writes).toHaveLength(2);
+ } finally {await f.cleanup();}
 });

@@ -1,3 +1,7 @@
+import { createManagedPanelWriter } from "./panel";
+import { checkSetup } from "../setup/check";
+import { MANAGED_MARKER, pluginDir } from "../plugin/install";
+import { installedPlugin, readUpdateCheck, updateAvailable } from "../update/check";
 import { currentVersion } from "../update/version";
 import { refreshManagedPlugin, type PluginRefreshDeps } from "./plugin-refresh";
 import { randomBytes } from "node:crypto";
@@ -41,6 +45,31 @@ export function startServer(
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;
   let snapshot = currentSnapshot(initialCtx);
+  const panelWriter = createManagedPanelWriter(initialCtx);
+  let panelBusy = false, panelCheckedAt = -Infinity;
+  // The setup check probes the service manager and HTTP; refresh it at most once a minute.
+  let panelSetup: Awaited<ReturnType<typeof checkSetup>> | undefined, panelSetupAt = -Infinity;
+  const refreshPanel = () => {
+    if (stopped || panelBusy || Date.now() - panelCheckedAt < 2000 || !existsSync(join(pluginDir(initialCtx), MANAGED_MARKER))) return;
+    panelBusy = true;
+    panelCheckedAt = Date.now();
+    void Promise.resolve().then(async () => {
+      const ctx = getCtx();
+      if (!panelSetup || Date.now() - panelSetupAt >= 60_000) {
+        panelSetup = await checkSetup({ ...ctx, env: { ...ctx.env, PACER_PORT: String(server.port) } });
+        panelSetupAt = Date.now();
+      }
+      const setup = panelSetup;
+      const cli = currentVersion(), plugin = installedPlugin(ctx, cli)?.version ?? cli;
+      const check = readUpdateCheck(ctx, plugin);
+      if (!stopped) panelWriter.refresh(snapshot, {
+        nowS: ctx.now, reachable: true, transport: "http", setup,
+        updates: { cli, plugin, latest: check?.latest ?? null, available: updateAvailable(check) || updateAvailable(check ? { ...check, current: cli } : null) },
+      });
+    }).catch(error => {
+      if (!stopped) console.log(`pacer: could not refresh the Orca panel: ${String(error instanceof Error ? error.message : error).split(/\r?\n/)[0]}`);
+    }).finally(() => { panelBusy = false; });
+  };
   let cachedStatus: Status | null = null;
   let statusError: string | null = null;
   let statusPending: Promise<void> | null = null;
@@ -62,7 +91,7 @@ export function startServer(
   let outbox = readOutboxSince(initialCtx,0);
   const refreshSnapshot = () => {
     if(stopped)return;
-    try{const ctx=getCtx();snapshot=currentSnapshot(ctx);outbox=readOutboxSince(ctx,0);}catch{ /* Preserve last known data. */ }
+    try{const ctx=getCtx();snapshot=currentSnapshot(ctx);outbox=readOutboxSince(ctx,0);refreshPanel();}catch{ /* Preserve last known data. */ }
   };
   // File notifications update memory outside request handlers; the timer covers missed notifications.
   let scheduled: ReturnType<typeof setTimeout> | undefined;
@@ -169,6 +198,7 @@ export function startServer(
       return new Response("not found\n", { status: 404 });
     },
   });
+  refreshPanel();
   void refreshManagedPlugin(initialCtx, currentVersion(), opts.pluginRefreshDeps).finally(refreshSnapshot);
   let busy = false;
   const tick = () => {

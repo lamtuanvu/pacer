@@ -54,6 +54,7 @@ test("plugin uninstall removes generated files, bridge key and empty directories
   await pluginCli(["install"], ctx);
   const data = join(userData, "plugins-data", "lamtuanvu.pacer");
   mkdirSync(data, { recursive: true });
+  writeFileSync(join(root, ".pacer-panel-serve.json"), '{"at":100}');
   writeFileSync(join(data, "storage.json"), '{"link":{"v":1},"other":"keep"}');
   const r = await pluginCli(["uninstall"], ctx);
   expect(r.code).toBe(0);
