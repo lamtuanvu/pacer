@@ -3,3 +3,5 @@ dist/
 .work/
 .superpowers/
 app/dist/
+desktop/src-tauri/target/
+desktop/node_modules/

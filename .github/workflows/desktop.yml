@@ -1,0 +1,41 @@
+name: Desktop (unsigned macOS)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Install pinned Rust toolchain
+        working-directory: desktop/src-tauri
+        run: |
+          rustup show active-toolchain
+          echo "RUSTUP_TOOLCHAIN=$(rustup show active-toolchain | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+      - name: Install desktop CLI
+        run: bun install --frozen-lockfile
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+      - name: Test offline
+        run: cargo test --offline --locked --manifest-path src-tauri/Cargo.toml -- --include-ignored
+      - name: Build unsigned app offline
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: bunx --no-install tauri build --bundles app --no-sign
+      - name: Archive app preserving bundle metadata
+        run: ditto -c -k --sequesterRsrc --keepParent src-tauri/target/release/bundle/macos/pacer.app pacer-macos-unsigned.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pacer-macos-unsigned
+          path: desktop/pacer-macos-unsigned.zip
+          retention-days: 7
