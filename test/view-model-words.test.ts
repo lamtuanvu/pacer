@@ -66,3 +66,7 @@ test("view-model stays dependency-free", () => {
     }
   }
 });
+
+test("planner verdicts map to tones in the same table", () => {
+  expect(["behind", "on_pace", "ahead", "out", "unknown"].map(toneFor)).toEqual(["good", "good", "warn", "bad", "neutral"]);
+});

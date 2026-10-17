@@ -15,6 +15,7 @@ import { AddExecutor } from "./screens/AddExecutor";
 import { Hosts } from "./screens/Hosts";
 import { SettingsGeneral } from "./screens/SettingsGeneral";
 import { Setup } from "./screens/Setup";
+import { Delegate } from "./screens/Delegate";
 const store = createStore();
 export const keys = createKeyRegistry({ controlActive: () => false });
 const TITLES: Record<Route["name"], string> = { overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", setup: "Setup", loading: "pacer", "not-found": "Page not found" };
@@ -38,6 +39,7 @@ function App() {
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
   const [hash, setHash] = useState(location.hash);
   const [help, setHelp] = useState(false);
+  const [delegate, setDelegate] = useState(false);
   const lastWork = useRef("#/");
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
@@ -69,6 +71,7 @@ function App() {
       keys.register({ keys: "g s", label: "Go to Sessions", scope: "global", run: go("#/sessions") }),
       keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),
       keys.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => setHelp(true) }),
+      keys.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => setDelegate(true) }),
       keys.register({ keys: "Escape", label: "Close the settings panel", scope: "global", run: () => { if (SETTINGS.has(keys.scope() ?? "")) location.hash = lastWork.current; } }),
     ];
     const detach = attachKeyRegistry(keys, window);
@@ -76,7 +79,8 @@ function App() {
   }, []);
   useEffect(() => { keys.setScope(route.name); }, [route.name]);
   return <TaskContext.Provider value={{ state, api }}>
-    <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]}><Screen route={route} /></Layout>
+    <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
+    {delegate && <Delegate close={() => setDelegate(false)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </TaskContext.Provider>;
 }

@@ -6,6 +6,7 @@ const tones: Record<string, StatusTone> = {
   good: "good", info: "info", warn: "warn", bad: "bad", muted: "neutral",
   EXHAUSTED: "bad", AHEAD: "warn", NEAR_LIMIT: "warn", EXPIRING: "warn", EXPIRING_SOON: "warn",
   OK: "good", ON_PACE: "good", BEHIND: "good", UNMETERED: "good",
+  behind: "good", on_pace: "good", ahead: "warn", out: "bad",
 };
 /** Maps a tone or verdict string the service wrote to a status tone; the UI never derives one from numbers. */
 export const toneFor = (value: string): StatusTone => Object.hasOwn(tones, value) ? tones[value]! : "neutral";
