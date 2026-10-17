@@ -4,7 +4,7 @@ import { Mark } from "../ds/Mark";
 import { Pill } from "../ds/Pill";
 import { Icon, type IconName } from "../ds/icons";
 import type { Route } from "../router";
-import type { StoreState } from "../store";
+import type { StoreState } from "../data/store";
 const nav: { name: IconName; label: string; href: string }[] = [
   { name: "home", label: "Home", href: "#/" }, { name: "tasks", label: "Tasks", href: "#/tasks" },
   { name: "executors", label: "Executors", href: "#/executors" }, { name: "accounts", label: "Accounts & budgets", href: "#/accounts" },

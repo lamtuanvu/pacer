@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { executorLabel, executorCaption } from "../app/src/model/tasks";
+import { executorLabel, executorCaption } from "../src/view-model/words";
 import { draftStorage } from "../app/src/model/draft";
 
 test("drafts restore edits, clear on success, and allow new edits after clearing", () => {

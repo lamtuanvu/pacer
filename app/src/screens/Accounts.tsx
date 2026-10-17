@@ -3,7 +3,7 @@ import { Button } from "../ds/Button";
 import { Card } from "../ds/Card";
 import { Pill } from "../ds/Pill";
 import { UsageMeter } from "../ds/UsageMeter";
-import { executorLabel } from "../model/tasks";
+import { executorLabel } from "../../../src/view-model/words";
 import { executorStatus } from "../model/executors";
 import { accountsModel, clock, type Account, type Limit } from "../model/accounts";
 import { Dialog, ErrorMessage, useAction, useDraft, useQuery } from "./task-shared";
@@ -23,7 +23,7 @@ export function Accounts() {
   return <section className="screen"><div className="top"><h1>Accounts &amp; budgets</h1><span className="grow" /><Button variant={adding ? "secondary" : "primary"} onClick={() => setAdding(true)}>Add account</Button></div>
     <p className="muted">Each account is one budget. An old reading is shown as stale and stops deciding routing, unless it shows the account at its limit.</p><ErrorMessage error={accounts.error ?? limits.error} />
     {accountsModel(accounts.data ?? [], limits.data ?? []).map(a => { const status = executorStatus({ id: "", state: "ok", until: null, reason: null }, a); return <Card key={a.name}><div className="row"><h2>{a.name}</h2>{a.runners?.map(id => <span className="muted" key={id}>{executorLabel(id, accounts.data ?? [])}</span>)}<Pill tone={a.kind === "endpoint" ? status.tone : a.signedIn === true ? "good" : "warn"}>{a.kind === "endpoint" ? status.label : a.signedIn === true ? "Signed in" : a.signedIn === false ? "Signed out" : "Sign-in not confirmed"}</Pill></div>
-      {a.windows.map(w => <div className="budget-window" key={w.name}><div className="row"><strong>{w.name}</strong><span>{w.usedPct == null ? "Usage unknown" : `${Math.round(w.usedPct)}% used`}</span>{w.resetsAt && <span className="muted">Resets {clock(w.resetsAt)}</span>}</div>{w.usedPct != null && <UsageMeter used={w.usedPct} label={`${a.name} ${w.name}`} />}</div>)}
+      {a.windows.map(w => <div className="budget-window" key={w.name}><div className="row"><strong>{w.name}</strong><span>{w.usedPct == null ? "Usage unknown" : `${Math.round(w.usedPct)}% used`}</span>{w.resetsAt && <span className="muted">Resets {clock(w.resetsAt)}</span>}</div>{w.usedPct != null && <UsageMeter used={w.usedPct} pace={null} tone={w.tone} size="bar" text="none" label={`${a.name} ${w.name}`} />}</div>)}
       <p className="muted">{a.source} · {a.freshness}</p>{a.error && <p>{a.error}</p>}{a.hint && <p>{a.hint}</p>}{a.signin && <Signin command={a.signin} />}
       {a.connection && <dl className="facts"><dt>Host</dt><dd>{a.connection.base_url_host}</dd><dt>Key</dt><dd>{a.connection.key === "present" ? "Present" : "Missing"}</dd><dt>Models</dt><dd>{a.connection.models.map(m => m.name ?? m.id).join(", ")}</dd></dl>}
       <div className="row"><Button size="sm" variant="secondary" onClick={() => setRemove(a.name)}>Remove</Button></div></Card>; })}

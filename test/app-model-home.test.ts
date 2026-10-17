@@ -21,6 +21,16 @@ test("attention includes unreviewed work, limits and broken runners once; runnin
   expect(model.running.map(t => t.id)).toEqual(["t3"]);
 });
 
+test("planner tone comes from the service verdict, not from used minus pace", () => {
+  const snapshot = { ...emptySnapshot(), budget: { generatedAt: 1, planner: "claude-code", strategy: "default", mode: "normal", providers: [{ id: "claude-code", verdict: "ON_PACE", usedPct: 70, pacePct: 40, resetsAt: 900, window: "weekly", stale: false }], ranked: [] } };
+  expect(homeModel(snapshot, []).planner).toMatchObject({ tone: "good", label: "On pace" });
+});
+
+test("planner label uses the verdict's own words", () => {
+  const at = (verdict: string) => homeModel({ ...emptySnapshot(), budget: { generatedAt: 1, planner: "claude-code", strategy: "default", mode: "normal", providers: [{ id: "claude-code", verdict, usedPct: 70, pacePct: 40, resetsAt: 900, window: "weekly", stale: false }], ranked: [] } }, []).planner?.label;
+  expect([at("NEAR_LIMIT"), at("AHEAD"), at("EXHAUSTED"), at("ON_PACE"), at("WEIRD")]).toEqual(["Near limit", "Ahead of pace", "Out of quota", "On pace", "Usage unknown"]);
+});
+
 test("service attention preserves order and text and suppresses local heuristics", () => {
   const item = { id: "update:2", kind: "update" as const, severity: "decide" as const, repo: null, title: "Install update", detail: "From service", raisedAt: 1, since: 1, notify: "all" as const, actions: [{ label: "Settings", op: "ui.open", params: { view: "settings" } }] };
   const snapshot = { ...emptySnapshot(), attention: [item, { ...item, id: "setup:x", title: "Finish setup" }] };

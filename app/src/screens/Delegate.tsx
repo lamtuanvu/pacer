@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { Button } from "../ds/Button";
-import { blankDelegate, delegateParams, executorLabel, kinds, recentRepos, taskHref, type TaskSummary } from "../model/tasks";
+import { blankDelegate, delegateParams, kinds, recentRepos, taskHref, type TaskSummary } from "../model/tasks";
+import { executorLabel } from "../../../src/view-model/words";
 import { routingStatus } from "../model/executors";
 import type { Routing } from "../model/home";
 import { Dialog, ErrorMessage, useAction, useDraft, useQuery } from "./task-shared";

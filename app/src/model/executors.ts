@@ -1,6 +1,6 @@
 import type { Runner } from "./home";
 import { clock, type Account } from "./accounts";
-import type { Tone } from "./tasks";
+import type { Tone } from "../../../src/view-model/words";
 export interface Rule { kinds?: string[]; executors: string[] }
 export interface RoutingRules { rules: Rule[]; available: string[] }
 export function runnerAccount(id: string, accounts: Account[]) { return accounts.find(a => a.runners?.includes(id) || a.name === id.split("#")[1]?.split("@")[0]); }

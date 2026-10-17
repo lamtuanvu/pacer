@@ -11,3 +11,8 @@ test("endpoint details contain only the public host and key presence", () => {
   expect(row.connection?.key).toBe("missing");
   expect(row.signin).toBeUndefined();
 });
+
+test("account windows keep today's meter colours until the settings rewrite", () => {
+  const rows = accountsModel([{ name: "team", kind: "codex", usageReading: { windows: [{ name: "5h", usedPct: 97, resetsAt: 1 }, { name: "7d", usedPct: 40, resetsAt: 2 }] } }], []);
+  expect(rows[0]!.windows.map(w => w.tone)).toEqual(["bad", "good"]);
+});
