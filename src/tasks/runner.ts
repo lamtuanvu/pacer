@@ -1,5 +1,9 @@
+import { slotBlock, slotUse } from "../engine/slots";
+import { readPause } from "../core/pause";
+import { drainQueue } from "./drain";
+import { type SpawnRunner } from "./api";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, realpathSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { gitInfo, realpathSafe } from "../core/git";
 import { worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
@@ -20,6 +24,7 @@ import type { Ctx } from "../types";
 import { validateExecution } from "../config/execution";
 import { remoteExclusion } from "../remote/eligibility";
 import { resolveRunner } from "../config/runner-id";
+import { markAuthFailed } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
 import { listTasks, readTask, updateTask } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
@@ -33,6 +38,7 @@ export interface RunnerDeps {
   runAttempt?: (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void) => Promise<AttemptOutcome>;
   verifyRepo: (repo: string, acceptance: string | undefined, env: Ctx["env"]) => Promise<Verification>;
   hooks?: DecisionHooks;
+  spawnRunner?: SpawnRunner;
 }
 
 const DEFAULTS: RunnerDeps = {
@@ -70,6 +76,19 @@ const stopped = (ctx: Ctx, id: string) => readTask(ctx, id)?.state === "stopped"
 
 /** Run a delegated task to completion: pick executors, fall back on limits, verify, record the result. */
 export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS): Promise<TaskRecord> {
+  const startedAt = Date.now();
+  try {
+    return await runTaskOnce(ctx, id, deps);
+  } finally {
+    if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
+      await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
+        loadStrategy: deps.loadStrategy, computeStatus: deps.computeStatus, hooks: deps.hooks,
+      }).catch(() => {});
+    }
+  }
+}
+
+async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<TaskRecord> {
   let started = false;
   const initial=readTask(ctx,id);
   if(!initial)throw Error(`unknown task ${id}`);
@@ -79,13 +98,16 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   };
   let duplicate:string|undefined;
   let task=await withLock(ctx,`brief-${createHash("sha256").update(key(initial)).digest("hex")}`,async()=>{
-    return updateTask(ctx,id,t=>{
+    return withLock(ctx, "slots", async () => updateTask(ctx,id,t=>{
       const resumable = t.state === "running" && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
-      if(t.state!=="queued" && !resumable)return;
-      if(!t.force && t.state==="queued")duplicate=listTasks(ctx,Infinity).find(other=>other.id!==id&&other.state==="running"&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
+      const dispatched = t.state === "running" && !t.attemptStartedAt && !t.run && (!t.runnerPid || t.runnerPid === process.pid || !pidAlive(t.runnerPid));
+      if(t.state!=="queued" && !resumable && !dispatched)return;
+      if(t.state === "queued" && t.runnerPid && pidAlive(t.runnerPid) && !t.queue)return;
+      if(!t.force && t.state==="queued")duplicate=listTasks(ctx,Infinity).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
       if(duplicate)return;
-      started=true;t.state="running";t.runnerPid=process.pid;
-    });
+      started=true;t.runnerPid=process.pid;delete t.queue;
+      if (dispatched) t.attemptStartedAt = Date.now()/1000;
+    }));
   });
   if(duplicate)return finish(ctx,id,{status:"failed",executor:null,model:null,files:"",report:`same brief is already active in ${duplicate}; use --force only when concurrent work is intended`,backend:"direct"});
   if (!started) {
@@ -140,7 +162,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
           const placement = task.placement?.mode ?? resolvePlacement(task, validateExecution(s.execution).worktree, busy, !("error" in git) && git.dirty).mode;
           const eligible = [];
           for (const candidate of ranking.ranked) {
-            const reason = await remoteExclusion({ ...ctx, now }, s, candidate.id, { repo: task.brief.repo, placement });
+            const reason = await remoteExclusion({ ...ctx, now }, s, candidate.id, { repo: task.brief.repo, placement }, {skipSlots: true});
             if (reason) {
               ranking.excluded.push({ id: candidate.id, ...(candidate.account ? { account: candidate.account } : {}), reason });
               remoteSkipped.set(candidate.id, reason);
@@ -149,18 +171,45 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
           ranking.ranked = eligible;
         }
         excluded = ranking.excluded;
-        const rankedIds = ranking.ranked.map((e) => e.id);
+        const rankedIds = ranking.ranked.map(e => e.id);
         const req = task.requestedExecutor;
         const requested = req && !tried.has(req) && rankedIds.includes(req);
-        if (req && !requested && !requestedUnavailable) requestedUnavailable = excluded.find(e => e.id === req)?.reason ?? "not in the routing list";
-        const f = requested
-          ? rankedIds
-          : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
-        const ids = Array.isArray(f) ? rankedIds.filter((x) => f.includes(x)) : rankedIds;
-        pick = requested
-          ? req!
-          : ids.find((e) => !tried.has(e));
-        pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
+        const f = requested ? rankedIds : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
+        const allowed = Array.isArray(f) ? rankedIds.filter(x => f.includes(x)) : rankedIds;
+        await withLock(ctx, "slots", async () => {
+          if (stopped(ctx, id)) return;
+          const use = slotUse(listTasks(ctx, Infinity).filter(t => t.id !== id));
+          const full = new Set<string>();
+          ranking.ranked = ranking.ranked.filter(candidate => {
+            if (!allowed.includes(candidate.id)) return false;
+            const reason = slotBlock(s, candidate.id, use);
+            if (!reason) return true;
+            full.add(candidate.id);
+            excluded.push({id: candidate.id, reason});
+            remoteSkipped.set(candidate.id, reason);
+            return false;
+          });
+          const ids = ranking.ranked.map(e => e.id);
+          const paused = readPause(ctx);
+          pick = requested && ids.includes(req!) ? req! : ids.find(e => !tried.has(e));
+          pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
+          if (paused || (req && !tried.has(req) && full.has(req)) || (!pick && [...full].some(e => !tried.has(e)))) {
+            task = updateTask(ctx, id, t => {
+              const waiting = listTasks(ctx, Infinity).filter(x => x.id !== id && x.state === "queued" && x.queue && x.createdAt <= t.createdAt);
+              t.state = "queued";
+              t.queue = {reason: paused ? "paused" : "no_slot", since: initial.queue?.since ?? now, position: waiting.length + 1};
+              delete t.runnerPid;
+              delete t.executor;
+              delete t.run;
+              delete t.attemptStartedAt;
+            });
+            pick = undefined;
+            return;
+          }
+          if (req && !requested && !requestedUnavailable) requestedUnavailable = excluded.find(e => e.id === req)?.reason ?? "not in the routing list";
+          if (pick) task = updateTask(ctx, id, t => {t.state = "running"; t.executor = pick; t.attemptStartedAt = now; delete t.queue; delete t.run;});
+        });
+        if (task.queue) return task;
       }
       if (!pick) break;
       if (!resuming) {
@@ -219,6 +268,13 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         const note = [...remoteSkipped].map(([id, reason]) => `skipped ${id}: ${reason}`).join("\n");
         out.report = `${note}\n\n${out.report}`;
         if (existsSync(out.attempt.log)) appendFileSync(out.attempt.log, `\n--- routing\n${note}\n`);
+      }
+      const authAccount = resolveRunner(s, pick)?.account;
+      // Only a failed attempt can mean a signed-out CLI; check where the CLI prints, not the agent's report.
+      if (authAccount && out.attempt.exitCode !== 0) {
+        let log = "";
+        try { log = readFileSync(out.attempt.log, "utf8").slice(-4096); } catch { /* Some backends only return output. */ }
+        markAuthFailed({...ctx, now: out.attempt.endedAt}, authAccount, `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}\n${log}`, {attempt: true});
       }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
       if (out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {

@@ -3,9 +3,18 @@ import { taskDetail, retryOptions } from "../core/task-detail";
 import { isAbsolute } from "node:path";
 import { resolveRepo, resolveRepoInput, listReposWithBranches, addRepo, removeRepo } from "../core/repos";
 import { apiTask } from "./read-model/tasks";
-import { ACTIVITY_KINDS, readActivity } from "../activity/log";
+import { appendActivity, readActivity } from "../activity/log";
+import { ACTIVITY_KINDS } from "../activity/types";
+import { drainQueueOnRead } from "../tasks/drain";
+import * as delegationPause from "../core/pause";
+import * as modeHold from "../core/mode-hold";
+import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { z } from "zod";
-import { spawn } from "node:child_process";
+import type { TerminalDeps } from "../terminal/open";
+import { openInTerminal } from "../terminal/open";
+import { detectAgents } from "../install/detection";
+import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
+import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
@@ -21,7 +30,6 @@ import { KINDS, loadStrategy } from "../config/strategy";
 import { CoreError, toCoreError } from "../core/errors";
 import { isExecutorSession } from "../install/role";
 import * as strategy from "../strategy/service";
-import { pacerArgv } from "../install/self";
 import { publish } from "../link/publish";
 import { checkForUpdate, installedPlugin, updateAvailable } from "../update/check";
 import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
@@ -30,12 +38,15 @@ import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegat
 import { readTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 
-type UpdateSpawnOptions = { detached: true; stdio: "ignore"; env: NodeJS.ProcessEnv };
 export interface OpDeps {
   client?: string;
+  runnerCheck?: RunnerCheckDeps;
+  terminal?: Partial<TerminalDeps>;
+  openInTerminal?: typeof openInTerminal;
   spawnRunner?: SpawnRunner;
   endpoint?: endpoints.EndpointDeps;
-  spawnUpdate?: (argv: string[], options: UpdateSpawnOptions) => void | Promise<void>;
+  openTerminal?: typeof openInTerminal;
+  runUpdate?: typeof runUpdate;
   update?: Partial<Pick<UpdateDeps, "standalone" | "execPath">>;
 }
 export interface OpDef<P extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; handler: (ctx: Ctx, p: z.infer<P>, deps: OpDeps) => unknown }
@@ -69,13 +80,6 @@ async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
     throw new CoreError(error.code, error.message, error.hint ?? "Use strategy.list to choose a strategy and strategy.preview to validate a draft.");
   }
 }
-function spawnUpdate(argv: string[], options: UpdateSpawnOptions): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(argv[0]!, argv.slice(1), options);
-    child.once("error", reject);
-    child.once("spawn", () => { child.unref(); resolve(); });
-  });
-}
 async function applyUpdate(ctx: Ctx, deps: OpDeps) {
   const update = {...defaultUpdateDeps(ctx), ...deps.update};
   // Reuse the CLI's install-method checks without letting it replace the daemon
@@ -85,12 +89,17 @@ async function applyUpdate(ctx: Ctx, deps: OpDeps) {
     const message = preflight.err.replace(/^pacer update: /, "");
     throw new CoreError("not_allowed", message, message);
   }
-  const argv = [...(update.standalone ? [update.execPath] : pacerArgv(ctx.env)), "update"];
-  try { await (deps.spawnUpdate ?? spawnUpdate)(argv, {detached: true, stdio: "ignore", env: ctx.env}); }
-  catch (e) { throw new CoreError("invalid_input", e instanceof Error ? e.message : String(e), "Check that the pacer binary exists and is executable, then retry."); }
-  await publish(ctx, [{v: 1, type: "alert", data: {key: "update", level: "info", title: "Updating pacer…", body: "", at: ctx.now}}], {channel: false});
-  return {started: true};
+  const job=await startJob(ctx,"update.apply","pacer",["Download","Verify","Replace","Refresh integrations","Restart"],async step=>{
+    const result=await (deps.runUpdate ?? runUpdate)({check:false},{...update,progress:(name,state,detail)=>{
+      if(state==='running') step.start(name,detail);
+      else if(state==='passed') step.pass(name,detail);
+      else step.skip(name,detail);
+    }});
+    if(result.code!==0) throw new Error(result.err);
+  },{awaitRestart:true});
+  return {job};
 }
+
 async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>): Promise<T> {
   const result = await action();
   await publishConfigChange(ctx, area);
@@ -113,7 +122,16 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
     handler: (ctx, p) => readActivity(ctx, p),
   }),
+  "delegation.pause": op({description: "Pause new delegation for up to seven days.", params: z.object({for: z.string(), reason: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "delegation", () => {const result=delegationPause.pause(ctx,p);appendActivity(ctx,{kind:"config",level:"info",text:`Delegation paused for ${p.for}`});return result;})}),
+  "delegation.resume": op({description: "Resume delegation.", params: z.object({}), handler: ctx => mutation(ctx, "delegation", () => {const result=delegationPause.resume(ctx);appendActivity(ctx,{kind:"config",level:"info",text:"Delegation resumed"});return result;})}),
+  "mode.hold": op({description: "Hold a mode until a timestamp or the planner window resets.", params: z.object({mode: z.enum(["strict", "normal", "relaxed", "emergency"]), until: z.number().optional()}), handler: (ctx, p) => mutation(ctx, "mode", () => modeHold.holdMode(ctx, p))}),
+  "mode.release": op({description: "Release the held mode and return to pace-derived mode.", params: z.object({}), handler: ctx => mutation(ctx, "mode", () => modeHold.releaseMode(ctx))}),
+  "agent.detect": op({ description: "Detect installed agent CLIs and their versions.", params: z.object({host: id.optional()}), handler: (ctx, p) => detectAgents(ctx, p) }),
+  "job.get": op({ description: "Read a shared job.", params: z.object({id}), handler: (ctx, p) => getJob(ctx, p.id) }),
+  "job.list": op({ description: "List retained shared jobs, optionally for a target.", params: z.object({target: id.optional()}), handler: (ctx, p) => listJobs(ctx, p) }),
+  "job.cancel": op({ description: "Cancel a job that supports cancellation.", params: z.object({id}), handler: (ctx, p) => cancelJob(ctx, p.id) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
+  "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}), handler: (ctx, p, deps) => accounts.signin(ctx, p.name, p, deps.terminal) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
     params: z.discriminatedUnion("kind", [
@@ -132,16 +150,30 @@ export const OPS: Record<string, OpDef> = {
   "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),
   "account.adopt": op({ description: "Adopt an external OpenCode provider's URL and model ids, supplying a new key source.", params: z.object({name: id, key_source: endpointFields.key_source, key: endpointFields.key, env_var: endpointFields.env_var}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.adoptEndpoint(ctx, p, deps.endpoint))) }),
   "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id, delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", () => { accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true}; }) }),
-  "runner.add": op({ description: "Add an agent/account runner to the default routing rule.", params: z.object({agent: z.enum(AGENTS), account: id.optional(), host: id.optional(), model: z.string().min(1).optional()}), handler: (ctx, p) => mutation(ctx, "runners", () => ({id: runnersConfig.add(ctx, p).id})) }),
+  "runner.add": op({ description: "Add an agent/account runner to the default routing rule.", params: z.object({agent: z.enum(AGENTS), account: id.optional(), host: id.optional(), model: z.string().min(1).optional(), rank: z.number().int().nonnegative().optional(), kinds: z.array(z.enum(KINDS)).min(1).optional(), max_tasks: z.number().int().positive().optional(), test: z.boolean().optional()}), handler: (ctx, p, deps) => mutation(ctx, "runners", async () => {
+    const {id} = runnersConfig.add(ctx, p);
+    return {id, ...(p.test !== false ? {job: await checkRunner(ctx, id, deps.runnerCheck)} : {})};
+  }) }),
+  "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
+  "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
+  "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
   "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id}), handler: (ctx, p) => mutation(ctx, "runners", () => { runnersConfig.remove(ctx, p.id); return {removed: true}; }) }),
   "routing.get": op({ description: "Routing rules and available executor ids.", params: z.object({}), handler: ctx => routingConfig.get(ctx) }),
   "routing.set": op({ description: "Validate and replace routing rules, keeping the default last and preserving comments.", params: z.object({rules: z.array(z.object({kinds: z.array(z.string()).optional(), executors: z.array(id)}))}), handler: (ctx, p) => mutation(ctx, "routing", () => routingConfig.set(ctx, p.rules)) }),
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
+  "host.suggest": op({ description: "SSH aliases not already configured as hosts.", params: z.object({}), handler: ctx => core.hosts.suggest(ctx) }),
+  "host.get": op({ description: "Host facts, checks, capacity and recent work.", params: z.object({alias: id}), handler: (ctx, p) => core.hosts.detail(ctx, p.alias) }),
+  "host.set": op({ description: "Set host capacity and pause new work.", params: z.object({alias: id, max_tasks: z.number().int().min(1).max(16).optional(), paused: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.set(ctx, p.alias, p)) }),
+  "host.repo.map": op({ description: "Map a canonical repo key to a host checkout.", params: z.object({alias: id, key: id, path: z.string().trim().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.mapRepo(ctx, p.alias, p.key, p.path)) }),
+  "host.repo.setup": op({ description: "Clone and set repo identity with explicit consent, as a job.", params: z.object({alias: id, key: id, clone: z.boolean().optional(), identity: z.boolean().optional(), consent: z.literal(true)}), handler: async (ctx, p) => ({job: await core.hosts.setupJob(ctx, p.alias, p.key, p)}) }),
+  "host.account.add": op({ description: "Map a host account folder and return its login command.", params: z.object({alias: id, account: id, home: z.string().trim().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.addAccount(ctx, p.alias, p.account, p.home)) }),
+  "host.clean": op({ description: "Preview host branch fates or clean worktrees as a job.", params: z.object({alias: id, dry_run: z.boolean().optional()}), handler: async (ctx, p) => p.dry_run ? core.hosts.clean(ctx, p.alias, {dryRun: true}) : {job: await core.hosts.cleanJob(ctx, p.alias)} }),
+  "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, deps.openInTerminal) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; } }),
-  "notifications.get": op({ description: "Current Orca plugin notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
-  "notifications.set": op({ description: "Set Orca plugin notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
+  "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
+  "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: ctx => setup.check(ctx) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
@@ -151,7 +183,7 @@ export const OPS: Record<string, OpDef> = {
   "agent.disconnect": op({ description: "Remove an agent integration using its recorded undo actions.", params: z.object({agent}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentDisconnect(ctx, p.agent)) }),
   "version.get": op({ description: "Pacer, protocol, installed plugin and service versions or status.", params: z.object({}), handler: ctx => setup.version(ctx) }),
   "host.list": op({ description: "Configured SSH hosts and running task counts.", params: z.object({}), handler: ctx => core.hosts.list(ctx) }),
-  "host.check": op({ description: "Check SSH host prerequisites, checkouts and identity.", params: z.object({ alias: id, repo: z.string().min(1).optional() }), handler: (ctx, p) => core.hosts.check(ctx, p.alias, { repo: p.repo }) }),
+  "host.check": op({ description: "Check SSH host prerequisites, checkouts and identity.", params: z.object({ alias: id, repo: z.string().min(1).optional() }), handler: async (ctx, p) => ({ job: await core.hosts.checkJob(ctx, p.alias, { repo: p.repo }) }) }),
   "task.get": op({ description: "One task's state and result.", params: z.object({ id }), handler: (ctx, p) => taskDetail(ctx, p.id) }),
   "task.retry_options": op({ description: "Executors available for retry in routing order.", params: z.object({ id }), handler: (ctx, p) => retryOptions(ctx, p.id) }),
   "repo.list": op({ description: "Registered repos with local branches, current first.", params: z.object({}), handler: ctx => listReposWithBranches(ctx) }),
@@ -227,6 +259,7 @@ export const OPS: Record<string, OpDef> = {
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
   "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
+  "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const {opened,target,command}=await buildStrategy(ctx,p,{open:deps.openTerminal});return {opened,target,command};})}),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
   "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(async () => ({name: p.name, path: await strategy.use(ctx, p.name)}))) }),
   "strategy.show": op({ description: "Show a strategy's YAML, summary and active status.", params: z.object({name: id}), handler: (ctx, p) => strategyAction(() => strategy.show(ctx, p.name)) }),
@@ -241,7 +274,7 @@ export const OPS: Record<string, OpDef> = {
     const check = await checkForUpdate(ctx, {force: p.force});
     return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: installedPlugin(ctx), ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};
   }) }),
-  "update.apply": op({ description: "Start pacer update in a detached child; package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
+  "update.apply": op({ description: "Apply pacer update as a shared job; package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
 };
 
 export const opNames = (): string[] => Object.keys(OPS).sort();
@@ -258,5 +291,6 @@ export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDe
   const def = OPS[name];
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
+  if (["task.list", "task.get"].includes(name)) await drainQueueOnRead(ctx, deps.spawnRunner);
   return await def.handler(ctx, parsed.data, deps);
 }

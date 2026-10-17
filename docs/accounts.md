@@ -217,3 +217,16 @@ Orca-managed) always use the direct backend, including when `execution.backend`
 is `orca` or `auto`. An interactive Orca launch cannot pre-approve workspace
 trust for that account and can stop at the folder-trust dialog. The attempt log
 records this reason; default accounts keep their existing backend behavior.
+
+## Sign in from the app
+
+The Accounts screen can open sign-in through `account.signin { name, target? }`.
+It uses the account's configured folder and tries Orca, the terminal app, then
+tmux. If none is available, it returns a command to copy. Endpoint accounts have
+no interactive login and refuse this operation.
+
+An authentication failure marks `signedIn: false`; a fresh successful usage read
+clears the mark. Account attention offers **Sign in** and **Disable** for enabled
+executors using that account. The planner cannot be disabled or removed, and
+accounts referenced by executors show why they cannot be removed. After opening
+sign-in, the service checks usage every 15 seconds for up to ten minutes.

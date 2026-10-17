@@ -39,3 +39,14 @@ test("capacity reasons redact credential-shaped diagnostics and email addresses"
  expect(row.state).toBe("down");
  for(const secret of ["person@example.test","sk-private-test-token"])expect(JSON.stringify(row)).not.toContain(secret);
 });
+
+test("configured executor slots and shared machine and host limits",()=>{
+ const {s,st}=capacityFixture();s.runners.codex!.maxTasks=3;s.execution={...s.execution,local_max_tasks:4};
+ const tasks=[1,2].map(i=>({id:String(i),executor:"codex",state:"running",host:null}) as ApiTask);
+ expect(buildExecutors(st,s,tasks,st.generatedAt).find(e=>e.id==="codex")).toMatchObject({state:"busy",slots:{used:2,max:3}});
+ s.execution.local_max_tasks=2;
+ expect(buildExecutors(st,s,tasks,st.generatedAt).find(e=>e.id==="codex")).toMatchObject({state:"full",reason:"this machine busy (2/2)"});
+ s.runners["codex@devbox"]!.maxTasks=4;
+ const remote=[1,2,3].map(i=>({id:String(i),executor:"codex@devbox",state:"running",host:"devbox"}) as ApiTask);
+ expect(buildExecutors(st,s,remote,st.generatedAt).find(e=>e.host==="devbox")).toMatchObject({state:"full",reason:"devbox busy (3/3)",slots:{used:3,max:4}});
+});

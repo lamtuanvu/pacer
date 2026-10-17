@@ -6,6 +6,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Protocol 2.5.0 completes executor and host controls: configured slot limits, a wait queue, delegation pause/resume and mode holds.
+- Shared jobs and readiness checks, enabled executor settings, account sign-in attention and job entity events.
+- Host capacity and pause controls, repo/account setup, cleanup previews and a 300-second probe that raises attention after two failures.
+
 - Snapshot gains repo identity, capacity rows, planner meter, counts and today; new entity events (protocol 2.1.0).
 - Service-owned Needs you queue with actions, dismiss and snooze, attention counts and activity history; app and Orca attention models consume the service queue (protocol 2.2.0).
 - Full task detail with routing explanation, usage cost, acceptance timing, diffstat, per-file diffs, retry options and timeline; accept, reject, send-back and retry-elsewhere verdicts.

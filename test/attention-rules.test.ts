@@ -55,11 +55,21 @@ test("condition rules raise and clear with required enabled data", () => {
  expect(deriveItems({...input(),accounts:[account]})).toEqual([]);
  for(const [verdict,mode,raised] of [["ahead","strict",true],["ahead","emergency",true],["ahead","normal",false],["out","normal",true],["on_pace","strict",false]] as const) {
   const items=deriveItems({...input(),planner:{...model.planner!,verdict,mode}});
-  expect(items.length).toBe(raised?1:0);if(raised)expect(items[0]?.actions.map(a=>a.op)).toEqual(["ui.open"]);
+  expect(items.length).toBe(raised?1:0);if(raised)expect(items[0]?.actions.map(a=>a.op)).toEqual(["ui.open","mode.hold"]);
  }
  const setup={complete:false,open:1,items:[{id:"service",title:"Service",status:"pending",required:true},{id:"optional",title:"Optional",status:"pending",required:false}]};
  expect(deriveItems({...input(),setup})[0]).toMatchObject({id:"setup:service",notify:"all"});
  expect(deriveItems({...input(),setup:{...setup,items:setup.items.map(i=>({...i,status:"done"}))}})).toEqual([]);
  expect(deriveItems({...input(),update:{latest:"9.0",available:true}})[0]).toMatchObject({id:"update:9.0",notify:"all"});
  expect(deriveItems({...input(),update:{latest:"9.0",available:false}})).toEqual([]);
+});
+
+test("quota hold clears attention and sign-in actions name their concrete targets",()=>{
+ const {s,st}=capacityFixture();
+ const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}});
+ const planner={...model.planner!,verdict:"out" as const,modeHeldUntil:ctx.now+60};
+ expect(deriveItems({...input(),planner})).toEqual([]);
+ expect(deriveItems({...input(),planner:{...planner,modeHeldUntil:ctx.now}})[0]?.actions[1]).toEqual({label:"Keep normal",op:"mode.hold",params:{mode:"normal"}});
+ const executor=model.executors.find(e=>e.rank!=="planner")!,account=model.accounts.find(a=>a.name===executor.account)!;
+ expect(deriveItems({...input(),executors:[executor],accounts:[{...account,signedIn:false}]})[0]?.actions).toEqual([{label:"Sign in",op:"account.signin",params:{name:account.name}},{label:"Disable",op:"runner.set",params:{id:executor.id,enabled:false}}]);
 });

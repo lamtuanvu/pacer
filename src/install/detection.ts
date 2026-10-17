@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readJson, writeJsonAtomic } from "../fsutil";
+import type { Ctx } from "../types";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -32,4 +35,43 @@ export function agentPlans(home: string, pacerHome: string, which: (bin: string)
     }
     return { id, name: names[id], installed: !!installed[id], files, undo: `pacer uninstall ${id}` };
   });
+}
+
+
+export interface AgentDetection {
+  agent: AgentId;
+  found: boolean;
+  version: string | null;
+  path: string | null;
+  install_hint: string;
+}
+const installHints: Record<AgentId, string> = {
+  "claude-code": "npm install -g @anthropic-ai/claude-code",
+  codex: "npm install -g @openai/codex",
+  cursor: "Install Cursor CLI from https://cursor.com/docs/cli/installation",
+  opencode: "brew install opencode",
+};
+/** Probe only version flags, never start interactive agent sessions. */
+export async function detectAgents(ctx: Ctx, o: { host?: string } = {}): Promise<AgentDetection[]> {
+  const ids = Object.keys(AGENT_BINS) as AgentId[];
+  const missing = (agent: AgentId): AgentDetection => ({ agent, found: false, version: null, path: null, install_hint: installHints[agent] });
+  // Phase 3c supplies host tool data. Do not run local probes for remote hosts.
+  if (o.host !== undefined) return ids.map(missing);
+  const paths = ids.map(id => AGENT_BINS[id].map(bin => ctx.which(bin)).find(Boolean) ?? null);
+  const key = createHash("sha256").update(JSON.stringify([paths, ctx.env.PATH])).digest("hex");
+  const file = join(ctx.pacerHome, "cache", `agent-detect-${key}.json`);
+  const cached = readJson<{ at: number; rows: AgentDetection[] }>(file);
+  if (cached && ctx.now - cached.at >= 0 && ctx.now - cached.at < 3600) return cached.rows;
+  const rows = await Promise.all(ids.map(async (agent, i) => {
+    const path = paths[i];
+    if (!path) return missing(agent);
+    let version: string | null = null;
+    try {
+      const result = await ctx.run([path, "--version"], 5000, { env: ctx.env });
+      if (result.code === 0) version = `${result.stdout}\n${result.stderr}`.match(/\d+\.\d+(?:\.\d+)?/)?.[0] ?? null;
+    } catch { /* A found binary can still fail or time out while reporting its version. */ }
+    return { agent, found: true, version, path, install_hint: installHints[agent] };
+  }));
+  if (!ctx.readOnly) writeJsonAtomic(file, { at: ctx.now, rows });
+  return rows;
 }
