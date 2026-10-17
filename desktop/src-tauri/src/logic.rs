@@ -212,24 +212,6 @@ impl Sse {
     }
 }
 
-pub fn should_notify(data: &Value, preference: &str) -> bool {
-    if matches!(preference, "off" | "none") {
-        return false;
-    }
-    if preference == "all" {
-        return true;
-    }
-    let level = data["level"].as_str().unwrap_or("info");
-    if matches!(level, "warn" | "warning" | "error") {
-        return true;
-    }
-    let n = &data["notification"];
-    n["kind"] == "broken"
-        || (matches!(n["kind"].as_str(), Some("failed" | "done")) && n["fromPanel"] == true)
-        || (n["kind"] == "quota" && n["executor"] == "claude-code")
-        || data["important"] == true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,19 +299,6 @@ mod tests {
             events.iter().any(|e| e.kind == "reset"),
         );
         assert!(5 > seq, "next event must not be skipped after reset");
-    }
-    #[test]
-    fn notification_preferences() {
-        let info = json!({"level":"info"});
-        let warn = json!({"level":"warn"});
-        assert!(!should_notify(&warn, "off"));
-        assert!(!should_notify(&info, "important"));
-        assert!(should_notify(&warn, "important"));
-        assert!(should_notify(&info, "all"));
-        assert!(should_notify(
-            &json!({"notification":{"kind":"done","fromPanel":true}}),
-            "important"
-        ));
     }
     #[test]
     fn search_order() {
