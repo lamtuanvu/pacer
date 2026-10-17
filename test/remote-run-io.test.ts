@@ -508,7 +508,7 @@ for(const lateRefusal of [false,true]) test(`exec fallback relays session frames
     }});
   `);
   writeFileSync(join(remote,"session.binary"),join(home,"fixture-pacer"));
-  writeFileSync(join(home,"fixture-pacer"),`#!/bin/sh\n'${process.execPath}' '${pipe}' <&0 &\nwait\n`,{mode:0o755});
+  writeFileSync(join(home,"fixture-pacer"),`#!/bin/sh\nexec '${process.execPath}' '${pipe}'\n`,{mode:0o755});
   ctx.env.PACER_FAKE_FORWARD_REFUSED="1";
   const original=ctx.run;
   const commands:string[][]=[];
