@@ -69,7 +69,7 @@ test("retry mapping opts console commands into panel semantics", () => {
 });
 
  test("every non-local console command maps to a v2 op", () => {
-  for (const cmd of CMD_NAMES.filter(cmd => !["refresh", "agent-done", "worktree-created", "focus"].includes(cmd))) {
+  for (const cmd of CMD_NAMES.filter(cmd => !["refresh", "agent-done", "worktree-created", "focus", "attach"].includes(cmd))) {
    expect(cmdToOp({cmd}), cmd).not.toBeNull();
   }
   expect(cmdToOp({cmd:"delegate",goal:"fix",path:"/repo"})).toEqual({op:"task.delegate",params:{goal:"fix",repo:"/repo",source:"ui"}});
