@@ -631,7 +631,9 @@ var package_default = {
     "@modelcontextprotocol/sdk": "1.32.1",
     preact: "10.29.8",
     yaml: "2.8.2",
-    zod: "4.6.5"
+    zod: "4.6.5",
+    "@xterm/headless": "6.0.0",
+    "@xterm/addon-serialize": "0.14.0"
   },
   license: "Apache-2.0",
   description: "Subscription-budget-aware delegation for AI coding agents through a CLI, MCP server and Orca plugin.",
