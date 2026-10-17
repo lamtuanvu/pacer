@@ -112,13 +112,13 @@ test("endpoint registry validates inputs, reuses stored keys and publishes only 
   writeFileSync(path, original);
   expect(await call('account.adopt', {name: 'external', key_source: 'none'})).toMatchObject({account: {connection: {models: [{id: 'old'}]}}, state: 'not_tested'});
   expect(readFileSync(path, 'utf8')).toBe(original);
-  expect(eventsSince(ctx, 0).events.map(e => e.data)).toEqual(Array.from({length: 4}, () => ({area: 'accounts', at: ctx.now})));
-  const before = readFileSync(join(ctx.pacerHome, 'strategy.yaml'), 'utf8');
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.data)).toEqual(Array.from({length: 4}, () => ({area: 'accounts', at: ctx.now})));
+  const before = readFileSync(join(ctx.pacerHome, 'strategy.yaml'), 'utf8'), since = eventsSince(ctx, 0).last;
   for (const params of [
     {models: []}, {usage: 'reactive'}, {base_url: 'file:///invalid'}, {key_source: 'argv'}, {models: [{id: 'bad', context: -1, output: 10, tools: true}]},
   ]) await expect(call('account.add', {kind: 'endpoint', name: 'invalid', base_url: 'http://endpoint.invalid/v1', key_source: 'file', key: secret, models, usage: 'unmetered', ...params})).rejects.toMatchObject({code: 'invalid_input'});
   expect(readFileSync(join(ctx.pacerHome, 'strategy.yaml'), 'utf8')).toBe(before);
-  expect(eventsSince(ctx, 0).events).toHaveLength(4);
+  expect(eventsSince(ctx, since).events).toEqual([]);
   for (const path of ['strategy.yaml', 'opencode/opencode.json', 'endpoints/state.json', 'link/outbox.jsonl']) assertSafe(readFileSync(join(ctx.pacerHome, path), 'utf8'));
 });
 

@@ -28,7 +28,7 @@ test("strategy show, preview, save, list and remove wrap the strategy service", 
   expect(await callOp(ctx, "strategy.list", {})).toEqual(expect.arrayContaining([expect.objectContaining({name: "balanced", active: false})]));
   expect(await callOp(ctx, "strategy.remove", {name: "balanced"})).toEqual({removed: true});
   expect(existsSync(saved)).toBe(false);
-  expect(eventsSince(ctx, 0).events.map(e => e.data)).toEqual([1, 2].map(() => ({area: "strategy", at: ctx.now})));
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.data)).toEqual([1, 2].map(() => ({area: "strategy", at: ctx.now})));
 });
 
 test("strategy mutations refuse protected strategies and invalid drafts without events", async () => {
@@ -64,7 +64,7 @@ test("update.check honors the cache and force with a local release base and publ
   writeFileSync(join(base, "latest.json"), JSON.stringify({version: "99.0.1"}));
   expect(await callOp(ctx, "update.check", {})).toMatchObject({latest: "99.0.0"});
   expect(await callOp(ctx, "update.check", {force: true})).toMatchObject({latest: "99.0.1"});
-  expect(eventsSince(ctx, 0).events.map(e => e.data)).toEqual([1, 2, 3].map(() => ({area: "update", at: ctx.now})));
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.data)).toEqual([1, 2, 3].map(() => ({area: "update", at: ctx.now})));
 });
 
 test("update.apply spawns once detached and publishes the starting alert", async () => {

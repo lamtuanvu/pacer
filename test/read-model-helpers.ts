@@ -9,4 +9,4 @@ export function capacityFixture(planner="claude-code") {
  const st:Status={generatedAt:100000,strategy:"test",planner,mode:"normal",disabled:false,calendarPace:false,providers:Object.values(s.runners).map(r=>({id:r.name,account:r.account,usage:"quota",installed:true,stale:false,verdict:"BEHIND",windows:[],binding:{name:"week",usedPct:63,pace:77,activeHoursLeft:24,resetsAt:200000,lengthS:604800,paced:true,verdict:"BEHIND"}})),executors:{ranked:[{id:"codex",score:1,verdict:"BEHIND",reason:""}],excluded:[]}};
  return {s,st};
 }
-export const record=(state:TaskRecord["state"], at:number, extra:Partial<TaskRecord>={}):TaskRecord=>({id:`t-${at}`,createdAt:at,state,brief:{repo:"/missing/api",goal:"test"},kind:null,requestedExecutor:null,timeoutS:60,attempts:[],...extra});
+export const record=(state:TaskRecord["state"], at:number, extra:Partial<TaskRecord>={}):TaskRecord=>({rev:1,id:`t-${at}`,createdAt:at,state,brief:{repo:"/missing/api",goal:"test"},kind:null,requestedExecutor:null,timeoutS:60,attempts:[],...extra});

@@ -51,6 +51,7 @@ test("delegate queues a task and task_status/task_wait/task_stop work on it", as
   expect(d.isError).toBeFalsy();
   const id = d.structuredContent.task_id;
   expect(spawned).toEqual([id]);
+  expect(readTask(ctx,id)?.source).toBe("planner");
   expect(d.structuredContent).toMatchObject({ state: "queued", kind: "debug" });
   expect((await call("task_status", { task_id: id })).structuredContent.state).toBe("queued");
   updateTask(ctx, id, (t) => { t.state = "done"; });
@@ -73,6 +74,7 @@ test("report_limit marks exhaustion; task_review and guard_feedback record label
   expect(readMarks(ctx).cursor).toBe(ctx.now + 21600);
   expect((await call("report_limit", { provider: "nope" })).isError).toBe(true);
   const d = await call("delegate", { goal: "g", repo: tmpDir() });
+  updateTask(ctx, d.structuredContent.task_id, t => { t.state = "done"; });
   await call("task_review", { task_id: d.structuredContent.task_id, accepted: false, kind: "refactor", note: "wrong file" });
   await call("guard_feedback", { event_id: "e-1", correct: true });
   expect(readTask(ctx,d.structuredContent.task_id)).toMatchObject({resolved:"reviewed",review:{accepted:false,kind:"refactor",note:"wrong file"}});
@@ -145,4 +147,18 @@ test("delegate placement schema validates and task_status exposes resolution",as
 test("the MCP server reports pacer's package version", async () => {
   const { client } = await connect();
   expect(client.getServerVersion()).toMatchObject({ name: "pacer", version: pkg.version });
+});
+
+
+test("task_review supports verdicts and retries with the configured runner", async () => {
+  const { ctx, call, spawned, client } = await connect();
+  const d = await call("delegate", { goal: "g", repo: tmpDir() });
+  const id = d.structuredContent.task_id;
+  updateTask(ctx, id, t => { t.state = "done"; });
+  const r = await call("task_review", { task_id: id, verdict: "retry", executor: "cursor#cursor" });
+  expect(r.isError).toBeFalsy();
+  expect(r.structuredContent.task.review.accepted).toBe(false);
+  expect(readTask(ctx, r.structuredContent.retry.id)?.requestedExecutor).toBe("cursor");
+  expect(spawned).toEqual([id, r.structuredContent.retry.id]);
+  await client.close();
 });

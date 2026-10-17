@@ -78,3 +78,10 @@ test("live store snapshots before streaming and refetches on reset and reconnect
   stop();
   expect(FakeEvents.instances.every(s => s.closed)).toBe(true);
 });
+
+test("attention and count events refresh the service-owned snapshot", () => {
+  const start = reduceStore(initialState(), { type: "snapshot", snapshot });
+  for (const type of ["attention", "counts"] as const) {
+    expect(reduceStore(start, { type: "event", event: { seq: 6, at: 123, type, data: {} } }).needsSnapshot).toBe(true);
+  }
+});

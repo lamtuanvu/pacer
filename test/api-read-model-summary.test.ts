@@ -51,3 +51,21 @@ test("snapshot uses current supplied status for capacity even when the old budge
  const {snapshot}=await liveSnapshot({...ctx,now:ctx.now+1},{status:async()=>down});
  expect(snapshot.executors.find(e=>e.id==="codex")!.state).toBe("down");
 });
+
+test("attention counts include severity and repo totals and snapshot exposes items",async()=>{
+ const ctx=fakeCtx(),{st,s}=capacityFixture();
+ const tasks=[record("done",ctx.now-1000),record("failed",ctx.now-1001),record("running",ctx.now-1002,{progress:{phase:"idle",lastOutputAt:ctx.now-1000,lastChangeAt:ctx.now-1000,host:"local",updatedAt:ctx.now,files:0,commits:0,logBytes:0}})].map(t=>apiTask(ctx,t));
+ const setup={checkedAt:ctx.now,complete:true,items:[]};
+ const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:[],setup});
+ expect(model.counts).toMatchObject({attention:3,problems:2,byRepo:{[tasks[0]!.repo.key]:{attention:3}}});
+ expect(model.attention.map(i=>i.kind)).toEqual(["stuck","failed","review"]);
+ const {snapshot}=await liveSnapshot(ctx,{status:async()=>st});
+ expect(snapshot.attention).toBeArray();
+});
+
+test("planner task source survives mapping so the review grace applies",()=>{
+ const ctx=fakeCtx(),{s,st}=capacityFixture();
+ const t=apiTask(ctx,record("done",ctx.now-599,{source:"planner"}));
+ expect(t.source).toBe("planner");
+ expect(buildReadModel(ctx,{status:st,strategy:s,tasks:[t],hosts:[],setup:{checkedAt:ctx.now,complete:true,items:[]}}).attention).toEqual([]);
+});

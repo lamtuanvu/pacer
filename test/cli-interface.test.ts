@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { apiTask } from "../src/api/read-model/tasks";
 import { main } from "../src/cli";
 import { io } from "../src/install/stdin";
 import { delegate, parseDelegateBrief, summarizeTask } from "../src/tasks/api";
@@ -21,8 +22,8 @@ test("brief-file and stdin preserve text and command flags override file fields"
  writeFileSync(path,JSON.stringify(brief));
  const fromFile=await main(["delegate","--brief-file",path,"--kind","docs","--timeout-min","3","--worktree","new","--json"],ctx);
  expect(fromFile.code).toBe(0);const t=JSON.parse(fromFile.out);
- expect(Object.keys(t).sort()).toEqual(["id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo"].sort());
- expect(t).toMatchObject({brief:{goal,repo:ctx.home,scope:"s"},kind:"docs",timeoutS:180,placement:{requested:"new",reason:"follow-up"}});
+ expect(Object.keys(t).sort()).toEqual(["id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo","rev","source"].sort());
+ expect(t).toMatchObject({source:"cli",brief:{goal,repo:ctx.home,scope:"s"},kind:"docs",timeoutS:180,placement:{requested:"new",reason:"follow-up"}});
  const original=io.readBriefStdin;try{io.readBriefStdin=async()=>JSON.stringify(brief);const r=await main(["delegate","--brief-file","-","--goal","override","--json"],ctx);expect(r.code).toBe(0);expect(JSON.parse(r.out).brief.goal).toBe("override");}finally{io.readBriefStdin=original;}
 });
 test("brief validation is shared and executor CLI guard runs before reading stdin",async()=>{
@@ -40,7 +41,7 @@ test("task, list, wait, stop and review JSON contracts; review and dismiss persi
  updateTask(ctx,t.id,x=>{x.state="failed";});
  for(const cmd of ["tasks","wait","stop"]){const result=await main([cmd,t.id,"--json"],ctx);expect(result.code).toBe(0);expect(Object.keys(JSON.parse(result.out)).sort()).toEqual(summaryKeys);expect(JSON.parse(result.out)).toEqual(summarizeTask(readTask(ctx,t.id)!));}
  expect(Object.keys(JSON.parse((await main(["tasks","--json"],ctx)).out)[0]).sort()).toEqual(summaryKeys);
- for(const flag of ["--accept","--reject"]){const r=await main(["review",t.id,flag,"--kind","debug","--json"],ctx);expect(JSON.parse(r.out)).toEqual({recorded:true});expect(readTask(ctx,t.id)).toMatchObject({resolved:"reviewed",review:{accepted:flag==="--accept",kind:"debug"}});}
+ for(const flag of ["--accept","--reject"]){const r=await main(["review",t.id,flag,"--kind","debug","--json"],ctx);expect(JSON.parse(r.out)).toEqual({task:apiTask(ctx,readTask(ctx,t.id)!)});expect(readTask(ctx,t.id)).toMatchObject({resolved:"reviewed",review:{accepted:flag==="--accept",kind:"debug"}});}
  expect((await main(["review",t.id,"--accept","--reject"],ctx)).code).toBe(2);
  const other=createTask(ctx,{brief:{goal:"h",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
  expect((await main(["dismiss",t.id,other.id],ctx)).code).toBe(0);expect(readTask(ctx,t.id)?.dismissed).toBe(true);expect(readTask(ctx,other.id)?.dismissed).toBe(true);

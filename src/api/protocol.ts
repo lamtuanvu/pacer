@@ -2,15 +2,15 @@ import { CoreError, type CoreErrorCode } from "../core/errors";
 import pkg from "../../package.json";
 import { opNames } from "./ops";
 
-export const PROTOCOL_VERSION = "2.1.0";
+export const PROTOCOL_VERSION = "2.2.0";
 
 export function helloBody(): { protocol: string; pacer: string; ops: string[]; events: string[] } {
-  return { protocol: PROTOCOL_VERSION, pacer: pkg.version, ops: opNames(), events: ["budget", "task", "mode", "alert", "config", "reset", "executor", "account", "host", "repo", "counts"] };
+  return { protocol: PROTOCOL_VERSION, pacer: pkg.version, ops: opNames(), events: ["budget", "task", "mode", "alert", "config", "reset", "executor", "account", "host", "repo", "counts", "attention", "activity"] };
 }
 
 export type ApiErrorCode = CoreErrorCode | "unknown_op" | "too_large" | "internal";
-export interface ApiErrorBody { error: { code: ApiErrorCode; message: string; hint?: string } }
-export interface ApiEvent { seq: number; at: number; type: "executor" | "account" | "host" | "repo" | "counts" | "budget" | "task" | "mode" | "alert" | "config" | "reset"; data: unknown }
+export interface ApiErrorBody { error: { code: ApiErrorCode; message: string; hint?: string; data?: Record<string, unknown> } }
+export interface ApiEvent { seq: number; at: number; type: "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "budget" | "task" | "mode" | "alert" | "config" | "reset"; data: unknown }
 
 const STATUS: Record<ApiErrorCode, number> = {
   invalid_input: 400, not_allowed: 403, unknown_task: 404, unknown_executor: 404, unknown_op: 404, conflict: 409, too_large: 413, internal: 500,
@@ -19,7 +19,7 @@ export const httpStatus = (code: ApiErrorCode): number => STATUS[code] ?? 500;
 
 /** Errors thrown by ops carry a CoreError code (or "unknown_op"); anything else is internal. */
 export function toApiError(e: unknown): ApiErrorBody["error"] {
-  if (e instanceof CoreError) return { code: e.code as ApiErrorCode, message: e.message, ...(e.hint ? { hint: e.hint } : {}) };
+  if (e instanceof CoreError) return { code: e.code as ApiErrorCode, message: e.message, ...(e.hint ? { hint: e.hint } : {}), ...(e.data !== undefined ? { data: e.data } : {}) };
   return { code: "internal", message: e instanceof Error ? e.message : String(e) };
 }
 

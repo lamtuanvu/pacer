@@ -21,7 +21,12 @@ export async function verifyRepo(
   const bash = Bun.which("bash", { PATH: env.PATH ?? process.env.PATH });
   const pipefail = bash ? true : (await execProcess({ argv: ["sh", "-c", "set -o pipefail"], cwd: repo, env, timeoutMs: 30_000 })).code === 0;
   const argv = bash ? [bash, "-o", "pipefail", "-c", acceptance] : ["sh", "-c", `${pipefail ? "set -o pipefail; " : ""}${acceptance}`];
+  const started = performance.now();
   const r = await execProcess({ argv, cwd: repo, env, timeoutMs });
+  const durationS = Math.round((performance.now() - started) / 100) / 10;
   const tail = `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-TAIL_LINES).join("\n");
-  return { files, acceptance: { cmd: acceptance, passed: r.code === 0 && !r.timedOut, tail } };
+  const passed = tail.match(/(\d+) pass(ed)?/i)?.[1];
+  const failed = tail.match(/(\d+) fail(ed)?/i)?.[1];
+  const summary = [passed && `${passed} passed`, failed && `${failed} failed`].filter(Boolean).join(" · ") || undefined;
+  return { files, acceptance: { cmd: acceptance, passed: r.code === 0 && !r.timedOut, tail, durationS, summary, machine: null } };
 }

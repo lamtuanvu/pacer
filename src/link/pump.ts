@@ -1,4 +1,4 @@
-import { backfillRepos } from "../core/repos";
+import { repoFor, backfillRepos } from "../core/repos";
 import { buildReadModel, readModelContext } from "../api/read-model";
 import { snapshotTasks } from "../api/read-model/tasks";
 import type { Strategy } from "../config/strategy";
@@ -15,6 +15,7 @@ import { statSync } from "node:fs";
 import { list, show, pathFor } from "../strategy/service";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { join } from "node:path";
+import { appendActivity, rotateActivity } from "../activity/log";
 import { loadStrategy } from "../config/strategy";
 import { type Status, computeStatus } from "../engine/status";
 import { taskStatus } from "../tasks/api";
@@ -45,10 +46,66 @@ export function entityDiff(prev:Record<string,string>,rows:{kind:EntityData["kin
  return {envelopes,next};
 }
 const alert=(a:AlertData):Envelope=>({v:1,type:"alert",data:a});
+interface ActivityStatus {
+  mode?: string;
+  executors: Record<string, string>;
+  accounts: Record<string, string>;
+  refreshed: Record<string, { capturedAt: number; loggedAt: number }>;
+}
+const modeName = (mode: string) => mode[0]!.toUpperCase() + mode.slice(1);
+function statusActivity(ctx: Ctx, st: Status): void {
+  const path = join(ctx.pacerHome, "state", "activity-status.json");
+  const prev = readJson<ActivityStatus>(path) ?? { executors: {}, accounts: {}, refreshed: {} };
+  const next: ActivityStatus = { mode: st.mode, executors: {}, accounts: {}, refreshed: { ...prev.refreshed } };
+  if (prev.mode !== undefined && prev.mode !== st.mode) {
+    const reason = st.mode === "relaxed" ? "planner behind pace" : st.mode === "strict" ? "planner ahead of pace"
+      : st.mode === "emergency" ? "planner out of quota" : "planner on pace";
+    appendActivity(ctx, { kind: "mode", level: st.mode === "emergency" ? "warn" : "info", text: `Mode ${modeName(prev.mode)} → ${modeName(st.mode)} · ${reason}` });
+  }
+  for (const p of st.providers) {
+    const state = p.blockedReason ? "blocked" : p.brokenReason ? "broken" : p.unavailableReason || p.installed === false ? "down"
+      : p.verdict === "EXHAUSTED" ? "exhausted" : "ok";
+    const reason = p.blockedReason ?? p.brokenReason ?? p.unavailableReason ?? (p.installed === false ? "not installed" : p.verdict.toLowerCase().replaceAll("_", " "));
+    next.executors[p.id] = state;
+    if (prev.executors[p.id] !== undefined && prev.executors[p.id] !== state) {
+      appendActivity(ctx, { kind: "executor_state", level: state === "ok" ? "info" : "warn", executor: p.id, text: `${executorName(p.id)} marked ${state} · ${reason}` });
+    }
+  }
+  const accounts = st.accounts ?? [...new Map(st.providers.map(p => [p.account ?? p.id, {
+    name: p.account ?? p.id, runners: [p.id], verdict: p.verdict, usedPct: p.binding?.usedPct ?? null,
+    capturedAt: p.binding ? st.generatedAt : null,
+  }])).values()];
+  const refreshed: typeof accounts = [];
+  for (const a of accounts) {
+    const state = a.verdict;
+    next.accounts[a.name] = state;
+    const name = executorName(a.runners[0]);
+    if (prev.accounts[a.name] !== undefined && prev.accounts[a.name] !== state) {
+      appendActivity(ctx, { kind: "account_state", level: state === "EXHAUSTED" || state === "UNKNOWN" ? "warn" : "info", text: `${name} marked ${state.toLowerCase().replaceAll("_", " ")} · account budget changed` });
+    }
+    const last = prev.refreshed[a.name];
+    if (a.capturedAt !== null && (last === undefined || a.capturedAt > last.capturedAt && ctx.now - last.loggedAt >= 900)) {
+      refreshed.push(a);
+      next.refreshed[a.name] = { capturedAt: a.capturedAt, loggedAt: ctx.now };
+    }
+  }
+  if (refreshed.length) {
+    const planner = st.providers.find(p => p.id === st.planner);
+    const plannerAccount = accounts.find(a => a.runners.includes(st.planner));
+    const pct = (n: number | null | undefined) => n == null ? "unknown" : `${Math.round(n)}%`;
+    const parts = [`planner ${pct(plannerAccount?.usedPct ?? planner?.binding?.usedPct)}`,
+      ...refreshed.filter(a => a !== plannerAccount).map(a => `${executorName(a.runners[0])} ${pct(a.usedPct)}`)];
+    appendActivity(ctx, { kind: "budget_refreshed", level: "info", text: `Budgets refreshed · ${parts.join(" · ")}` });
+  }
+  if (JSON.stringify(prev) !== JSON.stringify(next)) writeJsonAtomic(path, next);
+}
+
 export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Envelope[]> {
+  rotateActivity(ctx);
   const latest=readLatest(ctx),out:Envelope[]=[]; let st:Status;
   try{st=await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
     if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return out;}
+  statusActivity(ctx, st);
   const b=toBudget(st); if(budgetKey(b)!==budgetKey(latest.budget))out.push({v:1,type:"budget",data:b});
   const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({v:1,type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`Budget mode changed to ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
   // Keep the main hotfix ledger even when a task falls out of the capped snapshot.
@@ -73,6 +130,13 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     if(terminal&&before!==d.state&&(before!==undefined||latest.seq>0)) {
       const last=t.attempts.at(-1), name=executorName(d.executor), next=b.ranked.find(x=>x.id!==d.executor)?.id;
       const kind=d.state==="done"?"done":"failed";
+      // A manual stop is recorded by core.tasks.stop, rather than reported as a failure.
+      if (d.state !== "stopped") appendActivity(ctx, {
+        kind: "task_settled", level: d.state === "done" ? "info" : "warn",
+        text: d.state === "done" ? `${name} finished “${shortGoal(t.brief.goal, 60)}” · waiting for review` : `${name} failed “${shortGoal(t.brief.goal, 60)}”`,
+        ...(t.brief.repo ? { repo: (t.repo ?? repoFor(ctx, t.brief.repo)).key } : {}), taskId: t.id,
+        ...(d.executor ? { executor: d.executor } : {}), ...(t.run?.host ? { host: t.run.host } : {}),
+      });
       if(kind!=="done"||t.fromPanel||((last?.endedAt??ctx.now)-t.createdAt)>600) out.push(alert({key:`task-${d.id}`,level:kind==="failed"?"warn":"info",title:`Task ${kind} on ${name}`,body:`${shortGoal(d.goal)}\n${kind==="done"?"Nothing to do.":next?`Open the pacer panel to retry on ${executorName(next)}.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind,fromPanel:t.fromPanel===true,executor:d.executor??undefined,goal:d.goal,...(next?{nextExecutor:next}:{})}}));
       const broken=t.attempts.find(a=>a.brokenReason);
       if(broken)out.push(alert({key:`broken-${broken.executor}-${d.id}`,level:"warn",title:`${executorName(broken.executor)} isn't starting`,body:`${shortGoal(d.goal)}\n${d.executor&&d.executor!==broken.executor?`Moved to ${executorName(d.executor)} automatically.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind:"broken",executor:broken.executor,goal:d.goal,...(d.executor&&d.executor!==broken.executor?{nextExecutor:d.executor}:{})}}));
@@ -113,13 +177,13 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   try{strategy=(deps.strategy??loadStrategy)(ctx);}catch{/* No configured strategy yet. */}
   if(strategy){
     const context=deps.setup?{setup:await deps.setup(ctx),accounts:[]}:await readModelContext(ctx);
-    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts)});
-    model.accounts=model.accounts.map(a=>({...a,signedIn:context.accounts.find(row=>row.name===a.name)?.signedIn??null}));
+    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
     const rows:{kind:EntityData["kind"];id:string;value:unknown}[]=[
       ...model.executors.map(value=>({kind:"executor" as const,id:value.id,value})),
       ...model.accounts.map(value=>({kind:"account" as const,id:value.name,value})),
       ...model.hosts.map(value=>({kind:"host" as const,id:value.alias,value})),
       ...model.repos.map(value=>({kind:"repo" as const,id:value.key,value})),
+      ...model.attention.map(value=>({kind:"attention" as const,id:value.id,value})),
       {kind:"counts",id:"counts",value:model.counts},
     ];
     const path=join(ctx.pacerHome,"link","entities-seen.json"),prev=readJson<Record<string,string>>(path)??{};

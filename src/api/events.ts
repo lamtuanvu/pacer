@@ -1,3 +1,4 @@
+import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import type { LinkSnapshot } from "../link/envelope";
 import { toBudget } from "../link/budget";
@@ -21,7 +22,9 @@ export async function liveSnapshot(
   ctx: Ctx, o: { maxBudgetAgeS?: number; status?: (c: Ctx) => Promise<Status> } = {},
 ): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot & ReadModelFields & {tasks:ApiTask[]} }> {
   const snapshot = currentSnapshot(ctx);
-  const tasks = snapshotTasks(ctx,listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t));
+  // Only records the snapshot can show need a live status read; the rest are settled history.
+  const recent = (t: TaskRecord) => !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
+  const tasks = snapshotTasks(ctx,listTasks(ctx,Infinity).filter(recent).map(t=>taskStatus(ctx,t.id)??t));
   snapshot.tasks = tasks.map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...t}));
   let strategy;
   try{strategy=loadStrategy(ctx);}catch{
@@ -38,8 +41,7 @@ export async function liveSnapshot(
   };
   const [st,context]=await Promise.all([refresh(),readModelContext(ctx)]);
   if (statusAvailable && (!snapshot.budget || ctx.now - snapshot.budget.generatedAt > (o.maxBudgetAgeS ?? 60))) snapshot.budget = toBudget(st);
-  const fields=buildReadModel(ctx,{status:st,strategy,tasks,setup:context.setup,hosts:Object.values(strategy.hosts)});
-  fields.accounts=fields.accounts.map(a=>({...a,signedIn:context.accounts.find(row=>row.name===a.name)?.signedIn??null}));
+  const fields=buildReadModel(ctx,{status:st,strategy,tasks,setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
   const result={...snapshot,...fields,tasks:snapshot.tasks as ApiTask[]};
   return { protocol: PROTOCOL_VERSION, seq: snapshot.seq, snapshot: result };
 }

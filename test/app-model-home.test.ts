@@ -20,3 +20,12 @@ test("attention includes unreviewed work, limits and broken runners once; runnin
   expect(model.attention[2]?.detail).toContain("Key rejected");
   expect(model.running.map(t => t.id)).toEqual(["t3"]);
 });
+
+test("service attention preserves order and text and suppresses local heuristics", () => {
+  const item = { id: "update:2", kind: "update" as const, severity: "decide" as const, repo: null, title: "Install update", detail: "From service", raisedAt: 1, since: 1, notify: "all" as const, actions: [{ label: "Settings", op: "ui.open", params: { view: "settings" } }] };
+  const snapshot = { ...emptySnapshot(), attention: [item, { ...item, id: "setup:x", title: "Finish setup" }] };
+  const runners = [{ id: "local", state: "broken" as const, until: null, reason: "Broken" }];
+  expect(homeModel(snapshot, runners).attention.map(a => a.key)).toEqual(["update:2", "setup:x"]);
+  expect(homeModel(snapshot, runners).attention[0]).toMatchObject({ title: item.title, detail: item.detail, href: "#/settings", actions: item.actions });
+  expect(homeModel({ ...snapshot, attention: [] }, runners).attention).toEqual([]);
+});

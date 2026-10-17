@@ -1,13 +1,15 @@
+import type { AttentionItem } from "../../attention/types";
 import type { Ctx } from "../../types";
 import type { ApiTask, Counts, ExecutorRow, HostSummary, SetupSummary, Today } from "./types";
 import type { HostCfg } from "../../config/hosts";
 import type { SetupChecklist } from "../../setup/checklist";
 import { needsReview } from "./tasks";
 
-export function buildCounts(tasks:ApiTask[],executors:ExecutorRow[],setup:SetupSummary,hosts:HostSummary[]):Counts {
+export function buildCounts(tasks:ApiTask[],executors:ExecutorRow[],setup:SetupSummary,hosts:HostSummary[],attention:AttentionItem[]=[]):Counts {
  const byRepo:Counts["byRepo"]={};
- for(const t of tasks){const counts=byRepo[t.repo.key]??={review:0,running:0};if(needsReview(t))counts.review++;if(t.state==="running")counts.running++;}
- return {review:tasks.filter(needsReview).length,running:tasks.filter(t=>t.state==="running").length,queued:tasks.filter(t=>t.state==="queued").length,ready:executors.filter(e=>e.rank!=="planner"&&["ready","busy"].includes(e.state)).length,executors:executors.filter(e=>e.rank!=="planner").length,setupOpen:setup.open,hostsWithProblems:0,byRepo};
+ for(const t of tasks){const counts=byRepo[t.repo.key]??={review:0,running:0,attention:0};if(needsReview(t))counts.review++;if(t.state==="running")counts.running++;}
+ for(const item of attention)if(item.repo){const counts=byRepo[item.repo.key]??={review:0,running:0,attention:0};counts.attention++;}
+ return {attention:attention.length,problems:attention.filter(i=>i.severity!=="decide").length,review:tasks.filter(needsReview).length,running:tasks.filter(t=>t.state==="running").length,queued:tasks.filter(t=>t.state==="queued").length,ready:executors.filter(e=>e.rank!=="planner"&&["ready","busy"].includes(e.state)).length,executors:executors.filter(e=>e.rank!=="planner").length,setupOpen:setup.open,hostsWithProblems:0,byRepo};
 }
 export function buildToday(ctx:Ctx,tasks:ApiTask[]):Today {
  const d=new Date(ctx.now*1000);d.setHours(0,0,0,0);

@@ -8,7 +8,7 @@ import { readBlocked } from "../executors/blocked";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
-import { type Excluded, rankExecutors } from "../engine/rank";
+import { type Excluded, rankExecutors, ruleFor } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
 import { selectBackend } from "../exec/backend";
@@ -22,7 +22,7 @@ import { remoteExclusion } from "../remote/eligibility";
 import { resolveRunner } from "../config/runner-id";
 import { markExhausted } from "../usage/reactive";
 import { listTasks, readTask, updateTask } from "./store";
-import { resolvePlacement, TERMINAL_STATES, type TaskRecord, type TaskResult, type Verification } from "./types";
+import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
 const safe = <T>(f: () => Promise<T>, fb: T) => Promise.resolve().then(f).catch(() => fb);
@@ -110,6 +110,9 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
       const resuming = i === 0 && task.run && task.run.attempt > task.attempts.length ? task.run : null;
       let pick: string | undefined;
+      let routing: RoutingNote | undefined;
+      let pickReason: string | undefined;
+      let startStatus: Status | undefined;
       let byId: Record<string, Status["providers"][number]> = {};
       if (resuming) {
         pick = resuming.executor;
@@ -119,6 +122,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         }
         const now = Date.now() / 1000;
         const st = await deps.computeStatus({ ...ctx, now }, s);
+        startStatus = st;
         const blocked = readBlocked({ ...ctx, now });
         const broken = readBroken({ ...ctx, now });
         byId = Object.fromEntries(st.providers.map((p) => [p.id, { ...p, ...(blocked[p.id] ? {blockedReason:blocked[p.id].reason,blockedUntil:blocked[p.id].until} : {}), ...(broken[p.id] ? { brokenReason: broken[p.id].reason } : {}) }]));
@@ -156,8 +160,20 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         pick = requested
           ? req!
           : ids.find((e) => !tried.has(e));
+        pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
       }
       if (!pick) break;
+      if (!resuming) {
+        const skipped = new Map(excluded.map(e => [e.id, e.reason]));
+        for (const [executor, reason] of remoteSkipped) if (!skipped.has(executor)) skipped.set(executor, reason);
+        if (task.requestedExecutor && requestedUnavailable && !skipped.has(task.requestedExecutor)) skipped.set(task.requestedExecutor, requestedUnavailable);
+        routing = {
+          kind, kindSource: initial.kind === null ? "classifier" : "brief",
+          rule: ruleFor(kind, s).kinds?.join(", ") ?? "everything else", chosen: pick,
+          why: [pickReason ?? "available", ...new Set([...remoteSkipped.keys(), ...tried])].map((value, index) => index ? `${value} busy` : value).join("; "),
+          skipped: [...skipped].map(([executor, reason]) => ({ executor, reason })),
+        };
+      }
       tried.add(pick);
       const cfg = s.providers[pick];
       attemptedExecutor = pick;
@@ -175,7 +191,15 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       };
       const backend = resuming || deps.runAttempt ? null : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
+      const account = resolveRunner(s, pick)?.account ?? pick;
+      const usage = (st: Status | undefined): AttemptUsage => {
+        const reading = st?.accounts?.find(a => a.name === account);
+        return { account, usedPct: reading?.usedPct ?? null, window: reading?.window ?? null, at: Date.now() / 1000 };
+      };
+      const usageAtStart = resuming ? task.pendingAttempt?.usageAtStart : usage(startStatus);
+      if (resuming) routing = task.pendingAttempt?.routing;
       task = updateTask(ctx, id, t => {
+        t.pendingAttempt = { routing, usageAtStart };
         t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming?.startedAt ?? Date.now() / 1000;
       });
       const before = resuming ? null : await repoFingerprint(ctx, task.brief.repo);
@@ -206,9 +230,13 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         const reason = brokenReason(out.exec, duration, unchanged);
         if (reason) out.attempt.brokenReason = reason;
       }
+      out.attempt.routing = routing;
+      out.attempt.usageAtStart = usageAtStart;
+      out.attempt.usageAtEnd = usage(await safe(() => deps.computeStatus({ ...ctx, now: Date.now() / 1000 }, s), undefined));
       attemptedBackend = out.backend ?? attemptedBackend;
       task = updateTask(ctx, id, (t) => {
         t.attempts.push(out.attempt);
+        delete t.pendingAttempt;
         t.backend = attemptedBackend;
         delete t.childPid;
       });
@@ -228,6 +256,13 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
         continue;
       }
+      if (!out.partial) task = updateTask(ctx, id, t => {
+        const now = Date.now() / 1000;
+        t.progress = {
+          lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0, logBytes: 0, host: "local",
+          ...t.progress, phase: "testing", updatedAt: now,
+        };
+      });
       const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());

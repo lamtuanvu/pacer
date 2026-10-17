@@ -19,6 +19,7 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       const event = action.event;
       if (event.type === "reset") return { ...state, needsSnapshot: true };
       if (!state.snapshot || state.needsSnapshot || event.seq <= state.snapshot.seq) return state;
+      if (event.type === "attention" || event.type === "counts") return { ...state, needsSnapshot: true };
       const envelope = parseEnvelope({ v: 1, type: event.type, data: event.data });
       if (!envelope) return state;
       const snapshot = { ...reduce(state.snapshot, envelope, event.at), seq: event.seq };
@@ -62,7 +63,7 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
         // EventSource does not expose HTTP status. A normal request detects expired cookies.
         void api.hello().catch(error => { if (active() && error instanceof ApiError && error.status === 401) endSession(); });
       });
-      for (const type of ["budget", "task", "mode", "alert", "config", "reset"] as const) source.addEventListener(type, event => {
+      for (const type of ["budget", "task", "mode", "alert", "config", "reset", "attention", "counts"] as const) source.addEventListener(type, event => {
         if (!active()) return;
         try {
           const message = event as MessageEvent;

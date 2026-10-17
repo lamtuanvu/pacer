@@ -3,7 +3,7 @@ export type CoreErrorCode = "unknown_op" | "unknown_task" | "invalid_input" | "u
 
 /** The one error type core operations throw. Surfaces map `code` to exit codes, MCP errors or HTTP statuses. */
 export class CoreError extends Error {
-  constructor(public readonly code: CoreErrorCode, message: string, public readonly hint?: string) {
+  constructor(public readonly code: CoreErrorCode, message: string, public readonly hint?: string, public readonly data?: Record<string, unknown>) {
     super(message);
     this.name = "CoreError";
   }

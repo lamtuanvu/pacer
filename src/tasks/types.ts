@@ -14,9 +14,30 @@ export interface Brief {
   acceptance?: string;
   constraints?: string;
   context?: string;
+  feedback?: string;
+  base?: string;
+}
+
+export interface RoutingNote {
+  kind: string | null;
+  kindSource: "brief" | "classifier";
+  rule: string;
+  chosen: string;
+  why: string;
+  skipped: { executor: string; reason: string }[];
+}
+
+export interface AttemptUsage {
+  account: string;
+  usedPct: number | null;
+  window: string | null;
+  at: number;
 }
 
 export interface Attempt {
+  routing?: RoutingNote;
+  usageAtStart?: AttemptUsage;
+  usageAtEnd?: AttemptUsage;
   executor: string;
   model: string | null;
   startedAt: number;
@@ -30,7 +51,7 @@ export interface Attempt {
 
 export interface Verification {
   files: string;
-  acceptance?: { cmd: string; passed: boolean; tail: string };
+  acceptance?: { cmd: string; passed: boolean; tail: string; durationS?: number; summary?: string; machine?: string | null };
 }
 
 export interface TaskResult extends Verification {
@@ -77,8 +98,13 @@ export interface RunRef {
 }
 
 export interface TaskRecord {
+  source?: "planner" | "ui" | "cli";
+  requestId?: string;
   repo?: RepoRef;
   client?: string;
+  /** Checkpoint for the in-flight attempt, retained when its runner resumes. */
+  pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart">;
+  rev: number;
   run?: RunRef;
   progress?: Progress;
   resumeSpawnedAt?: number;

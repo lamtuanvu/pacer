@@ -20,7 +20,7 @@ test("lists changed and untracked files; passing acceptance", async () => {
   const v = await verifyRepo(dir, "test -f new.txt && echo ok", env);
   expect(v.files).toContain("a.txt");
   expect(v.files).toContain("untracked: new.txt");
-  expect(v.acceptance).toEqual({ cmd: "test -f new.txt && echo ok", passed: true, tail: "ok" });
+  expect(v.acceptance).toMatchObject({ cmd: "test -f new.txt && echo ok", passed: true, tail: "ok" });
 });
 
 test("failing acceptance keeps the last 20 lines; no changes is reported", async () => {
@@ -42,3 +42,13 @@ test("pipeline failure fails acceptance even when the final command succeeds", a
   const v = await verifyRepo(await gitRepo(), "false | cat", env);
   expect(v.acceptance?.passed).toBe(false);
 });
+
+for (const [output, summary] of [["38 passed", "38 passed"], ["36 pass\n2 fail", "36 passed · 2 failed"], ["2 failed", "2 failed"], ["ok", undefined]] as const) {
+  test(`acceptance timing and summary: ${output}`, async () => {
+    const v = await verifyRepo(await gitRepo(), `printf '%s' '${output}'`, env);
+    expect(v.acceptance?.passed).toBe(true);
+    expect(v.acceptance?.summary).toBe(summary);
+    expect(v.acceptance?.durationS).toBeGreaterThanOrEqual(0);
+    expect(v.acceptance?.machine).toBeNull();
+  });
+}

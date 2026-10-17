@@ -7,7 +7,7 @@ import {
   parseState, redactState, resultCheckState, stateHash, taskKindState, withoutPlannerKind,
 } from "../src/classify/state";
 
-const task: TaskRecord = {
+const task: TaskRecord = { rev: 1,
   id: "t-one", createdAt: 0, kind: "tests", requestedExecutor: null,
   timeoutS: 60, brief: { goal: "Add tests", repo: "/repo" }, state: "queued", attempts: [],
 };

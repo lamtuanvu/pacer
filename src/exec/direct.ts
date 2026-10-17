@@ -152,7 +152,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
     return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
   }
   if (mode === "new" && !("error" in git)) {
-    const base = ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch;
+    const base = task.brief.base ?? (ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch);
     if (base === "HEAD") {
       const reason = `${git.top} has a detached HEAD; check out a branch or set execution.base_branch`;
       return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);

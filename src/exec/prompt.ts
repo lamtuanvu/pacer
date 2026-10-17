@@ -12,6 +12,7 @@ export function buildPrompt(brief: Brief, taskId: string): string {
   if (brief.scope?.trim()) parts.push(`## Scope\n${brief.scope.trim()}`);
   if (brief.context?.trim()) parts.push(`## Context\n${brief.context.trim()}`);
   if (brief.constraints?.trim()) parts.push(`## Constraints\n${brief.constraints.trim()}`);
+  if (brief.feedback?.trim()) parts.push(`## Review feedback\n${brief.feedback.trim()}`);
   parts.push(`## Done when\n${brief.acceptance?.trim()
     ? `\`${brief.acceptance.trim()}\` passes.`
     : "The goal is met; no acceptance command was given."}`);

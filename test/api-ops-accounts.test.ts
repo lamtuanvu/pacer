@@ -28,7 +28,7 @@ test("account and runner operations share configuration and publish matching eve
   expect(await callOp(ctx, "runner.remove", {id: "codex#work"})).toEqual({removed: true});
   expect(await callOp(ctx, "account.remove", {name: "work", delete_home: true})).toEqual({removed: true});
   expect(existsSync(added.account.folder)).toBe(false);
-  expect(eventsSince(ctx, 0).events.map(e => e.data)).toEqual(["accounts", "runners", "runners", "accounts"].map(area => ({area, at: ctx.now})));
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.data)).toEqual(["accounts", "runners", "runners", "accounts"].map(area => ({area, at: ctx.now})));
 });
 
 test("claude accounts support explicit homes and never launch login", async () => {
@@ -60,7 +60,7 @@ test("routing get and set validate references and order, preserve comments and p
   expect(readFileSync(path, "utf8")).toContain("# keep layout");
   expect(readFileSync(path, "utf8")).toContain("# keep rule");
   expect(loadStrategy(ctx).routing[0].executors).toEqual(["codex", "claude-code"]);
-  expect(eventsSince(ctx, 0).events.map(e => e.data)).toEqual([{area: "routing", at: ctx.now}]);
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.data)).toEqual([{area: "routing", at: ctx.now}]);
 });
 
 test("account list never leaks email-shaped Orca identity or folder values", async () => {
@@ -80,7 +80,7 @@ test("host operations reserve local and refuse removing a used alias", async () 
   expect((await error(callOp(ctx, "host.remove", {alias: "box"}))).code).toBe("conflict");
   await callOp(ctx, "runner.remove", {id: "codex@box"});
   expect(await callOp(ctx, "host.remove", {alias: "box"})).toEqual({removed: true});
-  expect(eventsSince(ctx, 0).events.map(e => (e.data as {area: string}).area)).toEqual(["hosts", "runners", "runners", "hosts"]);
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => (e.data as {area: string}).area)).toEqual(["hosts", "runners", "runners", "hosts"]);
 });
 
 test("account list preserves remote runner ids while sanitizing emails", async () => {

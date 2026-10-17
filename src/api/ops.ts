@@ -1,4 +1,9 @@
-import { resolveRepo } from "../core/repos";
+import * as attention from "../core/attention";
+import { taskDetail, retryOptions } from "../core/task-detail";
+import { isAbsolute } from "node:path";
+import { resolveRepo, resolveRepoInput, listReposWithBranches, addRepo, removeRepo } from "../core/repos";
+import { apiTask } from "./read-model/tasks";
+import { ACTIVITY_KINDS, readActivity } from "../activity/log";
 import { z } from "zod";
 import { spawn } from "node:child_process";
 import * as core from "../core";
@@ -22,6 +27,7 @@ import { checkForUpdate, installedPlugin, updateAvailable } from "../update/chec
 import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
 import { currentVersion } from "../update/version";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
+import { readTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 
 type UpdateSpawnOptions = { detached: true; stdio: "ignore"; env: NodeJS.ProcessEnv };
@@ -34,6 +40,7 @@ export interface OpDeps {
 }
 export interface OpDef<P extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; handler: (ctx: Ctx, p: z.infer<P>, deps: OpDeps) => unknown }
 
+const expect_rev = z.number().int().positive().optional();
 const id = z.string().min(1).max(128);
 const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 
@@ -90,7 +97,22 @@ async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>)
   return result;
 }
 
+/** Check before any liveness refresh, label write, process signal or spawn. */
+function taskMutation<T>(ctx: Ctx, id: string, expect: number | undefined, action: () => T): T {
+  return withTaskLock(ctx, id, () => {
+    const task = readTask(ctx, id);
+    if (!task) throw new CoreError("unknown_task", `unknown task ${id}`);
+    core.tasks.checkRev(ctx, task, expect);
+    return action();
+  });
+}
+
 export const OPS: Record<string, OpDef> = {
+  "activity.list": op({
+    description: "Activity log, newest first, with optional repo, kind and task filters.",
+    params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
+    handler: (ctx, p) => readActivity(ctx, p),
+  }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
@@ -117,7 +139,7 @@ export const OPS: Record<string, OpDef> = {
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
-  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: (ctx, p) => mutation(ctx, "config", async () => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; }) }),
+  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; } }),
   "notifications.get": op({ description: "Current Orca plugin notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set Orca plugin notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: ctx => setup.check(ctx) }),
@@ -130,38 +152,81 @@ export const OPS: Record<string, OpDef> = {
   "version.get": op({ description: "Pacer, protocol, installed plugin and service versions or status.", params: z.object({}), handler: ctx => setup.version(ctx) }),
   "host.list": op({ description: "Configured SSH hosts and running task counts.", params: z.object({}), handler: ctx => core.hosts.list(ctx) }),
   "host.check": op({ description: "Check SSH host prerequisites, checkouts and identity.", params: z.object({ alias: id, repo: z.string().min(1).optional() }), handler: (ctx, p) => core.hosts.check(ctx, p.alias, { repo: p.repo }) }),
-  "task.get": op({ description: "One task's state and result.", params: z.object({ id }), handler: (ctx, p) => summarizeTask(core.tasks.get(ctx, p.id)) }),
-  "task.list": op({ description: "Recent tasks, newest first.", params: z.object({ limit: z.number().int().min(1).max(200).optional() }), handler: (ctx, p) => core.tasks.list(ctx, { limit: p.limit }).map(summarizeTask) }),
+  "task.get": op({ description: "One task's state and result.", params: z.object({ id }), handler: (ctx, p) => taskDetail(ctx, p.id) }),
+  "task.retry_options": op({ description: "Executors available for retry in routing order.", params: z.object({ id }), handler: (ctx, p) => retryOptions(ctx, p.id) }),
+  "repo.list": op({ description: "Registered repos with local branches, current first.", params: z.object({}), handler: ctx => listReposWithBranches(ctx) }),
+  "repo.add": op({ description: "Register a git repository.", params: z.object({path:z.string().min(1).max(4096)}), handler: (ctx,p) => addRepo(ctx,p.path) }),
+  "repo.remove": op({ description: "Remove a repository from the registry.", params: z.object({key:z.string().min(1)}), handler: (ctx,p) => removeRepo(ctx,p.key) }),
+  "task.list": op({ description: "Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.", params: z.object({
+    limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
+    states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
+  }), handler: (ctx,p) => {
+    if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))return core.tasks.list(ctx,p).map(summarizeTask);
+    const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
+    return {tasks:rows.slice(0,limit).map(t=>apiTask(ctx,t)),next:rows.length>limit?rows[limit-1].id:null};
+  } }),
   "task.delegate": op({
     description: "Hand a brief to an executor chosen by budget and priority (or `executor`).",
     params: z.object({ ...delegateSchema, repo: z.string().min(1) }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      return summarizeTask(core.tasks.delegate(ctx, {...parseDelegateBrief(p, p.repo), repoRef: await resolveRepo(ctx,p.repo), client: deps.client}, deps.spawnRunner ?? spawnRunner));
+      const repoRef=await resolveRepoInput(ctx,p.repo);
+      const input=parseDelegateBrief({...p,repo:isAbsolute(p.repo)?p.repo:repoRef.path},repoRef.path);
+      const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
+      return summarizeTask(core.tasks.delegate(ctx, {...input, repoRef, client: deps.client, source}, deps.spawnRunner ?? spawnRunner));
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
-  "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id }), handler: (ctx, p) => summarizeTask(core.tasks.stop(ctx, p.id)) }),
+  "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id, expect_rev }), handler: (ctx, p) => taskMutation(ctx, p.id, p.expect_rev, () => summarizeTask(core.tasks.stop(ctx, p.id))) }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",
-    params: z.object({ id, executor: z.string().min(1).max(128).optional(), from_panel: z.boolean().optional() }),
+    params: z.object({ id, expect_rev, executor: z.string().min(1).max(128).optional(), from_panel: z.boolean().optional() }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      const r = await core.tasks.retry(ctx, p.id, { executor: p.executor, fromPanel: p.from_panel }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
+      const r = await core.tasks.retry(ctx, p.id, { executor: p.executor, fromPanel: p.from_panel, expectRev: p.expect_rev }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
       return { retry: summarizeTask(r.retry), of: summarizeTask(r.of) };
     },
   }),
-  "task.review": op({ description: "Record the planner's verdict on a task.", params: z.object({ id, accepted: z.boolean(), kind: z.string().optional(), note: z.string().max(2000).optional() }), handler: (ctx, p) => core.tasks.review(ctx, p.id, { accepted: p.accepted, kind: p.kind, note: p.note }) }),
-  "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100) }), handler: (ctx, p) => { const r = core.tasks.dismiss(ctx, p.ids); return { dismissed: r.dismissed.map((t) => t.id), unknown: r.unknown }; } }),
+  "task.review": op({
+    description: "Record the planner's verdict on a task.",
+    params: z.object({
+      id, expect_rev,
+      verdict: z.enum(["accept", "reject", "send_back", "retry"]).optional(),
+      accepted: z.boolean().optional(), executor: z.string().optional(), kind: z.string().optional(),
+      note: z.string().max(2000).optional(),
+      expect_state: z.enum(["queued", "running", "done", "partial", "failed", "limit", "stopped"]).optional(),
+    }).refine(p => p.verdict !== undefined || p.accepted !== undefined, "give a verdict or accepted")
+      .refine(p => p.verdict !== "send_back" || !!p.note?.trim(), "send_back requires a note")
+      .refine(p => p.verdict !== "retry" || !!p.executor?.trim(), "retry requires an executor"),
+    handler: (ctx, p, deps) => {
+      if ((p.verdict === "send_back" || p.verdict === "retry") && isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
+      return taskMutation(ctx, p.id, p.expect_rev, () => core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) }));
+    },
+  }),
+  "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
+  "attention.snooze": op({ description: "Snooze a raised attention item.", params: z.object({id:z.string().min(1).max(256),for:z.enum(["1h","4h","1d"])}), handler: (ctx,p) => attention.snooze(ctx,p.id,p.for) }),
+  "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: (ctx, p) => {
+    const dismissed: string[] = [], unknown: string[] = [];
+    // Lock in a stable order and check every revision before dismissing any task.
+    const ids = [...new Set<string>(p.ids)].sort();
+    const locked = (index: number): void => {
+      if (index < ids.length) { withTaskLock(ctx, ids[index]!, () => locked(index + 1)); return; }
+      for (const id of p.ids) { const t = readTask(ctx, id); if (t) core.tasks.checkRev(ctx, t, p.expect_rev); }
+      const r = core.tasks.dismiss(ctx, p.ids);
+      dismissed.push(...r.dismissed.map(t => t.id)); unknown.push(...r.unknown);
+    };
+    locked(0);
+    return { dismissed, unknown };
+  } }),
   "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
-  "task.diff": op({ description: "Tracked changes against the task's base, plus untracked filenames.", params: z.object({ id }), handler: (ctx, p) => core.tasks.diff(ctx, p.id) }),
+  "task.diff": op({ description: "Tracked changes against the task's base, plus untracked filenames.", params: z.object({ id, path: z.string().min(1).max(4096).refine(path => !path.includes("\0"), "path must not contain NUL").optional() }), handler: (ctx, p) => core.tasks.diff(ctx, p.id, { path: p.path }) }),
   "runner.list": op({ description: "Configured executors and their availability.", params: z.object({}), handler: (ctx) => core.runners.list(ctx) }),
   "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),
   "runner.unblock": op({ description: "Remove an executor's manual block.", params: z.object({ id }), handler: (ctx, p) => { core.runners.unblock(ctx, p.id); return { ok: true }; } }),
   "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
-  "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null) }),
+  "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
   "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(async () => ({name: p.name, path: await strategy.use(ctx, p.name)}))) }),
   "strategy.show": op({ description: "Show a strategy's YAML, summary and active status.", params: z.object({name: id}), handler: (ctx, p) => strategyAction(() => strategy.show(ctx, p.name)) }),

@@ -59,3 +59,16 @@ test("pump backfills old task repo refs without git during subsequent reads",asy
  await pumpOnce(ctx,{status:async()=>st,strategy:()=>s,tasks:()=>[old],setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,e,o)=>publish(c,e,{...o,bridge:false,channel:false})});
  expect(apiTask({...ctx,run:async()=>{throw Error("no git on reads");}},old).repo.key).toBe("github.com/acme/old");
 });
+
+test("repo ops list current branch first, cap branches and remove registrations",async()=>{
+ const {callOp}=await import("../src/api/ops");
+ const repo=gitRepo(),ctx=fakeCtx({run:realRun});
+ for(let i=0;i<52;i++)await realRun(["git","-C",repo,"branch",`a-${i}`],10000);
+ const ref=await callOp(ctx,"repo.add",{path:repo}) as any;
+ const rows=await callOp(ctx,"repo.list",{}) as any[];
+ expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject(ref);
+ expect(rows[0].branches[0]).toBe("main");expect(rows[0].branches).toHaveLength(50);
+ expect(await callOp(ctx,"repo.remove",{key:ref.key})).toEqual({removed:true});
+ expect(await callOp(ctx,"repo.list",{})).toEqual([]);
+ await expect(callOp(ctx,"repo.add",{path:tmpDir()})).rejects.toMatchObject({code:"invalid_input"});
+});

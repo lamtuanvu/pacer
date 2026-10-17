@@ -264,3 +264,45 @@ test("open prefers an Orca browser tab when Orca is running, and --browser skips
   const absent = fakeCtx({ which: () => null });
   expect(await openInOrca(absent, "u")).toBe(false);
 });
+
+test("desktop exchanges a bearer for an app cookie; cookie-only exchange is forbidden", async () => {
+  const { spyOn } = await import("bun:test");
+  const { checkSession, createSession } = await import("../src/serve/app-auth");
+  const ctx = fakeCtx();
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  let handler!: (req: Request, server: { port: number }) => Promise<Response>;
+  const spy = spyOn(Bun, "serve").mockImplementation(((opts: { fetch: typeof handler }) => {
+    handler = opts.fetch;
+    return { port: 4317, stop() {} };
+  }) as typeof Bun.serve);
+  let s: ReturnType<typeof startServer>;
+  try { s = startServer(() => ctx, { pumpMs: 0 }); stop = s.stop; }
+  finally { spy.mockRestore(); }
+  const url = "http://127.0.0.1:4317";
+  const fetch = (target: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    headers.set("host", "127.0.0.1:4317");
+    return handler(new Request(target, { ...init, headers }), { port: 4317 });
+  };
+  const login = async () => `pacer_session=${createSession(ctx)}`;
+  const path = url + "/v2/session/exchange";
+  const headers = { authorization: `Bearer ${s.token}` };
+  const res = await fetch(path, { method: "POST", headers });
+  expect(res.status).toBe(204);
+  expect(await res.text()).toBe("");
+  expect(res.headers.get("cache-control")).toBe("no-store");
+  const cookie = res.headers.get("set-cookie")!;
+  expect(cookie).toContain("HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000");
+  expect(checkSession(ctx, cookie.split(";")[0]!.slice("pacer_session=".length))).toBe(true);
+  expect((await fetch(url + "/app/", { headers: { cookie: cookie.split(";")[0]! } })).status).toBe(200);
+  expect((await fetch(path, { headers })).status).toBe(405);
+  const session = await login();
+  for (const extra of [{}, { origin: url, "x-pacer-client": "app" }] as Record<string, string>[]) {
+    const denied = await fetch(path, { method: "POST", headers: { cookie: session, ...extra } });
+    expect(denied.status).toBe(403);
+    expect(denied.headers.has("set-cookie")).toBe(false);
+  }
+  expect((await fetch(path, { method: "POST" })).status).toBe(401);
+  expect((await fetch(path, { method: "POST", headers: { authorization: "Bearer wrong" } })).status).toBe(401);
+  expect((await fetch(path, { method: "POST", headers: { ...headers, cookie: session } })).status).toBe(204);
+});

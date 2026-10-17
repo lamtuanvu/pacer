@@ -33,7 +33,7 @@ test("delegate validates and stores placement before spawning",()=>{
  expect(delegate(ctx,{brief:b},()=>undefined,s).placement).toEqual({requested:"auto"});
 });
 test("resolved placement propagates through status, link and escaped panel text",()=>{
- const t={id:"t",state:"running",createdAt:1,kind:null,requestedExecutor:null,timeoutS:60,brief,attempts:[],worktree:"/new/path",placement:{requested:"new",mode:"new",why:"agent: <risky>"}} as TaskRecord;
+ const t={rev:1,id:"t",state:"running",createdAt:1,kind:null,requestedExecutor:null,timeoutS:60,brief,attempts:[],worktree:"/new/path",placement:{requested:"new",mode:"new",why:"agent: <risky>"}} as TaskRecord;
  const d=taskData(t);expect(summarizeTask(t).placement).toMatchObject({mode:"new",why:"agent: <risky>"});expect(d.worktree).toBe("/new/path");
  const parsed=parseEnvelope({v:1,type:"task",data:d});expect(parsed).toMatchObject({data:{placement:{mode:"new",why:"agent: <risky>"}}});
  expect(placementLine(d)).toContain('class="muted"');expect(placementLine(d)).toContain("new worktree /new/path (agent: &lt;risky&gt;)");
