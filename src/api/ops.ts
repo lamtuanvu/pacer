@@ -149,6 +149,10 @@ export const OPS: Record<string, OpDef> = {
   "job.get": op({ description: "Read a shared job.", params: z.object({id}), handler: (ctx, p) => getJob(ctx, p.id) }),
   "job.list": op({ description: "List retained shared jobs, optionally for a target.", params: z.object({target: id.optional()}), handler: (ctx, p) => listJobs(ctx, p) }),
   "job.cancel": op({ description: "Cancel a job that supports cancellation.", params: z.object({id}), handler: (ctx, p) => cancelJob(ctx, p.id) }),
+  "task.ask": op({ description: "Record one question from the current executor, then stop.", params: z.object({id, text:z.string().min(1).max(1000)}), handler: (ctx,p) => {
+    core.tasks.requireAskingExecutor(ctx,p.id);
+    return core.tasks.ask(ctx,p.id,p.text);
+  }}),
   "client.register": op({ description: "Register a client with an optional notifier lease; heartbeat every 30 seconds.", params: z.object({kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1), notifier: z.boolean().optional()}), handler: (ctx, p) => clients.register(ctx, p) }),
   "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat.", params: z.object({client_id: id}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
@@ -213,7 +217,7 @@ export const OPS: Record<string, OpDef> = {
   "repo.remove": op({ description: "Remove a repository from the registry.", params: z.object({key:z.string().min(1)}), handler: (ctx,p) => removeRepo(ctx,p.key) }),
   "task.list": op({ description: "Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.", params: z.object({
     limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
-    states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
+    states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
   }), handler: (ctx,p) => {
     if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))return core.tasks.list(ctx,p).map(summarizeTask);
     const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
@@ -236,6 +240,11 @@ export const OPS: Record<string, OpDef> = {
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
   "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id, expect_rev }), handler: (ctx, p) => taskMutation(ctx, p.id, p.expect_rev, () => summarizeTask(core.tasks.stop(ctx, p.id))) }),
+  "task.answer": op({
+    description: "Answer an executor question and retry on the same executor. Conflicts unless awaiting input.",
+    params: z.object({ id, text: z.string().min(1).max(2000), expect_rev }),
+    handler: (ctx,p,deps) => core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)}),
+  }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",
     params: z.object({ id, expect_rev, executor: z.string().min(1).max(128).optional(), from_panel: z.boolean().optional() }),

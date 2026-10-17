@@ -71,6 +71,11 @@ else
   git worktree add -q -b "$remote_branch" "$worktree" "$base" || exit 1
 fi
 printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
+  QUESTION: `file="$1/.pacer-question"
+[ -f "$file" ] || exit 0
+[ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
+cat "$file"`,
+  QUESTION_CLEAR: `rm -f -- "$1/.pacer-question"`,
   PREFLIGHT: `cd "$1" || exit 1
 base="$2"; branch="$3"
 case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac

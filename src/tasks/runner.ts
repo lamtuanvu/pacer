@@ -299,6 +299,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       if (task.state === "stopped") {
         return finish(ctx, id, { status: "stopped", executor: pick, model: cfg.model, files: "", report: out.report, backend: out.backend ?? "direct" });
       }
+      if (task.question && task.question.answer === undefined) {
+        const v = out.partial ? {files:"(kept on host)"} : await deps.verifyRepo(out.worktree ?? task.brief.repo, undefined, ctx.env);
+        return finish(ctx,id,{status:"needs_input", executor:pick, model:cfg.model, ...v, report:out.report, backend:attemptedBackend, ...(out.worktree ? {worktree:out.worktree} : {})});
+      }
       if (out.attempt.brokenReason) {
         markBroken({ ...ctx, now: Date.now()/1000 }, pick, out.attempt.brokenReason);
         lastBroken = { brokenExecutor: pick, brokenReason: out.attempt.brokenReason };

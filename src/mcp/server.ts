@@ -63,6 +63,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     inputSchema: { task_id: z.string(), timeout_s: z.number().int().min(1).max(3000).optional() },
   }, async ({ task_id, timeout_s }) => json(summarizeTask(await core.tasks.wait(getCtx(), task_id, timeout_s ?? 600))));
 
+  server.registerTool("task_answer", {
+    description: "Answer an executor question and retry the task on the same executor. Only needs_input tasks can be answered.",
+    inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
+  }, async ({task_id,text,expect_rev}) => json(await core.tasks.answer(getCtx(),task_id,text,{expectRev:expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,spawnFn)})));
+
   server.registerTool("task_stop", {
     description: "Stop a delegated task and kill its executor.",
     inputSchema: { task_id: z.string() },

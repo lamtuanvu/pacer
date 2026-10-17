@@ -52,7 +52,7 @@ export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] 
  const resolved = new Set(s.tasks.filter(t=>t.state==="done"&&t.retryOf).map(t=>t.retryOf));
  for(const t of [...s.tasks].sort((a,b)=>b.updatedAt-a.updatedAt)) {
   if(t.resolved || t.review || t.dismissed || (t.retriedBy && s.tasks.some(retry=>retry.id===t.retriedBy)) || resolved.has(t.id) || now-t.updatedAt>3*86400)continue;
-  if(!["failed","limit","partial"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&!t.attemptStartedAt&&!t.runnerAlive&&now-t.updatedAt>600)) continue;
+  if(!["failed","limit","partial","needs_input"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&!t.attemptStartedAt&&!t.runnerAlive&&now-t.updatedAt>600)) continue;
   const key=t.brokenExecutor ? `broken:${t.brokenExecutor}` : t.goal;
   groups.set(key,[...(groups.get(key)??[]),t]);
  }
@@ -65,6 +65,7 @@ export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] 
 }
 export function attentionText(g: AttentionGroup, now: number): string {
  if(g.attention) return g.attention.detail;
+ if(g.latest.state==="needs_input") return "Needs your answer";
  if(g.brokenExecutor) return `${displayName(g.brokenExecutor)} is not working: ${g.brokenReason ?? "CLI startup failed"} · ${g.tasks.length} tasks affected`;
  if(g.stuck) return `Waiting ${duration(now-g.latest.updatedAt)} with no executor picked`;
  if(g.latest.state==="partial") return `Needs review${g.latest.executor?` on ${displayName(g.latest.executor)}`:""}`;

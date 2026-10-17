@@ -2,13 +2,26 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { HostCfg } from "../config/hosts";
 import { taskWorktreePath } from "../supervisor/worktree";
-import { tasksDir, updateTask } from "../tasks/store";
+import { ask } from "../core/tasks";
+import { tasksDir, readTask, updateTask } from "../tasks/store";
 import type { RunRef, TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
 import { bundleToFile, runRemote } from "./ssh";
 
 type TransferResult = { ok: true; branch: string; commits: number; reviewWorktree: string } | { ok: false; reason: string; bundle?: string };
+
+/** Collect the file before cleanliness checks, including failed/no-commit attempts. */
+export async function receiveQuestion(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef): Promise<void> {
+  if (!run.remoteWorktree) return;
+  const result = await runRemote(ctx,host,SCRIPTS.QUESTION,[run.remoteWorktree]);
+  if (result.code) throw new Error(result.stderr || "cannot read remote question");
+  if (!result.stdout) return;
+  const prior = readTask(ctx,task.id)?.question;
+  if (!prior) await ask(ctx,task.id,result.stdout);
+  const cleared = await runRemote(ctx,host,SCRIPTS.QUESTION_CLEAR,[run.remoteWorktree]);
+  if (cleared.code) throw new Error(cleared.stderr || "cannot clear remote question");
+}
 
 /** Receive only committed task changes, after checking ancestry, cleanliness and identity. */
 export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef): Promise<TransferResult> {
@@ -18,6 +31,7 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
   const fail = (reason: string): TransferResult => ({ ok: false, reason, ...(bundle ? { bundle } : {}) });
   const git = (...args: string[]) => ctx.run(["git", "-C", task.brief.repo, ...args], 60000);
   try {
+    await receiveQuestion(ctx,task,host,run);
     const exists = await git("show-ref", "--verify", "--quiet", ref);
     if (exists.code !== 0 && exists.code !== 1) return fail(exists.stderr.trim() || "local branch check failed");
     if (!run.remoteWorktree || !run.baseSha) return fail("remote run has no worktree or base");

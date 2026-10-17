@@ -31,9 +31,25 @@ async function connect() {
 test("lists planner and strategy tools", async () => {
   const { client } = await connect();
   expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
-    "budget_status", "delegate", "guard_feedback", "report_limit", "route", "task_review", "task_status", "task_stop", "task_wait",
+    "budget_status", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_status", "task_stop", "task_wait",
     "strategy_list", "strategy_preview", "strategy_save", "strategy_show", "strategy_use",
   ].sort());
+});
+
+test("task_answer retries a question with text and revision checks", async()=>{
+  const {ctx,call,spawned,client}=await connect();
+  const d=await call("delegate",{goal:"g",repo:tmpDir(),executor:"codex"});
+  const id=d.structuredContent.task_id;
+  const task=updateTask(ctx,id,t=>{t.state="needs_input";t.question={text:"which db?",at:ctx.now};});
+  expect((await call("task_status",{task_id:id})).structuredContent.question).toEqual(task.question);
+  expect((await call("task_answer",{task_id:id,text:"postgres",expect_rev:task.rev-1})).isError).toBe(true);
+  const r=await call("task_answer",{task_id:id,text:"postgres",expect_rev:task.rev});
+  expect(r.isError).toBeFalsy();
+  expect(r.structuredContent.task.question.answer).toBe("postgres");
+  expect(readTask(ctx,r.structuredContent.retry.id)?.brief.qa).toEqual([{q:"which db?",a:"postgres"}]);
+  expect(spawned).toEqual([id,r.structuredContent.retry.id]);
+  expect((await call("task_answer",{task_id:id,text:"again"})).isError).toBe(true);
+  await client.close();
 });
 
 test("budget_status and route return structured data in priority order", async () => {
