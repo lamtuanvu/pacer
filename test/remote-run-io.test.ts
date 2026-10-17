@@ -621,7 +621,10 @@ test("START rejects a binary tampered with after upload",async()=>{
     return run(argv,ms,o);
   };
   const io=new RemoteRunIO(ctx,{...host,session:"full"},remote,local,{binary});
-  expect(await io.start(["true"],home,{},"")).toHaveProperty("error");
+  const began=Date.now(),result=await io.start(["true"],home,{},"");
+  expect(result).toEqual({error:"remote start refused: runtime binary failed its hash check"});
+  // The refusal is reported at once, not after START's 5 s wait for a pid.
+  expect(Date.now()-began).toBeLessThan(4000);
   expect(existsSync(marker)).toBe(false);
 },10000);
 
