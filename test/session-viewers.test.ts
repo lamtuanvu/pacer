@@ -16,12 +16,12 @@ test('16 viewers join, 17th refused and disconnect frees capacity',()=>{
  expect(hub.size).toBe(16);expect(types(peers[16])).toEqual([FrameType.exit]);
  peers[0].destroy();expect(hub.size).toBe(15);
 });
-test('snapshot, resume, output and read-only refusal',()=>{
+test('snapshot, resume, output and control acknowledgement',()=>{
  const hub=setup(),p=new Peer();hub.add(p as any);
  p.emit('data',wire(FrameType.hello,{v:1,from:2,label:'watcher'}));
- expect(types(p)).toEqual([FrameType.output]);
- hub.broadcast(wire(FrameType.output,Buffer.from('c')));expect(types(p)).toEqual([3,3]);
- p.emit('data',wire(FrameType.take,{}));expect(types(p).at(-1)).toBe(FrameType.control);
+ expect(types(p)).toEqual([FrameType.output,FrameType.control]);
+ hub.broadcast(wire(FrameType.output,Buffer.from('c')));expect(types(p)).toEqual([3,5,3]);
+ p.emit('data',wire(FrameType.take,{}));expect(types(p).at(-1)).toBe(FrameType.control);expect(hub.controller).toBe('cli:watcher');
 });
 test('slow viewer overflows independently and gets resync with fresh snapshot',()=>{
  const hub=setup(),slow=new Peer(),fast=new Peer();hub.add(slow as any);hub.add(fast as any);
@@ -30,12 +30,12 @@ test('slow viewer overflows independently and gets resync with fresh snapshot',(
  for(let i=0;i<18;i++)hub.broadcast(wire(FrameType.output,Buffer.alloc(65536)));
  expect(types(fast).filter(t=>t===3)).toHaveLength(18);
  slow.blocked=false;slow.emit('drain');
- expect(types(slow).slice(-2)).toEqual([FrameType.resync,FrameType.snapshot]);
+ expect(types(slow).slice(-3)).toEqual([FrameType.resync,FrameType.snapshot,FrameType.control]);
 });
 test('a single oversized output resyncs even when socket has never blocked',()=>{
  const hub=setup(),p=new Peer();hub.add(p as any);p.emit('data',wire(1,{v:1}));
  hub.broadcast(wire(3,Buffer.alloc(1024*1024)));
- expect(types(p).slice(-2)).toEqual([FrameType.resync,FrameType.snapshot]);
+ expect(types(p).slice(-3)).toEqual([FrameType.resync,FrameType.snapshot,FrameType.control]);
  hub.broadcast(wire(3,Buffer.from('next')));expect(types(p).at(-1)).toBe(FrameType.output);
 });
 test('exit flushes queued output before its exit frame',async()=>{
@@ -48,11 +48,11 @@ test('rejected viewers have an error handler before refusal is written',()=>{
  class Reset extends Peer{end(b:Buffer){this.emit('error',Error('reset'));super.end(b);}}
  expect(()=>{const p=new Reset();hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1}));}).not.toThrow();expect(hub.size).toBe(16);
 });
-test('large snapshots stream in bounded writes while preserving one complete frame',()=>{
+test('large snapshots stream in bounded writes while preserving snapshot and control frames',()=>{
  const snapshot=wire(2,{screenAnsi:'x'.repeat(2*1024*1024)});
  const hub=new ViewerHub(()=>snapshot,()=>null,fn=>fn());const p=new Peer();hub.add(p as any);p.emit('data',wire(1,{v:1}));
  expect(Math.max(...p.frames.map(b=>b.length))).toBeLessThanOrEqual(65536);
- const decoded=new WireDecoder().push(Buffer.concat(p.frames));expect(decoded).toHaveLength(1);expect(decoded[0].type).toBe(2);
+ const decoded=new WireDecoder().push(Buffer.concat(p.frames));expect(decoded.map(f=>f.type)).toEqual([FrameType.snapshot,FrameType.control]);
 });
 test('CLI viewer displays the server refusal reason before detaching',async()=>{
  const {renderSessionFrame}=await import('../src/session/attach');const errors:string[]=[];

@@ -32,13 +32,13 @@ export async function sessionHost(dir:string):Promise<number> {
   const mask=new SecretMasker(sessionSecrets(process.env,launch.pacerHome ?? dirname(dirname(dirname(dir)))));
   let queue=Promise.resolve(), stopping=false;
   let hub:ViewerHub | undefined;
+  let lastController:string|null=null;
   let terminalClosed!:()=>void;
   const closed=new Promise<void>(resolve=>{terminalClosed=resolve;});
   let recordingEnabled=true;
   const disableRecording=()=>{
     recordingEnabled=false;
     recording.disable();
-    try { hub?.destroy(); } catch { /* even error recovery must preserve the PTY */ }
   };
   process.on("uncaughtException",disableRecording);
   process.on("unhandledRejection",disableRecording);
@@ -46,12 +46,27 @@ export async function sessionHost(dir:string):Promise<number> {
     process.off("uncaughtException",disableRecording);
     process.off("unhandledRejection",disableRecording);
   };
-  const enqueue=(fn:()=>void|Promise<void>)=>{queue=queue.then(()=>{if(recordingEnabled) return fn();}).catch(disableRecording);};
-  hub=new ViewerHub(()=>wire(FrameType.snapshot,{...recording.snapshot(),controller:null,viewers:hub!.size}),
-    from=>recording.since(from),enqueue,(kind,label)=>recording.marker(kind,label),viewers=>{
-      try{atomic('session.state',JSON.stringify({viewers}));}catch{/* optional live metadata */}
+  const enqueue=(fn:()=>void|Promise<void>)=>{queue=queue.then(fn).catch(disableRecording);};
+  hub=new ViewerHub(()=>wire(FrameType.snapshot,{...recording.snapshot(),controller:hub!.controller,viewers:hub!.size}),
+    from=>recordingEnabled?recording.since(from):null,enqueue,(kind,label)=>{if(recordingEnabled)try{recording.marker(kind,label);}catch{disableRecording();}},(viewers,controller)=>{
+      if(controller!==lastController){
+        lastController=controller;
+        try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
+      }
+      try{atomic('session.state',JSON.stringify({viewers,controller,cols:recording.term.cols,rows:recording.term.rows}));}catch{/* optional live metadata */}
+    },{
+      input:bytes=>{
+        proc.terminal?.write(bytes);
+        try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
+      },
+      resize:(cols,rows)=>{
+        proc.terminal?.resize(cols,rows);
+        try{recording.resize(cols,rows);}catch{disableRecording();}
+        send(wire(FrameType.resize,{cols,rows}));
+        try{atomic('session.state',JSON.stringify({viewers:hub!.size,controller:hub!.controller,cols,rows}));}catch{/* optional metadata */}
+      },
     });
-  try{atomic('session.state',JSON.stringify({viewers:0}));}catch{/* optional live metadata */}
+  try{atomic('session.state',JSON.stringify({viewers:0,controller:null,cols:120,rows:40}));}catch{/* optional live metadata */}
   const send=(bytes:Buffer)=>hub!.broadcast(bytes);
   let proc:Bun.Subprocess;
   try {
@@ -64,7 +79,7 @@ export async function sessionHost(dir:string):Promise<number> {
           writeFileSync(join(dir,"session.activity"),"",{mode:0o600});
           if(!recordingEnabled) return;
           const chunk=mask.push(Buffer.from(data));
-          if(chunk.length) enqueue(async()=>{await recording.output(chunk);send(wire(FrameType.output,chunk));});
+          if(chunk.length) enqueue(async()=>{if(recordingEnabled)await recording.output(chunk);send(wire(FrameType.output,chunk));});
         } catch { disableRecording(); }
       },exit(){terminalClosed();}},
     });
@@ -85,15 +100,14 @@ export async function sessionHost(dir:string):Promise<number> {
   atomic("child",String(proc.pid));
   try {writeFileSync(join(dir,"session.host"),"builtin",{mode:0o600});} catch { /* optional session metadata */ }
   // xterm supplies fixed DA replies. OSC colours need explicit handlers.
-  recording.term.onData(reply=>proc.terminal?.write(reply));
+  recording.term.onData(reply=>{if(!hub!.controller)proc.terminal?.write(reply);});
   for(const code of [10,11]) recording.term.parser.registerOscHandler(code,body=>{
     if(body!=="?") return false;
-    proc.terminal?.write(`\x1b]${code};rgb:${code===10?"ffff/ffff/ffff":"0000/0000/0000"}\x1b\\`);return true;
+    if(!hub!.controller)proc.terminal?.write(`\x1b]${code};rgb:${code===10?"ffff/ffff/ffff":"0000/0000/0000"}\x1b\\`);return true;
   });
   let path:string | undefined;
   try { path=socketPath(dir); } catch { /* unavailable socket directory does not stop the PTY */ }
   const server=createServer(socket=>{
-    if(!recordingEnabled){socket.destroy();return;}
     hub!.add(socket);
   });
   server.on("error",()=>{/* attach is optional; the PTY continues */});

@@ -30,12 +30,12 @@ test('offline builtin offers replay viewers and no app socket',async()=>{
  writeFileSync(join(dir,'session.ckpt'),JSON.stringify({cols:80,rows:24}));writeFileSync(join(dir,'exit'),'0');
  expect(await sessionInfo(ctx,id)).toMatchObject({host:'builtin',live:false,cols:80,rows:24,targets:expect.arrayContaining(['here'])});
 });
-test('builtin and Orca adapters conform to RunIO and refuse unsupported control',async()=>{
+test('builtin and Orca adapters conform to RunIO with host-specific control',async()=>{
  const ctx=fakeCtx();const builtin=new BuiltinSessionHost(ctx.home);
- expect(builtin.id).toBe('builtin');expect(builtin.capabilities.control).toBe(false);
+ expect(builtin.id).toBe('builtin');expect(builtin.capabilities.control).toBe(true);expect(builtin.capabilities.resize).toBe(true);
  expect((await builtin.read()).alive).toBe(false);expect(builtin.attachTarget().kind).toBe('socket');
  const orca=new OrcaSessionHost(ctx,{dispatchId:'d',terminal:'term',startedAt:1,taskId:id,executor:'codex',worktree:null});
- expect(orca.id).toBe('orca');expect(orca.attachTarget()).toEqual({kind:'orca',terminal:'term'});
+ expect(orca.id).toBe('orca');expect(orca.capabilities.control).toBe(false);expect(orca.attachTarget()).toEqual({kind:'orca',terminal:'term'});
  expect(await orca.start({dir:ctx.home,argv:[],cwd:ctx.home,env:{}})).toHaveProperty('error');
 });
 test('custom template expands standalone placeholders, including quoted argv words',()=>{
