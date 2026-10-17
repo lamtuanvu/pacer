@@ -1,4 +1,5 @@
 import { resolveRepo } from "../core/repos";
+import { openSession } from "../session/service";
 import { runMappedCmd } from "../api/cmd";
 import { callOp } from "../api/ops";
 import { loadOrcaState } from "../exec/orca/state";
@@ -73,7 +74,15 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
     }, data, { fromPanel: true });
     if (r.handled) { print(r.message); await refresh(); return; }
     switch (data.cmd) {
+      case "attach":
       case "focus": {
+        if(data.cmd==='attach'&&data.target==='terminal'){
+          const result=await openSession(fresh(),data.taskId!,'terminal');print(result.opened?'Opened task session.':result.command??'Task session unavailable.');break;
+        }
+        const worker=Object.values(loadOrcaState(fresh()).workers).find(w=>w.taskId===data.taskId);
+        if(!worker?.terminal){
+          try{const result=await openSession(fresh(),data.taskId!,'orca');if(result.opened){print('Opened task session.');break;}}catch{}
+        }
         const handle=Object.values(loadOrcaState(fresh()).workers).find(w=>w.taskId===data.taskId)?.terminal;
         let message="This task no longer has an Orca terminal.";
         if(handle){try{const result=await new OrcaClient(ctx.run,ctx.env).call<{focus?:{navigated?:boolean}}>(["terminal","switch","--terminal",handle]);

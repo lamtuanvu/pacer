@@ -15,6 +15,21 @@ export function attachDirectory(ctx:Ctx,id:string,attempt?:number):string {
   if(!existsSync(join(dir,"session.log")) && !existsSync(join(dir,"session.ckpt"))) throw Error("This attempt has no PTY recording (enable execution.session: pty)");
   return dir;
 }
+/** Render a protocol frame; true means the viewer should detach. */
+export function renderSessionFrame(type:number,data:Buffer,stdout:NodeJS.WriteStream=process.stdout,stderr:NodeJS.WriteStream=process.stderr):boolean{
+    if(type===FrameType.snapshot) {
+      const snapshot=JSON.parse(data.toString());
+      stdout.write(`\x1b[0m\x1b[2J\x1b[H${snapshot.scrollbackAnsi}${snapshot.screenAnsi}`);
+      if(stdout.isTTY && (stdout.columns<snapshot.cols || stdout.rows<snapshot.rows)) stderr.write(`\nSession is ${snapshot.cols}×${snapshot.rows}; enlarge the viewer to see it all.\n`);
+    }
+    if(type===FrameType.output) stdout.write(data);
+    if(type===FrameType.exit){
+      const exit=JSON.parse(data.toString());
+      if(typeof exit.reason==='string')stderr.write(`${exit.reason.replace(/[\x00-\x1f\x7f]/g,'')}\n`);
+      return true;
+    }
+    return false;
+}
 /** A local, read-only viewer. Raw mode and listeners are restored on every exit path. */
 export async function attachSession(dir:string,options:AttachOptions={},label="pacer"):Promise<void> {
   const stdin=process.stdin, stdout=process.stdout, wasRaw=stdin.isRaw, wasPaused=stdin.isPaused();
@@ -23,15 +38,7 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
   const detached=new Promise<void>(resolve=>{detach=()=>{didDetach=true;resolve();};});
   const input=(data:Buffer)=>{if(data.includes(3) || data.includes(113)) detach();};
   const stop=()=>detach();
-  const draw=(type:number,data:Buffer)=>{
-    if(type===FrameType.snapshot) {
-      const snapshot=JSON.parse(data.toString());
-      stdout.write(`\x1b[0m\x1b[2J\x1b[H${snapshot.scrollbackAnsi}${snapshot.screenAnsi}`);
-      if(stdout.isTTY && (stdout.columns<snapshot.cols || stdout.rows<snapshot.rows)) process.stderr.write(`\nSession is ${snapshot.cols}×${snapshot.rows}; enlarge the viewer to see it all.\n`);
-    }
-    if(type===FrameType.output) stdout.write(data);
-    if(type===FrameType.exit) detach();
-  };
+  const draw=(type:number,data:Buffer)=>{if(renderSessionFrame(type,data,stdout))detach();};
   if(stdin.isTTY) {stdin.setRawMode(true);stdin.resume();stdin.on("data",input);}
   process.on("SIGINT",stop);process.on("SIGTERM",stop);
   if(stdout.isTTY) stdout.write(`\x1b]0;${label.replace(/[\x00-\x1f\x7f]/g,"")} · watching\x07`);
