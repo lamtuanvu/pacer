@@ -19,8 +19,6 @@ import { toBudget } from "../link/budget";
 import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals, readOutboxSince } from "../link/store";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 
-import { publish } from "../link/publish";
-import { consoleOpener, consoleRequestBody } from "./console-open";
 
 export const DEFAULT_PORT = 4317;
 
@@ -36,7 +34,7 @@ export function ensureToken(ctx: Ctx): string {
   return t;
 }
 
-/** Localhost-only, token-protected status endpoint and guarded console opener (the Orca plugin's HTTP transport). */
+/** Localhost-only, token-protected API with deprecated v1 read transports. */
 export function startServer(
   getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; pluginRefreshDeps?: Partial<PluginRefreshDeps> } = {},
 ): { port: number; token: string; stop: () => void } {
@@ -105,10 +103,6 @@ export function startServer(
   }
   refreshStatus();
   const enc = new TextEncoder();
-  const openConsole = consoleOpener(initialCtx.now);
-
-  let pendingJobs=0;
-  const jobs=new Set<ReturnType<typeof setTimeout>>();
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: opts.port ?? DEFAULT_PORT,
@@ -137,42 +131,27 @@ export function startServer(
         }
       }
       if (app) return appRoute(req, getCtx());
-      if (pathname.startsWith("/v2/")) return handleV2(req, { getCtx, opDeps: opts.opDeps, tailMs, status });
-      if (req.method === "POST" && ["/console/open", "/console/forget"].includes(pathname)) {
-        const body=await consoleRequestBody(req);
-        if(body instanceof Response)return body;
-        if(pendingJobs>=10)return Response.json({ok:false,reason:"busy"},{status:429,headers});
-        const url=req.url;
-        pendingJobs++;
-        const job=setTimeout(()=>{
-          jobs.delete(job);
-          if(stopped)return;
-          void Promise.resolve().then(async()=>{
-            const ctx=getCtx();
-            const response=await openConsole(new Request(url,{method:"POST",headers:{"content-type":"application/json"},body}),ctx);
-            const result=await response.json() as {ok:boolean;reason?:string};
-            if(!result.ok)await publish(ctx,[{v:1,type:"alert",data:{key:"console-open",level:"warn",title:"Console request could not finish",body:result.reason??"unknown",at:ctx.now}}],{channel:false});
-          }).catch(()=>{}).finally(()=>{pendingJobs--;refreshSnapshot();});
-        },0);
-        jobs.add(job);
-        return Response.json({ok:true,queued:true},{status:202,headers});
+      if (pathname.startsWith("/v2/")) {
+        const response=await handleV2(req, { getCtx, opDeps: opts.opDeps, tailMs, status });
+        response.headers.set("X-Pacer","1");
+        return response;
       }
+      if(pathname==="/state"||pathname.startsWith("/console/"))return new Response("not found\n",{status:404});
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });
-      if (pathname === "/state") {
-        return cachedStatus ? Response.json(cachedStatus,{headers}) : Response.json({error:statusError??"status is warming up"},{status:503,headers});
-      }
-      if (pathname === "/link") return Response.json(snapshot,{headers});
+      const legacyHeaders={...headers,Deprecation:"true",Sunset:"3.0"};
+      if (pathname === "/link") return Response.json(snapshot,{headers:legacyHeaders});
       if (pathname === "/events") {
         let timer: ReturnType<typeof setInterval> | undefined;
         let tailTimer: ReturnType<typeof setInterval> | undefined;
         let last = snapshot.seq;
-        const clearTimers = () => { clearInterval(timer); clearInterval(tailTimer); };
+        let closed = false;
+        const clearTimers = () => { closed = true; clearInterval(timer); clearInterval(tailTimer); };
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
             const send = async () => {
               let envelope: unknown;
               try {
-                envelope = { v: 1, type: "budget", data: toBudget(cachedStatus ?? (()=>{throw Error(statusError??"status is warming up");})()) };
+                envelope = { v: 1, type: "budget", data: toBudget(await status()) };
               } catch (e) {
                 const m = statusError ?? (e as Error).message;
                 envelope = { v: 1, type: "alert", data: { key: "status-error", level: "error", title: "pacer status failed", body: m, error: m, at: initialCtx.now } };
@@ -192,6 +171,7 @@ export function startServer(
               } catch { clearTimers(); }
             };
             await send();
+            if (closed || stopped) return;
             timer = setInterval(send, interval);
             tailTimer = setInterval(tail, tailMs);
           },
@@ -199,7 +179,7 @@ export function startServer(
             clearTimers();
           },
         });
-        return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
+        return new Response(stream, { headers: { ...legacyHeaders, "content-type": "text/event-stream", "cache-control": "no-cache" } });
       }
       return new Response("not found\n", { status: 404 });
     },
@@ -230,5 +210,5 @@ export function startServer(
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: server.port!, token, stop: () => { unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); for(const job of jobs)clearTimeout(job); server.stop(true); } };
+  return { port: server.port!, token, stop: () => { unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
 }

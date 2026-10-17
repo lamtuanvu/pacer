@@ -35,7 +35,7 @@ test("cmdToOp maps exactly the op-backed commands", () => {
   expect(cmdToOp(block)).toEqual({ op: "runner.block", params: { id: "codex", for: "1h", reason: "reserved" } });
   expect(cmdToOp({ cmd: "unblock", executor: "codex" })).toEqual({ op: "runner.unblock", params: { id: "codex" } });
   expect(cmdToOp({ cmd: "use", strategy: "night" })).toEqual({ op: "strategy.use", params: { name: "night" } });
-  for (const cmd of ["use", "check-setup", "check-updates", "update", "focus", "retry-all", "strategy-build", "notify-level", "refresh", "config-set", "account-remove", "runner-remove", "open-terminal"] as const) expect(cmdToOp({ cmd })).toBeNull();
+  for (const cmd of ["focus", "refresh", "agent-done", "worktree-created"] as const) expect(cmdToOp({ cmd })).toBeNull();
 });
 
 test("op errors become pacer: messages; unmapped commands use the fallback", async () => {
@@ -43,8 +43,8 @@ test("op errors become pacer: messages; unmapped commands use the fallback", asy
   const client = { ...fake(snap([])), call: async () => { throw new ApiError("conflict", "retry t-2 is already queued", "wait for it"); } };
   await runCommand(client, { cmd: "retry", taskId: "t1" }, async (d) => { fell.push(d.cmd); }, (s) => reports.push(s));
   expect(reports).toEqual(["pacer: retry t-2 is already queued (wait for it)"]);
-  await runCommand(client, { cmd: "check-updates" }, async (d) => { fell.push(d.cmd); }, (s) => reports.push(s));
-  expect(fell).toEqual(["check-updates"]);
+  await runCommand(client, { cmd: "refresh" }, async (d) => { fell.push(d.cmd); }, (s) => reports.push(s));
+  expect(fell).toEqual(["refresh"]);
 });
 
 test("op results produce dashboard success messages", async () => {
@@ -70,7 +70,7 @@ test("delegateViaClient sends prompt fields and reports queued tasks and errors"
   const client: ApiClient = { ...fake(snap([])), call: async <T>(op: string, params?: unknown) => { calls.push({ op, params }); return { task_id: "t3" } as T; } };
   await delegateViaClient(client, { goal: "g", repo: "repo", kind: "test" }, s => reports.push(s));
   await delegateViaClient(client, { goal: "g", repo: "repo" }, s => reports.push(s));
-  expect(calls).toEqual([{ op: "task.delegate", params: { goal: "g", repo: "repo", kind: "test" } }, { op: "task.delegate", params: { goal: "g", repo: "repo" } }]);
+  expect(calls).toEqual([{ op: "task.delegate", params: { goal: "g", repo: "repo", source: "ui", kind: "test" } }, { op: "task.delegate", params: { goal: "g", repo: "repo", source: "ui" } }]);
   expect(reports).toEqual(["t3 queued", "t3 queued"]);
   client.call = async () => { throw new ApiError("invalid_input", "bad kind"); };
   await delegateViaClient(client, { goal: "g", repo: "repo" }, s => reports.push(s));
@@ -177,4 +177,34 @@ test("withFallback switches to local but does not repeat an operation after a tr
   expect(client.kind).toBe("inprocess");
   expect(await client.call<{ task_id: string }>("task.list", {})).toEqual({ task_id: "t" });
   expect(localCalls).toBe(1);
+});
+
+ test("dashboard hides commands whose ops were not advertised", async () => {
+  const {commandAvailable}=await import("../src/dashboard/data");
+  expect(commandAvailable({cmd:"retry-all",taskIds:["t1"]},["task.retry"])).toBe(false);
+  expect(commandAvailable({cmd:"retry-all",taskIds:["t1"]},["task.retry_all"])).toBe(true);
+  expect(commandAvailable({cmd:"focus",taskId:"t1"},[])).toBe(true);
+ });
+
+ test("TUI Retry all is only visible when advertised by hello",async()=>{
+  const {cards}=await import("../src/dashboard/model");
+  const snapshot=snap([]);snapshot.tasks=[{id:"t1",goal:"fix",state:"failed",updatedAt:1,executor:"codex",backend:null,worktree:null}];
+  const actions=(ops:string[])=>cards(snapshot,10,ops).flatMap(g=>g.cards).filter(c=>c.text==="Retry all");
+  expect(actions(["task.retry"])).toEqual([]);
+  expect(actions(["task.retry_all"])[0]?.action).toEqual({cmd:"retry-all",taskIds:["t1"]});
+ });
+
+test("dashboard help hides unavailable operation shortcuts",async()=>{
+ const {renderDashboard}=await import("../src/dashboard/render");
+ const text=renderDashboard(snap([]),120,30,10,{selected:0,help:true,noColor:true,ops:[]});
+ for(const label of ["d: delegate","x: dismiss","b: block","s: strategy","c: check updates","u: update"])expect(text).not.toContain(label);
+});
+
+test("Retry all excludes reviewed, resolved and superseded retry attempts",async()=>{
+ const {cards}=await import("../src/dashboard/model");
+ const snapshot=snap([]),base={goal:"fix",state:"failed",updatedAt:1,executor:"codex",backend:null,worktree:null};
+ snapshot.tasks=[{...base,id:"old",retriedBy:"latest"},{...base,id:"latest",retryOf:"old"},{...base,id:"reviewed",review:{accepted:true,kind:null,note:null,at:2}},{...base,id:"resolved",resolved:"fixed"}];
+ const action=()=>cards(snapshot,10,["task.retry_all"]).flatMap(g=>g.cards).find(c=>c.text==="Retry all")?.action;
+ expect(action()).toEqual({cmd:"retry-all",taskIds:["latest"]});
+ snapshot.tasks[1]={...snapshot.tasks[1],state:"done"};expect(action()).toBeUndefined();
 });

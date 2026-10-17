@@ -101,10 +101,9 @@ test("stop prevents a pending pump from publishing its entity batch", async () =
   } finally {release();}
 });
 
-test("/state still returns full Status", async () => {
+test("/state has been removed", async () => {
   const { url, headers } = await serve();
-  const state = await (await fetch(`${url}/state`, { headers })).json();
-  expect(state).toHaveProperty("executors");
+  expect((await fetch(`${url}/state`, { headers })).status).toBe(404);
 });
 
 test("/link serves cached data without context lookup", async () => {
@@ -138,7 +137,7 @@ test("health is unauthenticated and pacer responses identify themselves",async()
  const health=await fetch(url+"/health");
  expect(health.status).toBe(200);expect(health.headers.get("x-pacer")).toBe("1");
  expect(await health.json()).toEqual({ok:true,pid:process.pid});
- for(const path of ["/link","/state"]) expect((await fetch(url+path,{headers})).headers.get("x-pacer")).toBe("1");
+ for(const path of ["/link","/v2/snapshot"]) expect((await fetch(url+path,{headers})).headers.get("x-pacer")).toBe("1");
 });
 
 test("five-second usage refresh does not delay health or link requests",async()=>{
@@ -157,15 +156,22 @@ test("five-second usage refresh does not delay health or link requests",async()=
  }finally{await slow;}
 },15000);
 
-test("console actions are admitted promptly while Orca is slow",async()=>{
+test("removed console actions return 404 while Orca is slow",async()=>{
  const ctx=fakeCtx();let release!:()=>void;
  const slow=new Promise<void>(r=>{release=r;});let calls=0;
  ctx.run=async()=>{calls++;await slow;return {code:1,stdout:"",stderr:"offline"};};
  const server=startServer(()=>ctx,{port:0,pumpMs:0});stops.push(server.stop);
  try {
-  const start=performance.now();
-  const r=await fetch(`http://127.0.0.1:${server.port}/console/open`,{method:"POST",headers:{authorization:`Bearer ${server.token}`,"content-type":"application/json"},body:JSON.stringify({branch:"main"})});
-  expect(r.status).toBe(202);expect(await r.json()).toEqual({ok:true,queued:true});expect(performance.now()-start).toBeLessThan(100);
-  await Bun.sleep(10);expect(calls).toBeGreaterThan(0);
+  for(const path of ["/console/open","/console/forget"]){
+   const start=performance.now();
+   const r=await fetch(`http://127.0.0.1:${server.port}${path}`,{method:"POST",headers:{authorization:`Bearer ${server.token}`,"content-type":"application/json"},body:JSON.stringify({branch:"main"})});
+   expect(r.status).toBe(404);expect(performance.now()-start).toBeLessThan(100);
+  }
+  await Bun.sleep(10);expect(calls).toBe(0);
  }finally{release();await Bun.sleep(10);}
 });
+
+ test("legacy link and events advertise deprecation until 3.0",async()=>{
+ const {url,headers}=await serve();
+ for(const path of ["/link","/events"]){const r=await fetch(url+path,{headers});expect(r.headers.get("Deprecation")).toBe("true");expect(r.headers.get("Sunset")).toBe("3.0");await r.body?.cancel();}
+ });
