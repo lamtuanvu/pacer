@@ -28,13 +28,13 @@ test('dashboard shows Attach and chooses here, terminal and tmux targets',()=>{
  expect(viewerAction('t',card)).toEqual({id:'t',target:'terminal'});
  expect(viewerAction('m',card)).toEqual({id:'t',target:'tmux'});
 });
-test('link session changes throttle to once per second and preserve terminalPresent',async()=>{
+test('link session data throttles lookups but reflects Orca terminal receipts at once',async()=>{
  const ctx=fakeCtx();const t=createTask(ctx,{brief:{goal:'g',repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:30});
  updateOrcaState(ctx,s=>{s.workers.d={dispatchId:'d',taskId:t.id,executor:'codex',terminal:'term',startedAt:0,worktree:null};});
  const data={id:t.id,state:'running',goal:'g',executor:null,backend:'orca',worktree:null,updatedAt:0};
  const first=await sessionTaskData(ctx,data,true);expect(first.session?.live).toBe(true);expect(first.terminalPresent).toBe(true);
- expect((await sessionTaskData({...ctx,now:ctx.now+0.5},data,false)).session?.live).toBe(true);
- expect((await sessionTaskData({...ctx,now:ctx.now+1},data,false)).session?.live).toBe(false);
+ const soon=await sessionTaskData({...ctx,now:ctx.now+0.5},data,false);expect(soon.session?.live).toBe(false);expect(soon.terminalPresent).toBe(false);
+ expect((await sessionTaskData({...ctx,now:ctx.now+0.7},data,true)).terminalPresent).toBe(true);
 });
 test('dashboard names the selected session action Attach',async()=>{
  const {renderDashboard}=await import('../src/dashboard/render');const s=emptySnapshot();
