@@ -1,8 +1,9 @@
-import { createServer, type Socket } from "node:net";
+import { createServer } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
+import { ViewerHub } from "./viewers";
 import { Recording } from "./recording";
 import { FrameType, WireDecoder, wire } from "./framing";
 import { SecretMasker } from "./masking";
@@ -29,14 +30,15 @@ export async function sessionHost(dir:string):Promise<number> {
   writeFileSync(join(dir,"stdout"),"",{mode:0o600}); writeFileSync(join(dir,"stderr"),"",{mode:0o600});
   const recording=new Recording(dir,{capBytes:launch.capBytes});
   const mask=new SecretMasker(sessionSecrets(process.env,launch.pacerHome ?? dirname(dirname(dirname(dir)))));
-  let queue=Promise.resolve(), viewer:Socket|undefined, joined=false, resync=false, stopping=false;
+  let queue=Promise.resolve(), stopping=false;
+  let hub:ViewerHub | undefined;
   let terminalClosed!:()=>void;
   const closed=new Promise<void>(resolve=>{terminalClosed=resolve;});
   let recordingEnabled=true;
   const disableRecording=()=>{
     recordingEnabled=false;
     recording.disable();
-    try { viewer?.destroy(); } catch { /* even error recovery must preserve the PTY */ }
+    try { hub?.destroy(); } catch { /* even error recovery must preserve the PTY */ }
   };
   process.on("uncaughtException",disableRecording);
   process.on("unhandledRejection",disableRecording);
@@ -45,13 +47,12 @@ export async function sessionHost(dir:string):Promise<number> {
     process.off("unhandledRejection",disableRecording);
   };
   const enqueue=(fn:()=>void|Promise<void>)=>{queue=queue.then(()=>{if(recordingEnabled) return fn();}).catch(disableRecording);};
-  const snapshot=()=>wire(FrameType.snapshot,{...recording.snapshot(),controller:null,viewers:1});
-  const send=(bytes:Buffer)=>{
-    if(!viewer || !joined || viewer.destroyed) return;
-    if(resync) return;
-    if(viewer.writableLength+bytes.length > 1024*1024) {resync=true; return;}
-    viewer.write(bytes);
-  };
+  hub=new ViewerHub(()=>wire(FrameType.snapshot,{...recording.snapshot(),controller:null,viewers:hub!.size}),
+    from=>recording.since(from),enqueue,(kind,label)=>recording.marker(kind,label),viewers=>{
+      try{atomic('session.state',JSON.stringify({viewers}));}catch{/* optional live metadata */}
+    });
+  try{atomic('session.state',JSON.stringify({viewers:0}));}catch{/* optional live metadata */}
+  const send=(bytes:Buffer)=>hub!.broadcast(bytes);
   let proc:Bun.Subprocess;
   try {
     if(typeof Bun.Terminal !== "function") throw Error("PTY unavailable");
@@ -92,26 +93,8 @@ export async function sessionHost(dir:string):Promise<number> {
   let path:string | undefined;
   try { path=socketPath(dir); } catch { /* unavailable socket directory does not stop the PTY */ }
   const server=createServer(socket=>{
-    if(!recordingEnabled) {socket.destroy();return;}
-    if(viewer) {socket.end(wire(FrameType.exit,{code:1,reason:"A read-only viewer is already attached"}));return;}
-    viewer=socket; joined=false;resync=false;
-    const decoder=new WireDecoder();
-    socket.on("error",()=>socket.destroy());
-    socket.on("drain",()=>enqueue(()=>{if(viewer===socket && joined && resync) {resync=false;socket.write(wire(FrameType.resync,{}));socket.write(snapshot());}}));
-    socket.on("data",data=>{
-      try {
-        for(const frame of decoder.push(Buffer.from(data))) if(frame.type===FrameType.hello && !joined) {
-          const hello=JSON.parse(frame.data.toString());if(hello.v!==1) {socket.destroy();return;}
-          enqueue(()=>{if(viewer!==socket || joined) return; joined=true;
-            const missing=hello.from === undefined ? null : recording.since(hello.from);
-            if(missing===null) socket.write(snapshot());
-            else for(const bytes of missing) send(wire(FrameType.output,bytes));
-            recording.marker("attach",String(hello.label ?? "cli").slice(0,64));});
-        }
-        // Phase 1 is always read-only: input, size and take are ignored.
-      } catch {socket.destroy();}
-    });
-    socket.on("close",()=>{if(viewer===socket) {viewer=undefined;joined=false;resync=false;enqueue(()=>recording.marker("detach","cli"));}});
+    if(!recordingEnabled){socket.destroy();return;}
+    hub!.add(socket);
   });
   server.on("error",()=>{/* attach is optional; the PTY continues */});
   try {
@@ -130,17 +113,11 @@ export async function sessionHost(dir:string):Promise<number> {
     }
   } catch { disableRecording(); }
   await queue;
-  try { await recording.close(); } catch { disableRecording(); }
   const result=stopping?143:code;atomic("exit",String(result));
-  if(viewer) {
-    const socket=viewer;
-    await Promise.race([
-      new Promise<void>(resolve=>{socket.once("error",()=>resolve());socket.end(wire(FrameType.exit,{code:result}),()=>resolve());}),
-      Bun.sleep(250),
-    ]);
-    socket.destroy();
-  }
   server.close();
+  await Promise.race([hub.end(result),Bun.sleep(250)]);
+  hub.destroy();
+  try { await recording.close(); } catch { disableRecording(); }
   if(path) rmSync(path,{force:true});rmSync(join(dir,"session.sock.path"),{force:true});
   for(const sig of ["SIGTERM","SIGINT","SIGHUP"] as const) process.off(sig,stop);
   removeErrorHandlers();

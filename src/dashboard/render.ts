@@ -26,18 +26,18 @@ export function renderDashboard(s:LinkSnapshot,width:number,height:number,now:nu
  const fixed=[header,`${live?"Live":"Updated"} · ${s.at?new Date(s.at*1000).toISOString().slice(11,19):"waiting for local data"}`,`Planner ${runnerLabel(p ?? {id:b?.planner??"?"})}: ${p?.usedPct==null?"?":Math.round(p.usedPct)+"%"} ${budgetBar(p?.usedPct??null,p?.pacePct??null,Math.max(4,Math.min(compact?12:24,width-24)))}`];
  if(v.setup && !v.setup.complete)fixed.splice(1,0,...setupText(v.setup).split("\n"));
  if(v.updateLine)fixed.push(v.updateLine);
- const body:{text:string;selected:boolean}[]=[];let index=0;
+ const body:{text:string;selected:boolean}[]=[];let index=0,attachSelected=false;
  for(const group of cards(s,now,v.ops)) {
   body.push({text:group.title,selected:false});
   if(!group.cards.length) body.push({text:"  (none)",selected:false});
   let account:string|undefined;
-  for(const card of group.cards) {if(card.account && card.account!==account) {body.push({text:`  Account ${card.account}`,selected:false});account=card.account;}const selected=index++===v.selected;body.push({text:`${selected?">":" "} ${card.text}`,selected});}
+  for(const card of group.cards) {if(card.account && card.account!==account) {body.push({text:`  Account ${card.account}`,selected:false});account=card.account;}const selected=index++===v.selected;if(selected&&card.sessionTaskId)attachSelected=true;body.push({text:`${selected?">":" "} ${card.text}`,selected});}
  }
- if(v.help) {body.splice(0,body.length,...["Keys", "↑/↓ or j/k: select · Enter: primary action", [supports("task.delegate")?"d: delegate":"",supports("task.dismiss")?"x: dismiss":"",supports("runner.block")||supports("runner.unblock")?"b: block/unblock":""].filter(Boolean).join(" · "), [supports("strategy.use")?"s: strategy":"",",: settings","r: refresh",supports("update.check")?"c: check updates":"",supports("update.apply")?"u: update":"","?: help","q: quit"].filter(Boolean).join(" · "), supports("task.stop")?"Running: Enter focuses its terminal, or stops it.":"Running: Enter focuses its terminal.", "Esc cancels prompts. Budget bar: # used, | pace."].map(text=>({text,selected:false})));}
+ if(v.help) {body.splice(0,body.length,...["Keys", "↑/↓ or j/k: select · Enter: primary action", [supports("task.delegate")?"d: delegate":"",supports("task.dismiss")?"x: dismiss":"",supports("runner.block")||supports("runner.unblock")?"b: block/unblock":""].filter(Boolean).join(" · "), [supports("strategy.use")?"s: strategy":"",",: settings","r: refresh",supports("update.check")?"c: check updates":"",supports("update.apply")?"u: update":"","?: help","q: quit"].filter(Boolean).join(" · "), "Sessions: Enter attaches here · t: terminal window · m: tmux pane.", "Esc cancels prompts. Budget bar: # used, | pace."].map(text=>({text,selected:false})));}
  const space=Math.max(0,height-fixed.length-2), selected=body.findIndex(row=>row.selected), offset=selected>=space?Math.min(Math.max(0,body.length-space),selected-space+1):0;
  const shortcuts=[supports("task.delegate")?"d":"",supports("task.dismiss")?"x":"",supports("runner.block")||supports("runner.unblock")?"b":"",supports("strategy.use")?"s":"",",","r",supports("update.check")?"c":"",supports("update.apply")?"u":"","?","q"].filter(Boolean).join(" ");
  const lines=[...fixed,...body.slice(offset,offset+space).map(row=>row.selected&&!v.noColor?`\x1b[7m${safeText(row.text).slice(0,width)}\x1b[0m`:safeText(row.text).slice(0,width))];
  while(lines.length<height-2)lines.push("");
- lines.push(v.prompt??v.message??"",compact?`j/k Enter ${shortcuts}`:`↑/↓/j/k select · Enter action · ${shortcuts}`);
+ lines.push(v.prompt??v.message??"",attachSelected?"Enter Attach · t terminal window · m tmux · q quit":compact?`j/k Enter ${shortcuts}`:`↑/↓/j/k select · Enter action · ${shortcuts}`);
  return lines.slice(0,height).map(line=>line.includes("\x1b[7m")?line:safeText(line).slice(0,width)).join("\n");
 }
