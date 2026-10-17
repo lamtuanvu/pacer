@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import { readReport, type SessionReport } from "../session/reports";
 import type { RunIO } from "./io";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync, chmodSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -9,8 +11,8 @@ import { validateExecution } from "../config/execution";
 import { fileURLToPath } from "node:url";
 import { pruneSessions } from "../session/retention";
 
-export interface RunSpec { dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe"; sessionLogMb?: number }
-export interface RunState { pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
+export interface RunSpec { dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe" | "interactive"; sessionLogMb?: number }
+export interface RunState { controller?: string | null; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
 
 const num = (file: string): number | null => {
   try { const v = Number(readFileSync(file, "utf8").trim()); return Number.isFinite(v) && readFileSync(file, "utf8").trim() !== "" ? v : null; } catch { return null; }
@@ -21,7 +23,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
   try {
     mkdirSync(spec.dir, { recursive: true });
     // A reused directory must not hand a stale exit or output to the new run.
-    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.json", "session.activity", "session.state", "session.state.tmp"]) rmSync(join(spec.dir, f), { force: true });
+    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.json", "session.activity", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
     const script = join(spec.dir, "run.sh");
     writeFileSync(script, WRAPPER_SH, { mode: 0o700 });
     if (spec.stdin !== undefined) writeFileSync(join(spec.dir, "stdin"), spec.stdin, { mode: 0o600 });
@@ -29,11 +31,14 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     const taskRun=basename(dirname(dirname(spec.dir)))==="runs";
     const ctx=makeCtx({env:spec.env,...(taskRun?{pacerHome:dirname(dirname(dirname(spec.dir)))}:{})});
     try { execution=validateExecution(loadStrategy(ctx).execution); } catch { /* absent strategy keeps pipe default */ }
-    const pty=(spec.session ?? execution?.session)==="pty";
+    const interactive = spec.session === "interactive";
+    const reportToken = interactive ? randomBytes(32).toString("hex") : undefined;
+    if (interactive) writeFileSync(join(spec.dir, "interactive.json"), JSON.stringify({reportToken}), {mode: 0o600});
+    const pty=interactive || (spec.session ?? execution?.session)==="pty";
     let command=["/bin/sh", script, spec.dir, ...spec.argv];
     if(pty) {
       chmodSync(spec.dir,0o700); if(taskRun) chmodSync(dirname(spec.dir),0o700);
-      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({argv:spec.argv,cwd:spec.cwd,pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
+      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,argv:spec.argv,cwd:spec.cwd,pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
       // Bun source runs and compiled binaries both re-enter through the CLI.
       command=/(^|\/)bun(?:\.exe)?$/.test(process.execPath)
         ? [process.execPath,fileURLToPath(new URL("../cli.ts",import.meta.url)),"_session",spec.dir]
@@ -41,7 +46,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
       pruneSessions(ctx,execution?.sessionRetentionDays ?? 14);
     }
     const proc = Bun.spawn(command, {
-      detached: true, cwd: spec.cwd, env: spec.env, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+      detached: true, cwd: spec.cwd, env: interactive ? {...spec.env, PACER_REPORT_TOKEN: reportToken} : spec.env, stdin: "ignore", stdout: "ignore", stderr: "ignore",
     });
     proc.unref();
     writeFileSync(join(spec.dir, "pid"), String(proc.pid));
@@ -68,7 +73,12 @@ export function readRun(dir: string): RunState {
   const out = join(dir, "stdout"), err = join(dir, "stderr");
   const stdoutBytes = size(out), stderrBytes = size(err);
   const times = [stdoutBytes ? mtime(out) : null, stderrBytes ? mtime(err) : null, mtime(join(dir, "session.activity"))].filter((t): t is number => t !== null);
+  let controller: string | null = null;
+  try { const state = JSON.parse(readFileSync(join(dir, "session.state"), "utf8")); if (typeof state.controller === "string") controller = state.controller; } catch { /* optional session state */ }
+  const interactive = existsSync(join(dir, "interactive.json"));
   return {
+    ...(interactive && controller ? {controller} : {}),
+    ...(interactive ? {interactive: true, report: readReport(dir)} : {}),
     pid, startedAt: num(join(dir, "started")), exit, stdoutBytes, stderrBytes,
     lastOutputAt: times.length ? Math.max(...times) : null,
     alive: exit === null && pid !== null && wrapperAlive(pid, dir),

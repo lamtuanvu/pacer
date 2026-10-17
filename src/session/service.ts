@@ -19,7 +19,7 @@ export interface SessionHost extends RunIO {
 export class BuiltinSessionHost implements SessionHost {
  readonly id='builtin'; readonly capabilities={snapshot:true,control:true,record:true,resize:true};
  constructor(readonly dir:string){}
- async start(spec:RunSpec){return startRun({...spec,session:'pty'});}
+ async start(spec:RunSpec){return startRun({...spec,session:spec.session==='interactive'?'interactive':'pty'});}
  async read(){return readRun(this.dir);}
  stop(o:Parameters<RunIO['stop']>[0]){return stopRun(this.dir,o);}
  attachTarget():AttachTarget{return {kind:'socket',path:sessionSocket(this.dir)};}
