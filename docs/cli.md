@@ -57,6 +57,17 @@ Use `pacer stop <id> --json` to cancel.
 `pacer retry <task-id> [--executor <id>] [--json]`: Re-delegate a task's stored brief.
 `--executor` picks the runner; otherwise routing chooses. Refused while the task
 already has a queued or running retry.
+Executors that cannot continue run `pacer ask "<one question>"` once and stop.
+This requires an executor session with `PACER_TASK_ID`; the task settles as
+`needs_input` and raises a question under Needs you. Use
+`pacer answer <task-id> "<text>"` to retry on the same executor. The retry brief
+includes cumulative `qa: [{ q, a }]`, rendered as `## Question / Answer`.
+Answers contain 1–2000 characters. Answering twice or answering a task that is
+not waiting for input returns a conflict. `pacer stop <id>` closes a waiting question.
+API clients use `task.answer { id, text, expect_rev? }`; MCP planners use
+`task_answer { task_id, text, expect_rev? }`. Both return `{ task, retry }`. Task summaries (including MCP `task_status`)
+include the question, its timestamp and any recorded answer.
+
 Use `pacer report-limit <provider>` to record a quota limit, and
 `pacer dismiss <id...>` to hide cards. Unknown ids are reported and the command
 exits 2; known ids are still dismissed.
@@ -306,3 +317,16 @@ refuses the planner and the last runner. Homes are retained unless
 `--delete-home` is supplied and its y/N prompt confirmed. Logins inherit the
 terminal and are started only for newly created pacer-managed accounts unless
 `--no-login` is given.
+
+## Pause and resume delegation
+
+Run `pacer pause 30m` (or `1h`, `1d`) to pause new work for up to seven days.
+Running tasks continue. New tasks wait with the `paused` queue reason and resume
+on the next queue drain after expiry. `pacer resume` ends the pause early.
+The API equivalents are `delegation.pause { for, reason? }` and
+`delegation.resume {}`. `mode.hold { mode, until? }` holds a budget mode until the
+planner window resets (seven days if unknown); `mode.release {}` ends the hold.
+
+Use `pacer executor set <id> --enabled false --model <model> --max-tasks 2` to
+change executor settings. Executor readiness, host checks and updates expose
+shared progress through `job.get`, `job.list` and `job.cancel` when cancellable.

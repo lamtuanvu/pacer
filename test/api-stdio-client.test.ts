@@ -22,8 +22,8 @@ test("StdioClient speaks the protocol to pacer api --stdio", async () => {
   const { env } = await home();
   const client = new StdioClient(cli.slice(0, 2), env);
   try {
-    expect((await client.hello()).protocol).toBe("2.0.0");
-    expect((await client.snapshot()).protocol).toBe("2.0.0");
+    expect((await client.hello()).protocol).toBe("2.7.0");
+    expect((await client.snapshot()).protocol).toBe("2.7.0");
     const err = await client.call("task.get", { id: "missing" }).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     if (!(err instanceof ApiError)) throw new Error("expected ApiError");
@@ -125,9 +125,9 @@ test("StdioClient bounds stdout lines, logs stderr, and matches fragmented respo
     child.stderr.write("diagnos"); child.stderr.write("tic\n");
     const reply = JSON.stringify({ jsonrpc: "2.0", id: 2, result: { seq: 42 } });
     child.stdout.write(reply.slice(0, 20)); child.stdout.write(reply.slice(20) + "\n");
-    child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocol: "2.0.0" } }) + "\n");
+    child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocol: "2.7.0" } }) + "\n");
     expect(await second).toMatchObject({ seq: 42 });
-    expect(await first).toMatchObject({ protocol: "2.0.0" });
+    expect(await first).toMatchObject({ protocol: "2.7.0" });
     expect(logs).toContain("diagnostic");
     expect(logs.some((m) => /1 MiB/.test(m))).toBe(true);
   } finally { client.close(); }

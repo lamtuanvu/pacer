@@ -37,6 +37,7 @@ async function setup() {
   return { ctx, task, host, run, git, repo, checkout, branch, commit };
 }
 
+// Seven real git setups in a row: under full-suite load this takes well over the default 5 s.
 test("pre-flight refusals leave local refs untouched", async () => {
   for (const kind of ["author", "committer", "signoff", "non-descendant", "empty", "dirty", "501"]) {
     const f = await setup();
@@ -91,7 +92,7 @@ for (const committed of [false, true]) test(`an earlier local branch ${committed
   expect(await f.git("-C", f.repo, "rev-parse", result.branch)).toBe(head);
   if (committed) expect(await f.git("-C", f.repo, "rev-parse", f.branch)).toBe(before);
   expect(readTask(f.ctx, f.task.id)?.run).toHaveProperty("transferredHead", head);
-});
+}, 30000);
 
 test("a clean transfer fetches only pacer/<id> and opens a review worktree", async () => {
   const f = await setup();

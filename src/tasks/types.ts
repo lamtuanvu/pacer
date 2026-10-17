@@ -1,9 +1,10 @@
+import type { RepoRef } from "../api/read-model/types";
 import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
 
-export type TaskState = "queued" | "running" | "done" | "partial" | "failed" | "limit" | "stopped";
-export const TERMINAL_STATES: readonly TaskState[] = ["done", "partial", "failed", "limit", "stopped"];
+export type TaskState = "queued" | "running" | "done" | "partial" | "failed" | "limit" | "stopped" | "needs_input";
+export const TERMINAL_STATES: readonly TaskState[] = ["done", "partial", "failed", "limit", "stopped", "needs_input"];
 
 /** What the planner hands over. `repo` is an absolute path; `acceptance` is a shell command run in it. */
 export interface Brief {
@@ -13,9 +14,31 @@ export interface Brief {
   acceptance?: string;
   constraints?: string;
   context?: string;
+  feedback?: string;
+  qa?: { q: string; a: string }[];
+  base?: string;
+}
+
+export interface RoutingNote {
+  kind: string | null;
+  kindSource: "brief" | "classifier";
+  rule: string;
+  chosen: string;
+  why: string;
+  skipped: { executor: string; reason: string }[];
+}
+
+export interface AttemptUsage {
+  account: string;
+  usedPct: number | null;
+  window: string | null;
+  at: number;
 }
 
 export interface Attempt {
+  routing?: RoutingNote;
+  usageAtStart?: AttemptUsage;
+  usageAtEnd?: AttemptUsage;
   executor: string;
   model: string | null;
   startedAt: number;
@@ -29,7 +52,7 @@ export interface Attempt {
 
 export interface Verification {
   files: string;
-  acceptance?: { cmd: string; passed: boolean; tail: string };
+  acceptance?: { cmd: string; passed: boolean; tail: string; durationS?: number; summary?: string; machine?: string | null };
 }
 
 export interface TaskResult extends Verification {
@@ -76,6 +99,14 @@ export interface RunRef {
 }
 
 export interface TaskRecord {
+  source?: "planner" | "ui" | "cli";
+  requestId?: string;
+  repo?: RepoRef;
+  client?: string;
+  /** Checkpoint for the in-flight attempt, retained when its runner resumes. */
+  pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart">;
+  rev: number;
+  question?: { text: string; at: number; answer?: string; answeredAt?: number };
   run?: RunRef;
   progress?: Progress;
   resumeSpawnedAt?: number;
@@ -92,6 +123,7 @@ export interface TaskRecord {
   timeoutS: number;
   brief: Brief;
   state: TaskState;
+  queue?: { reason: "no_slot" | "paused" | "host_down" | "waiting_retry"; since: number; position: number };
   runnerPid?: number;
   executor?: string;
   backend?: string;

@@ -1,3 +1,4 @@
+import {set} from "../core/runners-config";
 import {loadStrategy} from "../config/strategy";
 import * as core from "../core";
 import type {RunnerRow} from "../core/runners";
@@ -14,6 +15,18 @@ export async function executorCommand(args:string[],ctx:Ctx):Promise<Result> {
     :`${r.id}: ok`;
    const lines=(await core.runners.list(ctx,s)).map(line);
    return {code:0,out:lines.join("\n"),err:""};
+  }
+  if(cmd==='set' && id) {
+   const options:{enabled?:boolean;model?:string|null;max_tasks?:number;rank?:number}={};
+   for(let i=0;i<flags.length;i+=2) {
+    const key=flags[i],value=flags[i+1];
+    if(value===undefined) throw Error(`missing value for ${key}`);
+    if(key==='--enabled') {if(!['true','false'].includes(value)) throw Error('--enabled must be true or false');options.enabled=value==='true';}
+    else if(key==='--model') options.model=value==='null'?null:value;
+    else if(key==='--max-tasks' || key==='--rank') options[key==='--rank'?'rank':'max_tasks']=Number(value);
+    else throw Error(`unknown option ${key}`);
+   }
+   const result=set(ctx,id,options);return {code:0,out:[`${result.id}: updated`,...result.warnings].join('\n'),err:''};
   }
   if(!["block","unblock"].includes(cmd)||!id)throw new Error("usage: pacer executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list");
   let duration:string|undefined,reason:string|undefined;

@@ -16,6 +16,11 @@ export function appPage(message: string, status: number): Response {
   });
 }
 
+/** Shared cookie policy for the browser code flow and desktop bearer exchange. */
+export function sessionCookie(ctx: Ctx): string {
+  return `pacer_session=${createSession(ctx)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_SECONDS}`;
+}
+
 /** Authentication is enforced by the HTTP server before static routes are called. */
 export function appRoute(req: Request, ctx: Ctx): Response {
   const url = new URL(req.url);
@@ -26,7 +31,7 @@ export function appRoute(req: Request, ctx: Ctx): Response {
     // A redirect without a fragment inherits the original fragment in the browser.
     return new Response(null, { status: 303, headers: {
       ...APP_HEADERS, "Cache-Control": "no-store", Location: "/app/",
-      "Set-Cookie": `pacer_session=${createSession(ctx)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_SECONDS}`,
+      "Set-Cookie": sessionCookie(ctx),
     } });
   }
   const path = url.pathname.slice("/app/".length);

@@ -1196,6 +1196,12 @@ function parseEnvelope(raw) {
   if (!isObj(raw) || raw.v !== 1)
     return null;
   switch (raw.type) {
+    case "entity": {
+      const d = raw.data;
+      if (!isObj(d) || !["executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
+        return null;
+      return { v: 1, type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
+    }
     case "config": {
       const d = raw.data;
       if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null)
@@ -1237,6 +1243,8 @@ function parseSnapshot(raw) {
 function reduce(s, e, at) {
   const next = { ...s, seq: s.seq + 1, at };
   switch (e.type) {
+    case "entity":
+      break;
     case "config":
       break;
     case "budget":
@@ -1283,7 +1291,7 @@ class LinkStore {
 }
 
 // orca-plugin/src/transports/choose.ts
-var TRANSPORT_ORDER = ["api", "http", "channel", "bridge"];
+var TRANSPORT_ORDER = ["api", "channel", "bridge"];
 async function chooseTransport(ts, forced) {
   const probe = async (t) => {
     try {
@@ -1307,6 +1315,7 @@ async function chooseTransport(ts, forced) {
 // orca-plugin/src/transports/api.ts
 function apiTransport(o) {
   let connection = null;
+  let hello = null;
   let seq = 0;
   let watches = 0;
   const client = () => connection ??= Promise.resolve().then(o.connect);
@@ -1336,7 +1345,7 @@ function apiTransport(o) {
               return false;
             if (!c)
               return false;
-            await c.hello();
+            hello = await c.hello();
             return true;
           }),
           new Promise((resolve) => {
@@ -1361,7 +1370,10 @@ function apiTransport(o) {
     watch(onEnvelope, onSnapshot, onFailure) {
       watches++;
       let stopped = false, busy = false, resetPending = false;
-      let unsubscribe = () => {};
+      let unsubscribe = () => {}, cancelHeartbeat = () => {};
+      let clientId = null;
+      const delivered = new Set;
+      let deliveries = Promise.resolve();
       const refresh = async () => {
         if (stopped || busy)
           return;
@@ -1389,9 +1401,48 @@ function apiTransport(o) {
         const c = await client();
         if (stopped || !c)
           return;
+        const capabilities = hello ??= await c.hello();
+        if (o.notifier && capabilities.ops.includes("client.register") && capabilities.events.includes("notify")) {
+          const register = async () => {
+            const result = await c.call("client.register", { kind: "orca", version: o.notifier.version, notifier: true });
+            clientId = result.client_id;
+          };
+          await register();
+          if (stopped)
+            return;
+          let renewing = false;
+          cancelHeartbeat = o.timers.every(30000, () => {
+            if (stopped || renewing)
+              return;
+            renewing = true;
+            c.call("client.heartbeat", { client_id: clientId }).catch(async (e) => {
+              if (!stopped && e?.code === "invalid_input")
+                await register();
+              else
+                o.log?.(`pacer notifier heartbeat: ${String(e)}`);
+            }).catch((e) => o.log?.(`pacer notifier registration: ${String(e)}`)).finally(() => {
+              renewing = false;
+            });
+          });
+        }
+        if (stopped)
+          return;
         unsubscribe = c.subscribe(seq, (e) => {
           if (stopped)
             return;
+          if (e.type === "notify") {
+            const data = e.data;
+            if (!clientId || !data || data.client_id !== clientId || typeof data.key !== "string" || typeof data.title !== "string" || typeof data.body !== "string")
+              return;
+            deliveries = deliveries.then(async () => {
+              if (stopped || delivered.has(data.key))
+                return;
+              const result = await o.notifier.deliver(data);
+              if (result !== false)
+                delivered.add(data.key);
+            }).catch((e) => o.log?.(`pacer notification: ${String(e)}`));
+            return;
+          }
           if (e.type === "reset") {
             if (busy)
               resetPending = true;
@@ -1421,6 +1472,7 @@ function apiTransport(o) {
         watches--;
         unsubscribe();
         cancelPoll();
+        cancelHeartbeat();
       };
     }
   };
@@ -1634,8 +1686,8 @@ function shortGoal(goal, max = 90) {
 
 // orca-plugin/src/notify.ts
 var shownAt = new WeakMap;
-async function deliverNotification(host, message, nowS) {
-  if (nowS - (shownAt.get(host) ?? -Infinity) < 5)
+async function deliverNotification(host, message, nowS, serviceDecided = false) {
+  if (!serviceDecided && nowS - (shownAt.get(host) ?? -Infinity) < 5)
     return false;
   const previous = shownAt.get(host);
   shownAt.set(host, nowS);
@@ -1842,7 +1894,7 @@ function renderStatusPage(s, view) {
       });
     }).join("");
     const running = s.tasks.filter((t) => t.state === "running" || t.state === "queued").map((t) => `<div class="card stack"><strong>${h(t.goal.slice(0, 100))}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor pending")} · ${h(t.state)} · started ${h(absolute(t.attemptStartedAt ?? t.updatedAt, nowS))}${t.progress ? ` · ${h(t.progress.phase)}` : ""}</small>${placementLine(t)}</div>`).join("");
-    const waiting = s.tasks.filter((t) => !t.review && !t.dismissed && (t.state === "partial" || t.state === "done")).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10).map((t) => `<div class="card stack"><strong>${h(t.goal)}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor unknown")} · finished ${h(absolute(t.updatedAt, nowS))}</small><small>${h(t.worktree ?? "Worktree unknown")}</small></div>`).join("");
+    const waiting = s.tasks.filter((t) => !t.review && !t.dismissed && (t.state === "partial" || t.state === "done" || t.state === "needs_input")).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10).map((t) => `<div class="card stack"><strong>${h(t.goal)}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor unknown")} · ${t.state === "needs_input" ? "Needs your answer" : "finished"} ${h(absolute(t.updatedAt, nowS))}</small><small>${h(t.worktree ?? "Worktree unknown")}</small></div>`).join("");
     const alerts = s.alerts.filter((a) => a.level === "warn" || a.level === "error").sort((a, b) => b.at - a.at).slice(0, 5).map((a) => `<div class="card stack"><strong>${h(a.title)}</strong><p>${h(a.body.slice(0, 200))}</p><small>${h(absolute(a.at, nowS))}</small></div>`).join("");
     const versions = `<p>pacer ${h(view.updates?.cli ?? s.console?.version ?? "unknown")} · plugin ${h(view.updates?.plugin ?? "unknown")}</p>${view.updates?.available ? `<p>Update available: ${h(view.updates.latest ?? "unknown")} · <code>pacer update</code></p>` : ""}`;
     content = section("Planner", `<div class="card stack">${planner ? `<div class="row"><strong class="grow">${h(providerLabel(planner))}</strong><span>${h(percent(planner))}</span></div>${meter(planner)}<small>${h(reset(planner, true))}</small>` : "<small>Planner unknown · Reset unknown</small>"}<p class="headline">${h(headline(planner))}</p></div>`) + section("Accounts", accounts || "<small>No accounts reported.</small>") + section("Running", running || "<small>No tasks running.</small>") + section("Waiting for review", `${waiting || "<small>No tasks waiting for review.</small>"}<p>Review with <code>pacer review &lt;id&gt;</code> or in the pacer app.</p>`) + section("Alerts", alerts || "<small>No alerts.</small>") + section("Versions", versions);
@@ -1973,7 +2025,7 @@ function createPlugin(deps) {
     const store = new LinkStore(deps.nowS);
     const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
-      apiTransport({ timers, log: (m) => ctx.log(m), connect: async () => {
+      apiTransport({ timers, notifier: { version: deps.version ?? "0", deliver: (data) => deliverNotification(ctx.host, { title: data.title, body: data.body }, deps.nowS(), true) }, log: (m) => ctx.log(m), connect: async () => {
         const client = await deps.connect?.(settings) ?? null;
         if (stopped) {
           client?.close();
@@ -2049,7 +2101,7 @@ function createPlugin(deps) {
         }
         const snapshot = store.snapshot;
         processing = processing.then(async () => {
-          if (!stopped)
+          if (!stopped && active?.id !== "api")
             await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS());
         }).catch(logError);
       });
@@ -2105,7 +2157,7 @@ function createPlugin(deps) {
     store.onChange(() => scheduleRender());
     timers.every(1000, () => {
       processing = processing.then(async () => {
-        if (!stopped)
+        if (!stopped && active?.id !== "api")
           await notifyNewAlerts(ctx.host, store.snapshot, settings, activatedAtS, deps.nowS());
       }).catch(logError);
     });

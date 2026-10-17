@@ -38,3 +38,28 @@ export async function withLock<T>(
     rmSync(file, { force: true });
   }
 }
+
+/** Synchronous counterpart for store callers; shares lock files with withLock. */
+export function withLockSync<T>(
+  ctx: Ctx, name: string, fn: () => T, o: { timeoutMs?: number; staleMs?: number } = {},
+): T {
+  if (name.includes("/") || name.includes("\\") || name.includes("..")) throw new Error("invalid lock name");
+  mkdirSync(lockDir(ctx), { recursive: true });
+  const file = join(lockDir(ctx), `${name}.lock`);
+  const deadline = Date.now() + (o.timeoutMs ?? 20_000);
+  const staleMs = o.staleMs ?? 120_000;
+  const wait = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try { closeSync(openSync(file, "wx")); break; }
+    catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      try {
+        if (Date.now() - statSync(file).mtimeMs > staleMs) { rmSync(file, { force: true }); continue; }
+      } catch { continue; }
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${file}`);
+      Atomics.wait(wait, 0, 0, 50);
+    }
+  }
+  try { return fn(); }
+  finally { rmSync(file, { force: true }); }
+}

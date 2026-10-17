@@ -138,3 +138,25 @@ ignored. The only plugin command, **pacer: Open**, shows where to act: run
 `pacer open` in a terminal to open the [pacer app](app.md). The bootstrap
 installer is unchanged. See the
 [information-only decision](decisions/2026-10-15-orca-plugin-information-only.md).
+
+## Capacity, pause and executor settings
+
+`execution.local_max_tasks` limits all local executors together (1–16, default 2).
+`runners.<id>.max_tasks` limits one executor (1–16, default 1 locally or the
+host's `max_tasks` remotely). A full executor is skipped; tasks wait in the queue
+when their candidates are full. Queue rows report `reason`, `since` and `position`.
+The pump, runner exits and API reads drain eligible queued work.
+
+`runners.<id>.enabled: false` disables an executor without removing its settings.
+Use `runner.set` to edit enabled, model, max_tasks or rank; `runner.reorder` takes
+a permutation of all non-planner executor ids. The planner cannot be disabled.
+
+`pacer pause 1h` pauses new delegation; `pacer resume` resumes it. Durations use
+whole minutes, hours or days, up to seven days. `mode.hold` can keep a mode until
+the planner window resets, or an explicit future timestamp; `mode.release` ends it.
+
+`terminal.app` selects Terminal, iTerm or Ghostty on macOS (default Terminal).
+Automatic terminal opening tries Orca, the terminal app, then tmux. On a headless
+machine, operations return a copyable command with `opened: false`.
+Notifications are stored in `settings.json`, default to `important`, and support
+`off`, `important` and `all` without requiring the Orca plugin.

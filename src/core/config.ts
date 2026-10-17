@@ -1,3 +1,4 @@
+import { publishConfigChange } from "./events";
 import { readFileSync } from "node:fs";
 import { atomicStrategyWrite, editStrategy, StrategyDoc } from "../config/edit";
 import { formatRunnerId, parseRunnerId, runnerDefaults } from "../config/runner-id";
@@ -12,7 +13,7 @@ import { CoreError, toCoreError } from "./errors";
 import { PLANNERS } from "../config/strategy";
 import { plannerAccounts } from "../install/init";
 
-export const CONFIG_KEYS = ['planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check'] as const;
+export const CONFIG_KEYS = ['planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
@@ -20,9 +21,10 @@ function plannerId(s: Strategy): string {
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
   return {planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.accounts':s.pacing.accounts,
-    'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true};
+    'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
 function parseValue(key:ConfigKey, value:string): unknown {
+  if(key==='terminal.app' && !['Terminal','iTerm','Ghostty'].includes(value)) throw Error('terminal.app must be Terminal, iTerm or Ghostty');
   if(key==='pacing.order') {
     if(value==='') return [];
     const ids=value.split(',').map(v=>v.trim()); if(ids.some(v=>!v)) throw Error('pacing.order requires comma-separated runner ids');
@@ -96,6 +98,7 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
         }
       }
     } else diff=applyEdit(d=>Array.isArray(value)?d.setList(key.split('.'),value):d.setIn(key.split('.'),value));
+    await publishConfigChange(ctx, "config");
     return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes};
   } catch (e) { throw toCoreError(e); }
 }

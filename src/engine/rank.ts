@@ -26,8 +26,14 @@ export interface Excluded { id: string; account?: string; reason: string }
 const EXPIRING_BOOST = 50;
 const TIER: Record<UsageKind, number> = { unmetered: 0, quota: 1, reactive: 1, metered: 2 };
 
+export function ruleFor(kind: string | null, s: Strategy): { index: number; kinds: string[] | null } {
+  let index = kind ? s.routing.findIndex(r => r.kinds?.includes(kind)) : -1;
+  if (index < 0) index = s.routing.findIndex(r => r.kinds === null);
+  return { index, kinds: s.routing[index]?.kinds ?? null };
+}
+
 export function executorsFor(kind: string | null, s: Strategy): string[] {
-  const rule = (kind && s.routing.find((r) => r.kinds?.includes(kind))) || s.routing.find((r) => r.kinds === null);
+  const rule = s.routing[ruleFor(kind, s).index];
   return (rule ? rule.executors : Object.keys(s.runners)).map(id => resolveRunner(s, id)?.id ?? id);
 }
 
@@ -74,6 +80,7 @@ export function rankExecutors(
     const accountField = runner ? { account: runner.account } : {};
     const exclude = (reason: string) => excluded.push({ id, ...accountField, reason });
     if (runner?.agent === s.planner.agent && runner.account === s.planner.account) return exclude("planner");
+    if (runner?.enabled === false) return exclude("disabled");
     if (!st || !runner || !account) return exclude("not configured");
     if (st.unavailableReason) return exclude(st.unavailableReason);
     if (st.blockedReason) return exclude("Blocked by you");

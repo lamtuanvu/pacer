@@ -31,7 +31,7 @@ test("config.get returns allow-listed values, sources and planner candidates", a
 test("config.set returns the change and publishes exactly one config event", async () => {
   const ctx = await configured();
   expect(await callOp(ctx, "config.set", { key: "pacing.policy", value: "even" })).toMatchObject({ key: "pacing.policy", previous: "priority", value: "even", diff: expect.stringContaining("even"), undo: "pacer config set pacing.policy priority" });
-  expect(eventsSince(ctx, 0).events).toEqual([{ seq: 1, at: ctx.now, type: "config", data: { area: "config", at: ctx.now } }]);
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config")).toEqual([{ seq: expect.any(Number), at: ctx.now, type: "config", data: { area: "config", at: ctx.now } }]);
 });
 
 test("invalid settings and missing planner integration choice neither write nor publish", async () => {
@@ -61,7 +61,7 @@ test("agent preview, consent, connect and disconnect use only the temp home", as
   expect(existsSync(preview.files[0])).toBe(true);
   expect(await callOp(ctx, "agent.disconnect", { agent: "codex" })).toMatchObject({ removed: expect.arrayContaining([preview.files[0]]) });
   expect(existsSync(preview.files[0])).toBe(false);
-  expect(eventsSince(ctx, 0).events.map(e => e.type)).toEqual(["config", "config"]);
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.type)).toEqual(["config", "config"]);
 });
 
 test("setup.init creates a strategy without connecting agents and preserves existing files", async () => {
@@ -88,7 +88,7 @@ test("plugin installation and notifications round-trip", async () => {
 
 test("version.get, service.status and hello describe the additive capabilities", async () => {
   const ctx = await configured();
-  expect(await callOp(ctx, "version.get", {})).toMatchObject({ pacer: expect.any(String), protocol: "2.0.0", service: { installed: false, running: false } });
+  expect(await callOp(ctx, "version.get", {})).toMatchObject({ pacer: expect.any(String), protocol: "2.7.0", service: { installed: false, running: false } });
   expect(await callOp(ctx, "service.status", {})).toEqual({ installed: false, running: false });
   expect(helloBody().events).toContain("config");
 });
