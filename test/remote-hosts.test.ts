@@ -33,7 +33,7 @@ async function fixture() {
   ctx.run = async (argv, ms, o) => {
     const r = await run(argv, ms, o);
     if (argv[0] === "ssh" && argv.at(-1)?.includes("command -v codex") && r.code === 0)
-      return { ...r, stdout: `__PACER_BEGIN__\ngit=git version 2.40.0\nsetsid=/bin/setsid\ncodex=/bin/codex\nclaude=\nhome=${home}\n` };
+      return { ...r, stdout: `__PACER_BEGIN__\ngit=git version 2.40.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=tail (GNU coreutils) 9.5\ntail_pid=1\ncodex=/bin/codex\nclaude=\nhome=${home}\n` };
     return r;
   };
   return { ctx, repo, checkout, home, git };
@@ -43,7 +43,7 @@ test("check passes on a prepared host and names each failure", async () => {
   const { ctx, repo, checkout, git } = await fixture();
   const check = () => hosts.check(ctx, "box", { repo });
   expect(await check()).toMatchObject({ alias: "box", ok: true });
-  expect((await check()).checks.map(c => c.name)).toEqual(["ssh", "git", "setsid", "codex", "account homes", "checkout github.com/o/r", "identity github.com/o/r"]);
+  expect((await check()).checks.map(c => c.name)).toEqual(["ssh", "git", "setsid", "script", "tail", "codex", "account homes", "checkout github.com/o/r", "identity github.com/o/r"]);
   await git(checkout, "config", "--local", "user.email", "wrong@example.invalid");
   expect((await check()).checks.find(c => c.name.startsWith("identity"))?.ok).toBe(false);
   await git(checkout, "remote", "set-url", "origin", "https://github.com/other/repo");
@@ -116,6 +116,7 @@ test("host clean only removes reviewed settled tasks on the selected host and pr
     const worktree = join(home, ".pacer-remote", "worktrees", t.id), dir = join(home, ".pacer-remote", "runs", t.id, "1");
     await git(checkout, "worktree", "add", "-b", `pacer/${t.id}`, worktree);
     mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "session.raw"), "recorded output");
     updateTask(ctx, t.id, t => { t.state = state; if (reviewed) t.dismissed = true;
       t.run = { host, mode: "new", remoteWorktree: worktree, remoteDir: dir, workdir: worktree, dir: "unused", attempt: 1, executor: "codex@box", startedAt: 1, logFile: "unused" }; });
     tasks.push({ id: t.id, worktree, dir });
@@ -125,4 +126,30 @@ test("host clean only removes reviewed settled tasks on the selected host and pr
   expect(existsSync(tasks[0].dir)).toBe(false);
   expect(await git(checkout, "rev-parse", "--verify", `pacer/${tasks[0].id}`)).not.toBe("");
   for (const t of tasks.slice(1)) expect(existsSync(t.worktree)).toBe(true);
+});
+
+test("host check rejects BSD or missing script", async () => {
+  const {ctx, repo} = await fixture();
+  const run = ctx.run;
+  for (const value of ["", "script: illegal option -- -"]) {
+    ctx.run = async (argv, ms, o) => {
+      const r = await run(argv, ms, o);
+      return {...r, stdout:r.stdout.replace("script=script from util-linux 2.40", `script=${value}`)};
+    };
+    expect((await hosts.check(ctx,"box",{repo})).checks.find(c=>c.name==="script")?.ok).toBe(false);
+  }
+});
+
+
+test("host check diagnoses old util-linux script and a missing tail",async()=>{
+  const {ctx,repo}=await fixture();const run=ctx.run;
+  for(const [from,to,name] of [
+    ["script from util-linux 2.40","script from util-linux 2.34","script"],
+    ["tail=tail (GNU coreutils) 9.5","tail=","tail"],
+  ]) {
+    ctx.run=async(argv,ms,o)=>{const r=await run(argv,ms,o);return {...r,stdout:r.stdout.replace(from,to)};};
+    const check=(await hosts.check(ctx,"box",{repo})).checks.find(c=>c.name===name);
+    expect(check?.ok).toBe(false);
+    expect(check?.detail).toContain(name==="script"?"2.35":"missing");
+  }
 });

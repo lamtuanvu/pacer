@@ -22,7 +22,7 @@ function fixture() {
     const cmd = argv.at(-1)!;
     remote.push(cmd);
     if (cmd.endsWith("clone https://github.com/acme/api.git")) exists = true;
-    const stdout = cmd.includes("command -v codex") ? "git=git version 2.43.0\nsetsid=/bin/setsid\n" : exists ? "exists=1\ngit=1\norigin=https://github.com/acme/api.git\nname=Test User\nemail=test@example.invalid\n" : "exists=0\n";
+    const stdout = cmd.includes("command -v codex") ? "git=git version 2.43.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=/usr/bin/tail\n" : exists ? "exists=1\ngit=1\norigin=https://github.com/acme/api.git\nname=Test User\nemail=test@example.invalid\n" : "exists=0\n";
     return { code: 0, stderr: "", stdout: `__PACER_BEGIN__\n${stdout}` };
   };
   return { ctx, remote };

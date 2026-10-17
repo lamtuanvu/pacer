@@ -150,3 +150,29 @@ test("a second remote attempt reuses a branch left at base", async () => {
   expect(second.exec.code).toBe(0);
   expect(readTask(f.ctx, f.task.id)!.run).toHaveProperty("remoteBranch", `pacer/${f.task.id}`);
 }, 20000);
+
+test("PTY strategy records remote attempts with the configured local recording cap", async()=>{
+  const f=await setup();
+  const strategyFile=join(f.ctx.pacerHome,"strategy.yaml");
+  const strategy=JSON.parse(readFileSync(strategyFile,"utf8"));
+  strategy.execution={session:"pty",session_log_mb:1};
+  writeFileSync(strategyFile,JSON.stringify(strategy));
+  // Portable recording stand-in; the real util-linux PTY contract is gated in remote-run-io.
+  writeFileSync(join(f.hostHome,"bin","script"),`#!/bin/sh
+[ "$1" = "-qfec" ] || exit 92
+printf 'Script started on date [COMMAND="agent"]\\n' > "$3"
+sh -c "$2" >> "$3" 2>&1
+code=$?
+printf '\\nScript done on date [COMMAND_EXIT_CODE="%s"]\\n' "$code" >> "$3"
+exit "$code"
+`,{mode:0o755});
+  const result=await runAttempt(f.ctx,f.cfg,f.task);
+  expect(result.exec.code).toBe(0);
+  const run=readTask(f.ctx,f.task.id)!.run!;
+  expect(existsSync(join(run.remoteDir!,"session.raw"))).toBe(true);
+  expect(existsSync(join(run.remoteDir!,"stdout"))).toBe(false);
+  expect(existsSync(join(run.dir,"session.log"))).toBe(true);
+  expect(JSON.parse(readFileSync(join(run.dir,"session.json"),"utf8")).capBytes).toBe(1024*1024);
+  expect(result.exec.stdout).toContain("PACER_ROLE=executor");
+  expect(result.exec.stdout).not.toContain("Script started on");
+},15000);

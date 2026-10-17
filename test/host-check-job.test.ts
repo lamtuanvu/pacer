@@ -15,7 +15,7 @@ function fixture(codex = "/bin/codex") {
     hosts: { devbox: { ssh: "devbox" } }, routing: [{ default: ["codex@devbox", "claude-code@devbox", "codex"] }],
   }));
   ctx.run = async argv => ({ code: 0, stderr: "", stdout: argv[0] === "ssh"
-    ? `__PACER_BEGIN__\nos=Linux\narch=x86_64\ngit=git version 2.43.0\nsetsid=/bin/setsid\ncodex=${codex}\nclaude=/bin/claude\n` : "" });
+    ? `__PACER_BEGIN__\nos=Linux\narch=x86_64\ngit=git version 2.43.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=/usr/bin/tail\ncodex=${codex}\nclaude=/bin/claude\n` : "" });
   return ctx;
 }
 
@@ -24,7 +24,7 @@ test("host.check passes job steps and stores parsed host facts", async () => {
   const { job } = await callOp(ctx, "host.check", { alias: "devbox" }) as { job: Job };
   expect(job.state).toBe("passed");
   expect(job.steps.map(s => [s.name, s.state])).toEqual([
-    ["ssh", "passed"], ["git", "passed"], ["setsid", "passed"], ["codex", "passed"], ["claude", "passed"], ["account homes", "passed"],
+    ["ssh", "passed"], ["git", "passed"], ["setsid", "passed"], ["script", "passed"], ["tail", "passed"], ["codex", "passed"], ["claude", "passed"], ["account homes", "passed"],
   ]);
   expect(hosts.readHostCheck(ctx, "devbox")).toMatchObject({ at: ctx.now, ok: true,
     facts: { os: "Linux", arch: "x86_64", git: "2.43.0", setsid: "/bin/setsid", tools: { codex: "/bin/codex", claude: "/bin/claude" } } });
