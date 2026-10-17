@@ -29,7 +29,7 @@ test("hello, ops and errors as JSON-RPC 2.0", async () => {
   await waitFor(() => out.length >= 4);
   ch.close(); await done;
   const byId = (id: unknown) => out.find((o) => o.id === id)!;
-  expect(byId(1)).toMatchObject({ jsonrpc: "2.0", result: { protocol: "2.1.0" } });
+  expect(byId(1)).toMatchObject({ jsonrpc: "2.0", result: { protocol: "2.8.0" } });
   expect(byId(2)).toMatchObject({ error: { code: -32000, data: { code: "unknown_task" } } });
   expect(byId(3)).toMatchObject({ error: { code: -32601 } });
   expect(byId(null)).toMatchObject({ error: { code: -32700 } });
@@ -72,7 +72,7 @@ test("EOF drains pending requests and stops subscription polling", async () => {
   ch.send({ jsonrpc: "2.0", id: 1, method: "snapshot" });
   ch.send({ jsonrpc: "2.0", id: 2, method: "subscribe" });
   ch.close(); await done;
-  expect(out.find((o) => o.id === 1)).toMatchObject({ result: { protocol: "2.1.0", seq: 0 } });
+  expect(out.find((o) => o.id === 1)).toMatchObject({ result: { protocol: "2.8.0", seq: 0 } });
   expect(out.find((o) => o.id === 2)).toMatchObject({ result: { subscribed: true, last: 0 } });
   const count = out.length;
   await publish(ctx, [{ v: 1, type: "alert", data: { key: "k", level: "info", title: "t", body: "", at: ctx.now } }], { bridge: false, channel: false });

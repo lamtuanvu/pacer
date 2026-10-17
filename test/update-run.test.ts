@@ -341,3 +341,13 @@ test("update refreshes the installed plugin after replacement, skips it with --n
     else expect(result.out).not.toContain("orca-plugin:");
   }
 });
+
+test('update progress follows download, verification, replacement, refresh and restart',async()=>{
+ const root=tmpDir();release(root,'0.2.0');const exec=installed();
+ const events:unknown[]=[];
+ const result=await runUpdate({check:false},deps(root,exec,{progress:(...args)=>events.push(args),refreshIntegrations:async()=>[],restartService:async()=>true}));
+ expect(result.code).toBe(0);
+ expect(events).toEqual([
+  ['Download','running'],['Download','passed'],['Verify','running'],['Verify','passed'],['Replace','running'],['Replace','passed'],['Refresh integrations','running'],['Refresh integrations','passed'],['Restart','running','0.2.0']
+ ]);
+});

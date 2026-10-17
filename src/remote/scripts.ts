@@ -13,7 +13,9 @@ sort -rn | head -n 15 | while read -r mtime file; do
   printf 'mtime=%s\\n%s\\n' "$mtime" "$line"
   break
 done`,
-  PROBE: `printf 'git=%s\\n' "$(git --version)"
+  PROBE: `printf 'os=%s\\n' "$(uname -s)"
+printf 'arch=%s\\n' "$(uname -m)"
+printf 'git=%s\\n' "$(git --version)"
 printf 'codex=%s\\n' "$(command -v codex || true)"
 printf 'claude=%s\\n' "$(command -v claude || true)"
 printf 'setsid=%s\\n' "$(command -v setsid || true)"
@@ -69,6 +71,11 @@ else
   git worktree add -q -b "$remote_branch" "$worktree" "$base" || exit 1
 fi
 printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
+  QUESTION: `file="$1/.pacer-question"
+[ -f "$file" ] || exit 0
+[ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
+cat "$file"`,
+  QUESTION_CLEAR: `rm -f -- "$1/.pacer-question"`,
   PREFLIGHT: `cd "$1" || exit 1
 base="$2"; branch="$3"
 case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac

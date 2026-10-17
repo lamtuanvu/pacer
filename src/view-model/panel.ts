@@ -41,13 +41,18 @@ export function providerDetail(p: ProviderLine, now: number): string {
  if(p.id==="local") return "LM Studio · unmetered";
  return p.verdict==="UNKNOWN" ? "No budget reported" : "No limit reported";
 }
-export interface AttentionGroup { count:number; goal:string; tasks:TaskData[]; latest:TaskData; stuck:boolean; retry:ProviderLine|null; brokenExecutor?:string; brokenReason?:string }
+export interface AttentionGroup { count:number; goal:string; tasks:TaskData[]; latest:TaskData; stuck:boolean; retry:ProviderLine|null; attention?: import("../attention/types").AttentionItem; brokenExecutor?:string; brokenReason?:string }
 export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] {
+ if(s.attention !== undefined) return s.attention.map(item => {
+  const task = s.tasks.find(t => t.id === item.taskId);
+  const retryAction = item.actions.find(action => action.op === "task.retry");
+  return { count: 1, goal: item.title, tasks: task ? [task] : [], latest: task ?? { id: item.id, goal: item.title, state: item.kind, executor: item.executor ?? null, backend: null, worktree: null, updatedAt: item.since }, stuck: item.kind === "stuck", retry: task && retryAction ? rankedProviders(s).find(p => p.id === retryAction.params.executor) ?? null : null, attention: item };
+ });
  const groups=new Map<string,TaskData[]>();
  const resolved = new Set(s.tasks.filter(t=>t.state==="done"&&t.retryOf).map(t=>t.retryOf));
  for(const t of [...s.tasks].sort((a,b)=>b.updatedAt-a.updatedAt)) {
   if(t.resolved || t.review || t.dismissed || (t.retriedBy && s.tasks.some(retry=>retry.id===t.retriedBy)) || resolved.has(t.id) || now-t.updatedAt>3*86400)continue;
-  if(!["failed","limit","partial"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&!t.attemptStartedAt&&!t.runnerAlive&&now-t.updatedAt>600)) continue;
+  if(!["failed","limit","partial","needs_input"].includes(t.state)&&!(["running","queued"].includes(t.state)&&!t.executor&&!t.attemptStartedAt&&!t.runnerAlive&&now-t.updatedAt>600)) continue;
   const key=t.brokenExecutor ? `broken:${t.brokenExecutor}` : t.goal;
   groups.set(key,[...(groups.get(key)??[]),t]);
  }
@@ -59,6 +64,8 @@ export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] 
  return [...groups].map(([_key,tasks])=>({count:count(tasks),goal:tasks[0].brokenExecutor?`${displayName(tasks[0].brokenExecutor)} is not working`:tasks[0].goal,tasks,latest:tasks[0],stuck:["running","queued"].includes(tasks[0].state),retry:rankedProviders(s).find(p=>!tasks.some(t=>t.executor===p.id))??null,...(tasks[0].brokenExecutor?{brokenExecutor:tasks[0].brokenExecutor,brokenReason:tasks[0].brokenReason}: {})}));
 }
 export function attentionText(g: AttentionGroup, now: number): string {
+ if(g.attention) return g.attention.detail;
+ if(g.latest.state==="needs_input") return "Needs your answer";
  if(g.brokenExecutor) return `${displayName(g.brokenExecutor)} is not working: ${g.brokenReason ?? "CLI startup failed"} · ${g.tasks.length} tasks affected`;
  if(g.stuck) return `Waiting ${duration(now-g.latest.updatedAt)} with no executor picked`;
  if(g.latest.state==="partial") return `Needs review${g.latest.executor?` on ${displayName(g.latest.executor)}`:""}`;

@@ -58,6 +58,25 @@ current page content and shows “pacer isn't responding. Retrying…”. It ref
 when the connection returns. Unsent form drafts are kept in the tab's
 `sessionStorage`; endpoint keys are not retained there.
 
+## Needs you and review
+
+Home reads the service's attention queue in its supplied order: blocked items,
+problems, then decisions, oldest first within each group. The service includes
+review work, failed or limited tasks, stuck work, sign-in and executor problems,
+planner quota, setup and updates. Dismissed and snoozed items stay hidden as
+managed by the service. Counts and the review tab use the same snapshot.
+Planner-delegated work enters the review queue after ten minutes without a
+verdict; other work enters immediately. Older services retain client fallback
+behavior.
+
+The API supports four review verdicts: accept, reject, send back with feedback
+to the same executor, and retry on another executor. Send back requires a note;
+retry requires an executor. Both create a linked retry and record a rejected
+review on the original. The current task detail screen exposes accept, reject
+and retry; API clients can use all four verdicts. Task detail also exposes the
+routing explanation, acceptance duration and summary, per-file diffstat, cost
+readings when attributable, retry options and activity timeline through the API.
+
 ## Security model
 
 The app is local to one OS user and daemon. The server binds to loopback only;
@@ -110,3 +129,17 @@ For the background service, install it with the chosen port using
 `PACER_PORT=4318 pacer service install`, then use the same `PACER_PORT` with
 `pacer open`. Do not run both a foreground daemon and the service on the same
 port.
+
+## Client compatibility
+
+Console commands and TUI actions use v2 operations. The TUI hides actions
+missing from `hello.ops`; task focus uses the console until live sessions ship.
+`/state` and `/console/*` have been removed. Internal status probes use
+`/v2/snapshot`. `/link` and `/events` remain available with
+`Deprecation: true` and `Sunset: 3.0` for older plugins. Automatic Orca transport
+selection tries API, channel, then bridge; HTTP can still be selected explicitly.
+
+`pacer status --line` adds `▸<running> ⚑<attention>` from the service counts.
+It waits up to 300 ms, then uses local budget data without counts. When the
+service is unavailable and the stored snapshot is over 120 seconds old, it
+prints `pacer not running · pacer serve`.

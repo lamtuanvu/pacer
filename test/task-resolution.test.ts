@@ -48,13 +48,13 @@ test("pump exposes terminal presence only after a live Orca terminal receipt",as
  for(const connected of [true,false]){
   ctx.now+=1; // Session metadata changes are published at most once per second.
   ctx.run=async()=>({code:0,stdout:JSON.stringify({ok:true,result:{terminal:{handle:"term_worker",connected,writable:true}}}),stderr:""});
-  const events=await pumpOnce(ctx,{tasks:()=>[task],status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),publish:(await import("../src/link/publish")).publish});
+  const events=await pumpOnce(ctx,{tasks:()=>[task],status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled: false, paused: null, modeHold: null,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),publish:(await import("../src/link/publish")).publish});
   expect(events.find(e=>e.type==="task")?.data).toMatchObject({terminalPresent:connected});
  }
 });
 test("pump persists and publishes settled attention",async()=>{
  const {ctx,worker,task}=setup();rmSync(worker,{recursive:true});
- const events=await pumpOnce(ctx,{tasks:()=>[task],status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),publish:(await import("../src/link/publish")).publish});
+ const events=await pumpOnce(ctx,{tasks:()=>[task],status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled: false, paused: null, modeHold: null,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),publish:(await import("../src/link/publish")).publish});
  expect(events.find(e=>e.type==="task")?.data).toMatchObject({resolved:"worktree removed"});expect(readTask(ctx,task.id)).toMatchObject({resolved:"worktree removed",resolutionCheckedAt:ctx.now});
 });
 test("subdirectory task worktrees compare paths from the Git root",()=>{

@@ -270,7 +270,7 @@ test("registered as the extra backend; selectBackend picks it only when opted in
 });
 
 const statusFor = (id: string): Status => ({
-  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
+  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
   executors: { ranked: [], excluded: [] },
   providers: [{ id, usage: "reactive", windows: [], binding: null, verdict: "OK", installed: true, stale: false } as ProviderStatus],
 });
@@ -610,4 +610,10 @@ test("busy retry exhaustion records the attempt, temporarily skips the executor 
  expect(rec.result).toMatchObject({status:"done",executor:"cursor"});expect(rec.attempts).toHaveLength(2);
  expect(rec.attempts[0]).toMatchObject({executor:"codex",limitHit:false,brokenReason:"transient provider busy after three retries"});
  expect(readMarks(ctx).codex).toBeUndefined();expect(readFileSync(rec.attempts[0].log,"utf8").match(/transient provider busy: resend/g)).toHaveLength(3);expect(f.count(O("orchestration","worker-stop"))).toBe(1);
+});
+
+test("Orca's ask command supplies executor task identity",async()=>{
+ const {f,ctx,task,backend,cfg}=setup();
+ await backend.runAttempt(ctx,cfg,task);
+ expect(arg(startArgs(f),"--spec")).toContain(`run PACER_ROLE=executor PACER_TASK_ID=${task.id} pacer ask "<one question>"`);
 });

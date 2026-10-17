@@ -51,15 +51,13 @@ test("CLI repeated --set parses YAML flow values and --unset",async()=>{
  expect((await main(["strategy","save","cli","--reason","approved"],ctx)).code).toBe(0);expect((await main(["strategy","rm","cli"],ctx)).code).toBe(0);
  expect(()=>parseStrategyArgs(["--set","missing"])).toThrow("k=v");
 });
-test("launcher writes complete brief and exact shell-safe argv, restricts agent and falls back",async()=>{
- const ctx=await setup();let argv:string[]=[];ctx.run=async a=>{argv=a;return {code:0,stdout:'{"ok":true,"result":{}}',stderr:""};};
- const result=await build(ctx,{agent:"codex",from:"default",brief:'Protect Claude; $(touch /tmp/nope)',worktree:"id:wt"});
- expect(argv).toEqual(["orca","terminal","create","--worktree","id:wt","--title","pacer strategy","--command",`codex "$(cat '${result.path}')"`,"--json"]);
+test("launcher writes the complete brief and uses the terminal opener",async()=>{
+ const ctx=await setup();let argv:string[]=[];
+ const result=await build(ctx,{agent:"codex",from:"default",brief:'Protect Claude; $(touch /tmp/nope)',worktree:"id:wt"},{open:async(_c,o)=>{argv=o.argv;expect(o.worktree).toBe('id:wt');return {opened:true,target:'terminal',command:'codex prompt'};}});
+ expect(argv[0]).toBe('codex');expect(argv[1]).toBe(readFileSync(result.path,'utf8'));
  const text=readFileSync(result.path,"utf8");expect(text).toContain(yaml);expect(text).toContain("Protect Claude; $(touch /tmp/nope)");expect(text).toContain("Codex first, Claude keeps 15%");expect(text).toContain("Current status:");expect(text).toContain("Save only after explicit approval");expect(text).toContain("Never switch");
- const fallback=await build({...ctx,which:()=>null});expect(fallback.message).toContain(`claude "$(cat '${fallback.path}')"`);
- for(const agent of ["agy","cursor","opencode","evil"])expect(build(ctx,{agent})).rejects.toThrow("configured planner");
- expect(build({...ctx,pacerHome:ctx.pacerHome+" unsafe"})).rejects.toThrow("unsafe characters");
- expect(build({...ctx,run:async()=>({code:0,stdout:'{"ok":false}',stderr:"failed"})})).rejects.toThrow("could not open");
+ const fallback=await build({...ctx,which:()=>null});expect(fallback.opened).toBe(false);expect(fallback.message).toContain(fallback.command);
+ for(const agent of ["agy","evil"])await expect(build(ctx,{agent})).rejects.toThrow("configured planner");
 });
 test("strategy build commands reject malformed input and snapshots accept both shapes",()=>{
  const data={cmd:"strategy-build" as const,agent:"codex",from:"default",brief:"Protect Claude",worktreeId:"wt",branch:"main"};const wrap=(data:unknown)=>({v:1,type:"cmd",data});
