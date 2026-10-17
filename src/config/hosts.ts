@@ -6,6 +6,8 @@ export interface HostCfg {
   repos: Record<string, string>;
   maxTasks: number;
   paused?: boolean;
+  /** Full remote session host; absent retains script recording. */
+  session?: "recording" | "full";
   accounts: Record<string, { home: string }>;
 }
 
@@ -42,9 +44,10 @@ export function parseHosts(raw: unknown, problems: string[]): Record<string, Hos
     if (alias === "local") problems.push('hosts: "local" is reserved');
     if (!aliasPattern.test(alias)) problems.push(`${at}: invalid host alias`);
     if (!isObj(value)) { problems.push(`${at} must be a mapping`); continue; }
-    unknownKeys(value, ["ssh", "repos", "max_tasks", "accounts", "paused"], at);
+    unknownKeys(value, ["ssh", "repos", "max_tasks", "accounts", "paused", "session"], at);
     if (typeof value.ssh !== "string" || !/^[A-Za-z0-9._@][A-Za-z0-9._@-]*$/.test(value.ssh)) problems.push(`${at}.ssh must be an ssh alias`);
     if (value.paused !== undefined && typeof value.paused !== "boolean") problems.push(`${at}.paused must be a boolean`);
+    if (value.session !== undefined && value.session !== "recording" && value.session !== "full") problems.push(`${at}.session must be recording or full`);
     const maxTasks = value.max_tasks === undefined ? 2 : value.max_tasks;
     if (typeof maxTasks !== "number" || !Number.isInteger(maxTasks) || maxTasks < 1 || maxTasks > 16) problems.push(`${at}.max_tasks must be 1..16`);
     const repos: Record<string, string> = {};
@@ -65,7 +68,7 @@ export function parseHosts(raw: unknown, problems: string[]): Record<string, Hos
       if (typeof cfg.home !== "string" || !cfg.home.trim()) problems.push(`${accountAt}.home must be a non-empty folder`);
       else accounts[account] = { home: cfg.home };
     }
-    hosts[alias] = { alias, ssh: typeof value.ssh === "string" ? value.ssh : "", repos, maxTasks: typeof maxTasks === "number" ? maxTasks : 2, accounts, paused: value.paused === true };
+    hosts[alias] = { alias, ssh: typeof value.ssh === "string" ? value.ssh : "", repos, maxTasks: typeof maxTasks === "number" ? maxTasks : 2, accounts, ...(value.session === "full" || value.session === "recording" ? {session: value.session} : {}), paused: value.paused === true };
   }
   return hosts;
 }

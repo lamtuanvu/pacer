@@ -741,3 +741,26 @@ test("interactive starts generate a private token per attempt and export it to t
     expect(tokens[0]).not.toBe(tokens[1]);
   } finally {await stopRun(dir, {graceMs: 100}); rmSync(dir, {recursive: true, force: true});}
 });
+
+test("remote full-session metadata uses the local bridge pid and mirrored host state",async()=>{
+  const home=temp(),ctx=makeCtx({pacerHome:home});
+  const {sessionInfo,sessionDirectory}=await import("../src/session/service");
+  const task=createTask(ctx,{brief:{goal:"remote",repo:"."},kind:"small",requestedExecutor:null,timeoutS:30});
+  const dir=join(home,"runs",task.id,"1");mkdirSync(dir,{recursive:true});
+  updateTask(ctx,task.id,t=>{t.run={host:"box",attempt:1} as NonNullable<typeof t.run>;});
+  try{
+    writeFileSync(join(dir,"session.ckpt"),JSON.stringify({cols:80,rows:24}));
+    writeFileSync(join(dir,"session.sock"),"socket fixture");
+    writeFileSync(join(dir,"pid"),"99999999");
+    writeFileSync(join(dir,"session.remote-full"),"box");
+    writeFileSync(join(dir,"session.bridge.pid"),String(process.pid));
+    writeFileSync(join(dir,"session.state"),JSON.stringify({controller:"cli:remote",viewers:2,cols:90,rows:30}));
+    expect(sessionDirectory(ctx,task.id)).toBe(dir);
+    expect(await sessionInfo(ctx,task.id,undefined,false)).toMatchObject({host:"builtin",live:true,machine:"box",controller:"cli:remote",viewers:2,cols:90,rows:30,capabilities:{snapshot:true,control:true,resize:true}});
+    rmSync(join(dir,"session.bridge.pid"));
+    expect((await sessionInfo(ctx,task.id,undefined,false)).live).toBe(false);
+    rmSync(join(dir,"session.remote-full"));
+    expect(sessionDirectory(ctx,task.id)).toBeNull();
+    expect(await sessionInfo(ctx,task.id,undefined,false)).toMatchObject({host:"none",live:false,capabilities:{snapshot:false,control:false,resize:false,record:false}});
+  }finally{rmSync(home,{recursive:true,force:true});}
+});

@@ -1,13 +1,30 @@
 #!/bin/sh
+original_args="$*"
 # Test stand-in for OpenSSH: runs the remote command locally with HOME set to a fake host home.
+op=""; forward=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) shift 2 ;;
+    -O) op="$2"; shift 2 ;;
+    -L) forward="$2"; shift 2 ;;
     --) shift; break ;;
     *) break ;;
   esac
 done
 alias="$1"; shift
-[ -n "$PACER_FAKE_SSH_LOG" ] && printf '%s %s\n' "$alias" "$*" >> "$PACER_FAKE_SSH_LOG"
+[ -n "$PACER_FAKE_SSH_LOG" ] && printf '%s %s\n' "$alias" "$original_args" >> "$PACER_FAKE_SSH_LOG"
 case " $PACER_FAKE_SSH_DOWN " in *" $alias "*) echo "ssh: connect to host $alias port 22: Connection refused" >&2; exit 255 ;; esac
+if [ -n "$op" ]; then
+  local_socket=${forward%%:*}; remote_socket=${forward#*:}
+  if [ "$op" = cancel ]; then
+    [ ! -f "$local_socket.pid" ] || kill "$(cat "$local_socket.pid")"
+    exit 0
+  fi
+  [ "$PACER_FAKE_FORWARD_REFUSED" != 1 ] || { echo 'administratively prohibited' >&2; exit 255; }
+  bun "$(dirname "$0")/../streamlocal-forward.ts" "$local_socket" "$remote_socket" </dev/null >/dev/null 2>&1 &
+  n=0
+  while [ ! -f "$local_socket.pid" ] && [ "$n" -lt 100 ]; do sleep 0.01; n=$((n+1)); done
+  [ -f "$local_socket.pid" ] || exit 1
+  exit 0
+fi
 HOME="$PACER_FAKE_HOST_HOME" exec sh -c "$*"

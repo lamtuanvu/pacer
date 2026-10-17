@@ -153,3 +153,64 @@ test("host check diagnoses old util-linux script and a missing tail",async()=>{
     expect(check?.detail).toContain(name==="script"?"2.35":"missing");
   }
 });
+
+test("full sessions are a per-host opt-in and invalid modes are rejected", async () => {
+  const {parseHosts}=await import("../src/config/hosts");
+  const problems:string[]=[];
+  expect(parseHosts({box:{ssh:"box",session:"full"}},problems).box.session).toBe("full");
+  expect(problems).toEqual([]);
+  expect(parseHosts({box:{ssh:"box"}},[]).box.session).toBeUndefined();
+  parseHosts({box:{ssh:"box",session:"invalid"}},problems);
+  expect(problems.join(" ")).toContain("session");
+  const invalid:string[]=[];parseHosts({box:{ssh:"box",session:["full"]}},invalid);
+  expect(invalid.length).toBeGreaterThan(0);
+});
+
+test("host check persists glibc and reports Linux hosts below the binary floor", async()=>{
+  const {ctx,repo}=await fixture();
+  hosts.set(ctx,"box",{session:"full"});
+  const run=ctx.run;
+  let glibc="2.16";
+  ctx.run=async(argv,ms,o)=>{
+    const r=await run(argv,ms,o);
+    return argv.at(-1)?.includes("command -v codex") ? {...r,stdout:r.stdout+`os=Linux\narch=x86_64\nglibc=${glibc}\n`} : r;
+  };
+  const result=await hosts.check(ctx,"box",{repo});
+  expect(result.facts.glibc).toBe("2.16");
+  expect(result.checks.find(c=>c.name==="glibc")).toMatchObject({ok:false});
+  expect(result.checks.find(c=>c.name==="glibc")?.detail).toContain("2.17");
+  expect(hosts.readHostCheck(ctx,"box")?.facts.glibc).toBe("2.16");
+  glibc="2.17";
+  expect((await hosts.check(ctx,"box",{repo})).checks.find(c=>c.name==="glibc")?.ok).toBe(true);
+});
+
+test("Linux glibc diagnostics work through the host-check job step registry",async()=>{
+  const {ctx,repo}=await fixture();hosts.set(ctx,"box",{session:"full"});const run=ctx.run;
+  ctx.run=async(argv,ms,o)=>{
+    const r=await run(argv,ms,o);
+    return argv.at(-1)?.includes("command -v codex") ? {...r,stdout:r.stdout+"os=Linux\narch=x86_64\nglibc=2.17\n"} : r;
+  };
+  const result=await hosts.checkJob(ctx,"box",{repo});
+  expect(result.state).toBe("passed");
+  expect(result.steps.find(s=>s.name==="glibc")?.state).toBe("passed");
+});
+
+test("full-session hosts do not require the script/tail recording tools",async()=>{
+  const {ctx,repo}=await fixture();
+  hosts.set(ctx,"box",{session:"full"});
+  const run=ctx.run;
+  ctx.run=async(argv,ms,o)=>{
+    const r=await run(argv,ms,o);
+    return argv.at(-1)?.includes("command -v codex") ? {...r,stdout:r.stdout.replace(/script=.*\n/,"script=\n").replace(/tail=.*\n/,"tail=\n")} : r;
+  };
+  expect((await hosts.check(ctx,"box",{repo})).ok).toBe(true);
+});
+
+ test("recording-only host jobs keep their original checks on old Linux",async()=>{
+  const {ctx,repo}=await fixture();const run=ctx.run;
+  ctx.run=async(argv,ms,o)=>{const r=await run(argv,ms,o);return argv.at(-1)?.includes("command -v codex")?{...r,stdout:r.stdout+"os=Linux\nglibc=2.16\n"}:r;};
+  const result=await hosts.checkJob(ctx,"box",{repo});
+  expect(result.state).toBe("passed");expect(result.steps.some(s=>s.name==="glibc")).toBe(false);
+  expect(result.steps.find(s=>s.name==="script")?.state).toBe("passed");
+  expect(result.steps.find(s=>s.name==="tail")?.state).toBe("passed");
+});

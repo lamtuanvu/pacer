@@ -1,5 +1,5 @@
 import { readReport } from "./reports";
-import { createServer } from "node:net";
+import { createServer, createConnection } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
@@ -23,9 +23,31 @@ export function sessionSecrets(env:NodeJS.ProcessEnv,home:string):string[] {
   try { for(const f of readdirSync(join(home,"secrets"))) if(f.endsWith(".key")) values.push(readFileSync(join(home,"secrets",f),"utf8")); } catch { /* optional store */ }
   return values;
 }
+/** Internal exec-channel entry point used when sshd disallows streamlocal forwarding. */
+export async function pipeSession(path:string):Promise<number> {
+  if(!path.startsWith("/") || path.includes("\0")) throw Error("invalid session socket path");
+  const socket=createConnection(path);
+  try {
+    await new Promise<void>((resolve,reject)=>{socket.once("connect",resolve);socket.once("error",reject);});
+    return await new Promise<number>(resolve=>{
+      const stop=()=>socket.destroy();
+      socket.on("error",()=>{socket.destroy();});
+      socket.once("close",()=>{
+        process.stdin.unpipe(socket);process.stdin.pause();
+        process.stdin.off("error",stop);process.stdout.off("error",stop);
+        resolve(0);
+      });
+      process.stdin.on("error",stop);process.stdout.on("error",stop);
+      process.stdin.pipe(socket);socket.pipe(process.stdout,{end:false});
+    });
+  } finally {socket.destroy();}
+}
+
 /** Detached host entry point. Configuration is prepared by startRun; no strategy reads here. */
 export async function sessionHost(dir:string):Promise<number> {
+  if(dir.startsWith("socket:"))return pipeSession(dir.slice(7));
   const launch=JSON.parse(readFileSync(join(dir,"session.json"),"utf8")) as SessionLaunch;
+  if(launch.cwd.startsWith("~/"))launch.cwd=join(process.env.HOME ?? "",launch.cwd.slice(2));
   const atomic=(name:string,value:string)=>{writeFileSync(join(dir,`${name}.tmp`),value,{mode:0o600});renameSync(join(dir,`${name}.tmp`),join(dir,name));};
   atomic("pid",String(process.pid)); atomic("started",String(Date.now()/1000));
   writeFileSync(join(dir,"stdout"),"",{mode:0o600}); writeFileSync(join(dir,"stderr"),"",{mode:0o600});
