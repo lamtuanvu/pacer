@@ -8,6 +8,7 @@ export type ExecBackend = (typeof EXEC_BACKENDS)[number];
 export type WorktreeMode = (typeof WORKTREE_MODES)[number];
 
 export interface ExecutionCfg {
+  localMaxTasks?: number;
   session?: "pty" | "pipe";
   sessionLogMb?: number;
   sessionRetentionDays?: number;
@@ -19,9 +20,9 @@ export interface ExecutionCfg {
   idleFailS?: number;
 }
 
-export const DEFAULT_EXECUTION: ExecutionCfg = { backend: "auto", worktree: "child-of-current", baseBranch: null };
+export const DEFAULT_EXECUTION: ExecutionCfg = { localMaxTasks: 2, backend: "auto", worktree: "child-of-current", baseBranch: null };
 
-const KEYS = ["session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
+const KEYS = ["local_max_tasks", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
 
 export class ExecutionError extends Error {
   constructor(readonly problems: string[]) {
@@ -38,6 +39,8 @@ export function validateExecution(raw: unknown): ExecutionCfg {
   for (const k of Object.keys(raw)) {
     if (!KEYS.includes(k)) p.push(`execution: unknown key "${k}" (allowed: ${KEYS.join(", ")})`);
   }
+  const localMaxTasks = raw.local_max_tasks ?? 2;
+  if (typeof localMaxTasks !== "number" || !Number.isInteger(localMaxTasks) || localMaxTasks < 1 || localMaxTasks > 16) p.push("execution.local_max_tasks must be 1..16");
   const backend = String(raw.backend ?? DEFAULT_EXECUTION.backend);
   if (!(EXEC_BACKENDS as readonly string[]).includes(backend)) {
     p.push(`execution.backend must be one of ${EXEC_BACKENDS.join(", ")} (got "${backend}")`);
@@ -78,7 +81,7 @@ export function validateExecution(raw: unknown): ExecutionCfg {
     ...(raw.session !== undefined ? {session: raw.session as "pty" | "pipe"} : {}),
     ...(raw.session_log_mb !== undefined ? {sessionLogMb: raw.session_log_mb as number} : {}),
     ...(raw.session_retention_days !== undefined ? {sessionRetentionDays: raw.session_retention_days as number} : {}),
-    backend: backend as ExecBackend, worktree: worktree as WorktreeMode, baseBranch,
+    localMaxTasks: localMaxTasks as number, backend: backend as ExecBackend, worktree: worktree as WorktreeMode, baseBranch,
     ...(registerRepos !== undefined ? { registerRepos: registerRepos as boolean } : {}),
     ...(idleAfter !== undefined ? { idleAfterS: idleAfter * 60 } : {}),
     ...(idleFail !== undefined ? { idleFailS: idleFail * 60 } : {}),

@@ -39,7 +39,7 @@ test("throwing available falls back to direct", async () => {
 });
 
 const status = (): Status => ({
-  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
+  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
   executors: { ranked: [], excluded: [] },
   providers: [{ id: "codex", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false } as ProviderStatus],
 });

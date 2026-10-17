@@ -40,7 +40,7 @@ test("missing strategy: status exits 2 with guidance; --line and --hook still ex
   expect(r.err).toContain("examples/strategy.yaml");
   const line = await main(["status", "--line"], ctx);
   expect(line.code).toBe(0);
-  expect(line.out).toContain("◆ Budget ? (no strategy found");
+  expect(line.out).toBe("pacer not running · pacer serve");
   const hook = await main(["status", "--hook", "claude-code"], ctx);
   expect(hook).toEqual({ code: 0, out: "{}", err: "" });
 });

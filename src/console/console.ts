@@ -1,36 +1,22 @@
+import { resolveRepo } from "../core/repos";
 import { openSession } from "../session/service";
 import { runMappedCmd } from "../api/cmd";
 import { callOp } from "../api/ops";
-import { configCmd, CONFIG_KEYS } from "../commands/config";
-import { accountCmd, runnerCmd } from "../commands/accounts";
-import { pacerArgv } from "../install/self";
-import { shellCommand } from "../install/fsx";
-import { checkSetupCommand } from "../setup/check";
-import { checkUpdateReport, installedPlugin } from "../update/check";
-import { defaultUpdateDeps, runUpdate } from "../update/update";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient } from "../exec/orca/client";
-import { pluginCli } from "../plugin/cli";
-import * as core from "../core";
 import { CoreError } from "../core/errors";
-import {taskData} from "../link/pump";
 import { currentVersion } from "../update/version";
 import { publish } from "../link/publish";
-import { build } from "../strategy/launcher";
 import type { Ctx } from "../types";
 import type { DelegateInput } from "../tasks/api";
 import type { TaskRecord } from "../tasks/types";
 import { decodeCmdLine, splitCmdLines, summaryLine, type CmdData, type ConsoleData, type Envelope } from "../link/envelope";
 import { currentSnapshot } from "../link/store";
-import { parseRunnerId } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { spawnRunner, type taskStop } from "../tasks/api";
-import { readTask, updateTask, isTaskId, listTasks } from "../tasks/store";
+import { readTask, isTaskId, listTasks } from "../tasks/store";
 export interface ConsoleIO { lines: AsyncIterable<string>; write(text: string): void }
 export interface ConsoleDeps {
-  checkSetup?(ctx: Ctx): Promise<string>;
-  checkUpdates?(ctx: Ctx): Promise<import("../commands/types").Result>;
-  update?(ctx: Ctx): Promise<import("../commands/types").Result>;
   delegate(ctx: Ctx, input: DelegateInput): TaskRecord;
   readTask?: typeof readTask;
   taskStop?: typeof taskStop;
@@ -66,8 +52,18 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
     print(`pacer: unknown executor ${displayText(id)}`); return false;
   };
   return async (data: CmdData) => {
+    if(data.cmd==="use" && !data.strategy){chooseStrategy();return;}
+    if(data.cmd==="delegate") {
+      if(!validExecutor(data.executor))return;
+      const repo=data.worktreeId||data.branch?await deps.resolveWorktreePath(fresh(),data.branch??"",data.worktreeId):deps.cwd;
+      print(`delegate requested from Orca (${displayText(data.displayName||data.branch||"focused worktree")})`);
+      if(!repo){print("pacer: focused worktree could not be resolved");return;}
+      if(data.goal===undefined){startDelegate(repo);return;}
+      if(!data.goal.trim()){print("pacer: goal is required");return;}
+      data={...data,path:repo};
+    }
     const r = await runMappedCmd(async (op, p) => {
-      try { return await callOp(fresh(), op, p, { spawnRunner }); }
+      try { return await callOp(fresh(), op, p, { spawnRunner, delegate: (c,input) => deps.delegate(c,input) }); }
       catch (e) {
         if (e instanceof CoreError && e.code === "unknown_task") throw new CoreError("unknown_task", "unknown task");
         if (data.cmd === "retry" && e instanceof CoreError && e.code === "conflict") {
@@ -78,50 +74,6 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
     }, data, { fromPanel: true });
     if (r.handled) { print(r.message); await refresh(); return; }
     switch (data.cmd) {
-      case "config-set": {
-        if(!data.key || !(CONFIG_KEYS as readonly string[]).includes(data.key) || typeof data.value!=="string") {print("pacer: unknown config key or missing value");break;}
-        const result=await configCmd(["set",data.key,data.value],fresh());print(result.out || result.err);await refresh();break;
-      }
-      case "account-remove":
-      case "runner-remove": {
-        const validName=typeof data.name==="string" && data.name.length<=128 && (data.cmd==="account-remove" ? /^[a-z0-9][a-z0-9-]*$/.test(data.name) : !!parseRunnerId(data.name));
-        if(!validName) {print("pacer: invalid account name or runner id");break;}
-        const result=await (data.cmd==="account-remove"?accountCmd:runnerCmd)(["rm",data.name!],fresh());
-        print(result.out || result.err);await refresh();break;
-      }
-      case "open-terminal": {
-        const commands={"account-add":["account","add"],"account-add-orca":["account","add","--orca"],"runner-add":["runner","add"],init:["init"]};
-        if(!data.command || !Object.hasOwn(commands,data.command)) {print("pacer: unknown terminal command");break;}
-        const c=fresh(),client=new OrcaClient(c.run,c.env);
-        // The panel supplies the focus resolved by resolveFocusedWorktree; never use the console CWD.
-        const path=!data.worktreeId && data.branch ? await deps.resolveWorktreePath(c,data.branch) : null;
-        let selector=data.worktreeId?`id:${data.worktreeId}`:path?`path:${path}`:null;
-        if(!selector && !data.branch && !data.worktreeId) {
-          const focused=await client.call<{worktree?:{id?:string}}>(["worktree","show","--worktree","active"]);
-          if(!focused.ok) {print(`pacer: focused worktree could not be resolved: ${focused.error.message}`);break;}
-          if(typeof focused.result.worktree?.id==="string" && focused.result.worktree.id) selector=`id:${focused.result.worktree.id}`;
-        }
-        if(!selector) {print("pacer: focused worktree could not be resolved");break;}
-        const result=await client.call<{terminal?:{handle?:string}}>(["terminal","create","--worktree",selector,"--title","pacer settings","--command",shellCommand([...pacerArgv(c.env),...commands[data.command]])]);
-        print(result.ok && result.result.terminal?.handle ? `pacer settings opened in terminal ${result.result.terminal.handle}` : `pacer: could not open settings terminal: ${result.ok?"missing terminal handle":result.error.message}`);
-        break;
-      }
-      case "check-setup": { print(await (deps.checkSetup ?? checkSetupCommand)(fresh())); await refresh(); break; }
-      case "check-updates": { const result = await (deps.checkUpdates ?? checkUpdateReport)(fresh()); print(result.out || result.err); await refresh(); break; }
-      case "update": {
-        const c = fresh(), result = await (deps.update ?? (c => runUpdate({check:false}, defaultUpdateDeps(c))))(c);
-        print(result.out || result.err);
-        if (!result.code) {
-          // An up-to-date CLI can still have an older development plugin folder.
-          // Successful binary updates already refresh it using the new executable.
-          const plugin = installedPlugin(c);
-          if (!result.out.startsWith("updated pacer ") && plugin?.mode === "live" && plugin.hint) {
-            const installed = await pluginCli(["install"], c); print(installed.out || installed.err);
-          }
-          print("Turn pacer off and on in Orca Settings > Plugins.");
-        }
-        await refresh(); break;
-      }
       case "attach":
       case "focus": {
         if(data.cmd==='attach'&&data.target==='terminal'){
@@ -140,55 +92,6 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
         print(message);
         await publish(fresh(),[{v:1,type:"alert",data:{key:`focus-${data.taskId}`,level:"warn",title:"Task session unavailable",body:message,at:fresh().now}}]);break;
       }
-      case "delegate": {
-        if (!validExecutor(data.executor)) return;
-        const repo = data.worktreeId || data.branch ? await deps.resolveWorktreePath(fresh(), data.branch ?? "", data.worktreeId) : null;
-        print(`delegate requested from Orca (${displayText(data.displayName || data.branch || "focused worktree")})`);
-        if (data.goal !== undefined) {
-          if (!data.goal.trim()) { print("pacer: goal is required"); return; }
-          if ((data.worktreeId || data.branch) && !repo) { print("pacer: focused worktree could not be resolved"); return; }
-          const task = deps.delegate(fresh(), { brief: { repo: repo || deps.cwd, goal: data.goal, ...(data.acceptance?.trim() ? { acceptance: data.acceptance } : {}) }, ...(data.executor ? { executor: data.executor } : {}) });
-          if(readTask(fresh(),task.id))updateTask(fresh(),task.id,t=>{t.fromPanel=true;});
-          await publish(fresh(),[{v:1,type:"task",data:taskData(readTask(fresh(),task.id)??task)}]);
-          print(`${task.id} queued`); await deps.pump(fresh());
-        } else startDelegate(repo || deps.cwd);
-        break;
-      }
-      case "retry-all": {
-        if (!validExecutor(data.executor)) return;
-        const ids = data.taskIds ?? (data.taskId ? [data.taskId] : []);
-        for (const id of ids) {
-          try {
-            const r = await core.tasks.retry(fresh(), id, {...(data.executor?{executor:data.executor}:{}), fromPanel:true}, {delegate:(c,input)=>deps.delegate(c,input)});
-            await publish(fresh(),[{v:1,type:"task",data:taskData(r.of)},{v:1,type:"task",data:taskData(r.retry)}]);
-            print(`${r.retry.id} queued (retry of ${r.of.id})`);
-          } catch(e) {
-            if(e instanceof CoreError && e.code==="unknown_task"){print("pacer: unknown task");continue;}
-            if(e instanceof CoreError && e.code==="conflict"){
-              print(`pacer: ${e.message}`);
-              await publish(fresh(),[{v:1,type:"alert",data:{key:`retry-${id}`,level:"warn",title:"Retry already running",body:e.message,at:fresh().now}}]);
-              continue;
-            }
-            throw e;
-          }
-        }
-        await deps.pump(fresh()); break;
-      }
-      case "strategy-build": {
-        const selector=data.worktreeId ? `id:${data.worktreeId}` : data.branch ? `branch:${data.branch}` : "active";
-        let opened=false, message="";
-        try { const result=await build(fresh(),{agent:data.agent,from:data.from,brief:data.brief,worktree:selector}); opened=result.opened; message=result.message; }
-        catch(e){message=e instanceof Error?e.message:String(e);}
-        print(message);
-        await publish(fresh(),[{v:1,type:"alert",data:{key:"strategy-build",level:opened?"info":"error",title:opened?"Strategy session opened":"Strategy session failed",body:opened?"":message,at:fresh().now}}]);
-        break;
-      }
-      case "notify-level": {
-        const result=await pluginCli(["set","notifications",data.level ?? ""],fresh());
-        print(result.code===0 ? result.out : result.err);
-        break;
-      }
-      case "use": chooseStrategy(); break;
       case "refresh": await refresh(); break;
       case "agent-done": print(`agent finished (${data.paneKey ?? ""}); refreshing`); await deps.pump(fresh()); break;
       default: print("pacer: unknown plugin command"); break;
@@ -257,7 +160,7 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
       case 4: {
         prompt = null;
         const brief = { goal: p.goal, repo: p.repo, ...(p.scope ? { scope: p.scope } : {}), ...(p.acceptance ? { acceptance: p.acceptance } : {}) };
-        const task = deps.delegate(fresh(), { brief, kind: value || null });
+        const task = deps.delegate(fresh(), { brief, repoRef:await resolveRepo(fresh(),brief.repo), kind: value || null });
         print(`${task.id} queued`);
         await deps.pump(fresh());
         return;

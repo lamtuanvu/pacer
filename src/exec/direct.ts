@@ -20,7 +20,7 @@ import { type ExecResult, executorEnv } from "./process";
 import { buildPrompt } from "./prompt";
 import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
-import { transferBack, transferred } from "../remote/transfer";
+import { receiveQuestion, transferBack, transferred } from "../remote/transfer";
 import { taskWorktreePath, createTaskWorktree } from "../supervisor/worktree";
 import { gitFingerprint, idleSeconds, nextProgress } from "../supervisor/progress";
 
@@ -182,7 +182,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
     return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
   }
   if (mode === "new" && !("error" in git)) {
-    const base = ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch;
+    const base = task.brief.base ?? (ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch);
     if (base === "HEAD") {
       const reason = `${git.top} has a detached HEAD; check out a branch or set execution.base_branch`;
       return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
@@ -209,7 +209,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
   let launch: ReturnType<typeof launchFor>;
   let env: Record<string, string | undefined>;
   try {
-    env = executorEnv(ctx.env, await providerEnv(ctx, cfg));
+    env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
     const interactive = cfg.session === "interactive";
     const instructions = interactive ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
     launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id);
@@ -244,8 +244,10 @@ export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord
   if (!task.run) throw new Error(`task ${task.id} has no run to resume`);
   const run = task.run;
   const result = await finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
-  if (!run.host || result.exec.timedOut || readTask(ctx, task.id)?.state === "stopped") return result;
+  if (!run.host || readTask(ctx, task.id)?.state === "stopped") return result;
   const host = loadStrategy(ctx).hosts[run.host];
+  await receiveQuestion(ctx,task,host,run);
+  if (result.exec.timedOut) return result;
   if (result.exec.code !== 0) {
     const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree!, run.baseSha!, run.remoteBranch ?? `pacer/${task.id}`]);
     if (preflight.code || Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0) === 0) return result;

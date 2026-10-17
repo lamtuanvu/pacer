@@ -8,9 +8,11 @@ export async function sessionTaskData(ctx:Ctx,data:TaskData,orcaLive:boolean):Pr
  let session=previous?.session;
  if(!previous||ctx.now-previous.at>=1||ctx.now<previous.at){
   try{const info=await sessionInfo(ctx,data.id,orcaLive,false);session={host:info.host,live:info.live,controller:info.controller,viewers:info.viewers};}
-  catch{session={host:'none',live:false,controller:null,viewers:0};}
+  catch{const orca=orcaLive||data.backend==='orca';session={host:orca?'orca':'none',live:orca&&orcaLive,controller:null,viewers:0};}
   cache.set(key,{at:ctx.now,session});
   if(cache.size>1000)cache.delete(cache.keys().next().value!);
  }
+ // Orca terminal receipts are cheap and already fetched: reflect them now, not after the throttle.
+ if(session?.host==='orca'&&session.live!==orcaLive)session={...session,live:orcaLive};
  return {...data,session,terminalPresent:session?.host==='orca'&&session.live};
 }

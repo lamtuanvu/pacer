@@ -1,3 +1,4 @@
+import { withLockSync } from "../core/lock";
 import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -24,21 +25,41 @@ export function isTaskId(id: string): boolean {
 export function createTask(
   ctx: Ctx, input: { brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number },
 ): TaskRecord {
-  const task: TaskRecord = { id: newTaskId(ctx.now), createdAt: ctx.now, ...input, state: "queued", attempts: [] };
+  const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, state: "queued", attempts: [] };
   writeJsonAtomic(taskFile(ctx, task.id), task);
   return task;
 }
 
 export function readTask(ctx: Ctx, id: string): TaskRecord | null {
-  return isTaskId(id) ? readJson<TaskRecord>(taskFile(ctx, id)) : null;
+  const task = isTaskId(id) ? readJson<TaskRecord>(taskFile(ctx, id)) : null;
+  if (task) task.rev ??= 1;
+  return task;
+}
+
+// Only synchronous callbacks may run here: nested updates share the operation's
+// lock, and no other callback in this process can interleave while it is held.
+const heldTaskLocks = new Set<string>();
+export function withTaskLock<T>(ctx: Ctx, id: string, action: () => T): T {
+  if (!isTaskId(id)) return action(); // Preserve each caller's unknown-task handling.
+  const key = taskFile(ctx, id);
+  if (heldTaskLocks.has(key)) return action();
+  return withLockSync(ctx, `task-${id}`, () => {
+    heldTaskLocks.add(key);
+    try { return action(); }
+    finally { heldTaskLocks.delete(key); }
+  });
 }
 
 export function updateTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void): TaskRecord {
-  const t = readTask(ctx, id);
-  if (!t) throw new Error(`unknown task ${id}`);
-  mutate(t);
-  writeJsonAtomic(taskFile(ctx, id), t);
-  return t;
+  return withTaskLock(ctx, id, () => {
+    const t = readTask(ctx, id);
+    if (!t) throw new Error(`unknown task ${id}`);
+    const rev = t.rev;
+    mutate(t);
+    t.rev = rev + 1;
+    writeJsonAtomic(taskFile(ctx, id), t);
+    return t;
+  });
 }
 
 /** Newest first. */

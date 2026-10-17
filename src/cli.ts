@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+import { readLatest } from "./link/store";
+import { resolveRepoInput } from "./core/repos";
+import { callOp } from "./api/ops";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
 import { sessionHost } from "./session/host";
@@ -18,7 +21,7 @@ import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
 import { io } from "./install/stdin";
-import { resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
 import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, strategyPath } from "./config/strategy";
@@ -46,20 +49,24 @@ export const cliDeps: { spawnRunner: SpawnRunner } = { spawnRunner };
 const USAGE = `usage: pacer <command>
   dashboard                                      live interactive terminal dashboard
   status [--line | --json | --hook <planner>]   budget status (default: text report)
+  pause <for> | resume                          pause or resume delegation
   route [kind] [--json]                          executors pacer would use, in order
   delegate [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-reason <text>]
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
-  review <task-id> --accept|--reject [--kind <k>] [--json] record review
+  review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
+  executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   report --task <task-id> --outcome done|failed|needs-input|running --summary <text>
   attach <task-id> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
+  answer <task-id> "<text>"                       answer a question and retry on the same executor
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
+  ask "<question>" record one question and stop the delegated task
   report-limit <provider> [--until <unix-seconds>] record an executor limit
   host list [--json] | check <alias> [--repo <path>] [--json] | setup <alias> [--repo <path>] | clean <alias> [--json]
   limits check [--json]                          where each account's usage comes from, its age and freshness
@@ -75,14 +82,14 @@ const USAGE = `usage: pacer <command>
 JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors.
 route: kind, ranked, excluded. delegate: TaskRecord (id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields).
 tasks <id>, wait, stop, retry: task_id, state, kind, requested_executor, placement, attempts, result, review, resolved.
-tasks: array of those task summaries. review: recorded. Flags override brief-file fields; repo defaults to cwd.
+tasks: array of those task summaries. review: { task, retry? }. Flags override brief-file fields; repo defaults to cwd.
 install <planner> [--mcp|--no-mcp]: skill and hooks; MCP is optional.
 update refreshes installed skills, policy and hooks; --no-reinstall skips refresh.
 Cursor and OpenCode also read ~/.claude/skills; Cursor also reads ~/.codex/skills.
 Identical pacer skill copies may appear; update refresh keeps them identical.`;
 
 function help(): string {
-  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "clean", "host", "limits", "mcp", "api", "serve", "use", "help", "--help", "-h", "_run"]);
+  const builtins = new Set(["status", "route", "delegate", "tasks", "stop", "retry", "answer", "clean", "host", "limits", "mcp", "api", "serve", "use", "help", "--help", "-h", "_run"]);
   const extras = EXTRA_COMMANDS.filter((c) => !builtins.has(c.name));
   return extras.length ? `${USAGE}\n${extras.map((c) => `  ${c.usage}`).join("\n")}` : USAGE;
 }
@@ -143,8 +150,22 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     if (mode === "hook" && !plannerPolicyApplies(ctx, planner!, hookInput(process.stdin.isTTY ? "" : await io.readStdin().catch(() => "")))) {
       return { code: 0, out: "", err: "" };
     }
+    let counts:{running:number;attention:number}|undefined;
+    if(mode==="line") {
+      try {
+        const token=readFileSync(join(ctx.pacerHome,"token"),"utf8").trim();
+        if(!token)throw Error("token missing");
+        const response=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT??DEFAULT_PORT}/v2/snapshot`,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(300),redirect:"error"});
+        if(!response.ok){await response.body?.cancel();throw Error("service unavailable");}
+        const body=await response.json() as {snapshot?:{counts?:{running:number;attention:number}}};
+        const c=body.snapshot?.counts;
+        if(c && Number.isInteger(c.running)&&c.running>=0&&Number.isInteger(c.attention)&&c.attention>=0)counts=c;
+      } catch {
+        if(ctx.now-readLatest(ctx).at>120)return {code:0,out:"pacer not running · pacer serve",err:""};
+      }
+    }
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
-    if (mode === "line") return { code: 0, out: renderLine(st), err: "" };
+    if (mode === "line") return { code: 0, out: renderLine(st,counts), err: "" };
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
     return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
@@ -205,7 +226,9 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
-    const t=core.tasks.delegate(ctx,{...parseDelegateBrief(raw,process.cwd()),force:opts.force===true},cliDeps.spawnRunner);
+    const input=parseDelegateBrief(raw,process.cwd());
+    const repoRef=await resolveRepoInput(ctx,input.brief.repo);
+    const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
@@ -246,11 +269,34 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
   switch (cmd) {
+    case "pause":
+    case "resume": {
+      if (rest.length !== (cmd === "pause" ? 1 : 0)) return {code: 2, out: "", err: `usage: pacer ${cmd === "pause" ? "pause <for>" : "resume"}`};
+      try {
+        const result = await callOp(ctx, cmd === "pause" ? "delegation.pause" : "delegation.resume", cmd === "pause" ? {for: rest[0]} : {});
+        return {code: 0, out: JSON.stringify(result), err: ""};
+      } catch (e) { return {code: 2, out: "", err: explain(e)}; }
+    }
     case "account": return accountCmd(rest, ctx);
     case "runner": return runnerCmd(rest, ctx);
     case "config": return configCmd(rest, ctx);
     case "dashboard": return runDashboard(rest, ctx);
     case "setup": return setupCmd(rest, ctx);
+    case "answer": {
+      try {
+        if (rest.length !== 2) throw new Error('usage: pacer answer <task> "<text>"');
+        const result = await callOp(ctx,"task.answer",{id:rest[0],text:rest[1]},{spawnRunner:cliDeps.spawnRunner});
+        return {code:0,out:JSON.stringify(result),err:""};
+      } catch(e) {return {code:2,out:"",err:explain(e)};}
+    }
+    case "ask": {
+      try {
+        const id = core.tasks.requireAskingExecutor(ctx);
+        if (rest.length !== 1) throw new Error("usage: pacer ask \"<one question>\"");
+        await core.tasks.ask(ctx, id, rest[0]);
+        return {code:0, out:"Question recorded; stop and wait for the answer.", err:""};
+      } catch (e) { return {code:2, out:"", err:e instanceof Error ? e.message : String(e)}; }
+    }
     case "report-limit": {
       const {opts,pos}=parseFlags(rest,[]);
       try{const raw=str(opts.until);const r=core.limits.report(ctx,pos[0],raw===undefined?undefined:Number(raw));
@@ -271,12 +317,15 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "dismiss":
     case "retry":
     case "stop": {
-      const {opts,pos}=parseFlags(rest,["json","accept","reject"]);
+      const {opts,pos}=parseFlags(rest,["json","accept","reject","send-back"]);
       if(!pos[0])return {code:2,out:"",err:USAGE};
       try {
         if(cmd==="review") {
-          if(!!opts.accept===!!opts.reject)throw new Error("give exactly one of --accept or --reject");
-          const result=core.tasks.review(ctx,pos[0],{accepted:!!opts.accept,kind:str(opts.kind)});
+          if([opts.accept,opts.reject,opts["send-back"],opts["retry-on"]].filter(Boolean).length!==1)throw new Error("give exactly one of --accept, --reject, --send-back or --retry-on <executor>");
+          if(opts["retry-on"]===true)throw new Error("--retry-on requires an executor");
+          if((opts["send-back"]||opts["retry-on"])&&isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
+          const verdict=opts.accept?"accept":opts.reject?"reject":opts["send-back"]?"send_back":"retry";
+          const result=await core.tasks.review(ctx,pos[0],{verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note)}, {delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner)});
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
         }
         if(cmd==="dismiss") {
@@ -314,7 +363,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           const r = await core.hosts.clean(ctx, alias);
           return { code: 0, out: opts.json ? JSON.stringify(r) : [...r.removed.map(id => `${id} removed`), ...r.kept.map(k => `${k.id} kept: ${k.reason}`)].join("\n") || "nothing to clean", err: "" };
         }
-        const r = action === "setup" ? await core.hosts.setup(ctx, alias, str(opts.repo) ?? process.cwd(), async question => {
+        const r = action === "setup" ? await core.hosts.confirmSetup(ctx, alias, str(opts.repo) ?? process.cwd(), async question => {
           if (!process.stdin.isTTY) { process.stdout.write(`${question} [y/N] (confirmation required)\n`); return false; }
           const rl = createInterface({ input: process.stdin, output: process.stdout });
           try { return /^y(?:es)?$/i.test((await rl.question(`${question} [y/N] `)).trim()); } finally { rl.close(); }

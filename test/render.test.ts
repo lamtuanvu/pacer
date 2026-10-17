@@ -10,7 +10,7 @@ const w = (name: string, used: number, verdict: string, extra: object = {}) =>
   ({ name, usedPct: used, resetsAt: null, lengthS: 1, paced: true, verdict, ...extra }) as never;
 
 const ST: Status = {
-  generatedAt: now, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false,
+  generatedAt: now, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: false,
   providers: [
     { id: "claude-code", usage: "quota", windows: [w("weekly", 4, "ON_PACE", { pace: 10, resetsAt: localTs(2026, 10, 17, 12, 0), activeHoursLeft: 57 })], binding: null, verdict: "ON_PACE", installed: true, stale: false },
     { id: "codex", usage: "quota", windows: [w("weekly", 100, "EXHAUSTED", { pace: 30, resetsAt: localTs(2026, 10, 15, 17, 29) })], binding: null, verdict: "EXHAUSTED", installed: true, stale: false },

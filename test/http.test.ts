@@ -30,14 +30,14 @@ test("requests without the bearer token are rejected", async () => {
   expect((await fetch(`${url}/state`, { headers: { authorization: "Bearer wrong" } })).status).toBe(401);
 });
 
-test("/state returns the status JSON; unknown paths 404; non-GET 405", async () => {
+test("removed routes return 404; unknown paths 404; non-GET 405", async () => {
   const { url, token } = await serve();
   const h = { authorization: `Bearer ${token}` };
   const r = await fetch(`${url}/state`, { headers: h });
-  expect(r.status).toBe(200);
-  expect((await r.json()).planner).toBe("claude-code");
+  expect(r.status).toBe(404);
+  for(const path of ["/console/open","/console/forget"])expect((await fetch(url+path,{method:"POST",headers:h})).status).toBe(404);
   expect((await fetch(`${url}/nope`, { headers: h })).status).toBe(404);
-  expect((await fetch(`${url}/state`, { method: "POST", headers: h })).status).toBe(405);
+  expect((await fetch(`${url}/state`, { method: "POST", headers: h })).status).toBe(404);
 });
 
 test("/events streams budget envelopes", async () => {
