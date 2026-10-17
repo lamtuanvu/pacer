@@ -7,14 +7,17 @@ import { currentVersion } from "../update/version";
 import { readLiveHeartbeat } from "../plugin/live";
 import type { Ctx } from "../types";
 import { setupChecklist, setupText, type SetupChecklist, type SetupFacts } from "./checklist";
-export async function checkSetup(ctx:Ctx):Promise<SetupChecklist> {
+export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean}={}):Promise<SetupChecklist> {
  const errors:SetupFacts["errors"]={};let planner:string|null=null,service={installed:false,running:false},link=false;
  try {planner=loadStrategy(ctx).planner.agent;}catch(e){errors.strategy=String((e as Error).message);}
  try {service=await serviceBackend(ctx).status(2000);}catch(e){errors.service=String((e as Error).message);}
  try {const r=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT||4317}/health`,{signal:AbortSignal.timeout(2000)});if(r.ok&&r.headers.get("x-pacer")==="1"){
    const token=readFileSync(join(ctx.pacerHome,"token"),"utf8").trim();
-   const linked=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT||4317}/link`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(2000)});
+   // Snapshot construction already proves its API route is reachable.
+   if(options.snapshotProbe===false)link=true;
+   else {const linked=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT||4317}/v2/snapshot`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(2000)});
    link=linked.ok&&linked.headers.get("x-pacer")==="1";
+   await linked.body?.cancel();}
   }}catch{}
  const plans=agentPlans(ctx.home,ctx.pacerHome,ctx.which,ctx.env);
 

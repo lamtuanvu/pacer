@@ -33,7 +33,7 @@ export function fmtReset(ts: number | null, now: number): string {
   return `↻ ${ts - now < 20 * 3600 ? hm : `${DAYS[d.getDay()]} ${hm}`}`;
 }
 
-export function renderLine(st: Status): string {
+export function renderLine(st: Status, counts?: {running:number;attention:number}): string {
   const sep = `  ${paint("│", "dim")}  `;
   if (st.disabled) return `${paint("◆ Budget", "dim")}  pacer off (PACER=off)`;
   const parts = accountGroups(st.providers).flatMap(g=>g.rows).map((p) => {
@@ -61,5 +61,5 @@ export function renderLine(st: Status): string {
   let next = ranked.length ? `next executor: ${label(ranked[0].id)}` : "no executor budget left";
   if (ranked.length && unavailable.length) next += ` (${unavailable.join(", ")} unavailable)`;
   const line2 = `${paint("» Mode", "dim")}  ${paint(st.mode, modeColor)}: ${label(st.planner)} ${MODE_SHORT[st.mode]}${sep}${next}`;
-  return `${line1}\n${line2}`;
+  return `${line1}\n${line2}${counts?`${sep}▸${counts.running} ⚑${counts.attention}`:""}`;
 }

@@ -22,15 +22,14 @@ function fixture(show=true) {
  const post=(body:unknown={terminal:"term_existing",branch:"feat/x"},headers:Record<string,string>={},method="POST",path="/console/open")=>opener(new Request(url+path,{method,headers:{"content-type":"application/json",...headers},body:typeof body==="string"?body:JSON.stringify(body)}),ctx);
  return {f,ctx,post,httpPost};
 }
-test("console POST authenticates, validates methods, media type, size and selectors",async()=>{
+test("removed console routes authenticate but no longer validate requests or call Orca",async()=>{
  const {httpPost:post,f}=fixture();
- expect((await post({}, {authorization:"bad"})).status).toBe(401);
- expect((await post({}, {},"PUT")).status).toBe(405);
- expect((await post({}, {},"POST","/other")).status).toBe(405);
- expect((await post({}, {},"GET")).status).toBe(404);
- expect((await post({}, {"content-type":"text/plain"})).status).toBe(415);
- expect((await post(" ".repeat(4097))).status).toBe(413);
- for(const body of ["{",[],null,{}, {terminal:"term_;evil"},{terminal:"term_"},{branch:"x;echo"},{branch:"x".repeat(201)},{terminal:"term_x",branch:7}])expect((await post(body)).status).toBe(400);
+ for(const path of ["/console/open","/console/forget"]){
+  expect((await post({}, {authorization:"bad"},"POST",path)).status).toBe(401);
+  for(const method of ["GET","POST","PUT"])expect((await post({}, {},method,path)).status).toBe(404);
+  expect((await post({}, {"content-type":"text/plain"},"POST",path)).status).toBe(404);
+  for(const body of [" ".repeat(4097),"{",[],null,{}, {terminal:"term_;evil"},{terminal:"term_"},{branch:"x;echo"},{branch:"x".repeat(201)},{terminal:"term_x",branch:7}])expect((await post(body,{},"POST",path)).status).toBe(404);
+ }
  expect(f.calls).toHaveLength(0);
 });
 test("handle resolves preferred worktree, creates constant quoted command without focus and alerts",async()=>{

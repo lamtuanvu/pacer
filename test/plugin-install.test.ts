@@ -108,7 +108,7 @@ test("plugin status probes configured port and home",async()=>{
   await pluginCli(["set","port",String(server.port)],ctx);await pluginCli(["set","pacerHome",alternate],ctx);
   const result=await pluginCli(["status"],ctx);
   expect(result.out).toContain("serve: reachable");
-  expect(requests).toEqual([{path:"/health",auth:null},{path:"/link",auth:"Bearer alternate-token"}]);
+  expect(requests).toEqual([{path:"/health",auth:null},{path:"/v2/snapshot",auth:"Bearer alternate-token"}]);
  }finally{server.stop(true);}
 });
 

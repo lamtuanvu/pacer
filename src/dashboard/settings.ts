@@ -9,7 +9,7 @@ import type {CmdData,LinkSnapshot} from '../link/envelope';
 import type {Result} from '../commands/types';
 import {moveSelection} from './input';
 export interface SettingsRow {id:string;section:string;text:string;reason?:string;run?:()=>Promise<unknown>}
-export interface SettingsDeps {changed():void;report(text:string):void;command(data:CmdData):Promise<void>;login?:AccountDeps['login'];snapshot?:()=>LinkSnapshot}
+export interface SettingsDeps {ops?:()=>readonly string[];changed():void;report(text:string):void;command(data:CmdData):Promise<void>;login?:AccountDeps['login'];snapshot?:()=>LinkSnapshot}
 /** Terminal settings calls the same validated writers as the CLI. */
 export class DashboardSettings {
  open=false;selected=0;busy=false;pending:Promise<void>=Promise.resolve();
@@ -48,7 +48,13 @@ export class DashboardSettings {
   const check=new StrategyDoc(readFileSync(strategyPath(this.ctx),'utf8')).getIn(['update_check'])!==false;
   add('Plugin','update-check',`Update checks: ${check?'on':'off'}`,()=>this.set('update_check',String(!check)));
   add('Plugin','plugin-info','Notifications and automatic console: Orca plugin settings');
-  return rows;
+  const supports=(op:string)=>!this.deps.ops||this.deps.ops().includes(op);
+  return rows.filter(row=>{
+   if(!row.run)return true;
+   const id=row.id;
+   const op=id==='account-add'||id==='account-link'?'account.signin':id==='runner-add'?'runner.add':id.startsWith('account-')?'account.remove':id.startsWith('runner-')?'runner.remove':id.startsWith('executor-')?(this.deps.snapshot?.().budget?.providers.find(p=>p.id===id.slice(9))?.blockedReason?'runner.unblock':'runner.block'):id==='routing'||id==='strategy-new'?'strategy.build':id.startsWith('strategy-')?'strategy.use':id==='check-updates'?'update.check':id==='update'?'update.apply':'config.set';
+   return supports(op);
+  });
  }
  private async builder(){const agent=await this.ask('Planner agent (claude-code, codex)'),brief=await this.ask('Strategy brief');await this.deps.command({cmd:'strategy-build',agent,brief,from:loadStrategy(this.ctx).name});}
  private start(run:()=>Promise<unknown>){if(this.busy)return;this.busy=true;this.pending=Promise.resolve().then(run).then(()=>{}).catch(e=>this.deps.report(e instanceof Error?e.message:String(e))).finally(()=>{this.busy=false;this.prompt=null;this.deps.changed();});}
@@ -59,12 +65,12 @@ export class DashboardSettings {
   if(key==='escape'){this.open=false;return;}
   const rows=this.rows();this.selected=moveSelection(key,this.selected,rows.length);const row=rows[this.selected];
   if(['left','right'].includes(key)&&['reserve','threshold'].includes(row?.id)){const s=loadStrategy(this.ctx),reserve=row.id==='reserve',value=reserve?s.pacing.plannerReserve:s.pacing.fillThreshold;this.start(()=>this.set(reserve?'pacing.planner_reserve':'pacing.fill_threshold',String(Math.max(reserve?0:50,Math.min(reserve?50:100,value+(key==='left'?-5:5))))));return;}
-  if(key==='s'){this.start(async()=>{const name=await this.ask(`Strategy (${listStrategies(this.ctx).join(', ')})`);await this.deps.command({cmd:'use',strategy:name});});return;}
-  if(['a','l'].includes(key)&&['Accounts','Runners'].includes(row?.section)){const id=key==='l'?'account-link':row.section==='Accounts'?'account-add':'runner-add';this.start(rows.find(r=>r.id===id)!.run!);return;}
-  if(['[',']'].includes(key)&&row?.id.startsWith('executor-')){const s=loadStrategy(this.ctx),order=[...s.pacing.order],i=order.indexOf(row.id.slice(9)),j=i+(key==='['?-1:1);if(j>=0&&j<order.length){[order[i],order[j]]=[order[j],order[i]];this.start(()=>this.set('pacing.order',order.join(',')));}return;}
-  if(key==='r'&&row?.section==='Executors'||key==='n'&&row?.section==='Strategies'){this.start(()=>this.builder());return;}
+  if(key==='s'&&(!this.deps.ops||this.deps.ops().includes('strategy.use'))){this.start(async()=>{const name=await this.ask(`Strategy (${listStrategies(this.ctx).join(', ')})`);await this.deps.command({cmd:'use',strategy:name});});return;}
+  if(['a','l'].includes(key)&&['Accounts','Runners'].includes(row?.section)){const id=key==='l'?'account-link':row.section==='Accounts'?'account-add':'runner-add';const run=rows.find(r=>r.id===id)?.run;if(run)this.start(run);return;}
+  if(['[',']'].includes(key)&&row?.id.startsWith('executor-')&&(!this.deps.ops||this.deps.ops().includes('config.set'))){const s=loadStrategy(this.ctx),order=[...s.pacing.order],i=order.indexOf(row.id.slice(9)),j=i+(key==='['?-1:1);if(j>=0&&j<order.length){[order[i],order[j]]=[order[j],order[i]];this.start(()=>this.set('pacing.order',order.join(',')));}return;}
+  if((key==='r'&&row?.section==='Executors'||key==='n'&&row?.section==='Strategies')&&(!this.deps.ops||this.deps.ops().includes('strategy.build'))){this.start(()=>this.builder());return;}
   if((key==='enter'||key==='x'&&['Accounts','Runners'].includes(row?.section)||key==='b'&&row?.section==='Executors')&&row?.run){if(row.reason)this.deps.report(row.reason);else this.start(row.run);}
-  if(key==='c')this.start(()=>this.deps.command({cmd:'check-updates'}));if(key==='u')this.start(rows.find(r=>r.id==='update')!.run!);
+  if(key==='c'&&rows.some(r=>r.id==='check-updates'))this.start(()=>this.deps.command({cmd:'check-updates'}));if(key==='u'){const run=rows.find(r=>r.id==='update')?.run;if(run)this.start(run);}
  }
 }
 

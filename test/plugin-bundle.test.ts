@@ -18,3 +18,7 @@ test("worker bundle has no console or terminal calls", async () => {
  const worker=await Bun.file("orca-plugin/dist/worker.mjs").text();
  for(const token of ["terminal.sendText","/console/open","/console/forget"])expect(worker).not.toContain(token);
 });
+
+ test("plugin auto transport order omits legacy HTTP",async()=>{
+ const {TRANSPORT_ORDER}=await import("../orca-plugin/src/transports/choose");expect(TRANSPORT_ORDER).toEqual(["api","channel","bridge"]);
+ });

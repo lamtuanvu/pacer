@@ -18,7 +18,7 @@ export async function flush() { for(let i=0;i<100;i++) await Promise.resolve(); 
 const alert: Envelope = { v:1, type:"alert", data:{ key:"a", level:"warn", title:"Alert", body:"body", at:100 } };
 function stub(id: Transport["id"], up: boolean): Transport { return { id, probe:async()=>up, snapshot:async()=>null, watch:()=>()=>{} }; }
 for (const [up, forced, id, reachable] of [
-  [[true,true,true],"auto","http",true], [[false,true,true],"auto","channel",true], [[false,false,true],"auto","bridge",true], [[false,false,false],"auto",null,false], [[true,true,true],"bridge","bridge",true], [[false,true,true],"http","http",false],
+  [[true,true,true],"auto","channel",true], [[false,true,true],"auto","channel",true], [[false,false,true],"auto","bridge",true], [[false,false,false],"auto",null,false], [[true,true,true],"bridge","bridge",true], [[false,true,true],"http","http",false],
 ] as const) test(`choose ${up} forced ${forced}`, async()=> { const r=await chooseTransport([stub("bridge",up[2]),stub("channel",up[1]),stub("http",up[0])],forced); expect(r.transport?.id??null).toBe(id); expect(r.reachable).toBe(reachable); });
 test("HTTP probe rejects missing token, 401 and a pending request at 1500ms",async()=> {
  const timers=new ManualTimers(); let token:string|null=null; let pending=false;
@@ -135,7 +135,7 @@ test("api transport probes false when pacer cannot start", async () => {
 test("auto prefers api and falls back through existing transports", async () => {
  for (const available of [true, false]) {
   const r = await chooseTransport([stub("bridge", true), stub("http", true), stub("api", available)], "auto");
-  expect(r.transport?.id).toBe(available ? "api" : "http");
+  expect(r.transport?.id).toBe(available ? "api" : "bridge");
  }
  expect(readSettings({ transport: "api" }, "").transport).toBe("api");
 });
@@ -200,4 +200,27 @@ for (const fails of [false, true]) test(`plugin owns API client lifecycle (faile
    else expect(closes).toBe(1);
  } finally { await plugin.deactivate(); }
  expect(closes).toBe(1);
+});
+
+test("API worker registers and renews its notifier, delivering only targeted service notifications", async()=>{
+ const timers=new ManualTimers(),calls:{op:string;params:unknown}[]=[],shown:unknown[]=[];
+ const client=fakeClient({hello:async()=>({protocol:"2.6.0",pacer:"1",ops:["client.register","client.heartbeat"],events:["notify"]}),call:async<T>(op:string,params:unknown)=>{calls.push({op,params});return (op==="client.register"?{client_id:"orca-1",lease_s:30}:{ok:true}) as T;}});
+ const originalSnapshot=client.snapshot;
+ client.snapshot=async()=>{const result=await originalSnapshot();result.snapshot.alerts=[{key:"legacy",at:1,level:"warn",title:"Legacy alert",body:"body",notification:{kind:"failed",fromPanel:true}}];return result;};
+ const plugin=createPlugin({connect:async()=>client,timers,nowS:()=>timers.now/1000,version:"1",home:"/tmp/plugin-fixture",pluginRoot:"/tmp/plugin-fixture",fs:{exists:()=>true,readText:()=>null,writeTextAtomic(){}},http:{get:async()=>({status:401,body:""}),stream:()=>()=>{}}});
+ const ctx={host:{call:async(method:string,params:unknown)=>{if(method==="notifications.show"){shown.push(params);return {delivered:true};}return method==="settings.get"?{settings:{transport:"api",notifications:"all"}}:{value:null};}},commands:{register(){}},events:{on(){}},log(){}} as unknown as OrcaWorkerContext;
+ try{
+  await plugin.activate(ctx);await flush();
+  expect(calls).toContainEqual({op:"client.register",params:{kind:"orca",version:"1",notifier:true}});
+  const data={key:"k",title:"Needs you",body:"Review",actions:[],url:"/app/#tasks/t",client_id:"another"};
+  client.emit({seq:6,at:0,type:"notify",data});await flush();expect(shown).toEqual([]);
+  client.emit({seq:7,at:0,type:"notify",data:{...data,client_id:"orca-1"}});await flush();
+  client.emit({seq:8,at:0,type:"notify",data:{...data,client_id:"orca-1",key:"second"}});await flush();
+  expect(shown).toEqual([{title:"Needs you",body:"Review"},{title:"Needs you",body:"Review"}]);
+  client.emit({seq:9,at:0,type:"notify",data:{...data,client_id:"orca-1"}});await flush();expect(shown).toHaveLength(2);
+  await timers.advance(30000);
+  expect(calls).toContainEqual({op:"client.heartbeat",params:{client_id:"orca-1"}});
+  expect(shown).toHaveLength(2);
+ }finally{await plugin.deactivate();}
+ const count=calls.length;await timers.advance(60000);expect(calls).toHaveLength(count);
 });

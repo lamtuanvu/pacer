@@ -6,6 +6,7 @@ import { cmdToOp, runMappedCmd } from "../src/api/cmd";
 import { ApiError } from "../src/api/client";
 import { CoreError } from "../src/core/errors";
 import { consoleCommands, type ConsoleDeps } from "../src/console/console";
+import { CMD_NAMES } from "../src/link/envelope";
 import { createTask, readTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
@@ -28,7 +29,7 @@ test("runMappedCmd reports success and errors and skips unmapped commands", asyn
   expect(await runMappedCmd(call, { cmd: "stop", taskId: t.id })).toEqual({ handled: true, ok: true, message: `${t.id} stopped` });
   expect(readTask(ctx, t.id)?.state).toBe("stopped");
   expect(await runMappedCmd(call, { cmd: "stop", taskId: "missing" })).toMatchObject({ handled: true, ok: false, message: expect.stringMatching(/^pacer: .*missing/) });
-  expect(await runMappedCmd(call, { cmd: "check-updates" })).toEqual({ handled: false });
+  expect(await runMappedCmd(call, { cmd: "refresh" })).toEqual({ handled: false });
 });
 
 for (const ErrorType of [ApiError, CoreError]) test(`runMappedCmd preserves ${ErrorType.name} hints`, async () => {
@@ -65,4 +66,39 @@ test("retry mapping opts console commands into panel semantics", () => {
   const retry = { cmd: "retry" as const, taskId: "t1", executor: "codex" };
   expect(cmdToOp(retry, { fromPanel: true })).toEqual({ op: "task.retry", params: { id: "t1", executor: "codex", from_panel: true } });
   expect(cmdToOp(retry)?.params.from_panel ?? false).toBe(false);
+});
+
+ test("every non-local console command maps to a v2 op", () => {
+  for (const cmd of CMD_NAMES.filter(cmd => !["refresh", "agent-done", "worktree-created", "focus"].includes(cmd))) {
+   expect(cmdToOp({cmd}), cmd).not.toBeNull();
+  }
+  expect(cmdToOp({cmd:"delegate",goal:"fix",path:"/repo"})).toEqual({op:"task.delegate",params:{goal:"fix",repo:"/repo",source:"ui"}});
+ });
+ test("task.retry_all retries two tasks and skips an active retry", async () => {
+  const ctx=await ctxWithStrategy();
+  const tasks=Array.from({length:3},()=>createTask(ctx,{brief:{goal:"g",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60}));
+  await callOp(ctx,"task.retry",{id:tasks[1].id},{spawnRunner:()=>{}});
+  const result=await callOp(ctx,"task.retry_all",{ids:tasks.map(t=>t.id)},{spawnRunner:()=>{}}) as any;
+  expect(result.retried.map((r:any)=>r.of.task_id)).toEqual([tasks[0].id,tasks[2].id]);
+  expect(result.skipped).toEqual([{id:tasks[1].id,reason:"retry already running"}]);
+ });
+
+test("interactive settings commands use the terminal opener through ops",async()=>{
+ const ctx=await ctxWithStrategy();
+ for(const command of ["account-add","account-add-orca","runner-add","init"] as const){
+  const mapped=cmdToOp({cmd:"open-terminal",command,worktreeId:"wt-1"})!;
+  const opened:unknown[]=[];
+  const result=await callOp(ctx,mapped.op,mapped.params,{openTerminal:async(_ctx,options)=>{opened.push(options);return {opened:true,target:"orca",command:"safe"};}});
+  expect(result).toMatchObject({opened:true});expect(opened).toEqual([expect.objectContaining({worktree:"id:wt-1",title:"pacer settings"})]);
+ }
+});
+
+test("config mapping preserves planner integration changes",()=>{
+ expect(cmdToOp({cmd:"config-set",key:"planner",value:"codex"})).toEqual({op:"config.set",params:{key:"planner",value:"codex",integrations:"install"}});
+});
+
+test("UI delegation preserves panel completion notification eligibility",async()=>{
+ const ctx=await ctxWithStrategy();
+ const result=await callOp(ctx,"task.delegate",{goal:"fix",repo:ctx.home,source:"ui"},{spawnRunner:()=>{}}) as {task_id:string};
+ expect(readTask(ctx,result.task_id)).toMatchObject({source:"ui",fromPanel:true});
 });

@@ -96,3 +96,7 @@ that a successful spike verifies every detail of the host API.
   and budget is shown through notifications only.
 - **S4 refuses other worktrees:** the console must run in the worktree the user
   focuses, and notifications say so.
+
+Phase 4 update: `/state` and `/console/*` have been removed. Clients use
+`/v2/snapshot` and v2 operations. `/link` and `/events` remain deprecated until
+3.0; the default plugin transport order is API, channel, bridge.

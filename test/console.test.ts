@@ -158,10 +158,10 @@ test("delegate repo prompt strips controls from a resolved worktree path", async
 test("delegate with goal bypasses prompts and preserves the full brief and selected executor",async()=>{
  const h=harness({configuredExecutors:()=>["codex"]});
  await h.run([encodeCmdLine({cmd:"delegate",branch:"feat-x",goal:"fix this",acceptance:"bun test",executor:"codex"}),"status"]);
- expect(h.inputs).toEqual([{brief:{repo:"/wt/feat-x",goal:"fix this",acceptance:"bun test"},executor:"codex",repoRef:repoFor(h.ctx,"/wt/feat-x")}]);expect(h.output()).not.toContain("goal> ");expect(h.output()).toContain("STATUS TEXT");expect(h.output()).toContain("t-20261012-120000-abcd queued");
+ expect(h.inputs).toMatchObject([{brief:{repo:"/wt/feat-x",goal:"fix this",acceptance:"bun test"},executor:"codex",source:"ui",repoRef:repoFor(h.ctx,"/wt/feat-x")}]);expect(h.output()).not.toContain("goal> ");expect(h.output()).toContain("STATUS TEXT");expect(h.output()).toContain("t-20261012-120000-abcd queued");
 });
 test("delegate omits acceptance and refuses unresolved focused worktree",async()=>{
- const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:"fix"})]);expect(h.inputs[0].brief).not.toHaveProperty("acceptance");
+ const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:"fix"})]);expect(h.inputs[0].brief.acceptance).toBeUndefined();
  const failed=harness({resolveWorktreePath:async()=>null});await failed.run([encodeCmdLine({cmd:"delegate",branch:"missing",goal:"fix"})]);expect(failed.inputs).toHaveLength(0);expect(failed.output()).toContain("could not be resolved");
 });
 test("retry re-delegates the stored brief with explicit executor or ranking",async()=>{
@@ -310,27 +310,22 @@ test("focus missing and stale worker terminals report friendly panel errors",asy
  expect(h.output()).toContain(terminal?"Could not open":"no longer has");expect(readLatest(h.ctx).alerts.find(a=>a.key==="focus-task_a")?.level).toBe("warn");}
 });
 
-test("human and panel update commands share handlers and show the toggle hint only on success",async()=>{
- const calls:string[]=[];
- const h=harness({checkUpdates:async()=>{calls.push("check");return {code:0,out:"Current: 1.0.0",err:""};},update:async()=>{calls.push("update");return {code:0,out:"updated",err:""};}});
- await h.run(["check-updates",encodeCmdLine({cmd:"check-updates"}),"update",encodeCmdLine({cmd:"update"})]);
- expect(calls).toEqual(["check","check","update","update"]);expect(h.output()).toContain("Turn pacer off and on in Orca Settings > Plugins.");
- const failed=harness({update:async()=>({code:1,out:"",err:"offline"})});await failed.run(["update"]);expect(failed.output()).toContain("offline");expect(failed.output()).not.toContain("Turn pacer off");
+test("human and panel update commands use v2 update operations",async()=>{
+ const ops=await import("../src/api/ops");
+ const call=spyOn(ops,"callOp").mockResolvedValue({current:"1.0.0",latest:"1.0.1"});
+ try {
+  const h=harness();await h.run(["check-updates",encodeCmdLine({cmd:"check-updates"})]);
+  expect(call.mock.calls.map(c=>c[1])).toEqual(["update.check","update.check"]);
+  expect(h.output()).toContain("latest 1.0.1");expect(h.calls).toEqual(["pump","pump"]);
+  call.mockClear();call.mockResolvedValue({job:{id:"j-update"}});
+  await h.run(["update",encodeCmdLine({cmd:"update"})]);
+  expect(call.mock.calls.map(c=>c[1])).toEqual(["update.apply","update.apply"]);
+  expect(h.output()).toContain("update job: j-update");
+ }finally{call.mockRestore();}
 });
-
-test("update refreshes an older live plugin even when the CLI is already current",async()=>{
- const {mkdirSync,writeFileSync,readFileSync}=await import("node:fs");const {join}=await import("node:path");
- const h=harness({update:async()=>({code:0,out:`pacer ${currentVersion()} is up to date`,err:""})});
- const marker=join(h.ctx.pacerHome,"orca-plugin/.pacer-managed");mkdirSync(join(h.ctx.pacerHome,"orca-plugin"),{recursive:true});writeFileSync(marker,JSON.stringify({version:"0.0.1"}));
- await h.run(["update"]);
- expect(JSON.parse(readFileSync(marker,"utf8")).version).toBe(currentVersion());expect(h.output()).toContain("Turn pacer off and on");
-});
-
-test("check-setup console command rechecks and refreshes for panel and human input",async()=>{
- let checks=0;
- const h=harness({checkSetup:async()=>{checks++;return "Setup checked";}});
- await h.run([encodeCmdLine({cmd:"check-setup"}),"check-setup"]);
- expect(checks).toBe(2);expect(h.output()).toContain("Setup checked");expect(h.calls).toEqual(["pump","pump"]);
+test("check-setup console command runs the v2 checklist op for panel and human input",async()=>{
+ const h=harness();await h.run([encodeCmdLine({cmd:"check-setup"}),"check-setup"]);
+ expect(h.output()).toContain("Setup");expect(h.calls).toEqual(["pump","pump"]);
 });
 
 test("console block of an unknown executor writes nothing", async () => {

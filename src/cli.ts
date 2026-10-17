@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { readLatest } from "./link/store";
 import { resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
 import { createInterface } from "node:readline/promises";
@@ -16,7 +17,7 @@ import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
 import { io } from "./install/stdin";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
 import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, strategyPath } from "./config/strategy";
@@ -141,8 +142,22 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     if (mode === "hook" && !plannerPolicyApplies(ctx, planner!, hookInput(process.stdin.isTTY ? "" : await io.readStdin().catch(() => "")))) {
       return { code: 0, out: "", err: "" };
     }
+    let counts:{running:number;attention:number}|undefined;
+    if(mode==="line") {
+      try {
+        const token=readFileSync(join(ctx.pacerHome,"token"),"utf8").trim();
+        if(!token)throw Error("token missing");
+        const response=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT??DEFAULT_PORT}/v2/snapshot`,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(300),redirect:"error"});
+        if(!response.ok){await response.body?.cancel();throw Error("service unavailable");}
+        const body=await response.json() as {snapshot?:{counts?:{running:number;attention:number}}};
+        const c=body.snapshot?.counts;
+        if(c && Number.isInteger(c.running)&&c.running>=0&&Number.isInteger(c.attention)&&c.attention>=0)counts=c;
+      } catch {
+        if(ctx.now-readLatest(ctx).at>120)return {code:0,out:"pacer not running · pacer serve",err:""};
+      }
+    }
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
-    if (mode === "line") return { code: 0, out: renderLine(st), err: "" };
+    if (mode === "line") return { code: 0, out: renderLine(st,counts), err: "" };
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
     return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };

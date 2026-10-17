@@ -25,7 +25,7 @@ export async function linkCli(args: string[], ctx: Ctx): Promise<Result> {
   const settings = readJson<Record<string, unknown>>(join(pluginDataDir(ctx), "settings.json"));
   const port = typeof settings?.port === "number" && Number.isInteger(settings.port) && settings.port > 0 && settings.port <= 65535 ? settings.port : DEFAULT_PORT;
   const pacerHome = typeof settings?.pacerHome === "string" && settings.pacerHome.startsWith("/") ? settings.pacerHome : ctx.pacerHome;
-  const url = `http://127.0.0.1:${port}/link`;
+  const url = `http://127.0.0.1:${port}/v2/snapshot`;
   let serve = "not reachable (token missing)";
   try {
     const token = readFileSync(join(pacerHome, "token"), "utf8").trim();
