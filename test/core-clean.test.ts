@@ -44,3 +44,24 @@ test("clean leaves unreviewed tasks and honours --dry-run", async () => {
   expect(await tasks.clean(b.ctx, { dryRun: true })).toEqual({ removed: [b.t.id], kept: [] });
   expect(existsSync(b.w.path)).toBe(true);
 });
+
+test("clean prunes settled in-place recordings, preserves logs and respects dry-run", async () => {
+  const ctx=fakeCtx();
+  const cases=[{state:"done",review:true,prune:true},{state:"failed",dismissed:true,prune:true},{state:"done",resolved:true,prune:true},{state:"running",review:true,prune:false},{state:"done",prune:false}] as const;
+  const fixtures=cases.map(c=>{
+    const t=createTask(ctx,{brief:{goal:"g",repo:"."},kind:null,requestedExecutor:null,timeoutS:60});
+    updateTask(ctx,t.id,x=>{x.state=c.state;
+      x.run={dir:join(ctx.pacerHome,"runs",t.id,"1"),attempt:1,executor:"codex",startedAt:1,mode:"current",workdir:".",logFile:""};
+      if("review" in c)x.review={accepted:true,kind:null,note:null,at:1};if("dismissed" in c)x.dismissed=true;if("resolved" in c)x.resolved="resolved";});
+    const dir=join(ctx.pacerHome,"runs",t.id,"1");mkdirSync(dir,{recursive:true});
+    for(const name of ["session.log","session.log.1","session.ckpt","stdout","stderr","exit"])writeFileSync(join(dir,name),"retained");
+    return {dir,prune:c.prune};
+  });
+  await tasks.clean(ctx,{dryRun:true});
+  for(const {dir} of fixtures)expect(existsSync(join(dir,"session.log"))).toBe(true);
+  await tasks.clean(ctx);
+  for(const {dir,prune} of fixtures){
+    for(const name of ["session.log","session.log.1","session.ckpt"])expect(existsSync(join(dir,name))).toBe(!prune);
+    for(const name of ["stdout","stderr","exit"])expect(existsSync(join(dir,name))).toBe(true);
+  }
+});
