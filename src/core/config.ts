@@ -1,3 +1,5 @@
+import { isTerminalPreset, TERMINAL_PRESET_ERROR } from '../session/terminal-presets';
+import { Document } from 'yaml';
 import { publishConfigChange } from "./events";
 import { readFileSync } from "node:fs";
 import { atomicStrategyWrite, editStrategy, StrategyDoc } from "../config/edit";
@@ -13,13 +15,13 @@ import { CoreError, toCoreError } from "./errors";
 import { PLANNERS } from "../config/strategy";
 import { plannerAccounts } from "../install/init";
 
-export const CONFIG_KEYS = ['planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app'] as const;
+export const CONFIG_KEYS = ['planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
 }
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
-  return {planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
+  return {'terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.accounts':s.pacing.accounts,
     'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
@@ -54,7 +56,7 @@ export function get(ctx: Ctx) {
 }
 
 /** Validate before writing; integration failure rolls back our strategy edit. */
-export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {integrations?: "install" | "skip"} = {}) {
+export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {integrations?: "install" | "skip"; terminalPresetsOnly?: boolean} = {}) {
   try {
     const path=strategyPath(ctx), s=loadStrategy(ctx), before=readFileSync(path,'utf8'), doc=new StrategyDoc(before), values=effective(s,doc);
     const applyEdit = (change: Parameters<typeof editStrategy>[1]) => {
@@ -69,9 +71,18 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
     if (Array.isArray(input) && k !== 'pacing.order') throw new CoreError("invalid_input", `${k} requires a scalar value`, "Use a list only for pacing.order");
     const v = Array.isArray(input) ? input.join(',') : String(input);
     if (typeof input !== 'string' && typeof input !== 'number' && typeof input !== 'boolean' && !(Array.isArray(input) && input.every(v => typeof v === 'string'))) throw new CoreError("invalid_input", "config value must be a scalar or string list");
+    if(key==='terminal.open' && options.terminalPresetsOnly && !isTerminalPreset(v))
+      throw new CoreError("invalid_input", TERMINAL_PRESET_ERROR, 'Use pacer config set terminal.open to configure a custom template.');
     const value=parseValue(key,v),undo=`pacer config set ${key} ${undoValue(values[key])}`;
+    const setValue=(target:StrategyDoc)=>{
+      if(key==='terminal.open' && target.getIn(['terminal','open'])!==undefined){
+        // A template may contain braces inside an existing flow mapping.
+        const node=new Document().createNode(String(value));node.type='QUOTE_DOUBLE';
+        target.replaceNode(['terminal','open'],node);
+      }else target.setIn(key.split('.'),value);
+    };
     // Preflight the whole result before any integration or strategy writes.
-    doc.setIn(key.split('.'),value);
+    setValue(doc);
     const next=validateStrategy(Bun.YAML.parse(doc.toString()),path);
     let diff=''; const notes: string[]=[];
     if(key==='planner' && options.integrations !== 'skip') {
@@ -97,7 +108,7 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
           throw e;
         }
       }
-    } else diff=applyEdit(d=>Array.isArray(value)?d.setList(key.split('.'),value):d.setIn(key.split('.'),value));
+    } else diff=applyEdit(d=>Array.isArray(value)?d.setList(key.split('.'),value):setValue(d));
     await publishConfigChange(ctx, "config");
     return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes};
   } catch (e) { throw toCoreError(e); }
