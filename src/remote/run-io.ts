@@ -58,7 +58,9 @@ export class RemoteRunIO implements RunIO {
       const binary = full ? await ensureRemoteBinary(this.ctx,this.host,this.runtime) : undefined;
       const launch = full ? JSON.stringify({argv,cwd,capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024})+"\n" : wrapper;
       const result = await this.run(SCRIPTS.START, [this.remoteDir, cwd, full ? "full" : mode, ...(binary ? [binary] : []), ...Object.entries(env).map(([key, value]) => `${key}=${value}`), "--", ...argv], `${launch}__PACER_STDIN__\n${stdin}`);
-      const pid = number(fields(result.stdout).pid);
+      const started = fields(result.stdout);
+      if (started.error) return { error: `remote start refused: ${started.error}` };
+      const pid = number(started.pid);
       if (pid === null) return { error: "remote start did not return a pid" };
       mkdirSync(this.localDir, { recursive: true });
       for (const file of ["pid", "started", "exit", "stdout", "stderr", "session.log", "session.log.1", "session.ckpt", "session.json", "session.remote.json", "session.remote-full"]) rmSync(join(this.localDir, file), { force: true });

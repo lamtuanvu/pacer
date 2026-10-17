@@ -182,7 +182,7 @@ umask 077
 mkdir -p "$D" || exit 1
 chmod 700 "$D"
 printf '%s' "$mode" > "$D/session.host"
-rm -f "$D/pid" "$D/pid.tmp" "$D/child" "$D/started" "$D/exit" "$D/exit.tmp" "$D/stdout" "$D/stderr" "$D/session.raw" "$D/session.log" "$D/session.log.1" "$D/session.ckpt" "$D/session.state" "$D/session.sock.path"
+rm -f "$D/start.error" "$D/pid" "$D/pid.tmp" "$D/child" "$D/started" "$D/exit" "$D/exit.tmp" "$D/stdout" "$D/stderr" "$D/session.raw" "$D/session.log" "$D/session.log.1" "$D/session.ckpt" "$D/session.state" "$D/session.sock.path"
 # Read only the wrapper as lines; cat preserves every byte of the remaining prompt.
 : > "$D/run.sh"
 while IFS= read -r line; do
@@ -206,9 +206,10 @@ done
 shift
 if [ "$mode" = full ]; then
   hash=\${binary%/pacer}; hash=\${hash##*/}
-  [[ "$hash" =~ ^[a-f0-9]{64}$ ]] || exit 1
+  # A refusal is written down so START reports it at once instead of waiting for a pid.
+  [[ "$hash" =~ ^[a-f0-9]{64}$ ]] || { printf "invalid runtime path" > "$D/start.error"; exit 1; }
   if command -v sha256sum >/dev/null; then actual=$(sha256sum "$binary"); else actual=$(shasum -a 256 "$binary"); fi
-  [ "\${actual%% *}" = "$hash" ] || exit 1
+  [ "\${actual%% *}" = "$hash" ] || { printf "runtime binary failed its hash check" > "$D/start.error"; exit 1; }
   printf "%s" "$binary" > "$D/session.binary"
   exec "$binary" _session "$D"
 fi
@@ -223,7 +224,8 @@ fi
 exec sh "$D/run.sh" "$D" "$@"
 ' pacer "$D" "$mode" "$@" </dev/null >/dev/null 2>&1 &
 n=0
-while [ ! -s "$D/pid" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+while [ ! -s "$D/pid" ] && [ ! -s "$D/start.error" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+if [ -s "$D/start.error" ]; then printf 'error=%s\\n' "$(cat "$D/start.error")"; exit 0; fi
 [ -s "$D/pid" ] || exit 1
 printf 'pid=%s\\n' "$(cat "$D/pid")"`,
   REPORT: `D="$1"
