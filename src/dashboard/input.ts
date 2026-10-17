@@ -30,3 +30,9 @@ export function updateKey(key: Key, confirming = false): "confirm" | "cancel" | 
  if(confirming) return key.toLowerCase()==="y" ? {cmd:"update"} : ["n","N","enter","escape"].includes(key) ? "cancel" : undefined;
  return key==="c" ? {cmd:"check-updates"} : key==="u" ? "confirm" : undefined;
 }
+
+export function viewerAction(key:Key,card?:Card):{id:string;target:'here'|'terminal'|'tmux'}|undefined {
+ if(!card?.sessionTaskId)return;
+ const target=key==='enter'?'here':key==='t'?'terminal':key==='m'?'tmux':undefined;
+ if(target)return {id:card.sessionTaskId,target};
+}

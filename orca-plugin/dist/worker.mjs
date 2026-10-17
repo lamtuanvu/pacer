@@ -1151,6 +1151,7 @@ function parseTask(d) {
     backend: optStr(d.backend, 32),
     worktree: optStr(d.worktree, 4096),
     ...isObj(d.placement) && ["current", "new"].includes(String(d.placement.mode)) && typeof d.placement.why === "string" ? { placement: { mode: d.placement.mode, why: d.placement.why.slice(0, 240) } } : {},
+    ...isObj(d.session) && ["builtin", "orca", "none"].includes(String(d.session.host)) && typeof d.session.live === "boolean" && num(d.session.viewers) !== null ? { session: { host: d.session.host, live: d.session.live, controller: optStr(d.session.controller, 64), viewers: Math.max(0, Math.min(99, Math.floor(num(d.session.viewers)))) } } : {},
     ...typeof d.terminalPresent === "boolean" ? { terminalPresent: d.terminalPresent } : {},
     ...optStr(d.resolved, 240) ? { resolved: optStr(d.resolved, 240) } : {},
     ...isObj(d.review) && typeof d.review.accepted === "boolean" && num(d.review.at) !== null ? { review: { accepted: d.review.accepted, kind: optStr(d.review.kind, 64), note: optStr(d.review.note, 1000), at: num(d.review.at) } } : {},

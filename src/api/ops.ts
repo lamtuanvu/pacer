@@ -11,6 +11,7 @@ import { drainQueueOnRead } from "../tasks/drain";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
+import { sessionOps } from "./ops-session";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
 import { openInTerminal } from "../terminal/open";
@@ -42,6 +43,7 @@ import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 
 export interface OpDeps {
+  terminalPresetsOnly?: boolean;
   client?: string;
   delegate?: typeof core.tasks.delegate;
   runnerCheck?: RunnerCheckDeps;
@@ -135,7 +137,7 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
   }, deps.terminal);
 }
 
-export const OPS: Record<string, OpDef> = {
+export const OPS: Record<string, OpDef> = { ...sessionOps,
   "activity.list": op({
     description: "Activity log, newest first, with optional repo, kind and task filters.",
     params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
@@ -197,7 +199,7 @@ export const OPS: Record<string, OpDef> = {
   "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, deps.openInTerminal) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
-  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, p); return result; } }),
+  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: ctx => setup.check(ctx) }),

@@ -1,3 +1,4 @@
+import { isTerminalPreset, TERMINAL_PRESET_ERROR } from '../session/terminal-presets';
 import { setupText, type SetupChecklist } from "../setup/checklist";
 import { ApiError } from "./client-types";
 import { CoreError } from "../core/errors";
@@ -67,6 +68,8 @@ export async function runMappedCmd(
   data: CmdData,
   options: { fromPanel?: boolean } = {},
 ): Promise<{ handled: false } | { handled: true; ok: boolean; message: string }> {
+  if(data.cmd==='config-set' && data.key==='terminal.open' && !isTerminalPreset(data.value??''))
+    return {handled:true,ok:false,message:`pacer: ${TERMINAL_PRESET_ERROR}`};
   const command = cmdToOp(data, options);
   if (!command) return { handled: false };
   try {

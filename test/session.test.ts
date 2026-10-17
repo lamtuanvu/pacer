@@ -289,3 +289,83 @@ for (const fault of ["callback", "exception", "rejection"] as const) {
     } finally {host.kill();rmSync(dir,{recursive:true,force:true});}
   },10000);
 }
+
+import * as targets from "../src/session/targets";
+import { ViewerHub } from "../src/session/viewers";
+import { viewerMessageFrames } from "../src/serve/session-ws";
+import { EventEmitter } from "node:events";
+import type { Socket } from "node:net";
+
+for (const [setting, expected] of [
+  ["alacritty -e {cmd}", ["alacritty", "-e", "pacer", "attach", "t-1"]],
+  ["foot {cmd}", ["foot", "pacer", "attach", "t-1"]],
+  ["sh -c {cmd}", ["sh", "-c", "pacer", "attach", "t-1"]],
+  ["sh -c 'exec {cmd}'", ["sh", "-c", "exec pacer attach t-1"]],
+] as const) test(`terminal template expands ${setting}`, () => {
+  expect(targets.terminalRecipe(setting, "t-1")).toEqual([...expected]);
+});
+
+test("AppleScript strings escape quotes and backslashes without JSON escapes", () => {
+  expect(targets.appleScriptString('a\\b"c\t')).toBe('"a\\\\b\\"c\t"');
+  for (const preset of ["iterm", "terminal-app"]) {
+    expect(targets.terminalRecipe(preset, "t-1")[2]).toContain('"pacer attach t-1"');
+  }
+});
+
+// Only the OS socket boundary is replaced; framing, admission and queues stay real.
+class ViewerSocket extends EventEmitter {
+  destroyed=false; writableLength=0; frames:Buffer[]=[];
+  write(bytes:Buffer){this.frames.push(bytes);return true;}
+  end(bytes:Buffer,done?:()=>void){this.write(bytes);this.destroy();done?.();return this;}
+  destroy(){if(!this.destroyed){this.destroyed=true;this.emit("close");}return this;}
+  hello(client="cli",label="cli") {this.emit("data",wire(FrameType.hello,{v:1,client,label}));}
+}
+function viewerFixture(enqueue:(fn:()=>void)=>void=fn=>fn()) {
+  const markers:string[]=[],counts:number[]=[],sockets:ViewerSocket[]=[];
+  const hub=new ViewerHub(()=>wire(FrameType.snapshot,{viewers:hub.size}),()=>null,enqueue,
+    (event,label)=>markers.push(`${event}:${label}`),n=>counts.push(n));
+  const connect=()=>{const s=new ViewerSocket();sockets.push(s);hub.add(s as unknown as Socket);return s;};
+  return {hub,markers,counts,connect};
+}
+test("app labels retain the bridge-assigned client in attach and detach markers", () => {
+  const {hub,connect,markers}=viewerFixture(),socket=connect();
+  try {
+    for(const bytes of viewerMessageFrames(JSON.stringify({type:"hello",v:1,client:"cli",label:"cli"})))socket.emit("data",bytes);
+    socket.destroy();
+    expect(markers).toEqual(["attach:app:cli","detach:app:cli"]);
+  } finally {hub.destroy();}
+});
+test("pending connections never consume viewer slots or appear in snapshots", () => {
+  const {hub,connect,counts}=viewerFixture();
+  try {
+    const pending=Array.from({length:17},connect);
+    expect(hub.size).toBe(0);expect(counts).toEqual([]);
+    const joined=Array.from({length:16},()=>{const s=connect();s.hello();return s;});
+    expect(hub.size).toBe(16);
+    expect(JSON.parse(new WireDecoder().push(joined[0].frames[0])[0].data.toString()).viewers).toBe(1);
+    const extra=connect();extra.hello();expect(extra.destroyed).toBe(true);
+    expect(hub.size).toBe(16);
+    joined[0].destroy();pending[0].hello();expect(hub.size).toBe(16);
+  } finally {hub.destroy();}
+});
+test("a connection without hello is closed after five seconds", async () => {
+  const {hub,connect,markers}=viewerFixture(),pending=connect(),joined=connect();joined.hello();
+  const queue:(()=>void)[]=[],delayed=viewerFixture(fn=>queue.push(fn)),waiting=delayed.connect();waiting.hello();
+  try {
+    await Bun.sleep(5100);
+    expect(pending.destroyed).toBe(true);expect(joined.destroyed).toBe(false);
+    expect(hub.size).toBe(1);expect(markers).toEqual(["attach:cli:cli"]);
+    // A valid hello received in time survives a busy recording queue.
+    expect(waiting.destroyed).toBe(false);expect(delayed.hub.size).toBe(0);
+    for(const fn of queue.splice(0))fn();expect(delayed.hub.size).toBe(1);
+  } finally {hub.destroy();delayed.hub.destroy();}
+},7000);
+
+test("auto terminal settings resolve to a detected terminal instead of an auto executable", async () => {
+  const {terminalSetting}=await import("../src/session/service");
+  const dir=temp(),ctx=makeCtx({pacerHome:dir,env:{DISPLAY:":0",TERM_PROGRAM:"kitty"}});
+  try {
+    writeFileSync(join(dir,"strategy.yaml"),"planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nterminal: {open: auto}\n");
+    expect(terminalSetting(ctx)).toBe("kitty");
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});

@@ -71,3 +71,16 @@ test("task progress round-trips and is validated", () => {
   expect(parseEnvelope({ v: 1, type: "task", data })).toMatchObject({ data: { progress: data.progress } });
   expect(parseEnvelope({ v: 1, type: "task", data: { ...data, progress: { phase: 3 } } })?.data).not.toHaveProperty("progress");
 });
+
+test("link config-set accepts terminal presets and reports custom commands without dispatching", async () => {
+  const {runMappedCmd}=await import("../src/api/cmd");
+  const parse=(value:string)=>parseCmd({v:1,type:"cmd",data:{cmd:"config-set",key:"terminal.open",value}});
+  for(const value of ["ghostty","iterm","terminal-app","wezterm","kitty","alacritty","gnome-terminal","x-terminal-emulator","auto"])
+    expect(parse(value)?.data.value).toBe(value);
+  for(const value of ["foot {cmd}","sh -c 'exec {cmd}'","", "bogus"]) {
+    const command=parse(value);
+    expect(command).not.toBeNull();
+    expect(await runMappedCmd(async()=>{throw Error("unexpected dispatch");},command!.data,{fromPanel:true}))
+      .toMatchObject({handled:true,ok:false,message:expect.stringMatching(/terminal.open.*preset.*pacer config set/)});
+  }
+});

@@ -32,8 +32,8 @@ test("hello and snapshot need the token and describe the protocol", async () => 
   const { url, h } = await serve();
   expect((await fetch(`${url}/v2/hello`)).status).toBe(401);
   const hello = await (await fetch(`${url}/v2/hello`, { headers: h })).json();
-  expect(hello).toMatchObject({ protocol: "2.7.0", ops: expect.arrayContaining(["task.list", "limits.check"]) });
-  expect(await (await fetch(`${url}/v2/snapshot`, { headers: h })).json()).toMatchObject({ protocol: "2.7.0", seq: expect.any(Number) });
+  expect(hello).toMatchObject({ protocol: "2.8.0", ops: expect.arrayContaining(["task.list", "limits.check"]) });
+  expect(await (await fetch(`${url}/v2/snapshot`, { headers: h })).json()).toMatchObject({ protocol: "2.8.0", seq: expect.any(Number) });
 });
 
 test("ops run through the registry and return results", async () => {

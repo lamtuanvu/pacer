@@ -20,7 +20,7 @@ async function serve() {
 
 test("HttpClient calls ops and maps error bodies", async () => {
   const { client } = await serve();
-  expect((await client.hello()).protocol).toBe("2.7.0");
+  expect((await client.hello()).protocol).toBe("2.8.0");
   const r = await client.call<{ task_id: string }>("task.delegate", { goal: "g", repo: tmpDir() });
   expect(r.task_id).toMatch(/^t-/);
   const err = await client.call("task.get", { id: "missing" }).catch((e) => e);

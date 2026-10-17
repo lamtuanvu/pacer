@@ -8,6 +8,7 @@ import type { SetupChecklist } from "../setup/checklist";
 import type { EntityData } from "./envelope";
 import type { PublishOpts } from "./publish";
 import { drainQueue } from "../tasks/drain";
+import { sessionTaskData } from "../session/link";
 import { resolveTask } from "../tasks/resolution";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient, isLiveTerminal } from "../exec/orca/client";
@@ -130,7 +131,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   const dataPath=join(ctx.pacerHome,"link","task-data-seen.json"),seenData=readJson<Record<string,TaskData>>(dataPath)??{};
   const nextData:Record<string,TaskData>={...seenData};
   const terminals=await Promise.all(records.map(async t=>{const handle=workers.find(w=>w.taskId===t.id)?.terminal;if(!handle)return false;try{return isLiveTerminal(await client.terminalShow(handle));}catch{return false;}}));
-  for(const [index,t] of records.entries()){const d={...taskData(t),terminalPresent:terminals[index]},prev=latest.tasks.find(x=>x.id===d.id)??seenData[d.id],before=known[d.id]??prev?.state;
+  for(const [index,t] of records.entries()){const d=await sessionTaskData(ctx,taskData(t),terminals[index]),prev=latest.tasks.find(x=>x.id===d.id)??seenData[d.id],before=known[d.id]??prev?.state;
     if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;}
     if(prev && Object.keys({...prev,...d}).every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])))continue;
     // Coalesce progress-only changes; state transitions always publish immediately.
