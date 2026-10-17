@@ -8,7 +8,6 @@ import type { Ctx } from "../types";
 export interface AttachOptions { replay?:boolean; attempt?:number }
 export function attachDirectory(ctx:Ctx,id:string,attempt?:number):string {
   const task=readTask(ctx,id);if(!task) throw Error(`unknown task ${id}`);
-  if(task.run?.host) throw Error("Remote session recording is not available in phase 1");
   const root=join(ctx.pacerHome,"runs",id);
   const n=attempt ?? (task.run?.attempt || Math.max(...readdirSync(root).filter(n=>/^\d+$/.test(n)).map(Number)));
   if(!Number.isSafeInteger(n) || n<1) throw Error("invalid session attempt");
