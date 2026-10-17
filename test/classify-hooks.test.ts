@@ -123,7 +123,7 @@ test("runTask with injected classifier deps records check and logs all decisions
   const hooks = makeClassifierHooks({ loadStrategy: () => s, adapters: () => adapters(false), repoFiles: async () => 10 });
   const completed = await runTask(ctx, t.id, {
     loadStrategy: () => s, hooks,
-    computeStatus: async () => ({ generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true, executors: { ranked: [], excluded: [] }, providers: Object.keys(s.providers).map(id => ({ id, usage: "reactive", windows: [], binding: null, verdict: "OK", installed: true, stale: false })) }),
+    computeStatus: async () => ({ generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] }, providers: Object.keys(s.providers).map(id => ({ id, usage: "reactive", windows: [], binding: null, verdict: "OK", installed: true, stale: false })) }),
     runAttempt: async (_ctx, cfg) => ({ exec: { code: 0, stdout: "done", stderr: "", timedOut: false }, report: "done", attempt: { executor: cfg.id, model: null, startedAt: 1, endedAt: 2, exitCode: 0, timedOut: false, limitHit: false, log: "" } }),
     verifyRepo: async () => ({ files: "a" }),
   });

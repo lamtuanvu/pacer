@@ -85,7 +85,7 @@ test("installed bridge carries pump snapshots to the read-only panel", async () 
   const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer"), env: { PACER_BIN: "/opt/pacer", PACER_ORCA_USER_DATA: userData }, run: fake.run });
   expect((await pluginCli(["install"], ctx)).code).toBe(0);
   const status = { generatedAt: ctx.now, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } } as unknown as Status;
-  const task: TaskRecord = { id: "t-1", createdAt: ctx.now, kind: null, requestedExecutor: null, timeoutS: 60, brief: { goal: "ship feature", repo: "/wt/feat-x" }, state: "running", attempts: [{ executor: "codex", model: null, startedAt: ctx.now, endedAt: ctx.now, exitCode: 0, timedOut: false, limitHit: false, log: "" }] };
+  const task: TaskRecord = { rev: 1, id: "t-1", createdAt: ctx.now, kind: null, requestedExecutor: null, timeoutS: 60, brief: { goal: "ship feature", repo: "/wt/feat-x" }, state: "running", attempts: [{ executor: "codex", model: null, startedAt: ctx.now, endedAt: ctx.now, exitCode: 0, timedOut: false, limitHit: false, log: "" }] };
   writeConsole(ctx, { handle: "term_x", paneKey: "pane", pid: process.pid, startedAt: ctx.now, heartbeatAt: ctx.now });
   await pumpOnce(ctx, { status: async () => status, tasks: () => [task], publish: async (c, es) => { const { publish } = await import("../src/link/publish"); return publish(c, es, { channel: false }); } });
   const storage = join(pluginDataDir(ctx), "storage.json");
@@ -110,6 +110,7 @@ test("installed bridge carries pump snapshots to the read-only panel", async () 
     await handlers.get("open")!();
     expect(calls.some(c => c.method === "terminal.sendText")).toBe(false);
     expect(Object.keys(JSON.parse(readFileSync(storage, "utf8")))).toContain("link");
-    expect(fake.calls).toEqual([]);
+    // Only the one-time repo identity lookup (read model) may touch git; nothing writes.
+    expect(fake.calls.filter(c => !(c[0] === "git" && (c.includes("rev-parse") || c.includes("get-url"))))).toEqual([]);
   } finally { await plugin.deactivate(); }
 });

@@ -202,6 +202,8 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     });
   }
 
+  const localMax = isObj(raw.execution) ? raw.execution.local_max_tasks : undefined;
+  if (localMax !== undefined && (typeof localMax !== "number" || !Number.isInteger(localMax) || localMax < 1 || localMax > 16)) p.push("execution.local_max_tasks must be 1..16");
   if (p.length) throw new StrategyError(path, p);
   return {
     name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing,

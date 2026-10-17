@@ -13,10 +13,14 @@ sort -rn | head -n 15 | while read -r mtime file; do
   printf 'mtime=%s\\n%s\\n' "$mtime" "$line"
   break
 done`,
-  PROBE: `printf 'git=%s\\n' "$(git --version)"
+  PROBE: `printf 'os=%s\\n' "$(uname -s)"
+printf 'arch=%s\\n' "$(uname -m)"
+printf 'git=%s\\n' "$(git --version)"
 printf 'codex=%s\\n' "$(command -v codex || true)"
 printf 'claude=%s\\n' "$(command -v claude || true)"
 printf 'setsid=%s\\n' "$(command -v setsid || true)"
+printf 'script=%s\\n' "$(script --version 2>/dev/null || true)"
+printf 'tail=%s\\n' "$(command -v tail)"
 printf 'home=%s\\n' "$HOME"`,
   CHECK_REPO: `path="$1"; shift
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
@@ -69,6 +73,11 @@ else
   git worktree add -q -b "$remote_branch" "$worktree" "$base" || exit 1
 fi
 printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
+  QUESTION: `file="$1/.pacer-question"
+[ -f "$file" ] || exit 0
+[ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
+cat "$file"`,
+  QUESTION_CLEAR: `rm -f -- "$1/.pacer-question"`,
   PREFLIGHT: `cd "$1" || exit 1
 base="$2"; branch="$3"
 case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac
@@ -102,12 +111,14 @@ rm -rf "$D" || exit 1
 if [ -n "$delete_branch" ] && git show-ref --verify --quiet "refs/heads/$delete_branch"; then
   git branch -D "$delete_branch" || exit 1
 fi`,
-  START: `D="$1"; cwd="$2"; shift 2
+  START: `D="$1"; cwd="$2"; mode="$3"; shift 3
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 case "$cwd" in '~/'*) cwd="$HOME/\${cwd#??}" ;; esac
+umask 077
 mkdir -p "$D" || exit 1
 chmod 700 "$D"
-rm -f "$D/pid" "$D/pid.tmp" "$D/child" "$D/started" "$D/exit" "$D/exit.tmp" "$D/stdout" "$D/stderr"
+printf '%s' "$mode" > "$D/session.host"
+rm -f "$D/pid" "$D/pid.tmp" "$D/child" "$D/started" "$D/exit" "$D/exit.tmp" "$D/stdout" "$D/stderr" "$D/session.raw"
 # Read only the wrapper as lines; cat preserves every byte of the remaining prompt.
 : > "$D/run.sh"
 while IFS= read -r line; do
@@ -118,8 +129,8 @@ cat > "$D/stdin"
 chmod 700 "$D/run.sh"
 chmod 600 "$D/stdin"
 cd "$cwd" || exit 1
-setsid nohup env -i HOME="$HOME" PATH="$PATH" sh -c '
-D="$1"; shift
+setsid nohup env -i HOME="$HOME" PATH="$PATH" bash -c '
+D="$1"; mode="$2"; shift 2
 while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
   pair="$1"; key=\${pair%%=*}; value=\${pair#*=}
   case "$value" in "~/"*) value="$HOME/\${value#??}" ;; esac
@@ -127,26 +138,35 @@ while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
   shift
 done
 shift
+if [ "$mode" = pty ]; then
+  command=""
+  for arg in "$@"; do printf -v quoted "%q" "$arg"; command="$command $quoted"; done
+  printf -v input "%q" "$D/stdin"
+  command="$command < $input"
+  export TERM=xterm-256color SHELL="$BASH"
+  exec sh "$D/run.sh" "$D" script -qfec "$command" "$D/session.raw"
+fi
 exec sh "$D/run.sh" "$D" "$@"
-' pacer "$D" "$@" </dev/null >/dev/null 2>&1 &
+' pacer "$D" "$mode" "$@" </dev/null >/dev/null 2>&1 &
 n=0
 while [ ! -s "$D/pid" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
 [ -s "$D/pid" ] || exit 1
 printf 'pid=%s\\n' "$(cat "$D/pid")"`,
   REPORT: `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+printf 'session=%s\\n' "$(cat "$D/session.host" 2>/dev/null)"
 pid=$(cat "$D/pid" 2>/dev/null); alive=0
 if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
   case "$(ps -o args= -p "$pid")" in *"$D/run.sh"*) alive=1 ;; esac
 fi
 printf 'pid=%s\\nalive=%s\\nexit=%s\\nstarted=%s\\n' "$pid" "$alive" "$(cat "$D/exit" 2>/dev/null)" "$(cat "$D/started" 2>/dev/null)"
-for stream in stdout stderr; do
+for stream in stdout stderr session.raw; do
   bytes=0; stamp=''
   if [ -f "$D/$stream" ]; then
     bytes=$(wc -c < "$D/$stream" | tr -d ' ')
     stamp=$(stat -c %Y "$D/$stream" 2>/dev/null) || stamp=$(stat -f %m "$D/$stream" 2>/dev/null)
   fi
-  case "$stream" in stdout) key=out ;; stderr) key=err ;; esac
+  case "$stream" in stdout) key=out ;; stderr) key=err ;; session.raw) key=raw ;; esac
   printf '%s=%s\\n%sm=%s\\n' "$key" "$bytes" "$key" "$stamp"
 done`,
   READ_FROM: `D="$1"
@@ -158,6 +178,12 @@ if [ "\${5:-}" = "hex" ]; then
 else
   tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4"
 fi`,
+  FOLLOW: `D="$1"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+p="$(cat "$D/pid" 2>/dev/null)"; me=$$
+# Portable stand-in for tail --pid: a watcher with no inherited output ends the tail after the run exits.
+[ -n "$p" ] && ( while kill -0 "$p" 2>/dev/null; do sleep 1; done; sleep 1; kill "$me" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+exec tail -c +"$(($2 + 1))" -f "$D/session.raw"`,
   STOP: `D="$1"; grace="$2"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; exit 0; fi

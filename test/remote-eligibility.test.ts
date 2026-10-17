@@ -64,9 +64,9 @@ test("busy host counts only running tasks with the stored host alias", async () 
   const ctx = fakeCtx({ run: origin });
   for (const [state, host] of [["running", "box"], ["running", "box"], ["done", "box"], ["running", "other"]] as const) {
     const t = createTask(ctx, { brief: { goal: "other", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 });
-    updateTask(ctx, t.id, t => { t.state = state; t.run = { dir: "r", attempt: 1, executor: "codex@box", startedAt: 1, mode: "new", workdir: "w", logFile: "l", ...{ host } }; });
+    updateTask(ctx, t.id, t => { t.state = state; t.run = { dir: "r", attempt: 1, executor: `codex@${host}`, startedAt: 1, mode: "new", workdir: "w", logFile: "l", ...{ host } }; });
   }
-  expect(await remoteExclusion(ctx, strategy(), "codex@box", task, { reachable: async () => true })).toBe("box busy (2/2)");
+  expect(await remoteExclusion(ctx, strategy(), "codex@box", task, { reachable: async () => true })).toBe("Codex busy (2/2)");
 });
 
 test("route without a task checks reachability only", async () => {
@@ -81,7 +81,7 @@ test("runner falls back from an unreachable remote and records the reason in the
   const ctx = fakeCtx(), s = strategy();
   const t = createTask(ctx, { brief: { goal: "work", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const log = join(ctx.home, "attempt.log"), calls: string[] = [];
-  const st: Status = { generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false,
+  const st: Status = { generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: false,
     providers: ["codex@box", "codex"].map(id => ({ id, usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false })), executors: { ranked: [], excluded: [] } };
   const result = await runTask(ctx, t.id, {
     loadStrategy: () => s, computeStatus: async () => st, verifyRepo: async () => ({ files: "" }),
