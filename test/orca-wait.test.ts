@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { OrcaClient } from "../src/exec/orca/client";
 import { hasInbox, putInbox, takeInbox } from "../src/exec/orca/state";
-import { NO_ANSWER, type WaitOpts, needsSubmit, waitForWorker } from "../src/exec/orca/wait";
+import { STOP_FOR_ANSWER, type WaitOpts, needsSubmit, waitForWorker } from "../src/exec/orca/wait";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 import { type FakeRun, type Route, fakeRun, ok, raw } from "./fixtures/orca/fake";
 
@@ -121,18 +122,18 @@ test("a stopped task ends the wait as stopped", async () => {
   expect(await waitForWorker(ctx, c, opts)).toEqual({ kind: "stopped" });
 });
 
-test("a question gets one standard reply even when its batch replays", async () => {
+test("a question records the task question and tells the worker to stop", async () => {
   const { f, ctx, c, opts } = setup([
-    [O("orchestration", "check"), [ok("check-question.ndjson"), ok("check-question.ndjson"), ok("check-1.ndjson"), ok("ack-1.json")]],
+    [O("orchestration", "check"), [ok("check-question.ndjson"), ok("check-question.ndjson")]],
     [O("orchestration", "reply"), ok("reply.json")],
-    [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
+    [O("orchestration", "worker-show"), ok("worker-show-failed.json")],
   ]);
-  expect((await waitForWorker(ctx, c, opts)).kind).toBe("done");
-  expect(f.count(O("orchestration", "reply"))).toBe(1);
-  expect(f.calls.find((a) => a[2] === "reply")).toEqual([
-    "orca", "orchestration", "reply", "--id", "msg_q00000000001", "--body", NO_ANSWER, "--run", RUN, "--from", COORD, "--json",
-  ]);
-  expect(arg(checks(f)[1], "--ack")).toBe("delivery_q00000000001");
+  const task=createTask(ctx,{brief:{goal:"g",repo:"/r"},kind:null,requestedExecutor:null,timeoutS:60});
+  updateTask(ctx,task.id,t=>{t.state="running";});
+  expect(await waitForWorker(ctx,c,{...opts,taskId:task.id})).toMatchObject({kind:"settled",state:"needs_input",needsStop:true});
+  expect(readTask(ctx,task.id)?.question?.text).toBe("Should I also update the README?");
+  expect(f.count(O("orchestration","reply"))).toBe(1);
+  expect(arg(f.calls.find(a=>a[2]==="reply")!,"--body")).toBe(STOP_FOR_ANSWER);
 });
 
 test("a failing check backs off and keeps waiting", async () => {
@@ -189,4 +190,18 @@ test("busy worker may recover and report before retries are exhausted",async()=>
 test("provider overload with a 429 is transient rather than quota exhaustion",async()=>{
  const h=monitor(()=>["429: model is overloaded", "› "]);const r=await waitForWorker(h.ctx,h.c,h.opts);
  expect(r).toMatchObject({kind:"settled",error:"transient provider busy after three retries"});expect(h.logs).toHaveLength(3);
+});
+
+test("a question delivered to another runner is recorded for its worker", async () => {
+  const {ctx,c,opts}=setup([
+    [O("orchestration","check"),[ok("check-question.ndjson"),ok("check-1.ndjson"),ok("ack-1.json")]],
+    [O("orchestration","reply"),ok("reply.json")],
+    [O("orchestration","worker-show"),ok("worker-show-succeeded.json")],
+  ],{dispatchId:"ctx_df599d4e7101"});
+  const {updateOrcaState}=await import("../src/exec/orca/state");
+  const task=createTask(ctx,{brief:{goal:"g",repo:"/r"},kind:null,requestedExecutor:null,timeoutS:60});
+  updateTask(ctx,task.id,t=>{t.state="running";});
+  updateOrcaState(ctx,s=>{s.workers.ctx_802297d1724f={dispatchId:"ctx_802297d1724f",taskId:task.id,executor:"codex",worktree:null,terminal:null,startedAt:0};});
+  expect((await waitForWorker(ctx,c,opts)).kind).toBe("settled");
+  expect(readTask(ctx,task.id)?.question?.text).toBe("Should I also update the README?");
 });

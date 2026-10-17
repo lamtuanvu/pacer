@@ -8,6 +8,13 @@ import { fakeCtx } from "./helpers";
 const ctx = fakeCtx();
 function input(): RuleInput { return { now: ctx.now, tasks: [], executors: [], accounts: [], planner: null, setup: { complete: true, open: 0, items: [] }, update: null, retryTarget: () => null }; }
 const task = (state: Parameters<typeof record>[0], at = ctx.now) => apiTask(ctx, record(state, at));
+test("unanswered needs_input raises a blocked question and clears after answering or stopping", () => {
+ const raw=record("needs_input",ctx.now);
+ raw.question={text:'which db? $(echo no)\n' + "x".repeat(220),at:ctx.now-10};
+ const t=apiTask(ctx,raw);
+ expect(deriveItems({...input(),tasks:[t]})[0]).toMatchObject({id:`question:${t.id}`,kind:"question",severity:"blocked",notify:"important",detail:raw.question.text.slice(0,200),since:raw.question.at,actions:[{label:"Answer",op:"task.answer",params:{id:t.id}},{label:"Stop",op:"task.stop",params:{id:t.id}}]});
+ for(const patch of [{question:{...raw.question,answer:"postgres"}},{retriedBy:"next"},{dismissed:true},{state:"stopped"}]) expect(deriveItems({...input(),tasks:[{...t,...patch}]})).toEqual([]);
+});
 test("review raises for unreviewed done and partial tasks and clears on verdict", () => {
  for (const state of ["done", "partial"] as const) {
   const t = task(state);
