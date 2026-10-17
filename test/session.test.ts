@@ -305,6 +305,8 @@ test("attach selects a remote task's local mirror and replays it offline", async
     await attachSession(dir);
     expect(drawn).toContain("remote mirror");
   }finally{process.stdout.write=original;rmSync(home,{recursive:true,force:true});}
+});
+
 import * as targets from "../src/session/targets";
 import { ViewerHub } from "../src/session/viewers";
 import { viewerMessageFrames } from "../src/serve/session-ws";
