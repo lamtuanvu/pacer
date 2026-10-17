@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod actions;
 mod client;
 mod logic;
+mod notifications;
 mod tray_model;
 
 use reqwest::Url;
@@ -11,7 +13,7 @@ use std::sync::{
 };
 use tauri::{
     ipc::CapabilityBuilder,
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
     AppHandle, Manager, WebviewUrl, WebviewWindow,
 };
@@ -27,6 +29,8 @@ struct Shell {
     granted: Mutex<Vec<String>>,
     start: AtomicBool,
     retry: AtomicBool,
+    session: Mutex<Option<client::Session>>,
+    actions: Mutex<std::collections::HashMap<String, Value>>,
 }
 impl Default for Shell {
     fn default() -> Self {
@@ -37,6 +41,8 @@ impl Default for Shell {
             granted: Mutex::new(Vec::new()),
             start: AtomicBool::new(false),
             retry: AtomicBool::new(false),
+            session: Mutex::new(None),
+            actions: Mutex::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -122,6 +128,7 @@ fn navigate(app: &AppHandle, raw: &str) {
 fn recovery(app: &AppHandle, state: &str) {
     let shell = app.state::<Shell>();
     *shell.origin.lock().unwrap() = None;
+    *shell.session.lock().unwrap() = None;
     let mut current = shell.recovery.lock().unwrap();
     if *current == state {
         return;
@@ -172,6 +179,11 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
     let Some(tray) = app.tray_by_id("pacer") else {
         return Ok(());
     };
+    app.state::<Shell>()
+        .actions
+        .lock()
+        .unwrap()
+        .retain(|id, _| !id.starts_with("strategy-"));
     let menu = Menu::new(app)?;
     menu.append(&MenuItem::new(app, &model.planner, false, None::<&str>)?)?;
     for (title, items) in [("Needs you", model.needs), ("Running", model.running)] {
@@ -195,11 +207,43 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
         menu.append(&MenuItem::new(app, executor, false, None::<&str>)?)?;
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    // TODO: Enable Pause delegation and add Switch strategy when service operations exist.
+    let online = app.state::<Shell>().session.lock().unwrap().is_some();
+    let pause_action = actions::pause(model.paused);
+    app.state::<Shell>()
+        .actions
+        .lock()
+        .unwrap()
+        .insert("pause".into(), pause_action);
+    let strategies = Submenu::new(app, "Switch strategy", online)?;
+    for (n, (name, active)) in model.strategies.iter().enumerate() {
+        let id = format!("strategy-{n}");
+        app.state::<Shell>()
+            .actions
+            .lock()
+            .unwrap()
+            .insert(id.clone(), actions::strategy(name));
+        strategies.append(&CheckMenuItem::with_id(
+            app,
+            id,
+            name.replace('&', "&&"),
+            online,
+            *active,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append(&strategies)?;
     for (id, label, enabled) in [
         ("#/delegate", "Delegate a task…", true),
         ("open", "Open pacer", true),
-        ("pause", "Pause delegation for 1 hour", false),
+        (
+            "pause",
+            if model.paused {
+                "Resume delegation"
+            } else {
+                "Pause delegation for 1 hour"
+            },
+            online,
+        ),
     ] {
         menu.append(&MenuItem::with_id(app, id, label, enabled, None::<&str>)?)?;
     }
@@ -222,40 +266,115 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
     tray.set_title(Some(&model.title))?;
     tray.set_menu(Some(menu))
 }
-fn notify(app: &AppHandle, data: &Value, preference: &str) {
-    if !logic::should_notify(data, preference) {
+fn dispatch_action(app: &AppHandle, action: Value) {
+    let Some(dispatch) = actions::dispatch(&action) else {
         return;
+    };
+    let session = app.state::<Shell>().session.lock().unwrap().clone();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Some(confirmation) = action["confirm"].as_str() {
+            if native_dialog(confirmation, false).await.is_none() {
+                return;
+            }
+        }
+        if let actions::Dispatch::Open(route) = dispatch {
+            navigate(&app, &route);
+            return;
+        }
+        let Some(session) = session else {
+            return;
+        };
+        if let actions::Dispatch::Op { op, mut params } = dispatch {
+            if op == "task.answer" && params.get("text").is_none() {
+                let Some(answer) = native_dialog("Answer the executor's question", true).await
+                else {
+                    return;
+                };
+                if answer.trim().is_empty() {
+                    return;
+                }
+                params["text"] = Value::String(answer);
+            }
+            if session.op(&op, &params).await.is_err() {
+                let _ = native_dialog(
+                    "The action could not be completed. Check pacer and try again.",
+                    false,
+                )
+                .await;
+            }
+            if let Ok(snapshot) = session.json("/v2/snapshot").await {
+                update_tray(&app, TrayModel::from_snapshot(&snapshot));
+            }
+        }
+    });
+}
+// Dialog strings are argv, never interpolated into AppleScript or a shell.
+async fn native_dialog(message: &str, answer: bool) -> Option<String> {
+    let script = if answer {
+        "on run argv\nset r to display dialog (item 1 of argv) default answer \"\" with title \"pacer\" buttons {\"Cancel\", \"Answer\"} default button \"Answer\"\nreturn text returned of r\nend run"
+    } else {
+        "on run argv\ndisplay dialog (item 1 of argv) with title \"pacer\" buttons {\"Cancel\", \"Continue\"} default button \"Continue\"\nreturn \"ok\"\nend run"
+    };
+    let output = tokio::process::Command::new("/usr/bin/osascript")
+        .args(["-e", script, message])
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
-    let target = data["route"]
-        .as_str()
-        .and_then(logic::route)
-        .or_else(|| {
-            data["taskId"]
-                .as_str()
-                .and_then(|id| logic::route(&format!("/review/{id}")))
-        })
-        .unwrap_or_else(|| "#/".into());
-    let actions: Vec<_> = data["actions"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .take(2)
-        .filter_map(|a| {
-            let route = a["route"].as_str().and_then(logic::route)?;
-            Some(Action::builder(route, a["label"].as_str().unwrap_or("Open pacer")).build())
+    Some(
+        String::from_utf8(output.stdout)
+            .ok()?
+            .trim_end_matches('\n')
+            .into(),
+    )
+}
+fn notify(app: &AppHandle, notification: notifications::Notification) {
+    // Each category has stable, unique action ids so later notifications cannot remap earlier buttons.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let index = NEXT.fetch_add(1, Ordering::Relaxed);
+    let category = format!("pacer-attention-{index}");
+    // Keep button mappings for the last 32 notifications only.
+    if index >= 32 {
+        let stale = format!("pacer-attention-{}-", index - 32);
+        app.state::<Shell>()
+            .actions
+            .lock()
+            .unwrap()
+            .retain(|id, _| !id.starts_with(&stale));
+    }
+    let actions: Vec<_> = notification
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(n, action)| {
+            let id = format!("{category}-{n}");
+            app.state::<Shell>()
+                .actions
+                .lock()
+                .unwrap()
+                .insert(id.clone(), action.clone());
+            Action::builder(
+                id,
+                notifications::clean(action["label"].as_str().unwrap_or("Open pacer"), 40),
+            )
+            .build()
         })
         .collect();
-    let category = "pacer-alert";
     let _ = app
         .notification()
-        .register_action_types(vec![ActionType::builder(category).actions(actions).build()]);
+        .register_action_types(vec![ActionType::builder(&category)
+            .actions(actions)
+            .build()]);
     let _ = app
         .notification()
         .builder()
-        .title(data["title"].as_str().unwrap_or("pacer"))
-        .body(data["body"].as_str().unwrap_or(""))
+        .title(notification.title)
+        .body(notification.body)
         .action_type_id(category)
-        .extra("route", target)
+        .extra("route", notification.route)
         .show();
 }
 fn main() {
@@ -378,7 +497,20 @@ fn main() {
                                 eprintln!("Unable to change launch at login: {e}");
                             }
                         }
-                        _ => navigate(app, id),
+                        _ => {
+                            let action = app
+                                .state::<Shell>()
+                                .actions
+                                .lock()
+                                .unwrap()
+                                .get(id)
+                                .cloned();
+                            if let Some(action) = action {
+                                dispatch_action(app, action);
+                            } else {
+                                navigate(app, id);
+                            }
+                        }
                     }
                 })
                 .build(app)?;
@@ -396,6 +528,17 @@ fn main() {
             }
             let notifications = handle.clone();
             app.notification().on_action(move |action| {
+                let mapped = notifications
+                    .state::<Shell>()
+                    .actions
+                    .lock()
+                    .unwrap()
+                    .get(action.action_id())
+                    .cloned();
+                if let Some(mapped) = mapped {
+                    dispatch_action(&notifications, mapped);
+                    return;
+                }
                 let target = logic::route(action.action_id()).or_else(|| {
                     action
                         .notification()
