@@ -25,6 +25,7 @@ import {
 import { isTaskId, listTasks, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
+import { isExecutorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
 
@@ -64,6 +65,28 @@ export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
       && (o.executor === undefined || (t.result?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? t.requestedExecutor) === o.executor)
       && (o.since === undefined || t.createdAt >= o.since))
     .slice(0, o.limit ?? 20);
+}
+
+export function requireAskingExecutor(ctx: Ctx, id = ctx.env.PACER_TASK_ID): string {
+  if (!isExecutorSession(ctx) || !ctx.env.PACER_TASK_ID || id !== ctx.env.PACER_TASK_ID) {
+    throw new CoreError("not_allowed", "pacer ask works only inside a delegated task");
+  }
+  return id;
+}
+
+/** Record one question for the current attempt. Transport callers enforce executor identity. */
+export async function ask(ctx: Ctx, id: string, text: string): Promise<TaskRecord> {
+  if (!isTaskId(id)) throw unknown(id);
+  if (typeof text !== "string" || text.length < 1 || text.length > 1000) {
+    throw new CoreError("invalid_input", "question must contain 1–1000 characters");
+  }
+  return withLock(ctx, `ask-${id}`, async () => {
+    const task = readTask(ctx, id);
+    if (!task) throw unknown(id);
+    if (task.question && task.question.answer === undefined) throw new CoreError("conflict", "already asked; stop and wait for the answer");
+    if (task.state !== "running") throw new CoreError("conflict", "task is not running");
+    return updateTask(ctx, id, t => { t.question = { text, at: ctx.now }; });
+  });
 }
 
 export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): TaskRecord {
@@ -259,28 +282,44 @@ export async function diff(ctx: Ctx, id: string, o: { path?: string } = {}): Pro
 }
 
 /** Re-delegates a task's stored brief. One active retry per task: a second call gets `conflict`. */
-export async function retry(
-  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; feedback?: string; expectRev?: number } = {},
+async function retryTask(
+  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; feedback?: string; expectRev?: number; answerText?: string } = {},
   deps: RetryDeps = {},
 ): Promise<{ retry: TaskRecord; of: TaskRecord }> {
   if (!isTaskId(id)) throw unknown(id);
   // Resolve repo identity before taking the synchronous task lock (it runs git).
   const before = readTask(ctx, id);
   const repoRef = before ? before.repo ?? await resolveRepo(ctx, before.brief.repo) : undefined;
+  let answerBase: string | undefined;
+  if (o.answerText !== undefined && before?.state === "needs_input" && before.question && before.question.answer === undefined && !before.retriedBy) {
+    const worktree = [before.result?.worktree, before.worktree, !before.run?.host ? before.run?.workdir : undefined].find(p => p && p.startsWith("/"));
+    if (worktree) {
+      const head = await ctx.run(["git", "-C", worktree, "rev-parse", "--verify", "HEAD"], 10_000);
+      if (head.code !== 0 || !/^[0-9a-f]{40}$/.test(head.stdout.trim())) throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
+      answerBase = head.stdout.trim();
+    }
+  }
   return withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
     checkRev(ctx, task, o.expectRev);
+    const answering = o.answerText !== undefined;
+    if (answering && (task.state !== "needs_input" || !task.question || task.question.answer !== undefined || task.retriedBy)) {
+      throw new CoreError("conflict", "task is not waiting for an answer", undefined, {task: apiTask(ctx, task)});
+    }
+    const executor = answering ? task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor : o.executor;
+    if (answering && !executor) throw new CoreError("invalid_input", "task has no executor to answer on");
     const prior = task.retriedBy ? readTask(ctx, task.retriedBy) : null;
     if (prior && ["queued", "running"].includes(prior.state)) {
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
     const input: DelegateInput = {
-      source: task.source, brief: { ...task.brief, ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
       ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
+      ...(answering && (task.placement?.mode === "new" || task.run?.mode === "new") ? {worktree:"new" as const} : {}),
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
       ...(task.force ? { force: true } : {}),
-      ...(o.executor ? { executor: o.executor } : {}),
+      ...(executor ? { executor } : {}),
     };
     let next: TaskRecord;
     try {
@@ -289,11 +328,24 @@ export async function retry(
       throw toCoreError(e);
     }
     if (readTask(ctx, next.id)) updateTask(ctx, next.id, (t) => { t.retryOf = task.id; if (o.fromPanel) t.fromPanel = true; });
-    const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; });
+    const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; if (answering) { t.question!.answer = o.answerText; t.question!.answeredAt = ctx.now; } });
     const retried = readTask(ctx, next.id) ?? next;
     taskActivity(ctx, retried, "retry", `Delegated “${shortGoal(retried.brief.goal, 60)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
     return { retry: retried, of };
   }));
+}
+
+/** Re-delegate a brief; serializes with answers on the same task. */
+export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; feedback?: string; expectRev?: number } = {}, deps: RetryDeps = {}) {
+  return retryTask(ctx, id, o, deps);
+}
+
+/** Answer exactly once, creating a retry on the executor that asked. */
+export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?: number } = {}, deps: RetryDeps = {}): Promise<{task: ApiTask; retry: ApiTask}> {
+  if (isExecutorSession(ctx)) throw new CoreError("not_allowed", "executors cannot delegate onward");
+  if (typeof text !== "string" || text.length < 1 || text.length > 2000) throw new CoreError("invalid_input", "answer must contain 1–2000 characters");
+  const r = await retryTask(ctx, id, {...o, answerText:text}, deps);
+  return {task:apiTask(ctx,r.of),retry:apiTask(ctx,r.retry)};
 }
 
 /** Removes settled, reviewed/dismissed/resolved task worktrees. Local branches stay. */

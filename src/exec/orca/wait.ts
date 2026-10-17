@@ -1,17 +1,18 @@
+import { ask } from "../../core/tasks";
+import { readTask } from "../../tasks/store";
 import type { Ctx } from "../../types";
 import { detectLimit, detectTransient } from "../limits";
 import { type CheckResult, type OrcaClient, parsePayload } from "./client";
-import { hasInbox, putInbox, takeInbox } from "./state";
+import { hasInbox, loadOrcaState, putInbox, takeInbox } from "./state";
 
-export const NO_ANSWER =
-  "pacer cannot answer questions while a task runs. Decide within the task's stated scope and continue. " +
-  "If you cannot finish without an answer, send worker_done with --outcome failed and say what you need.";
+export const STOP_FOR_ANSWER = "Your question has been recorded. Stop work now and wait for the user's answer.";
 export const SETTLED_STATES = ["succeeded", "failed", "stopped"];
 const SUCCEEDED_GRACE_PASSES = 2;
 export const IDLE_PROMPT = /(?:^|\n)\s*(?:[›❯>]\s*(?:$|Try |Implement |Summarize |Find |Write |Run |Explain )|(?:codex|claude|opencode)>|Ask (?:anything|a question)|What would you like|Type a message)/i;
 const WORKING_INDICATOR = /(?:esc\s+to\s+interrupt|ctrl\s*\+\s*c\s+to\s+stop)/i;
 
 export interface WaitOpts {
+  taskId?: string;
   providerId?: string;
   prompt?: string;
   coordinator: string;
@@ -39,7 +40,8 @@ export function needsSubmit(preview: string): boolean {
 
 async function processBatch(
   ctx: Ctx, c: OrcaClient, o: WaitOpts, batch: CheckResult, replied: Set<string>, log: (l: string) => void,
-): Promise<void> {
+): Promise<boolean> {
+  let asked = false;
   for (const m of batch.messages ?? []) {
     const p = parsePayload(m);
     if (m.type === "worker_done" && typeof p?.dispatchId === "string") {
@@ -51,11 +53,19 @@ async function processBatch(
         messageId: m.id,
       });
     } else if ((m.type === "question" || m.type === "escalation") && !replied.has(m.id)) {
+      const workers = Object.values(loadOrcaState(ctx).workers);
+      const dispatch = typeof p?.dispatchId === "string" ? p.dispatchId
+        : workers.find(w => w.terminal === m.from_handle)?.dispatchId ?? o.dispatchId;
+      const taskId = dispatch === o.dispatchId ? o.taskId : workers.find(w => w.dispatchId === dispatch)?.taskId;
+      const text = m.body || m.subject || "The executor needs a decision.";
+      if (taskId && !readTask(ctx, taskId)?.question) await ask(ctx, taskId, text.slice(0, 1000));
+      if (dispatch === o.dispatchId) asked = true;
       replied.add(m.id);
-      const r = await c.reply({ id: m.id, body: NO_ANSWER, run: o.run, from: o.coordinator });
-      log(`answered ${m.type} ${m.id}: ${r.ok ? "ok" : r.error.code}`);
+      const r = await c.reply({ id: m.id, body: STOP_FOR_ANSWER, run: o.run, from: o.coordinator });
+      log(`recorded ${m.type} ${m.id}: ${r.ok ? "ok" : r.error.code}`);
     }
   }
+  return asked;
 }
 
 /** Wait until this dispatch reports worker_done, settles, times out, or its task is stopped. */
@@ -80,6 +90,8 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
         return { kind: "done", outcome: mail.outcome, subject: mail.subject, body: mail.body, filesModified: mail.filesModified };
       }
       if (o.isStopped()) return { kind: "stopped" };
+      const question = o.taskId ? readTask(ctx, o.taskId)?.question : undefined;
+      if (question && question.answer === undefined) return {kind:"settled",state:"needs_input",error:null,needsStop:true};
       const left = o.deadlineMs - now();
       if (left <= 0) return { kind: "timeout" };
 
@@ -95,8 +107,8 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
       const r = await c.check({ terminal: o.coordinator, run: o.run, waitMs: Math.min(slice, left), ack: pendingAck });
       pendingAck = null;
       if (r.ok) {
-        await processBatch(ctx, c, o, r.result, replied, log);
         pendingAck = r.result.deliveryId ?? null;
+        if (await processBatch(ctx, c, o, r.result, replied, log)) return {kind:"settled",state:"needs_input",error:null,needsStop:true};
       } else {
         log(`orca check failed: ${r.error.code} ${r.error.message}`);
         await sleep(Math.min(5_000, Math.max(0, left)));

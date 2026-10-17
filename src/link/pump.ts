@@ -137,7 +137,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     if(prev && prev.state===d.state && Object.keys({...prev,...d}).filter(k=>k!=="progress").every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])) && ctx.now-(times[d.id]??-Infinity)<1)continue;
     out.push({v:1,type:"task",data:d});times[d.id]=ctx.now;nextData[d.id]=d;timesChanged=true;
     const terminal=TERMINAL_STATES.includes(d.state as TaskState);
-    if(terminal&&before!==d.state&&(before!==undefined||latest.seq>0)) {
+    if(terminal&&d.state!=="needs_input"&&before!==d.state&&(before!==undefined||latest.seq>0)) {
       const last=t.attempts.at(-1), name=executorName(d.executor), next=b.ranked.find(x=>x.id!==d.executor)?.id;
       const kind=d.state==="done"?"done":"failed";
       // A manual stop is recorded by core.tasks.stop, rather than reported as a failure.
