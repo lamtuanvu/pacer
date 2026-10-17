@@ -6,6 +6,7 @@ import { readClaude } from "./claude";
 import { readCodex } from "./codex";
 import { readMetered } from "./metered";
 import { limitWindow } from "./reactive";
+import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg): Promise<UsageReading> {
@@ -25,20 +26,26 @@ async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg): Promise<U
 }
 
 const sources = new Map<string, {at:number; value?:UsageReading; pending?:Promise<UsageReading>}>();
-async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg):Promise<UsageReading> {
+async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh = false):Promise<UsageReading> {
   const source=cfg.usage === "quota" ? cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id : JSON.stringify(cfg);
   const key=`${ctx.pacerHome}:${source}:${JSON.stringify(account ?? null)}`;
   const hit=sources.get(key);
   if(hit?.pending)return hit.pending;
-  if(hit?.value && ctx.now-hit.at>=0 && ctx.now-hit.at<60)return hit.value;
+  if(!refresh && hit?.value && ctx.now-hit.at>=0 && ctx.now-hit.at<60)return hit.value;
   const entry:{at:number;value?:UsageReading;pending?:Promise<UsageReading>}={at:ctx.now};
   sources.set(key,entry);
   entry.pending=(async()=>{
     let timer:ReturnType<typeof setTimeout>|undefined;
     try {
       const value=await Promise.race([base(ctx,cfg,account),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]);
+      if (account) recordAuthReading(ctx, account.name, value);
       entry.value=value;return value;
-    }catch(e){const value={windows:[],capturedAt:null,stale:false,error:String(e)};entry.value=value;return value;}
+    } catch (e) {
+      const value = {windows: [], capturedAt: null, stale: false, error: String(e)};
+      if (account) recordAuthReading(ctx, account.name, value);
+      entry.value = value;
+      return value;
+    }
     finally{clearTimeout(timer);entry.pending=undefined;}
   })();
   return entry.pending;
@@ -52,7 +59,7 @@ export async function readUsage(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg
 }
 
 /** Read one budget per account, aggregating metered model usage exactly once. */
-export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: RunnerCfg[]): Promise<UsageReading> {
+export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: RunnerCfg[], refresh = false): Promise<UsageReading> {
   const model = runners[0]?.model ?? account.model;
   const cfg: ProviderCfg = {
     id: account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? account.name : account.kind,
@@ -64,13 +71,13 @@ export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: R
   // Orca is never a usage source; a legacy usage_source: orca reads natively (claude/codex) or reactively.
   if (account.usageSource === "orca" && account.kind !== "claude" && account.kind !== "codex") cfg.usage = "reactive";
   if (account.usage !== "metered") {
-    const local = await cachedBase(ctx, cfg, account);
+    const local = await cachedBase(ctx, cfg, account, refresh);
     const remote = account.kind === "codex" && account.usage === "quota" ? cachedRemoteUsage(ctx, account.name) : null;
     return remote?.capturedAt != null && (local.capturedAt === null || remote.capturedAt > local.capturedAt) ? remote : local;
   }
   const models = [...new Set(runners.map(r => r.model))];
-  const readings = await Promise.all(models.map(model => cachedBase(ctx, { ...cfg, model }, account)));
-  if (!readings.length) return cachedBase(ctx, cfg, account);
+  const readings = await Promise.all(models.map(model => cachedBase(ctx, { ...cfg, model }, account, refresh)));
+  if (!readings.length) return cachedBase(ctx, cfg, account, refresh);
   const first = readings[0];
   return {
     ...first,

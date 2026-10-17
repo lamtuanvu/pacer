@@ -4,14 +4,14 @@ import { validateStrategy } from "../src/config/strategy";
 
 test("idle minutes: optional integers, fail after idle", () => {
   expect(validateExecution({ idle_after_min: 5, idle_fail_min: 20 })).toMatchObject({ idleAfterS: 300, idleFailS: 1200 });
-  expect(validateExecution(undefined)).toEqual({ backend: "auto", worktree: "child-of-current", baseBranch: null });
+  expect(validateExecution(undefined)).toEqual({ localMaxTasks: 2, backend: "auto", worktree: "child-of-current", baseBranch: null });
   for (const bad of [{ idle_after_min: 0 }, { idle_fail_min: 1.5 }, { idle_after_min: 30, idle_fail_min: 10 }, { idle_after_min: "5" }]) {
     expect(() => validateExecution(bad)).toThrow(ExecutionError);
   }
 });
 
 test("a missing or empty execution section uses the defaults", () => {
-  expect(validateExecution(undefined)).toEqual({ backend: "auto", worktree: "child-of-current", baseBranch: null });
+  expect(validateExecution(undefined)).toEqual({ localMaxTasks: 2, backend: "auto", worktree: "child-of-current", baseBranch: null });
   expect(validateExecution(null)).toEqual(DEFAULT_EXECUTION);
   expect(validateExecution({})).toEqual(DEFAULT_EXECUTION);
   const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {} } }, "/x");
@@ -20,7 +20,7 @@ test("a missing or empty execution section uses the defaults", () => {
 
 test("valid values are read", () => {
   expect(validateExecution({ backend: "orca", worktree: "current", base_branch: "origin/main" }))
-    .toEqual({ backend: "orca", worktree: "current", baseBranch: "origin/main" });
+    .toEqual({ localMaxTasks: 2, backend: "orca", worktree: "current", baseBranch: "origin/main" });
   expect(validateExecution({ backend: "direct" }).backend).toBe("direct");
   const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {} }, execution: { worktree: "current" } }, "/x");
   expect(validateExecution(s.execution).worktree).toBe("current");

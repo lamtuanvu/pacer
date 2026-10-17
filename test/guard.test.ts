@@ -10,7 +10,7 @@ import { fakeCtx } from "./helpers";
 function status(overrides: Partial<Status> = {}): Status {
   return {
     generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal",
-    disabled: false, calendarPace: true,
+    disabled: false, paused: null, modeHold: null, calendarPace: true,
     providers: ["claude-code", "codex", "local"].map((id) => ({
       id, usage: "unmetered", windows: [], binding: null, verdict: "OK", installed: true, stale: false,
     })),

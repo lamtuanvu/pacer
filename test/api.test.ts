@@ -94,7 +94,7 @@ test("stop kills the running executor and the task ends stopped", async () => {
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
   const running = runTask(ctx, t.id, {
     loadStrategy: () => s,
-    computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true, executors: { ranked: [], excluded: [] },
+    computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] },
       providers: [{ id: "codex", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }] }),
     runAttempt: async (_c, cfg, task, onSpawn) => {
       const exec = await execProcess({ argv: ["sleep", "30"], cwd: task.brief.repo, env: ctx.env, timeoutMs: 20_000, onSpawn });
@@ -147,7 +147,7 @@ test("stop kills the executor's grandchild too", async () => {
   const t = delegate(ctx, { brief: { goal: "g", repo } }, () => undefined, s);
   const running = runTask(ctx, t.id, {
     loadStrategy: () => s,
-    computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true, executors: { ranked: [], excluded: [] },
+    computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] },
       providers: [{ id: "codex", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }] }),
     runAttempt: async (_c, cfg, task, onSpawn) => {
       const exec = await execProcess({ argv: ["sh", "-c", `sleep 30 & echo $! > '${pidFile}'; wait`], cwd: task.brief.repo, env: ctx.env, timeoutMs: 1000, onSpawn });

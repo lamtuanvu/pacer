@@ -87,7 +87,7 @@ test("a foreign-identity commit leaves the task partial and kept on the host", a
   const result = await runTask(f.ctx, f.task.id, {
     loadStrategy,
     computeStatus: async () => ({
-      generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
+      generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
       providers: [{ id: f.cfg.id, usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }],
       executors: { ranked: [], excluded: [] },
     }),

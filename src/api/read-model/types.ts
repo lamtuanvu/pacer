@@ -1,10 +1,11 @@
+import type { TaskRecord } from "../../tasks/types";
 import type { AttentionItem } from "../../attention/types";
 export type { AttentionItem, Action } from "../../attention/types";
 export type { ActivityEntry } from "../../activity/log";
 import type { LinkSnapshot, TaskData } from "../../link/envelope";
 
 export interface RepoRef { key: string; label: string; path: string }
-export type TaskDataV2 = TaskData & { rev: number; repo: RepoRef; kind: string | null; host: string | null; source?: "planner" | "ui" | "cli" };
+export type TaskDataV2 = TaskData & { rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: "planner" | "ui" | "cli" };
 export type ApiTask = TaskDataV2;
 export interface ExecutorRow {
  id: string; agent: string; account: string; host: string | null; model: string | null;
@@ -30,11 +31,11 @@ export interface Counts {
  byRepo: Record<string, { review: number; running: number; attention: number }>;
 }
 export interface Today { since: number; done: number; accepted: number; rejected: number; failed: number; byRepo: Record<string, number> }
-export interface HostSummary { alias: string; ssh: string; state: "unknown"; running: number; maxTasks: number; executors: string[]; repos: number }
+export interface HostSummary { alias: string; ssh: string; state: "unknown" | "paused" | "down" | "checking" | "needs_setup" | "ready"; running: number; maxTasks: number; executors: string[]; repos: number }
 export interface SetupSummary { complete: boolean; open: number; items: { id: string; title: string; status: string; required: boolean }[] }
 export interface ServiceInfo { version: string; protocol: string; pid: number; startedAt: number }
 export interface ReadModelFields {
- attention: AttentionItem[]; service: ServiceInfo; planner: PlannerMeter | null; counts: Counts; today: Today;
+ pause: PauseState | null; attention: AttentionItem[]; service: ServiceInfo; planner: PlannerMeter | null; counts: Counts; today: Today;
  executors: ExecutorRow[]; accounts: AccountSummary[]; hosts: HostSummary[]; repos: RepoRef[]; setup: SetupSummary;
 }
 export type ReadModel = ReadModelFields;

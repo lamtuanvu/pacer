@@ -80,6 +80,7 @@ export function rankExecutors(
     const accountField = runner ? { account: runner.account } : {};
     const exclude = (reason: string) => excluded.push({ id, ...accountField, reason });
     if (runner?.agent === s.planner.agent && runner.account === s.planner.account) return exclude("planner");
+    if (runner?.enabled === false) return exclude("disabled");
     if (!st || !runner || !account) return exclude("not configured");
     if (st.unavailableReason) return exclude(st.unavailableReason);
     if (st.blockedReason) return exclude("Blocked by you");

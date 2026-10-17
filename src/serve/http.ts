@@ -1,3 +1,4 @@
+import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { createManagedPanelWriter } from "./panel";
 import { checkSetup } from "../setup/check";
 import { MANAGED_MARKER, pluginDir } from "../plugin/install";
@@ -41,6 +42,7 @@ export function startServer(
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
   const token = ensureToken(initialCtx);
+  recoverJobs(initialCtx);
   const interval = opts.sseIntervalMs ?? 15_000;
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;
@@ -202,6 +204,7 @@ export function startServer(
       return new Response("not found\n", { status: 404 });
     },
   });
+  const unregisterJobs = registerJobDaemon(initialCtx);
   refreshPanel();
   void refreshManagedPlugin(initialCtx, currentVersion(), opts.pluginRefreshDeps).finally(refreshSnapshot);
   let busy = false;
@@ -227,5 +230,5 @@ export function startServer(
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: server.port!, token, stop: () => { stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); for(const job of jobs)clearTimeout(job); server.stop(true); } };
+  return { port: server.port!, token, stop: () => { unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); for(const job of jobs)clearTimeout(job); server.stop(true); } };
 }

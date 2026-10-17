@@ -40,7 +40,7 @@ async function setup(wait = false) {
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
   const deps: RunnerDeps = {
     loadStrategy,
-    computeStatus: async () => ({ generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
+    computeStatus: async () => ({ generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
       providers: [{ id: "codex@box", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }], executors: { ranked: [], excluded: [] } }),
     verifyRepo: async (worktree) => {
       expect(existsSync(join(worktree, "PROMPT.txt"))).toBe(true);

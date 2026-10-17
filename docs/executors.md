@@ -53,3 +53,21 @@ pacer executor unblock agy
 ```
 
 Replace `TASK_ID` with an actual task ID. A wait timeout returns exit 2; inspect and wait again. `pacer doctor` checks configuration, CLIs and integration health. See [CLI docs](cli.md) for briefs and review contracts.
+
+## Settings and readiness checks
+
+Enable or disable an executor without deleting it using `runner.set { id,
+enabled }`. The same operation edits model, max_tasks and rank; `runner.reorder`
+changes routing order. Disabled executors stay visible with state `disabled`
+and are excluded from routing. Disabling the last executor in a rule returns a
+warning. The planner is protected from these changes.
+
+`agent.detect` reports installed agents, versions and install hints.
+`runner.check { id }` starts a shared job that checks CLI presence, sign-in,
+usage and a scratch task that writes `hello.txt` containing `ok`. It never runs
+the test in a user repository. The row shows `checking` while running and
+`lastCheck` after completion; a failed check shows `failing` and executor attention.
+
+Capacity rows use the configured executor limit and report `full` when the
+executor, host or shared local machine limit is reached, naming the binding limit.
+Tasks try the next eligible executor or wait for capacity.

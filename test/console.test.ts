@@ -214,9 +214,9 @@ test("delegate forwards worktree id ahead of branch and refuses unresolved id-on
 
 test("strategy-build opens a new terminal for the requested worktree and malformed requests do not launch",async()=>{
  const h=harness();await Bun.write(`${h.ctx.pacerHome}/strategy.yaml`,"planner: claude-code\nproviders:\n  claude-code: {usage: reactive}\n  codex: {usage: reactive}\n");
- const calls:string[][]=[];h.ctx.run=async argv=>{calls.push(argv);return {code:0,stdout:'{"ok":true,"result":{}}',stderr:""};};
+ const calls:string[][]=[];h.ctx.run=async argv=>{calls.push(argv);return {code:0,stdout:JSON.stringify({ok:true,result:{runtime:{state:'ready',reachable:true},terminal:{handle:'t'}}}),stderr:""};};
  await h.run([encodeCmdLine({cmd:"strategy-build",agent:"codex",from:"default",brief:"Protect planning",worktreeId:"wt",branch:"main"})]);
- expect(calls[0]?.slice(0,8)).toEqual(["orca","terminal","create","--worktree","id:wt","--title","pacer strategy","--command"]);expect(h.output()).toContain("Session opened in a new terminal");
+ expect(calls.find(argv=>argv[1]==="terminal")?.slice(0,8)).toEqual(["orca","terminal","create","--worktree","id:wt","--title","pacer strategy","--command"]);expect(h.output()).toContain("Session opened in a new terminal");
  const bad=harness();await bad.run([encodeCmdLine({cmd:"strategy-build",agent:"agy",from:"default",brief:"x"})]);expect(bad.output()).toContain("ignored malformed plugin command");
 });
 
@@ -224,14 +224,14 @@ test("console publishes strategy session success, fallback and failure to the li
  for(const mode of ["success","fallback","failure"]){
   const h=harness();await Bun.write(`${h.ctx.pacerHome}/strategy.yaml`,"planner: claude-code\nproviders:\n  claude-code: {usage: reactive}\n  codex: {usage: reactive}\n");
   h.ctx.which=()=>mode==="fallback"?null:"/fake/orca";
-  h.ctx.run=async()=>mode==="failure"?{code:1,stdout:"",stderr:"Terminal creation refused"}:{code:0,stdout:'{"ok":true,"result":{}}',stderr:""};
+  h.ctx.run=async()=>mode==="failure"?{code:1,stdout:"",stderr:"Terminal creation refused"}:{code:0,stdout:JSON.stringify({ok:true,result:{runtime:{state:'ready',reachable:true},terminal:{handle:'t'}}}),stderr:""};
   await h.run([encodeCmdLine({cmd:"strategy-build",agent:"codex",from:"default",brief:"Protect planning",worktreeId:"wt"})]);
   const snapshot=JSON.parse(await Bun.file(`${h.ctx.pacerHome}/link/latest.json`).text());
   const alert=snapshot.alerts.find((a:any)=>a.key==="strategy-build");
   expect(alert.level).toBe(mode==="success"?"info":"error");
   expect(alert.title).toBe(mode==="success"?"Strategy session opened":"Strategy session failed");
-  if(mode==="failure")expect(alert.body).toContain("Terminal creation refused");
-  if(mode==="fallback")expect(alert.body).toContain("Orca unavailable");
+  if(mode==="failure")expect(alert.body).toContain("Run:");
+  if(mode==="fallback")expect(alert.body).toContain("Run:");
  }
 });
 
@@ -279,19 +279,19 @@ test("human text glued before a plugin prefix is printed as discarded and never 
  expect(h.output()).toContain("discarded");expect(h.output()).toContain("status");expect(h.calls).not.toContain("status");expect(h.output()).toContain("worktree created");
 });
 
-test("notify-level writes installed plugin setting through plugin CLI and prints result",async()=>{
+test("notify-level writes installed plugin and pacer settings and prints result",async()=>{
  const {writeManifest}=await import("../src/install/manifest");const {pluginDataDir}=await import("../src/link/paths");
  const {readFileSync,rmSync}=await import("node:fs");const {join}=await import("node:path");const h=harness();
  try {
  writeManifest(h.ctx,{version:1,planners:{"orca-plugin":{planner:"orca-plugin",installedAt:1,pacerArgv:[],files:[],commands:[],notes:[]}}});
  await h.run([encodeCmdLine({cmd:"notify-level",level:"off"})]);
  expect(JSON.parse(readFileSync(join(pluginDataDir(h.ctx),"settings.json"),"utf8")).notifications).toBe("off");
- expect(h.output()).toContain('plugin setting notifications = "off"');
+ expect(h.output()).toContain('notifications: off');
  }finally{rmSync(h.ctx.home,{recursive:true,force:true});}
 });
-test("notify-level failure prints error and console remains usable",async()=>{
+test("notify-level works without the plugin and console remains usable",async()=>{
  const h=harness();await h.run([encodeCmdLine({cmd:"notify-level",level:"all"}),"status"]);
- expect(h.output()).toContain("plugin is not installed");expect(h.output()).toContain("STATUS TEXT");
+ expect(h.output()).toContain("notifications: all");expect(h.output()).toContain("STATUS TEXT");
 });
 
 test("focus finds the task worker terminal and switches with sanitized environment",async()=>{

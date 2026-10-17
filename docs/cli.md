@@ -306,3 +306,16 @@ refuses the planner and the last runner. Homes are retained unless
 `--delete-home` is supplied and its y/N prompt confirmed. Logins inherit the
 terminal and are started only for newly created pacer-managed accounts unless
 `--no-login` is given.
+
+## Pause and resume delegation
+
+Run `pacer pause 30m` (or `1h`, `1d`) to pause new work for up to seven days.
+Running tasks continue. New tasks wait with the `paused` queue reason and resume
+on the next queue drain after expiry. `pacer resume` ends the pause early.
+The API equivalents are `delegation.pause { for, reason? }` and
+`delegation.resume {}`. `mode.hold { mode, until? }` holds a budget mode until the
+planner window resets (seven days if unknown); `mode.release {}` ends the hold.
+
+Use `pacer executor set <id> --enabled false --model <model> --max-tasks 2` to
+change executor settings. Executor readiness, host checks and updates expose
+shared progress through `job.get`, `job.list` and `job.cancel` when cancellable.

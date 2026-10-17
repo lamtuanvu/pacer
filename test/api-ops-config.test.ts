@@ -88,7 +88,7 @@ test("plugin installation and notifications round-trip", async () => {
 
 test("version.get, service.status and hello describe the additive capabilities", async () => {
   const ctx = await configured();
-  expect(await callOp(ctx, "version.get", {})).toMatchObject({ pacer: expect.any(String), protocol: "2.2.0", service: { installed: false, running: false } });
+  expect(await callOp(ctx, "version.get", {})).toMatchObject({ pacer: expect.any(String), protocol: "2.5.0", service: { installed: false, running: false } });
   expect(await callOp(ctx, "service.status", {})).toEqual({ installed: false, running: false });
   expect(helloBody().events).toContain("config");
 });

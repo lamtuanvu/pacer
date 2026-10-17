@@ -68,10 +68,10 @@ test("check passes on a prepared host and names each failure", async () => {
 test("setup sets the repo-local identity only after confirmation", async () => {
   const { ctx, repo, checkout, git } = await fixture();
   await git(checkout, "config", "--local", "user.name", "Other");
-  expect((await hosts.setup(ctx, "box", repo, async () => false)).ok).toBe(false);
+  expect((await hosts.confirmSetup(ctx, "box", repo, async () => false)).ok).toBe(false);
   expect(await git(checkout, "config", "--local", "user.name")).toBe("Other");
   const questions: string[] = [];
-  expect((await hosts.setup(ctx, "box", repo, async q => { questions.push(q); return true; })).ok).toBe(true);
+  expect((await hosts.confirmSetup(ctx, "box", repo, async q => { questions.push(q); return true; })).ok).toBe(true);
   expect(questions.join("\n")).toContain("identity");
   expect(await git(checkout, "config", "--local", "user.name")).toBe("Test User");
 });
@@ -82,7 +82,7 @@ test("host CLI exit codes and read-only ops", async () => {
   expect((await main(["host", "list", "--json"], ctx)).code).toBe(0);
   expect((await hosts.list(ctx))[0]).toMatchObject({ alias: "box", running: 0, runners: ["codex@box", "codex#team@box"] });
   expect(await callOp(ctx, "host.list", {})).toEqual(await hosts.list(ctx));
-  expect(await callOp(ctx, "host.check", { alias: "box", repo })).toMatchObject({ ok: true });
+  expect(await callOp(ctx, "host.check", { alias: "box", repo })).toMatchObject({ job: { state: "passed" } });
   ctx.env.PACER_FAKE_SSH_DOWN = "box-ssh";
   const failed = await main(["host", "check", "box", "--repo", repo], ctx);
   expect(failed.code).toBe(1);
@@ -96,13 +96,13 @@ test("missing checkout setup previews clone and clones only with confirmation", 
   const { rmSync, existsSync } = await import("node:fs");
   rmSync(checkout, { recursive: true });
   const questions: string[] = [];
-  await hosts.setup(ctx, "box", repo, async q => { questions.push(q); return false; });
+  await hosts.confirmSetup(ctx, "box", repo, async q => { questions.push(q); return false; });
   expect(questions[0]).toContain("git clone -- https://github.com/o/r.git");
   expect(existsSync(checkout)).toBe(false);
   // Keep the clone entirely local, using git's URL rewrite at process scope.
   const run = ctx.run;
   ctx.run = (argv, ms, o) => run(argv, ms, argv.at(-1)?.endsWith("clone https://github.com/o/r.git") ? { ...o, env: { ...o?.env, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `url.${repo}.insteadOf`, GIT_CONFIG_VALUE_0: "https://github.com/o/r.git" } } : o);
-  expect((await hosts.setup(ctx, "box", repo, async () => true)).ok).toBe(true);
+  expect((await hosts.confirmSetup(ctx, "box", repo, async () => true)).ok).toBe(true);
   expect(await git(checkout, "config", "--local", "user.email")).toBe("test@example.invalid");
 });
 

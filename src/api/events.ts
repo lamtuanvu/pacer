@@ -1,3 +1,5 @@
+import { readHold } from "../core/mode-hold";
+import { drainQueueOnRead } from "../tasks/drain";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import type { LinkSnapshot } from "../link/envelope";
@@ -12,7 +14,8 @@ import { loadStrategy, validateStrategy } from "../config/strategy";
 import type { Ctx } from "../types";
 import { type ApiEvent, PROTOCOL_VERSION } from "./protocol";
 
-export function apiSnapshot(ctx: Ctx): { protocol: string; seq: number; snapshot: LinkSnapshot } {
+export async function apiSnapshot(ctx: Ctx): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot }> {
+  await drainQueueOnRead(ctx);
   const snapshot = currentSnapshot(ctx);
   return { protocol: PROTOCOL_VERSION, seq: snapshot.seq, snapshot };
 }
@@ -21,6 +24,7 @@ const statusCache=new Map<string,{at:number;strategy:string;value:Status}>();
 export async function liveSnapshot(
   ctx: Ctx, o: { maxBudgetAgeS?: number; status?: (c: Ctx) => Promise<Status> } = {},
 ): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot & ReadModelFields & {tasks:ApiTask[]} }> {
+  await drainQueueOnRead(ctx);
   const snapshot = currentSnapshot(ctx);
   // Only records the snapshot can show need a live status read; the rest are settled history.
   const recent = (t: TaskRecord) => !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
@@ -32,7 +36,7 @@ export async function liveSnapshot(
     strategy.runners={};strategy.accounts={};strategy.providers={};strategy.routing=[];
   }
   const status = o.status ?? (c => computeStatus({ ...c, readOnly: true }, strategy));
-  const key=JSON.stringify(strategy),cached=statusCache.get(ctx.pacerHome);
+  const key=JSON.stringify([strategy,readHold(ctx)]),cached=statusCache.get(ctx.pacerHome);
   let statusAvailable=false;
   const refresh=async():Promise<Status>=>{
     if(!o.status && cached && cached.strategy===key && ctx.now-cached.at>=0 && ctx.now-cached.at< (o.maxBudgetAgeS??60)){statusAvailable=true;return cached.value;}

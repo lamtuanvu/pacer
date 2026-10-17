@@ -194,7 +194,7 @@ test("relaxed-mode lifted allow marked incorrect becomes execution truth", async
   const e = entry("guard", { state_hash: guardEventId(input) });
   const st: Status = {
     generatedAt: 0, strategy: "default", planner: "codex", mode: "relaxed",
-    disabled: false, calendarPace: true, providers: [],
+    disabled: false, paused: null, modeHold: null, calendarPace: true, providers: [],
     executors: { ranked: [{ id: "local", score: 1, verdict: "OK", reason: "ok" }], excluded: [] },
   };
   const decision = await decideGuard(ctx, input, {

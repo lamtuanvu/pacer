@@ -1,3 +1,4 @@
+import { pauseLine } from "../core/pause";
 import type { Mode } from "../engine/mode";
 import type { Status } from "../engine/status";
 import type { WindowStatus } from "../engine/verdict";
@@ -36,6 +37,7 @@ export function renderText(st: Status): string {
     return `- ${name}: ${p.windows.map(fmtWindow).join("; ")}${stale}`;
   })]);
   const planner = runnerLabel(st.providers.find(p=>p.id===st.planner) ?? {id:st.planner});
+  if (st.paused) lines.push(pauseLine(st.paused));
   lines.push(`Mode: ${st.mode.toUpperCase()} - ${modeGuidance(st.mode, planner)}`);
   const ex = st.executors;
   const excluded = ex.excluded.filter((e) => e.reason !== "planner").map((e) => `${e.id}: ${e.reason}`);

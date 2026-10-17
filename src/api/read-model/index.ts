@@ -1,3 +1,5 @@
+import { redactEndpointError } from "../../endpoints/state";
+import { readPause } from "../../core/pause";
 import { currentAttention } from "../../attention/store";
 import { executorsFor } from "../../engine/rank";
 import type { ExecutorRow } from "./types";
@@ -24,12 +26,15 @@ export async function readModelContext(ctx:Ctx) {
  try{return await promise;}catch(e){cache.delete(ctx.pacerHome);throw e;}
 }
 export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;tasks:ApiTask[];setup:SetupChecklist;hosts:HostCfg[];signedIn?:{name:string;signedIn:boolean|null}[]}):ReadModelFields {
- const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now),accounts=buildAccounts(status,strategy).map(a=>({...a,signedIn:input.signedIn?.find(row=>row.name===a.name)?.signedIn??null})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks),setup=buildSetup(input.setup);
- const attention=currentAttention(ctx,{now:ctx.now,tasks,executors,accounts,planner,setup,update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)});
+ const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now,ctx),accounts=buildAccounts(status,strategy,ctx).map(a=>({...a,signedIn:a.signedIn===false?false:input.signedIn?.find(row=>row.name===a.name)?.signedIn??a.signedIn})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks,ctx),setup=buildSetup(input.setup);
+ const attention=currentAttention(ctx,{now:ctx.now,tasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)});
+ const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
+ const safe=(text:string|null)=>text===null?null:redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
+ const pause=paused?{...paused,reason:safe(paused.reason),by:safe(paused.by)}:null;
  const repos=[...listRepos(ctx)],known=new Set(repos.map(r=>r.key));
  for(const t of tasks)if(!known.has(t.repo.key)){repos.push(t.repo);known.add(t.repo.key);}
  const labels=labelsFor(repos);
- return {attention,service:{version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt},planner,executors,accounts,hosts,repos:repos.map(r=>({...r,label:labels.get(r.key)!})),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
+ return {pause,attention,service:{version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt},planner,executors,accounts,hosts,repos:repos.map(r=>({...r,label:labels.get(r.key)!})),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
 }
 
 export function retryTargetFor(task:ApiTask,strategy:Strategy,executors:ExecutorRow[]):string|null {

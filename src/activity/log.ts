@@ -6,8 +6,8 @@ import { readJson, writeJsonAtomic } from "../fsutil";
 import { redactEndpointError } from "../endpoints/state";
 import type { Ctx } from "../types";
 
-export const ACTIVITY_KINDS = ["task_started", "task_settled", "verdict", "retry", "mode", "budget_refreshed", "executor_state", "host_state", "account_state", "config", "update"] as const;
-export type ActivityKind = typeof ACTIVITY_KINDS[number];
+import { ACTIVITY_KINDS, type ActivityKind } from "./types";
+export { ACTIVITY_KINDS, type ActivityKind } from "./types";
 export interface ActivityEntry {
   id: string;
   at: number;

@@ -23,7 +23,7 @@ test("account and runner operations share configuration and publish matching eve
   expect(added.account).toMatchObject({name: "work", kind: "codex", folder: join(ctx.home, ".codex-work"), signin_command: expect.stringContaining("codex login")});
   expect(statSync(added.account.folder).mode & 0o777).toBe(0o700);
   expect(await callOp(ctx, "account.list", {})).toEqual(expect.arrayContaining([added.account]));
-  expect(await callOp(ctx, "runner.add", {agent: "codex", account: "work"})).toEqual({id: "codex#work"});
+  expect(await callOp(ctx, "runner.add", {agent: "codex", account: "work"})).toMatchObject({id: "codex#work", job: {kind: "runner.check", state: "failed"}});
   expect((await error(callOp(ctx, "account.remove", {name: "work"}))).code).toBe("conflict");
   expect(await callOp(ctx, "runner.remove", {id: "codex#work"})).toEqual({removed: true});
   expect(await callOp(ctx, "account.remove", {name: "work", delete_home: true})).toEqual({removed: true});
@@ -76,7 +76,7 @@ test("host operations reserve local and refuse removing a used alias", async () 
   const ctx = configured();
   expect((await error(callOp(ctx, "host.add", {alias: "local", ssh: "box"}))).code).toBe("invalid_input");
   expect(await callOp(ctx, "host.add", {alias: "box", ssh: "box-ssh"})).toEqual({alias: "box"});
-  expect(await callOp(ctx, "runner.add", {agent: "codex", host: "box"})).toEqual({id: "codex@box"});
+  expect(await callOp(ctx, "runner.add", {agent: "codex", host: "box"})).toMatchObject({id: "codex@box", job: {kind: "runner.check", state: "failed"}});
   expect((await error(callOp(ctx, "host.remove", {alias: "box"}))).code).toBe("conflict");
   await callOp(ctx, "runner.remove", {id: "codex@box"});
   expect(await callOp(ctx, "host.remove", {alias: "box"})).toEqual({removed: true});
@@ -87,6 +87,13 @@ test("account list preserves remote runner ids while sanitizing emails", async (
   const ctx = configured();
   await callOp(ctx, "host.add", {alias: "box", ssh: "box-ssh"});
   await callOp(ctx, "runner.add", {agent: "codex", host: "box"});
+  expect(await callOp(ctx, "account.list", {})).toEqual(expect.arrayContaining([expect.objectContaining({name: "codex", runners: ["codex", "codex@box"]})]));
+});
+
+test("account list orders inferred local runners before declared remote runners", async () => {
+  const ctx = configured();
+  await callOp(ctx, "host.add", {alias: "box", ssh: "box-ssh"});
+  await callOp(ctx, "runner.add", {agent: "codex", host: "box", test: false});
   expect(await callOp(ctx, "account.list", {})).toEqual(expect.arrayContaining([expect.objectContaining({name: "codex", runners: ["codex", "codex@box"]})]));
 });
 

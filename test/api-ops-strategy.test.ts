@@ -67,15 +67,18 @@ test("update.check honors the cache and force with a local release base and publ
   expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.data)).toEqual([1, 2, 3].map(() => ({area: "update", at: ctx.now})));
 });
 
-test("update.apply spawns once detached and publishes the starting alert", async () => {
-  const ctx = configured(), calls: unknown[] = [];
-  const deps: OpDeps = {update: {standalone: true}, spawnUpdate: (argv, options) => { calls.push({argv, options}); }};
-  expect(await callOp(ctx, "update.apply", {}, deps)).toEqual({started: true});
-  expect(calls).toEqual([{argv: [process.execPath, "update"], options: {detached: true, stdio: "ignore", env: ctx.env}}]);
-  expect(eventsSince(ctx, 0).events).toMatchObject([{type: "alert", data: {key: "update", level: "info", title: "Updating pacer…", at: ctx.now}}]);
+test("update.apply returns a shared job with progress", async () => {
+  const ctx = configured();
+  const deps: OpDeps = {update: {standalone: true}, runUpdate: async (_options, d) => {
+    for (const step of ["Download", "Verify", "Replace", "Refresh integrations", "Restart"] as const) {
+      d.progress?.(step, "running"); d.progress?.(step, "passed");
+    }
+    return {code: 0, out: "updated", err: ""};
+  }};
+  expect(await callOp(ctx, "update.apply", {}, deps)).toMatchObject({job: {kind: "update.apply", state: "passed"}});
 });
 
-test("update.apply preserves source, npm and Homebrew refusal messages without spawning", async () => {
+test("update.apply preserves source, npm and Homebrew refusal messages without starting a job", async () => {
   for (const kind of ["source", "npm", "brew"]) {
     const ctx = configured(), execPath = join(ctx.home, "Cellar/pacer/1.0.0/bin/pacer");
     mkdirSync(join(execPath, ".."), {recursive: true});
@@ -85,7 +88,7 @@ test("update.apply preserves source, npm and Homebrew refusal messages without s
     const expected = await runUpdate({check: false}, {...defaultUpdateDeps(ctx), ...update});
     let calls = 0;
     try {
-      await callOp(ctx, "update.apply", {}, {update, spawnUpdate: () => { calls++; }});
+      await callOp(ctx, "update.apply", {}, {update, runUpdate: async () => { calls++; return {code:0,out:"",err:""}; }});
       throw Error("expected refusal");
     } catch (e) {
       expect(toApiError(e)).toMatchObject({code: "not_allowed", message: expected.err.replace(/^pacer update: /, ""), hint: expect.any(String)});
@@ -95,8 +98,9 @@ test("update.apply preserves source, npm and Homebrew refusal messages without s
   }
 });
 
-test("failed update spawn does not announce a started update", async () => {
+test("failed updates are recorded in their job", async () => {
   const ctx = configured();
-  await expect(callOp(ctx, "update.apply", {}, {update: {standalone: true}, spawnUpdate: () => { throw Error("spawn failed"); }})).rejects.toMatchObject({code: "invalid_input", message: "spawn failed", hint: expect.any(String)});
-  expect(eventsSince(ctx, 0).events).toEqual([]);
+  expect(await callOp(ctx, "update.apply", {}, {update: {standalone: true}, runUpdate: async (_options,d) => {
+    d.progress?.("Download","running");return {code:1,out:"",err:"download failed"};
+  }})).toMatchObject({job:{state:"failed",error:{message:"download failed"},steps:[{name:"Download",state:"failed"},{state:"skipped"},{state:"skipped"},{state:"skipped"},{state:"skipped"}]}});
 });

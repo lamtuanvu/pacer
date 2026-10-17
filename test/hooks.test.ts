@@ -16,7 +16,7 @@ const s = validateStrategy({
 }, "/x");
 
 const status = (): Status => ({
-  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
+  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
   executors: { ranked: [], excluded: [] },
   providers: ["codex", "cursor"].map((id) => ({ id, usage: "reactive", windows: [], binding: null, verdict: "OK", installed: true, stale: false })) as ProviderStatus[],
 });

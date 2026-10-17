@@ -39,7 +39,7 @@ test("snapshot roundtrip retains current attempt and dismissal",()=>{
 test("pump publishes dismissal even when task state has not changed",async()=>{
   const ctx=fakeCtx();const t=createTask(ctx,{brief:{goal:"g",repo:"/r"},kind:null,requestedExecutor:null,timeoutS:60});t.state="failed";
   const s=emptySnapshot();s.tasks=[taskData(t)];writeJsonAtomic(latestPath(ctx),s);t.dismissed=true;
-  const events=await pumpOnce(ctx,{tasks:()=>[t],status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),publish:async()=>({seq:1,transports:["outbox"],errors:[]})});
+  const events=await pumpOnce(ctx,{tasks:()=>[t],status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled: false, paused: null, modeHold: null,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),publish:async()=>({seq:1,transports:["outbox"],errors:[]})});
   expect(events.find(e=>e.type==="task")?.data).toMatchObject({dismissed:true});
 });
 test("broken executor detail identifies why it is unavailable",()=>{

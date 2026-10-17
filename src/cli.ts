@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { resolveRepoInput } from "./core/repos";
+import { callOp } from "./api/ops";
 import { createInterface } from "node:readline/promises";
 import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
@@ -43,6 +44,7 @@ export const cliDeps: { spawnRunner: SpawnRunner } = { spawnRunner };
 const USAGE = `usage: pacer <command>
   dashboard                                      live interactive terminal dashboard
   status [--line | --json | --hook <planner>]   budget status (default: text report)
+  pause <for> | resume                          pause or resume delegation
   route [kind] [--json]                          executors pacer would use, in order
   delegate [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
@@ -51,6 +53,7 @@ const USAGE = `usage: pacer <command>
   review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--json]                     recent tasks, or one task in detail
+  executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   stop <task-id> [--json]                         stop a running task
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
@@ -232,6 +235,14 @@ function tasksCmd(args: string[], ctx: Ctx): Result {
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
   switch (cmd) {
+    case "pause":
+    case "resume": {
+      if (rest.length !== (cmd === "pause" ? 1 : 0)) return {code: 2, out: "", err: `usage: pacer ${cmd === "pause" ? "pause <for>" : "resume"}`};
+      try {
+        const result = await callOp(ctx, cmd === "pause" ? "delegation.pause" : "delegation.resume", cmd === "pause" ? {for: rest[0]} : {});
+        return {code: 0, out: JSON.stringify(result), err: ""};
+      } catch (e) { return {code: 2, out: "", err: explain(e)}; }
+    }
     case "account": return accountCmd(rest, ctx);
     case "runner": return runnerCmd(rest, ctx);
     case "config": return configCmd(rest, ctx);
@@ -303,7 +314,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           const r = await core.hosts.clean(ctx, alias);
           return { code: 0, out: opts.json ? JSON.stringify(r) : [...r.removed.map(id => `${id} removed`), ...r.kept.map(k => `${k.id} kept: ${k.reason}`)].join("\n") || "nothing to clean", err: "" };
         }
-        const r = action === "setup" ? await core.hosts.setup(ctx, alias, str(opts.repo) ?? process.cwd(), async question => {
+        const r = action === "setup" ? await core.hosts.confirmSetup(ctx, alias, str(opts.repo) ?? process.cwd(), async question => {
           if (!process.stdin.isTTY) { process.stdout.write(`${question} [y/N] (confirmation required)\n`); return false; }
           const rl = createInterface({ input: process.stdin, output: process.stdout });
           try { return /^y(?:es)?$/i.test((await rl.question(`${question} [y/N] `)).trim()); } finally { rl.close(); }

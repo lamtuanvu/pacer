@@ -168,3 +168,26 @@ or forwards credentials or keys, and adds no SSH configuration or host keys.
 Only git content is transferred; files outside git are not copied. pacer never
 pushes from either machine, and writes returned results only to the new local
 task branch.
+
+## Host controls in the app (protocol 2.5.0)
+
+`host.suggest` offers concrete SSH aliases, including aliases from SSH config
+Includes. `host.get { alias }` returns facts, check results, executor capacity
+rows, mapped repositories, account folders and recent completed/accepted totals.
+`host.check` shares a progress job between clients. `host.set` edits `max_tasks`
+(1–16) and `paused`; pausing routes new work elsewhere and leaves running tasks
+alone. Disabled executors still count as references when removing a host.
+
+Host state uses this precedence: `paused`, `down` after two consecutive probe
+failures, `checking` during a check job, `needs_setup` for failed checks or unmapped
+known repositories, then `ready`. Every 300 seconds the service probes unpaused
+hosts that have enabled executors through the SSH ControlMaster connection.
+Two failures raise host attention with **Run checks** and **Pause host**; the
+first success clears it. Probing never changes running task state.
+
+`host.repo.map` accepts a canonical host/owner/repo key and a remote path.
+`host.repo.setup` requires `consent: true` and can clone and set identity through
+a job. `host.account.add` records an account folder and returns a login command
+for the user to run. `host.clean { alias, dry_run: true }` previews worktrees as
+`will remove`, `in use` or `kept`; cleanup keeps running and untransferred work.
+`host.terminal` opens SSH using the same terminal selection as account sign-in.

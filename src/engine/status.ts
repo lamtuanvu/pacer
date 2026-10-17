@@ -1,3 +1,5 @@
+import { readPause, type PauseState } from "../core/pause";
+import { readHold, type ModeHold } from "../core/mode-hold";
 import { endpointRow } from "../endpoints/row";
 import { orcaAccountHome } from "../orca/accounts";
 import { parseRunnerId, formatRunnerId, runnerDefaults, resolveRunner } from "../config/runner-id";
@@ -36,6 +38,8 @@ export interface Status {
   planner: string;
   mode: Mode;
   disabled: boolean;
+  paused?: PauseState | null;
+  modeHold?: ModeHold | null;
   calendarPace: boolean;
   warnings?: string[];
   accounts?: AccountStatus[];
@@ -105,11 +109,13 @@ export async function computeStatus(
   });
   const byId = Object.fromEntries(providers.map(p => [p.id, p]));
   const planner = byAccount[s.planner.account];
+  const modeHold = readHold(ctx);
   return {
+    paused: readPause(ctx), modeHold,
     generatedAt: ctx.now,
     strategy: s.name,
     planner: s.planner.agent === "opencode" && !s.accounts[s.planner.account] ? "opencode" : formatRunnerId({...s.planner, host: null}, {...runnerDefaults(s.accounts), opencode: undefined}),
-    mode: planner ? plannerMode(planner.verdict) : "normal",
+    mode: modeHold?.mode ?? (planner ? plannerMode(planner.verdict) : "normal"),
     disabled: (ctx.env.PACER ?? "").toLowerCase() === "off",
     calendarPace: isCalendar(profile),
     ...(warnings.length ? { warnings } : {}),

@@ -15,6 +15,7 @@ export const UPDATE_USAGE = "usage: pacer update [--check [--json]] [--to <versi
 export interface UpdateOptions { check: boolean; json?: boolean; noRestart?: boolean; noReinstall?: boolean; to?: string; base?: string }
 
 export interface UpdateDeps {
+  progress?: (name: "Download" | "Verify" | "Replace" | "Refresh integrations" | "Restart", state: "running" | "passed" | "skipped", detail?: string) => void;
   env: Record<string, string | undefined>;
   fetch: FetchFn;
   execPath: string;
@@ -111,8 +112,13 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
   const plat = d.platform;
   if (!plat) return fail(2, "this OS/CPU is not supported (release builds exist for darwin and linux on arm64 and x64)");
   try {
+    if(!o.check) d.progress?.("Download","running");
     const target = o.to ?? parseLatest(JSON.parse(await fetchText(d.fetch, latestUrl(base))));
     const cmp = compareVersions(target, d.version);
+    if (!o.check && !o.to && cmp<=0) {
+      d.progress?.("Download","passed");
+      for(const name of ["Verify","Replace","Refresh integrations","Restart"] as const) d.progress?.(name,"skipped","Already up to date");
+    }
     if (!o.to && cmp <= 0) return checked((cmp === 0 ? `pacer ${d.version} is up to date` : `pacer ${d.version} is up to date (latest release: ${target})`) + migrationNote());
     if (o.check && o.to && cmp === 0) return checked(`pacer ${d.version} is already installed`);
     const manifest = parseManifest(JSON.parse(await fetchText(d.fetch, releaseUrl(base, target, "manifest.json"))));
@@ -127,11 +133,17 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
     const sums = parseSha256Sums(await fetchText(d.fetch, releaseUrl(base, target, "SHA256SUMS")));
     if (sums.get(asset.file) !== asset.sha256) throw new ReleaseError(`SHA256SUMS and manifest.json disagree about ${asset.file}; refusing to install`);
     const bytes = await fetchBytes(d.fetch, releaseUrl(base, target, asset.file), asset.size);
+    d.progress?.("Download","passed");
+    d.progress?.("Verify","running");
     const got = sha256Hex(bytes);
     if (got !== asset.sha256 || bytes.length !== asset.size) {
       throw new ReleaseError(`checksum mismatch for ${asset.file} (expected ${asset.sha256}, got ${got}); nothing was changed`);
     }
+    d.progress?.("Verify","passed");
+    d.progress?.("Replace","running");
     const r = await replaceBinary(d.execPath, bytes, target, d.smoke ?? runVersion);
+    d.progress?.("Replace","passed");
+    d.progress?.("Refresh integrations","running");
     let refreshNote = "";
     if (!o.noReinstall && d.refreshIntegrations) {
       try {
@@ -140,13 +152,16 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
       } catch (e) { refreshNote = `\nWARNING: could not refresh integrations: ${(e as Error).message}`; }
     }
     refreshNote += migrationNote();
+    d.progress?.("Refresh integrations",o.noReinstall ? "skipped" : "passed");
     let serviceNote = "";
+    d.progress?.("Restart",o.noRestart || !d.restartService ? "skipped" : "running",target);
     if (!o.noRestart && d.restartService) {
       try { const result = await d.restartService(r.path);
+        if(!(typeof result === "boolean" ? result : result.restarted)) d.progress?.("Restart","skipped","Service was not restarted");
         if (typeof result === "boolean") { if (result) serviceNote = "\nrestarted pacer serve"; }
         else serviceNote = (result.restarted ? "\nrestarted pacer serve" : "") + `\nrestarted ${result.consoles} pacer consoles` + (result.warning ? `\nWARNING: ${result.warning}` : "");
       }
-      catch (e) { serviceNote = `\nWARNING: could not restart pacer serve: ${(e as Error).message}`; }
+      catch (e) { d.progress?.("Restart","skipped",String(e)); serviceNote = `\nWARNING: could not restart pacer serve: ${(e as Error).message}`; }
     }
     return ok([`updated pacer ${d.version} -> ${target}`, `binary: ${r.path}`, `previous binary: ${r.backup}`].join("\n") + refreshNote + serviceNote);
   } catch (e) {
