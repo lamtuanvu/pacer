@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { emptySnapshot } from "../src/link/envelope";
 import { homeModel } from "../app/src/model/home";
-import { tasksModel, taskCounts, delegateParams, recentRepos, nextTaskLimit, taskActions, executorLabel } from "../app/src/model/tasks";
+import { tasksModel, taskCounts, delegateParams, recentRepos, nextTaskLimit, taskActions } from "../app/src/model/tasks";
+import { executorLabel } from "../src/view-model/words";
 
 const task = (task_id: string, state: string, extra = {}) => ({ task_id, state, kind: "tests", requested_executor: null, attempts: [], result: null, review: null, resolved: null, ...extra });
 test("tabs distinguish active, unreviewed and historical tasks and preserve snapshot titles", () => {

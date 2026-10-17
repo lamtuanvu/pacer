@@ -1,9 +1,9 @@
 import { render } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { createApi } from "./api";
+import { createApi } from "./data/api";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
-import { createStore } from "./store";
+import { createStore } from "./data/store";
 import { resolveRoute, type Route } from "./router";
 import { Shell } from "./shell/Shell";
 import { Home } from "./screens/Home";

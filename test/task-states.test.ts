@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { executorEnv } from "../src/exec/process";
 import { TERMINAL_STATES } from "../src/tasks/types";
-import { taskStatus } from "../app/src/model/tasks";
+import { taskStatus } from "../src/view-model/words";
 import { attentionGroups, attentionText } from "../src/view-model/panel";
 import { cards } from "../src/dashboard/model";
 import type { LinkSnapshot } from "../src/link/envelope";

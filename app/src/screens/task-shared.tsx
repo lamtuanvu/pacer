@@ -1,11 +1,14 @@
+import { AgentMark } from "../ds/AgentMark";
+import { runnerAgent } from "../../../src/view-model/agents";
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
-import type { StoreState } from "../store";
-import { ApiError, type BrowserApi } from "../api";
+import type { StoreState } from "../data/store";
+import { ApiError, type BrowserApi } from "../data/api";
 import { draftStorage } from "../model/draft";
 import { Button } from "../ds/Button";
 import { Pill } from "../ds/Pill";
-import { executorLabel, taskHref, taskStatus, type TaskSummary } from "../model/tasks";
+import { taskHref, type TaskSummary } from "../model/tasks";
+import { executorLabel, taskStatus } from "../../../src/view-model/words";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
 export const useTaskContext = () => useContext(TaskContext);
 export function ErrorMessage({ error }: { error: unknown }) {
@@ -72,5 +75,5 @@ export function TaskRow({ task, reload, onDismiss }: { task: ReturnType<typeof i
 export function SnapshotRow({ task }: { task: import("../../../src/link/envelope").TaskData }) {
   const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
   const status = taskStatus(task);
-  return <div className="task-row"><Pill tone={status.tone}>{status.label}</Pill><div className="grow"><TaskLink id={task.id}>{task.goal}</TaskLink><div className="muted">{executorLabel(task.executor, accounts.data ?? [])}{task.progress && ` · ${task.progress.files} files · ${task.progress.commits} commits`}</div></div><TaskLink id={task.id}>Open</TaskLink></div>;
+  return <div className="task-row"><Pill tone={status.tone}>{status.label}</Pill><div className="grow"><TaskLink id={task.id}>{task.goal}</TaskLink><div className="muted">{task.executor && <AgentMark agent={runnerAgent(task.executor)} size={16} labelled={false} />} {executorLabel(task.executor, accounts.data ?? [])}{task.progress && ` · ${task.progress.files} files · ${task.progress.commits} commits`}</div></div><TaskLink id={task.id}>Open</TaskLink></div>;
 }

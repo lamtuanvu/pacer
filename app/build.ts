@@ -1,8 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import pkg from "../package.json";
-import { generateTokens } from "./src/ds/tokens";
+import { generateTokensCss, generateTokensTs, readTokens } from "./tokens-gen";
 
+/** app.js gzip budget from the UI implementation spec (60 KB, without the terminal chunk). */
+export const APP_JS_BUDGET = 60 * 1024;
 export interface AppFile { path: string; type: string; text: string }
 const root = import.meta.dir;
 
@@ -10,7 +12,7 @@ const root = import.meta.dir;
 export async function buildApp(): Promise<AppFile[]> {
   const result = await Bun.build({ entrypoints: [join(root, "src/main.tsx")], target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
   if (!result.success) throw new AggregateError(result.logs, "app build failed");
-  const css = [generateTokens(), await Bun.file(join(root, "src/ds/components.css")).text(), await Bun.file(join(root, "src/styles.css")).text()].join("\n");
+  const css = [generateTokensCss(readTokens(join(root, "src/ds"))), await Bun.file(join(root, "src/ds/components.css")).text(), await Bun.file(join(root, "src/styles.css")).text()].join("\n");
   return [
     { path: "index.html", type: "text/html; charset=utf-8", text: await Bun.file(join(root, "index.html")).text() },
     { path: "app.js", type: "text/javascript; charset=utf-8", text: await result.outputs[0]!.text() },
@@ -23,8 +25,10 @@ export function generatedSource(files: AppFile[]): string {
 if (import.meta.main) {
   const files = await buildApp();
   mkdirSync(join(root, "dist"), { recursive: true });
-  await Bun.write(join(root, "src/ds/tokens.css"), generateTokens());
+  const tokens = readTokens(join(root, "src/ds"));
+  await Bun.write(join(root, "src/ds/tokens.css"), generateTokensCss(tokens));
+  await Bun.write(join(root, "src/ds/tokens.ts"), generateTokensTs(tokens));
   for (const file of files) await Bun.write(join(root, "dist", file.path), file.text);
   await Bun.write(join(root, "../src/app/assets.generated.ts"), generatedSource(files));
-  console.log(`app.js: ${Bun.gzipSync(files[1]!.text).byteLength} bytes gzip`);
+  console.log(`app.js: ${Bun.gzipSync(files[1]!.text).byteLength} bytes gzip (budget ${APP_JS_BUDGET})`);
 }

@@ -1,0 +1,69 @@
+import { expect, test } from "bun:test";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { generateTokensCss, generateTokensTs, mergeTokens, provisionalEntries, type LocalTokenFile, type TokenFile } from "../app/tokens-gen";
+import { tmpDir } from "./helpers";
+
+const ds = join(import.meta.dir, "../app/src/ds");
+const read = (name: string) => readFileSync(join(ds, name), "utf8");
+const tokens = JSON.parse(read("tokens.json")) as TokenFile;
+const local = JSON.parse(read("tokens.local.json")) as LocalTokenFile;
+const sync = (args: string[]) => Bun.spawnSync(["bun", join(import.meta.dir, "../scripts/ds-sync.ts"), ...args], { stdout: "pipe", stderr: "pipe" });
+
+test("generated token CSS equals the committed tokens.css", () => {
+  expect(generateTokensCss(mergeTokens(tokens, local))).toBe(read("tokens.css"));
+});
+
+test("generated tokens.ts equals the committed file", () => {
+  const ts = generateTokensTs(mergeTokens(tokens, local));
+  expect(ts).toBe(read("tokens.ts"));
+  expect(ts).toContain('"surface-page"');
+});
+
+test("a provisional token that the design system now has fails the merge", () => {
+  const ink = { name: "ink", value: { light: "#000", dark: "#fff" }, usage: "x", provisional: "x" };
+  expect(() => mergeTokens(tokens, { color: { tokens: [ink] } })).toThrow("ink is now in the design system");
+});
+
+test("provisional tokens are appended to their group", () => {
+  const term = { name: "terminal-ground", value: { light: "#09090b", dark: "#09090b" }, usage: "Session view ground.", provisional: "until the design system adds a terminal group" };
+  const merged = mergeTokens(tokens, { color: { tokens: [term] } });
+  expect(merged.color.tokens.at(-1)?.name).toBe("terminal-ground");
+  expect(generateTokensCss(merged)).toContain("--terminal-ground: #09090b;");
+  expect(provisionalEntries({ color: { tokens: [term] } })).toEqual([{ group: "color", name: "terminal-ground", provisional: term.provisional }]);
+});
+
+test("provisional entries are listed", () => {
+  const entries = provisionalEntries(local);
+  if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
+  expect(entries).toEqual([]);
+});
+
+test("ds-sync rejects an export missing a dark value and writes nothing", () => {
+  const out = tmpDir();
+  cpSync(ds, out, { recursive: true });
+  const bad = structuredClone(tokens) as unknown as { color: { tokens: { value: Record<string, string> }[] } };
+  delete bad.color.tokens[0]!.value.dark;
+  const file = join(tmpDir(), "export.json");
+  writeFileSync(file, JSON.stringify(bad));
+  const result = sync([file, "--out", out]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr.toString()).toContain("color.tokens.0.value.dark");
+  expect(readFileSync(join(out, "tokens.json"), "utf8")).toBe(read("tokens.json"));
+});
+
+test("ds-sync writes tokens and reports changes", () => {
+  const out = tmpDir();
+  mkdirSync(out, { recursive: true });
+  cpSync(ds, out, { recursive: true });
+  const next = structuredClone(tokens);
+  next.color.tokens.find(t => t.name === "ink")!.value.light = "#111111";
+  const file = join(tmpDir(), "export.json");
+  writeFileSync(file, JSON.stringify(next));
+  const result = sync([file, "--out", out]);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout.toString()).toContain("changed: ink");
+  expect(JSON.parse(readFileSync(join(out, "tokens.json"), "utf8")).color.tokens.find((t: { name: string }) => t.name === "ink").value.light).toBe("#111111");
+  expect(readFileSync(join(out, "tokens.css"), "utf8")).toContain("--ink: #111111;");
+  expect(readFileSync(join(out, "tokens.ts"), "utf8")).toContain("#111111");
+});
