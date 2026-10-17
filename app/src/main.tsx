@@ -80,7 +80,7 @@ function App() {
   useEffect(() => { keys.setScope(route.name); }, [route.name]);
   return <TaskContext.Provider value={{ state, api }}>
     <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
-    {delegate && <Delegate close={() => setDelegate(false)} />}
+    {delegate && <Delegate close={() => setDelegate(false)} filterRepo={route.query.repo} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </TaskContext.Provider>;
 }

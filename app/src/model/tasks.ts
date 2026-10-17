@@ -30,18 +30,26 @@ export function tasksModel(tasks: TaskSummary[], liveOrSnapshot: TaskData[] | Li
   }).filter(task => !task.dismissed && (tab === "running" ? activeTask(task.state) : tab === "review" ? inReview(task) : !activeTask(task.state) && !inReview(task)));
 }
 export function nextTaskLimit(limit: number): number | null { return limit >= 200 ? null : Math.min(200, limit + 20); }
-export interface DelegateDraft { goal: string; repo: string; kind: string; executor: string; worktree: string; timeout: string; acceptance: string }
-export const blankDelegate: DelegateDraft = { goal: "", repo: "", kind: "feature", executor: "", worktree: "auto", timeout: "30", acceptance: "" };
-export function delegateParams(draft: DelegateDraft) {
-  if (!draft.goal.trim()) throw new Error("Goal is required.");
-  if (!draft.repo.trim().startsWith("/")) throw new Error("Repository must be an absolute path.");
-  const timeout = Number(draft.timeout);
-  if (!Number.isFinite(timeout) || timeout < 1 || timeout > 240) throw new Error("Timeout must be between 1 and 240 minutes.");
-  if (!kinds.includes(draft.kind)) throw new Error("Choose a task kind.");
-  if (!["auto", "new", "current"].includes(draft.worktree)) throw new Error("Choose a worktree mode.");
-  return { goal: draft.goal.trim(), repo: draft.repo.trim(), kind: draft.kind, worktree: draft.worktree, timeout_min: timeout, ...(draft.executor ? { executor: draft.executor } : {}), ...(draft.acceptance.trim() ? { acceptance: draft.acceptance.trim() } : {}) };
+export interface DelegateDraft { goal: string; repo: string; base: string; acceptance: string; executor: string }
+export const blankDelegate: DelegateDraft = { goal: "", repo: "", base: "", acceptance: "", executor: "" };
+/** A saved draft wins; otherwise the dialog starts on the repo the screen is filtered to. */
+export const initialDelegateDraft = (saved: DelegateDraft, filterRepo: string | null): DelegateDraft => saved.repo || !filterRepo ? saved : { ...saved, repo: filterRepo };
+/**
+ * Quick delegate from the UI. A 2.1+ service (it lists repo.list) takes a repo key, a base branch, the source and an
+ * idempotency id, so a double click or two windows never delegate twice; an older one needs an absolute path.
+ */
+export function delegateParams(draft: DelegateDraft, ops: ReadonlySet<string>, requestId: string, knownRepos: string[]) {
+  const goal = draft.goal.trim(), repo = draft.repo.trim(), current = ops.has("repo.list");
+  if (!goal) throw new Error("Goal is required.");
+  if (!repo.startsWith("/") && !(current && knownRepos.includes(repo))) throw new Error("Choose a repository.");
+  return {
+    goal, repo,
+    ...(current && draft.base.trim() ? { base: draft.base.trim() } : {}),
+    ...(draft.acceptance.trim() ? { acceptance: draft.acceptance.trim() } : {}),
+    ...(draft.executor ? { executor: draft.executor } : {}),
+    ...(current ? { source: "ui" as const, request_id: requestId } : {}),
+  };
 }
-export function recentRepos(paths: string[]): string[] { return [...new Set(paths.filter(Boolean))].slice(0, 10); }
 
 export function taskCounts(snapshot: LinkSnapshot) {
   return { running: snapshot.counts ? snapshot.counts.running + snapshot.counts.queued : snapshot.tasks.filter(t => activeTask(t.state) && !t.dismissed).length, review: snapshot.counts?.review ?? (snapshot.attention?.filter(item => item.kind === "review").length ?? snapshot.tasks.filter(needsReview).length) };
