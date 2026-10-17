@@ -9,6 +9,7 @@ use tokio::process::Command;
 pub struct Cli {
     pub binary: PathBuf,
     pub path: String,
+    pub pacer_home: PathBuf,
 }
 impl Cli {
     pub async fn login_path() -> String {
@@ -43,13 +44,21 @@ impl Cli {
             "{}:{path}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
             binary.parent()?.display()
         );
-        Some(Self { binary, path })
+        let pacer_home = std::env::var_os("PACER_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".pacer"));
+        Some(Self {
+            binary,
+            path,
+            pacer_home,
+        })
     }
     pub async fn run(&self, args: &[&str]) -> Result<String, String> {
         let mut command = Command::new(&self.binary);
         command
             .args(args)
             .env("PATH", &self.path)
+            .env("PACER_HOME", &self.pacer_home)
             .kill_on_drop(true);
         let out = tokio::time::timeout(Duration::from_secs(45), command.output())
             .await
@@ -65,72 +74,85 @@ impl Cli {
     }
 }
 
+#[derive(Clone)]
 pub struct Session {
     pub client: Client,
     pub origin: String,
 }
 impl Session {
-    pub async fn connect(cli: &Cli) -> Result<Self, String> {
-        Self::exchange(cli.auth().await?).await
+    pub async fn connect(cli: &Cli, auth: &Url) -> Result<Self, String> {
+        // Use exactly the home passed to CLI discovery, including PACER_HOME overrides.
+        let token = std::fs::read_to_string(cli.pacer_home.join("token"))
+            .map_err(|_| "Unable to read service token")?;
+        Self::exchange(auth, token).await
     }
-    async fn exchange(auth: Url) -> Result<Self, String> {
-        let origin = logic::local_origin(&auth).ok_or("Invalid origin")?;
+    async fn exchange(auth: &Url, token: String) -> Result<Self, String> {
+        let origin = logic::local_origin(auth).ok_or("Invalid origin")?;
         let client = Client::builder()
             .cookie_store(true)
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
-            .user_agent("pacer-desktop/0.1")
+            .user_agent(concat!("pacer-desktop/", env!("CARGO_PKG_VERSION")))
             .default_headers({
                 let mut h = reqwest::header::HeaderMap::new();
                 h.insert(
                     "X-Pacer-Client",
-                    reqwest::header::HeaderValue::from_static("app"),
+                    reqwest::header::HeaderValue::from_static(concat!(
+                        "desktop/",
+                        env!("CARGO_PKG_VERSION")
+                    )),
                 );
                 h
             })
             .build()
             .map_err(|_| "Unable to create client")?;
         let session = Self { client, origin };
-        // Probe before auth: older services may not implement the exchange at all.
-        logic::check_hello(&session.json("/v2/hello").await?).map_err(str::to_owned)?;
-        // The cookie jar is memory-only. Do not inspect any bearer token or service discovery secret.
+        if token.trim().is_empty() {
+            return Err("Missing service token".into());
+        }
+        // Bearer authorization belongs exclusively to this request, never to default headers.
+        let mut authorization =
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token.trim()))
+                .map_err(|_| "Invalid service token")?;
+        authorization.set_sensitive(true);
+        drop(token);
         let response = session
             .client
-            .get(auth)
+            .post(format!("{}/v2/session/exchange", session.origin))
+            .header(reqwest::header::AUTHORIZATION, authorization)
             .timeout(Duration::from_secs(15))
             .send()
             .await
-            .map_err(|_| "stopped")?;
-        if response.status() != reqwest::StatusCode::SEE_OTHER
-            || response
-                .headers()
-                .get("location")
-                .and_then(|h| h.to_str().ok())
-                != Some("/app/")
-        {
-            return Err("stopped".into());
+            .map_err(|_| "Session exchange failed")?;
+        if response.status() != reqwest::StatusCode::NO_CONTENT {
+            return Err("Session exchange failed".into());
         }
+        logic::check_hello(&session.json("/v2/hello").await?).map_err(str::to_owned)?;
         Ok(session)
     }
-    async fn notification_level(&self) -> String {
-        // Read-only op, transported as POST by v2. Cookie writes/ops require Origin and X-Pacer-Client.
-        let response = self
-            .client
-            .post(format!("{}/v2/ops/notifications.get", self.origin))
-            .header("Origin", &self.origin)
-            .json(&serde_json::json!({}))
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await;
-        if let Ok(response) = response {
-            if let Ok(body) = response.json::<Value>().await {
-                if let Some(level) = body["result"]["level"].as_str() {
-                    return level.into();
-                }
-            }
+    pub async fn op(&self, op: &str, params: &Value) -> Result<Value, String> {
+        if crate::actions::dispatch(&serde_json::json!({"op":op,"params":params})).is_none()
+            || op == "ui.open"
+        {
+            return Err("Invalid operation".into());
         }
-        "important".into()
+        self.client
+            .post(format!("{}/v2/ops/{op}", self.origin))
+            .header("Origin", &self.origin)
+            // Cookie writes must say exactly "app" (the service's CSRF check); reads keep the desktop label.
+            .header("X-Pacer-Client", "app")
+            .json(params)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|_| "Operation failed")?
+            .error_for_status()
+            .map_err(|_| "Operation failed")?
+            .json::<Value>()
+            .await
+            .map(|v| v["result"].clone())
+            .map_err(|_| "Invalid service response".into())
     }
     pub async fn json(&self, path: &str) -> Result<Value, String> {
         self.client
@@ -148,16 +170,45 @@ impl Session {
 }
 
 async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
-    let session = Session::connect(cli).await?;
-    let snapshot = session.json("/v2/snapshot").await?;
-    let mut seq = snapshot["seq"].as_u64().unwrap_or(0);
     let web_auth = cli.auth().await?;
+    let session = Session::connect(cli, &web_auth).await?;
+    let snapshot = session.json("/v2/snapshot").await?;
+    let registration = session.op("client.register", &serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":true})).await?;
+    let client_id = registration["client_id"]
+        .as_str()
+        .ok_or("Missing client id")?
+        .to_owned();
+    let seq = snapshot["seq"].as_u64().unwrap_or(0);
     if logic::local_origin(&web_auth).as_deref() != Some(&session.origin) {
         return Err("stopped".into());
     }
     crate::activate(app, &session.origin, web_auth)?;
+    *app.state::<Shell>().session.lock().unwrap() = Some(session.clone());
     crate::update_tray(app, TrayModel::from_snapshot(&snapshot));
-    let mut notification_level = session.notification_level().await;
+    tokio::select! {
+        result = listen(app, &session, &client_id, seq) => result,
+        result = heartbeat(&session, &client_id) => result,
+    }
+}
+async fn heartbeat(session: &Session, client_id: &str) -> Result<(), String> {
+    let mut interval = tokio::time::interval(Duration::from_secs(30));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        interval.tick().await;
+        session
+            .op(
+                "client.heartbeat",
+                &serde_json::json!({"client_id":client_id}),
+            )
+            .await?;
+    }
+}
+async fn listen(
+    app: &AppHandle,
+    session: &Session,
+    client_id: &str,
+    mut seq: u64,
+) -> Result<(), String> {
     // Exactly one owner of the native stream. Reconnect sequentially, never from window callbacks.
     loop {
         let response = tokio::time::timeout(
@@ -191,7 +242,6 @@ async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
             let events = parser.push(&chunk).map_err(str::to_owned)?;
             let reset = events.iter().any(|event| event.kind == "reset");
             let mut refresh = false;
-            let mut config_changed = false;
             for event in events {
                 if event.kind != "reset" && event.id.is_some_and(|id| id <= seq) {
                     continue;
@@ -199,12 +249,13 @@ async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
                 if let Some(id) = event.id {
                     seq = id;
                 }
-                if event.kind == "config" {
-                    config_changed = true;
-                }
-                if event.kind == "alert" {
+                if event.kind == "notify" {
                     if let Ok(data) = serde_json::from_str::<Value>(&event.data) {
-                        crate::notify(app, &data, &notification_level);
+                        if let Some(notification) =
+                            crate::notifications::from_event(&data, &client_id)
+                        {
+                            crate::notify(app, notification);
+                        }
                     }
                 }
                 // Unknown minor-version events also invalidate the snapshot.
@@ -212,9 +263,6 @@ async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
             }
             if refresh {
                 let snapshot = session.json("/v2/snapshot").await?;
-                if config_changed {
-                    notification_level = session.notification_level().await;
-                }
                 // A reset invalidates the old sequence space; the fresh snapshot owns the cursor.
                 // Ordinary refreshes preserve the event cursor for alerts arriving during the GET.
                 seq = logic::snapshot_seq(seq, &snapshot, reset);
@@ -278,41 +326,8 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     #[tokio::test]
-    #[ignore = "requires loopback socket access; run with --include-ignored outside a restricted sandbox"]
-    async fn old_service_is_reported_before_auth_exchange() {
-        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = server.local_addr().unwrap();
-        let worker = std::thread::spawn(move || {
-            let (mut connection, _) = server.accept().unwrap();
-            connection
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut request = Vec::new();
-            loop {
-                let mut buffer = [0; 1024];
-                let length = connection.read(&mut buffer).unwrap();
-                request.extend_from_slice(&buffer[..length]);
-                if length == 0 || request.windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            let request = String::from_utf8(request).unwrap();
-            let body = r#"{"protocol":"1.5.0"}"#;
-            let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
-            connection.write_all(response.as_bytes()).unwrap();
-            assert!(request.starts_with("GET /v2/hello "));
-        });
-        let auth = logic::auth_url(&format!("http://{address}/app/auth?code=test-code")).unwrap();
-        let error = Session::exchange(auth)
-            .await
-            .err()
-            .expect("old service must fail");
-        worker.join().unwrap();
-        assert_eq!(error, "oldService");
-    }
-    #[tokio::test]
-    #[ignore = "requires loopback socket access; run with --include-ignored outside a restricted sandbox"]
-    async fn code_exchange_uses_cookie_without_bearer() {
+    #[ignore = "requires loopback socket access"]
+    async fn bearer_is_only_used_for_post_exchange_then_memory_cookie() {
         let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = server.local_addr().unwrap();
         let worker = std::thread::spawn(move || {
@@ -331,28 +346,43 @@ mod tests {
                     }
                 }
                 let request = String::from_utf8(request).unwrap().to_lowercase();
-                assert!(!request.contains("authorization:"));
-                assert!(request.contains("x-pacer-client: app"));
-                assert!(request.contains(&format!("host: {address}")));
-                let response = if n == 1 {
-                    assert!(request.starts_with("get /app/auth?code=test-code "));
-                    "HTTP/1.1 303 See Other\r\nLocation: /app/\r\nSet-Cookie: pacer_session=test-session; HttpOnly; SameSite=Strict; Path=/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned()
+                if request.starts_with("post /v2/ops/") {
+                    assert!(request.contains("x-pacer-client: app\r\n"));
                 } else {
-                    assert!(request.starts_with("get /v2/hello "));
-                    if n == 2 {
-                        assert!(request.contains("cookie: pacer_session=test-session"));
+                    assert!(request.contains(concat!(
+                        "x-pacer-client: desktop/",
+                        env!("CARGO_PKG_VERSION")
+                    )));
+                }
+                assert!(request.contains(&format!("host: {address}")));
+                let response = if n == 0 {
+                    assert!(request.starts_with("post /v2/session/exchange "));
+                    assert!(request.contains("authorization: bearer test-token"));
+                    assert!(!request.contains("cookie:"));
+                    "HTTP/1.1 204 No Content\r\nSet-Cookie: pacer_session=test-session; HttpOnly; SameSite=Strict; Path=/\r\nConnection: close\r\n\r\n".to_owned()
+                } else {
+                    assert!(!request.contains("authorization:"));
+                    assert!(request.contains("cookie: pacer_session=test-session"));
+                    if n == 1 {
+                        assert!(request.starts_with("get /v2/hello "));
                     } else {
-                        assert!(!request.contains("cookie:"));
+                        assert!(request.starts_with("post /v2/ops/client.register "));
+                        assert!(request.contains(&format!("origin: http://{address}")));
                     }
-                    let body = r#"{"protocol":"2.0.0"}"#;
+                    let body = if n == 1 {
+                        r#"{"protocol":"2.8.0"}"#
+                    } else {
+                        r#"{"result":{"client_id":"test-client"}}"#
+                    };
                     format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
                 };
                 connection.write_all(response.as_bytes()).unwrap();
             }
         });
-        let auth = logic::auth_url(&format!("http://{address}/app/auth?code=test-code")).unwrap();
-        let session = Session::exchange(auth).await.unwrap();
-        assert!(logic::check_hello(&session.json("/v2/hello").await.unwrap()).is_ok());
+        let auth =
+            logic::auth_url(&format!("http://{address}/app/auth?code=webview-only")).unwrap();
+        let session = Session::exchange(&auth, "test-token".into()).await.unwrap();
+        session.op("client.register", &serde_json::json!({"kind":"desktop","notifier":true,"version":env!("CARGO_PKG_VERSION")})).await.unwrap();
         worker.join().unwrap();
     }
 }

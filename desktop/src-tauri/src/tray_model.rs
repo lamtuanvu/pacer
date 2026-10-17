@@ -13,6 +13,8 @@ pub struct TrayModel {
     pub needs: Vec<Item>,
     pub running: Vec<Item>,
     pub executors: Vec<String>,
+    pub paused: bool,
+    pub strategies: Vec<(String, bool)>,
 }
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {
     v[key].as_str().unwrap_or("")
@@ -65,14 +67,19 @@ impl TrayModel {
             .map(|p| format!("{:.0}%", p.clamp(0., 100.)))
             .unwrap_or_else(|| "—".into());
         // Only service-owned counts determine the attention dot. Do not infer a verdict from task states.
-        let count = s["counts"]["needsYou"]
+        let count = s["counts"]["attention"]
             .as_u64()
-            .or_else(|| s["counts"]["attention"].as_u64())
+            .or_else(|| s["counts"]["needsYou"].as_u64())
             .unwrap_or(0);
-        let needs = items(
-            s["attention"].get("items").unwrap_or(&s["attention"]),
-            "review",
-        );
+        let needs = s["attention"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|item| Item {
+                label: item["title"].as_str().unwrap_or("Needs you").into(),
+                route: Some(crate::actions::attention_route(item)),
+            })
+            .collect();
         let running = if s["running"].is_array() {
             items(&s["running"], "session")
         } else {
@@ -103,6 +110,16 @@ impl TrayModel {
             needs,
             running,
             executors,
+            paused: s["pause"].is_object(),
+            strategies: s["strategies"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|v| {
+                    let name = v.as_str().or_else(|| v["name"].as_str())?;
+                    Some((name.into(), v["active"] == true))
+                })
+                .collect(),
         }
     }
 }
@@ -112,10 +129,10 @@ mod tests {
     use serde_json::json;
     #[test]
     fn limits_and_service_owned_dot() {
-        let s = json!({"planner":{"label":"Codex","usedPct":42.4},"counts":{"needsYou":2},"attention":[{"id":"t-1","title":"Review","actions":[{"label":"Open","route":"/review/t-1"}]},{"id":"t-2"},{"id":"t-3"},{"id":"t-4"}],"tasks":[{"id":"t-5","state":"running","goal":"Build"}]});
+        let s = json!({"planner":{"label":"Codex","usedPct":42.4},"counts":{"needsYou":2},"attention":[{"id":"t-1","title":"Review","actions":[{"label":"Open","op":"ui.open","params":{"view":"review","id":"t-1"}}]},{"id":"t-2"},{"id":"t-3"},{"id":"t-4"}],"tasks":[{"id":"t-5","state":"running","goal":"Build"}]});
         let m = TrayModel::from_snapshot(&s);
         assert_eq!(m.title, "42% •");
-        assert_eq!(m.needs.len(), 3);
+        assert_eq!(m.needs.len(), 4);
         assert_eq!(m.needs[0].route.as_deref(), Some("#/review/t-1"));
         assert_eq!(m.running.len(), 1);
         assert!(
@@ -123,6 +140,21 @@ mod tests {
                 .title
                 .contains('•')
         );
+    }
+    #[test]
+    fn pause_strategies_and_attention_order() {
+        let m = TrayModel::from_snapshot(
+            &json!({"pause":{"until":123},"counts":{"attention":0,"needsYou":9},"strategies":["default",{"name":"fast","active":true}],"attention":[{"id":"z","title":"First"},{"id":"a","title":"Second"}]}),
+        );
+        assert!(m.paused);
+        assert!(!m.title.contains('•'));
+        assert_eq!(
+            m.strategies,
+            vec![("default".into(), false), ("fast".into(), true)]
+        );
+        assert_eq!(m.needs[0].label, "First");
+        assert_eq!(m.needs[1].label, "Second");
+        assert!(!TrayModel::from_snapshot(&json!({"pause":null})).paused);
     }
     #[test]
     fn legacy_snapshot_and_missing_fields() {
