@@ -137,12 +137,17 @@ test("binary-change watcher re-execs after an on-disk source replacement", async
   const deadline=Date.now()+3000;while(!existsSync(registration)&&Date.now()<deadline)await Bun.sleep(10);
   const before=JSON.parse(readFileSync(registration,"utf8"));writeFileSync(script,body+"\n// changed binary identity\n");
   while((!output.includes("restarting console") || startedAt(registration)===undefined || startedAt(registration)===before.startedAt)&&Date.now()<deadline)await Bun.sleep(10);
-  expect(output).toContain("pacer was updated; restarting console");expect(JSON.parse(readFileSync(registration,"utf8")).pid).toBe(proc.pid);
+  expect(output).toContain("pacer was updated; restarting console");
+  let pid:number|undefined;while((pid=registered(registration)?.pid)===undefined&&Date.now()<deadline)await Bun.sleep(10);
+  expect(pid).toBe(proc.pid);
   proc.stdin.end();expect(await proc.exited).toBe(0);await read;
  }finally{if(proc.exitCode===null)proc.kill();}
 });
 
 // The console rewrites its registration while restarting, so a read can race the rewrite.
+function registered(path: string): { pid?: number; startedAt?: number } | undefined {
+ try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; }
+}
 function startedAt(path: string): number | undefined {
  try { return JSON.parse(readFileSync(path, "utf8")).startedAt; } catch { return undefined; }
 }
