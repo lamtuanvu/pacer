@@ -1,3 +1,4 @@
+import { resolveRepo } from "../core/repos";
 import { runMappedCmd } from "../api/cmd";
 import { callOp } from "../api/ops";
 import { configCmd, CONFIG_KEYS } from "../commands/config";
@@ -138,7 +139,7 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
         if (data.goal !== undefined) {
           if (!data.goal.trim()) { print("pacer: goal is required"); return; }
           if ((data.worktreeId || data.branch) && !repo) { print("pacer: focused worktree could not be resolved"); return; }
-          const task = deps.delegate(fresh(), { brief: { repo: repo || deps.cwd, goal: data.goal, ...(data.acceptance?.trim() ? { acceptance: data.acceptance } : {}) }, ...(data.executor ? { executor: data.executor } : {}) });
+          const task = deps.delegate(fresh(), { repoRef:await resolveRepo(fresh(),repo || deps.cwd), brief: { repo: repo || deps.cwd, goal: data.goal, ...(data.acceptance?.trim() ? { acceptance: data.acceptance } : {}) }, ...(data.executor ? { executor: data.executor } : {}) });
           if(readTask(fresh(),task.id))updateTask(fresh(),task.id,t=>{t.fromPanel=true;});
           await publish(fresh(),[{v:1,type:"task",data:taskData(readTask(fresh(),task.id)??task)}]);
           print(`${task.id} queued`); await deps.pump(fresh());
@@ -248,7 +249,7 @@ export async function runConsole(ctx: Ctx, io: ConsoleIO, deps: ConsoleDeps): Pr
       case 4: {
         prompt = null;
         const brief = { goal: p.goal, repo: p.repo, ...(p.scope ? { scope: p.scope } : {}), ...(p.acceptance ? { acceptance: p.acceptance } : {}) };
-        const task = deps.delegate(fresh(), { brief, kind: value || null });
+        const task = deps.delegate(fresh(), { brief, repoRef:await resolveRepo(fresh(),brief.repo), kind: value || null });
         print(`${task.id} queued`);
         await deps.pump(fresh());
         return;

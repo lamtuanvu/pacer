@@ -1,3 +1,4 @@
+import { resolveRepo } from "../core/repos";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -45,7 +46,8 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   }, async (a) => {
     const ctx = getCtx();
     if (isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
-    const t = core.tasks.delegate(ctx, parseDelegateBrief(a, process.cwd()), spawnFn);
+    const input = parseDelegateBrief(a, process.cwd());
+    const t = core.tasks.delegate(ctx, {...input, repoRef: await resolveRepo(ctx,input.brief.repo)}, spawnFn);
     return json(summarizeTask(t));
   });
 

@@ -1,3 +1,4 @@
+import { resolveRepo } from "../core/repos";
 import { z } from "zod";
 import { spawn } from "node:child_process";
 import * as core from "../core";
@@ -25,6 +26,7 @@ import type { Ctx } from "../types";
 
 type UpdateSpawnOptions = { detached: true; stdio: "ignore"; env: NodeJS.ProcessEnv };
 export interface OpDeps {
+  client?: string;
   spawnRunner?: SpawnRunner;
   endpoint?: endpoints.EndpointDeps;
   spawnUpdate?: (argv: string[], options: UpdateSpawnOptions) => void | Promise<void>;
@@ -133,9 +135,9 @@ export const OPS: Record<string, OpDef> = {
   "task.delegate": op({
     description: "Hand a brief to an executor chosen by budget and priority (or `executor`).",
     params: z.object({ ...delegateSchema, repo: z.string().min(1) }),
-    handler: (ctx, p, deps) => {
+    handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      return summarizeTask(core.tasks.delegate(ctx, parseDelegateBrief(p, p.repo), deps.spawnRunner ?? spawnRunner));
+      return summarizeTask(core.tasks.delegate(ctx, {...parseDelegateBrief(p, p.repo), repoRef: await resolveRepo(ctx,p.repo), client: deps.client}, deps.spawnRunner ?? spawnRunner));
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),

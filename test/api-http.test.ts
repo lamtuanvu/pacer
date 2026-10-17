@@ -32,8 +32,8 @@ test("hello and snapshot need the token and describe the protocol", async () => 
   const { url, h } = await serve();
   expect((await fetch(`${url}/v2/hello`)).status).toBe(401);
   const hello = await (await fetch(`${url}/v2/hello`, { headers: h })).json();
-  expect(hello).toMatchObject({ protocol: "2.0.0", ops: expect.arrayContaining(["task.list", "limits.check"]) });
-  expect(await (await fetch(`${url}/v2/snapshot`, { headers: h })).json()).toMatchObject({ protocol: "2.0.0", seq: expect.any(Number) });
+  expect(hello).toMatchObject({ protocol: "2.1.0", ops: expect.arrayContaining(["task.list", "limits.check"]) });
+  expect(await (await fetch(`${url}/v2/snapshot`, { headers: h })).json()).toMatchObject({ protocol: "2.1.0", seq: expect.any(Number) });
 });
 
 test("ops run through the registry and return results", async () => {
@@ -197,4 +197,18 @@ test("idle SSE events and log follow deliver the first chunk within one second",
       expect(new TextDecoder().decode(chunk.value)).toBe(": connected\n\n");
     } finally { clearTimeout(timeout); await reader.cancel(); }
   }
+});
+
+test("client version header labels delegated tasks and ignores invalid labels",async()=>{
+ const {handleV2}=await import("../src/api/http");
+ const {fakeCtx}=await import("./helpers");
+ const {mkdirSync}=await import("node:fs");const {join}=await import("node:path");
+ const {readTask}=await import("../src/tasks/store");
+ const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});
+ await Bun.write(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+ for(const client of ["tui/0.3.0","<script>"]){
+ const response=await handleV2(new Request("http://localhost/v2/ops/task.delegate",{method:"POST",headers:{"X-Pacer-Client":client},body:JSON.stringify({goal:"test",repo:ctx.home})}),{getCtx:()=>ctx,opDeps:{spawnRunner:()=>1}});
+ expect(response.status).toBe(200);const body=await response.json() as any;
+ expect(readTask(ctx,body.result.task_id)?.client).toBe(client==="tui/0.3.0"?client:undefined);
+ }
 });

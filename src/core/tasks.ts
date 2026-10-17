@@ -1,3 +1,4 @@
+import { resolveRepo } from "./repos";
 import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy } from "../config/strategy";
@@ -144,7 +145,7 @@ export async function retry(
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
     const input: DelegateInput = {
-      brief: { ...task.brief }, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      brief: { ...task.brief }, repoRef: task.repo ?? await resolveRepo(ctx,task.brief.repo), kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
       ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
       ...(task.force ? { force: true } : {}),

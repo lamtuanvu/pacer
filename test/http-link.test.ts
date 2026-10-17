@@ -79,6 +79,28 @@ test("pump runs on its timer and stop clears it", async () => {
   expect(statSync(path).mtimeMs).toBe(before);
 });
 
+test("stop prevents a pending pump from publishing its entity batch", async () => {
+  const ctx=fakeCtx();
+  await Bun.write(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n");
+  let release!:()=>void, probing=false;
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  ctx.run=async argv=>{
+    if(argv[0]==="launchctl"||argv[0]==="systemctl"){probing=true;await gate;}
+    return {code:1,stdout:"",stderr:"offline"};
+  };
+  const server=startServer(()=>ctx,{port:0,pumpMs:5});stops.push(server.stop);
+  try {
+    const path=latestPath(ctx),deadline=Date.now()+3000;
+    while((!existsSync(path)||!probing)&&Date.now()<deadline)await Bun.sleep(5);
+    expect(existsSync(path)).toBe(true);expect(probing).toBe(true);
+    const before=readFileSync(path,"utf8"),mtime=statSync(path).mtimeMs;
+    server.stop();release();
+    await Bun.sleep(100);
+    expect(readFileSync(path,"utf8")).toBe(before);
+    expect(statSync(path).mtimeMs).toBe(mtime);
+  } finally {release();}
+});
+
 test("/state still returns full Status", async () => {
   const { url, headers } = await serve();
   const state = await (await fetch(`${url}/state`, { headers })).json();

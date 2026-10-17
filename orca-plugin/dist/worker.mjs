@@ -1194,6 +1194,12 @@ function parseEnvelope(raw) {
   if (!isObj(raw) || raw.v !== 1)
     return null;
   switch (raw.type) {
+    case "entity": {
+      const d = raw.data;
+      if (!isObj(d) || !["executor", "account", "host", "repo", "counts"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > 128)
+        return null;
+      return { v: 1, type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
+    }
     case "config": {
       const d = raw.data;
       if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null)
@@ -1235,6 +1241,8 @@ function parseSnapshot(raw) {
 function reduce(s, e, at) {
   const next = { ...s, seq: s.seq + 1, at };
   switch (e.type) {
+    case "entity":
+      break;
     case "config":
       break;
     case "budget":

@@ -1,3 +1,4 @@
+import { repoFor } from "../src/core/repos";
 import { currentSnapshot } from "../src/link/store";
 import { currentVersion } from "../src/update/version";
 import { expect, test, spyOn } from "bun:test";
@@ -53,7 +54,7 @@ test("status and unknown commands print useful output", async () => {
 test("plugin delegate resolves branch and queues brief before pumping", async () => {
   const h = harness(); await h.run([encodeCmdLine({ cmd: "delegate", branch: "feat-x" }), "fix the flaky test", "", "", "", ""]);
   expect(h.calls).toEqual(["resolve:feat-x", "delegate", "pump"]);
-  expect(h.inputs).toEqual([{ brief: { goal: "fix the flaky test", repo: "/wt/feat-x" }, kind: null }]);
+  expect(h.inputs).toEqual([{ brief: { goal: "fix the flaky test", repo: "/wt/feat-x" }, kind: null, repoRef:repoFor(h.ctx,"/wt/feat-x") }]);
   expect(h.output()).toContain("delegate requested from Orca (feat-x)"); expect(h.output()).toContain("queued");
 });
 test("empty goal cancels delegation", async () => {
@@ -103,7 +104,7 @@ test("DelegateError is printed and next command still works", async () => {
 });
 test("human delegate captures optional fields and cwd default", async () => {
   const h = harness(); await h.run(["delegate", "fix", "", "src", "bun test", "code"]);
-  expect(h.inputs).toEqual([{ brief: { goal: "fix", repo: "/cwd", scope: "src", acceptance: "bun test" }, kind: "code" }]);
+  expect(h.inputs).toEqual([{ brief: { goal: "fix", repo: "/cwd", scope: "src", acceptance: "bun test" }, kind: "code", repoRef:repoFor(h.ctx,"/cwd") }]);
 });
 test("tasks prints newest ten stored tasks", async () => {
   const h = harness();
@@ -157,7 +158,7 @@ test("delegate repo prompt strips controls from a resolved worktree path", async
 test("delegate with goal bypasses prompts and preserves the full brief and selected executor",async()=>{
  const h=harness({configuredExecutors:()=>["codex"]});
  await h.run([encodeCmdLine({cmd:"delegate",branch:"feat-x",goal:"fix this",acceptance:"bun test",executor:"codex"}),"status"]);
- expect(h.inputs).toEqual([{brief:{repo:"/wt/feat-x",goal:"fix this",acceptance:"bun test"},executor:"codex"}]);expect(h.output()).not.toContain("goal> ");expect(h.output()).toContain("STATUS TEXT");expect(h.output()).toContain("t-20261012-120000-abcd queued");
+ expect(h.inputs).toEqual([{brief:{repo:"/wt/feat-x",goal:"fix this",acceptance:"bun test"},executor:"codex",repoRef:repoFor(h.ctx,"/wt/feat-x")}]);expect(h.output()).not.toContain("goal> ");expect(h.output()).toContain("STATUS TEXT");expect(h.output()).toContain("t-20261012-120000-abcd queued");
 });
 test("delegate omits acceptance and refuses unresolved focused worktree",async()=>{
  const h=harness();await h.run([encodeCmdLine({cmd:"delegate",goal:"fix"})]);expect(h.inputs[0].brief).not.toHaveProperty("acceptance");

@@ -182,7 +182,10 @@ export function startServer(
             };
             const tail = () => {
               try {
-                for (const e of outbox.filter(e=>e.seq>last)) { controller.enqueue(enc.encode(`data: ${JSON.stringify(e.envelope)}\n\n`)); last = e.seq; }
+                for (const e of outbox.filter(e=>e.seq>last)) {
+                  if(e.envelope.type!=="entity")controller.enqueue(enc.encode(`data: ${JSON.stringify(e.envelope)}\n\n`));
+                  last = e.seq;
+                }
               } catch { clearTimers(); }
             };
             await send();
@@ -202,9 +205,22 @@ export function startServer(
   void refreshManagedPlugin(initialCtx, currentVersion(), opts.pluginRefreshDeps).finally(refreshSnapshot);
   let busy = false;
   const tick = () => {
-    if (busy) return;
+    if (busy || stopped) return;
     busy = true;
-    void Promise.resolve().then(async () => { const ctx = getCtx(); await refreshConsoleTerminals(ctx); if(!cachedStatus){refreshStatus(); await statusPending;} return pumpOnce(ctx,{...defaultPumpDeps,status}); }).catch(() => []).finally(() => { busy = false; refreshSnapshot(); });
+    void Promise.resolve().then(async () => {
+      if(stopped)return;
+      const ctx = getCtx();
+      await refreshConsoleTerminals(ctx);
+      if(!cachedStatus){refreshStatus(); await statusPending;}
+      if(stopped)return;
+      return pumpOnce(ctx,{
+        ...defaultPumpDeps,status,
+        // A tick can still be awaiting repo or setup probes when stop() runs.
+        publish:(c,envs,opts)=>stopped
+          ? Promise.resolve({seq:0,transports:[],errors:["service stopped"]})
+          : defaultPumpDeps.publish(c,envs,opts),
+      });
+    }).catch(() => []).finally(() => { busy = false; refreshSnapshot(); });
   };
   const snapshotTimer=setInterval(refreshSnapshot,2000);
   const statusTimer=setInterval(refreshStatus,60000);

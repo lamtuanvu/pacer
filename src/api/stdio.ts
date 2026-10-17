@@ -1,6 +1,6 @@
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
-import { apiSnapshot, eventsSince } from "./events";
+import { liveSnapshot, eventsSince } from "./events";
 import { callOp, type OpDeps } from "./ops";
 import { helloBody, rpcError } from "./protocol";
 
@@ -43,7 +43,7 @@ export async function runStdio(
         case "hello":
           result = helloBody();
           break;
-        case "snapshot": result = apiSnapshot(getCtx()); break;
+        case "snapshot": result = await liveSnapshot(getCtx()); break;
         case "subscribe": {
           const params = r.params ?? {};
           if (typeof params !== "object" || Array.isArray(params)) throw new CoreError("invalid_input", "subscribe params must be an object");

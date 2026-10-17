@@ -1,3 +1,4 @@
+import type { RepoRef } from "../api/read-model/types";
 import { clip, LIMITS } from "../link/envelope";
 import { resolveRunner } from "../config/runner-id";
 import { z } from "zod";
@@ -54,7 +55,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
+export interface DelegateInput { repoRef?: RepoRef; client?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -111,6 +112,7 @@ export function delegate(
     timeoutS: Math.round((input.timeoutMin ?? DEFAULT_TIMEOUT_MIN) * 60),
   });
   updateTask(ctx,task.id,t=>{t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};});
+  if(input.repoRef || input.client)updateTask(ctx,task.id,t=>{if(input.repoRef)t.repo=input.repoRef;if(input.client)t.client=input.client;});
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
   if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });
   spawnFn(ctx, task.id);

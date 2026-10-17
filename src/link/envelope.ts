@@ -9,7 +9,8 @@ export interface TaskData { progress?: { phase: string; lastOutputAt: number | n
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export interface ConfigData { area: string; at: number }
-export type Envelope = { v: 1; type: "config"; data: ConfigData } | { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
+export interface EntityData { kind: "executor" | "account" | "host" | "repo" | "counts"; id: string; value?: unknown; removed?: true }
+export type Envelope = { v: 1; type: "entity"; data: EntityData } | { v: 1; type: "config"; data: ConfigData } | { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
@@ -74,6 +75,11 @@ function parseConsole(d: unknown): ConsoleData | null {
 export function parseEnvelope(raw: unknown): Envelope | null {
   if (!isObj(raw) || raw.v !== 1) return null;
   switch (raw.type) {
+    case "entity": {
+      const d=raw.data;
+      if(!isObj(d) || !["executor","account","host","repo","counts"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>128)return null;
+      return {v:1,type:"entity",data:{kind:d.kind as EntityData["kind"],id:d.id,...(d.removed===true?{removed:true}:{value:d.value})}};
+    }
     case "config": {
       const d = raw.data;
       if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null) return null;
@@ -96,6 +102,7 @@ export function parseSnapshot(raw: unknown): LinkSnapshot | null {
 export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
   const next: LinkSnapshot = { ...s, seq: s.seq + 1, at };
   switch (e.type) {
+    case "entity": break;
     case "config": break; // Refresh signal only; no snapshot content changes.
     case "budget": next.budget = e.data; break;
     case "mode": next.mode = e.data; break;
