@@ -24,6 +24,7 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; timeoutM
       return () => { const at = shortcuts.indexOf(shortcut); if (at >= 0) shortcuts.splice(at, 1); };
     },
     setScope(next: string | null) { scope = next; pending = null; },
+    scope: (): string | null => scope,
     list: (): Shortcut[] => [...shortcuts],
     handle(e: KeyInput): boolean {
       if (e.defaultPrevented || e.metaKey || e.altKey) return false;
