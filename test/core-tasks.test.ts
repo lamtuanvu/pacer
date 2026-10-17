@@ -43,11 +43,12 @@ test("stop marks a queued task stopped", () => {
   expect(tasks.stop(ctx, t.id).state).toBe("stopped");
 });
 
-test("review records the verdict and refuses unknown kinds", () => {
+test("review records the verdict and refuses unknown kinds", async () => {
   const { ctx, t } = mk();
-  expect(tasks.review(ctx, t.id, { accepted: true })).toEqual({ recorded: true });
+  tasks.stop(ctx, t.id);
+  expect(await tasks.review(ctx, t.id, { accepted: true })).toMatchObject({ task: { id: t.id, review: { accepted: true } } });
   expect(readTask(ctx, t.id)?.review?.accepted).toBe(true);
-  expect(() => tasks.review(ctx, t.id, { accepted: true, kind: "dance" })).toThrow(/unknown kind/);
+  await expect(tasks.review(ctx, t.id, { accepted: true, kind: "dance" })).rejects.toThrow(/unknown kind/);
 });
 
 test("dismiss reports unknown ids and still dismisses known ones", () => {

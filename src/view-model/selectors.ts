@@ -1,5 +1,6 @@
 /** Pure selectors over the 2.1 snapshot, shared by every surface. They filter and order what the service derived; they decide nothing. */
-import type { AttentionItem, Counts, ExecutorRow, PlannerMeter, RepoRef, SnapshotV2, TaskDataV2 } from "../api/read-model";
+import type { AttentionItem, Counts, ExecutorRow, PlannerMeter, RepoRef } from "../api/read-model/types";
+import type { ClientSnapshot as SnapshotV2, ClientTask as TaskDataV2 } from "./snapshot";
 
 export interface Scope { repo: string | null }
 

@@ -250,14 +250,17 @@
   "hostsWithProblems": 1,
   "byRepo": {
    "github.com/acme/api": {
+    "review": 1,
     "attention": 2,
     "running": 1
    },
    "github.com/acme/web": {
+    "review": 1,
     "attention": 1,
     "running": 1
    },
    "github.com/lamtuanvu/pacer": {
+    "review": 0,
     "attention": 0,
     "running": 0
    }
@@ -549,12 +552,23 @@
  "hosts": [
   {
    "alias": "devbox",
-   "state": "ready"
+   "ssh": "devbox",
+   "state": "ready",
+   "running": 1,
+   "maxTasks": 3,
+   "executors": [
+    "codex#team@devbox"
+   ],
+   "repos": 1
   },
   {
    "alias": "buildbox",
+   "ssh": "buildbox",
    "state": "down",
-   "problem": "ssh failed twice"
+   "running": 0,
+   "maxTasks": 2,
+   "executors": [],
+   "repos": 0
   }
  ],
  "repos": [
@@ -581,22 +595,15 @@
   "rejected": 1,
   "failed": 1,
   "byRepo": {
-   "github.com/acme/api": {
-    "done": 3,
-    "accepted": 3
-   },
-   "github.com/acme/web": {
-    "done": 2,
-    "accepted": 2
-   },
-   "github.com/lamtuanvu/pacer": {
-    "done": 2,
-    "accepted": 1
-   }
+   "github.com/acme/api": 3,
+   "github.com/acme/web": 2,
+   "github.com/lamtuanvu/pacer": 2
   }
  },
  "setup": {
-  "open": 0
+  "complete": true,
+  "open": 0,
+  "items": []
  },
  "pause": null
 }

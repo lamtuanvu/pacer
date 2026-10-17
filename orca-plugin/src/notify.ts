@@ -4,8 +4,8 @@ import type { OrcaHost } from "./orca-api";
 import type { PluginSettings } from "./settings";
 interface Delivery { since:number; delivered:Set<string>; pending:Map<string,AlertData>; lastSent:number }
 const shownAt=new WeakMap<OrcaHost,number>();
-export async function deliverNotification(host:OrcaHost,message:{title:string;body:string},nowS:number):Promise<boolean>{
-  if(nowS-(shownAt.get(host)??-Infinity)<5)return false;
+export async function deliverNotification(host:OrcaHost,message:{title:string;body:string},nowS:number,serviceDecided=false):Promise<boolean>{
+  if(!serviceDecided && nowS-(shownAt.get(host)??-Infinity)<5)return false;
   // Reserve the slot before IPC so concurrent producers cannot show two notifications.
   const previous=shownAt.get(host);shownAt.set(host,nowS);
   try{const result=await host.call("notifications.show",message);if(result.delivered)return true;}catch(e){if(previous===undefined)shownAt.delete(host);else shownAt.set(host,previous);throw e;}

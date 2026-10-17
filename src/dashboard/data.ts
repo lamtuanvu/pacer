@@ -1,4 +1,4 @@
-import { runMappedCmd } from "../api/cmd";
+import { cmdToOp, runMappedCmd } from "../api/cmd";
 export { cmdToOp, CMD_SUCCESS, runMappedCmd } from "../api/cmd";
 import { ApiError, type ApiClient } from "../api/client";
 import type { ApiEvent } from "../api/protocol";
@@ -7,11 +7,11 @@ import { cards } from "./model";
 
 export async function refreshView(
   client: ApiClient,
-  view: { snapshot: LinkSnapshot; selected: number; now: number },
+  view: { snapshot: LinkSnapshot; selected: number; now: number; ops?:readonly string[] },
 ): Promise<{ snapshot: LinkSnapshot; selected: number }> {
-  const selectedId = cards(view.snapshot, view.now).flatMap(g => g.cards)[view.selected]?.id;
+  const selectedId = cards(view.snapshot, view.now, view.ops).flatMap(g => g.cards)[view.selected]?.id;
   const { snapshot } = await client.snapshot();
-  const updated = cards(snapshot, view.now).flatMap(g => g.cards);
+  const updated = cards(snapshot, view.now, view.ops).flatMap(g => g.cards);
   const index = updated.findIndex(card => card.id === selectedId);
   return { snapshot, selected: index >= 0 ? index : Math.max(0, Math.min(view.selected, updated.length - 1)) };
 }
@@ -41,7 +41,7 @@ export async function delegateViaClient(
 ): Promise<void> {
   try {
     const result = await client.call<{ task_id: string }>("task.delegate", {
-      goal: input.goal, repo: input.repo, ...(input.kind ? { kind: input.kind } : {}),
+      goal: input.goal, repo: input.repo, source: "ui", ...(input.kind ? { kind: input.kind } : {}),
     });
     report(`${result.task_id} queued`);
   } catch (error) { reportApiError(error, report); }
@@ -98,4 +98,10 @@ export function withFallback(primary: ApiClient, makeLocal: () => ApiClient, onS
       current.close();
     },
   };
+}
+
+/** Console-local commands need no advertised op. */
+export function commandAvailable(data:CmdData,ops:readonly string[]):boolean {
+ const mapped=cmdToOp(data);
+ return !mapped || ops.includes(mapped.op);
 }

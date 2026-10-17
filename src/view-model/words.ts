@@ -44,7 +44,7 @@ export function executorCaption(account?: AccountLike): string {
 }
 export function taskStatus(task: { state: string; review?: { accepted: boolean } | null }): { label: string; tone: Tone } {
   if (task.review) return { label: task.review.accepted ? "Accepted" : "Rejected", tone: task.review.accepted ? "good" : "bad" };
-  const labels: Record<string, [string, Tone]> = { running: ["Working", "info"], queued: ["Queued", "neutral"], done: ["Done", "good"], partial: ["Partial", "warn"], failed: ["Failed", "bad"], limit: ["Out of quota", "warn"], stopped: ["Stopped", "neutral"] };
+  const labels: Record<string, [string, Tone]> = { needs_input: ["Needs your answer", "warn"], running: ["Working", "info"], queued: ["Queued", "neutral"], done: ["Done", "good"], partial: ["Partial", "warn"], failed: ["Failed", "bad"], limit: ["Out of quota", "warn"], stopped: ["Stopped", "neutral"] };
   const [label, tone] = labels[task.state] ?? [task.state, "neutral"];
   return { label, tone };
 }

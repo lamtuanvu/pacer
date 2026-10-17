@@ -1,7 +1,11 @@
 import { parseEnvelope, reduce, type LinkSnapshot } from "../../../src/link/envelope";
 import type { ApiEvent } from "../../../src/api/protocol";
 import type { Hello } from "../../../src/api/client-types";
-import { ENTITY_EVENT_TYPES, type ActivityEntry, type AttentionItem, type EntityEventType, type Job, type SnapshotV2 } from "../../../src/api/read-model";
+import { ENTITY_EVENT_TYPES, type ActivityEntry, type AttentionItem, type Job } from "../../../src/api/read-model/types";
+import type { ClientSnapshot as SnapshotV2 } from "../../../src/view-model/snapshot";
+/** The service's entity events plus pause, which a later service may send as an event. */
+const READ_MODEL_EVENTS: readonly string[] = [...ENTITY_EVENT_TYPES, "pause"];
+type EntityEventType = (typeof ENTITY_EVENT_TYPES)[number] | "pause";
 import { attentionOrder } from "../../../src/view-model/selectors";
 import { ApiError, createApi, type BrowserApi } from "./api";
 
@@ -74,7 +78,9 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       if (event.type === "reset") return { ...state, needsSnapshot: true };
       if (!state.snapshot || state.needsSnapshot || event.seq <= state.snapshot.seq) return state;
       // 2.1 entities carry fields the v1 envelope parser would strip, so they skip it.
-      if (state.features.readModel && (event.type === "task" || (ENTITY_EVENT_TYPES as readonly string[]).includes(event.type))) return reduceReadModel(state, state.snapshot, event.type, event.data, event.seq, event.at);
+      if (state.features.readModel && (event.type === "task" || READ_MODEL_EVENTS.includes(event.type))) return reduceReadModel(state, state.snapshot, event.type, event.data, event.seq, event.at);
+      // Without the read model, an attention or counts event means the snapshot is out of date.
+      if (event.type === "attention" || event.type === "counts") return { ...state, needsSnapshot: true };
       const envelope = parseEnvelope({ v: 1, type: event.type, data: event.data });
       if (!envelope) return state;
       const snapshot = { ...state.snapshot, ...reduce(state.snapshot as LinkSnapshot, envelope, event.at), seq: event.seq } as SnapshotV2;

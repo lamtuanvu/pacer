@@ -31,7 +31,7 @@ test("config.get returns allow-listed values, sources and planner candidates", a
 test("config.set returns the change and publishes exactly one config event", async () => {
   const ctx = await configured();
   expect(await callOp(ctx, "config.set", { key: "pacing.policy", value: "even" })).toMatchObject({ key: "pacing.policy", previous: "priority", value: "even", diff: expect.stringContaining("even"), undo: "pacer config set pacing.policy priority" });
-  expect(eventsSince(ctx, 0).events).toEqual([{ seq: 1, at: ctx.now, type: "config", data: { area: "config", at: ctx.now } }]);
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config")).toEqual([{ seq: expect.any(Number), at: ctx.now, type: "config", data: { area: "config", at: ctx.now } }]);
 });
 
 test("invalid settings and missing planner integration choice neither write nor publish", async () => {
@@ -61,7 +61,7 @@ test("agent preview, consent, connect and disconnect use only the temp home", as
   expect(existsSync(preview.files[0])).toBe(true);
   expect(await callOp(ctx, "agent.disconnect", { agent: "codex" })).toMatchObject({ removed: expect.arrayContaining([preview.files[0]]) });
   expect(existsSync(preview.files[0])).toBe(false);
-  expect(eventsSince(ctx, 0).events.map(e => e.type)).toEqual(["config", "config"]);
+  expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.type)).toEqual(["config", "config"]);
 });
 
 test("setup.init creates a strategy without connecting agents and preserves existing files", async () => {
@@ -88,7 +88,7 @@ test("plugin installation and notifications round-trip", async () => {
 
 test("version.get, service.status and hello describe the additive capabilities", async () => {
   const ctx = await configured();
-  expect(await callOp(ctx, "version.get", {})).toMatchObject({ pacer: expect.any(String), protocol: "2.0.0", service: { installed: false, running: false } });
+  expect(await callOp(ctx, "version.get", {})).toMatchObject({ pacer: expect.any(String), protocol: "2.8.0", service: { installed: false, running: false } });
   expect(await callOp(ctx, "service.status", {})).toEqual({ installed: false, running: false });
   expect(helloBody().events).toContain("config");
 });
@@ -117,4 +117,40 @@ test("config envelopes validate and advance the sequence without changing snapsh
   expect(reduce(snapshot, envelope!, 42)).toEqual({...snapshot, seq: 1, at: 42});
   expect(parseEnvelope({v: 1, type: "config", data: {area: "setup"}})).toBeNull();
   expect(parseEnvelope({v: 1, type: "future", data: {}})).toBeNull();
+});
+
+test("cookie config-set restricts terminal presets while bearer and CLI allow templates", async () => {
+  const {spyOn}=await import("bun:test");
+  const {startServer}=await import("../src/serve/http");
+  const {createCode}=await import("../src/serve/app-auth");
+  const ctx=await configured();
+  let handler!: (req:Request, server:{port:number})=>Promise<Response>;
+  const spy=spyOn(Bun,"serve").mockImplementation(((opts:{fetch:typeof handler})=>{
+    handler=opts.fetch;return {port:4317,stop(){}};
+  }) as typeof Bun.serve);
+  let server:ReturnType<typeof startServer>;
+  try {server=startServer(()=>ctx,{pumpMs:0});} finally {spy.mockRestore();}
+  const origin="http://127.0.0.1:4317";
+  const request=(path:string,init:RequestInit={})=>handler(new Request(origin+path,{...init,headers:{host:"127.0.0.1:4317",...init.headers}}),{port:4317});
+  try {
+    const auth=await request(`/app/auth?code=${createCode(ctx)}`),cookie=auth.headers.get("set-cookie")!.split(";")[0];
+    const set=(value:string,bearer=false)=>request("/v2/ops/config.set",{method:"POST",headers:bearer
+      ?{authorization:`Bearer ${server.token}`}:{cookie,origin,"x-pacer-client":"app"},body:JSON.stringify({key:"terminal.open",value})});
+    const path=join(ctx.pacerHome,"strategy.yaml"),before=readFileSync(path,"utf8");
+    const denied=await set("foot {cmd}");
+    expect(denied.status).toBe(400);
+    expect(await denied.json()).toMatchObject({error:{message:expect.stringContaining("preset"),hint:expect.stringContaining("pacer config set")}});
+    expect(readFileSync(path,"utf8")).toBe(before);expect(eventsSince(ctx,0).events).toEqual([]);
+    // Request fields cannot grant template permission to the app.
+    const spoof=await request("/v2/ops/config.set",{method:"POST",headers:{cookie,origin,"x-pacer-client":"app"},body:JSON.stringify({key:"terminal.open",value:"foot {cmd}",allowTerminalTemplate:true})});
+    expect(spoof.status).toBe(400);
+    for(const preset of ["ghostty","iterm","terminal-app","wezterm","kitty","alacritty","gnome-terminal","x-terminal-emulator","auto"])
+      expect((await set(preset)).status).toBe(200);
+    const allowed=await set("foot {cmd}",true);
+    expect(await allowed.json()).toMatchObject({result:{value:"foot {cmd}"}});
+    expect(allowed.status).toBe(200);
+    expect(loadStrategy(ctx).terminal?.open).toBe("foot {cmd}");
+    await config.set(ctx,"terminal.open","alacritty -e {cmd}");
+    expect(loadStrategy(ctx).terminal?.open).toBe("alacritty -e {cmd}");
+  } finally {server.stop();}
 });

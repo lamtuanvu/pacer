@@ -39,7 +39,7 @@ test("throwing available falls back to direct", async () => {
 });
 
 const status = (): Status => ({
-  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
+  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
   executors: { ranked: [], excluded: [] },
   providers: [{ id: "codex", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false } as ProviderStatus],
 });
@@ -143,3 +143,9 @@ for (const source of ["pacer", "orca"]) {
     }
   });
 }
+
+test("interactive runners use the builtin PTY even when Orca is available or forced", async () => {
+  const strategy = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
+  const ctx = fakeCtx({env: {PACER_BACKEND: "orca"}});
+  expect((await selectBackend(ctx, strategy, [fake("orca", async () => true)], "codex")).id).toBe("direct");
+});

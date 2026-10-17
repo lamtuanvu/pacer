@@ -37,6 +37,7 @@ async function setup() {
   return { ctx, task, host, run, git, repo, checkout, branch, commit };
 }
 
+// Real Git repositories and SSH scripts can exceed the default 5 s under suite load.
 test("pre-flight refusals leave local refs untouched", async () => {
   for (const kind of ["author", "committer", "signoff", "non-descendant", "empty", "dirty", "501"]) {
     const f = await setup();
@@ -63,7 +64,14 @@ test("pre-flight refusals leave local refs untouched", async () => {
       writeFileSync(join(f.checkout, "dirty.txt"), "dirty");
       reason = "uncommitted changes on the host: dirty.txt";
     } else {
-      for (let i = 0; i < 501; i++) await f.commit("-m", `commit ${i}`);
+      // Build the real history in one process instead of spawning 501 commits under suite load.
+      const history = Array.from({ length: 501 }, (_, i) => {
+        const message = `commit ${i}`;
+        return `commit refs/heads/${f.branch}\nmark :${i + 1}\ncommitter Test <test@example.invalid> 1700000000 +0000\ndata ${Buffer.byteLength(message)}\n${message}\nfrom ${i === 0 ? f.run.baseSha : `:${i}`}\n\n`;
+      }).join("");
+      const imported = await realRun(["git", "-C", f.checkout, "fast-import", "--quiet"], 60000, { stdin: history });
+      expect(imported.code).toBe(0);
+      expect(await f.git("-C", f.checkout, "rev-list", "--count", `${f.run.baseSha}..${f.branch}`)).toBe("501");
       reason = "501 commits exceed 500";
     }
     expect(await transferBack(f.ctx, f.task, f.host, f.run)).toEqual({ ok: false, reason });
@@ -91,7 +99,7 @@ for (const committed of [false, true]) test(`an earlier local branch ${committed
   expect(await f.git("-C", f.repo, "rev-parse", result.branch)).toBe(head);
   if (committed) expect(await f.git("-C", f.repo, "rev-parse", f.branch)).toBe(before);
   expect(readTask(f.ctx, f.task.id)?.run).toHaveProperty("transferredHead", head);
-});
+}, 30000);
 
 test("a clean transfer fetches only pacer/<id> and opens a review worktree", async () => {
   const f = await setup();

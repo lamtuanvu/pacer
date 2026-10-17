@@ -1,3 +1,5 @@
+import { isAbsolute } from "node:path";
+import { resolveRepoInput } from "../core/repos";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -45,7 +47,9 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   }, async (a) => {
     const ctx = getCtx();
     if (isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
-    const t = core.tasks.delegate(ctx, parseDelegateBrief(a, process.cwd()), spawnFn);
+    const input = parseDelegateBrief(a, process.cwd());
+    const repoRef=await resolveRepoInput(ctx,input.brief.repo);
+    const t = core.tasks.delegate(ctx, {...input, brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path}, source:"planner", repoRef}, spawnFn);
     return json(summarizeTask(t));
   });
 
@@ -58,6 +62,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     description: "Block until a delegated task finishes or timeout_s passes (default 600, max 3000), then return its state.",
     inputSchema: { task_id: z.string(), timeout_s: z.number().int().min(1).max(3000).optional() },
   }, async ({ task_id, timeout_s }) => json(summarizeTask(await core.tasks.wait(getCtx(), task_id, timeout_s ?? 600))));
+
+  server.registerTool("task_answer", {
+    description: "Answer an executor question and retry the task on the same executor. Only needs_input tasks can be answered.",
+    inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
+  }, async ({task_id,text,expect_rev}) => json(await core.tasks.answer(getCtx(),task_id,text,{expectRev:expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,spawnFn)})));
 
   server.registerTool("task_stop", {
     description: "Stop a delegated task and kill its executor.",
@@ -75,10 +84,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
 
   server.registerTool("task_review", {
     description: "Record your verdict on a delegated task's result after reviewing it (ground truth for pacer's routing benchmark).",
-    inputSchema: { task_id: z.string(), accepted: z.boolean(), kind: z.enum(KINDS).optional(), note: z.string().optional() },
-  }, async ({ task_id, accepted, kind, note }) => {
+    inputSchema: { task_id: z.string(), verdict: z.enum(["accept", "reject", "send_back", "retry"]).optional(), accepted: z.boolean().optional(), executor: z.string().optional(), kind: z.enum(KINDS).optional(), note: z.string().optional() },
+  }, async ({ task_id, verdict, accepted, executor, kind, note }) => {
     const ctx = getCtx();
-    return json(core.tasks.review(ctx, task_id, { accepted, kind, note }));
+    if ((verdict === "send_back" || verdict === "retry") && isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
+    return json(await core.tasks.review(ctx, task_id, { verdict, accepted, executor, kind, note }, { delegate: (c, input) => core.tasks.delegate(c, input, spawnFn) }));
   });
 
   server.registerTool("guard_feedback", {

@@ -1,6 +1,6 @@
 import { executorLabel, taskStatus } from "../../../src/view-model/words";
 import type { Account } from "./accounts";
-import type { TaskData } from "../../../src/link/envelope";
+import type { LinkSnapshot, TaskData } from "../../../src/link/envelope";
 import type { TaskResult } from "../../../src/tasks/types";
 export type TaskTab = "running" | "review" | "history";
 export interface TaskSummary {
@@ -18,12 +18,16 @@ export function mergeTask(task: TaskSummary, live?: TaskData): TaskSummary {
 export const activeTask = (state: string) => state === "running" || state === "queued";
 export const needsReview = (task: { state: string; review?: unknown; resolved?: string | null; dismissed?: boolean }) => ["done", "partial"].includes(task.state) && !task.review && !task.resolved && !task.dismissed;
 export function taskActions(task: { state: string }): ("stop" | "retry" | "dismiss")[] { return activeTask(task.state) ? ["stop"] : ["retry", "dismiss"]; }
-export function tasksModel(tasks: TaskSummary[], live: TaskData[], tab: TaskTab, dismissed: string[] = [], accounts: Account[] = []) {
+export function tasksModel(tasks: TaskSummary[], liveOrSnapshot: TaskData[] | LinkSnapshot, tab: TaskTab, dismissed: string[] = [], accounts: Account[] = []) {
+  const snapshot = Array.isArray(liveOrSnapshot) ? undefined : liveOrSnapshot;
+  const live = Array.isArray(liveOrSnapshot) ? liveOrSnapshot : liveOrSnapshot.tasks;
+  const reviewIds = snapshot?.attention === undefined ? undefined : new Set(snapshot.attention.filter(item => item.kind === "review").map(item => item.taskId));
+  const inReview = (task: TaskSummary) => reviewIds ? reviewIds.has(task.task_id) : needsReview(task);
   return tasks.map(task => {
     const update = live.find(t => t.id === task.task_id);
     const merged = mergeTask(task, update);
     return { ...merged, id: task.task_id, goal: merged.goal || task.task_id, executor: executorLabel(update?.executor ?? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requested_executor, accounts), status: taskStatus(merged), actions: taskActions(merged), dismissed: dismissed.includes(task.task_id) || (update?.dismissed ?? false) };
-  }).filter(task => !task.dismissed && (tab === "running" ? activeTask(task.state) : tab === "review" ? needsReview(task) : !activeTask(task.state) && !needsReview(task)));
+  }).filter(task => !task.dismissed && (tab === "running" ? activeTask(task.state) : tab === "review" ? inReview(task) : !activeTask(task.state) && !inReview(task)));
 }
 export function nextTaskLimit(limit: number): number | null { return limit >= 200 ? null : Math.min(200, limit + 20); }
 export interface DelegateDraft { goal: string; repo: string; kind: string; executor: string; worktree: string; timeout: string; acceptance: string }
@@ -38,3 +42,7 @@ export function delegateParams(draft: DelegateDraft) {
   return { goal: draft.goal.trim(), repo: draft.repo.trim(), kind: draft.kind, worktree: draft.worktree, timeout_min: timeout, ...(draft.executor ? { executor: draft.executor } : {}), ...(draft.acceptance.trim() ? { acceptance: draft.acceptance.trim() } : {}) };
 }
 export function recentRepos(paths: string[]): string[] { return [...new Set(paths.filter(Boolean))].slice(0, 10); }
+
+export function taskCounts(snapshot: LinkSnapshot) {
+  return { running: snapshot.counts ? snapshot.counts.running + snapshot.counts.queued : snapshot.tasks.filter(t => activeTask(t.state) && !t.dismissed).length, review: snapshot.counts?.review ?? (snapshot.attention?.filter(item => item.kind === "review").length ?? snapshot.tasks.filter(needsReview).length) };
+}

@@ -5,17 +5,19 @@ export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 
 export type Level = "info" | "warn" | "error";
 export interface ProviderLine { id: string; agent?: string; account?: string; unavailableReason?: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
-export interface TaskData { progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
+export interface SessionData { host:"builtin"|"orca"|"none"; live:boolean; controller:string|null; viewers:number }
+export interface TaskData { session?:SessionData; progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export interface ConfigData { area: string; at: number }
-export type Envelope = { v: 1; type: "config"; data: ConfigData } | { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
+export interface EntityData { kind: "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify"; id: string; value?: unknown; removed?: true }
+export type Envelope = { v: 1; type: "entity"; data: EntityData } | { v: 1; type: "config"; data: ConfigData } | { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
-export interface LinkSnapshot { serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
-export const CMD_NAMES = ["check-setup", "check-updates", "update", "focus", "delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build", "notify-level", "config-set", "account-remove", "runner-remove", "open-terminal"] as const;
+export interface LinkSnapshot { attention?: import("../attention/types").AttentionItem[]; counts?: import("../api/read-model/types").Counts; serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
+export const CMD_NAMES = ["check-setup", "check-updates", "update", "focus", "attach", "delegate", "retry", "retry-all", "dismiss", "block", "unblock", "stop", "use", "refresh", "agent-done", "worktree-created", "strategy-build", "notify-level", "config-set", "account-remove", "runner-remove", "open-terminal"] as const;
 export type CmdName = (typeof CMD_NAMES)[number];
-export interface CmdData { cmd: CmdName; key?: string; value?: string; name?: string; command?: "account-add" | "account-add-orca" | "runner-add" | "init"; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
+export interface CmdData { target?:"orca"|"terminal"; cmd: CmdName; key?: string; value?: string; name?: string; command?: "account-add" | "account-add-orca" | "runner-add" | "init"; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
 export interface Cmd { v: 1; type: "cmd"; data: CmdData }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max: number): string | null => typeof v === "string" ? v.slice(0, max) : null;
@@ -41,6 +43,8 @@ function parseTask(d: unknown): TaskData | null {
   if (!id || !state || updatedAt === null) return null;
   return { id, state, updatedAt, goal: str(d.goal, LIMITS.goal) ?? "", executor: optStr(d.executor, 64), backend: optStr(d.backend, 32), worktree: optStr(d.worktree, 4096),
     ...(isObj(d.placement) && ["current","new"].includes(String(d.placement.mode)) && typeof d.placement.why==="string" ? {placement:{mode:d.placement.mode as "current"|"new",why:d.placement.why.slice(0,240)}} : {}),
+    ...(isObj(d.session) && ["builtin","orca","none"].includes(String(d.session.host)) && typeof d.session.live==='boolean' && num(d.session.viewers)!==null
+      ? {session:{host:d.session.host as SessionData['host'],live:d.session.live,controller:optStr(d.session.controller,64),viewers:Math.max(0,Math.min(99,Math.floor(num(d.session.viewers)!)))}} : {}),
     ...(typeof d.terminalPresent==="boolean"?{terminalPresent:d.terminalPresent}:{}),
     ...(optStr(d.resolved,240)?{resolved:optStr(d.resolved,240)!}:{}),
     ...(isObj(d.review)&&typeof d.review.accepted==="boolean"&&num(d.review.at)!==null?{review:{accepted:d.review.accepted,kind:optStr(d.review.kind,64),note:optStr(d.review.note,1000),at:num(d.review.at)!}}:{}),
@@ -74,6 +78,11 @@ function parseConsole(d: unknown): ConsoleData | null {
 export function parseEnvelope(raw: unknown): Envelope | null {
   if (!isObj(raw) || raw.v !== 1) return null;
   switch (raw.type) {
+    case "entity": {
+      const d=raw.data;
+      if(!isObj(d) || !["executor","account","host","repo","counts","attention","activity","job","notify"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>(d.kind==="notify"?512:128))return null;
+      return {v:1,type:"entity",data:{kind:d.kind as EntityData["kind"],id:d.id,...(d.removed===true?{removed:true}:{value:d.value})}};
+    }
     case "config": {
       const d = raw.data;
       if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null) return null;
@@ -96,6 +105,7 @@ export function parseSnapshot(raw: unknown): LinkSnapshot | null {
 export function reduce(s: LinkSnapshot, e: Envelope, at: number): LinkSnapshot {
   const next: LinkSnapshot = { ...s, seq: s.seq + 1, at };
   switch (e.type) {
+    case "entity": break;
     case "config": break; // Refresh signal only; no snapshot content changes.
     case "budget": next.budget = e.data; break;
     case "mode": next.mode = e.data; break;
@@ -120,7 +130,7 @@ export function parseCmd(raw: unknown): Cmd | null {
     const v=optStr(d[k],max); if(v) data[k]=v;
   }
   if(data.cmd==="config-set") {
-    if(typeof d.key!=="string" || !["planner","pacing.order","pacing.policy","pacing.planner_reserve","pacing.accounts","pacing.fill_threshold","update_check"].includes(d.key) || typeof d.value!=="string" || d.value.length>2000)return null;
+    if(typeof d.key!=="string" || !["planner","pacing.order","pacing.policy","pacing.planner_reserve","pacing.accounts","pacing.fill_threshold","update_check","terminal.open"].includes(d.key) || typeof d.value!=="string" || d.value.length>2000)return null;
     data.key=d.key;data.value=d.value;
   }
   if(data.cmd==="account-remove" || data.cmd==="runner-remove") {
@@ -132,7 +142,11 @@ export function parseCmd(raw: unknown): Cmd | null {
     if(typeof d.command!=="string" || !["account-add","account-add-orca","runner-add","init"].includes(d.command))return null;
     data.command=d.command as CmdData["command"];
   }
-  if(data.cmd==="focus" && !data.taskId)return null;
+  if((data.cmd==="focus"||data.cmd==="attach") && !data.taskId)return null;
+  if(data.cmd==="attach") {
+    if(d.target!==undefined && !["orca","terminal"].includes(String(d.target)))return null;
+    data.target=d.target===undefined?'orca':d.target as CmdData['target'];
+  }
   if(data.cmd==="notify-level") {
     if(typeof d.level!=="string" || !["off","important","all"].includes(d.level))return null;
     data.level=d.level as CmdData["level"];

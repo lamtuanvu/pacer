@@ -15,7 +15,7 @@ import type { Ctx } from "../types";
 import { remoteExclusion } from "./eligibility";
 import { RemoteRunIO } from "./run-io";
 import { SCRIPTS } from "./scripts";
-import { transferBack } from "./transfer";
+import { receiveQuestion, transferBack } from "./transfer";
 import { payload, runRemote, sshArgv } from "./ssh";
 import { probeCodexUsage } from "./usage";
 
@@ -59,7 +59,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const placement = resolvePlacement(task, ex.worktree, false, git.dirty);
     const excluded = await remoteExclusion(ctx, s, cfg.id, { repo: task.brief.repo, placement: placement.mode });
     if (excluded) return failed(excluded);
-    const base = ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch;
+    const base = task.brief.base ?? (ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch);
     const sha = await ctx.run(["git", "-C", git.top, "rev-parse", `${base}^{commit}`], 10000);
     if (sha.code) return failed(sha.stderr || "base is not a commit");
     const baseSha = sha.stdout.trim();
@@ -97,13 +97,16 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
       t.run = run; t.baseBranch = base; t.worktree = `${host.alias}:${worktree}`;
       t.placement = { ...t.placement, requested: t.placement?.requested ?? "auto", ...placement };
     });
-    const built = buildPrompt({ ...task.brief, repo: worktree }, task.id);
+    let built = buildPrompt({ ...task.brief, repo: worktree }, task.id);
+    const askRule = 'run pacer ask "<one question>" once, then stop';
+    const askAt = built.lastIndexOf(askRule);
+    built = built.slice(0,askAt) + 'write your one question (1–1000 characters) verbatim to .pacer-question in the worktree, leave that file uncommitted, then stop' + built.slice(askAt + askRule.length);
     const localRule = "- Do not commit, push, or change git branches.";
     const contractAt = built.lastIndexOf(localRule);
     const prompt = built.slice(0, contractAt)
       + `- Work only on ${remoteBranch} and commit there; don't push or change git config; leave the worktree clean.`
       + built.slice(contractAt + localRule.length);
-    const runner = resolveRunner(s, cfg.id)!, env: Record<string, string> = { PACER_ROLE: "executor" };
+    const runner = resolveRunner(s, cfg.id)!, env: Record<string, string> = { PACER_ROLE: "executor", PACER_TASK_ID: task.id };
     const home = host.accounts[runner.account ?? ""]?.home;
     if (home) env[runner.agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"] = home;
     const started = await new RemoteRunIO(ctx, host, remoteDir, dir).start(launch.argv, worktree, env, prompt);
@@ -111,6 +114,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     try { onSpawn?.(started.pid); } catch { /* observer does not own the run */ }
     const result = await finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
     if (runner.agent === "codex") await probeCodexUsage(ctx, host, s.accounts[runner.account]);
+    await receiveQuestion(ctx,task,host,run);
     if (result.exec.timedOut) return result;
     if (result.exec.code !== 0) {
       const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [worktree, baseSha, remoteBranch]);

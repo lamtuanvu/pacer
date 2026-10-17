@@ -1,3 +1,4 @@
+import { validateTerminalOpen } from "../session/targets";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx, UsageKind } from "../types";
@@ -22,6 +23,7 @@ const NATIVE_USAGE: Record<string, UsageKind> = { "claude-code": "quota", codex:
 const DEFAULT_ORDER = ["codex", "cursor", "agy", "opencode"];
 
 export interface ProviderCfg {
+  session?: "headless" | "interactive";
   id: string;
   via: "opencode" | null;
   model: string | null;
@@ -46,6 +48,7 @@ export interface Strategy {
   routing: RouteRule[];
   execution: Record<string, unknown>;
   classifier: Record<string, unknown>;
+  terminal?: {open:string};
 }
 
 export class StrategyError extends Error {
@@ -112,6 +115,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     const account = accounts[runner.account];
     if (!account) continue;
     providers[id] = {
+      ...(runner.session ? {session: runner.session} : {}),
       id, via: runner.agent === "opencode" ? "opencode" : null, model: runner.model,
       usage: account.usage, allowPaid: account.allowPaid, cooldownS: account.cooldownS,
       quotaSource: account.quotaSource === "arkcli" ? "arkcli" : null, weeklyTokens: account.weeklyTokens,
@@ -200,11 +204,14 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     });
   }
 
+  const localMax = isObj(raw.execution) ? raw.execution.local_max_tasks : undefined;
+  if (localMax !== undefined && (typeof localMax !== "number" || !Number.isInteger(localMax) || localMax < 1 || localMax > 16)) p.push("execution.local_max_tasks must be 1..16");
   if (p.length) throw new StrategyError(path, p);
   return {
     name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing,
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
+    ...(isObj(raw.terminal) && raw.terminal.open !== undefined ? {terminal:{open:validateTerminalOpen(String(raw.terminal.open))}} : {}),
   };
 }
 

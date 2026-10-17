@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { tmpDir } from "./helpers";
 import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
 import { launchFor } from "../src/exec/launch";
@@ -58,3 +60,52 @@ for (const id of ["agy", "cursor", "claude-code", "codex", "byteplus"]) {
     expect(value(["codex", "byteplus"].includes(id) ? "-m" : "--model")).toBe("chosen-model");
   });
 }
+
+test("runner interactive setting survives validation and rejects invalid or remote sessions", () => {
+  const raw = { planner: "codex", accounts: { main: { kind: "codex" } }, runners: { codex: { session: "interactive" } } };
+  const strategy = validateStrategy(raw, "/x");
+  expect(strategy.runners.codex.session).toBe("interactive");
+  expect(strategy.providers.codex.session).toBe("interactive");
+  expect(() => validateStrategy({ ...raw, runners: { codex: { session: "screen" } } }, "/x")).toThrow("session");
+});
+
+for (const id of ["codex", "claude-code", "cursor", "agy", "opencode#byteplus"]) {
+  test(`${id}: interactive launch keeps PTY stdin and omits headless switches`, () => {
+    const l = launchFor({ ...s.providers[id], session: "interactive" }, "PROMPT", "/repo", "/run", ID);
+    expect(l.stdin).toBeUndefined();
+    expect(l.argv).not.toContain("-p");
+    expect(l.argv).not.toContain("exec");
+    expect(l.argv).not.toContain("run");
+    expect(l.argv).not.toContain("--output-format");
+    expect(l.argv.join(" ")).toContain("PROMPT");
+  });
+}
+
+test("interactive Codex keeps launch environment private and permits run-local reports", () => {
+  const l = launchFor({...s.providers.codex, session: "interactive"}, "P", "/repo", "/run", ID);
+  expect(l.argv).toContain("--no-daemon");
+  expect(l.argv[l.argv.indexOf("--add-dir") + 1]).toBe("/run");
+});
+
+test("interactive OpenCode uses a private server for endpoint credentials", () => {
+  const l = launchFor({...s.providers["opencode#byteplus"], session: "interactive"}, "P", "/repo", "/run", ID);
+  expect(l.argv).toContain("--standalone");
+});
+
+test("remote runner cannot opt into a local interactive PTY", () => {
+  expect(() => validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, hosts: {box: {ssh: "box"}}, runners: {"codex@box": {session: "interactive"}}}, "/x")).toThrow("interactive sessions require a local runner");
+});
+
+for (const id of ["codex", "claude-code", "cursor", "agy"]) test(`${id}: interactive prompt cannot become an option and large UTF-8 prompts use a file`, () => {
+  const dir = tmpDir(), cfg = {...s.providers[id], session: "interactive" as const};
+  expect(launchFor(cfg, "--help", "/repo", dir, ID).argv.slice(-2)).toEqual(["--", "--help"]);
+  const prompt = "界".repeat(12000), launch = launchFor(cfg, prompt, "/repo", dir, ID);
+  expect(launch.argv.at(-1)!.length).toBeLessThan(1024);
+  expect(launch.argv.at(-1)).toContain(`${dir}/prompt.md`);
+  expect(readFileSync(`${dir}/prompt.md`, "utf8")).toBe(prompt);
+});
+
+test("Codex trusts only this invocation's worktree through a config override", () => {
+  const launch = launchFor({...s.providers.codex, session: "interactive"}, "P", '/repo/with"quote', "/run", ID);
+  expect(launch.argv).toContain('projects."/repo/with\\"quote".trust_level="trusted"');
+});

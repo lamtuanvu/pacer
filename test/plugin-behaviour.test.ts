@@ -15,13 +15,13 @@ import { httpTransport } from "../orca-plugin/src/transports/http";
 import { bridgeTransport } from "../orca-plugin/src/transports/bridge";
 import { channelTransport } from "../orca-plugin/src/transports/channel";
 import { contentKey, reduce, type Envelope } from "../src/link/envelope";
-function fixture(heartbeat: number|null=100, marker=true, connect?: PluginDeps["connect"]) {
+function fixture(heartbeat: number|null=100, marker=true, connect?: PluginDeps["connect"], transport="auto") {
  const root=mkdtempSync(join(tmpdir(),"pacer-plugin-"));const timers=new ManualTimers();let now=100;
  let snapshot:LinkSnapshot={...emptySnapshot(),console:heartbeat===null?null:{handle:"term",paneKey:"pane",pid:1,startedAt:0,heartbeatAt:heartbeat}};
  const calls:{method:string;params:any}[]=[];const commands=new Map<string,(args?:unknown)=>unknown>();const events=new Map<string,(p:unknown)=>void|Promise<void>>();const writes:{path:string;text:string}[]=[];
  let ownerText:string|null=null;
  let accepted=true,throwSend=false,pending=false,context:any={branch:"pacer-task",displayName:"Project",terminals:[{id:"term"}]};
- const host={call:async(method:string,params:any)=>{calls.push({method,params});switch(method){case "settings.get":return {settings:{notifications:"all"}};case "events.subscribe":throw Error("invalid enum");case "storage.get":return {value:snapshot};case "workspace.readContext":return context;case "terminal.sendText":if(throwSend)throw Object.assign(Error("denied"),{code:"capability_denied"});return {accepted};case "notifications.show":return {delivered:true};case "settings.set":return {ok:true};default:throw Error(method);}}} as OrcaHost;
+ const host={call:async(method:string,params:any)=>{calls.push({method,params});switch(method){case "settings.get":return {settings:{notifications:"all",transport}};case "events.subscribe":throw Error("invalid enum");case "storage.get":return {value:snapshot};case "workspace.readContext":return context;case "terminal.sendText":if(throwSend)throw Object.assign(Error("denied"),{code:"capability_denied"});return {accepted};case "notifications.show":return {delivered:true};case "settings.set":return {ok:true};default:throw Error(method);}}} as OrcaHost;
  const plugin=createPlugin({connect,home:root,pluginRoot:root,nowS:()=>now,timers,http:{get:async()=>pending?await new Promise(()=>{}):{status:401,body:""},stream:()=>()=>{}},fs:{readText:p=>p.endsWith(".pacer-panel-serve.json")?ownerText:"token",exists:p=>marker && p===join(root,".pacer-managed"),writeTextAtomic:(path,text)=>writes.push({path,text})}});
  const ctx:OrcaWorkerContext={host,commands:{register:(id,h)=>commands.set(id,h)},events:{on:(id,h)=>events.set(id,h)},grantedCapabilities:[],log:()=>{}};
  return {plugin,ctx,host,timers,calls,commands,events,writes,get snapshot(){return snapshot;},set snapshot(s){snapshot=s;},set ownerText(v:string|null){ownerText=v;},set accepted(v:boolean){accepted=v;},set throwSend(v:boolean){throwSend=v;},set pending(v:boolean){pending=v;},set context(v:any){context=v;},set now(v:number){now=v;},async start(){await plugin.activate(ctx);await flush();},async cleanup(){await plugin.deactivate();rmSync(root,{recursive:true,force:true});}};
@@ -107,7 +107,7 @@ test("equal timestamp alerts are queued before advancing the watermark",async()=
 });
 
 test("HTTP heartbeat-only polls leave the panel file unchanged", async () => {
- const f=fixture();let now=100;const panels:string[]=[];
+ const f=fixture(100,true,undefined,"http");let now=100;const panels:string[]=[];
  const plugin=createPlugin({home:"/tmp/fake",pluginRoot:"/tmp/fake",nowS:()=>now,timers:f.timers,
   http:{get:async()=>({status:200,headers:{"x-pacer":"1"},body:JSON.stringify(f.snapshot)}),stream:()=>()=>{}},
   fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_path,text)=>panels.push(text)}});
@@ -138,8 +138,8 @@ test("equal budgets with alternating generation times do not rewrite or notify",
  }finally{await f.cleanup();}
 });
 
-test("HTTP failures switch to bridge after three polls and recover when HTTP returns",async()=>{
- const f=fixture();let up=true,stops=0;
+test("forced HTTP failures use bridge data and recover when HTTP returns",async()=>{
+ const f=fixture(100,true,undefined,"http");let up=true,stops=0;
  const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100+f.timers.now/1000,timers:f.timers,
   http:{get:async(url)=>up?{status:200,body:url.endsWith("/health")?'{"ok":true}':JSON.stringify(f.snapshot),headers:{"x-pacer":"1"}}:{status:503,body:""},stream:()=>()=>{stops++;}},
   fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(path,text)=>f.writes.push({path,text})}});
@@ -163,7 +163,7 @@ test("synchronous lifecycle subscription refusal cannot fail activation",async()
  try{await f.start();expect(f.commands.size).toBe(1);}finally{await f.cleanup();}
 });
 test("HTTP recovery before failover restores reachable panel state",async()=>{
- const f=fixture();let up=true;const panels:string[]=[];
+ const f=fixture(100,true,undefined,"http");let up=true;const panels:string[]=[];
  const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100+f.timers.now/1000,timers:f.timers,
  http:{get:async()=>({status:up?200:503,headers:{"x-pacer":"1"},body:JSON.stringify(f.snapshot)}),stream:()=>()=>{}},
  fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_p,s)=>panels.push(s)}});
@@ -174,9 +174,9 @@ test("HTTP recovery before failover restores reachable panel state",async()=>{
  }finally{await plugin.deactivate();await f.cleanup();}
 });
 test("HTTP SSE and poll generation timestamps do not trigger renders or notifications",async()=>{
- const f=fixture();
+ const f=fixture(100,true,undefined,"http");
  const originalCall=f.ctx.host.call.bind(f.ctx.host);
- f.ctx.host={call:((method:any,params:any)=>method==="settings.get"?Promise.resolve({settings:{autoConsole:false,notifications:"all"}}):originalCall(method,params)) as OrcaHost["call"]};let line!:(s:string)=>void;const panels:string[]=[];
+ f.ctx.host={call:((method:any,params:any)=>method==="settings.get"?Promise.resolve({settings:{transport:"http",autoConsole:false,notifications:"all"}}):originalCall(method,params)) as OrcaHost["call"]};let line!:(s:string)=>void;const panels:string[]=[];
  f.snapshot={...emptySnapshot(),at:100,budget:{generatedAt:100,strategy:"s",planner:"p",mode:"normal",providers:[],ranked:[]},
  alerts:[{key:"a",level:"info",title:"once",body:"",at:100}]};
  const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100+f.timers.now/1000,timers:f.timers,
@@ -190,14 +190,14 @@ test("HTTP SSE and poll generation timestamps do not trigger renders or notifica
 });
 
 
-test("real loopback server shutdown switches HTTP to bridge and restart restores HTTP",async()=>{
- const f=fixture();const panels:string[]=[];let streamStops=0;
+test("forced loopback HTTP shutdown uses bridge data and restart restores HTTP",async()=>{
+ const f=fixture(100,true,undefined,"http");const panels:string[]=[];let streamStops=0;
  const serve=(port:number)=>Bun.serve({hostname:"127.0.0.1",port,fetch(req){
   return Response.json(new URL(req.url).pathname==="/health"?{ok:true}:f.snapshot,{headers:{"X-Pacer":"1"}});
  }});
  let server=serve(0);const port=server.port!;
  const original=f.host.call.bind(f.host);
- f.host.call=(async(m:any,p:any)=>m==="settings.get"?{settings:{port}}:original(m,p)) as OrcaHost["call"];
+ f.host.call=(async(m:any,p:any)=>m==="settings.get"?{settings:{port,transport:"http"}}:original(m,p)) as OrcaHost["call"];
  const plugin=createPlugin({home:"/tmp",pluginRoot:"/tmp",nowS:()=>100+f.timers.now/1000,timers:f.timers,
  http:{get:async(url,token)=>{const r=await fetch(url,{headers:token?{Authorization:"Bearer "+token}:{}});return {status:r.status,body:await r.text(),headers:{"x-pacer":r.headers.get("x-pacer")??undefined}};},stream:()=>()=>{streamStops++;}},
  fs:{readText:()=>"token",exists:()=>true,writeTextAtomic:(_p,s)=>panels.push(s)}});

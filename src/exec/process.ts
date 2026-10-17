@@ -1,10 +1,13 @@
 import { closeSync, openSync, writeSync } from "node:fs";
 /** Executor accounts must not inherit the planner's selected account. */
-export function executorEnv(base: Record<string, string | undefined>, account: Record<string, string>): Record<string, string | undefined> {
+export function executorEnv(base: Record<string, string | undefined>, account: Record<string, string>, taskId?: string): Record<string, string | undefined> {
   const env = {...base};
   delete env.CLAUDE_CONFIG_DIR;
   delete env.CODEX_HOME;
-  return {...env, ...account, PACER_ROLE: "executor"};
+  delete env.PACER_RUN_DIR;
+  delete env.PACER_REPORT_TOKEN;
+  delete env.PACER_TRANSCRIPT_REPORT;
+  return {...env, ...account, PACER_ROLE: "executor", PACER_TASK_ID: taskId};
 }
 
 export interface ExecSpec {

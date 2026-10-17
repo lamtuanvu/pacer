@@ -81,7 +81,7 @@ test("live store snapshots before streaming and refetches on reset and reconnect
 
 // Protocol 2.1 read model (UI implementation plan, Phase 0 Task 5).
 import fixture from "./fixtures/ui/snapshot.json";
-import type { SnapshotV2 } from "../src/api/read-model";
+import type { ClientSnapshot as SnapshotV2 } from "../src/view-model/snapshot";
 const v2 = fixture as unknown as SnapshotV2;
 const review = v2.attention!.find(a => a.id === "review:t-0412")!;
 const hello = (protocol: string, events: string[] = ["budget", "task", "mode", "alert", "config", "reset", "attention", "executor", "counts"]) => ({ pacer: "0.3.0", protocol, ops: ["repo.list"], events });
@@ -153,8 +153,8 @@ test("executors, accounts, hosts and repos upsert by their keys; counts and paus
   expect(s.snapshot?.repos?.[0]?.key).toBe("github.com/acme/new");
   s = reduceStore(s, ev(126, "counts", { ...v2.counts, attention: 9 }));
   expect(s.snapshot?.counts?.attention).toBe(9);
-  s = reduceStore(s, ev(127, "pause", { until: 5, by: "tray" }));
-  expect(s.snapshot?.pause).toEqual({ until: 5, by: "tray" });
+  s = reduceStore(s, ev(127, "pause", { until: 5, reason: null, by: "tray" }));
+  expect(s.snapshot?.pause).toEqual({ until: 5, reason: null, by: "tray" });
   expect(s.snapshot?.seq).toBe(127);
 });
 
@@ -197,4 +197,11 @@ test("an attention update that changes severity moves the item to its place", ()
 test("a pause removal clears the pause", () => {
   const paused = reduceStore(v2State(), ev(121, "pause", { until: 5, by: "tray" }));
   expect(reduceStore(paused, ev(122, "pause", { id: "pause", removed: true })).snapshot?.pause).toBeNull();
+});
+
+test("attention and count events refresh the service-owned snapshot", () => {
+  const start = reduceStore(initialState(), { type: "snapshot", snapshot });
+  for (const type of ["attention", "counts"] as const) {
+    expect(reduceStore(start, { type: "event", event: { seq: 6, at: 123, type, data: {} } }).needsSnapshot).toBe(true);
+  }
 });

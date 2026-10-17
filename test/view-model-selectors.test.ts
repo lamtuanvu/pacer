@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import type { AttentionItem, SnapshotV2 } from "../src/api/read-model";
+import type { AttentionItem } from "../src/api/read-model/types";
+import type { ClientSnapshot as SnapshotV2 } from "../src/view-model/snapshot";
 import { emptySnapshot } from "../src/link/envelope";
 import { attentionOrder, capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, repos, reviewQueue, running } from "../src/view-model/selectors";
 
