@@ -68,7 +68,7 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   if(resolved.mode==="current"&&resolved.why==="strategy default"&&git.dirty)return {ok:false,reason:"current worktree has uncommitted changes",refuse:true};
   const mapped=orcaAgentFor(cfg,resolved.mode==="current"?"current":"new-child");
   if("skip" in mapped)return {ok:false,reason:mapped.skip};
-  const base = ex.worktree==="child-of-current"?git.branch:ex.baseBranch ?? git.branch;
+  const base = task.brief.base ?? (ex.worktree==="child-of-current"?git.branch:ex.baseBranch ?? git.branch);
   if (resolved.mode !== "current" && base === "HEAD") {
     return { ok: false, reason: `${git.top} has a detached HEAD; check out a branch or set execution.base_branch` };
   }
@@ -209,7 +209,6 @@ async function runOrcaAttempt(
   const dispatchId = r.dispatchId;
   const root = worktreePathOf(r.effects);
   const worktree = p.placement.kind === "existing" ? task.brief.repo : root ? (p.sub ? join(root, p.sub) : root) : null;
-  if(worktree)updateTask(ctx,task.id,t=>{t.worktree=worktree;});
   const terminal = agentTerminalOf(r.effects);
   log(`worker-start ${dispatchId}: ${r.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
   const forget = async () => {
@@ -228,6 +227,8 @@ async function runOrcaAttempt(
   let tailText = "";
   try {
     try {
+      // Once started, even a task/worker registration failure must keep supervision active.
+      if(worktree)updateTask(ctx,task.id,t=>{t.worktree=worktree;});
       await withLock(ctx, "coordinator", async () => {
         updateOrcaState(ctx, (s) => {
           s.workers[dispatchId] = { dispatchId, taskId: task.id, executor: cfg.id, worktree, terminal, startedAt };

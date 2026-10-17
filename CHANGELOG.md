@@ -7,6 +7,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - Snapshot gains repo identity, capacity rows, planner meter, counts and today; new entity events (protocol 2.1.0).
+- Service-owned Needs you queue with actions, dismiss and snooze, attention counts and activity history; app and Orca attention models consume the service queue (protocol 2.2.0).
+- Full task detail with routing explanation, usage cost, acceptance timing, diffstat, per-file diffs, retry options and timeline; accept, reject, send-back and retry-elsewhere verdicts.
+- Idempotent delegation with request ids, base refs and source labels; repository operations, task list filters and goal-based routing previews.
+- Task revisions and optional `expect_rev` checks on task mutations return the current task on conflicts.
+- Bearer-authenticated `POST /v2/session/exchange` creates an app cookie session without a sign-in URL.
 
 ## [0.2.3] - 2026-10-16
 

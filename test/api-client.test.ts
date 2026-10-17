@@ -15,27 +15,31 @@ async function ctxWithStrategy() {
 const fakeStatus = (generatedAt: number) => async () => ({ generatedAt, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } }) as never;
 
 test("liveSnapshot refreshes capacity status while preserving fresh budgets and reports live task state", async () => {
-  const ctx = await ctxWithStrategy();
-  let calls = 0;
-  const status = async (c: typeof ctx) => { calls++; return fakeStatus(c.now)(); };
-  const a = await liveSnapshot(ctx, { status });
-  expect(calls).toBe(1);
-  expect(a.snapshot.budget?.generatedAt).toBe(ctx.now);
-  await publish(ctx, [{ v: 1, type: "budget", data: a.snapshot.budget! }], { bridge: false, channel: false });
-  await liveSnapshot({ ...ctx, now: ctx.now + 30 }, { status });
-  expect(calls).toBe(2);
-  await liveSnapshot({ ...ctx, now: ctx.now + 120 }, { status });
-  expect(calls).toBe(3);
-  const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 2 ** 22 + 7; x.attemptStartedAt = ctx.now; x.attempts = []; });
-  const b = await liveSnapshot({ ...ctx, now: ctx.now + 30 }, { status });
-  expect(b.snapshot.tasks.find((x) => x.id === t.id)?.state).toBe("failed");
+  // The read model also probes setup health; this unit test must not contact a local service.
+  const health = spyOn(globalThis, "fetch").mockRejectedValue(new Error("no service in this fixture"));
+  try {
+    const ctx = await ctxWithStrategy();
+    let calls = 0;
+    const status = async (c: typeof ctx) => { calls++; return fakeStatus(c.now)(); };
+    const a = await liveSnapshot(ctx, { status });
+    expect(calls).toBe(1);
+    expect(a.snapshot.budget?.generatedAt).toBe(ctx.now);
+    await publish(ctx, [{ v: 1, type: "budget", data: a.snapshot.budget! }], { bridge: false, channel: false });
+    await liveSnapshot({ ...ctx, now: ctx.now + 30 }, { status });
+    expect(calls).toBe(2);
+    await liveSnapshot({ ...ctx, now: ctx.now + 120 }, { status });
+    expect(calls).toBe(3);
+    const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 2 ** 22 + 7; x.attemptStartedAt = ctx.now; x.attempts = []; });
+    const b = await liveSnapshot({ ...ctx, now: ctx.now + 30 }, { status });
+    expect(b.snapshot.tasks.find((x) => x.id === t.id)?.state).toBe("failed");
+  } finally { health.mockRestore(); }
 });
 
 test("InProcessClient calls ops, maps errors and streams events", async () => {
   const ctx = await ctxWithStrategy();
   const client = new InProcessClient(() => ctx, { pollMs: 20, status: fakeStatus(ctx.now) });
-  expect((await client.hello()).protocol).toBe("2.1.0");
+  expect((await client.hello()).protocol).toBe("2.2.0");
   const err = await client.call("task.get", { id: "missing" }).catch((e) => e);
   expect(err).toBeInstanceOf(ApiError);
   if (!(err instanceof ApiError)) throw new Error("expected an ApiError");

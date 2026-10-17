@@ -1,3 +1,4 @@
+import { sessionCookie } from "../serve/app-routes";
 import * as core from "../core";
 import type { Status } from "../engine/status";
 import type { Ctx } from "../types";
@@ -40,6 +41,10 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
   const url = new URL(req.url), { pathname } = url;
   const tailMs = deps.tailMs ?? 1_000;
   try {
+    if (pathname === "/v2/session/exchange") {
+      if (req.method !== "POST") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
+      return new Response(null, { status: 204, headers: { "Set-Cookie": sessionCookie(deps.getCtx()), "Cache-Control": "no-store" } });
+    }
     if (pathname.startsWith("/v2/ops/")) {
       if (req.method !== "POST") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
       const max = 256 * 1024;

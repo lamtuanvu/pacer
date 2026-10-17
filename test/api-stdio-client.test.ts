@@ -22,8 +22,8 @@ test("StdioClient speaks the protocol to pacer api --stdio", async () => {
   const { env } = await home();
   const client = new StdioClient(cli.slice(0, 2), env);
   try {
-    expect((await client.hello()).protocol).toBe("2.1.0");
-    expect((await client.snapshot()).protocol).toBe("2.1.0");
+    expect((await client.hello()).protocol).toBe("2.2.0");
+    expect((await client.snapshot()).protocol).toBe("2.2.0");
     const err = await client.call("task.get", { id: "missing" }).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     if (!(err instanceof ApiError)) throw new Error("expected ApiError");

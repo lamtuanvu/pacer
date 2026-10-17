@@ -1,5 +1,7 @@
+import { CoreError } from "./errors";
+import { withLock } from "./lock";
 import { createHash } from "node:crypto";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { repoKey } from "../config/hosts";
 import { gitInfo, realpathSafe } from "./git";
@@ -53,4 +55,39 @@ export async function resolveRepo(ctx: Ctx,path: string): Promise<RepoRef> {
 }
 export async function backfillRepos(ctx: Ctx,paths: string[]): Promise<void> {
  for(const path of new Set(paths))if(!registered(ctx,path))await resolveRepo(ctx,path);
+}
+
+/** Resolve a picker key without treating it as a relative filesystem path. */
+export async function resolveRepoInput(ctx: Ctx, value: string): Promise<RepoRef> {
+ const known=listRepos(ctx).find(r=>r.key===value);
+ if(known)return known;
+ if(!isAbsolute(value))throw new CoreError("invalid_input","repo must be an absolute path or a registered repo key");
+ return resolveRepo(ctx,value);
+}
+
+export async function listReposWithBranches(ctx: Ctx): Promise<(RepoRef & {branches:string[]})[]> {
+ return Promise.all(listRepos(ctx).map(async ref=>{
+  const current=await ctx.run(["git","-C",ref.path,"symbolic-ref","--quiet","--short","HEAD"],10000);
+  const all=await ctx.run(["git","-C",ref.path,"for-each-ref","--format=%(refname:short)","refs/heads/"],10000);
+  const branches=[...new Set([...(current.code===0?[current.stdout.trim()]:[]),...(all.code===0?all.stdout.trim().split("\n"):[])].filter(Boolean))].slice(0,50);
+  return {...ref,branches};
+ }));
+}
+
+export async function addRepo(ctx: Ctx, path: string): Promise<RepoRef> {
+ if(!isAbsolute(path))throw new CoreError("invalid_input","path must be absolute");
+ const result=await ctx.run(["git","-C",path,"rev-parse","--show-toplevel"],10000);
+ if(result.code!==0)throw new CoreError("invalid_input","path is not a git repository");
+ return withLock(ctx,"repos",async()=>resolveRepo(ctx,path));
+}
+
+export async function removeRepo(ctx: Ctx, key: string): Promise<{removed:true}> {
+ return withLock(ctx,"repos",async()=>{
+  const reg=registry(ctx),removed=new Set(Object.keys(reg).filter(path=>reg[path].key===key));
+  for(const path of removed)delete reg[path];
+  const aliases=readJson<Record<string,string>>(aliasesFile(ctx))??{};
+  for(const [path,main] of Object.entries(aliases))if(removed.has(main))delete aliases[path];
+  writeJsonAtomic(file(ctx),reg);writeJsonAtomic(aliasesFile(ctx),aliases);
+  return {removed:true};
+ });
 }

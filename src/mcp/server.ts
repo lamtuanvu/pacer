@@ -1,4 +1,5 @@
-import { resolveRepo } from "../core/repos";
+import { isAbsolute } from "node:path";
+import { resolveRepoInput } from "../core/repos";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -47,7 +48,8 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     const ctx = getCtx();
     if (isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
     const input = parseDelegateBrief(a, process.cwd());
-    const t = core.tasks.delegate(ctx, {...input, repoRef: await resolveRepo(ctx,input.brief.repo)}, spawnFn);
+    const repoRef=await resolveRepoInput(ctx,input.brief.repo);
+    const t = core.tasks.delegate(ctx, {...input, brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path}, source:"planner", repoRef}, spawnFn);
     return json(summarizeTask(t));
   });
 
@@ -77,10 +79,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
 
   server.registerTool("task_review", {
     description: "Record your verdict on a delegated task's result after reviewing it (ground truth for pacer's routing benchmark).",
-    inputSchema: { task_id: z.string(), accepted: z.boolean(), kind: z.enum(KINDS).optional(), note: z.string().optional() },
-  }, async ({ task_id, accepted, kind, note }) => {
+    inputSchema: { task_id: z.string(), verdict: z.enum(["accept", "reject", "send_back", "retry"]).optional(), accepted: z.boolean().optional(), executor: z.string().optional(), kind: z.enum(KINDS).optional(), note: z.string().optional() },
+  }, async ({ task_id, verdict, accepted, executor, kind, note }) => {
     const ctx = getCtx();
-    return json(core.tasks.review(ctx, task_id, { accepted, kind, note }));
+    if ((verdict === "send_back" || verdict === "retry") && isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
+    return json(await core.tasks.review(ctx, task_id, { verdict, accepted, executor, kind, note }, { delegate: (c, input) => core.tasks.delegate(c, input, spawnFn) }));
   });
 
   server.registerTool("guard_feedback", {

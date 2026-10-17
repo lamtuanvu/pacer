@@ -161,7 +161,8 @@ test("entity batches preserve the installed v1 bridge snapshot",async()=>{
  }});
  const stored=readJson<{link:ReturnType<typeof emptySnapshot>}>(join(pluginDataDir(ctx),"storage.json"))!.link;
  expect(Object.keys(stored).sort()).toEqual([...Object.keys(emptySnapshot()),"serviceInstalled"].sort());
- expect(stored.seq).toBe(batches[0]!.length);
+ // Activity can publish before the legacy batch; only later entity batches leave the bridge untouched.
+ expect(stored.seq).toBe(readLatest(ctx).seq-batches.slice(1).flat().length);
  expect(readLatest(ctx).seq).toBeGreaterThan(stored.seq);
  expect(eventsSince(ctx,stored.seq).events.some(e=>e.type==="executor")).toBe(true);
  expect(stored.tasks).toEqual([]);
@@ -184,4 +185,17 @@ test("terminal receipt changes publish immediately alongside entity events",asyn
  connected=false;
  expect((await pumpOnce(ctx,deps)).find(e=>e.type==="task")).toMatchObject({data:{terminalPresent:false}});
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="task")).toHaveLength(0);
+});
+
+test("a failed task publishes attention and counts, then clears attention on retry",async()=>{
+ const {capacityFixture}=await import("./read-model-helpers");
+ const {publish}=await import("../src/link/publish");
+ const {s,st}=capacityFixture(),ctx=fakeCtx(),record={...task("running"),createdAt:ctx.now,brief:{goal:"g",repo:ctx.home},attempts:[]};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,e,o)=>publish(c,e,{...o,channel:false,bridge:false})};
+ await pumpOnce(ctx,deps);record.state="failed";
+ const out=await pumpOnce({...ctx,now:ctx.now+1},deps);
+ expect(out.filter(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject([{data:{id:`failed:${record.id}`,value:{kind:"failed"}}}]);
+ expect(out.find(e=>e.type==="entity"&&e.data.kind==="counts")).toMatchObject({data:{value:{attention:1,problems:1}}});
+ Object.assign(record,{retriedBy:"next"});
+ expect((await pumpOnce({...ctx,now:ctx.now+2},deps)).find(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject({data:{id:`failed:${record.id}`,removed:true}});
 });
