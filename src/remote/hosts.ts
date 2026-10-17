@@ -23,6 +23,7 @@ import { probeCodexUsage } from "./usage";
 export interface HostFacts {
   os: string | null;
   arch: string | null;
+  glibc?: string | null;
   git: string | null;
   setsid: string | null;
   tools: { codex?: string; claude?: string };
@@ -89,10 +90,11 @@ export function suggest(ctx: Ctx): string[] {
   const used = new Set(Object.values(loadStrategy(ctx).hosts).map(h => h.ssh));
   return sshAliases(ctx.home).filter(alias => !used.has(alias));
 }
-export function set(ctx: Ctx, alias: string, o: { max_tasks?: number; paused?: boolean }): HostSummary {
+export function set(ctx: Ctx, alias: string, o: { max_tasks?: number; paused?: boolean; session?: "recording" | "full" }): HostSummary {
   const before=configured(ctx, alias);
   applyEdit(ctx, doc => {
     if (o.max_tasks !== undefined) doc.setIn(["hosts", alias, "max_tasks"], o.max_tasks);
+    if (o.session !== undefined) doc.setIn(["hosts", alias, "session"], o.session);
     if (o.paused !== undefined) doc.setIn(["hosts", alias, "paused"], o.paused);
   });
   if(o.paused===true&&!before.paused)appendActivity(ctx,{kind:"host_state",level:"info",host:alias,text:`${alias} paused · new work goes elsewhere`});
@@ -129,7 +131,7 @@ async function prepareCheck(ctx: Ctx, alias: string, o: { repo?: string }) {
   if (o.repo && (!local.key || !host.repos[local.key])) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   const repos = o.repo ? [[local.key!, host.repos[local.key!]]] : Object.entries(host.repos);
   const agents = new Set(Object.values(s.runners).filter(r => r.host === alias).map(r => r.agent));
-  const names = ["ssh", "git", "setsid", "script", "tail", ...(agents.has("codex") ? ["codex"] : []), ...(agents.has("claude-code") ? ["claude"] : []), "account homes", ...repos.flatMap(([key]) => [`checkout ${key}`, `identity ${key}`])];
+  const names = ["ssh", ...(host.session === "full" ? ["glibc"] : []), "git", "setsid", ...(host.session === "full" ? [] : ["script", "tail"]), ...(agents.has("codex") ? ["codex"] : []), ...(agents.has("claude-code") ? ["claude"] : []), "account homes", ...repos.flatMap(([key]) => [`checkout ${key}`, `identity ${key}`])];
   return { host, s, local, repos, names };
 }
 export async function checkJob(ctx: Ctx, alias: string, o: { repo?: string } = {}) {
@@ -143,7 +145,7 @@ export async function check(ctx: Ctx, alias: string, o: { repo?: string; steps?:
 }
 async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, names }: Awaited<ReturnType<typeof prepareCheck>>, steps?: StepApi): Promise<HostCheck> {
   const checks: HostCheck["checks"] = [];
-  const facts: HostFacts = { os: null, arch: null, git: null, setsid: null, tools: {} };
+  const facts: HostFacts = { os: null, arch: null, glibc: null, git: null, setsid: null, tools: {} };
   const finish = (): HostCheck => {
     const result = { ok: checks.every(c => c.ok), checks, facts };
     if (!ctx.readOnly) writeJsonAtomic(checkFile(ctx), { ...(readJson<Record<string, StoredHostCheck>>(checkFile(ctx)) ?? {}), [alias]: { at: ctx.now, ...result } });
@@ -165,21 +167,30 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
   add("ssh", true);
   steps?.start("git");
   const probe = await runRemote(ctx, host, SCRIPTS.PROBE, []).catch(() => null), tools = fields(probe?.stdout ?? "");
-  Object.assign(facts, { os: tools.os || null, arch: tools.arch || null, git: tools.git?.replace(/^git version\s+/, "") || null, setsid: tools.setsid || null,
+  Object.assign(facts, { os: tools.os || null, glibc: tools.glibc || null, arch: tools.arch || null, git: tools.git?.replace(/^git version\s+/, "") || null, setsid: tools.setsid || null,
     tools: { ...(tools.codex ? { codex: tools.codex } : {}), ...(tools.claude ? { claude: tools.claude } : {}) } });
+  // Bun's Linux release binaries require glibc >= 2.17 (bun.com/docs/installation).
+  if (host.session === "full" && tools.os === "Linux") {
+    steps?.start("glibc");
+    const libc = /^(\d+)\.(\d+)(?:\.\d+)?$/.exec(tools.glibc ?? "");
+    const ok = !!libc && (+libc[1] > 2 || (+libc[1] === 2 && +libc[2] >= 17));
+    add("glibc", ok, ok ? tools.glibc : `${tools.glibc || "glibc unknown"}; pacer Linux binary requires >= 2.17`);
+  } else if (host.session === "full") steps?.skip("glibc", "not a Linux host");
   const version = /git version (\d+)\.(\d+)/.exec(tools.git ?? "");
   const gitOk = !!version && (+version[1] > 2 || (+version[1] === 2 && +version[2] >= 30));
   add("git", gitOk, gitOk ? tools.git : `${tools.git || "git missing"} < 2.30`);
   steps?.start("setsid");
   add("setsid", !!tools.setsid, tools.setsid || "missing");
-  steps?.start("script");
-  const scriptVersion = /util-linux (\d+)\.(\d+)/.exec(tools.script ?? "");
-  const scriptOk = !!scriptVersion && (+scriptVersion[1] > 2 || (+scriptVersion[1] === 2 && +scriptVersion[2] >= 35));
-  add("script", scriptOk, scriptOk ? tools.script : `${tools.script || "util-linux script missing"}; requires >= 2.35 (stdin EOF issue)`);
-  steps?.start("tail");
-  // Live viewing follows session.raw with a plain tail -f; any POSIX tail works.
-  const tailOk = !!tools.tail;
-  add("tail", tailOk, tailOk ? tools.tail : "tail missing");
+  if (host.session !== "full") {
+    steps?.start("script");
+    const scriptVersion = /util-linux (\d+)\.(\d+)/.exec(tools.script ?? "");
+    const scriptOk = !!scriptVersion && (+scriptVersion[1] > 2 || (+scriptVersion[1] === 2 && +scriptVersion[2] >= 35));
+    add("script", scriptOk, scriptOk ? tools.script : `${tools.script || "util-linux script missing"}; requires >= 2.35 (stdin EOF issue)`);
+    steps?.start("tail");
+    // Live viewing follows session.raw with a plain tail -f; any POSIX tail works.
+    const tailOk = !!tools.tail;
+    add("tail", tailOk, tailOk ? tools.tail : "tail missing");
+  }
   for (const agent of ["codex", "claude"]) if (names.includes(agent)) {
     steps?.start(agent);
     add(agent, !!tools[agent], tools[agent] || `${agent} not on login PATH`);

@@ -47,13 +47,12 @@ export class OrcaSessionHost implements SessionHost {
 export function sessionSocket(dir:string){try{return readFileSync(join(dir,'session.sock.path'),'utf8').trim();}catch{return join(dir,'session.sock');}}
 export function sessionDirectory(ctx:Ctx,id:string):string|null{
  validateTaskId(id);const task=readTask(ctx,id);if(!task)throw new CoreError('unknown_task',`unknown task ${id}`);
- if(task.run?.host)return null;
  const root=join(ctx.pacerHome,'runs',id);
- try{const n=task.run?.attempt||Math.max(...readdirSync(root).filter(n=>/^\d+$/.test(n)).map(Number));return Number.isSafeInteger(n)&&n>0?join(root,String(n)):null;}catch{return null;}
+ try{const n=task.run?.attempt||Math.max(...readdirSync(root).filter(n=>/^\d+$/.test(n)).map(Number));const dir=Number.isSafeInteger(n)&&n>0?join(root,String(n)):null;return dir&&task.run?.host&&!existsSync(join(dir,"session.remote-full"))?null:dir;}catch{return null;}
 }
 function sessionProcessAlive(dir:string):boolean{
  try{
-  const pid=Number(readFileSync(join(dir,'pid'),'utf8'));
+  const pid=Number(readFileSync(join(dir,existsSync(join(dir,'session.remote-full'))?'session.bridge.pid':'pid'),'utf8'));
   if(!Number.isSafeInteger(pid)||pid<=0)return false;
   try{process.kill(pid,0);return true;}catch(e){return (e as NodeJS.ErrnoException).code==='EPERM';}
  }catch{return false;}
