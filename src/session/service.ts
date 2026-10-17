@@ -17,7 +17,7 @@ export interface SessionHost extends RunIO {
  attachTarget():AttachTarget;
 }
 export class BuiltinSessionHost implements SessionHost {
- readonly id='builtin'; readonly capabilities={snapshot:true,control:false,record:true,resize:false};
+ readonly id='builtin'; readonly capabilities={snapshot:true,control:true,record:true,resize:true};
  constructor(readonly dir:string){}
  async start(spec:RunSpec){return startRun({...spec,session:'pty'});}
  async read(){return readRun(this.dir);}
@@ -72,8 +72,9 @@ export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTar
  if(!dir||(!existsSync(join(dir,'session.log'))&&!existsSync(join(dir,'session.ckpt'))))return info;
  info.host='builtin';info.capabilities=new BuiltinSessionHost(dir).capabilities;
  const state=json(join(dir,'session.state')),ckpt=json(join(dir,'session.ckpt'));
- info.cols=ckpt.cols??120;info.rows=ckpt.rows??40;
+ info.cols=state.cols??ckpt.cols??120;info.rows=state.rows??ckpt.rows??40;
  info.live=existsSync(sessionSocket(dir))&&!existsSync(join(dir,'exit'))&&sessionProcessAlive(dir);
+ info.controller=info.live&&typeof state.controller==='string'?state.controller:null;
  info.viewers=info.live?Math.max(0,Math.min(16,Number(state.viewers)||0)):0;
  info.targets=['here'];if(!includeTargets)return info;if(info.live)info.targets.unshift('app');
  try{const ready=await new OrcaClient(ctx.run,ctx.env).status();if(isReady(ready))info.targets.push('orca');}catch{}

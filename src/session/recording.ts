@@ -59,6 +59,11 @@ export class Recording extends Screen {
     } catch {return null;}
     return next===this.outputOffset?chunks:null;
   }
+  override resize(cols:number,rows:number) {
+    super.resize(cols,rows);
+    const bytes=Buffer.alloc(4);bytes.writeUInt16BE(cols,0);bytes.writeUInt16BE(rows,2);
+    this.record(2,bytes);
+  }
   marker(event:string,label:string) { this.record(3,Buffer.from(JSON.stringify({event,label}))); }
   async close() { const tail=this.transcript.flush(); if(tail) this.disk(()=>appendFileSync(join(this.dir,"stdout"),tail,{mode:0o600})); this.dispose(); }
 }
