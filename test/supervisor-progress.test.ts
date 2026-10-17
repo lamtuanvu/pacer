@@ -81,3 +81,104 @@ test("remote progress never polls local git", async () => {
   await progressPoller(ctx, task, run)({ pid: null, startedAt: run.startedAt, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null });
   expect(gitCalls).toBe(0);
 });
+
+test("interactive needs-input alerts once and pauses idle failure until running resumes", async () => {
+  const { readLatest } = await import("../src/link/store");
+  const ctx = fakeCtx();
+  const task = createTask(ctx, {brief: {goal: "Interactive", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
+  const run: RunRef = {dir: ctx.home, attempt: 1, executor: "codex", startedAt: 1, mode: "current", workdir: ctx.home, logFile: "unused"};
+  const poll = progressPoller(ctx, task, run);
+  const state = {pid: null, startedAt: 1, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true, report: {status: "needs-input" as const, summary: "Approve this", at: Date.now()/1000}};
+  expect(await poll(state)).toBe("continue");
+  expect(await poll(state)).toBe("continue");
+  expect(readTask(ctx, task.id)?.progress?.phase).toBe("needs-input");
+  expect(readLatest(ctx).alerts.filter(a => a.key.startsWith(`needs-input-${task.id}-`))).toHaveLength(1);
+  expect(await poll({...state, report: {...state.report, status: "running"}})).toBe("continue");
+  expect(readTask(ctx, task.id)?.progress?.phase).toBe("working");
+});
+
+test("interactive terminal output keeps a long tool call alive without completing it", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, {brief: {goal: "Spinner", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
+  const run: RunRef = {dir: ctx.home, attempt: 1, executor: "codex", startedAt: 1, mode: "current", workdir: ctx.home, logFile: "unused"};
+  const state = {pid: null, startedAt: 1, exit: null, alive: true, stdoutBytes: 100, stderrBytes: 0, lastOutputAt: Date.now()/1000, interactive: true, report: {status: "running" as const, summary: "Working", at: 1}};
+  expect(await progressPoller(ctx, task, run)(state)).toBe("continue");
+});
+
+test("a controller pauses idle failure and release starts a fresh idle period", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, {brief: {goal: "Control", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
+  const run: RunRef = {dir: ctx.home, attempt: 1, executor: "codex", startedAt: 1, mode: "current", workdir: ctx.home, logFile: "unused"};
+  const poll = progressPoller(ctx, task, run);
+  const state = {pid: null, startedAt: 1, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true, controller: "human"};
+  expect(await poll(state)).toBe("continue");
+  expect(await poll({...state, controller: null})).toBe("continue");
+});
+
+test("turn-ended waits 120s of no activity and no controller before alerting", async () => {
+  const {readLatest} = await import("../src/link/store");
+  const ctx = fakeCtx();
+  const task = createTask(ctx, {brief: {goal: "Turn", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
+  const run: RunRef = {dir: ctx.home, attempt: 1, executor: "codex", startedAt: 1000, mode: "current", workdir: ctx.home, logFile: "unused"};
+  const poll = progressPoller(ctx, task, run), clock = spyOn(Date, "now");
+  const state = {pid: null, startedAt: 1000, exit: null, alive: true, stdoutBytes: 100, stderrBytes: 0, lastOutputAt: 1000, interactive: true, report: {status: "turn-ended" as const, summary: "Turn ended", at: 1000}};
+  try {
+    clock.mockReturnValue(1119_000);
+    expect(await poll(state)).toBe("continue");
+    expect(readLatest(ctx).alerts).toHaveLength(0);
+    clock.mockReturnValue(1120_000);
+    expect(await poll({...state, controller: "human"})).toBe("continue");
+    expect(readLatest(ctx).alerts).toHaveLength(0);
+    clock.mockReturnValue(1200_000);
+    expect(await poll(state)).toBe("continue");
+    expect(readLatest(ctx).alerts).toHaveLength(0);
+    clock.mockReturnValue(1319_000);
+    expect(await poll(state)).toBe("continue");
+    expect(readLatest(ctx).alerts).toHaveLength(0);
+    clock.mockReturnValue(1320_000);
+    expect(await poll(state)).toBe("continue");
+    expect(readTask(ctx, task.id)?.progress?.phase).toBe("needs-input");
+    expect(readLatest(ctx).alerts).toHaveLength(1);
+  } finally {clock.mockRestore();}
+});
+
+test("headless controllers do not suppress idle failure", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, {brief: {goal: "Headless", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
+  const run: RunRef = {dir: ctx.home, attempt: 1, executor: "cursor", startedAt: 1, mode: "current", workdir: ctx.home, logFile: "unused"};
+  expect(await progressPoller(ctx, task, run)({pid: null, startedAt: 1, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, controller: "human"})).toBe("idle");
+});
+
+test("separate input waits get distinct alerts and resuming clears each warning", async () => {
+  const {readLatest} = await import("../src/link/store");
+  const ctx = fakeCtx();
+  const task = createTask(ctx, {brief: {goal: "Wait twice", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
+  const run: RunRef = {dir: ctx.home, attempt: 1, executor: "cursor", startedAt: 1, mode: "current", workdir: ctx.home, logFile: "unused"};
+  const poll = progressPoller(ctx, task, run);
+  const state = {pid: null, startedAt: 1, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true};
+  for (let n = 0; n < 2; n++) {
+    await poll({...state, report: {status: "needs-input", summary: "Question", at: 1+n}});
+    expect(readLatest(ctx).alerts.filter(a => a.level === "warn")).toHaveLength(1);
+    await poll({...state, report: {status: "running", summary: "Resumed", at: 3+n}});
+    expect(readLatest(ctx).alerts.filter(a => a.level === "warn")).toHaveLength(0);
+  }
+  expect(readLatest(ctx).alerts).toHaveLength(2);
+  expect(readLatest(ctx).alerts.every(a => a.level === "info" && a.title.includes("resumed"))).toBe(true);
+});
+
+test("terminal activity after Stop delays the input alert without completing the task", async () => {
+  const {readLatest} = await import("../src/link/store");
+  const ctx = fakeCtx();
+  const task = createTask(ctx, {brief: {goal: "Still active", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
+  const run: RunRef = {dir: ctx.home, attempt: 1, executor: "codex", startedAt: 1000, mode: "current", workdir: ctx.home, logFile: "unused"};
+  const poll = progressPoller(ctx, task, run), clock = spyOn(Date, "now");
+  const state = {pid: null, startedAt: 1000, exit: null, alive: true, stdoutBytes: 100, stderrBytes: 0, lastOutputAt: 1199, interactive: true, report: {status: "turn-ended" as const, summary: "Turn ended", at: 1000}};
+  try {
+    clock.mockReturnValue(1200_000);
+    expect(await poll(state)).toBe("continue");
+    expect(readLatest(ctx).alerts).toHaveLength(0);
+    clock.mockReturnValue(1319_000);
+    expect(await poll(state)).toBe("continue");
+    expect(readTask(ctx, task.id)?.progress?.phase).toBe("needs-input");
+  } finally {clock.mockRestore();}
+});

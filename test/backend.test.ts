@@ -143,3 +143,9 @@ for (const source of ["pacer", "orca"]) {
     }
   });
 }
+
+test("interactive runners use the builtin PTY even when Orca is available or forced", async () => {
+  const strategy = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
+  const ctx = fakeCtx({env: {PACER_BACKEND: "orca"}});
+  expect((await selectBackend(ctx, strategy, [fake("orca", async () => true)], "codex")).id).toBe("direct");
+});

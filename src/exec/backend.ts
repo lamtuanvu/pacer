@@ -17,6 +17,7 @@ export const directBackend: Backend = { id: "direct", available: async () => tru
 /** Managed account folders and connection credentials require direct execution. */
 export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = EXTRA_BACKENDS, runnerId?: string): Promise<Backend> {
   const runner = runnerId ? resolveRunner(s, runnerId) : undefined;
+  if (runner?.session === "interactive") return directBackend;
   const account = runner ? s.accounts[runner.account] : undefined;
   if (account?.source === "pacer" || account?.source === "orca" || account?.connection) {
     return {

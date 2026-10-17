@@ -206,8 +206,8 @@ This plain text is reliable for line-oriented output: headless agents, `codex ex
 The idle rule depends on the mode:
 
 - **Headless:** `lastOutputAt` comes from the derived text, so a spinner that only redraws does not count as output.
-- **Interactive:** it comes from hook events and git changes (section 3).
-- **While a controller is attached,** the idle-fail timer pauses. A human at the keyboard is not an idle task.
+- **Interactive:** liveness comes from hook events, terminal activity and git changes (section 3). Completion still requires an explicit report.
+- **While a controller is attached to an interactive run,** the idle-fail timer pauses. A human at the keyboard is not an idle task.
 
 ## 3. Headless in a PTY first, interactive TUIs later
 
@@ -216,18 +216,25 @@ The idle rule depends on the mode:
 **Interactive (phase 4, opt-in per runner).** The runner config gains `session: interactive`. The agent starts its normal TUI, with the brief delivered as the first prompt (argv where the CLI accepts one, as Orca does for Claude, Codex and cursor-agent). That is the experience people get in Orca or their own terminal. A TUI never exits on its own, so completion comes from signals, in this order:
 
 1. **Explicit report (authoritative).** The brief tells the agent to run `pacer report --task <id> --outcome done|failed --summary "<3 sentences>"` exactly once, like Orca's `worker_done`.
-   - The command writes `report.json` into the run directory, which `PACER_RUN_DIR` points to in the child's environment.
+   - The command writes `report.json` into the run directory, which `PACER_RUN_DIR` points to in the child's environment. Each attempt generates a random nonce in its private `interactive.json` and exports it as `PACER_REPORT_TOKEN`. Reports from a run require this token and a realpath match with the task's current attempt, even with `--task`; another task or a stale attempt cannot report for it.
+   - From the user's own CLI, without a run environment or agent role, reporting requires explicit `--task <id>` and records `source: "user"`. Agent reports record `source: "agent"`. Summaries remove C0/C1 controls except newline and tab before storage or display.
    - The session host then ends the TUI: it sends the agent's exit command if one is configured, otherwise SIGTERM, and finally SIGKILL after a grace period.
    - The task outcome comes from `report.json`, not the exit code.
 2. **Hooks (status).** The session host gets agent hooks for this launch only; it never edits the user's global agent settings.
    - Claude: `claude --settings <run-dir>/hooks.json`.
-   - Codex: its hooks file in a per-run config overlay, if Codex supports one; otherwise Codex stays headless.
+   - Codex: per-invocation `-c hooks.<event>=...` overrides. Interactive launch requires a recognized stable `codex-cli` version at least 0.162.1; older or unrecognized runners are refused with instructions to upgrade or select headless mode. This conservative version floor avoids launching without supported per-run hooks.
+   - Codex trusts the worktree with `-c 'projects."<worktree>".trust_level="trusted"'` for this invocation; pacer never writes a global trust entry or replaces `CODEX_HOME`.
+   - Claude itself may record trust for a fresh worktree in the selected account's config. Use a pacer-managed account for interactive Claude runs; pacer installs hooks only in the run directory.
    - The hooks append events to `<run-dir>/events.jsonl`, using Orca's mapping (tool use or prompt submit = working; permission request = waiting; Stop = turn ended).
-   - A `waiting` status raises an alert, "Task needs input: attach to answer". That links interactive mode to take-control.
+   - A `waiting` status raises an alert, "Task needs input: attach to answer", with a key unique to that wait. Resuming input publishes an informational clear under the same key; a later wait gets a new key.
 3. **Turn ended without a report.** After a Stop hook and 120 s with no report, no activity and no controller, the task is marked `needs-input`, not failed, and an alert is sent. The user can attach and answer, or stop the task.
 4. **Process exit.** Exiting without a report counts as failure (the exit code is kept), unless the exit was pacer ending the TUI after a report.
 
 The report text comes from the agent's transcript when the hook gives a `transcript_path` (Claude JSONL; Codex session files): the last assistant message. Otherwise it comes from `report.json`. The terminal is never parsed.
+
+Interactive liveness uses the latest hook/report timestamp, terminal output (`lastOutputAt`, including `session.activity`), or file changes. This keeps cursor, agy and OpenCode alive without hooks and covers long tool calls between hook events. Terminal activity is only a liveness signal and never completes a task. Waiting, turn-ended and controlled interactive states pause idle failure and rely on `task.timeoutS` as their upper bound; headless PTY runs retain their existing idle policy.
+
+Interactive positional prompts follow `--` so prompt text cannot become a CLI option. Prompts exceeding 32 KiB in UTF-8 are stored privately as `<run-dir>/prompt.md`; the initial prompt is a short instruction to read that file. OpenCode's prompt uses its explicit `--prompt` option.
 
 The headless default stays, because it is the only mode with a guaranteed end, and pacer's routing and limit handling depend on attempts ending.
 

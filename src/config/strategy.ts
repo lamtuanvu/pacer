@@ -23,6 +23,7 @@ const NATIVE_USAGE: Record<string, UsageKind> = { "claude-code": "quota", codex:
 const DEFAULT_ORDER = ["codex", "cursor", "agy", "opencode"];
 
 export interface ProviderCfg {
+  session?: "headless" | "interactive";
   id: string;
   via: "opencode" | null;
   model: string | null;
@@ -114,6 +115,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     const account = accounts[runner.account];
     if (!account) continue;
     providers[id] = {
+      ...(runner.session ? {session: runner.session} : {}),
       id, via: runner.agent === "opencode" ? "opencode" : null, model: runner.model,
       usage: account.usage, allowPaid: account.allowPaid, cooldownS: account.cooldownS,
       quotaSource: account.quotaSource === "arkcli" ? "arkcli" : null, weeklyTokens: account.weeklyTokens,

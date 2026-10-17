@@ -1,3 +1,4 @@
+import { readReport } from "./reports";
 import { createServer } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -9,7 +10,7 @@ import { FrameType, WireDecoder, wire } from "./framing";
 import { SecretMasker } from "./masking";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
-export interface SessionLaunch { argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
+export interface SessionLaunch { interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
 export function socketPath(dir:string):string {
   const direct=join(dir,"session.sock");
   if(Buffer.byteLength(direct) < 104) return direct;
@@ -71,7 +72,7 @@ export async function sessionHost(dir:string):Promise<number> {
   let proc:Bun.Subprocess;
   try {
     if(typeof Bun.Terminal !== "function") throw Error("PTY unavailable");
-    proc=Bun.spawn(["/bin/sh","-c",'input="$1"; shift; exec "$@" < "$input"',"pacer-session",existsSync(join(dir,"stdin"))?join(dir,"stdin"):"/dev/null",...launch.argv],{
+    proc=Bun.spawn(launch.interactive ? launch.argv : ["/bin/sh","-c",'input="$1"; shift; exec "$@" < "$input"',"pacer-session",existsSync(join(dir,"stdin"))?join(dir,"stdin"):"/dev/null",...launch.argv],{
       cwd:launch.cwd,env:{...process.env,TERM:"xterm-256color",PWD:launch.cwd},
       terminal:{cols:120,rows:40,name:"xterm-256color",data(_term,data){
         try {
@@ -84,6 +85,13 @@ export async function sessionHost(dir:string):Promise<number> {
       },exit(){terminalClosed();}},
     });
   } catch {
+    if (launch.interactive) {
+      removeErrorHandlers();
+      await recording.close();
+      writeFileSync(join(dir, "stderr"), "pacer: interactive mode requires PTY support\n", {mode: 0o600});
+      atomic("exit", "127");
+      return 127;
+    }
     // Missing PTY support must retain the pipe wrapper's exit/stdout contract.
     removeErrorHandlers();
     await recording.close();
@@ -117,7 +125,18 @@ export async function sessionHost(dir:string):Promise<number> {
     chmodSync(path!,0o600);
     if(path && path!==join(dir,"session.sock")) writeFileSync(join(dir,"session.sock.path"),path,{mode:0o600});
   } catch { /* a socket failure must never terminate the attempt */ }
-  const code=await proc.exited;
+  // Completion is also consumed here so reporting still ends the TUI if its supervisor died.
+  let escalation: ReturnType<typeof setTimeout> | undefined;
+  const reports = launch.interactive ? setInterval(() => {
+    const report = readReport(dir);
+    if (!stopping && (report?.status === "done" || report?.status === "failed")) {
+      stop();
+      escalation = setTimeout(() => killTree(proc.pid, "SIGKILL"), 5000);
+    }
+  }, 100) : undefined;
+  let code: number;
+  try { code = await proc.exited; }
+  finally { if (reports) clearInterval(reports); if (escalation) clearTimeout(escalation); }
   // Process exit and PTY EOF are separate. Bound the drain if a descendant holds the slave.
   await Promise.race([closed,Bun.sleep(250)]);
   proc.terminal?.close();
