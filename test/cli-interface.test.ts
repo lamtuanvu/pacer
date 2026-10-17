@@ -21,7 +21,7 @@ test("brief-file and stdin preserve text and command flags override file fields"
  writeFileSync(path,JSON.stringify(brief));
  const fromFile=await main(["delegate","--brief-file",path,"--kind","docs","--timeout-min","3","--worktree","new","--json"],ctx);
  expect(fromFile.code).toBe(0);const t=JSON.parse(fromFile.out);
- expect(Object.keys(t).sort()).toEqual(["id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement"].sort());
+ expect(Object.keys(t).sort()).toEqual(["id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo"].sort());
  expect(t).toMatchObject({brief:{goal,repo:ctx.home,scope:"s"},kind:"docs",timeoutS:180,placement:{requested:"new",reason:"follow-up"}});
  const original=io.readBriefStdin;try{io.readBriefStdin=async()=>JSON.stringify(brief);const r=await main(["delegate","--brief-file","-","--goal","override","--json"],ctx);expect(r.code).toBe(0);expect(JSON.parse(r.out).brief.goal).toBe("override");}finally{io.readBriefStdin=original;}
 });

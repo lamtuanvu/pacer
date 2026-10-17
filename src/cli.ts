@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { resolveRepo } from "./core/repos";
 import { createInterface } from "node:readline/promises";
 import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
@@ -199,7 +200,8 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
-    const t=core.tasks.delegate(ctx,{...parseDelegateBrief(raw,process.cwd()),force:opts.force===true},cliDeps.spawnRunner);
+    const input=parseDelegateBrief(raw,process.cwd());
+    const t=core.tasks.delegate(ctx,{...input,repoRef:await resolveRepo(ctx,input.brief.repo),force:opts.force===true},cliDeps.spawnRunner);
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };

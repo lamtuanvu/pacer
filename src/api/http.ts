@@ -1,7 +1,7 @@
 import * as core from "../core";
 import type { Status } from "../engine/status";
 import type { Ctx } from "../types";
-import { apiSnapshot, eventsSince, liveSnapshot } from "./events";
+import { eventsSince, liveSnapshot } from "./events";
 import { callOp, type OpDeps } from "./ops";
 import { helloBody, httpStatus, toApiError, type ApiErrorBody } from "./protocol";
 
@@ -58,14 +58,14 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       let params: unknown;
       try { params = JSON.parse(text); }
       catch { return errorResponse({ code: "invalid_input", message: "body is not JSON" }); }
-      const result = await callOp(deps.getCtx(), pathname.slice("/v2/ops/".length), params, deps.opDeps);
+      const label=req.headers.get("X-Pacer-Client")??"";
+      const client=/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/.test(label)?label:undefined;
+      const result = await callOp(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
       return Response.json({ result });
     }
     if (req.method !== "GET") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
     if (pathname === "/v2/hello") return Response.json(helloBody());
-    if (pathname === "/v2/snapshot") return Response.json(deps.status
-      ? await liveSnapshot(deps.getCtx(), { status: deps.status })
-      : apiSnapshot(deps.getCtx()));
+    if (pathname === "/v2/snapshot") return Response.json(await liveSnapshot(deps.getCtx(), { status: deps.status }));
     if (pathname === "/v2/events") {
       let last = Number(req.headers.get("last-event-id") ?? url.searchParams.get("since") ?? 0);
       if (!Number.isSafeInteger(last) || last < 0) return errorResponse({ code: "invalid_input", message: "since must be a non-negative integer" });

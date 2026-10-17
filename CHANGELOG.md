@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Snapshot gains repo identity, capacity rows, planner meter, counts and today; new entity events (protocol 2.1.0).
+
 ## [0.2.3] - 2026-10-16
 
 ### Fixed

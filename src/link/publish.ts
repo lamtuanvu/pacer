@@ -14,12 +14,13 @@ export async function publish(ctx:Ctx,envs:Envelope[],o:PublishOpts={}):Promise<
   const report:PublishReport={seq:0,transports:[],errors:[]}; let snap:LinkSnapshot|null=null;
   try {
     await withLock(ctx,"link",async()=>{let s=readLatest(ctx); const entries:OutboxEntry[]=[];
-      for(const envelope of envs){s=reduce(s,envelope,ctx.now);entries.push({seq:s.seq,envelope});}
+      for(const envelope of envs){s=reduce(s,envelope,ctx.now);entries.push({seq:s.seq,at:ctx.now,envelope});}
       if(entries.length){appendOutbox(ctx,entries);writeJsonAtomic(latestPath(ctx),s);} report.seq=s.seq; snap=currentSnapshot(ctx);
     },{timeoutMs:5000}); report.transports.push("outbox");
   } catch(e){report.errors.push(`outbox: ${msg(e)}`);return report;}
-  if(o.bridge!==false&&snap){const r=writeBridge(ctx,snap,o.platform);if(r==="written")report.transports.push("bridge");else if(r!=="skipped")report.errors.push(`bridge: ${r}`);}
-  if(o.channel!==false&&envs.length){try{if(await detectChannel(ctx)){for(const e of envs)await sendChannel(ctx,e);report.transports.push("channel");}}catch(e){report.errors.push(`channel: ${msg(e)}`);}}
+  const legacy=envs.filter(e=>e.type!=="entity");
+  if(o.bridge!==false&&snap&&(!envs.length||legacy.length)){const r=writeBridge(ctx,snap,o.platform);if(r==="written")report.transports.push("bridge");else if(r!=="skipped")report.errors.push(`bridge: ${r}`);}
+  if(o.channel!==false&&legacy.length){try{if(await detectChannel(ctx)){for(const e of legacy)await sendChannel(ctx,e);report.transports.push("channel");}}catch(e){report.errors.push(`channel: ${msg(e)}`);}}
   return report;
 }
 /** Rewrite the bridge with the current snapshot (console heartbeat). */

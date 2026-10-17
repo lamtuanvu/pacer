@@ -1,3 +1,4 @@
+import type { RepoRef } from "../api/read-model/types";
 import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
@@ -76,6 +77,8 @@ export interface RunRef {
 }
 
 export interface TaskRecord {
+  repo?: RepoRef;
+  client?: string;
   run?: RunRef;
   progress?: Progress;
   resumeSpawnedAt?: number;
