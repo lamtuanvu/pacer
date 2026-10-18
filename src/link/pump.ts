@@ -10,6 +10,7 @@ import type { SetupChecklist } from "../setup/checklist";
 import type { EntityData } from "./envelope";
 import { drainQueue } from "../tasks/drain";
 import { sessionTaskData } from "../session/link";
+import { withTimeout } from "../core/path-probe";
 import { resolveTask } from "../tasks/resolution";
 import { loadOrcaState } from "../exec/orca/state";
 import { OrcaClient, isLiveTerminal } from "../exec/orca/client";
@@ -106,6 +107,17 @@ function statusActivity(ctx: Ctx, st: Status): void {
   if (JSON.stringify(prev) !== JSON.stringify(next)) writeJsonAtomic(path, next);
 }
 
+const pendingResolutions = new Map<string, Promise<TaskRecord>>();
+async function pumpResolution(ctx: Ctx, task: TaskRecord): Promise<TaskRecord> {
+  const key = join(ctx.pacerHome, task.id);
+  let pending = pendingResolutions.get(key);
+  if (!pending) {
+    pending = resolveTask(ctx, task).finally(() => { pendingResolutions.delete(key); });
+    pendingResolutions.set(key, pending);
+  }
+  return withTimeout(() => pending!, 250).catch(() => task);
+}
+
 export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<OutboxEvent[]> {
   // Expiry is independent of status refresh: even a failing provider must clear clients.
   const expiredEvents:OutboxEvent[]=[];
@@ -138,8 +150,9 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
   const known:Record<string,string>=isObj(knownRaw)?Object.fromEntries(Object.entries(knownRaw).filter(([,v])=>typeof v==="string")) as Record<string,string>:{};
   let statesChanged=false;
   const workers=Object.values(loadOrcaState(ctx).workers), client=new OrcaClient(ctx.run,ctx.env);
-  const records=deps.tasks(ctx).map(t=>resolveTask(ctx,t));
-  await (deps.backfillRepos??backfillRepos)(ctx,records.map(t=>t.brief.repo).filter((p):p is string=>typeof p==="string"));
+  // Let healthy, larger comparisons finish in the background without delaying clients.
+  const records=await Promise.all(deps.tasks(ctx).map(t=>pumpResolution(ctx,t)));
+  await withTimeout(()=>(deps.backfillRepos??backfillRepos)(ctx,records.map(t=>t.brief.repo).filter((p):p is string=>typeof p==="string")),250).catch(()=>{});
   const timesPath=join(ctx.pacerHome,"link","task-events-at.json"),times=readJson<Record<string,number>>(timesPath)??{};
   let timesChanged=false;
   const dataPath=join(ctx.pacerHome,"link","task-data-seen.json"),seenData=readJson<Record<string,TaskData>>(dataPath)??{};
