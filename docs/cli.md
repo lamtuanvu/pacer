@@ -139,7 +139,7 @@ prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
 using a one-time sign-in link: in an Orca browser tab when Orca is running,
 otherwise in your default browser (`--browser` forces the default browser). The app currently shows a placeholder
 until the full app ships. An optional screen selects a page, for example
-`pacer open tasks`.
+`pacer open sessions`.
 
 The daemon must already be running (`pacer service install` installs the
 background service; `pacer serve` runs it in the foreground). If it is down,

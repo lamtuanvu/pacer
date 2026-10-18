@@ -102,7 +102,7 @@ export function eventsSince(ctx:Ctx,since:number,protocol:2|3=2):{events:ApiEven
    event={...e,seq,type:'planner',data:buildPlanner(st)};
   } else if(e.type==='alert') {
    const a=e.data as import('../link/envelope').AlertData;
-   event={...e,seq,type:'notify',data:{key:`${a.key}:${a.at}`,title:a.title,body:a.body,actions:[],url:'/app/#attention'}};
+   event={...e,seq,type:'notify',data:{key:`${a.key}:${a.at}`,title:a.title,body:a.body,actions:[],url:'/app/#/'}};
   } else event={...e,seq,type:e.type};
   Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"?null:e});
   return event;

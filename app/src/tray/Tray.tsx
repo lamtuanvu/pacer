@@ -57,7 +57,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") { event.preventDefault(); void ipc.hide().catch(e => setError(e instanceof Error ? e.message : "Could not hide tray")); return; }
     if (event.metaKey || event.ctrlKey) {
-      const action = ({ d: () => ipc.open("/delegate"), o: () => ipc.open("/"), q: ipc.quit } as Record<string, () => Promise<unknown>>)[event.key.toLowerCase()];
+      const action = ({ d: () => ipc.open("/"), o: () => ipc.open("/"), q: ipc.quit } as Record<string, () => Promise<unknown>>)[event.key.toLowerCase()];
       if (action) { event.preventDefault(); act(action); }
       return;
     }
@@ -103,7 +103,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         {model.needsCount > 3 && <a className="tray-more" href={appHref("/")} onClick={navigate("/")}>+{model.needsCount - 3} more in the app</a>}
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check" aria-hidden="true">✓</span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}
       {model.active.length > 0 && <section className="tray-section" aria-label="Running"><h2>Running</h2>
-        {model.active.slice(0, 3).map(task => <a key={task.id} className="tray-running" href={appHref(`/tasks/${encodeURIComponent(task.id)}`)} onClick={navigate(`/tasks/${encodeURIComponent(task.id)}`)}>
+        {model.active.slice(0, 3).map(task => <a key={task.id} className="tray-running" href={appHref(`/sessions/${encodeURIComponent(task.id)}`)} onClick={navigate(`/sessions/${encodeURIComponent(task.id)}`)}>
           <AgentMark agent={runnerAgent(task.executor ?? "unknown")} size={16} labelled={false} /><span className="tray-grow tray-ellipsis">{shortTitle(task)}</span>
           <span className="tray-repo tray-ellipsis">{task.repo?.label}</span><span className={`tray-phase ${task.progress?.phase === "idle" ? "tray-idle" : "tray-secondary"}`}>{phaseWords(task.progress?.phase ?? "starting").toLowerCase()} {elapsed(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt))}</span>
         </a>)}
@@ -113,12 +113,12 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
         const label = `${agentInfo(executor.agent).name}: ${executor.state} · ${executor.sub}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} slots${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
-        return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/executors")} onClick={navigate("/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={executor.agent} size={16} labelled={false} /><span className={`tray-dot tray-dot--${value === "off" ? "neutral" : toneFor(executor.tone)}`} /></span><span>{value}</span></a>;
+        return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={executor.agent} size={16} labelled={false} /><span className={`tray-dot tray-dot--${value === "off" ? "neutral" : toneFor(executor.tone)}`} /></span><span>{value}</span></a>;
       })}</section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}
     <nav className="tray-footer" aria-label="pacer actions">
-      <a className="tray-action tray-action--primary" href={appHref("/delegate")} onClick={navigate("/delegate")}>Delegate <Kbd>⌘D</Kbd></a>
+      <a className="tray-action tray-action--primary" href={appHref("/")} onClick={navigate("/")}>Delegate <Kbd>⌘D</Kbd></a>
       <a className="tray-action" href={appHref("/")} onClick={navigate("/")}>Open pacer <Kbd>⌘O</Kbd></a>
       <span className="tray-grow" />
       <button className="tray-icon" type="button" title={pauseLabel} aria-label={pauseLabel} disabled={!snapshot || busy || sessionEnded} onClick={() => act(() => api.call(snapshot?.pause ? "delegation.resume" : "delegation.pause", snapshot?.pause ? {} : { for: "1h" }))}>{snapshot?.pause ? "▶" : "⏸"}</button>

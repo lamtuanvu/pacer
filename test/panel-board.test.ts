@@ -175,3 +175,11 @@ test("panel colour declarations use tokens with system dark tokens embedded",asy
   }
  }
 });
+
+test("panel commands target sessions and the requested settings section", () => {
+ const s=snapshot();
+ s.attention![0]!.actions=[{label:"Settings",op:"ui.open",params:{view:"settings",section:"executors"}}];
+ const html=render(s,populated);
+ expect(html).toContain("pacer open &#39;settings/executors&#39;");
+ for (const t of running(s,{repo:null})) expect(html).toContain(`pacer open &#39;sessions/${t.id}&#39;`);
+});

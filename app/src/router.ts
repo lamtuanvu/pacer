@@ -10,6 +10,12 @@ type RouteBase =
 export type Route = RouteBase & { query: RouteQuery };
 export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "routing", "strategies", "updates", "notifications", "appearance"] as const;
 
+/** Map service settings sections to Settings; setup item ids open Overview. */
+export function settingsPath(section: unknown): string {
+  if (typeof section !== "string") return "/settings";
+  return (SETTINGS_SECTIONS as readonly string[]).includes(section) ? `/settings/${section}` : "/";
+}
+
 export function withQuery(href: string, query: RouteQuery): string {
   const params = new URLSearchParams();
   if (query.repo !== null) params.set("repo", query.repo);

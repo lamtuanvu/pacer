@@ -1,6 +1,4 @@
 import { useActions } from "../data/action-context";
-import { AgentMark } from "../ds/AgentMark";
-import { markAgent } from "../../../src/view-model/agents";
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StoreState } from "../data/store";
@@ -8,9 +6,7 @@ import { ApiError, type BrowserApi } from "../data/api";
 import { createQuery, type QueryState } from "../data/query";
 import { draftStorage } from "../model/draft";
 import { Button } from "../ds/Button";
-import { Pill } from "../ds/Pill";
 import { taskHref } from "../model/tasks";
-import { executorLabel, taskStatus } from "../../../src/view-model/words";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
 export const useTaskContext = () => useContext(TaskContext);
 export function ErrorMessage({ error }: { error: unknown }) {
@@ -83,8 +79,3 @@ export function Dialog({ title, close, children }: { title: string; close: () =>
   return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); close(); }}><div className="dialog-head"><h1>{title}</h1><Button onClick={close}>Close</Button></div>{children}</dialog>;
 }
 export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <a href={taskHref(id)}>{children}</a>; }
-export function SnapshotRow({ task }: { task: import("../../../src/link/envelope").TaskData }) {
-  const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
-  const status = taskStatus(task);
-  return <div className="task-row"><Pill tone={status.tone}>{status.label}</Pill><div className="grow"><TaskLink id={task.id}>{task.goal}</TaskLink><div className="muted">{task.executor && <AgentMark agent={markAgent(task.executor)} size={16} labelled={false} />} {executorLabel(task.executor, accounts.data ?? [])}{task.progress && ` · ${task.progress.files} files · ${task.progress.commits} commits`}</div></div><TaskLink id={task.id}>Open</TaskLink></div>;
-}

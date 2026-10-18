@@ -71,10 +71,10 @@ mod tests {
     #[test]
     fn only_targeted_notify_events_are_delivered() {
         let data =
-            json!({"client_id":"mine","url":"/app/#tasks/t-1","title":"Ready","body":"Detail"});
+            json!({"client_id":"mine","url":"/app/#/sessions/t-1","title":"Ready","body":"Detail"});
         assert!(from_event(&data, "other").is_none());
         let n = from_event(&data, "mine").unwrap();
-        assert_eq!(n.route, "#/tasks/t-1");
+        assert_eq!(n.route, "#/sessions/t-1");
         assert_eq!(n.body, "Detail");
     }
 }

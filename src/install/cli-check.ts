@@ -10,7 +10,7 @@ import type { Check } from "./doctor";
 export async function executorCliCheck(ctx: Ctx, cfg: ProviderCfg): Promise<Check> {
   const check: Check = {name:`CLI ${cfg.id}`,level:"fail",detail:""};
   try {
-    const argv=launchFor(cfg,"PROMPT","/repo","/tasks","doctor").argv;
+    const argv=launchFor(cfg,"PROMPT","/repo","/task-state","doctor").argv;
     const bin=argv[0], command=argv[1] && !argv[1].startsWith("-") ? argv[1] : null;
     const flags=[...new Set(argv.slice(1).filter(a=>/^--?[a-zA-Z][a-zA-Z-]*$/.test(a)))];
     const key=createHash("sha256").update(JSON.stringify([ctx.which(bin),command,flags])).digest("hex");

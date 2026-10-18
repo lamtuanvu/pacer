@@ -105,7 +105,7 @@ The shell is a thin native frame. Everything visible inside the window is the we
 - **Tray / menu bar.** Icon: the pacer mark with the planner's percentage; a dot only when something needs you, maintained by the Rust client's snapshot and event stream. Left-click toggles a rich webview popover like the Tray board. The separate `/app/tray.html` page reads `/v2/snapshot` and `/v2/events` using the main webview's cookie session. The shell pre-creates it hidden after the main window finishes signing in: label `tray`, frameless, transparent, always on top, non-resizable, skipped from the taskbar, 340 px wide (TrayPopover board). `tauri-plugin-positioner` anchors it below the icon at `Position::TrayBottomCenter`; it hides on blur or Esc (the page invokes `tray_hide`). Its size and position are excluded from saved main-window state.
   - The page uses only `tray_resize({height})` (clamped to 120–520 px, width fixed at 340 px, re-anchored under the icon), `tray_open({route})` (shared route validation, shows and focuses the main window at that hash route, then hides the popover), `tray_hide()`, and `app_quit()`. These runtime capability grants apply only to the `tray` window on the active `http://127.0.0.1:<port>` origin; each command also checks the caller's label and origin. Without `window.__TAURI__`, links open `/app/#<route>` and resizing is skipped.
   - Right-click keeps a minimal native fallback menu: Open pacer, Pause 1h / Resume, Quit.
-- **Notifications.** When the shell runs, it posts system notifications for `alert` events whose notification level passes the user's setting, with up to two buttons taken from the event's `actions`. Clicking opens the matching screen (`pacer://review/<id>`, `pacer://session/<id>`). `pacer serve` must not post duplicates while a desktop client is connected (Needs from the service).
+- **Notifications.** When the shell runs, it posts system notifications for `alert` events whose notification level passes the user's setting, with up to two buttons taken from the event's `actions`. Clicking opens the matching screen (`pacer://review/<id>`, `pacer://sessions/<id>`). `pacer serve` must not post duplicates while a desktop client is connected (Needs from the service).
 - **Deep links.** `pacer://` URLs map one-to-one to web routes (`pacer://review/t-0412` → `#/review/t-0412`). The CLI's `pacer open <screen>` opens the desktop app when it is installed, otherwise the browser.
 - **Launch at login**, off by default, toggled in Settings › General (stored by the shell, not in pacer config).
 - **Updates.** The web UI updates with the pacer binary, so most changes need no new desktop build. The shell itself updates by hand until signing exists, then with Tauri's updater (see Release).
@@ -142,7 +142,7 @@ Hash routes, one static `index.html`, as today.
 | `#/settings/add-executor` | Add executor |
 
 - Query `?repo=<key>` sets the repo filter on any screen and survives navigation; `?scope=repo:<key>` additionally means "this repo first" (narrow layout default for Orca browser tabs).
-- Old routes (`#/tasks`, `#/tasks/<id>`, `#/executors`, `#/accounts`, `#/strategy`, `#/hosts`) redirect to their new homes for one minor release.
+- Phase 6 removes the old route redirects. Retired routes show Not found with a link to Overview. Task links use `#/review/<id>` when waiting for review, otherwise `#/sessions/<id>`.
 
 ### Overview
 

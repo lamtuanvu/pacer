@@ -13,7 +13,7 @@ const item = (extra: Partial<AttentionItem> = {}): AttentionItem => ({ id:"faile
 test("levels filter attention and keys include since with at most two actions", () => {
  const failed=item({actions:[1,2,3].map(n=>({label:`Action ${n}`,op:"task.retry",params:{}}))}), setup=item({id:"setup",kind:"setup",notify:"all",taskId:undefined});
  expect(toNotify([setup,failed],"off",{})).toEqual([]);
- expect(toNotify([setup,failed],"important",{})).toEqual([{key:"failed:t-1:100",data:{key:"failed:t-1:100",title:failed.title,body:"Try again",actions:failed.actions.slice(0,2),url:"/app/#tasks/t-1"}}]);
+ expect(toNotify([setup,failed],"important",{})).toEqual([{key:"failed:t-1:100",data:{key:"failed:t-1:100",title:failed.title,body:"Try again",actions:failed.actions.slice(0,2),url:"/app/#/sessions/t-1"}}]);
  expect(toNotify([setup,failed],"all",{})).toHaveLength(2);
  expect(toNotify([failed,failed],"important",{})).toHaveLength(1);
  expect(toNotify([failed],"important",{"failed:t-1:100":101})).toEqual([]);
@@ -59,4 +59,35 @@ test("all includes mode transitions and every settled state while important excl
  await dispatchNotifications(ctx,[],deps);
  expect(shown).toEqual(["Budget mode changed to strict","Task done","Task partial","Task failed","Task limit","Task stopped"]);
  await dispatchNotifications(ctx,[],deps);expect(shown).toHaveLength(6);
+});
+
+test("notification links target review, sessions and settings directly", () => {
+ for (const [extra, route] of [
+  [{kind:"review",taskId:"a b"}, "review/a%20b"],
+  [{kind:"stuck"}, "sessions/t-1"],
+  [{taskId:undefined,executor:"codex"}, "settings/executors"],
+  [{taskId:undefined,account:"work"}, "settings/accounts"],
+  [{taskId:undefined,host:"box"}, "settings/hosts/box"],
+  [{taskId:undefined}, ""],
+  [{taskId:undefined,executor:"planner",actions:[{label:"Planner",op:"ui.open",params:{view:"settings",section:"planner"}}]}, "settings/planner"],
+  [{kind:"update",taskId:undefined}, "settings/updates"],
+ ] satisfies [Partial<AttentionItem>, string][]) expect(toNotify([item(extra)],"all",{})[0]?.data.url).toBe(`/app/#/${route}`);
+});
+
+test("settled task notifications link to review only until the result is reviewed", async () => {
+ const {setLevel}=await import("../src/core/notify");
+ const ctx=fakeCtx();
+ register(ctx,{kind:"app",version:"1",notifier:true});
+ setLevel(ctx,"all");
+ const base={goal:"Task",executor:null,backend:null,worktree:null,updatedAt:ctx.now};
+ const result=await dispatchNotifications(ctx,[],{events:[
+  {type:"mode",data:{mode:"strict",previous:"normal",strategy:"s",at:ctx.now}},
+  {type:"task",data:{...base,id:"done",state:"done"}},
+  {type:"task",data:{...base,id:"partial",state:"partial"}},
+  {type:"task",data:{...base,id:"accepted",state:"done",review:{accepted:true,at:ctx.now,kind:null,note:null}}},
+  {type:"task",data:{...base,id:"failed",state:"failed"}},
+ ]});
+ expect(result.map(e=>(e.data as any).value.url)).toEqual([
+  "/app/#/", "/app/#/review/done", "/app/#/review/partial", "/app/#/sessions/accepted", "/app/#/sessions/failed",
+ ]);
 });

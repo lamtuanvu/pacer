@@ -142,7 +142,7 @@ and change strategies, hosts and settings. Setup guides you through required
 items; account sign-in and service installation show commands to run in a terminal.
 
 The app is served locally by the daemon and signs you in through a one-time link.
-Use `pacer open tasks` to open a screen, `pacer open --print` to print the sign-in
+Use `pacer open sessions` to open a screen, `pacer open --print` to print the sign-in
 link, or `pacer open --logout` to sign out all browser sessions. See the
 [app guide](docs/app.md) for screens, security and troubleshooting.
 
