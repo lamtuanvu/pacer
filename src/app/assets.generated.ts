@@ -4,7 +4,7 @@ export const APP_FILES: { path: string; type: string; text: string }[] = [
   {
     "path": "index.html",
     "type": "text/html; charset=utf-8",
-    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>pacer app</title>\n  <link rel=\"stylesheet\" href=\"/app/app.css\">\n  <script src=\"/app/app.js\" defer></script>\n</head>\n<body><div id=\"app\"></div></body>\n</html>\n"
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>pacer app</title>\n  <link rel=\"stylesheet\" href=\"/app/app.css\">\n  <script type=\"module\" src=\"/app/app.js\"></script>\n</head>\n<body><div id=\"app\"></div></body>\n</html>\n"
   },
   {
     "path": "app.js",
