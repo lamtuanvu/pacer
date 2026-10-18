@@ -49,3 +49,4 @@ h2{margin:0 0 4px;font-size:10.5px;line-height:14px;font-weight:650;letter-spaci
 .tray-strategies{padding-left:12px}.tray-strategies [aria-pressed=true]{font-weight:600}
 .tray-notice,.tray-error{padding:6px 12px;margin:0;font-size:12px;color:var(--ink-secondary)}.tray-error{color:var(--bad-fg);overflow-wrap:anywhere}
 .tray-action--primary .pc-kbd{background:transparent;border-color:currentColor;color:inherit;opacity:.8}
+.tray-footer{position:sticky;bottom:0;z-index:1;background:var(--surface-page)}
