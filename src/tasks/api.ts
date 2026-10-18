@@ -70,7 +70,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
+export interface DelegateInput { title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -96,7 +96,8 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   if (input.title !== undefined && (typeof input.title !== "string" || !input.title.trim() || input.title.trim().length > 60)) p.push("title must be 1–60 characters after trimming");
   if (!b.goal?.trim()) p.push("goal is required");
   if (!b.repo || !isAbsolute(b.repo)) p.push("repo must be an absolute path");
-  else if (!existsSync(b.repo) || !statSync(b.repo).isDirectory()) p.push(`repo does not exist: ${b.repo}`);
+  // Serve validates the folder with a bounded async stat first; never stat a repo on its main thread.
+  else if (!input.repoValidated && (!existsSync(b.repo) || !statSync(b.repo).isDirectory())) p.push(`repo does not exist: ${b.repo}`);
   if (b.base !== undefined && !validBase(b.base)) p.push("base must be a branch name or a 7–40 hex SHA");
   if (input.requestId !== undefined && (!input.requestId.length || input.requestId.length > 128)) p.push("request_id must be 1–128 characters");
   if (input.source !== undefined && !["planner", "ui", "cli"].includes(input.source)) p.push("invalid source");

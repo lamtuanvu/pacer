@@ -1,3 +1,4 @@
+import { repoFs, withTimeout } from "../core/path-probe";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
@@ -82,7 +83,7 @@ export async function takeoverTask(ctx: Ctx, id: string, by?: string) {
     if (current?.run?.takeover) {
       let path = join(current.run.dir, "session.sock");
       try { path = readFileSync(join(current.run.dir, "session.sock.path"), "utf8").trim(); } catch { /* direct socket */ }
-      if (existsSync(path)) { live = true; break; }
+      if (await withTimeout(() => repoFs.access(path), 250).then(() => true, () => false)) { live = true; break; }
     }
     await Bun.sleep(50);
   }

@@ -1,14 +1,12 @@
 import { CoreError } from "./errors";
 import { withLock } from "./lock";
-import { statSync } from "node:fs";
 import { listTasks } from "../tasks/store";
 import { createHash } from "node:crypto";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { repoKey } from "../config/hosts";
-import { realpathSafe, boundedGitRead } from "./git";
-import { stat, realpath } from "node:fs/promises";
-import { cachedPath, rememberPath, schedulePathRefresh, withTimeout } from "./path-probe";
+import { boundedGitRead } from "./git";
+import { repoFs, cachedPath, markPathUnreachable, rememberPath, schedulePathRefresh, withTimeout } from "./path-probe";
 import type { RepoRef } from "../api/read-model/types";
 import type { Ctx } from "../types";
 
@@ -17,13 +15,6 @@ interface Registry { [path: string]: Entry }
 const file = (ctx: Ctx) => join(ctx.pacerHome,"state","repos.json");
 const aliasesFile = (ctx: Ctx) => join(ctx.pacerHome,"state","repo-paths.json");
 const registry = (ctx: Ctx): Registry => readJson<Registry>(file(ctx)) ?? {};
-const canonical = (path: string): string => {
- const p=resolve(path), real=realpathSafe(p);
- rememberPath(p,real);
- if(real!==p || dirname(p)===p)return real;
- const result=join(canonical(dirname(p)),basename(p));
- rememberPath(p,result);return result;
-};
 const cachedCanonical = (path: string): string => {
  const result=cachedPath(path).real;
  schedulePathRefresh(path);
@@ -44,7 +35,7 @@ function taskRepos(ctx: Ctx): RepoRef[] {
 }
 export function listRepos(ctx: Ctx, snapshotRepos?: RepoRef[]): RepoRef[] {
  const reg=registry(ctx),recent=snapshotRepos??taskRepos(ctx),keys=new Set(recent.map(r=>r.key));
- const stale=Object.keys(reg).filter(path=>cachedPath(reg[path].path).exists===false&&!keys.has(reg[path].key));
+ const stale=Object.keys(reg).filter(path=>cachedPath(reg[path].path).exists===false&&!cachedPath(reg[path].path).unreachable&&!keys.has(reg[path].key));
  for(const entry of Object.values(reg))schedulePathRefresh(entry.path);
  const previous=lastPruned.get(file(ctx));
  if(!ctx.readOnly&&(previous===undefined||ctx.now-previous>=60)){
@@ -53,7 +44,7 @@ export function listRepos(ctx: Ctx, snapshotRepos?: RepoRef[]): RepoRef[] {
  }
  const excluded=new Set(stale),entries=Object.entries(reg).filter(([path])=>!excluded.has(path)).map(([,entry])=>entry).sort((a,b)=>b.lastUsed-a.lastUsed),labels=labelsFor(entries);
  const seen=new Set<string>();
- return entries.filter(e=>!seen.has(e.key)&&!!seen.add(e.key)).map(e=>({key:e.key,path:e.path,label:labels.get(e.key)!}));
+ return entries.filter(e=>!seen.has(e.key)&&!!seen.add(e.key)).map(e=>({key:e.key,path:e.path,label:labels.get(e.key)!,...(cachedPath(e.path).unreachable?{unreachable:true as const}:{})}));
 }
 function registered(ctx: Ctx,path: string): Entry | undefined {
  const reg=registry(ctx), p=cachedCanonical(path),aliases=readJson<Record<string,string>>(aliasesFile(ctx))??{};
@@ -65,37 +56,51 @@ export function repoFor(ctx: Ctx,path: string): RepoRef {
  const e=registered(ctx,path);
  return e ? {key:e.key,path:e.path,label:labelsFor(Object.values(registry(ctx))).get(e.key)!} : fallback(cachedCanonical(path));
 }
-function isDirectory(path: string): boolean {
- try{return statSync(path).isDirectory();}catch{return false;}
-}
 export async function resolveRepo(ctx: Ctx,path: string): Promise<RepoRef> {
- return registerRepo(ctx,path,false);
+ return registerRepo(ctx,path);
+}
+export async function requireRepoDirectory(path: string): Promise<void> {
+ try {
+  if (!(await withTimeout(() => repoFs.stat(path))).isDirectory()) throw new CoreError("invalid_input", `repo is not a directory: ${path}`);
+ } catch (error) {
+  if (error instanceof CoreError) throw error;
+  if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new CoreError("invalid_input", `repo does not exist: ${path}`);
+  markPathUnreachable(path);
+  throw new CoreError("invalid_input", `repo folder is not responding: ${path}`);
+ }
 }
 async function canonicalAsync(path: string): Promise<string> {
  const p=resolve(path);
  let result: string;
- try { result=await withTimeout(()=>realpath(p)); } catch(error) {
-  if(!["ENOENT","ENOTDIR"].includes((error as NodeJS.ErrnoException).code??""))throw error;
+ try { result=await withTimeout(()=>repoFs.realpath(p)); } catch(error) {
+  if(!["ENOENT","ENOTDIR"].includes((error as NodeJS.ErrnoException).code??"")) { markPathUnreachable(p); throw new CoreError("invalid_input", `repo folder is not responding: ${p}`); }
   result=dirname(p)===p?p:join(await canonicalAsync(dirname(p)),basename(p));
  }
  rememberPath(p,result);return result;
 }
-async function registerRepo(ctx: Ctx,path: string,background: boolean): Promise<RepoRef> {
- const canon=background?canonicalAsync:async(p:string)=>canonical(p);
- const run=background?((args:string[],ms:number)=>boundedGitRead(ctx.run,args,Math.min(ms,2000))):ctx.run;
- // A deleted linked checkout can only be identified by the alias saved while it existed.
- if(background){try{if(!(await withTimeout(()=>stat(path))).isDirectory())return repoFor(ctx,path);}catch{return repoFor(ctx,path);}}
- else if(!isDirectory(path))return repoFor(ctx,path);
+async function registerRepo(ctx: Ctx,path: string): Promise<RepoRef> {
+ const canon=canonicalAsync;
+ const run=(args:string[],ms:number)=>boundedGitRead(ctx.run,args,Math.min(ms,2000));
+ // Missing linked checkouts retain their saved aliases; unavailable folders fail fast.
+ try { if (!(await withTimeout(()=>repoFs.stat(path))).isDirectory()) return repoFor(ctx,path); }
+ catch(error) {
+  if (["ENOENT","ENOTDIR"].includes((error as NodeJS.ErrnoException).code??"")) return repoFor(ctx,path);
+  markPathUnreachable(path);
+  throw new CoreError("invalid_input", `repo folder is not responding: ${path}`);
+ }
  let main=await canon(path),top=main,key:string|null=null;
  try {
   // Identity does not depend on HEAD or status succeeding (e.g. an unborn branch).
-  const info=await run(["git","-C",path,"rev-parse","--path-format=absolute","--show-toplevel","--git-common-dir"],10000);
+  const info=await run(["git","-C",path,"rev-parse","--path-format=absolute","--show-toplevel","--git-common-dir"],2000);
   const [root,common]=info.stdout.trim().split("\n");
   if(info.code!==0||!root||!common)return repoFor(ctx,path);
   top=await canon(root);main=await canon(dirname(resolve(path,common)));
-  const origin=await run(["git","-C",main,"remote","get-url","origin"],10000);
+  const origin=await run(["git","-C",main,"remote","get-url","origin"],2000);
   if(origin.code===0)key=repoKey(origin.stdout.trim());
- } catch { return repoFor(ctx,path); /* Keep saved identities usable without recording unresolved paths. */ }
+ } catch(error) {
+  if (/timed out/.test(String(error))) { markPathUnreachable(path); throw new CoreError("invalid_input", `repo folder is not responding: ${path}`); }
+  return repoFor(ctx,path);
+ }
  const reg=registry(ctx),known=registered(ctx,top);
  if(top===main&&known&&known.path!==main)return repoFor(ctx,top);
  const entry={key:key??reg[main]?.key??fallback(main).key,path:main,lastUsed:ctx.now};
@@ -110,7 +115,7 @@ async function registerRepo(ctx: Ctx,path: string,background: boolean): Promise<
 }
 export async function backfillRepos(ctx: Ctx,paths: string[]): Promise<void> {
  await Promise.all([...new Set(paths)].filter(path=>!registered(ctx,path)).map(path=>
-  registerRepo(ctx,path,true).catch(()=>{})
+  registerRepo(ctx,path).catch(()=>{})
  ));
 }
 
@@ -122,10 +127,15 @@ export async function resolveRepoInput(ctx: Ctx, value: string): Promise<RepoRef
  throw new CoreError("invalid_input","repo must be an absolute path or a registered repo key");
 }
 
+async function repoGit(ctx: Ctx, path: string, args: string[]) {
+ try { return await boundedGitRead(ctx.run,["git","-C",path,...args],2000); }
+ catch { markPathUnreachable(path); throw new CoreError("invalid_input",`repo folder is not responding: ${path}`); }
+}
+
 export async function listReposWithBranches(ctx: Ctx): Promise<(RepoRef & {branches:string[]})[]> {
  return Promise.all(listRepos(ctx).map(async ref=>{
-  const current=await ctx.run(["git","-C",ref.path,"symbolic-ref","--quiet","--short","HEAD"],10000);
-  const all=await ctx.run(["git","-C",ref.path,"for-each-ref","--format=%(refname:short)","refs/heads/"],10000);
+  const current=await repoGit(ctx,ref.path,["symbolic-ref","--quiet","--short","HEAD"]);
+  const all=await repoGit(ctx,ref.path,["for-each-ref","--format=%(refname:short)","refs/heads/"]);
   const branches=[...new Set([...(current.code===0?[current.stdout.trim()]:[]),...(all.code===0?all.stdout.trim().split("\n"):[])].filter(Boolean))].slice(0,50);
   return {...ref,branches};
  }));
@@ -133,7 +143,7 @@ export async function listReposWithBranches(ctx: Ctx): Promise<(RepoRef & {branc
 
 export async function addRepo(ctx: Ctx, path: string): Promise<RepoRef> {
  if(!isAbsolute(path))throw new CoreError("invalid_input","path must be absolute");
- const result=await ctx.run(["git","-C",path,"rev-parse","--show-toplevel"],10000);
+ const result=await repoGit(ctx,path,["rev-parse","--show-toplevel"]);
  if(result.code!==0)throw new CoreError("invalid_input","path is not a git repository");
  return withLock(ctx,"repos",async()=>resolveRepo(ctx,path));
 }

@@ -24,7 +24,7 @@ test("probe deadlines preserve known values and cache misses use a resolved path
   const access = spyOn(pathProbeIO, "access").mockImplementation(() => hang());
   try {
     const start = performance.now();
-    expect(await refreshPath(path, 20)).toEqual(before);
+    expect(await refreshPath(path, 20)).toMatchObject({...before, checkedAt:expect.any(Number), unreachable:true});
     expect(performance.now() - start).toBeLessThan(500);
   } finally { access.mockRestore(); }
   const realpath = spyOn(pathProbeIO, "realpath").mockImplementation(() => hang());
@@ -32,7 +32,7 @@ test("probe deadlines preserve known values and cache misses use a resolved path
     const existing = tmpDir();
     rememberPath(existing, existing);
     const before = cachedPath(existing);
-    expect(await refreshPath(existing, 20)).toEqual(before);
+    expect(await refreshPath(existing, 20)).toMatchObject({...before, checkedAt:expect.any(Number), unreachable:true});
   } finally { realpath.mockRestore(); }
 });
 
@@ -105,4 +105,30 @@ test("serve health stays responsive while repo probes and git are hung", async (
     await pump;
     expect(performance.now() - start).toBeLessThan(1000);
   } finally { server?.stop(); access.mockRestore(); }
+});
+
+test("unreachable repo snapshots retain task identity and recover after a successful probe", async () => {
+  const repo = tmpDir(), ctx = fakeCtx({which: () => null});
+  const ref = {key:"local:offline",label:repo.split("/").at(-1)!,path:repo};
+  const task = createTask(ctx,{brief:{goal:"cached identity",repo},kind:null,requestedExecutor:null,timeoutS:60});
+  updateTask(ctx,task.id,t=>{t.state="partial";t.repo=ref;});
+  writeJsonAtomic(join(ctx.pacerHome,"state","repos.json"),{[repo]:{path:repo,key:ref.key,lastUsed:ctx.now}});
+  rememberPath(repo,repo);
+  const access = spyOn(pathProbeIO,"access").mockImplementation(() => hang());
+  try {
+    await refreshPath(repo,10);
+    const result = await liveSnapshot(ctx,{status:async()=>status()});
+    expect(result.snapshot.repos.find(r=>r.key===ref.key)).toMatchObject({...ref,unreachable:true});
+    expect(result.snapshot.tasks[0].repo).toEqual(ref);
+  } finally { access.mockRestore(); }
+  await refreshPath(repo);
+  expect(cachedPath(repo).unreachable).toBeUndefined();
+  expect((await liveSnapshot(ctx,{status:async()=>status()})).snapshot.repos[0].unreachable).toBeUndefined();
+});
+
+test("non-ENOENT probe errors mark unreachable without discarding existence", async () => {
+  const path=tmpDir();rememberPath(path,path);
+  const access=spyOn(pathProbeIO,"access").mockRejectedValue(Object.assign(Error("denied"),{code:"EACCES"}));
+  try { expect(await refreshPath(path,10)).toMatchObject({exists:true,real:path,unreachable:true}); }
+  finally {access.mockRestore();}
 });

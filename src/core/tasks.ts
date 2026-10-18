@@ -1,8 +1,9 @@
+import { repoFs, withTimeout } from "./path-probe";
 import { taskTitle } from "./short-title";
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
 import { createHash } from "node:crypto";
-import { repoFor, resolveRepo } from "./repos";
+import { repoFor, resolveRepo, requireRepoDirectory } from "./repos";
 import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { appendActivity, type ActivityEntry } from "../activity/log";
@@ -297,11 +298,12 @@ async function retryTask(
   // Resolve repo identity before taking the synchronous task lock (it runs git).
   const before = readTask(ctx, id);
   const repoRef = before ? before.repo ?? await resolveRepo(ctx, before.brief.repo) : undefined;
+  if (before) await requireRepoDirectory(before.brief.repo);
   let answerBase: string | undefined;
   if (o.answerText !== undefined && before?.state === "needs_input" && before.question && before.question.answer === undefined && !before.retriedBy) {
     const worktree = [before.result?.worktree, before.worktree, !before.run?.host ? before.run?.workdir : undefined].find(p => p && p.startsWith("/"));
     if (worktree) {
-      const head = await ctx.run(["git", "-C", worktree, "rev-parse", "--verify", "HEAD"], 10_000);
+      const head = await boundedGitRead(ctx.run, ["git", "-C", worktree, "rev-parse", "--verify", "HEAD"], 10_000);
       if (head.code !== 0 || !/^[0-9a-f]{40}$/.test(head.stdout.trim())) throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
       answerBase = head.stdout.trim();
     }
@@ -321,7 +323,7 @@ async function retryTask(
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
     const input: DelegateInput = {
-      title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
       ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
       ...(answering && (task.placement?.mode === "new" || task.run?.mode === "new") ? {worktree:"new" as const} : {}),
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
@@ -360,9 +362,9 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
   const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
   for (const t of listTasks(ctx, Infinity)) {
     if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved) || t.run?.mode !== "new") continue;
-    const top = realpathSafe(t.brief.repo);
+    const top = await withTimeout(() => repoFs.realpath(t.brief.repo));
     const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;
-    if (!wt.startsWith(root) || (!t.run.host && !existsSync(wt))) continue;
+    if (!wt.startsWith(root) || (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; }))) continue;
     const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
     if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
     if (o.dryRun) { removed.push(t.id); continue; }
