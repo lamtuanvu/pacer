@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readLatest } from "./link/store";
+import type { ClientSnapshot } from "./view-model/snapshot";
 import { resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
@@ -35,7 +35,7 @@ import { runMcpStdio } from "./mcp/server";
 import { runStdio } from "./api/stdio";
 import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
-import { renderLine } from "./render/line";
+import { lineFields, renderLine } from "./render/line";
 import { renderText } from "./render/text";
 import { renderRoute } from "./render/accounts";
 import { DEFAULT_PORT, startServer } from "./serve/http";
@@ -50,6 +50,7 @@ export const cliDeps: { spawnRunner: SpawnRunner } = { spawnRunner };
 const USAGE = `usage: pacer <command>
   dashboard                                      live interactive terminal dashboard
   status [--line | --json | --hook <planner>]   budget status (default: text report)
+    --line [--width N] [--no-color] [--json]     compact local status; columns default to COLUMNS or 80
   pause <for> | resume                          pause or resume delegation
   route [kind] [--json]                          executors pacer would use, in order
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
@@ -82,6 +83,7 @@ const USAGE = `usage: pacer <command>
   ${SETUP_USAGE}                connect detected agent CLIs
   help                                           this message
 JSON: status: generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors.
+status --line --json: online, planner, agent, usedPct, pacePct, verdict, resetsAt, running, attention, mode.
 route: kind, ranked, excluded. delegate: TaskRecord (id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields).
 tasks <id>, wait, stop, retry: task_id, state, kind, requested_executor, placement, attempts, result, review, resolved.
 tasks: array of those task summaries. review: { task, retry? }. Flags override brief-file fields; repo defaults to cwd.
@@ -127,6 +129,8 @@ const fresh = (ctx: Ctx): Ctx => ({ ...ctx, now: Date.now() / 1000 });
 async function status(args: string[], ctx: Ctx): Promise<Result> {
   const modes: ("line" | "json" | "hook")[] = [];
   let planner: string | undefined;
+  let width = Number(ctx.env.COLUMNS) || 80;
+  let noColor = ctx.env.NO_COLOR !== undefined;
   const bad: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -139,12 +143,20 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
         planner = v;
         i++;
       }
-    } else bad.push(a);
+    } else if (a === "--width") {
+      const value = args[i + 1];
+      if (value && !value.startsWith("--")) i++;
+      if (value && /^\d+$/.test(value) && Number.isFinite(Number(value)) && Number(value) > 0) width = Number(value);
+      else bad.push("--width needs a positive integer");
+    } else if (a === "--no-color") noColor = true;
+    else bad.push(a);
   }
   const usage = "usage: pacer status [--line | --json | --hook <planner>]";
-  if (bad.length) return { code: 2, out: "", err: `pacer status: unknown argument ${bad.map((b) => `"${b}"`).join(", ")}\n${usage}` };
-  if (modes.length > 1) return { code: 2, out: "", err: `pacer status: give only one of --line, --json, --hook <planner>\n${usage}` };
-  const mode = modes[0] ?? "text";
+  if (!modes.includes("line") && bad.length) return { code: 2, out: "", err: `pacer status: unknown argument ${bad.map((b) => `"${b}"`).join(", ")}\n${usage}` };
+  if (!modes.includes("line") && modes.length > 1) return { code: 2, out: "", err: `pacer status: give only one of --line, --json, --hook <planner>\n${usage}` };
+  const mode = modes.includes("line") ? "line" : modes[0] ?? "text";
+  const lineJson = modes.includes("json");
+  const lineResult = (snapshot: ClientSnapshot | null): Result => ({ code: 0, out: lineJson ? JSON.stringify(lineFields(snapshot)) : renderLine(snapshot, { width, color: !noColor }), err: "" });
   if (mode === "hook" && !(PLANNERS as readonly string[]).includes(planner ?? "")) {
     return { code: 2, out: "", err: `pacer status: --hook needs a planner: ${PLANNERS.join(", ")}` };
   }
@@ -152,28 +164,28 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     if (mode === "hook" && !plannerPolicyApplies(ctx, planner!, hookInput(process.stdin.isTTY ? "" : await io.readStdin().catch(() => "")))) {
       return { code: 0, out: "", err: "" };
     }
-    let counts:{running:number;attention:number}|undefined;
-    if(mode==="line") {
+    if (mode === "line") {
       try {
-        const token=readFileSync(join(ctx.pacerHome,"token"),"utf8").trim();
-        if(!token)throw Error("token missing");
-        const response=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT??DEFAULT_PORT}/v2/snapshot`,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(300),redirect:"error"});
-        if(!response.ok){await response.body?.cancel();throw Error("service unavailable");}
-        const body=await response.json() as {snapshot?:{counts?:{running:number;attention:number}}};
-        const c=body.snapshot?.counts;
-        if(c && Number.isInteger(c.running)&&c.running>=0&&Number.isInteger(c.attention)&&c.attention>=0)counts=c;
-      } catch {
-        if(ctx.now-readLatest(ctx).at>120)return {code:0,out:"pacer not running · pacer serve",err:""};
-      }
+        const token = readFileSync(join(ctx.pacerHome, "token"), "utf8").trim();
+        if (!token) throw Error("token missing");
+        const response = await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT ?? DEFAULT_PORT}/v2/snapshot`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(300), redirect: "error" });
+        if (!response.ok) { await response.body?.cancel(); throw Error("service unavailable"); }
+        const body = await response.json() as { snapshot?: ClientSnapshot };
+        if (body.snapshot && lineFields(body.snapshot).online) return lineResult(body.snapshot);
+      } catch { /* The local link is also available while the service restarts. */ }
+      try {
+        const snapshot = JSON.parse(readFileSync(join(ctx.pacerHome, "link", "latest.json"), "utf8")) as ClientSnapshot;
+        if (Number.isFinite(snapshot.at) && ctx.now - snapshot.at <= 120 && lineFields(snapshot).online) return lineResult(snapshot);
+      } catch { /* Missing or torn local link. */ }
+      return lineResult(null);
     }
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
-    if (mode === "line") return { code: 0, out: renderLine(st,counts), err: "" };
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
     return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.
-    if (mode === "line") return { code: 0, out: `◆ Budget ? (${explain(e).split("\n")[0].replace(/^pacer: /, "")})`, err: "" };
+    if (mode === "line") return lineResult(null);
     if (mode === "hook") return { code: 0, out: "{}", err: "" };
     return { code: 2, out: "", err: explain(e) };
   }
