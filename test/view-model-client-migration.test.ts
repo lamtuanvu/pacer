@@ -23,9 +23,9 @@ test("current clients render without legacy snapshot fields",()=>{
  expect(tui).toContain("normal · current");
  expect(tui).toContain("Planner Claude: 63%");
  const html=renderStatusPage(s,{nowS:s.at,reachable:true,transport:"api"});
- expect(html).toContain("pacer 0.3.0");
+ expect(html).toContain("Needs you");
  expect(html).toContain("63% used");
- expect(html).toContain("behind pace");
+ expect(html).toContain(s.planner!.advice);
  expect(legacyChecklist(s,s.at,true).complete).toBe(true);
 });
 test("a null planner still means a current service",()=>{
@@ -45,7 +45,7 @@ test("plugin store observes read-model changes without legacy content keys",()=>
  store.replace(next);expect(changes).toBe(2);
 });
 
-test("equivalent read-model and older service data keep panel and TUI output",()=>{
+test("equivalent service data keep TUI output and panel budget while the current panel uses the board",()=>{
  const s=current();s.tasks=[];s.attention=[];s.executors=s.executors!.slice(0,2);
  s.accounts=[{name:"claude-code",agent:"claude-code",source:"default",usedPct:63,pacePct:77,resetsAt:s.planner!.resetsAt,window:"weekly",verdict:"BEHIND",signedIn:true,executors:["claude-code"]},...s.accounts!];
  const legacy={...fixture,tasks:[],attention:[],strategies:s.strategies,mode:s.mode,
@@ -56,6 +56,9 @@ test("equivalent read-model and older service data keep panel and TUI output",()
  const old=legacy as unknown as ClientSnapshot;
  expect(renderDashboard(s,120,24,s.at,{selected:0})).toBe(renderDashboard(old,120,24,s.at,{selected:0}));
  const view={nowS:s.at,reachable:true,transport:"api" as const};
- expect(renderStatusPage(s,view)).toBe(renderStatusPage(old,view));
+ const currentPanel=renderStatusPage(s,view), oldPanel=renderStatusPage(old,view);
+ for(const html of [currentPanel,oldPanel])expect(html).toContain("63% used");
+ expect(currentPanel).toContain("<h2>Needs you</h2>");
+ expect(oldPanel).toContain("<h2>Accounts</h2>");
 });
 

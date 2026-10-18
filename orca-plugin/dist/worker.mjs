@@ -1068,7 +1068,7 @@ function createBootstrap(d) {
 // orca-plugin/src/worker.ts
 import { get, request } from "node:http";
 import { existsSync as existsSync3, readFileSync as readFileSync6, writeFileSync as writeFileSync4, renameSync as renameSync4, unlinkSync as unlinkSync3 } from "node:fs";
-import { dirname, join as join9, resolve } from "node:path";
+import { dirname as dirname2, join as join9, resolve as resolve2 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // orca-plugin/src/updates.ts
@@ -1506,7 +1506,28 @@ var states = new WeakMap;
 
 // src/view-model/selectors.ts
 var memo = new WeakMap;
+function cached(s, key, build) {
+  let entries = memo.get(s);
+  if (!entries)
+    memo.set(s, entries = new Map);
+  if (!entries.has(key))
+    entries.set(key, build());
+  return entries.get(key);
+}
+var inScope = (scope, repo) => scope.repo === null || !repo || repo.key === scope.repo;
+var active = (state) => state === "running" || state === "queued";
+var needsYou = (s, scope) => cached(s, `needsYou:${scope.repo}`, () => (s.attention ?? []).filter((a) => !(a.snoozedUntil && a.snoozedUntil > s.at) && (scope.repo === null || !a.repo || a.repo.key === scope.repo)));
+var otherReposNeedingYou = (s, scope) => scope.repo === null ? 0 : needsYou(s, { repo: null }).length - needsYou(s, scope).length;
+var running = (s, scope) => cached(s, `running:${scope.repo}`, () => s.tasks.filter((t) => active(t.state) && !t.dismissed && inScope(scope, t.repo)));
 var capacity = (s) => s.executors ?? [];
+var doneToday = (s, scope) => cached(s, `doneToday:${scope.repo}`, () => {
+  const since = s.today?.since;
+  if (since === undefined)
+    return [];
+  return s.tasks.filter((t) => !active(t.state) && t.updatedAt >= since && inScope(scope, t.repo)).sort((a, b) => b.updatedAt - a.updatedAt);
+});
+var counts = (s) => s.counts ?? null;
+var repos = (s) => s.repos ?? [];
 var plannerMeter = (s) => s.planner ?? null;
 
 // src/config/accounts.ts
@@ -1550,6 +1571,45 @@ function accountGroups(rows) {
 
 // src/view-model/format.ts
 var displayName2 = (id) => parseRunnerId(id) || Object.hasOwn(names2, id) ? displayName(id) : id;
+function clock(at, now, timeZone) {
+  const date = new Date(at * 1000), opts = { timeZone, hourCycle: "h23" };
+  const time = date.toLocaleTimeString("en-GB", { ...opts, hour: "2-digit", minute: "2-digit" });
+  const day = (t) => new Date(t * 1000).toLocaleDateString("en-CA", opts);
+  if (day(at) === day(now))
+    return time;
+  if (now - at < 6 * 86400 && at <= now)
+    return `${date.toLocaleDateString("en-GB", { ...opts, weekday: "short" })} ${time}`;
+  return `${date.toLocaleDateString("en-GB", { ...opts, day: "numeric", month: "short" })} ${time}`;
+}
+
+// src/view-model/agents.ts
+var AGENT_IDS = ["claude-code", "codex", "cursor", "agy", "byteplus", "local", "opencode", "gemini"];
+var AGENTS2 = {
+  "claude-code": { name: "Claude", glyph: "claude", color: "#D97757", tile: "tint" },
+  codex: { name: "Codex", glyph: "openai", color: "ink", tile: "page-hairline" },
+  cursor: { name: "Cursor", glyph: "cursor", color: "ink", tile: "tint" },
+  agy: { name: "Antigravity", glyph: "antigravity", color: "#4285F4", tile: "tint" },
+  byteplus: { name: "BytePlus", glyph: "bytedance", color: "#3C8CFF", tile: "tint" },
+  local: { name: "Local model", glyph: "lmstudio", color: "ink", tile: "tint" },
+  opencode: { name: "OpenCode", glyph: "opencode", color: "ink", tile: "tint" },
+  gemini: { name: "Gemini", glyph: "gemini", color: "#8E75B2", tile: "tint" }
+};
+var ALIASES = { claude: "claude-code", antigravity: "agy" };
+function agentKey(agent) {
+  if (Object.hasOwn(ALIASES, agent))
+    return ALIASES[agent];
+  return AGENT_IDS.includes(agent) ? agent : null;
+}
+function agentInfo(agent) {
+  const key = agentKey(agent);
+  const monogram = agent.replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase() || "?";
+  return key ? { ...AGENTS2[key], monogram } : { name: agent, glyph: null, color: "ink", tile: "tint", monogram };
+}
+var runnerAgent = (id) => id.split("@")[0].split("#")[0];
+function markAgent(id, account) {
+  const agent = runnerAgent(id), acct = account ?? id.split("@")[0].split("#")[1];
+  return agent === "opencode" && acct && agentKey(acct) ? agentKey(acct) : agent;
+}
 
 // src/view-model/words.ts
 var tones = {
@@ -1590,6 +1650,29 @@ var verdicts = {
   unknown: "Usage unknown"
 };
 var verdictWords = (v) => Object.hasOwn(verdicts, v) ? verdicts[v] : "Unknown";
+var phases = { starting: "Starting", working: "Editing", testing: "Testing", idle: "Idle", "lost-contact": "Lost contact", queued: "Queued" };
+var phaseWords = (phase) => Object.hasOwn(phases, phase) ? phases[phase] : phase;
+var modeWords = (mode) => mode ? mode[0].toUpperCase() + mode.slice(1).toLowerCase() : mode;
+function executorLabel(id, accounts = []) {
+  if (!id)
+    return "Automatic";
+  const [local, host] = id.split("@");
+  const [agent, name] = local.split("#");
+  const account = accounts.find((a) => a.runners?.includes(id) || a.name === name);
+  const native = { "claude-code": "Claude Code", claude: "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", antigravity: "Antigravity" }[agent];
+  const defaultAccount = account?.source === "default" || account?.folder && (agent === "codex" && account.folder.endsWith("/.codex") || agent === "claude-code" && account.folder.endsWith("/.claude"));
+  const suffix = name && !defaultAccount ? ` · ${account?.name ?? name}` : "";
+  const known = (id) => id && agentKey(id) ? agentInfo(id).name : id;
+  const label = agent === "opencode" ? `${known(account?.name ?? name) ?? "OpenCode"}` : `${native ?? known(agent)}${suffix}`;
+  return label + (host ? ` on ${host}` : "");
+}
+function taskStatus(task) {
+  if (task.review)
+    return { label: task.review.accepted ? "Accepted" : "Rejected", tone: task.review.accepted ? "good" : "bad" };
+  const labels = { needs_input: ["Needs your answer", "warn"], running: ["Working", "info"], queued: ["Queued", "neutral"], done: ["Done", "good"], partial: ["Partial", "warn"], failed: ["Failed", "bad"], limit: ["Out of quota", "warn"], stopped: ["Stopped", "neutral"] };
+  const [label, tone] = labels[task.state] ?? [task.state, "neutral"];
+  return { label, tone };
+}
 
 // src/view-model/panel.ts
 var providerLabel = (p) => p.agent ? runnerLabel(p) : displayName2(p.id);
@@ -1656,7 +1739,33 @@ function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 var h = (v) => escapeHtml(String(v ?? ""));
+
+// app/src/ds/agent-glyphs.ts
+var AGENT_GLYPHS = {
+  claude: { path: "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z", viewBox: "0 0 24 24", source: "simple-icons", license: "CC0-1.0" },
+  openai: { path: "M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z", viewBox: "0 0 24 24", evenOdd: true, source: "lobe-icons", license: "MIT" },
+  cursor: { path: "M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23", viewBox: "0 0 24 24", source: "simple-icons", license: "CC0-1.0" },
+  antigravity: { path: "M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z", viewBox: "0 0 24 24", source: "lobe-icons", license: "MIT" },
+  bytedance: { path: "M19.8772 1.4685L24 2.5326v18.9426l-4.1228 1.0563V1.4685zm-13.3481 9.428l4.115 1.0641v8.9786l-4.115 1.0642v-11.107zM0 2.572l4.115 1.0642v16.7354L0 21.428V2.572zm17.4553 5.6205v11.107l-4.1228-1.0642V9.2568l4.1228-1.0642z", viewBox: "0 0 24 24", source: "simple-icons", license: "CC0-1.0" },
+  lmstudio: { path: "M14.025 0c3.492 0 5.237 0 6.571.68a6.24 6.24 0 0 1 2.725 2.724C24 4.738 24 6.484 24 9.975v4.05c0 3.492 0 5.237-.68 6.571a6.24 6.24 0 0 1-2.724 2.725c-1.334.679-3.08.679-6.571.679h-4.05c-3.492 0-5.237 0-6.571-.68A6.24 6.24 0 0 1 .68 20.597C0 19.262 0 17.516 0 14.025v-4.05c0-3.492 0-5.237.68-6.571A6.23 6.23 0 0 1 3.404.68C4.738 0 6.484 0 9.975 0zM7.688 16.313a1.313 1.313 0 0 0 0 2.625h11.625a1.313 1.313 0 0 0 0-2.625zm-3-3.75a1.313 1.313 0 0 0 0 2.624h11.625a1.313 1.313 0 0 0 0-2.624zm3-3.75a1.313 1.313 0 0 0 0 2.624h11.625a1.313 1.313 0 0 0 0-2.624zm-3-3.75a1.313 1.313 0 0 0 0 2.625h11.625a1.313 1.313 0 0 0 0-2.625z", viewBox: "0 0 24 24", source: "simple-icons", license: "CC0-1.0" },
+  opencode: { path: "M22 24H2V0h20zM17 4.8H7v14.4h10z", viewBox: "0 0 24 24", source: "simple-icons", license: "CC0-1.0" },
+  gemini: { path: "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81", viewBox: "0 0 24 24", source: "simple-icons", license: "CC0-1.0" }
+};
+
 // orca-plugin/src/panel/icons.ts
+function icon(id, size = 16, account) {
+  const agent = markAgent(id, account), info = agentInfo(agent), key = agentKey(agent);
+  const glyph = info.glyph ? AGENT_GLYPHS[info.glyph] : null, inner = Math.round(size * 0.66);
+  const classes = ["agent-mark", `agent-mark--${key ?? "unknown"}`, info.tile === "page-hairline" ? "agent-mark--hairline" : ""].filter(Boolean).join(" ");
+  return `<span class="${classes}" role="img" aria-label="${escapeHtml(info.name)}" style="width:${size}px;height:${size}px;border-radius:${size * 0.28}px">${glyph ? `<svg width="${inner}" height="${inner}" viewBox="${glyph.viewBox}" aria-hidden="true" focusable="false"><path d="${glyph.path}" fill="currentColor"${glyph.evenOdd ? ' fill-rule="evenodd"' : ""}></path></svg>` : `<span class="monogram">${escapeHtml(info.monogram)}</span>`}</span>`;
+}
+var agentStyle = `
+.agent-mark{display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--agent-color,var(--ink));background:color-mix(in srgb,var(--agent-color,var(--ink)) 14%,transparent)}
+.agent-mark--hairline{background:var(--surface-page);border:1px solid var(--line);color:var(--ink)}
+.agent-mark--unknown{background:var(--ink);color:var(--ink-on-ink)}
+${AGENT_IDS.map((id) => `.agent-mark--${id}{--agent-color:${agentInfo(id).color === "ink" ? "var(--ink)" : agentInfo(id).color}}`).join(`
+`)}
+`;
 var mark = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><rect x="4" y="20" width="40" height="8" rx="4" fill="var(--border)"></rect><rect x="4" y="20" width="22" height="8" rx="4" fill="currentColor"></rect><rect class="brand-tick" x="29" y="12" width="4" height="24" rx="2"></rect></svg>`;
 
 // orca-plugin/src/panel/setup.ts
@@ -1678,8 +1787,188 @@ function meter(p, slim = false) {
 
 // orca-plugin/src/panel/style.ts
 var style = `
-*{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);font:12px/1.4 var(--app-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);font-variant-numeric:tabular-nums;--good:seagreen;--warn:darkorange;--bad:crimson}
-.content{padding:12px;display:flex;flex-direction:column;gap:18px;min-width:0;overflow-wrap:anywhere}.stack{display:flex;flex-direction:column;gap:6px;min-width:0}.row,.name,header{display:flex;align-items:center;gap:8px}header{flex-wrap:wrap}.grow{flex:1;min-width:0}.brand{font-weight:600;font-size:14px}.brand-tick{fill:#65a30d}.pill{font-size:10px;padding:2px 6px;border-radius:6px;background:var(--muted)}.live,small,footer{font-size:11px;color:var(--muted-foreground)}h2{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;margin:0;color:var(--muted-foreground)}.section{gap:8px}.card{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:10px}.headline{font-weight:600}p{margin:0}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.meter{position:relative;height:6px;background:var(--border);border-radius:999px;margin:4px 0}.meter.slim{height:3px}.fill{height:100%;border-radius:999px;background:currentColor}.pace{position:absolute;width:2px;top:-4px;bottom:-4px;background:var(--foreground);border-radius:2px}.step{padding:8px;display:flex;gap:8px}.step.failed{color:var(--bad)}pre{margin:0;padding:10px;background:var(--muted);border-radius:8px;white-space:pre-wrap}code,pre{user-select: text;-webkit-user-select:text}code{font:11px ui-monospace,monospace;overflow-wrap:anywhere}footer{border-top:1px solid var(--border);padding-top:12px}
+*{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);font:12px/1.4 var(--app-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);font-variant-numeric:tabular-nums;--background:var(--surface-page);--foreground:var(--ink);--border:var(--line);--card:var(--surface-page);--muted:var(--surface-lane);--muted-foreground:var(--ink-muted);--good:var(--good-fg);--warn:var(--warn-fg);--bad:var(--bad-fg)}
+.content{padding:12px;display:flex;flex-direction:column;gap:18px;min-width:0;overflow-wrap:anywhere}.stack{display:flex;flex-direction:column;gap:6px;min-width:0}.row,.name,header{display:flex;align-items:center;gap:8px}header{flex-wrap:wrap}.grow{flex:1;min-width:0}.brand{font-weight:600;font-size:14px}.brand-tick{fill:var(--track)}.pill{font-size:10px;padding:2px 6px;border-radius:6px;background:var(--muted)}.live,small,footer{font-size:11px;color:var(--muted-foreground)}h2{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;margin:0;color:var(--muted-foreground)}.section{gap:8px}.card{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:10px}.headline{font-weight:600}p{margin:0}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.meter{position:relative;height:6px;background:var(--border);border-radius:999px;margin:4px 0}.meter.slim{height:3px}.fill{height:100%;border-radius:999px;background:currentColor}.pace{position:absolute;width:2px;top:-4px;bottom:-4px;background:var(--foreground);border-radius:2px}.step{padding:8px;display:flex;gap:8px}.step.failed{color:var(--bad)}pre{margin:0;padding:10px;background:var(--muted);border-radius:8px;white-space:pre-wrap}code,pre{user-select: text;-webkit-user-select:text}code{font:11px ui-monospace,monospace;overflow-wrap:anywhere}footer{border-top:1px solid var(--border);padding-top:12px}
+`;
+
+// app/src/ds/tokens.css
+var tokens_default = `/* Generated from tokens.json. */
+:root {
+  color-scheme: light dark;
+  --surface-page: #ffffff;
+  --surface-card: #fafafa;
+  --surface-lane: #f4f4f5;
+  --line: #e4e4e7;
+  --ink: #18181b;
+  --ink-secondary: #52525b;
+  --ink-muted: #71717a;
+  --ink-on-ink: #ffffff;
+  --track: #65a30d;
+  --link: #1d4ed8;
+  --good-fg: #166534;
+  --good-bg: #dcfce7;
+  --good-fill: #15803d;
+  --warn-fg: #92400e;
+  --warn-bg: #fef3c7;
+  --warn-fill: #d97706;
+  --warn-line: #fde68a;
+  --warn-tint: #fffdf5;
+  --bad-fg: #991b1b;
+  --bad-bg: #fee2e2;
+  --bad-fill: #dc2626;
+  --bad-line: #fecaca;
+  --bad-tint: #fffbfb;
+  --info-fg: #1e40af;
+  --info-bg: #dbeafe;
+  --focus: #1d4ed8;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --type-display-size: 28px;
+  --type-display-line: 34px;
+  --type-display-weight: 650;
+  --type-display-tracking: -0.02em;
+  --type-wordmark-size: 20px;
+  --type-wordmark-line: 24px;
+  --type-wordmark-weight: 650;
+  --type-wordmark-tracking: -0.03em;
+  --type-number-lg-size: 22px;
+  --type-number-lg-line: 26px;
+  --type-number-lg-weight: 650;
+  --type-number-lg-tracking: -0.02em;
+  --type-headline-size: 16px;
+  --type-headline-line: 22px;
+  --type-headline-weight: 650;
+  --type-headline-tracking: -0.01em;
+  --type-body-size: 13px;
+  --type-body-line: 19px;
+  --type-body-weight: 400;
+  --type-body-strong-size: 13px;
+  --type-body-strong-line: 19px;
+  --type-body-strong-weight: 600;
+  --type-caption-size: 12px;
+  --type-caption-line: 16px;
+  --type-caption-weight: 400;
+  --type-label-size: 11px;
+  --type-label-line: 14px;
+  --type-label-weight: 600;
+  --type-label-tracking: 0.06em;
+  --type-pill-size: 11px;
+  --type-pill-line: 14px;
+  --type-pill-weight: 600;
+  --type-code-size: 12px;
+  --type-code-line: 18px;
+  --type-code-weight: 400;
+  --space-1: 4px;
+  --space-1\\.5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 999px;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-color-scheme: dark) {
+:root:not([data-theme="light"]) {
+  --surface-page: #09090b;
+  --surface-card: #18181b;
+  --surface-lane: #27272a;
+  --line: #3f3f46;
+  --ink: #fafafa;
+  --ink-secondary: #a1a1aa;
+  --ink-muted: #a1a1aa;
+  --ink-on-ink: #18181b;
+  --track: #a3e635;
+  --link: #93c5fd;
+  --good-fg: #86efac;
+  --good-bg: #14532d;
+  --good-fill: #22c55e;
+  --warn-fg: #fcd34d;
+  --warn-bg: #451a03;
+  --warn-fill: #f59e0b;
+  --warn-line: #78350f;
+  --warn-tint: #1c1408;
+  --bad-fg: #fca5a5;
+  --bad-bg: #450a0a;
+  --bad-fill: #ef4444;
+  --bad-line: #7f1d1d;
+  --bad-tint: #1f0a0a;
+  --info-fg: #93c5fd;
+  --info-bg: #172554;
+  --focus: #93c5fd;
+}
+}
+:root[data-theme="dark"] {
+  --surface-page: #09090b;
+  --surface-card: #18181b;
+  --surface-lane: #27272a;
+  --line: #3f3f46;
+  --ink: #fafafa;
+  --ink-secondary: #a1a1aa;
+  --ink-muted: #a1a1aa;
+  --ink-on-ink: #18181b;
+  --track: #a3e635;
+  --link: #93c5fd;
+  --good-fg: #86efac;
+  --good-bg: #14532d;
+  --good-fill: #22c55e;
+  --warn-fg: #fcd34d;
+  --warn-bg: #451a03;
+  --warn-fill: #f59e0b;
+  --warn-line: #78350f;
+  --warn-tint: #1c1408;
+  --bad-fg: #fca5a5;
+  --bad-bg: #450a0a;
+  --bad-fill: #ef4444;
+  --bad-line: #7f1d1d;
+  --bad-tint: #1f0a0a;
+  --info-fg: #93c5fd;
+  --info-bg: #172554;
+  --focus: #93c5fd;
+}
+`;
+
+// orca-plugin/src/panel/board.ts
+var command = (line) => `<code>${h(line)}</code>`;
+var quote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
+function sections(s, scope) {
+  const needs = needsYou(s, scope), runs = running(s, scope), done = doneToday(s, scope), executors = capacity(s);
+  const hidden = otherReposNeedingYou(s, scope), next = executors.find((e) => e.next);
+  const section = (name, count, body, extra = "") => `<section class="stack section" aria-label="${name}"><div class="row"><h2>${name}</h2><span class="pill">${count}</span><span class="grow"></span>${extra}</div>${body}</section>`;
+  const repo = (r) => scope.repo === null && r ? ` · ${h(r.label)}` : "";
+  return section("Needs you", needs.length, needs.map((n) => {
+    const actions = n.actions.map((a, index) => {
+      const p = a.params, id = p.id ?? n.taskId;
+      const line = a.op === "ui.open" ? `pacer open ${quote(`${p.view === "task" ? "sessions" : p.view ?? "overview"}${id ? `/${id}` : ""}`)}` : a.op === "host.check" ? `pacer host check ${quote(p.alias ?? n.host)}` : a.op === "task.retry" ? `pacer retry ${quote(id)}${p.executor ? ` --executor ${quote(p.executor)}` : ""}` : a.op === "task.review" ? `pacer review ${quote(id)} --${p.verdict === "accept" ? "accept" : "reject"}` : `pacer open ${quote(n.taskId ? `review/${n.taskId}` : n.host ? "settings/hosts" : "overview")}`;
+      return { label: `<span class="action-block ${index === 0 ? "action-primary" : "action-secondary"}">${h(a.label)}</span>`, line: command(line) };
+    });
+    const executor = n.executor ?? s.tasks.find((t) => t.id === n.taskId)?.executor;
+    return `<article class="card stack ${n.severity === "blocked" ? "bad" : n.severity === "problem" ? "warn" : "info"}"><div class="row attention-heading">${executor ? icon(executor, 22, n.account) : ""}<div class="stack grow"><strong>${h(n.title)}</strong><small>${n.kind === "failed" ? '<span class="bad" aria-label="Failed">✗</span> ' : ""}${h(n.detail)}${repo(n.repo)}</small></div></div><div class="row actions">${actions.map((a) => a.label).join("")}</div><div class="stack action-commands">${actions.map((a) => a.line).join("")}</div></article>`;
+  }).join("") || "<small>Nothing needs you here.</small>", hidden ? `<a href="#all-repos">+${hidden} in other repos</a>` : "") + section("Running", runs.length, runs.map((t) => `<article class="card stack"><div class="row">${t.executor ? icon(t.executor, 22) : ""}<strong class="grow">${h(t.goal.slice(0, 100))}</strong></div><small>${h(executorLabel(t.executor))} · ${h(t.progress ? phaseWords(t.progress.phase) : taskStatus(t).label)} · ${h(clock(t.attemptStartedAt ?? t.updatedAt, s.at))}${repo(t.repo)}</small>${command(`pacer open ${quote(`session/${t.id}`)}`)}</article>`).join("") || "<small>Nothing running here.</small>") + section("Capacity", executors.length, `<div class="card row capacity">${executors.map((e) => `<span class="executor ${toneFor(e.tone)}" title="${h(`${executorLabel(e.id)} · ${e.sub}`)}">${icon(e.agent, 24, e.account)}<span class="dot" aria-hidden="true"></span><span class="sr-only">${h(`${executorLabel(e.id)} · ${e.sub}`)}</span></span>`).join("")}<span class="grow"></span><small>${counts(s)?.ready ?? 0} ready${executors.some((e) => e.state === "down") ? ` · ${executors.filter((e) => e.state === "down").length} down` : ""}</small></div>`, next ? `<small>next: ${h(executorLabel(next.id))}</small>` : "") + section("Done today", done.length, done.map((t) => {
+    const status = taskStatus(t);
+    return `<div class="row done ${status.tone}"><span title="${h(status.label)}" aria-label="${h(status.label)}">${status.tone === "good" ? "✓" : status.tone === "bad" ? "✗" : "·"}</span><span class="grow">${h(t.goal)}${repo(t.repo)}</span>${t.executor ? icon(t.executor, 16) : ""}<small class="done-time">${h(clock(t.updatedAt, s.at))}</small></div>`;
+  }).join("") || "<small>Nothing done here today.</small>");
+}
+function board(s, repo) {
+  const nav = (all) => `<nav class="scope-toggle" aria-label="Scope"><a href="#this-repo"${!all ? ' aria-current="true"' : ""}>This repo${repo ? ` · ${h(repo.label)}` : ""}</a><a href="#all-repos"${all ? ' aria-current="true"' : ""}>All repos</a></nav>`;
+  return `<div id="all-repos" class="scope-all stack">${nav(true)}${sections(s, { repo: null })}</div><div id="this-repo" class="scope-here stack">${nav(false)}${sections(s, { repo: repo?.key ?? "__unknown_repo__" })}</div>`;
+}
+var boardStyle = `${tokens_default}
+${agentStyle}
+body{background:var(--surface-page);color:var(--ink);font:13px/19px var(--font-sans)}
+.content{gap:14px;padding:10px 16px}.stack{gap:6px}.scope-here,.scope-all{gap:14px}.scope-all{display:none}.scope-all:target{display:flex}.scope-all:target~.scope-here{display:none}
+a{color:var(--link)}a:hover{color:var(--ink)}a:focus-visible{outline:2px solid var(--focus);outline-offset:3px}a[aria-current]{font-weight:650}
+.scope-toggle{display:flex;align-items:stretch;gap:6px}.scope-toggle a{display:flex;align-items:center;justify-content:center;flex:1 1 0;min-width:0;min-height:32px;padding:5px 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface-page);color:var(--ink);font-size:12px;text-align:center;text-decoration:none}.scope-toggle a[aria-current]{background:var(--ink);border-color:var(--ink);color:var(--ink-on-ink)}
+.attention-heading{align-items:flex-start}.attention-heading .stack{gap:2px}.actions{align-items:stretch;gap:6px}.action-block{display:flex;align-items:center;justify-content:center;min-height:30px;padding:5px 10px;border:1px solid var(--line);border-radius:6px;color:var(--ink);background:var(--surface-page);font-size:12px;text-align:center}.action-primary{flex:1;background:var(--ink);color:var(--ink-on-ink);border-color:var(--ink);font-weight:600}.action-commands code{display:block}.footer-actions{display:flex;flex-direction:column;gap:8px}.footer-actions .action-block{flex-direction:column;align-items:stretch;gap:4px;padding:10px;text-align:left}.footer-actions code{color:inherit}.planner-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px}.planner-summary strong{font-weight:600}.planner-stats{text-align:right}.done-time{flex:none;text-align:right}.done .agent-mark{margin-left:auto}
+header{padding-bottom:10px;border-bottom:1px solid var(--line)}.brand-tick{fill:var(--track)}.pill{background:var(--surface-lane);border-radius:999px}h2{color:var(--ink);font-size:11px;font-weight:600}.live,small,footer{color:var(--ink-muted);font-size:12px}
+.card{border-color:var(--line);border-radius:10px;background:var(--surface-page);padding:8px 10px}.card.warn{border-color:var(--warn-line);background:var(--warn-tint)}.card.bad{border-color:var(--bad-line);background:var(--bad-tint)}.card strong{color:var(--ink)}
+.good{color:var(--good-fg)}.warn{color:var(--warn-fg)}.bad{color:var(--bad-fg)}.info{color:var(--info-fg)}.neutral{color:var(--ink-muted)}.meter{background:var(--surface-lane)}.pace{background:var(--ink)}
+code{font-family:var(--font-mono)}pre{background:var(--surface-lane)}footer{border-color:var(--line)}.capacity{flex-wrap:wrap;gap:12px}.executor{position:relative;display:inline-flex}.dot{position:absolute;right:-3px;bottom:-3px;width:8px;height:8px;border-radius:50%;background:currentColor;border:1px solid var(--surface-page)}.monogram{display:inline-flex;align-items:center;justify-content:center;font-size:11px}.done{font-size:12px}.done .grow{color:var(--ink)}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 `;
 // orca-plugin/src/panel.ts
 function absolute(at, now, weekday = false) {
@@ -1698,7 +1987,7 @@ function renderStatusPage(s, view) {
   const { nowS } = view, providers2 = providers(s), planner = plannerProvider(s);
   const reset = (p, weekday = false) => p.resetsAt === null ? "Reset unknown" : `Resets ${absolute(p.resetsAt, nowS, weekday)}`;
   const mode = s.mode?.mode ?? plannerMeter(s)?.mode ?? (s.planner === undefined ? s.budget?.mode : undefined) ?? "unknown";
-  const header = `<header><span class="brand name">${mark}pacer</span><span class="pill">${h(mode.replace(/^./, (c) => c.toUpperCase()))}</span><span class="grow"></span><span class="live">${view.reachable ? "Live · updated" : "Not connected · last data"} ${h(absolute(s.at, nowS))}</span></header>`;
+  const header = `<header><span class="brand name">${mark}pacer</span><span class="pill">${h(modeWords(mode))}</span><span class="grow"></span><span class="live">${view.reachable ? "Live · updated" : "Not connected · last data"} ${h(s.planner === undefined ? absolute(s.at, nowS) : clock(s.at, s.at))}</span></header>`;
   let content;
   const setup = s.planner === undefined ? view.setup : legacyChecklist(s, nowS, view.reachable, view.bootstrap);
   if (view.bootstrap && !(s.planner === undefined ? s.budget : s.service) && !setup?.complete) {
@@ -1707,6 +1996,8 @@ function renderStatusPage(s, view) {
       return `<p><strong>${name}: ${h(step.status)}</strong>${step.detail ? ` · ${h(step.detail)}` : ""}</p>`;
     }).join("");
     content = section("Welcome to pacer", "<p>pacer tracks your AI account budgets and task status. It helps you pace planning and delegate work to available executors.</p>") + section("Install", `<pre><code>${h(MANUAL_INSTALL)}</code></pre><pre><code>pacer init</code></pre>${steps}`) + section("Live panel", "<p>The live panel opens automatically once pacer is installed and the plugin restarts.</p>") + section("Act in pacer", "<p>Run <code>pacer open</code> in a terminal to open the pacer app, where you delegate, review and change settings.</p>");
+  } else if (s.planner !== undefined) {
+    content = `<div class="stack planner"><div class="planner-summary"><strong>Planner${planner ? ` · ${h(providerLabel(planner))}` : " unknown"}</strong>${planner ? `<span class="planner-stats">${h(planner.usedPct === null ? "Usage unknown" : `${Math.round(planner.usedPct)}%`)} · pace ${h(planner.pacePct === null ? "unknown" : Math.round(planner.pacePct))} · resets ${h(planner.resetsAt === null ? "unknown" : new Date(planner.resetsAt * 1000).toLocaleDateString("en-GB", { weekday: "short" }))}</span>` : ""}</div>${planner ? meter(planner) : ""}</div>${board(s, view.repo ?? null)}`;
   } else {
     const accounts = accountGroups(providers2).flatMap((group) => {
       const rows = group.account ? [group.rows] : group.rows.map((p) => [p]);
@@ -1727,8 +2018,9 @@ function renderStatusPage(s, view) {
     content = section("Update the pacer plugin", "<p>Run <code>pacer update</code> in a terminal, then restart the plugin to connect to the pacer API.</p>") + content;
   if (setup && !setup.complete)
     content += section("Setup", `${checklist(setup)}<pre><code>pacer init</code></pre>`);
-  const footer = "<footer>pacer shows information here. To delegate, review, block executors or change settings, run <code>pacer open</code> in a terminal to open the pacer app.</footer>";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
+  const delegate = s.planner !== undefined && view.repo ? `<div class="action-block action-primary"><strong>Delegate from this worktree</strong><code>${h(`pacer delegate --repo '${view.repo.path.replace(/'/g, "'\\''")}' --goal '<goal>'`)}</code></div>` : "";
+  const footer = `<footer><div class="footer-actions">${delegate}<div class="action-block action-secondary"><strong>Open pacer</strong><small>Run to open the pacer app (desktop first).</small><code>pacer open</code></div></div></footer>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}${boardStyle}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
 }
 function snapshotStrategy(s) {
   if (s.planner === undefined)
@@ -1782,6 +2074,10 @@ function createPlugin(deps) {
     stopped = false;
     const mode = pluginMode(deps.pluginRoot, deps.fs);
     ctx.commands.register("open", async () => {
+      if (deps.open) {
+        await deps.open();
+        return { ok: true };
+      }
       await ctx.host.call("notifications.show", {
         title: "Open pacer",
         body: "Run `pacer open` in a terminal to open the pacer app."
@@ -1878,6 +2174,27 @@ function createPlugin(deps) {
     let lastSeenAt;
     let apiFailures = 0;
     let setup;
+    let repo = null;
+    let repoBusy = false;
+    const refreshRepo = async () => {
+      if (repoBusy || !deps.resolveRepo || store.snapshot.planner === undefined)
+        return;
+      repoBusy = true;
+      try {
+        const next = await deps.resolveRepo(store.snapshot);
+        if (!stopped && JSON.stringify(next) !== JSON.stringify(repo)) {
+          repo = next;
+          scheduleRender(true);
+        }
+      } catch (e) {
+        logError(e);
+      } finally {
+        repoBusy = false;
+      }
+    };
+    timers.every(5000, () => {
+      refreshRepo();
+    });
     let renderedHtml = null;
     let lastRenderAt = -Infinity;
     let userOutcome = false;
@@ -1905,7 +2222,7 @@ function createPlugin(deps) {
           return;
         try {
           const nowS = deps.nowS();
-          const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
+          const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, repo, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
           if (serveOwnsPanel(deps.pluginRoot, (path) => deps.fs.readText(path), nowS))
             renderedHtml = null;
           else if (html !== renderedHtml) {
@@ -1970,7 +2287,10 @@ function createPlugin(deps) {
         refreshingSettings = false;
       });
     });
-    store.onChange(() => scheduleRender());
+    store.onChange(() => {
+      scheduleRender();
+      refreshRepo();
+    });
     timers.every(15000, () => {
       scheduleRender();
     });
@@ -2083,6 +2403,31 @@ function createPlugin(deps) {
   };
 }
 
+// orca-plugin/src/panel/repo.ts
+import { dirname, resolve } from "node:path";
+async function panelRepo(s, run) {
+  try {
+    const result = await run(["orca", "worktree", "show", "--worktree", "active", "--json"], 2000);
+    if (result.code !== 0)
+      return null;
+    const reply = JSON.parse(result.stdout);
+    if (!reply.ok)
+      return null;
+    const worktree = reply.result?.worktree;
+    const path = worktree?.path ?? worktree?.id?.split("::")[1];
+    const repoPath = reply.result?.repo?.path ?? worktree?.repo?.path;
+    if (repoPath)
+      return repos(s).find((r) => resolve(r.path) === resolve(repoPath)) ?? { key: repoPath, label: reply.result?.repo?.name ?? repoPath.split("/").pop(), path: repoPath };
+    if (typeof path !== "string")
+      return null;
+    const git = await run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"], 2000);
+    const root = git.code === 0 ? dirname(git.stdout.trim()) : path;
+    return repos(s).find((r) => resolve(r.path) === resolve(root)) ?? { key: root, label: root.split("/").pop() ?? root, path: root };
+  } catch {
+    return null;
+  }
+}
+
 // orca-plugin/src/worker.ts
 var timers = {
   every(ms, fn) {
@@ -2182,7 +2527,7 @@ var http = {
     };
   }
 };
-var pluginRoot = dirname(fileURLToPath3(import.meta.url));
+var pluginRoot = dirname2(fileURLToPath3(import.meta.url));
 var PLUGIN_VERSION = (() => {
   try {
     const version = JSON.parse(readFileSync6(join9(pluginRoot, "orca-plugin.json"), "utf8")).version;
@@ -2194,7 +2539,17 @@ var PLUGIN_VERSION = (() => {
 var log = (message) => {};
 var workerEnv = { ...process.env };
 var pacerHome = workerEnv.PACER_HOME || join9(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
+var runPanelCommand = (argv, timeoutMs) => new Promise((resolve) => {
+  execFile2(argv[0] === "orca" ? resolveOrcaCli(workerEnv) : argv[0], argv.slice(1), { env: workerEnv, timeout: timeoutMs }, (error, stdout, stderr) => resolve({ code: error ? 1 : 0, stdout, stderr }));
+});
 var plugin = createPlugin({
+  resolveRepo: (snapshot) => panelRepo(snapshot, runPanelCommand),
+  async open() {
+    const binary = workerEnv.PACER_BIN || (existsSync3(join9(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join9(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+    const result = await runPanelCommand([binary, "open"], 1e4);
+    if (result.code !== 0)
+      throw new Error(result.stderr || "Could not open pacer");
+  },
   async connect(settings) {
     const base = `http://127.0.0.1:${settings.port}`;
     try {
@@ -2243,7 +2598,7 @@ var plugin = createPlugin({
     },
     exists: existsSync3,
     writeTextAtomic(path, text) {
-      if (pluginMode(pluginRoot, { exists: existsSync3 }) !== "live" || resolve(path) !== resolve(pluginRoot, "panel", "live.html")) {
+      if (pluginMode(pluginRoot, { exists: existsSync3 }) !== "live" || resolve2(path) !== resolve2(pluginRoot, "panel", "live.html")) {
         log("pacer: refused panel write: unexpected path");
         return;
       }
