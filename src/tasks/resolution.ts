@@ -1,7 +1,6 @@
-import { access, readFile, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { boundedGitRead } from "../core/git";
-import { withTimeout } from "../core/path-probe";
+import { repoFs, withTimeout } from "../core/path-probe";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import { loadStrategy } from "../config/strategy";
@@ -10,7 +9,7 @@ import { readTask, updateTask } from "./store";
 import type { TaskRecord } from "./types";
 
 async function exists(path: string): Promise<boolean> {
-  try { await withTimeout(() => access(path)); return true; }
+  try { await withTimeout(() => repoFs.access(path)); return true; }
   catch (error) {
     if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
     throw error;
@@ -27,7 +26,7 @@ async function compareWorktree(ctx: Ctx, t: TaskRecord): Promise<string | null> 
   if (!worktree) return null;
   if (!await exists(worktree)) return "worktree removed";
   if (t.placement?.mode === "current") return null;
-  const [workerReal, repoReal] = await Promise.all([withTimeout(() => realpath(worktree)), withTimeout(() => realpath(t.brief.repo))]);
+  const [workerReal, repoReal] = await Promise.all([withTimeout(() => repoFs.realpath(worktree)), withTimeout(() => repoFs.realpath(t.brief.repo))]);
   if (workerReal === repoReal) return null;
   let root = worktree;
   const runGit = async (dir: string, ...args: string[]) => {
@@ -57,7 +56,7 @@ async function compareWorktree(ctx: Ctx, t: TaskRecord): Promise<string | null> 
     const file = join(root, path);
     if (!await exists(file)) { if (expected) return null; continue; }
     if (!expected) return null;
-    const bytes = await withTimeout(() => readFile(file));
+    const bytes = await withTimeout(() => repoFs.readFile(file));
     const hash = createHash(format).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
     if (hash !== expected) return null;
   }
