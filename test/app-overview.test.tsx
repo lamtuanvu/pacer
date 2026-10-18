@@ -18,10 +18,10 @@ test("the canvas layout: planner strip, then work on the left and capacity along
   const html = view();
   const main = html.indexOf("pc-overview__main"), side = html.indexOf("pc-overview__side");
   expect(html.indexOf("pc-planner-strip")).toBeLessThan(main);
-  const at = order(html, [">Needs you<", ">Running<", ">Capacity<", ">Done today<"]);
+  const at = order(html, [">Needs you<", ">Running<", ">Done today<"]);
   expect(at.every(i => i > main && i < side)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
-  const right = order(html, [">Quick delegate<", ">Activity<"]);
+  const right = order(html, [">Capacity<", ">Quick delegate<", ">Activity<"]);
   expect(right.every(i => i > side)).toBe(true);
   expect([...right].sort((a, b) => a - b)).toEqual(right);
 });

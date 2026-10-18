@@ -134,10 +134,10 @@ test("panel order is Needs you, Running, Capacity, Done today; the TUI follows t
   }
 });
 
-test("app reads Needs you, Running, Capacity, Done today; CSS places Capacity beside the work on desktop", () => {
+test("desktop app keeps work in the main column and capacity first in the side column (Main board)", () => {
   const [main, side] = app.split('class="pc-overview__main">')[1]!.split('class="pc-overview__side">');
-  expect(headings(main!)).toEqual(["Needs you", "Running", "Capacity", "Done today"]);
-  expect(headings(side!)).toEqual(["Quick delegate", "Activity"]);
+  expect(headings(main!)).toEqual(["Needs you", "Running", "Done today"]);
+  expect(headings(side!)).toEqual(["Capacity", "Quick delegate", "Activity"]);
 });
 
 test("tray orders Needs you, Running, executors with done today only in counts", () => {

@@ -144,10 +144,11 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
       <div className="pc-overview__main">
         <NeedsYou snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />
         <Running snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />
-        <Capacity snapshot={snapshot} narrow={narrow} query={query} />
+        {narrow && <Capacity snapshot={snapshot} narrow query={query} />}
         <DoneToday snapshot={snapshot} scope={scope} now={now} query={query} />
       </div>
       <div className="pc-overview__side" hidden={narrow}>
+        {!narrow && <Capacity snapshot={snapshot} narrow={false} query={query} />}
         {!narrow && <section className="pc-card-section" aria-labelledby="quick-delegate"><div className="pc-card-section__head"><h2 id="quick-delegate">Quick delegate</h2></div><div className="pc-card-section__body">{quickDelegate}</div></section>}
         {!narrow && <Activity entries={activity} now={now} />}
       </div>
