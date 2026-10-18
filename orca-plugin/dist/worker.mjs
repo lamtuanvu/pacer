@@ -1650,7 +1650,7 @@ var verdicts = {
   unknown: "Usage unknown"
 };
 var verdictWords = (v) => Object.hasOwn(verdicts, v) ? verdicts[v] : "Unknown";
-var phases = { starting: "Starting", working: "Editing", testing: "Testing", idle: "Idle", "lost-contact": "Lost contact", queued: "Queued" };
+var phases = { driving: "You're driving", starting: "Starting", working: "Editing", testing: "Testing", idle: "Idle", "lost-contact": "Lost contact", queued: "Queued" };
 var phaseWords = (phase) => Object.hasOwn(phases, phase) ? phases[phase] : phase;
 var modeWords = (mode) => mode ? mode[0].toUpperCase() + mode.slice(1).toLowerCase() : mode;
 function executorLabel(id, accounts = []) {
