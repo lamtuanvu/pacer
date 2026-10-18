@@ -219,3 +219,22 @@ test("download allows five redirects, rejects a sixth and rejects missing Locati
   expect(calls).toBe(6);
   await expect(fetchText(async () => new Response(null, { status: 302 }), "https://example.com/start")).rejects.toThrow("has no Location");
 });
+
+test("signs only the staged inode before smoke and preserves target on signing failure", async () => {
+  const dir = tmpDir(), target = installed(dir), originalInode = statSync(target).ino;
+  let staged = "";
+  await replaceBinary(target, enc(script("0.2.0")), "0.2.0", async path => {
+    expect(path).toBe(staged);
+    expect(statSync(target).ino).toBe(originalInode);
+    return "pacer 0.2.0";
+  }, async path => {
+    staged = path;
+    expect(path).not.toBe(target);
+    expect(statSync(path).ino).not.toBe(originalInode);
+    expect(readFileSync(target, "utf8")).toBe(script("0.1.0"));
+  });
+  expect(readFileSync(target, "utf8")).toBe(script("0.2.0"));
+  await expect(replaceBinary(target, enc(script("0.3.0")), "0.3.0", async () => { throw Error("must not smoke"); }, async () => { throw Error("signing failed"); })).rejects.toThrow("signing failed");
+  expect(readFileSync(target, "utf8")).toBe(script("0.2.0"));
+  expect(readdirSync(dir).some(p => p.includes(".update-"))).toBe(false);
+});

@@ -154,6 +154,16 @@ stage=$dir/.pacer.install.$$
 trap 'command rm -f "$stage"; command rm -rf "$tmp"' EXIT
 cp "$tmp/$file" "$stage" || die "cannot write to $dir"
 chmod 755 "$stage" || die "cannot prepare staged binary in $dir"
+# Only sign the staged inode, after checksum verification and before the smoke run.
+if [ "$os" = darwin ]; then
+  signing_hash=$(/usr/bin/security find-identity -v -p codesigning | sed -n 's/^[[:space:]]*[0-9][0-9]*)[[:space:]]*\([A-Fa-f0-9]\{40\}\)[[:space:]]*"pacer local code signing"[[:space:]]*$/\1/p' | head -n 1)
+  if [ -n "$signing_hash" ]; then
+    say "Signing staged binary as dev.pacer.cli; unlock the login keychain if macOS requests authorization."
+    /usr/bin/codesign -f -s "$signing_hash" -i dev.pacer.cli --options 0 \
+      -r "designated => identifier \"dev.pacer.cli\" and certificate leaf = H\"$signing_hash\"" "$stage" || die "cannot sign staged binary"
+    /usr/bin/codesign --verify --strict "$stage" || die "staged signature verification failed"
+  fi
+fi
 installed=$("$stage" --version 2>/dev/null) || die "staged $dir/pacer does not run on this machine"
 [ "$installed" = "pacer $version" ] || die "staged $dir/pacer reported '$installed', expected 'pacer $version'"
 mv -f "$stage" "$dir/pacer" || die "cannot replace $dir/pacer"

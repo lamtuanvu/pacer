@@ -4,11 +4,11 @@ import type { Ctx, RunFn } from "./types";
 import { execProcess } from "./exec/process";
 
 export const defaultRun: RunFn = async (argv, timeoutMs, options) => {
-  const { code, stdout, stderr } = await execProcess({
+  const { code, stdout, stderr, timedOut } = await execProcess({
     argv, cwd: process.cwd(), env: options?.env ?? process.env,
     timeoutMs, stdin: options?.stdin,
   });
-  return { code, stdout, stderr };
+  return { code, stdout, stderr, ...(timedOut ? { timedOut: true } : {}) };
 };
 
 export function makeCtx(o: Partial<Ctx> = {}): Ctx {

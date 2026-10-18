@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Desktop windows silently sign in again after expired sessions and service restarts, with bounded retries and shell recovery pages. Browser error pages use themed pacer cards and sign-in guidance.
+- macOS builds and staged updates use the optional stable `dev.pacer.cli` signing identity so removable-volume consent survives updates; doctor detects pending or denied access and ad hoc signatures.
 
 ### Changed
 
