@@ -66,3 +66,14 @@ test("view-model stays dependency-free", () => {
     }
   }
 });
+
+test("planner verdicts map to tones in the same table", () => {
+  expect(["behind", "on_pace", "ahead", "out", "unknown"].map(toneFor)).toEqual(["good", "good", "warn", "bad", "neutral"]);
+});
+
+test("executor labels use proper names for known agents and accounts", () => {
+  expect(executorLabel("local")).toBe("Local model");
+  expect(executorLabel("byteplus")).toBe("BytePlus");
+  expect(executorLabel("opencode#byteplus")).toBe("BytePlus");
+  expect(executorLabel("gemini")).toBe("Gemini");
+});
