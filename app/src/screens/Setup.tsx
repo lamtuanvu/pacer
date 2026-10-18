@@ -6,7 +6,7 @@ import { Button } from '../ds/Button';
 import { Card } from '../ds/Card';
 import { Pill } from '../ds/Pill';
 import { useQuery,useAction,useDraft,ErrorMessage } from './task-shared';
-import { Consent,CopyCommand,PluginInstall } from './Settings';
+import { Consent,CopyCommand,PluginInstall } from './settings/SetupSupport';
 export function Setup() {
  const query=useQuery<SetupChecklist>('setup.check',{}),config=useQuery<ConfigData>('config.get',{}),action=useAction();
  const [planner,setPlanner]=useDraft('pacer.setup.planner',{value:'claude-code'}),[agent,setAgent]=useState('');

@@ -1,7 +1,8 @@
 /** Hash routes for the redesigned shell. Old routes redirect for one minor release. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
-  | { name: "overview" | "add-executor" | "setup" | "loading" | "not-found" }
+  | { name: "overview" | "setup" | "loading" | "not-found" }
+  | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions"; id?: string }
   | { name: "settings"; section?: string }
   | { name: "hosts"; alias?: string }
@@ -50,7 +51,7 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   if (!settingsArea && setupComplete === null) return { name: "loading", query };
   if (!settingsArea && setupComplete === false) return { name: "setup", query };
-  return { ...route, query } as Route;
+  return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), query } as Route;
 }
 function match(path: string): RouteBase {
   if (path === "/") return { name: "overview" };
