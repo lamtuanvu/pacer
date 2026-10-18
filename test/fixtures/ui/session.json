@@ -1,0 +1,6 @@
+{
+ "id":"t-0415","state":"running","goal":"Split the budget store into read and write paths","executor":"codex#team","agent":"codex","repo":"pacer","branch":"pacer/t-0415","machine":"this Mac","started":"11:49","phase":"Testing · 14m","changesSummary":"6 files · 2 commits · output 3s ago",
+ "session":{"host":"builtin","capabilities":{"snapshot":true,"control":true,"record":true,"resize":true},"live":true,"machine":null,"cols":120,"rows":36,"controller":null,"viewers":2,"targets":["app","orca","terminal"],"attach":{"cli":"pacer attach t-0415","ws":"/v2/tasks/t-0415/session"}},
+ "brief":{"data":"Split the store; keep callers working."},"doneWhen":{"data":"bun test test/usage"},"timeline":{"data":[{"at":"11:49","text":"Routed to Codex · on pace, free slot"},{"at":"12:01","text":"Testing"}]},"changes":{"data":"diff --git a/store.ts b/store.ts"},"log":{"data":"Working…"},
+ "stop":{"label":"Stop","op":"task.stop","params":{"id":"t-0415"}},"retryOptions":[{"id":"cursor","agent":"cursor","label":"Cursor — available","available":true,"action":{"label":"Retry","op":"task.retry","params":{"id":"t-0415","executor":"cursor"}}}]
+}

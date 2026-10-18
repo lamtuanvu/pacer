@@ -9,32 +9,12 @@ import { attachKeyRegistry } from "./keys/registry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
-import { Review } from "./screens/Review";
-import { Overview } from "./screens/Overview";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
-import { Tasks } from "./screens/Tasks";
-import { TaskDetail } from "./screens/TaskDetail";
-import { AddExecutor } from "./screens/AddExecutor";
-import { Hosts } from "./screens/Hosts";
-import { SettingsGeneral } from "./screens/SettingsGeneral";
-import { Setup } from "./screens/Setup";
+import { Screen } from "./screens/Screen";
 import { Delegate } from "./screens/Delegate";
 const store = createStore();
 const TITLES: Record<Route["name"], string> = { overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", setup: "Setup", loading: "pacer", "not-found": "Page not found" };
-function Screen({ route }: { route: Route }) {
-  switch (route.name) {
-    case "overview": return <Overview query={route.query} />;
-    case "review": return <Review route={route} />;
-    case "sessions": return route.id ? <TaskDetail id={route.id} /> : <Tasks />;
-    case "settings": return <SettingsGeneral section={route.section} />;
-    case "hosts": return <Hosts />;
-    case "add-executor": return <AddExecutor />;
-    case "setup": return <Setup />;
-    case "loading": return null;
-    default: return <section><h1>Page not found</h1><a href="#/">Go to Overview</a></section>;
-  }
-}
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 function App() {
   const [state, setState] = useState(store.getState);

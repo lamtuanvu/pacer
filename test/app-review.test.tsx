@@ -5,12 +5,38 @@ import fixture from "./fixtures/ui/task-get.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { TaskDetail } from "../src/core/task-detail";
 import { ReviewView } from "../app/src/screens/Review";
+import { ApiError } from "../app/src/data/api";
 import { Diff } from "../app/src/screens/review/Diff";
 import { initialReview, reviewReducer } from "../app/src/screens/review/model";
 import { reviewQueue } from "../src/view-model/selectors";
 const snap = snapshot as unknown as ClientSnapshot;
 const task = fixture as unknown as TaskDetail;
 const view = (detail = task, s = snap) => renderToString(<ReviewView snapshot={s} view={reviewReducer(initialReview, { type: "queue", items: reviewQueue(s) })} task={detail} now={snap.at} />);
+test("removed worktree failures from task.diff and task.get preserve the review item without exposing paths", () => {
+  const state = reviewReducer(initialReview, { type: 'queue', items: reviewQueue(snap) });
+  for (const error of [new Error("fatal: cannot change to '/tmp/deleted-worktree': No such file or directory"), new Error('No such file or directory: /tmp/deleted-worktree'), new ApiError('invalid_input', 'Unable to read task', '/tmp/deleted-worktree')]) {
+    for (const detail of [task, undefined]) {
+      const html = renderToString(<ReviewView snapshot={snap} view={state} task={detail} now={snap.at} error={error} verdictPanel={<button>Accept and bring back</button>} />);
+      expect(html).toContain('Changes unavailable · the worktree was removed after the task finished');
+      expect(html).toContain('Review queue · 2');
+      expect(html).toContain('Accept and bring back');
+      expect(html).not.toContain('/tmp/');
+      expect(html).not.toContain('cannot change to');
+      expect(html).not.toContain('No such file or directory');
+      if (detail) for (const text of [task.goal, 'Done when', 'Executor summary', 'Changes']) expect(html).toContain(text);
+      else expect(html).toContain(state.queue.find(item => item.taskId === state.selectedId)!.title);
+    }
+  }
+});
+test("other Review query errors stay useful and redact path-bearing errors and hints", () => {
+  const state = reviewReducer(initialReview, { type: 'queue', items: reviewQueue(snap) });
+  for (const error of [new Error('Unable to read /tmp/private-worktree'), new ApiError('internal', 'Unable to read changes', 'Check /tmp/private-worktree')]) {
+    const html = renderToString(<ReviewView snapshot={snap} view={state} task={task} now={snap.at} error={error} />);
+    expect(html).not.toContain('/tmp/');
+    expect(html).toContain('Could not load changes. Please try again.');
+  }
+  expect(renderToString(<ReviewView snapshot={snap} view={state} task={task} now={snap.at} error={new Error('Service disconnected')} />)).toContain('Service disconnected');
+});
 test("review item shows run line, facts, collapsed brief and all file counts", () => {
   const html = view();
   for (const word of [task.goal, task.executor!, "50m", "pacer/review → main", task.repo.label, "Done when", "bun test", "✓ 38 passed · 41 s · run by pacer on devbox", "Why this executor", "Best available capacity", "other", "over budget", "Implemented and verified", "src/example.ts", "+3", "−1"]) expect(html).toContain(word);

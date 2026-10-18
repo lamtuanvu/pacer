@@ -29,16 +29,19 @@ export function uiHref(params: Record<string, unknown>): string {
 
 /** Runs the service's actions. Success is shown only when the resulting event arrives, never optimistically. */
 export function createActionRunner(deps: ActionDeps) {
+  const results = new Map<string, unknown>();
   const states = new Map<string, ActionState>();
   const listeners = new Set<() => void>();
   const set = (key: string, state: ActionState) => { states.set(key, state); for (const l of listeners) l(); return state; };
   return {
+    result: (key: string): unknown => results.get(key),
     state: (key: string): ActionState => states.get(key) ?? { status: "idle" },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     needsConfirm: (action: Action): string | null => action.confirm ?? null,
     async run(key: string, action: Action, confirmDone?: (s: StoreState) => boolean): Promise<ActionState> {
       if (action.op === "ui.open") { deps.navigate(uiHref(action.params)); return set(key, { status: "done" }); }
       set(key, { status: "pending" });
+      results.delete(key);
       let result: unknown;
       try { result = await deps.call(action.op, action.params); }
       catch (error) {
@@ -47,6 +50,7 @@ export function createActionRunner(deps: ActionDeps) {
         const e = error instanceof ApiError ? error : null;
         return set(key, { status: "error", message: e?.message ?? (error instanceof Error ? error.message : String(error)), ...(e?.hint ? { hint: e.hint } : {}) });
       }
+      results.set(key, result);
       const job = (result as { job?: { id?: unknown } } | null)?.job;
       if (job && typeof job.id === "string") return set(key, { status: "job", jobId: job.id });
       if (!confirmDone) return set(key, { status: "done" });
