@@ -23,11 +23,24 @@ import { fakeCtx } from "./helpers";
 
 /** Compare visible prose, never CSS, SVG paths, attributes or terminal styling. */
 function strip(text: string): string {
-  // Repeat until stable so nested or split tags cannot survive a single pass.
-  let previous: string, out = text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-  do { previous = out; out = out.replace(/<(style|script|svg)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "").replace(/<[^>]*>/g, " "); } while (out !== previous);
+  const plain = text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  // Scan characters instead of regex-replacing markup: drop tags and the contents of style, script and svg.
+  let out = "", i = 0, skipUntil: string | null = null;
+  while (i < plain.length) {
+    if (plain[i] === "<") {
+      const close = plain.indexOf(">", i);
+      if (close < 0) break;
+      const tag = plain.slice(i + 1, close).trim().toLowerCase();
+      const name = tag.replace(/^\//, "").split(/[\s/]/)[0]!;
+      if (skipUntil) { if (tag.startsWith("/") && name === skipUntil) skipUntil = null; }
+      else if (["style", "script", "svg"].includes(name) && !tag.startsWith("/") && !tag.endsWith("/")) skipUntil = name;
+      out += " "; i = close + 1; continue;
+    }
+    if (!skipUntil) out += plain[i];
+    i++;
+  }
+  // Decoding never produces < or >, so markup cannot be reintroduced.
   return out
-    // Decoding never produces < or >, so stripped markup cannot be reintroduced.
     .replace(/&#(x[\da-f]+|\d+);/gi, (m, n: string) => { const c = n[0] === "x" ? parseInt(n.slice(1), 16) : Number(n); return c === 60 || c === 62 ? m : String.fromCodePoint(c); })
     .replace(/&(amp|quot|apos|#39|nbsp);/g, (_, n: string) => ({ amp: "&", quot: '"', apos: "'", "#39": "'", nbsp: " " })[n]!)
     .replace(/\s+/g, " ").trim();
