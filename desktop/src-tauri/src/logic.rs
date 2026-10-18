@@ -2,6 +2,39 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+/// Shared connection owner enforces a minimum gap even if focus/IPC floods retries.
+#[derive(Default)]
+pub struct Reconnect {
+    next: Option<std::time::Instant>,
+}
+impl Reconnect {
+    pub fn delay(&self, now: std::time::Instant) -> std::time::Duration {
+        self.next.map_or(std::time::Duration::ZERO, |next| {
+            next.saturating_duration_since(now)
+        })
+    }
+    pub fn started(&mut self, now: std::time::Instant) {
+        self.next = Some(now + std::time::Duration::from_secs(5));
+    }
+}
+
+pub fn session_error(status: Option<u16>) -> &'static str {
+    if status == Some(401) {
+        "sessionExpired"
+    } else {
+        "stopped"
+    }
+}
+pub fn recovery_page(error: &str) -> &'static str {
+    match error {
+        "oldService" => "oldService",
+        "oldApp" => "oldApp",
+        "protocol" => "protocol",
+        "sessionExpired" => "starting",
+        _ => "stopped",
+    }
+}
+
 /// Runtime IPC defense, in addition to the per-window remote capability grants.
 pub fn command_authorized(label: &str, expected: &str, url: &Url, origin: Option<&str>) -> bool {
     label == expected
@@ -231,6 +264,35 @@ impl Sse {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn expired_session_reenters_sign_in_and_unreachable_service_uses_shell_page() {
+        assert_eq!(session_error(Some(401)), "sessionExpired");
+        assert_eq!(recovery_page(session_error(Some(401))), "starting");
+        assert_eq!(recovery_page(session_error(None)), "stopped");
+        assert_eq!(recovery_page(session_error(Some(503))), "stopped");
+        assert_eq!(recovery_page("oldApp"), "oldApp");
+    }
+    #[test]
+    fn retries_are_limited_even_when_focus_or_ipc_requests_more() {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let mut retry = Reconnect::default();
+        assert_eq!(retry.delay(now), Duration::ZERO);
+        retry.started(now);
+        for _ in 0..100 {
+            assert_eq!(retry.delay(now), Duration::from_secs(5));
+        }
+        assert_eq!(
+            retry.delay(now + Duration::from_secs(4)),
+            Duration::from_secs(1)
+        );
+        assert_eq!(retry.delay(now + Duration::from_secs(5)), Duration::ZERO);
+        retry.started(now + Duration::from_secs(5));
+        assert_eq!(
+            retry.delay(now + Duration::from_secs(5)),
+            Duration::from_secs(5)
+        );
+    }
     #[test]
     fn tray_size_is_finite_and_clamped() {
         for (height, expected) in [
