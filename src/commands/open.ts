@@ -10,6 +10,16 @@ const defaultOpener: OpenDeps["opener"] = async url => {
   if (result !== 0) throw Error("could not open the browser; run pacer open --print");
 };
 
+/** Let the registered desktop handler open its own authenticated session. */
+export async function openDesktop(ctx: Ctx, screen = "overview", platform = process.platform): Promise<boolean> {
+  const url = `pacer://${screen.replace(/^\/+/, "")}`;
+  const argv = platform === "darwin" ? ["open", "-b", "dev.pacer.desktop", url]
+    : platform === "linux" ? ["xdg-open", url] : null;
+  if (!argv) return false;
+  const result = await ctx.run(argv, 5000).catch(() => null);
+  return result?.code === 0;
+}
+
 /** Open the app in an Orca browser tab when Orca is running, so it lives next to the work. */
 export async function openInOrca(ctx: Ctx, url: string): Promise<boolean> {
   if (!ctx.which("orca")) return false;
@@ -37,6 +47,7 @@ export async function openCmd(args: string[], ctx: Ctx, deps: OpenDeps = { opene
     } catch {
       return { code: 1, out: "", err: "pacer isn't running. Start it with: pacer service install" };
     }
+    if (!args.includes("--browser") && !args.includes("--print") && await openDesktop(ctx, screens[0])) return { code: 0, out: "Opened the pacer desktop app.", err: "" };
     const url = new URL(`${base}/app/auth`);
     url.searchParams.set("code", createCode(ctx));
     if (screens[0]) url.hash = `/${screens[0].replace(/^\/+/, "")}`;

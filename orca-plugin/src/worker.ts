@@ -7,13 +7,14 @@ import { mkdirSync } from "node:fs";
 import { isVersion } from "../../src/update/version";
 import pkg from "../../package.json";
 import { pluginMode } from "./mode";
-import { createBootstrap } from "./bootstrap";
+import { createBootstrap, resolveOrcaCli } from "./bootstrap";
 import { get, request } from "node:http";
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPlugin, type Timers } from "./plugin";
 import type { HttpPort } from "./http-port";
+import { panelRepo } from "./panel/repo";
 import type { OrcaWorkerContext } from "./orca-api";
 const timers: Timers = {
   every(ms, fn) { const timer = setInterval(fn, ms); return () => clearInterval(timer); },
@@ -83,7 +84,16 @@ const PLUGIN_VERSION = (() => {
 let log = (message: string) => {};
 const workerEnv = {...process.env};
 const pacerHome = workerEnv.PACER_HOME || join(workerEnv.HOME ?? workerEnv.USERPROFILE ?? "", ".pacer");
+const runPanelCommand: import("../../src/types").RunFn = (argv, timeoutMs) => new Promise(resolve => {
+ execFile(argv[0] === "orca" ? resolveOrcaCli(workerEnv) : argv[0], argv.slice(1), {env:workerEnv,timeout:timeoutMs}, (error,stdout,stderr)=>resolve({code:error?1:0,stdout,stderr}));
+});
 const plugin = createPlugin({
+  resolveRepo: snapshot => panelRepo(snapshot,runPanelCommand),
+  async open() {
+    const binary=workerEnv.PACER_BIN || (existsSync(join(workerEnv.HOME ?? "", ".local/bin/pacer")) ? join(workerEnv.HOME ?? "", ".local/bin/pacer") : "pacer");
+    const result=await runPanelCommand([binary,"open"],10000);
+    if(result.code!==0) throw new Error(result.stderr || "Could not open pacer");
+  },
   async connect(settings) {
     const base = `http://127.0.0.1:${settings.port}`;
     try {

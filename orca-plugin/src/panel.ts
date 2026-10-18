@@ -13,11 +13,16 @@ import { providerLabel, headline, verdictWords } from "./panel/model";
 import { meter, placementLine } from "./panel/overview";
 import { displayName, mark } from "./panel/icons";
 import { style } from "./panel/style";
+import { board, boardStyle } from "./panel/board";
+import type { RepoRef } from "../../src/api/read-model/types";
+import { clock } from "../../src/view-model/format";
+import { modeWords } from "../../src/view-model/words";
 export { escapeHtml, jsonForScript } from "./panel/shared";
+export { panelRepo } from "./panel/repo";
 
 export interface StatusView {
  nowS:number; reachable:boolean; transport:TransportId|null;
- updates?:PluginUpdates; setup?:SetupChecklist; bootstrap?:BootstrapState;
+ repo?:RepoRef|null; updates?:PluginUpdates; setup?:SetupChecklist; bootstrap?:BootstrapState;
 }
 // Compatibility with the worker until its console controls are retired.
 export interface AutoConsoleOutcome { status:string; at:number }
@@ -40,12 +45,14 @@ export function renderStatusPage(s:ClientSnapshot, view:StatusView):string {
  const {nowS}=view, providers=providerRows(s), planner=plannerProvider(s);
  const reset=(p:ProviderLine,weekday=false)=>p.resetsAt===null?"Reset unknown":`Resets ${absolute(p.resetsAt,nowS,weekday)}`;
  const mode=s.mode?.mode??plannerMeter(s)?.mode??(s.planner===undefined?s.budget?.mode:undefined)??"unknown";
- const header=`<header><span class="brand name">${mark}pacer</span><span class="pill">${h(mode.replace(/^./,c=>c.toUpperCase()))}</span><span class="grow"></span><span class="live">${view.reachable?"Live · updated":"Not connected · last data"} ${h(absolute(s.at,nowS))}</span></header>`;
+ const header=`<header><span class="brand name">${mark}pacer</span><span class="pill">${h(modeWords(mode))}</span><span class="grow"></span><span class="live">${view.reachable?"Live · updated":"Not connected · last data"} ${h(s.planner===undefined?absolute(s.at,nowS):clock(s.at,s.at))}</span></header>`;
  let content:string;
  const setup=s.planner===undefined?view.setup:legacyChecklist(s,nowS,view.reachable,view.bootstrap);
  if(view.bootstrap && !(s.planner===undefined?s.budget:s.service) && !setup?.complete) {
   const steps=(["install","start"] as const).map(name=>{const step=view.bootstrap![name];return `<p><strong>${name}: ${h(step.status)}</strong>${step.detail?` · ${h(step.detail)}`:""}</p>`;}).join("");
   content=section("Welcome to pacer","<p>pacer tracks your AI account budgets and task status. It helps you pace planning and delegate work to available executors.</p>")+section("Install",`<pre><code>${h(MANUAL_INSTALL)}</code></pre><pre><code>pacer init</code></pre>${steps}`)+section("Live panel","<p>The live panel opens automatically once pacer is installed and the plugin restarts.</p>")+section("Act in pacer","<p>Run <code>pacer open</code> in a terminal to open the pacer app, where you delegate, review and change settings.</p>");
+ } else if(s.planner !== undefined) {
+  content=`<div class="stack planner"><div class="planner-summary"><strong>Planner${planner?` · ${h(providerLabel(planner))}`:" unknown"}</strong>${planner?`<span class="planner-stats">${h(planner.usedPct===null?"Usage unknown":`${Math.round(planner.usedPct)}%`)} · pace ${h(planner.pacePct===null?"unknown":Math.round(planner.pacePct))} · resets ${h(planner.resetsAt===null?"unknown":new Date(planner.resetsAt*1000).toLocaleDateString("en-GB",{weekday:"short"}))}</span>`:""}</div>${planner?meter(planner):""}${s.planner?`<small>${h(s.planner.advice)}</small>`:""}</div>${board(s,view.repo??null)}`;
  } else {
   const accounts=accountGroups(providers).flatMap(group=>{
    // Legacy providers have no account identity and must retain separate budgets.
@@ -62,8 +69,9 @@ export function renderStatusPage(s:ClientSnapshot, view:StatusView):string {
  }
  if(!view.reachable && view.transport===null)content=section("Update the pacer plugin", "<p>Run <code>pacer update</code> in a terminal, then restart the plugin to connect to the pacer API.</p>")+content;
  if(setup&&!setup.complete)content+=section("Setup",`${checklist(setup)}<pre><code>pacer init</code></pre>`);
- const footer='<footer>pacer shows information here. To delegate, review, block executors or change settings, run <code>pacer open</code> in a terminal to open the pacer app.</footer>';
- return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
+ const delegate=s.planner!==undefined&&view.repo?`<div class="action-block action-primary"><strong>Delegate from this worktree</strong><code>${h(`pacer delegate --repo '${view.repo.path.replace(/'/g,"'\\''")}' --goal '<goal>'`)}</code></div>`:"";
+ const footer=`<footer><div class="footer-actions">${delegate}<div class="action-block action-secondary"><strong>Open pacer</strong><small>Run to open the pacer app (desktop first).</small><code>pacer open</code></div></div></footer>`;
+ return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}${boardStyle}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
 }
 
 /** Strategy identity for older services as well as the current read model. */
