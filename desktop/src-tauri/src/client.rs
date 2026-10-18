@@ -13,7 +13,14 @@ pub struct Cli {
 }
 impl Cli {
     pub async fn login_path() -> String {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+            if cfg!(target_os = "macos") {
+                "/bin/zsh"
+            } else {
+                "/bin/sh"
+            }
+            .into()
+        });
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -30,7 +37,7 @@ impl Cli {
             .filter(|o| o.status.success())
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .and_then(|output| logic::shell_path(&output, &begin, &end).map(str::to_owned))
-            .unwrap_or_default()
+            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default())
     }
     pub fn find(path: &str) -> Option<Self> {
         let home = PathBuf::from(std::env::var_os("HOME")?);
@@ -40,10 +47,12 @@ impl Cli {
                 .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         })?;
         // GUI launches lack a useful PATH; keep the discovered CLI's directory available too.
-        let path = format!(
-            "{}:{path}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
-            binary.parent()?.display()
-        );
+        let system_path = if cfg!(target_os = "macos") {
+            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        } else {
+            "/usr/local/bin:/usr/bin:/bin"
+        };
+        let path = format!("{}:{path}:{system_path}", binary.parent()?.display());
         let pacer_home = std::env::var_os("PACER_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".pacer"));

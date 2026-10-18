@@ -24,9 +24,10 @@ test("current clients render without legacy snapshot fields",()=>{
  expect(tui).toContain("Claude Code planner  week");
  expect(tui).toContain("63% used · pace 77%");
  const html=renderStatusPage(s,{nowS:s.at,reachable:true,transport:"api"});
- expect(html).toContain("pacer 0.3.0");
- expect(html).toContain("63% used");
- expect(html).toContain("behind pace");
+ expect(html).toContain("Needs you");
+ expect(html).toContain("63% · pace 77 · resets Mon</span>");
+ expect(html).toContain('aria-label="Claude usage, pace 77%" aria-valuenow="63"');
+ expect(html).toContain(s.planner!.advice);
  expect(legacyChecklist(s,s.at,true).complete).toBe(true);
 });
 test("a null planner still means a current service",()=>{
@@ -46,7 +47,7 @@ test("plugin store observes read-model changes without legacy content keys",()=>
  store.replace(next);expect(changes).toBe(2);
 });
 
-test("equivalent read-model and older service data keep panel output; TUI uses board fields",()=>{
+test("equivalent read-model and older service data: the panel and TUI both render board fields",()=>{
  const s=current();s.tasks=[];s.attention=[];s.executors=s.executors!.slice(0,2);
  s.accounts=[{name:"claude-code",agent:"claude-code",source:"default",usedPct:63,pacePct:77,resetsAt:s.planner!.resetsAt,window:"weekly",verdict:"BEHIND",signedIn:true,executors:["claude-code"]},...s.accounts!];
  const legacy={...fixture,tasks:[],attention:[],strategies:s.strategies,mode:s.mode,
@@ -63,6 +64,11 @@ test("equivalent read-model and older service data keep panel output; TUI uses b
  expect(renderDashboard(s,120,24,s.at,{selected:0,noColor:true})).toBe(board);
  expect(renderDashboard(old,120,24,s.at,{selected:0,noColor:true})).toContain("Planner · waiting for service data");
  const view={nowS:s.at,reachable:true,transport:"api" as const};
- expect(renderStatusPage(s,view)).toBe(renderStatusPage(old,view));
+ const currentPanel=renderStatusPage(s,view), oldPanel=renderStatusPage(old,view);
+ expect(currentPanel).toContain("63% · pace 77 · resets Mon</span>");
+ expect(oldPanel).toContain("63% used");
+ for(const html of [currentPanel,oldPanel])expect(html).toContain('aria-label="Claude usage, pace 77%" aria-valuenow="63"');
+ expect(currentPanel).toContain("<h2>Needs you</h2>");
+ expect(oldPanel).toContain("<h2>Accounts</h2>");
 });
 
