@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { buildReadModel } from "../src/api/read-model";
 import { capacityFixture } from "./read-model-helpers";
-import { fakeCtx, localTs } from "./helpers";
+import { fakeCtx, localTs, realRun, tmpDir } from "./helpers";
 import { record } from "./read-model-helpers";
 import { apiTask } from "../src/api/read-model/tasks";
 import { liveSnapshot } from "../src/api/events";
 import { emptySnapshot } from "../src/link/envelope";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 test("counts split by repo, today uses local midnight and setup counts required open items",()=>{
@@ -115,6 +115,20 @@ test("a fresh mode hold and its expiry invalidate the snapshot status cache",asy
  expect(expired.mode).toBe("normal");expect(expired.modeHeldUntil).toBeUndefined();
 });
 
+
+test("snapshot repos omit dead registrations but retain missing repos with window tasks",async()=>{
+ const {resolveRepo}=await import("../src/core/repos");
+ const ctx=fakeCtx({run:realRun}),{st,s}=capacityFixture();
+ const dead=tmpDir(),running=tmpDir(),recent=tmpDir();
+ for(const path of [dead,running,recent])Bun.spawnSync(["git","init","-q",path]);
+ const deadRef=await resolveRepo(ctx,dead),runningRef=await resolveRepo(ctx,running),recentRef=await resolveRepo(ctx,recent);
+ for(const path of [dead,running,recent])rmSync(path,{recursive:true});
+ const tasks=[record("done",ctx.now-86401,{repo:deadRef}),record("running",ctx.now-86401,{repo:runningRef}),record("done",ctx.now-60,{repo:recentRef})].map(t=>apiTask(ctx,t));
+ const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:[],setup:{checkedAt:ctx.now,complete:true,items:[]}});
+ expect(model.repos.map(r=>r.key).sort()).toEqual([runningRef.key,recentRef.key].sort());
+ const registry=await Bun.file(join(ctx.pacerHome,"state","repos.json")).json();
+ expect(Object.values(registry).map((entry:any)=>entry.key).sort()).toEqual([runningRef.key,recentRef.key].sort());
+});
 test("service attention uses short titles and counts only the latest retry",()=>{
  for(const state of ["failed","partial"] as const) for(const nextState of ["queued","running","done"] as const){
   const ctx=fakeCtx(),{s,st}=capacityFixture();
