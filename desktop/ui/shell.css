@@ -141,16 +141,14 @@
 /* Bundled copy of app/src/ds/tokens.css above; keep in sync with the pacer tokens. */
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: var(--space-5); background: var(--surface-page); color: var(--ink); font: var(--type-body-size)/var(--type-body-line) var(--font-sans); }
-main { width: 100%; max-width: 440px; padding: var(--space-8); border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface-card); }
-h1 { font-size: var(--type-display-size); line-height: var(--type-display-line); letter-spacing: var(--type-display-tracking); }
+main { width: 100%; max-width: 440px; padding: var(--space-8); text-align: center; }
+h1 { font-size: var(--type-body-size); line-height: var(--type-body-line); font-weight: var(--type-body-strong-weight); }
+h1:empty { display: none; }
 p { color: var(--ink-secondary); }
 a { color: var(--link); }
-.actions { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
-.button { display: inline-block; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--ink); color: var(--ink-on-ink); text-decoration: none; font-weight: var(--type-body-strong-weight); }
-a:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
-input { display: block; width: 100%; margin-top: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-page); color: var(--ink); font-family: var(--font-mono); }
+a:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+#pacer-os-approval { position: fixed; top: var(--space-3); left: var(--space-3); right: var(--space-3); text-align: center; }
 [hidden] { display: none !important; }
 .compact { padding: var(--space-3); }
 .compact main { padding: var(--space-4); }
-.compact img { display: none; }
-.compact h1 { font-size: var(--type-wordmark-size); line-height: var(--type-wordmark-line); }
+.compact img { width: 32px; height: 32px; }

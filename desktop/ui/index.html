@@ -10,21 +10,9 @@
 <body>
   <main>
     <img src="mark.svg" alt="pacer" width="48" height="48">
-    <h1>Connecting to pacer…</h1>
-    <p id="message" role="status" aria-live="polite">Looking for your local service.</p>
-    <p id="elapsed" hidden></p>
-    <section id="command-section" hidden>
-      <label for="command">Select and copy command</label>
-      <input id="command" readonly>
-    </section>
-    <p class="actions">
-      <a class="button" id="start" href="/start" hidden>Start pacer</a>
-      <a class="button" id="install" href="/install" hidden>Install</a>
-      <a class="button" id="restart" href="/restart" hidden>Restart pacer</a>
-      <a id="retry" href="/retry" hidden>Try again</a>
-    </p>
-    <p id="error" role="status" hidden></p>
-    <p><a id="docs" href="https://github.com/lamtuanvu/pacer/blob/main/docs/install.md" hidden>Installation instructions</a></p>
+    <h1 aria-live="polite">Starting pacer…</h1>
+    <p id="message" role="status" aria-live="polite" hidden></p>
+    <p><a id="privacy" href="x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders" hidden>Open Files and Folders settings</a></p>
   </main>
 </body>
 </html>

@@ -21,41 +21,37 @@ function shell(search: string) {
     advance(seconds: number) { now += seconds * 1000; timers.at(-1)?.(); } };
 }
 
-test("only the missing service offers installation; stopped starts without an install command", () => {
-  const page = shell("?state=not_installed");
-  expect(page.element("#command").value).toBe("pacer service install");
-  expect(page.element("#install").hidden).toBe(false);
-  page.render({ page: "stopped" });
-  expect(page.element("h1").textContent).toBe("pacer stopped");
-  expect(page.element("#start").hidden).toBe(false);
-  expect(page.element("#install").hidden).toBe(true);
-  expect(page.element("#command").value).toBe("");
-  expect(page.element("#retry").hidden).toBe(true);
+test("recoverable states show only automatic starting status", () => {
+  for (const state of ["not_installed", "stopped", "busy", "starting", "ready", "unavailable", "startFailed"]) {
+    const page = shell(`?state=${state}`);
+    expect(page.element("h1").textContent).toBe("Starting pacer…");
+    expect(page.element("#message").hidden).toBe(true);
+    expect(page.element("#privacy").hidden).toBe(true);
+  }
+  const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), "utf8");
+  expect(html).not.toMatch(/Try again|Start pacer|Restart pacer|pacer service install|id="command"/);
 });
 
-test("busy preview shows consent, a live timer, and no install action", () => {
-  const page = shell("?state=busy&prompt=1&for=14");
-  expect(page.element("h1").textContent).toBe("pacer is busy");
-  expect(page.element("#message").textContent).toContain("Click Allow");
-  expect(page.element("#elapsed").textContent).toBe("for 14 s");
-  page.advance(2);
-  expect(page.element("#elapsed").textContent).toBe("for 16 s");
-  expect(page.element("#command").value).toBe("");
-  expect(page.element("#install").hidden).toBe(true);
-  expect(page.element("#restart").hidden).toBe(true);
-});
-
-test("inconclusive consent uses likely-cause copy; restart appears after 30 seconds", () => {
-  const page = shell("?state=busy&for=30");
-  expect(page.element("#message").textContent).toContain("usually means");
-  expect(page.element("#restart").hidden).toBe(false);
-  page.render({ page: "busy", macos: false, restart: false, seconds: 0 });
-  expect(page.element("#message").textContent).not.toContain("macOS");
-  expect(page.element("#restart").hidden).toBe(true);
+test("permission preview uses only the basename and an OS settings link", () => {
+  const page = shell("?state=permission&path=/Volumes/External/Project");
+  expect(page.element("#message").textContent).toBe("macOS needs your permission for pacer to read Project. Click Allow in the macOS dialog.");
+  expect(page.element("#privacy").hidden).toBe(false);
+  const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), "utf8");
+  expect(html).toContain('href="x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"');
+  page.render({ page: "permission" });
+  expect(page.element("#message").textContent).toContain("your external drive");
   page.render({ page: "starting" });
-  expect(page.element("h1").textContent).toBe("Starting pacer…");
-  expect(page.element("#elapsed").hidden).toBe(true);
-  expect(page.element("#command").value).toBe("");
+  expect(page.element("#privacy").hidden).toBe(true);
+  expect(page.element("#message").hidden).toBe(true);
+});
+
+test("consent detection preview and incompatible installs have no recovery buttons", () => {
+  expect(shell("?state=busy&prompt=1").element("#message").textContent).toContain("Click Allow");
+  for (const state of ["oldService", "oldApp", "protocol"]) {
+    const page = shell(`?state=${state}`);
+    expect(page.element("#message").textContent).toContain("Install");
+    expect(page.element("#privacy").hidden).toBe(true);
+  }
 });
 
 test("shell uses the server page's current design tokens", () => {
