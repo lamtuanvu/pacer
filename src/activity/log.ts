@@ -1,6 +1,6 @@
 import { publish } from "../link/publish";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { redactEndpointError } from "../endpoints/state";
@@ -20,7 +20,7 @@ export interface ActivityEntry {
   executor?: string;
   host?: string;
 }
-export interface ActivityOptions { before?: string; limit?: number; repo?: string; kinds?: ActivityKind[]; taskId?: string }
+export interface ActivityOptions { before?: string; limit?: number; repo?: string; kinds?: ActivityKind[]; taskId?: string; maxBytes?: number }
 const stateDir = (ctx: Ctx) => join(ctx.pacerHome, "state");
 const logPath = (ctx: Ctx) => join(stateDir(ctx), "activity.jsonl");
 const RETENTION_S = 30 * 86400;
@@ -46,9 +46,21 @@ function withLogLock<T>(ctx: Ctx, action: () => T): T {
 }
 const safeText = (text: string) => redactEndpointError(text).replace(/(\btoken\s*[=:]\s*)[^\s,;]+/gi, "$1[redacted]").replace(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]");
 
-function entries(ctx: Ctx): ActivityEntry[] {
+function entries(ctx: Ctx, maxBytes?: number): ActivityEntry[] {
   let text: string;
-  try { text = readFileSync(logPath(ctx), "utf8"); }
+  try {
+    if (maxBytes === undefined) text = readFileSync(logPath(ctx), "utf8");
+    else {
+      const fd = openSync(logPath(ctx), "r");
+      try {
+        const size = statSync(logPath(ctx)).size, start = Math.max(0, size - maxBytes);
+        const bytes = Buffer.alloc(Math.min(size, maxBytes));
+        const read = readSync(fd, bytes, 0, bytes.length, start);
+        text = bytes.subarray(0, read).toString("utf8");
+        if (start) text = text.slice(text.indexOf("\n") + 1);
+      } finally { closeSync(fd); }
+    }
+  }
   catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return []; throw e; }
   return text.split("\n").flatMap(line => {
     try {
@@ -72,7 +84,7 @@ export function appendActivity(ctx: Ctx, e: Omit<ActivityEntry, "id" | "at">, on
 
 export function readActivity(ctx: Ctx, o: ActivityOptions = {}): { entries: ActivityEntry[]; next: string | null } {
   // File order breaks timestamp ties, so appends in the same second page consistently.
-  const all = entries(ctx).reverse();
+  const all = entries(ctx, o.maxBytes).reverse();
   const start = o.before === undefined ? 0 : all.findIndex(e => e.id === o.before) + 1;
   if (o.before !== undefined && start === 0) return { entries: [], next: null };
   const filtered = all.slice(start).filter(e => (o.repo === undefined || e.repo === o.repo)

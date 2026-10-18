@@ -53,6 +53,8 @@ export function toV2OpResult(name:string,result:any):unknown {
  if(name==='version.get')return {...result,protocol:V2_PROTOCOL};
  if(name==='task.diff')return {...result,diff:result.patch};
  if(name==='task.list'&&result?.[LEGACY_TASK_LIST])return result[LEGACY_TASK_LIST];
+ // `derived` (availability of slow detail fields) is a 3.x addition; 2.x responses stay byte-identical.
+ if(name==='task.get'&&result&&typeof result==='object'&&'derived' in result){const {derived:_,...rest}=result;return rest;}
  return result;
 }
 export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):Promise<unknown> {

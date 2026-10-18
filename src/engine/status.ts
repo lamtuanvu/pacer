@@ -1,5 +1,6 @@
 import { readPause, type PauseState } from "../core/pause";
 import { readHold, type ModeHold } from "../core/mode-hold";
+import { readEndpointState } from "../endpoints/state";
 import { endpointRow } from "../endpoints/row";
 import { orcaAccountHome } from "../orca/accounts";
 import { parseRunnerId, formatRunnerId, runnerDefaults, resolveRunner } from "../config/runner-id";
@@ -56,7 +57,7 @@ export function binaryFor(cfg: ProviderCfg): string {
 export { displayName } from "../render/accounts";
 
 export async function computeStatus(
-  ctx: Ctx, s: Strategy, opts: { profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
+  ctx: Ctx, s: Strategy, opts: { cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
   const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
     .map(a => `account ${a.name}: usage_source orca is no longer read; using ${a.kind === "claude" || a.kind === "codex" ? "native" : "reactive"}`);
@@ -68,7 +69,7 @@ export async function computeStatus(
     const runners = Object.values(s.runners).filter(r => r.account === account.name);
     const key = JSON.stringify({ account, models: [...new Set(runners.map(r => r.model))] });
     const reading = opts.readings?.get(account.name) ?? opts.readings?.get(key)
-      ?? await readAccountUsage(ctx, account, runners).catch((e): UsageReading => ({
+      ?? await readAccountUsage(ctx, account, runners, false, opts.cacheOnly).catch((e): UsageReading => ({
         windows: [], capturedAt: null, stale: false, error: String(e),
       }));
     opts.readings?.set(key, reading);
@@ -88,7 +89,7 @@ export async function computeStatus(
     const live = windows.filter(w => !w.stale);
     const binding = bindingWindow(live) ?? bindingWindow(windows);
     const verdict: Verdict = account.usage === "unmetered" && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
-    const endpoint = await endpointRow(ctx, account);
+    const endpoint = opts.cacheOnly ? (account.connection ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
     return { account, runners, reading: fresh, windows, binding, verdict, endpointReason };
   }));
