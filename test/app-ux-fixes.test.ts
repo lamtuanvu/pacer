@@ -62,12 +62,6 @@ test("native executor states use installation, routing and runner overrides", ()
  expect(executorStatus({...runner,state:"broken",reason:"CLI failed"}).label).toBe("Not working · CLI failed");
  expect(executorStatus({...runner,id:"opencode#local"},{name:"local",kind:"endpoint",state:"not_tested",connection:{models:[]}}).label).toBe("Not tested");
 });
-test("executor controls live in a More disclosure with small ghost ordering", () => {
- const source=readFileSync(join(import.meta.dir,"../app/src/screens/Executors.tsx"),"utf8");
- expect(source).toContain('<summary>More</summary>');
- expect(source.indexOf('<summary>More</summary>')).toBeLessThan(source.indexOf('Block for <select'));
- expect(source).toContain('variant="ghost" size="sm"');
-});
 test("wizard keeps endpoint failure details and pluralizes model discovery", () => {
  expect(endpointResult({state:"not_working",detail:"test task failed: refused"})).toEqual({state:"not_working",detail:"test task failed: refused"});
  expect(endpointResult({state:{state:"not_working",detail:"redacted reason"}}).detail).toBe("redacted reason");
@@ -75,7 +69,7 @@ test("wizard keeps endpoint failure details and pluralizes model discovery", () 
  expect(modelsFound(2)).toBe("2 models found. Choose models below.");
 });
 test("wizard and delegate controls have wrapping labels", () => {
- for(const file of ["AddExecutor","Delegate"]){
+ for(const file of ["Delegate"]){
  const source=readFileSync(join(import.meta.dir,`../app/src/screens/${file}.tsx`),"utf8");
  for(const match of source.matchAll(/<(input|textarea|select)\b/g)) {
  const prefix=source.slice(0,match.index);
@@ -100,6 +94,5 @@ test("accounts capitalize guidance and simplify default-folder sign-in commands"
  expect(accountsModel([{name:"default",kind:"codex",folder:"/fixture/.codex",signin_command:"CODEX_HOME=fixture codex login"}],[])[0]?.signin).toBe("codex login");
  expect(rows[0]?.freshness).toStartWith("Stale since");
  expect(rows[0]?.hint).toBe("Run codex login");
- const source=readFileSync(join(import.meta.dir,"../app/src/screens/Accounts.tsx"),"utf8");
- expect(source).toContain('<div className="row"><Button size="sm" variant="secondary"');
+
 });

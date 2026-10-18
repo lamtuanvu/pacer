@@ -6,6 +6,7 @@ import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import { reviewQueue } from "../../../src/view-model/selectors";
 import { clock, elapsed } from "../../../src/view-model/format";
 import { executorLabel, taskStatus } from "../../../src/view-model/words";
+import { ApiError } from "../data/api";
 import { Pill } from "../ds/Pill";
 import { withQuery, type Route } from "../router";
 import { useActions } from "../data/action-context";
@@ -13,7 +14,7 @@ import type { ActionRunner } from "../data/actions";
 import type { KeyRegistry } from "../keys/registry";
 import { keys } from "../keys/instance";
 import { VerdictPanel } from "./review/VerdictPanel";
-import { ErrorMessage, useQuery, useTaskContext } from "./task-shared";
+import { useQuery, useTaskContext } from "./task-shared";
 import { Diff } from "./review/Diff";
 import { initialReview, reviewReducer, verdictParams, type Verdict, type ReviewAction, type ReviewView as ReviewState } from "./review/model";
 
@@ -31,14 +32,25 @@ function Queue({ items, selected, onSelect }: { items: AttentionItem[]; selected
     </button>)}
   </nav>;
 }
+const REMOVED_WORKTREE = "Changes unavailable · the worktree was removed after the task finished";
+function reviewError(error: unknown): { removed: boolean; message?: string } {
+  if (!error) return { removed: false };
+  const message = error instanceof Error ? error.message : typeof error === "object" && "message" in error ? String(error.message) : String(error);
+  const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+  if (/cannot change to|no such file or directory|worktree.*(?:removed|missing|does not exist)/i.test(message) || code === "invalid_input") return { removed: true, message: REMOVED_WORKTREE };
+  // Query failures can include Git's cwd or a service hint. Do not expose local paths.
+  const text = message + (error instanceof ApiError && error.hint ? ` · ${error.hint}` : "");
+  return { removed: false, message: /\/\S|[a-z]:[\\/]/i.test(text) ? "Could not load changes. Please try again." : text };
+}
 export function ReviewView({ snapshot, view, task, now, filePath, diff, loading, error, onSelect, onFile, onOpen, verdictPanel, announcement }: ReviewProps) {
   const status = task && taskStatus(task), acceptance = task?.acceptance;
+  const failure = reviewError(error);
   return <><div className="pc-review">
     {!view.queue.length ? <section className="pc-review-empty"><h1>Review queue is clear</h1><p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}</p></section> : <>
       <Queue items={view.queue} selected={view.selectedId} onSelect={onSelect} />
-      <article className="pc-review-item" aria-busy={loading}><ErrorMessage error={error} />
+      <article className="pc-review-item" aria-busy={loading}>{failure.message && <p className="muted" role="status">{failure.message}</p>}
         {view.missing ? <section className="pc-notice"><h2>Already reviewed</h2><p><code>{view.missing}</code> is no longer waiting for review. <a href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
-        : !task ? (error ? null : <p className="muted">Loading task…</p>) : <>
+        : !task ? (error ? <h1 className="headline">{view.queue.find(item => item.taskId === view.selectedId)?.title}</h1> : <p className="muted">Loading task…</p>) : <>
           <div className="row"><h1 className="headline">{task.goal}</h1><Pill tone={status!.tone}>{status!.label}</Pill></div>
           <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{task.executor}</code>{task.startedAt !== null && task.endedAt !== null && <> · {elapsed(task.endedAt - task.startedAt)}</>} · {task.branch} → {task.base} · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
           <section><h2>Done when</h2>{acceptance?.state === "none" ? <p>No done-when command</p> : <>
@@ -48,12 +60,12 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
           <section><h2>Why this executor</h2><p>{task.routing?.why ?? "No routing explanation"}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{s.executor}</code> · {s.reason}</p>)}</section>
           {task.cost.executor && <section><h2>Cost</h2><p>{task.cost.executor.account} · {task.cost.executor.deltaPct === null ? (task.cost.executor.reason === "shared" ? "Shared usage" : "No reading") : `${task.cost.executor.deltaPct}%`}{task.cost.executor.window && ` · ${task.cost.executor.window}`}</p></section>}
           <details><summary>Brief</summary><dl className="facts pc-review-brief">
-            {([["Goal", task.brief.goal], ["Repository", task.brief.repo], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+            {([["Goal", task.brief.goal], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
             {task.brief.qa?.map((entry, i) => <div key={i}><dt>{entry.q}</dt><dd>{entry.a}</dd></div>)}
           </dl></details>
           <section><h2>Executor summary</h2><p className="report">{task.summary ?? "No summary provided"}</p></section>
           <section><h2>Changes</h2><div className="pc-review-files" role="group" aria-label="Changed files">{task.files.map(file => <button type="button" key={file.path} aria-pressed={(filePath ?? task.files[0]?.path) === file.path} onClick={() => onFile?.(file.path)}><code>{file.path}</code><span className="muted">{file.status}</span><span>+{file.added} −{file.removed}</span>{file.binary && <span>Binary file</span>}</button>)}</div>
-            {diff && <Diff path={filePath ?? task.files[0]?.path ?? ""} patch={diff.patch} binary={task.files.find(f => f.path === filePath)?.binary} truncated={diff.truncated} note={diff.note} onOpen={onOpen} />}
+            {!failure.removed && diff && <Diff path={filePath ?? task.files[0]?.path ?? ""} patch={diff.patch} binary={task.files.find(f => f.path === filePath)?.binary} truncated={diff.truncated} note={diff.note} onOpen={onOpen} />}
           </section>
         </>}
       </article>
@@ -96,8 +108,8 @@ export async function copyWorktreePath(worktree: string | null | undefined, anno
   try { await copy(worktree); announce("Worktree path copied"); }
   catch { announce("Could not copy worktree path"); }
 }
-function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announcement, detail }: {
-  id: string; detail: TaskDetail; snapshot: ClientSnapshot; view: ReviewState; dispatch: (a: ReviewAction) => void;
+function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announcement, detail, taskError }: {
+  id: string; detail: TaskDetail; taskError?: unknown; snapshot: ClientSnapshot; view: ReviewState; dispatch: (a: ReviewAction) => void;
   getView: () => ReviewState; announce: (s: string) => void; announcement: string;
 }) {
   const [filePath, setFile] = useState<string>();
@@ -124,7 +136,7 @@ function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announc
   }), []);
   return <ReviewView snapshot={snapshot} view={view} task={detail} now={Date.now() / 1000}
     filePath={path} diff={!diff.loading ? diff.data : undefined} loading={diff.loading}
-    error={diff.error} onSelect={selected => { if (!view.pending) dispatch({ type: "select", id: selected }); }}
+    error={taskError ?? diff.error} onSelect={selected => { if (!view.pending) dispatch({ type: "select", id: selected }); }}
     onFile={setFile} onOpen={() => { void open(); }} announcement={announcement}
     verdictPanel={<VerdictPanel task={detail} note={note} kind={kind} executor={executor}
       noteFor={view.noteFor} pending={view.pending} noteRef={noteRef} retryRef={retryRef}
@@ -137,7 +149,7 @@ function ReviewItem(props: {
 }) {
   const task = useQuery<TaskDetail>("task.get", { id: props.id });
   return task.data
-    ? <ReviewLoaded {...props} detail={task.data} />
+    ? <ReviewLoaded {...props} detail={task.data} taskError={task.error} />
     : <ReviewView snapshot={props.snapshot} view={props.view} now={Date.now() / 1000} error={task.error} loading={task.loading}
         onSelect={id => props.dispatch({ type: "select", id })} announcement={props.announcement} />;
 }

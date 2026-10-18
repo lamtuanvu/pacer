@@ -1,3 +1,4 @@
+import { useActions } from "../data/action-context";
 import { AgentMark } from "../ds/AgentMark";
 import { markAgent } from "../../../src/view-model/agents";
 import { createContext, type ComponentChildren } from "preact";
@@ -7,7 +8,7 @@ import { ApiError, type BrowserApi } from "../data/api";
 import { draftStorage } from "../model/draft";
 import { Button } from "../ds/Button";
 import { Pill } from "../ds/Pill";
-import { taskHref, type TaskSummary } from "../model/tasks";
+import { taskHref } from "../model/tasks";
 import { executorLabel, taskStatus } from "../../../src/view-model/words";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
 export const useTaskContext = () => useContext(TaskContext);
@@ -32,13 +33,19 @@ export function useQuery<T>(op: string, params: unknown, revision = "") {
   return { data, error, loading, reload: () => reload(v => v + 1) };
 }
 export function useAction() {
-  const { api } = useTaskContext();
+  const runner = useActions();
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [message, setMessage] = useState("");
   const pending = useRef(false);
   async function run<T>(op: string, params: unknown, done?: (result: T) => void) {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError(undefined); setMessage("");
-    try { const result = await api.call<T>(op, params); done?.(result); setMessage("Recorded."); }
+    try {
+      const key = `operation:${op}:${JSON.stringify(params)}`;
+      const outcome = await runner.run(key, {label: op, op, params: params as Record<string, unknown>});
+      if (outcome.status === "error") { setError(new Error(outcome.message + (outcome.hint ? ` · ${outcome.hint}` : ""))); return; }
+      if (outcome.status === "handled") { setMessage(outcome.message); return; }
+      done?.(runner.result(key) as T); setMessage("Recorded.");
+    }
     catch (error) { setError(error); }
     finally { pending.current = false; setBusy(false); }
   }
@@ -68,10 +75,6 @@ export function Dialog({ title, close, children }: { title: string; close: () =>
   return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); close(); }}><div className="dialog-head"><h1>{title}</h1><Button onClick={close}>Close</Button></div>{children}</dialog>;
 }
 export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <a href={taskHref(id)}>{children}</a>; }
-export function TaskRow({ task, reload, onDismiss }: { task: ReturnType<typeof import("../model/tasks").tasksModel>[number]; reload: () => void; onDismiss: (ids: string[]) => void }) {
-  const action = useAction();
-  return <div className="task-row"><Pill tone={task.status.tone}>{task.status.label}</Pill><div className="grow"><TaskLink id={task.id}>{task.goal}</TaskLink><div className="muted">{task.executor}{task.kind && ` · ${task.kind}`}{task.placement?.mode && ` · ${task.placement.mode} worktree`}</div></div><div className="row-actions">{task.actions.map(op => <Button key={op} size="sm" disabled={action.busy} onClick={() => { void action.run<{ retry?: TaskSummary; dismissed?: string[]; unknown?: string[] }>(`task.${op}`, op === "dismiss" ? { ids: [task.id] } : { id: task.id }, result => { if (result.dismissed) onDismiss(result.dismissed); reload(); if (result.unknown?.length) throw new Error(`Unknown task: ${result.unknown.join(", ")}`); if (result.retry) location.hash = taskHref(result.retry.task_id); }); }}>{op === "stop" ? "Stop" : op === "retry" ? "Retry" : "Dismiss"}</Button>)}</div><div className="row-result" aria-live="polite"><ErrorMessage error={action.error} />{action.message}</div></div>;
-}
 export function SnapshotRow({ task }: { task: import("../../../src/link/envelope").TaskData }) {
   const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
   const status = taskStatus(task);

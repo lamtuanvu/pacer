@@ -1,0 +1,44 @@
+import { useState } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
+import { AgentMark } from '../../ds/AgentMark';
+import { Button } from '../../ds/Button';
+import { Pill } from '../../ds/Pill';
+import { LazyTerminal } from '../../term/LazyTerminal';
+import { PlainLog } from './PlainLog';
+import { taskStatus } from '../../../../src/view-model/words';
+import type { Resource, SessionData, SessionActions, Action } from './types';
+export type { SessionData, SessionActions, Resource } from './types';
+export type SessionTab='terminal'|'changes'|'brief';
+export interface SessionProps extends SessionActions { data?:SessionData|null; loading?:boolean; error?:string|null; initialTab?:SessionTab; onReload?:()=>void }
+export function ResourceView<T>({value,empty,loading,children}:{value?:Resource<T>;empty:string;loading:string;children:(value:T)=>ComponentChildren}){
+ if(value?.error)return <p role="alert">{value.error}</p>;
+ if(value?.loading&&value.data==null)return <p role="status">{loading}</p>;
+ if(value?.data==null||value.data===''||(Array.isArray(value.data)&&!value.data.length))return <p className="pc-session-muted">{empty}</p>;
+ return <>{value.loading&&<span role="status">Updating…</span>}{children(value.data)}</>;
+}
+export function Session({data,loading,error,initialTab='terminal',onAction,onAttach,onReload}:SessionProps){
+ const [tab,setTab]=useState<SessionTab>(initialTab),[selected,setSelected]=useState(''),[busy,setBusy]=useState(false),[actionError,setActionError]=useState(''),[notice,setNotice]=useState('');
+ const run=async(action:Action)=>{if(!onAction||busy)return;setBusy(true);setActionError('');try{await onAction(action);}catch(e){setActionError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}};
+ const attach=async(target:'orca'|'terminal')=>{if(!data||busy)return;setBusy(true);setActionError('');try{if(onAttach){const result=await onAttach(data.id,target);if(result&&!result.opened)setNotice(result.command??`pacer attach ${data.id}`);}else if(onAction)await onAction({label:target==='orca'?'Open in Orca terminal':'Open in my terminal',op:'task.attach',params:{id:data.id,target}});}catch(e){setActionError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}};
+ if(error)return <section className="pc-session" role="alert"><p>{error}</p>{onReload&&<Button onClick={onReload}>Try again</Button>}</section>;
+ if(!data)return <section className="pc-session" role="status">{loading?'Loading session…':'Session not found.'}</section>;
+ const session=data.session,status=taskStatus(data),canAttach=(target:'orca'|'terminal')=>!!session?.targets.includes(target)&&!!(onAttach||onAction)&&!busy;
+ const retries=data.retryOptions??[],retry=retries.find(item=>item.id===selected)??retries.find(item=>item.available);
+ const terminal=<>{data.sessionError?<p role="alert">{data.sessionError}</p>:data.sessionLoading?<p role="status">Loading session…</p>:!session?<p className="pc-session-empty">Session unavailable.</p>:session.host==='orca'?<div className="pc-session-empty"><p>This session runs in Orca</p><Button disabled={!canAttach('orca')} onClick={()=>void attach('orca')}>Open in Orca</Button></div>:session.host==='none'?<div className="pc-session-log"><p className="pc-session-muted">This session has no terminal recording. Showing the plain log.</p>{data.log?<ResourceView value={data.log} loading="Loading output…" empty="Waiting for output…">{text=><pre role="log" tabIndex={0} aria-label="Session output">{text}</pre>}</ResourceView>:<PlainLog key={data.id} id={data.id}/>}</div>:<LazyTerminal key={data.id} id={data.id} url={session.attach.ws} cols={session.cols} rows={session.rows} control={session.capabilities.control} resize={session.capabilities.resize} live={session.live} controller={session.controller}/>}</>;
+ return <article className="pc-session" aria-label="Session">
+  {loading&&<p role="status">Updating session…</p>}
+  <header className="pc-session-header"><AgentMark agent={data.agent} size={28}/><div className="pc-session-heading"><h1>{data.goal}</h1><div className="pc-session-meta"><code>{data.executor??'Executor unknown'}</code><span>·</span><span>{data.repo}</span><span>·</span><code>{data.branch??'Branch unknown'}</code><span>·</span><span>{data.machine??session?.machine??'Local machine'}</span><span>·</span><span>{data.started?`started ${data.started}`:'Start time unknown'}</span></div></div><Pill tone={status.tone}>{data.phase??status.label}</Pill><span className="pc-session-muted">{data.changesSummary??'Changes and output pending'}</span>{data.stop&&<Button className="pc-session-danger" disabled={busy||!onAction} onClick={()=>void run(data.stop!)}>{data.stop.label}</Button>}</header>
+  {actionError&&<p role="alert">{actionError}</p>}<div className="pc-session-notice" role="status" aria-live="polite">{notice}</div>
+  <div className="pc-session-layout"><div className="pc-session-main"><div role="tablist" aria-label="Session views" className="pc-session-tabs">{(['terminal','changes','brief'] as const).map((name,index)=><button key={name} id={`session-${data.id}-${name}-tab`} role="tab" aria-selected={tab===name} aria-controls={`session-${data.id}-${name}-panel`} tabIndex={tab===name?0:-1} onClick={()=>setTab(name)} onKeyDown={e=>{const tabs:SessionTab[]=['terminal','changes','brief'];let next:number|undefined;if(e.key==='ArrowRight')next=(index+1)%3;if(e.key==='ArrowLeft')next=(index+2)%3;if(e.key==='Home')next=0;if(e.key==='End')next=2;if(next!==undefined){e.preventDefault();setTab(tabs[next]!);document.getElementById(`session-${data.id}-${tabs[next]}-tab`)?.focus();}}}>{name==='terminal'?'Terminal':name==='changes'?'Changes so far':'Brief'}</button>)}</div>
+   <div role="tabpanel" id={`session-${data.id}-${tab}-panel`} aria-labelledby={`session-${data.id}-${tab}-tab`} tabIndex={0} className="pc-session-panel">{tab==='terminal'?terminal:tab==='changes'?<ResourceView value={data.changes} loading="Loading changes…" empty="No changes so far.">{text=><pre aria-label="Changes so far">{text}</pre>}</ResourceView>:<ResourceView value={data.brief} loading="Loading brief…" empty="No brief available.">{text=><pre aria-label="Brief">{text}</pre>}</ResourceView>}</div>
+  </div><aside className="pc-session-aside">
+   <section><h2>Watch it elsewhere</h2>{data.sessionLoading?<p role="status">Loading viewers…</p>:data.sessionError?<p role="alert">{data.sessionError}</p>:<><Button disabled={!canAttach('orca')} onClick={()=>void attach('orca')}>Open in Orca terminal{!session?.targets.includes('orca')?' · unavailable':''}</Button><Button disabled={!canAttach('terminal')} onClick={()=>void attach('terminal')}>Open in my terminal{!session?.targets.includes('terminal')?' · unavailable':''}</Button></>}
+    <div className="pc-session-copy"><code>{session?.attach.cli??`pacer attach ${data.id}`}</code><Button size="sm" onClick={()=>{void navigator.clipboard.writeText(session?.attach.cli??`pacer attach ${data.id}`).then(()=>setNotice('Attach command copied.')).catch(()=>setActionError('Could not copy. Select the command and copy it.'));}}>Copy</Button></div><p className="pc-session-muted">Any terminal, tmux or SSH session works. Everyone sees the same stream.</p>
+   </section>
+   <section><h2>Done when</h2><ResourceView value={data.doneWhen} loading="Loading done-when command…" empty="No done-when command.">{text=><><code>{text}</code><p className="pc-session-muted">pacer runs it after the executor exits, then asks you to review.</p></>}</ResourceView></section>
+   <section><h2>Timeline</h2><ResourceView value={data.timeline} loading="Loading timeline…" empty="No timeline events yet.">{events=><ol className="pc-session-timeline">{events.map((event,index)=><li key={index}><time>{event.at}</time><span>{event.text}</span></li>)}</ol>}</ResourceView></section>
+   <section className="pc-session-retry"><label htmlFor={`session-${data.id}-retry`}>Stop and retry on</label>{data.retryLoading?<p role="status">Loading retry options…</p>:data.retryError?<p role="alert">{data.retryError}</p>:retries.length?<div className="pc-session-row"><select id={`session-${data.id}-retry`} value={retry?.id??''} onChange={e=>setSelected(e.currentTarget.value)} disabled={busy}>{retries.map(option=><option key={option.id} value={option.id} disabled={!option.available}>{option.label}{option.reason?` · ${option.reason}`:''}</option>)}</select>{retry&&<AgentMark agent={retry.agent} size={20}/>}<Button disabled={busy||!retry?.available||!onAction} onClick={()=>{if(retry)void run(retry.action);}}>{retry?.action.label??'Retry'}</Button></div>:<p className="pc-session-muted">No retry options available.</p>}</section>
+  </aside></div>
+ </article>;
+}
+export default Session;
