@@ -11,14 +11,15 @@ const base = { title: "Overview", planner, mode: "normal", connected: true, last
 test("planner meter shows compact text and words for screen readers", () => {
   const html = renderToString(<TopBar {...base} />);
   expect(html).toContain("<header");
-  expect(html).toContain(">63%·77<");
+  expect(html).toContain(">63% used · pace 77%<");
   expect(html).toContain('aria-valuetext="63% used, pace 77%, behind pace"');
   expect(html).toContain('aria-hidden="true"'); // the mark next to the planner name
   expect(html).toContain("Claude");
 });
 
-test("mode pill only when not normal, in words, with the hold time", () => {
-  expect(renderToString(<TopBar {...base} />)).not.toContain("pc-pill");
+test("mode chip always shows, in words, warn only when not normal, with the hold time", () => {
+  expect(renderToString(<TopBar {...base} />)).toContain(">Normal<");
+  expect(renderToString(<TopBar {...base} />)).toContain("pc-pill--neutral");
   const relaxed = renderToString(<TopBar {...base} mode="relaxed" />);
   expect(relaxed).toContain(">Relaxed<");
   const held = renderToString(<TopBar {...base} mode="strict" planner={{ ...planner, modeHeldUntil: snap.at + 3600 }} />);
@@ -45,4 +46,8 @@ test("Delegate is the one primary button, secondary when the screen owns the pri
   expect(html.match(/pc-btn--primary/g)?.length).toBe(1);
   expect(html).toContain(">Delegate<");
   expect(renderToString(<TopBar {...base} delegatePrimary={false} />)).not.toContain("pc-btn--primary");
+});
+
+test("the top bar shows the current time", () => {
+  expect(renderToString(<TopBar {...base} />)).toMatch(/pc-clock[^>]*>\d{2}:\d{2}</);
 });

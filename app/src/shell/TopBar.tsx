@@ -24,10 +24,11 @@ export function TopBar({ title, planner, mode, connected, lastUpdate, now: fixed
     {planner && <span className="pc-planner">
       <AgentMark agent={planner.agent} size={18} labelled={false} />
       <span className="pc-planner__name">{agentInfo(planner.agent).name}</span>
-      {known && <UsageMeter used={planner.usedPct} pace={planner.pacePct} tone={toneFor(planner.verdict)} verdict={planner.verdict} size="top" text="compact" label={`${agentInfo(planner.agent).name} planner usage`} stale={planner.stale} staleAt={lastUpdate ?? undefined} now={now} />}
+      {known && <UsageMeter used={planner.usedPct} pace={planner.pacePct} tone={toneFor(planner.verdict)} verdict={planner.verdict} size="top" text="full" label={`${agentInfo(planner.agent).name} planner usage`} stale={planner.stale} staleAt={lastUpdate ?? undefined} now={now} />}
     </span>}
-    {mode && mode.toLowerCase() !== "normal" && <Pill tone="warn">{modeWords(mode)}{planner?.modeHeldUntil ? ` · held until ${clock(planner.modeHeldUntil, now)}` : ""}</Pill>}
+    {mode && <Pill tone={mode.toLowerCase() === "normal" ? "neutral" : "warn"}>{modeWords(mode)}{planner?.modeHeldUntil ? ` · held until ${clock(planner.modeHeldUntil, now)}` : ""}</Pill>}
     <span className="pc-live"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{connected ? (lastUpdate ? `updated ${ago(lastUpdate, now)}` : "live") : "Reconnecting…"}</span>
+    <span className="pc-clock muted">{clock(now, now)}</span>
     <Button variant={delegatePrimary ? "primary" : "secondary"} size="sm" onClick={onDelegate}>Delegate</Button>
   </header>;
 }
