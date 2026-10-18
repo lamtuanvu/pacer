@@ -3,7 +3,7 @@ import { useEffect, useRef } from "preact/hooks";
 import type { ActivityEntry, AttentionItem } from "../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
 import { ago, clock, elapsed, meterText } from "../../../src/view-model/format";
-import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, repos, running, type Scope } from "../../../src/view-model/selectors";
+import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
 import { executorLabel, phaseWords, taskStatus, toneFor } from "../../../src/view-model/words";
 import { useActions } from "../data/action-context";
@@ -17,25 +17,12 @@ import { keys } from "../keys/instance";
 import { withQuery, type RouteQuery } from "../router";
 import { ActionButton } from "./ActionButton";
 import { QuickDelegate } from "./QuickDelegate";
+import { RepoFilter } from "./RepoFilter";
 import { useQuery, useTaskContext } from "./task-shared";
 
 const BAD_KINDS = new Set(["failed", "limit", "executor_down", "host_down"]);
 const OFF_STATES = new Set(["down", "failing", "disabled", "blocked", "exhausted"]);
 const gone = (item: AttentionItem) => (s: { snapshot: ClientSnapshot | null }) => !s.snapshot?.attention?.some(a => a.id === item.id && a.since === item.since);
-
-function RepoFilter({ snapshot, query }: { snapshot: ClientSnapshot; query: RouteQuery }) {
-  const byRepo = counts(snapshot)?.byRepo ?? {};
-  const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
-  const chip = (repo: string | null, label: string, n?: number) =>
-    <button type="button" key={repo ?? "all"} className={`pc-chip${query.repo === repo ? " on" : ""}`} aria-pressed={query.repo === repo ? "true" : "false"} onClick={() => go(repo)}>{label}{n !== undefined && <> <span className="pc-chip__n">{n}</span></>}</button>;
-  return <div className="pc-filter">
-    <div className="pc-chips" role="group" aria-label="Repository filter" id="repo-filter">
-      {chip(null, "All repos")}
-      {repos(snapshot).map(r => chip(r.key, r.label, (byRepo[r.key]?.attention ?? 0) + (byRepo[r.key]?.running ?? 0)))}
-    </div>
-    <p className="muted">Budgets are shared across repos; the filter only narrows work.</p>
-  </div>;
-}
 
 function NeedsYou({ snapshot, scope, runner, canDismiss }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; canDismiss: boolean }) {
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);

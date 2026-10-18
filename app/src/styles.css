@@ -219,3 +219,10 @@ a.pc-row:hover{background:var(--surface-lane)}
  .pc-topbar .pc-planner{display:none}
  .pc-work{width:100%}.pc-main{padding:var(--space-3)}.pc-main--canvas{padding:0}
 }
+
+.pc-filter{position:relative}
+.pc-repo-popover{position:absolute;top:calc(100% + var(--space-2));left:0;z-index:10;width:min(280px,calc(100vw - 48px));padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page);box-shadow:0 6px 24px #0002}
+.pc-repo-popover input{width:100%;box-sizing:border-box;margin-bottom:var(--space-2)}
+.pc-repo-list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:var(--space-1)}
+.pc-repo-list button{font:inherit;text-align:left;overflow-wrap:anywhere;border:0;background:transparent;color:var(--ink);padding:var(--space-2);cursor:pointer}
+.pc-repo-list button:hover,.pc-repo-list button:focus-visible,.pc-repo-list button[aria-pressed=true]{background:var(--surface-lane)}
