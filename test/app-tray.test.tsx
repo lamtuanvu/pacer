@@ -141,20 +141,20 @@ test("browser IPC degrades to app links; resize, hide and quit are safe no-ops",
   const urls: string[] = [];
   const browser = createTrayIpc({ location: { assign: url => { urls.push(url); } } });
   expect(browser.desktop).toBe(false);
-  await browser.open("/tasks/test");
+  await browser.open("/sessions/test");
   await browser.resize(999);
   await browser.hide();
   await browser.quit();
-  expect(urls).toEqual(["/app/#/tasks/test"]);
+  expect(urls).toEqual(["/app/#/sessions/test"]);
   await createTrayIpc(undefined).hide();
-  expect(draw(fixture())).toContain('href="/app/#/delegate"');
+  expect(draw(fixture())).toContain('href="/app/#/"');
 });
 
 test("desktop IPC uses only the shared commands and caps rounded height at 520", async () => {
   const calls: unknown[] = [];
   const desktop = createTrayIpc({ __TAURI__: { core: { invoke: async (command, args) => { calls.push([command, args]); } } }, location: { assign() { throw Error("Unexpected browser fallback"); } } });
-  await desktop.resize(300.2); await desktop.resize(900); await desktop.open("/delegate"); await desktop.hide(); await desktop.quit();
-  expect(calls).toEqual([["tray_resize", { height: 301 }], ["tray_resize", { height: 520 }], ["tray_open", { route: "/delegate" }], ["tray_hide", undefined], ["app_quit", undefined]]);
+  await desktop.resize(300.2); await desktop.resize(900); await desktop.open("/"); await desktop.hide(); await desktop.quit();
+  expect(calls).toEqual([["tray_resize", { height: 301 }], ["tray_resize", { height: 520 }], ["tray_open", { route: "/" }], ["tray_hide", undefined], ["app_quit", undefined]]);
 });
 
 test("primary op action posts the item's exact params with the app client header", async () => {
@@ -179,7 +179,7 @@ test("ui.open navigates through IPC and never calls the operation API", async ()
   const routes: string[] = [];
   const browser = createTrayIpc({ location: { assign: url => { routes.push(url); } } });
   await performAction({ label: "Review", op: "ui.open", params: { view: "review", id: "task 1" } }, { ...api, call: async () => { throw Error("Must not POST ui.open"); } }, browser);
-  expect(routes).toEqual(["/app/#/tasks/task%201"]);
+  expect(routes).toEqual(["/app/#/review/task%201"]);
   expect(actionRoute({ label: "Open", op: "ui.open", params: { route: "/settings" } })).toBe("/settings");
 });
 
@@ -228,4 +228,12 @@ test("row actions show one short verb and keep the full label as a tooltip", asy
   expect(rowLabel("Retry on OpenCode")).toBe("Retry");
   expect(rowLabel("Review")).toBe("Review");
   expect(rowLabel("Open settings")).toBe("Open settings");
+});
+
+test("tray action destinations use mounted screens and preserve settings sections", () => {
+  const route = (params: Record<string, unknown>) => actionRoute({ label: "Open", op: "ui.open", params });
+  expect(route({view:"task",id:"running 1"})).toBe("/sessions/running%201");
+  expect(route({view:"review",id:"done 1"})).toBe("/review/done%201");
+  expect(route({view:"settings",section:"executors"})).toBe("/settings/executors");
+  for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/strategies",setup:"/",tasks:"/sessions"})) expect(route({view})).toBe(to);
 });

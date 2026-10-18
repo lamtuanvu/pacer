@@ -55,7 +55,7 @@ browser ──HTTP/SSE (cookie)──▶ pacer serve ──▶ core API (src/api
 - **Preact** with hooks, TypeScript and TSX, bundled by `Bun.build` (no Vite, no extra build tool). Preact is the only new runtime dependency; it ships inside the bundle, not in the CLI.
 - Source in `app/src/`; build script `app/build.ts` writes `src/app/assets.generated.ts` (like `orca-plugin/build.ts` writes `src/plugin/assets.generated.ts`): `APP_FILES: {path, type, text}[]`. `bun build --compile` inlines it, so the binary serves the app with no files on disk. The release build refuses a stale generated file, as it does for the plugin.
 - Design system: `app/src/ds/` holds `tokens.css` (generated from the design system's `tokens.json`), the component styles, and TSX versions of `Button`, `Pill`, `UsageMeter`, `Card` and `Mark` with the same props as `window.Pacer`. Light and dark follow the system.
-- Routing: hash routes (`#/tasks/<id>`), so reloads and back/forward work with one static `index.html`.
+- Routing: hash routes (`#/sessions/<id>`), so reloads and back/forward work with one static `index.html`.
 - Data:
   - `GET /v2/snapshot` on load, then `GET /v2/events` (EventSource, resumes with `Last-Event-ID`); a `reset` event or a reconnect triggers a fresh snapshot.
   - Screen data that is not in the snapshot (accounts, runners, config, strategy, hosts, setup, updates) is fetched with ops and refetched when a related event arrives or after the screen's own mutation.
