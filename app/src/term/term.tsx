@@ -1,15 +1,16 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Button } from '../ds/Button';
 import { SessionClient, type SessionState } from './client';
-export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null }
+export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null}:TerminalViewProps){
+export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover}:TerminalViewProps){
  const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionClient>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
  const [reader,setReader]=useState(false),[error,setError]=useState(''),[generation,setGeneration]=useState(0),[exitAt,setExitAt]=useState('');
- const terminal=useRef<Terminal>();
+ const terminal=useRef<Terminal>(),taken=useRef(false);
  useEffect(()=>{
   if(!mount.current||!pane.current)return;
   setError('');setExitAt('');
@@ -37,15 +38,20 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();term.dispose();client.current=undefined;terminal.current=undefined;};
  },[id,url,label,control,resize,live,generation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
+ useEffect(()=>{if(takeRequested&&!taken.current&&state.status==='live'){taken.current=true;void client.current?.take(message=>window.confirm(message)).then(()=>onTakeSent?.()).catch(e=>setError(String(e)));}},[takeRequested,state.status]);
  const mode=state.status==='exited'?`Exited with code ${state.code ?? 'unknown'}${state.signal?` (${state.signal})`:''}${exitAt?` at ${exitAt}`:''}`:state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
  return <section className="pc-terminal-view" data-session-control={state.you?'true':'false'} onKeyDown={e=>{if(state.you)e.stopPropagation();}}>
   <div className={`pc-terminal-frame${state.you?' pc-terminal-frame--control':''}`}><div className="pc-terminal-pane" ref={pane}><div ref={mount} className="pc-terminal-mount"/></div>
    <div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{state.you?'Keystrokes go to the agent. Ctrl-] to release.':'Nothing you type reaches the agent.'}</span><span>{state.cols}×{state.rows}</span><label><input type="checkbox" checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label></div>
   </div>
   {state.message&&<p role="status">{state.message}</p>}{error&&<p role="alert">{error}</p>}
-  <div className="pc-session-row">{control&&live&&state.status!=='exited'&&<Button aria-pressed={state.you} disabled={state.status!=='live'} onClick={()=>{if(state.you)client.current?.release();else void client.current?.take(message=>window.confirm(message)).catch(e=>setError(String(e)));}}>{state.you?'Release control':'Take control'}</Button>}
-  {state.status==='error'&&<Button onClick={()=>setGeneration(n=>n+1)}>Reconnect</Button>}
-  <span className="pc-session-muted">{state.you?'Other viewers stay read-only while you hold control.':'Only for agents running interactively. pacer pauses its idle timer while you type.'}</span></div>
+  <TerminalControls control={control} live={live} driving={driving} state={state} takeover={takeover} onControl={()=>{if(state.you)client.current?.release();else void client.current?.take(message=>window.confirm(message)).catch(e=>setError(String(e)));}} onReconnect={()=>setGeneration(n=>n+1)}/>
+
  </section>;
+}
+export function TerminalControls({control,live,driving,state,takeover,onControl,onReconnect}:{control:boolean;live:boolean;driving?:boolean;state:SessionState;takeover?:ComponentChildren;onControl:()=>void;onReconnect?:()=>void}){
+ return <div className="pc-session-row">{control&&live&&state.status!=='exited'&&<Button aria-pressed={state.you} disabled={state.status!=='live'} onClick={onControl}>{state.you?(driving?'Hand back':'Release control'):'Take control'}</Button>}
+  {takeover}{state.status==='error'&&<Button onClick={onReconnect}>Reconnect</Button>}
+  <span className="pc-session-muted">{driving?'Ends this session and sends the task to review':state.you?'Other viewers stay read-only while you hold control.':'Only for agents running interactively. pacer pauses its idle timer while you type.'}</span></div>;
 }
 export default TerminalView;
