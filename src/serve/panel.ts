@@ -6,6 +6,7 @@ import type { LinkSnapshot } from "../link/envelope";
 import { renderStatusPage, type StatusView } from "../../orca-plugin/src/panel";
 import { LIVE_PANEL, MANAGED_MARKER, pluginDir } from "../plugin/install";
 import { PANEL_OWNER_MARKER } from "../plugin/panel-owner";
+export { panelRepo } from "../../orca-plugin/src/panel";
 
 function managedRoot(ctx: Pick<Ctx, "pacerHome">): string {
   const root = resolve(pluginDir(ctx));

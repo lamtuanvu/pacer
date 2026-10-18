@@ -16,6 +16,8 @@ import { renderStatusPage, snapshotStrategy } from "./panel";
 import { serveOwnsPanel } from "../../src/plugin/panel-owner";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
+  resolveRepo?(snapshot: import("../../src/view-model/snapshot").ClientSnapshot): Promise<import("../../src/api/read-model/types").RepoRef | null>;
+  open?(): Promise<void>;
   connect?(settings: { port: number; pacerHome: string }): Promise<ApiClient | null>;
   version?: string;
   cachedUpdate?(): UpdateCheck | null;
@@ -44,6 +46,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     stopped = false;
     const mode = pluginMode(deps.pluginRoot, deps.fs);
     ctx.commands.register("open", async () => {
+      if(deps.open) { await deps.open(); return {ok:true}; }
       await ctx.host.call("notifications.show", {
         title: "Open pacer",
         body: "Run `pacer open` in a terminal to open the pacer app.",
@@ -110,6 +113,14 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     let lastSeenAt: number | undefined;
     let apiFailures = 0;
     let setup:SetupChecklist|undefined;
+    let repo: import("../../src/api/read-model/types").RepoRef | null = null;
+    let repoBusy=false;
+    const refreshRepo=async()=>{
+      if(repoBusy || !deps.resolveRepo || store.snapshot.planner===undefined)return;
+      repoBusy=true;
+      try { const next=await deps.resolveRepo(store.snapshot); if(!stopped && JSON.stringify(next)!==JSON.stringify(repo)){repo=next;scheduleRender(true);} } catch(e){logError(e);} finally{repoBusy=false;}
+    };
+    timers.every(5000,()=>{void refreshRepo();});
     let renderedHtml: string | null = null;
     let lastRenderAt=-Infinity;
     let userOutcome=false;
@@ -130,7 +141,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         if (stopped) return;
         try {
           const nowS = deps.nowS();
-          const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
+          const html = renderStatusPage(store.snapshot, { nowS, transport: store.transport, reachable, setup, repo, bootstrap: deps.bootstrap?.state, updates: panelUpdates() });
           // Serve uses local setup probes; defer while it owns the page, then
           // force one render because serve may have replaced our last HTML.
           if (serveOwnsPanel(deps.pluginRoot, path => deps.fs.readText(path), nowS)) renderedHtml = null;
@@ -174,7 +185,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         if(changed)scheduleRender(true);
       }).catch(()=>{}).finally(()=>{refreshingSettings=false;});
     });
-    store.onChange(()=>scheduleRender());
+    store.onChange(()=>{scheduleRender();void refreshRepo();});
     timers.every(15000, () => { scheduleRender(); });
     const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
