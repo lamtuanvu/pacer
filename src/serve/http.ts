@@ -21,6 +21,8 @@ import { defaultPumpDeps, pumpOnce } from "../link/pump";
 
 
 export const DEFAULT_PORT = 4317;
+/** How long a request waits for the first status before the snapshot answers as starting. */
+export const STATUS_WARMUP_WAIT_MS = 300;
 
 export function ensureToken(ctx: Ctx): string {
   const p = join(ctx.pacerHome, "token");
@@ -83,7 +85,9 @@ export function startServer(
     }).catch(e=>{if(!stopped)statusError=e instanceof Error?e.message:String(e);}).finally(()=>{statusPending=null;});
   };
   const status = async () => {
-    if(statusPending)await statusPending;
+    // A cold start rebuilds the activity profile from agent logs, which can take seconds.
+    // Wait briefly for it, then let callers answer as "starting" instead of hanging.
+    if(statusPending)await (cachedStatus ? statusPending : Promise.race([statusPending, Bun.sleep(STATUS_WARMUP_WAIT_MS)]));
     if(statusError)throw Error(statusError);
     if(!cachedStatus)throw Error("status is warming up");
     return cachedStatus;
