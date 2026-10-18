@@ -5,6 +5,7 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { ActivityEntry } from "../src/api/read-model/types";
 import { createActionRunner } from "../app/src/data/actions";
 import { OverviewView } from "../app/src/screens/Overview";
+import { RepoFilter, RepoList, repoChoices } from "../app/src/screens/RepoFilter";
 
 const snap = fixture as unknown as ClientSnapshot;
 const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: async () => true, refetch: () => {}, navigate: () => {} });
@@ -114,4 +115,46 @@ test("empty states say what to do next", () => {
   expect(html).toContain("Nothing needs you.");
   expect(html).toContain("No executors yet.");
   expect(html).toContain('href="#/settings/add-executor"');
+});
+
+// Thirty registrations include stale worktrees, recent completions and more active
+// repositories than fit in the compact filter.
+function thirtyRepos(): ClientSnapshot {
+  const repos = Array.from({ length: 30 }, (_, i) => ({ key: `repo-${i}`, label: `Repo ${i}`, path: `/tmp/repos/${i}` }));
+  return { ...snap, repos, attention: [], tasks: repos.map((repo, i) => ({ ...snap.tasks[0]!, id: `task-${i}`, repo, updatedAt: snap.at - i })),
+    counts: { ...snap.counts!, byRepo: Object.fromEntries(repos.map((repo, i) => [repo.key, { attention: i < 7 ? (i === 0 ? 4 : 1) : 0, running: i === 1 ? 2 : 0, review: 0 }])) },
+    today: { ...snap.today!, byRepo: { 'repo-8': 1 } },
+  };
+}
+
+test("30 repos render All repos and at most five repo chips, ordered by work count then last use", () => {
+  const snapshot = thirtyRepos();
+  const html = renderToString(<RepoFilter snapshot={snapshot} query={{ repo: null, scope: null }} />);
+  expect(repoChoices(snapshot, null).chips.map(repo => repo.key)).toEqual(['repo-0', 'repo-1', 'repo-2', 'repo-3', 'repo-4']);
+  expect(html.match(/aria-pressed=/g)?.length).toBe(6);
+  expect(html).toContain('All repos');
+  expect(html).toContain('More repos ▾');
+  expect(html).toContain('aria-expanded="false"');
+  expect(html).not.toContain('Repo 29');
+  expect(html).not.toContain('All repositories');
+});
+
+test("an idle active filter stays visible within the five repo limit", () => {
+  const snapshot = thirtyRepos();
+  const html = renderToString(<RepoFilter snapshot={snapshot} query={{ repo: 'repo-29', scope: null }} />);
+  expect(html.match(/aria-pressed=/g)?.length).toBe(6);
+  expect(html).toMatch(/aria-pressed="true"[^>]*>Repo 29/);
+  expect(html).not.toContain('>Repo 4 ');
+  expect(repoChoices(snapshot, 'repo-29').chips.map(repo => repo.key)).toEqual(['repo-0', 'repo-1', 'repo-2', 'repo-3', 'repo-29']);
+});
+
+test("today's repos can fill spare chips, while zero-work repos are only in the searchable list", () => {
+  const original = thirtyRepos();
+  const snapshot = { ...original, counts: { ...original.counts!, byRepo: {} } };
+  expect(repoChoices(snapshot, null).chips.map(repo => repo.key)).toEqual(['repo-8']);
+  const list = (search: string) => renderToString(<RepoList snapshot={snapshot} active="repo-29" search={search} onSelect={() => {}} />);
+  expect(list('').match(/aria-pressed=/g)?.length).toBe(30);
+  expect(list('  REPO 29  ')).toContain('aria-pressed="true"');
+  expect(list('  REPO 29  ').match(/aria-pressed=/g)?.length).toBe(1);
+  expect(list('unknown')).toContain('No matching repositories.');
 });

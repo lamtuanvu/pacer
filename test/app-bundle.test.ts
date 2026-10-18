@@ -13,6 +13,8 @@ test("embedded app assets equal a fresh deterministic build", async () => {
 test("app HTML uses external scripts and styles under the app CSP", async () => {
   const html = (await buildApp()).find(f => f.path === "index.html")!.text;
   expect(html).toContain('src="/app/app.js"');
+  // The bundle is split into ES modules (the terminal loads lazily), so it must load as a module.
+  expect(html).toMatch(/<script type="module" src="\/app\/app\.js"><\/script>/);
   expect(html).toContain('href="/app/app.css"');
   expect(html).not.toMatch(/<script\b[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/i);
   expect(html).not.toMatch(/\son\w+\s*=/i);
