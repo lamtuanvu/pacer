@@ -18,6 +18,7 @@ import type { RepoRef } from "../../src/api/read-model/types";
 import { clock } from "../../src/view-model/format";
 import { modeWords } from "../../src/view-model/words";
 export { escapeHtml, jsonForScript } from "./panel/shared";
+export { panelRepo } from "./panel/repo";
 
 export interface StatusView {
  nowS:number; reachable:boolean; transport:TransportId|null;
@@ -51,7 +52,7 @@ export function renderStatusPage(s:ClientSnapshot, view:StatusView):string {
   const steps=(["install","start"] as const).map(name=>{const step=view.bootstrap![name];return `<p><strong>${name}: ${h(step.status)}</strong>${step.detail?` · ${h(step.detail)}`:""}</p>`;}).join("");
   content=section("Welcome to pacer","<p>pacer tracks your AI account budgets and task status. It helps you pace planning and delegate work to available executors.</p>")+section("Install",`<pre><code>${h(MANUAL_INSTALL)}</code></pre><pre><code>pacer init</code></pre>${steps}`)+section("Live panel","<p>The live panel opens automatically once pacer is installed and the plugin restarts.</p>")+section("Act in pacer","<p>Run <code>pacer open</code> in a terminal to open the pacer app, where you delegate, review and change settings.</p>");
  } else if(s.planner !== undefined) {
-  content=`<div class="stack planner"><div class="planner-summary"><strong>Planner${planner?` · ${h(providerLabel(planner))}`:" unknown"}</strong>${planner?`<span class="planner-stats">${h(planner.usedPct===null?"Usage unknown":`${Math.round(planner.usedPct)}%`)} · pace ${h(planner.pacePct===null?"unknown":Math.round(planner.pacePct))} · resets ${h(planner.resetsAt===null?"unknown":new Date(planner.resetsAt*1000).toLocaleDateString("en-GB",{weekday:"short"}))}</span>`:""}</div>${planner?meter(planner):""}</div>${board(s,view.repo??null)}`;
+  content=`<div class="stack planner"><div class="planner-summary"><strong>Planner${planner?` · ${h(providerLabel(planner))}`:" unknown"}</strong>${planner?`<span class="planner-stats">${h(planner.usedPct===null?"Usage unknown":`${Math.round(planner.usedPct)}%`)} · pace ${h(planner.pacePct===null?"unknown":Math.round(planner.pacePct))} · resets ${h(planner.resetsAt===null?"unknown":new Date(planner.resetsAt*1000).toLocaleDateString("en-GB",{weekday:"short"}))}</span>`:""}</div>${planner?meter(planner):""}${s.planner?`<small>${h(s.planner.advice)}</small>`:""}</div>${board(s,view.repo??null)}`;
  } else {
   const accounts=accountGroups(providers).flatMap(group=>{
    // Legacy providers have no account identity and must retain separate budgets.

@@ -1,7 +1,6 @@
-import { panelRepo } from "../../orca-plugin/src/panel/repo";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
-import { createManagedPanelWriter } from "./panel";
+import { createManagedPanelWriter, panelRepo } from "./panel";
 import { checkSetup } from "../setup/check";
 import { MANAGED_MARKER, pluginDir } from "../plugin/install";
 import { installedPlugin, readUpdateCheck, updateAvailable } from "../update/check";

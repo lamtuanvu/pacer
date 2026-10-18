@@ -24,7 +24,8 @@ test("current clients render without legacy snapshot fields",()=>{
  expect(tui).toContain("Planner Claude: 63%");
  const html=renderStatusPage(s,{nowS:s.at,reachable:true,transport:"api"});
  expect(html).toContain("Needs you");
- expect(html).toContain("63% used");
+ expect(html).toContain("63% · pace 77 · resets Mon</span>");
+ expect(html).toContain('aria-label="Claude usage, pace 77%" aria-valuenow="63"');
  expect(html).toContain(s.planner!.advice);
  expect(legacyChecklist(s,s.at,true).complete).toBe(true);
 });
@@ -57,7 +58,9 @@ test("equivalent service data keep TUI output and panel budget while the current
  expect(renderDashboard(s,120,24,s.at,{selected:0})).toBe(renderDashboard(old,120,24,s.at,{selected:0}));
  const view={nowS:s.at,reachable:true,transport:"api" as const};
  const currentPanel=renderStatusPage(s,view), oldPanel=renderStatusPage(old,view);
- for(const html of [currentPanel,oldPanel])expect(html).toContain("63% used");
+ expect(currentPanel).toContain("63% · pace 77 · resets Mon</span>");
+ expect(oldPanel).toContain("63% used");
+ for(const html of [currentPanel,oldPanel])expect(html).toContain('aria-label="Claude usage, pace 77%" aria-valuenow="63"');
  expect(currentPanel).toContain("<h2>Needs you</h2>");
  expect(oldPanel).toContain("<h2>Accounts</h2>");
 });

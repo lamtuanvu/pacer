@@ -1970,6 +1970,30 @@ header{padding-bottom:10px;border-bottom:1px solid var(--line)}.brand-tick{fill:
 .good{color:var(--good-fg)}.warn{color:var(--warn-fg)}.bad{color:var(--bad-fg)}.info{color:var(--info-fg)}.neutral{color:var(--ink-muted)}.meter{background:var(--surface-lane)}.pace{background:var(--ink)}
 code{font-family:var(--font-mono)}pre{background:var(--surface-lane)}footer{border-color:var(--line)}.capacity{flex-wrap:wrap;gap:12px}.executor{position:relative;display:inline-flex}.dot{position:absolute;right:-3px;bottom:-3px;width:8px;height:8px;border-radius:50%;background:currentColor;border:1px solid var(--surface-page)}.monogram{display:inline-flex;align-items:center;justify-content:center;font-size:11px}.done{font-size:12px}.done .grow{color:var(--ink)}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 `;
+// orca-plugin/src/panel/repo.ts
+import { dirname, resolve } from "node:path";
+async function panelRepo(s, run) {
+  try {
+    const result = await run(["orca", "worktree", "show", "--worktree", "active", "--json"], 2000);
+    if (result.code !== 0)
+      return null;
+    const reply = JSON.parse(result.stdout);
+    if (!reply.ok)
+      return null;
+    const worktree = reply.result?.worktree;
+    const path = worktree?.path ?? worktree?.id?.split("::")[1];
+    const repoPath = reply.result?.repo?.path ?? worktree?.repo?.path;
+    if (repoPath)
+      return repos(s).find((r) => resolve(r.path) === resolve(repoPath)) ?? { key: repoPath, label: reply.result?.repo?.name ?? repoPath.split("/").pop(), path: repoPath };
+    if (typeof path !== "string")
+      return null;
+    const git = await run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"], 2000);
+    const root = git.code === 0 ? dirname(git.stdout.trim()) : path;
+    return repos(s).find((r) => resolve(r.path) === resolve(root)) ?? { key: root, label: root.split("/").pop() ?? root, path: root };
+  } catch {
+    return null;
+  }
+}
 // orca-plugin/src/panel.ts
 function absolute(at, now, weekday = false) {
   const date = new Date(at * 1000), today = new Date(now * 1000);
@@ -1997,7 +2021,7 @@ function renderStatusPage(s, view) {
     }).join("");
     content = section("Welcome to pacer", "<p>pacer tracks your AI account budgets and task status. It helps you pace planning and delegate work to available executors.</p>") + section("Install", `<pre><code>${h(MANUAL_INSTALL)}</code></pre><pre><code>pacer init</code></pre>${steps}`) + section("Live panel", "<p>The live panel opens automatically once pacer is installed and the plugin restarts.</p>") + section("Act in pacer", "<p>Run <code>pacer open</code> in a terminal to open the pacer app, where you delegate, review and change settings.</p>");
   } else if (s.planner !== undefined) {
-    content = `<div class="stack planner"><div class="planner-summary"><strong>Planner${planner ? ` · ${h(providerLabel(planner))}` : " unknown"}</strong>${planner ? `<span class="planner-stats">${h(planner.usedPct === null ? "Usage unknown" : `${Math.round(planner.usedPct)}%`)} · pace ${h(planner.pacePct === null ? "unknown" : Math.round(planner.pacePct))} · resets ${h(planner.resetsAt === null ? "unknown" : new Date(planner.resetsAt * 1000).toLocaleDateString("en-GB", { weekday: "short" }))}</span>` : ""}</div>${planner ? meter(planner) : ""}</div>${board(s, view.repo ?? null)}`;
+    content = `<div class="stack planner"><div class="planner-summary"><strong>Planner${planner ? ` · ${h(providerLabel(planner))}` : " unknown"}</strong>${planner ? `<span class="planner-stats">${h(planner.usedPct === null ? "Usage unknown" : `${Math.round(planner.usedPct)}%`)} · pace ${h(planner.pacePct === null ? "unknown" : Math.round(planner.pacePct))} · resets ${h(planner.resetsAt === null ? "unknown" : new Date(planner.resetsAt * 1000).toLocaleDateString("en-GB", { weekday: "short" }))}</span>` : ""}</div>${planner ? meter(planner) : ""}${s.planner ? `<small>${h(s.planner.advice)}</small>` : ""}</div>${board(s, view.repo ?? null)}`;
   } else {
     const accounts = accountGroups(providers2).flatMap((group) => {
       const rows = group.account ? [group.rows] : group.rows.map((p) => [p]);
@@ -2401,31 +2425,6 @@ function createPlugin(deps) {
       timerCancels.clear();
     }
   };
-}
-
-// orca-plugin/src/panel/repo.ts
-import { dirname, resolve } from "node:path";
-async function panelRepo(s, run) {
-  try {
-    const result = await run(["orca", "worktree", "show", "--worktree", "active", "--json"], 2000);
-    if (result.code !== 0)
-      return null;
-    const reply = JSON.parse(result.stdout);
-    if (!reply.ok)
-      return null;
-    const worktree = reply.result?.worktree;
-    const path = worktree?.path ?? worktree?.id?.split("::")[1];
-    const repoPath = reply.result?.repo?.path ?? worktree?.repo?.path;
-    if (repoPath)
-      return repos(s).find((r) => resolve(r.path) === resolve(repoPath)) ?? { key: repoPath, label: reply.result?.repo?.name ?? repoPath.split("/").pop(), path: repoPath };
-    if (typeof path !== "string")
-      return null;
-    const git = await run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"], 2000);
-    const root = git.code === 0 ? dirname(git.stdout.trim()) : path;
-    return repos(s).find((r) => resolve(r.path) === resolve(root)) ?? { key: root, label: root.split("/").pop() ?? root, path: root };
-  } catch {
-    return null;
-  }
 }
 
 // orca-plugin/src/worker.ts
