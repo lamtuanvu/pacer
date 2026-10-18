@@ -2,6 +2,18 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+/// Runtime IPC defense, in addition to the per-window remote capability grants.
+pub fn command_authorized(label: &str, expected: &str, url: &Url, origin: Option<&str>) -> bool {
+    label == expected
+        && local_origin(url)
+            .as_deref()
+            .is_some_and(|o| Some(o) == origin)
+}
+
+pub fn tray_height(height: f64) -> Option<f64> {
+    height.is_finite().then(|| height.clamp(120., 520.))
+}
+
 pub fn service_navigation(url: &Url, origin: Option<&str>) -> bool {
     local_origin(url)
         .as_deref()
@@ -216,6 +228,68 @@ impl Sse {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn tray_size_is_finite_and_clamped() {
+        for (height, expected) in [
+            (-1., 120.),
+            (0., 120.),
+            (120., 120.),
+            (271.5, 271.5),
+            (520., 520.),
+            (9999., 520.),
+        ] {
+            assert_eq!(tray_height(height), Some(expected));
+        }
+        for height in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(tray_height(height), None);
+        }
+    }
+    #[test]
+    fn commands_require_the_designated_window_and_active_loopback_origin() {
+        let origin = Some("http://127.0.0.1:7432");
+        let url = Url::parse("http://127.0.0.1:7432/app/tray.html").unwrap();
+        assert!(command_authorized("tray", "tray", &url, origin));
+        assert!(!command_authorized("main", "tray", &url, origin));
+        assert!(!command_authorized("tray", "main", &url, origin));
+        assert!(!command_authorized("other", "tray", &url, origin));
+        assert!(!command_authorized("tray", "tray", &url, None));
+        for raw in [
+            "http://127.0.0.1:7433/app/tray.html",
+            "http://localhost:7432/app/tray.html",
+            "https://127.0.0.1:7432/app/tray.html",
+            "http://user@127.0.0.1:7432/app/tray.html",
+            "tauri://localhost/index.html",
+            "https://example.com/app/tray.html",
+        ] {
+            assert!(
+                !command_authorized("tray", "tray", &Url::parse(raw).unwrap(), origin),
+                "{raw}"
+            );
+        }
+    }
+    #[test]
+    fn tray_routes_use_the_shared_route_validator() {
+        for raw in [
+            "/",
+            "/overview",
+            "#/review/t-123",
+            "/session/t-123",
+            "/settings/hosts/workstation",
+        ] {
+            let normalized = route(raw).expect("supported tray destination");
+            assert_eq!(route(&normalized), Some(normalized));
+        }
+        for raw in [
+            "javascript:alert(1)",
+            "//evil.test",
+            "/review/%2e%2e",
+            "/review/../settings",
+            "/app/tray.html",
+            "/review/a?x=1",
+        ] {
+            assert!(route(raw).is_none(), "{raw}");
+        }
+    }
     #[test]
     fn service_navigation_is_restricted_to_app_on_active_origin() {
         let origin = Some("http://127.0.0.1:7432");

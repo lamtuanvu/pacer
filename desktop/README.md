@@ -53,10 +53,14 @@ again. The lease lapses after exit, allowing the service to resume its fallback
 notifications. Recovery retries every five seconds and on focus; Start pacer
 invokes `pacer service install` without a shell.
 
-The tray uses service-owned `planner`, `attention`, and `counts`. Needs you
-preserves attention order. Pause delegation for 1 hour calls `delegation.pause`
-with `{for:"1h"}`; while `snapshot.pause` is present the menu offers Resume
-instead. Switch strategy lists snapshot strategies and calls `strategy.use`.
+The tray title uses service-owned planner usage and attention counts. Left-click
+opens a separate `/app/tray.html` popover, created hidden once the main page has
+signed in so it shares the webview cookie session. It reads snapshots and events
+directly. The window is transparent, frameless, always on top, 340 px wide and
+120–520 px tall, anchored below the icon. Blur and Esc hide it. Right-click opens
+a minimal native menu: Open pacer, Pause 1h / Resume, Quit. Pause calls
+`delegation.pause` with `{for:"1h"}`; while `snapshot.pause` is present it offers
+Resume instead.
 
 Native notifications consume service-selected `notify` events addressed to this
 client, preserving the service's attention flags, notification preference, and
@@ -85,8 +89,22 @@ await window.__TAURI__.core.invoke('notifyRoute', { route: '#/review/t-example' 
 
 Each handler also verifies the caller window and current service origin. Local
 recovery pages, other origins and old service ports cannot invoke these
-commands. Launch at login is off until enabled and is also available in the
-tray. Window geometry and appearance preference are stored by the shell.
+commands. Launch at login is off until enabled in Settings. Main-window geometry
+and appearance preference are stored by the shell; tray geometry is excluded.
+
+The tray window has a separate capability grant for that same active origin:
+
+```js
+await window.__TAURI__.core.invoke('tray_resize', { height: 360 });
+await window.__TAURI__.core.invoke('tray_open', { route: '#/review/t-example' });
+await window.__TAURI__.core.invoke('tray_hide');
+await window.__TAURI__.core.invoke('app_quit');
+```
+
+These commands check the `tray` label and active service origin. `tray_open`
+uses the shared route validator, opens and focuses the main window at the route,
+and hides the popover. The page invokes `tray_hide` on Esc. In a plain browser,
+links open `/app/#<route>` and resizing is skipped.
 
 ## Manual smoke checks
 
@@ -94,14 +112,18 @@ tray. Window geometry and appearance preference are stored by the shell.
 - Stop the service: pacer isn't running; Start pacer loads the authenticated UI.
 - Hide the window; change service state and confirm tray updates continue.
 - Trigger attention under Off / Important / All; test body and action clicks.
-- Pause/resume delegation and switch strategies from the tray.
+- Left-click toggles the popover below the icon; blur and Esc hide it.
+- Resize the popover via IPC; width stays 340 px and height clamps to 120–520 px.
+- Open a route from the popover; the main window focuses and the popover hides.
+- Right-click offers only Open pacer, Pause 1h / Resume, Quit; test each action.
 - Hide the app for over 45 seconds; confirm its notifier lease stays active.
 - Run `open 'pacer://review/t-example'`, including when the app is closed.
 - Launch the app twice: only one tray and window remain.
 - Resize/move/relaunch; test theme and launch at login, then turn autostart off.
 - Return protocol 1.x / 3.x from a test service: update CLI / app respectively.
 - Try IPC from another origin: denied. Confirm the three allowed IPC calls from
-  the authenticated page work and all other plugin calls are denied.
+  the authenticated main page work, the four tray commands work only from the
+  tray window, and all plugin calls are denied.
 
 Unit tests cover discovery order, auth URL validation, route validation,
 protocol majors, fragmented SSE, tray projection, attention notification mapping,

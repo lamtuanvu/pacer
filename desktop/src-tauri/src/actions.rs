@@ -37,9 +37,6 @@ pub fn pause(paused: bool) -> Value {
         json!({"op":"delegation.pause","params":{"for":"1h"}})
     }
 }
-pub fn strategy(name: &str) -> Value {
-    json!({"op":"strategy.use","params":{"name":name}})
-}
 pub fn attention_route(item: &Value) -> String {
     item["actions"]
         .as_array()
@@ -76,7 +73,7 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatch(&strategy("my strategy")),
+            dispatch(&json!({"op":"strategy.use","params":{"name":"my strategy"}})),
             Some(Dispatch::Op {
                 op: "strategy.use".into(),
                 params: json!({"name":"my strategy"})
