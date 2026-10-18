@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
-- App links now point directly to Overview, Review, Sessions and Settings. Retired UI routes show Not found with a link to Overview; old screens and route redirects have been removed.
+- App links now point directly to Overview, Review, Sessions and Settings. Retired UI routes fall back to Overview; old screens and route redirects have been removed.
 
 ### Added
 
@@ -26,6 +26,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Removed
 
+- Old app route redirects. Retired and unknown hashes now fall back to Overview (`#/`); incomplete setup redirects to Settings.
+
 - Protocol 3.0 snapshot fields `v`, `budget`, `alerts`, `console`, `consoles`, `serviceInstalled`. Read `planner`/`accounts`/`executors`, `attention` and `setup` instead.
 - Protocol 3.0 `budget` and `alert` events. Subscribe to `planner`, `account`, `executor`, `attention` and `notify` instead.
 - Bearer-only `/link` and legacy `/events` routes (404). Use `/v3/snapshot` and `/v3/events`; `/state` and `/console/open|forget` were already removed in 2.6.
@@ -38,6 +40,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - In v3, `task.review.accepted` is removed; send required `verdict`. `task.diff.diff` is removed; read `patch`. `task.list` no longer returns a bare array; read `{ tasks, next }` and paginate. `notifications.set`, `pacer status --json` and planner hook output are unchanged.
 - Durable outbox events are named `OutboxEvent` and omit `v`; pre-upgrade v3 event cursors receive `reset` and must fetch a fresh snapshot.
 - The owner waived the v1 retirement release gate on 2026-10-18. The next minor release removes the v2 adapter, routes, reference document and `hello.previous`.
+
+### Fixed
+
+- `pacer serve` answers right after a restart. Clients replaying events from cursor 0 made the service read every task file once per outbox event, blocking all requests for over a minute on a large home; task events are now enriched in one batch. While the first status is still being computed, snapshots answer within a second with `service.starting: true` instead of waiting.
 
 ## [0.2.3] - 2026-10-16
 

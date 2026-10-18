@@ -7,7 +7,7 @@ import { drainQueueOnRead } from "../tasks/drain";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import { toBudget } from "../link/budget";
-import { apiTask, snapshotTasks } from "./read-model/tasks";
+import { apiTasks, snapshotTasks } from "./read-model/tasks";
 import { buildReadModel, readModelContext } from "./read-model";
 import type { ApiTask } from "./read-model/types";
 import { listTasks, readTask } from "../tasks/store";
@@ -37,15 +37,17 @@ export async function liveSnapshot(
   }
   const status = o.status ?? (c => computeStatus({ ...c, readOnly: true }, strategy));
   const key=JSON.stringify([strategy,readHold(ctx)]),cached=statusCache.get(ctx.pacerHome);
-  let statusAvailable=false;
+  let statusAvailable=false,warming=false;
   const refresh=async():Promise<Status>=>{
     if(!o.status && cached && cached.strategy===key && ctx.now-cached.at>=0 && ctx.now-cached.at< (o.maxBudgetAgeS??60)){statusAvailable=true;return cached.value;}
     try{const value=await status(ctx);statusAvailable=true;statusCache.set(ctx.pacerHome,{at:ctx.now,strategy:key,value});return value;}
-    catch{return {generatedAt:ctx.now,strategy:strategy.name,planner:snapshot.budget?.planner??Object.keys(strategy.runners).find(id=>strategy.runners[id].agent===strategy.planner.agent&&strategy.runners[id].account===strategy.planner.account)??"",mode:"normal",disabled:false,calendarPace:false,providers:[],executors:{ranked:[],excluded:[]}};}
+    catch(e){warming=e instanceof Error&&e.message==="status is warming up";return {generatedAt:ctx.now,strategy:strategy.name,planner:snapshot.budget?.planner??Object.keys(strategy.runners).find(id=>strategy.runners[id].agent===strategy.planner.agent&&strategy.runners[id].account===strategy.planner.account)??"",mode:"normal",disabled:false,calendarPace:false,providers:[],executors:{ranked:[],excluded:[]}};}
   };
   const [st,context]=await Promise.all([refresh(),readModelContext(ctx)]);
   if (statusAvailable && (!snapshot.budget || ctx.now - snapshot.budget.generatedAt > (o.maxBudgetAgeS ?? 60))) snapshot.budget = toBudget(st);
   const fields=buildReadModel(ctx,{status:st,strategy,tasks,setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
+  // While the first status is still being computed, say so instead of making clients wait for it.
+  if(warming)fields.service={...fields.service,starting:true};
   const result:SnapshotV3={seq:V3_CURSOR_BASE+snapshot.seq,at:snapshot.at,mode:snapshot.mode,...fields,tasks:snapshot.tasks as ApiTask[],strategies:snapshot.strategies??[]};
   // Legacy-only transport state must survive the overlap without appearing on v3 wires.
   Object.defineProperty(result,V2_STATE,{value:{budget:snapshot.budget,alerts:snapshot.alerts,console:snapshot.console,consoles:snapshot.consoles,serviceInstalled:snapshot.serviceInstalled}});
@@ -57,6 +59,11 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
   const oldest = all[0]?.seq;
   const reset = since > 0 && oldest !== undefined && oldest > since + 1;
   const after = all.filter((e) => e.seq > since);
+  // Enrich task events in one batch: per-event apiTask re-reads every task file for repo
+  // labels, which made a replay from cursor 0 O(events × tasks) and blocked the service.
+  const ids = [...new Set(after.flatMap(e => e.envelope.type === "task" ? [e.envelope.data.id] : []))];
+  const records = ids.map(id => readTask(ctx, id)).filter((t): t is TaskRecord => t !== null);
+  const enriched = new Map(apiTasks(ctx, records).map(t => [t.id, t]));
   const events: ApiEvent[] = [
     ...(reset ? [{ seq: oldest! - 1, at: ctx.now, type: "reset" as const, data: { reason: "events were dropped; fetch the snapshot again" } }] : []),
     ...after.map((e): ApiEvent => {
@@ -65,8 +72,8 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
       if(env.type==="entity")data=env.data.removed?{id:env.data.id,removed:true}:env.data.value;
       if(env.type==="task"){
         data={...env.data,title:env.data.title || shortTitle(env.data.goal)};
-        const record=readTask(ctx,env.data.id);
-        if(record){const {repo,kind,host,title}=apiTask(ctx,record);data={...env.data,repo,kind,host,title};}
+        const task=enriched.get(env.data.id);
+        if(task){const {repo,kind,host,title}=task;data={...env.data,repo,kind,host,title};}
       }
       return {seq:e.seq,at:e.at??ctx.now,type:env.type==="entity"?env.data.kind:env.type,data};
     }),

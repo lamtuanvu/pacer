@@ -18,8 +18,8 @@ test("new routes resolve with their ids and sections", () => {
   expect(route("#/settings/add-executor")).toEqual({ name: "add-executor", query: q });
 });
 
-test("unknown or malformed routes are not found", () => {
-  for (const hash of ["#/missing", "#/review/a/b", "#/sessions/%ZZ", "#/settings/nope"]) expect(route(hash).name).toBe("not-found");
+test("unknown or malformed routes fall back to Overview", () => {
+  for (const hash of ["#/missing", "#/review/a/b", "#/sessions/%ZZ", "#/settings/hosts/%ZZ", "#/settings/nope"]) expect(route(hash)).toEqual({ name: "overview", query: q });
 });
 
 test("the repo filter and scope come from the query and survive", () => {
@@ -29,16 +29,19 @@ test("the repo filter and scope come from the query and survive", () => {
   expect(withQuery("#/", q)).toBe("#/");
 });
 
-test("retired routes are not found, including during setup", () => {
-  for (const path of ["tasks", "tasks/t1", "executors", "executors/add", "accounts", "strategy", "hosts", "setup"]) {
-    for (const setup of [true, false, null]) expect(resolveRoute(`#/${path}?repo=k`, setup)).toEqual({ name: "not-found", query: { repo: "k", scope: null } });
+test("old routes fall back to Overview and keep the repo filter and scope", () => {
+  for (const hash of ["#/tasks", "#/tasks/t1", "#/executors", "#/executors/add", "#/accounts", "#/strategy", "#/hosts", "#/setup"]) {
+    expect(resolveRoute(hash)).toEqual({ name: "overview", query: q });
+    expect(resolveRoute(`${hash}?repo=k&scope=all`)).toEqual({ name: "overview", query: { repo: "k", scope: "all" } });
   }
 });
 
-test("incomplete setup takes over every screen except settings", () => {
-  for (const hash of ["#/", "#/review/one", "#/sessions"]) expect(route(hash, false).name).toBe("setup");
+test("incomplete setup redirects to Settings except within settings", () => {
+  for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing", "#/tasks/t1"]) expect(resolveRoute(hash, false)).toEqual({ redirect: "#/settings" });
+  expect(resolveRoute("#/review/one?repo=k&scope=all", false)).toEqual({ redirect: "#/settings?repo=k&scope=all" });
   expect(route("#/settings", false).name).toBe("settings");
   expect(route("#/settings/hosts", false).name).toBe("hosts");
+  expect(route("#/settings/add-executor", false).name).toBe("add-executor");
 });
 
 test("while the first setup check is in flight, screens wait instead of flashing Setup", () => {

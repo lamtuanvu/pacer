@@ -23,8 +23,14 @@ Alternatively, keep `pacer serve` running in a terminal. `pacer open` requires
 a running daemon; it does not start one.
 
 To open a particular screen, use, for example, `pacer open sessions` or
-`pacer open settings`. Pages use bookmarkable hash routes such as `#/sessions`
-and `#/sessions/<id>`, or `#/review/<id>` for tasks waiting for review; bookmarks require an active browser session. Retired routes show Not found with a link to Overview.
+`pacer open settings`. Pages use bookmarkable hash routes such as `#/`,
+`#/review`, `#/review/<id>` for tasks waiting for review, `#/sessions` and
+`#/sessions/<id>`; bookmarks require an active browser session. Old app routes
+(`#/tasks`, `#/tasks/<id>`,
+`#/executors`, `#/executors/add`, `#/accounts`, `#/strategy`, `#/hosts` and
+`#/setup`) no longer redirect to their replacement screens. They fall back to
+Overview (`#/`), as do other unknown or malformed hashes. Incomplete setup
+redirects work screens to Settings.
 
 `pacer open --print` prints a sign-in URL instead of opening the browser.
 Open it within 60 seconds; it works once. Treat it as a credential and do not
@@ -37,8 +43,7 @@ command under Sign out; run it in a terminal.
 
 | Screen | What you can do |
 | --- | --- |
-| Setup | Choose a planner, follow the service-install command, connect agents and install the Orca panel. Required setup items take over other screens until complete; Settings remains available. |
-| Home | Check planner usage and pace, mode, items needing attention, who runs next and running work; delegate a task. |
+| Overview | Check planner usage and pace, mode, items needing attention, who runs next and running work; delegate a task. |
 | Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. |
 | Task detail | Follow the live log, inspect the diff and untracked files, accept or reject with a note, retry or stop. |
 | Executors | Inspect availability and reasons, reorder and save routing, block or unblock, test endpoints and remove executors. |
@@ -60,7 +65,7 @@ when the connection returns. Unsent form drafts are kept in the tab's
 
 ## Needs you and review
 
-Home reads the service's attention queue in its supplied order: blocked items,
+Overview reads the service's attention queue in its supplied order: blocked items,
 problems, then decisions, oldest first within each group. The service includes
 review work, failed or limited tasks, stuck work, sign-in and executor problems,
 planner quota, setup and updates. Dismissed and snoozed items stay hidden as
