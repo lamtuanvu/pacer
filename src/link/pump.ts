@@ -96,10 +96,11 @@ function statusActivity(ctx: Ctx, st: Status): void {
   if (refreshed.length) {
     const planner = st.providers.find(p => p.id === st.planner);
     const plannerAccount = accounts.find(a => a.runners.includes(st.planner));
-    const pct = (n: number | null | undefined) => n == null ? "unknown" : `${Math.round(n)}%`;
-    const parts = [`planner ${pct(plannerAccount?.usedPct ?? planner?.binding?.usedPct)}`,
-      ...refreshed.filter(a => a !== plannerAccount).map(a => `${executorName(a.runners[0])} ${pct(a.usedPct)}`)];
-    appendActivity(ctx, { kind: "budget_refreshed", level: "info", text: `Budgets refreshed · ${parts.join(" · ")}` });
+    // Name only accounts that have a runner and a reading; "the executor unknown" tells nobody anything.
+    const plannerPct = plannerAccount?.usedPct ?? planner?.binding?.usedPct;
+    const parts = [...(plannerPct == null ? [] : [`planner ${Math.round(plannerPct)}%`]),
+      ...refreshed.filter(a => a !== plannerAccount && a.runners.length > 0 && a.usedPct != null).map(a => `${executorName(a.runners[0])} ${Math.round(a.usedPct!)}%`)];
+    if (parts.length) appendActivity(ctx, { kind: "budget_refreshed", level: "info", text: `Budgets refreshed · ${parts.join(" · ")}` });
   }
   if (JSON.stringify(prev) !== JSON.stringify(next)) writeJsonAtomic(path, next);
 }
