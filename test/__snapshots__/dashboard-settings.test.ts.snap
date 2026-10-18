@@ -1,0 +1,97 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`settings board renders fixture meters, executors and hosts at 80 and 120 columns 1`] = `
+"▬┃ pacer › settings · strategy default
+PLANNER & PACING
+> Planner: claude-code · 63% used · pace 77% · Enter cycle
+  Policy: priority
+  Planner reserve: 15%
+  Accounts: spread
+EXECUTORS
+  planner claude-code · default model · this machine · Enabled · planner · on p…
+  2 codex · default model · this machine · Enabled
+ACCOUNTS
+  personal · claude · default · Usage unknown · Available · Runners: claude-cod…
+  spare · codex · default · Usage unknown · Sign-in state unknown · Runners: co…
+  Add account
+  Link Orca account
+RUNNERS
+  claude-code · claude-code · personal · default model · Planner — can't remove
+  codex · codex · spare · default model
+  + Add executor
+ROUTING
+  Routing: default → codex · Edit routing
+HOSTS
+  devbox · 1/3 tasks · codex#team@devbox · Enter check
+  buildbox · 0/2 tasks · No executors · Enter check
+STRATEGIES
+  default · Active
+  New strategy
+UPDATES
+  Check for updates
+  Update
+PLUGIN
+  Update checks: on
+  Notifications and automatic console: Orca plugin settings
+
+
+
+
+
+
+
+
+
+
+
+
+j/k select · Enter change · a add · l link · [/] order · b on/off · t check · E…"
+`;
+
+exports[`settings board renders fixture meters, executors and hosts at 80 and 120 columns 2`] = `
+"▬┃ pacer › settings · strategy default
+PLANNER & PACING
+> Planner: claude-code · 63% used · pace 77% · Enter cycle
+  Policy: priority
+  Planner reserve: 15%
+  Accounts: spread
+EXECUTORS
+  planner claude-code · default model · this machine · Enabled · planner · on pace · check 07:00
+  2 codex · default model · this machine · Enabled
+ACCOUNTS
+  personal · claude · default · Usage unknown · Available · Runners: claude-code · Planner — can't remove
+  spare · codex · default · Usage unknown · Sign-in state unknown · Runners: codex · In use by codex
+  Add account
+  Link Orca account
+RUNNERS
+  claude-code · claude-code · personal · default model · Planner — can't remove
+  codex · codex · spare · default model
+  + Add executor
+ROUTING
+  Routing: default → codex · Edit routing
+HOSTS
+  devbox · 1/3 tasks · codex#team@devbox · Enter check
+  buildbox · 0/2 tasks · No executors · Enter check
+STRATEGIES
+  default · Active
+  New strategy
+UPDATES
+  Check for updates
+  Update
+PLUGIN
+  Update checks: on
+  Notifications and automatic console: Orca plugin settings
+
+
+
+
+
+
+
+
+
+
+
+
+j/k select · Enter change · a add · l link · [/] order · b on/off · t check · Esc back"
+`;

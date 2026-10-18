@@ -2,13 +2,14 @@ import { cmdToOp, runMappedCmd } from "../api/cmd";
 export { cmdToOp, CMD_SUCCESS, runMappedCmd } from "../api/cmd";
 import { ApiError, type ApiClient } from "../api/client";
 import type { ApiEvent } from "../api/protocol";
-import type { CmdData, LinkSnapshot } from "../link/envelope";
-import { cards } from "./model";
+import type { CmdData } from "../link/envelope";
+import { cards, type DashboardAction } from "./model";
+import type { ClientSnapshot } from "../view-model/snapshot";
 
 export async function refreshView(
   client: ApiClient,
-  view: { snapshot: LinkSnapshot; selected: number; now: number; ops?:readonly string[] },
-): Promise<{ snapshot: LinkSnapshot; selected: number }> {
+  view: { snapshot: ClientSnapshot; selected: number; now: number; ops?:readonly string[] },
+): Promise<{ snapshot: ClientSnapshot; selected: number }> {
   const selectedId = cards(view.snapshot, view.now, view.ops).flatMap(g => g.cards)[view.selected]?.id;
   const { snapshot } = await client.snapshot();
   const updated = cards(snapshot, view.now, view.ops).flatMap(g => g.cards);
@@ -25,10 +26,23 @@ function reportApiError(error: unknown, report: (s: string) => void): void {
 
 export async function runCommand(
   client: ApiClient,
-  data: CmdData,
+  data: DashboardAction,
   fallback: (d: CmdData) => Promise<void>,
   report: (s: string) => void,
+  open: (screen: string) => Promise<void> = async screen => { report(`pacer open ${screen}`); },
 ): Promise<void> {
+  if ("op" in data) {
+    if(data.op==="ui.open") {
+      const id=typeof data.params.id==="string"?`/${encodeURIComponent(data.params.id)}`:"";
+      const screen=data.params.view==="review"?`review${id}`:["task","session"].includes(String(data.params.view))?`sessions${id}`:data.params.view==="settings"?`settings${typeof data.params.section==="string"?`/${encodeURIComponent(data.params.section)}`:""}`:"";
+      await open(screen);return;
+    }
+    try {
+      const result=await client.call<{job?:{id:string}}|null>(data.op, data.params);
+      report(result?.job?`${data.label}: job ${result.job.id}`:`${data.label}: done`);
+    } catch (error) { reportApiError(error, report); }
+    return;
+  }
   const result = await runMappedCmd((op, params) => client.call(op, params), data);
   if (result.handled) report(result.message);
   else await fallback(data);
@@ -104,4 +118,14 @@ export function withFallback(primary: ApiClient, makeLocal: () => ApiClient, onS
 export function commandAvailable(data:CmdData,ops:readonly string[]):boolean {
  const mapped=cmdToOp(data);
  return !mapped || ops.includes(mapped.op);
+}
+
+/** Here attaches locally in the suspended dashboard; other viewers go through the service. */
+export async function attachViewer(client: ApiClient, viewer: {id:string;target:"here"|"terminal"|"tmux"}, attachHere:()=>Promise<void>, report:(text:string)=>void):Promise<void> {
+ if(viewer.target==="here") {
+  const info=await client.call<{host:string}>("task.session",{id:viewer.id});
+  if(info.host==="builtin"){await attachHere();return;}
+ }
+ const result=await client.call<{opened:boolean;command?:string}>("task.attach",{id:viewer.id,target:viewer.target==="here"?"orca":viewer.target});
+ report(result.opened?"Opened task session.":result.command??`pacer attach ${viewer.id}`);
 }
