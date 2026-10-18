@@ -6,7 +6,7 @@ import type { BrowserApi } from "../data/api";
 import type { Action } from "../../../src/attention/types";
 import { agentInfo, runnerAgent } from "../../../src/view-model/agents";
 import { backIn, clock, elapsed, meterText } from "../../../src/view-model/format";
-import { phaseWords, toneFor } from "../../../src/view-model/words";
+import { phaseWords, toneFor, verdictWords } from "../../../src/view-model/words";
 import { plannerMeter } from "../../../src/view-model/selectors";
 import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
@@ -77,7 +77,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const timeOnly = (at: number) => new Date(at * 1000).toLocaleTimeString("en-GB", { hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
   return <main className="tray" ref={root} aria-label="pacer tray" aria-busy={busy}>
     <header className="tray-planner">
-      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label tray-grow">planner</span><Pill tone={tone}>{planner ? ({ behind: "Behind", on_pace: "On pace", ahead: "Ahead", out: "Ahead", unknown: "Usage unknown" })[planner.verdict] : "Usage unknown"}</Pill><span className="tray-mode">{mode}</span></div>
+      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label tray-grow">planner</span><Pill tone={tone}>{planner ? verdictWords(planner.verdict) : "Usage unknown"}</Pill><span className="tray-mode">{mode}</span></div>
       <UsageMeter used={planner?.usedPct ?? null} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.stale} />
       <div className="tray-caption"><span>{meterText(planner?.usedPct ?? null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${clock(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}{snapshot?.pause?.until != null && ` · paused until ${timeOnly(snapshot.pause.until)}`}</span></div>
     </header>
@@ -85,7 +85,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     {model && <>
       <nav className="tray-counts" aria-label="Task counts">{[
         { n: model.needsCount, label: "needs you", route: "/", warn: true },
-        { n: model.active.length, label: "running", route: "/sessions" },
+        { n: snapshot.counts?.running ?? model.active.length, label: "running", route: "/sessions" },
         { n: model.waiting, label: "waiting", route: "/sessions?filter=waiting" },
         { n: model.done, label: "done today", route: "/sessions?filter=done" },
       ].map(cell => <a key={cell.label} className="tray-count" href={appHref(cell.route)} onClick={navigate(cell.route)}><b className={!cell.n ? "tray-muted" : cell.warn ? "tray-idle" : undefined}>{cell.n}</b><span>{cell.label}</span></a>)}</nav>
