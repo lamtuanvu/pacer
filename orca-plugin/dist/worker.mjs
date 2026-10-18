@@ -1272,6 +1272,18 @@ function contentKey(s) {
 }
 
 // orca-plugin/src/store.ts
+var snapshotKey = (s) => s.planner === undefined ? contentKey(s) : JSON.stringify({
+  planner: s.planner,
+  executors: s.executors,
+  accounts: s.accounts,
+  service: s.service,
+  setup: s.setup,
+  attention: s.attention,
+  mode: s.mode,
+  strategies: s.strategies,
+  tasks: s.tasks
+});
+
 class LinkStore {
   nowS;
   snapshot = emptySnapshot();
@@ -1284,7 +1296,7 @@ class LinkStore {
     this.replace(reduce(this.snapshot, e, this.nowS()));
   }
   replace(s) {
-    const changed = contentKey(s) !== contentKey(this.snapshot);
+    const changed = snapshotKey(s) !== snapshotKey(this.snapshot);
     this.snapshot = s;
     if (changed)
       for (const fn of this.listeners)
@@ -1729,6 +1741,8 @@ ${n.kind === "failed" && n.nextExecutor ? `Open the pacer panel to retry on ${ex
   return { title: shortGoal(title, 60), body };
 }
 async function notifyNewAlerts(host, s, settings, activatedAtS, nowS = Date.now() / 1000) {
+  if (s.planner !== undefined)
+    return settings.lastAlertAt;
   let state = states.get(settings);
   if (!state) {
     state = { since: settings.settingsReady === false ? activatedAtS : Math.max(settings.lastAlertAt, activatedAtS - 300), delivered: new Set((settings.deliveredAlerts ?? []).map((a) => JSON.stringify([a.key, a.at]))), pending: new Map, lastSent: -Infinity };
@@ -1777,6 +1791,11 @@ ${a.notification?.nextExecutor ? `Moved to ${executorName(a.notification.nextExe
   return settings.lastAlertAt;
 }
 
+// src/view-model/selectors.ts
+var memo = new WeakMap;
+var capacity = (s) => s.executors ?? [];
+var plannerMeter = (s) => s.planner ?? null;
+
 // src/config/accounts.ts
 var AGENTS = ["claude-code", "codex", "cursor", "agy", "opencode"];
 
@@ -1818,12 +1837,6 @@ function accountGroups(rows) {
 
 // src/view-model/format.ts
 var displayName2 = (id) => parseRunnerId(id) || Object.hasOwn(names2, id) ? displayName(id) : id;
-
-// orca-plugin/src/panel/shared.ts
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-var h = (v) => escapeHtml(String(v ?? ""));
 
 // src/view-model/words.ts
 var tones = {
@@ -1867,6 +1880,46 @@ var verdictWords = (v) => Object.hasOwn(verdicts, v) ? verdicts[v] : "Unknown";
 
 // src/view-model/panel.ts
 var providerLabel = (p) => p.agent ? runnerLabel(p) : displayName2(p.id);
+function providers(s) {
+  if (s.planner === undefined)
+    return s.budget?.providers ?? [];
+  return capacity(s).map((e) => {
+    const a = s.accounts?.find((a) => a.name === e.account);
+    return {
+      id: e.id,
+      agent: e.agent,
+      account: e.account,
+      usedPct: e.usedPct,
+      pacePct: e.pacePct,
+      resetsAt: a?.resetsAt ?? null,
+      window: a?.window ?? null,
+      verdict: e.state === "exhausted" ? "EXHAUSTED" : a?.verdict ?? "UNKNOWN",
+      stale: e.rank === "planner" ? plannerMeter(s)?.stale ?? false : false,
+      ...e.state === "blocked" ? { blockedReason: e.reason ?? "blocked" } : {},
+      ...e.state === "down" ? { brokenReason: e.reason ?? "not available" } : {},
+      ...!e.enabled ? { unavailableReason: e.reason ?? "disabled" } : {}
+    };
+  });
+}
+function plannerProvider(s) {
+  if (s.planner === undefined)
+    return s.budget?.providers.find((p) => p.id === s.budget?.planner);
+  const p = plannerMeter(s);
+  if (!p)
+    return;
+  const e = capacity(s).find((e) => e.id === p.runner);
+  return {
+    id: p.runner,
+    agent: p.agent,
+    account: e?.account,
+    usedPct: p.usedPct,
+    pacePct: p.pacePct,
+    resetsAt: p.resetsAt,
+    window: p.window,
+    stale: p.stale,
+    verdict: { behind: "BEHIND", on_pace: "ON_PACE", ahead: "AHEAD", out: "EXHAUSTED", unknown: "UNKNOWN" }[p.verdict]
+  };
+}
 function headline(p, _now = 0) {
   const name = p?.agent ? providerLabel(p) : "Claude";
   switch (p?.verdict) {
@@ -1884,6 +1937,21 @@ function headline(p, _now = 0) {
       return "Budget unknown.";
   }
 }
+
+// orca-plugin/src/panel/shared.ts
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+var h = (v) => escapeHtml(String(v ?? ""));
+// orca-plugin/src/panel/icons.ts
+var mark = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><rect x="4" y="20" width="40" height="8" rx="4" fill="var(--border)"></rect><rect x="4" y="20" width="22" height="8" rx="4" fill="currentColor"></rect><rect class="brand-tick" x="29" y="12" width="4" height="24" rx="2"></rect></svg>`;
+
+// orca-plugin/src/panel/setup.ts
+function legacyChecklist(s, now, reachable, bootstrap) {
+  if (s.planner !== undefined)
+    return { checkedAt: now, complete: s.setup?.complete ?? false, items: (s.setup?.items ?? []).map((i) => ({ ...i, status: i.status === "done" || i.status === "failed" ? i.status : "pending" })) };
+  return setupChecklist({ version: bootstrap?.install.status === "done" ? s.console?.version ?? "installed" : null, planner: s.budget?.planner ?? null, service: { installed: bootstrap?.start.status === "done" || !!s.serviceInstalled, running: reachable }, link: reachable, live: true, agents: bootstrap?.agents ?? [] }, now);
+}
 // orca-plugin/src/panel/overview.ts
 function placementLine(t) {
   return t.placement ? `<small class="muted">${h(`${t.placement.mode} worktree${t.placement.mode === "new" && t.worktree ? ` ${t.worktree}` : ""} (${t.placement.why})`)}</small>` : "";
@@ -1894,8 +1962,6 @@ function meter(p, slim = false) {
   const used = Math.max(0, Math.min(100, p.usedPct)), pace = p.pacePct == null ? null : Math.max(0, Math.min(100, p.pacePct));
   return `<div class="meter ${slim ? "slim" : ""} ${toneFor(p.verdict)}" role="progressbar" aria-label="${h(providerLabel(p))} usage${pace === null ? "" : `, pace ${pace}%`}" aria-valuenow="${used}" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:${used}%"></div>${pace === null ? "" : `<div class="pace" style="left:${pace}%"></div>`}</div>`;
 }
-// orca-plugin/src/panel/icons.ts
-var mark = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><rect x="4" y="20" width="40" height="8" rx="4" fill="var(--border)"></rect><rect x="4" y="20" width="22" height="8" rx="4" fill="currentColor"></rect><rect class="brand-tick" x="29" y="12" width="4" height="24" rx="2"></rect></svg>`;
 
 // orca-plugin/src/panel/style.ts
 var style = `
@@ -1916,33 +1982,36 @@ function checklist(setup) {
   return `${rows(true)}${optional ? `<div class="stack"><strong>Optional</strong>${optional}</div>` : ""}`;
 }
 function renderStatusPage(s, view) {
-  const { nowS } = view, providers = s.budget?.providers ?? [], planner = providers.find((p) => p.id === s.budget?.planner);
+  const { nowS } = view, providers2 = providers(s), planner = plannerProvider(s);
   const reset = (p, weekday = false) => p.resetsAt === null ? "Reset unknown" : `Resets ${absolute(p.resetsAt, nowS, weekday)}`;
-  const mode = s.mode?.mode ?? s.budget?.mode ?? "unknown";
+  const mode = s.mode?.mode ?? plannerMeter(s)?.mode ?? (s.planner === undefined ? s.budget?.mode : undefined) ?? "unknown";
   const header = `<header><span class="brand name">${mark}pacer</span><span class="pill">${h(mode.replace(/^./, (c) => c.toUpperCase()))}</span><span class="grow"></span><span class="live">${view.reachable ? "Live · updated" : "Not connected · last data"} ${h(absolute(s.at, nowS))}</span></header>`;
   let content;
-  if (view.bootstrap && !s.budget && !view.setup?.complete) {
+  const setup = s.planner === undefined ? view.setup : legacyChecklist(s, nowS, view.reachable, view.bootstrap);
+  if (view.bootstrap && !(s.planner === undefined ? s.budget : s.service) && !setup?.complete) {
     const steps = ["install", "start"].map((name) => {
       const step = view.bootstrap[name];
       return `<p><strong>${name}: ${h(step.status)}</strong>${step.detail ? ` · ${h(step.detail)}` : ""}</p>`;
     }).join("");
     content = section("Welcome to pacer", "<p>pacer tracks your AI account budgets and task status. It helps you pace planning and delegate work to available executors.</p>") + section("Install", `<pre><code>${h(MANUAL_INSTALL)}</code></pre><pre><code>pacer init</code></pre>${steps}`) + section("Live panel", "<p>The live panel opens automatically once pacer is installed and the plugin restarts.</p>") + section("Act in pacer", "<p>Run <code>pacer open</code> in a terminal to open the pacer app, where you delegate, review and change settings.</p>");
   } else {
-    const accounts = accountGroups(providers).flatMap((group) => {
+    const accounts = accountGroups(providers2).flatMap((group) => {
       const rows = group.account ? [group.rows] : group.rows.map((p) => [p]);
       return rows.map((runners) => {
-        const p = runners[0];
+        const row = runners[0], account = s.planner === undefined ? undefined : s.accounts?.find((a) => a.name === group.account);
+        const p = account ? { ...row, usedPct: account.usedPct, pacePct: account.pacePct, resetsAt: account.resetsAt, window: account.window, verdict: account.verdict } : row;
         return `<div class="account card stack"><strong>${h(group.account ?? providerLabel(p))}</strong><span>${h(verdictWords(p.verdict))} · ${h(percent(p))}${p.stale ? ' · <span class="pill">stale</span>' : ""}</span>${meter(p, true)}<small>${h(p.window ?? "Window unknown")} · ${h(reset(p))}</small><small>Runners: ${h(runners.map(providerLabel).join(", "))}</small></div>`;
       });
     }).join("");
     const running = s.tasks.filter((t) => t.state === "running" || t.state === "queued").map((t) => `<div class="card stack"><strong>${h(t.goal.slice(0, 100))}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor pending")} · ${h(t.state)} · started ${h(absolute(t.attemptStartedAt ?? t.updatedAt, nowS))}${t.progress ? ` · ${h(t.progress.phase)}` : ""}</small>${placementLine(t)}</div>`).join("");
     const waiting = s.tasks.filter((t) => !t.review && !t.dismissed && (t.state === "partial" || t.state === "done" || t.state === "needs_input")).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10).map((t) => `<div class="card stack"><strong>${h(t.goal)}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor unknown")} · ${t.state === "needs_input" ? "Needs your answer" : "finished"} ${h(absolute(t.updatedAt, nowS))}</small><small>${h(t.worktree ?? "Worktree unknown")}</small></div>`).join("");
-    const alerts = s.alerts.filter((a) => a.level === "warn" || a.level === "error").sort((a, b) => b.at - a.at).slice(0, 5).map((a) => `<div class="card stack"><strong>${h(a.title)}</strong><p>${h(a.body.slice(0, 200))}</p><small>${h(absolute(a.at, nowS))}</small></div>`).join("");
-    const versions = `<p>pacer ${h(view.updates?.cli ?? s.console?.version ?? "unknown")} · plugin ${h(view.updates?.plugin ?? "unknown")}</p>${view.updates?.available ? `<p>Update available: ${h(view.updates.latest ?? "unknown")} · <code>pacer update</code></p>` : ""}`;
+    const alertRows = s.planner === undefined ? s.alerts : (s.attention ?? []).map((a) => ({ level: a.severity === "blocked" ? "error" : "warn", title: a.title, body: a.detail, at: a.raisedAt }));
+    const alerts = alertRows.filter((a) => a.level === "warn" || a.level === "error").sort((a, b) => b.at - a.at).slice(0, 5).map((a) => `<div class="card stack"><strong>${h(a.title)}</strong><p>${h(a.body.slice(0, 200))}</p><small>${h(absolute(a.at, nowS))}</small></div>`).join("");
+    const versions = `<p>pacer ${h((s.planner === undefined ? view.updates?.cli ?? s.console?.version : s.service?.version ?? view.updates?.cli) ?? "unknown")} · plugin ${h(view.updates?.plugin ?? "unknown")}</p>${view.updates?.available ? `<p>Update available: ${h(view.updates.latest ?? "unknown")} · <code>pacer update</code></p>` : ""}`;
     content = section("Planner", `<div class="card stack">${planner ? `<div class="row"><strong class="grow">${h(providerLabel(planner))}</strong><span>${h(percent(planner))}</span></div>${meter(planner)}<small>${h(reset(planner, true))}</small>` : "<small>Planner unknown · Reset unknown</small>"}<p class="headline">${h(headline(planner))}</p></div>`) + section("Accounts", accounts || "<small>No accounts reported.</small>") + section("Running", running || "<small>No tasks running.</small>") + section("Waiting for review", `${waiting || "<small>No tasks waiting for review.</small>"}<p>Review with <code>pacer review &lt;id&gt;</code> or in the pacer app.</p>`) + section("Alerts", alerts || "<small>No alerts.</small>") + section("Versions", versions);
   }
-  if (view.setup && !view.setup.complete)
-    content += section("Setup", `${checklist(view.setup)}<pre><code>pacer init</code></pre>`);
+  if (setup && !setup.complete)
+    content += section("Setup", `${checklist(setup)}<pre><code>pacer init</code></pre>`);
   const footer = "<footer>pacer shows information here. To delegate, review, block executors or change settings, run <code>pacer open</code> in a terminal to open the pacer app.</footer>";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
 }
@@ -2107,7 +2176,7 @@ function createPlugin(deps) {
         return updates;
       const cached = deps.cachedUpdate?.();
       const latest = cached?.latest ?? updates?.latest ?? null;
-      const cli = store.snapshot.console?.version ?? updates?.cli ?? null;
+      const cli = (store.snapshot.planner === undefined ? store.snapshot.console?.version : store.snapshot.service?.version) ?? updates?.cli ?? null;
       const check = { checkedAt: deps.nowS(), latest, current: deps.version };
       return { plugin: deps.version, cli, latest, available: updateAvailable(check) || !!cli && updateAvailable({ ...check, current: cli }) };
     };
@@ -2210,7 +2279,16 @@ function createPlugin(deps) {
       if (stopped)
         return;
       const previous = store.snapshot;
-      const initiated = snapshot.budget?.strategy !== previous.budget?.strategy || snapshot.tasks.some((t) => !previous.tasks.some((p) => p.id === t.id) || t.dismissed !== previous.tasks.find((p) => p.id === t.id)?.dismissed || t.retriedBy !== previous.tasks.find((p) => p.id === t.id)?.retriedBy) || snapshot.alerts.some((a) => a.key === "strategy-build" && !previous.alerts.some((p) => p.key === a.key && p.at === a.at)) || snapshot.budget?.providers.some((p) => p.blockedReason !== previous.budget?.providers.find((x) => x.id === p.id)?.blockedReason);
+      const strategyName = (s) => {
+        if (s.planner === undefined)
+          return s.budget?.strategy;
+        const active = s.strategies?.find((x) => typeof x !== "string" && x.active);
+        return active?.name;
+      };
+      const taskChanged = snapshot.tasks.some((t) => !previous.tasks.some((p) => p.id === t.id) || t.dismissed !== previous.tasks.find((p) => p.id === t.id)?.dismissed || t.retriedBy !== previous.tasks.find((p) => p.id === t.id)?.retriedBy);
+      const strategyBuilt = snapshot.planner === undefined && snapshot.alerts.some((a) => a.key === "strategy-build" && !(previous.planner === undefined && previous.alerts.some((p) => p.key === a.key && p.at === a.at)));
+      const blockedChanged = snapshot.planner === undefined ? snapshot.budget?.providers.some((p) => p.blockedReason !== (previous.planner === undefined ? previous.budget?.providers.find((x) => x.id === p.id)?.blockedReason : undefined)) : snapshot.executors?.some((e) => e.state === "blocked" !== (previous.executors?.find((p) => p.id === e.id)?.state === "blocked"));
+      const initiated = strategyName(snapshot) !== strategyName(previous) || taskChanged || strategyBuilt || blockedChanged;
       if (initiated) {
         userOutcome = true;
         if (cancelRender) {

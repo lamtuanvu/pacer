@@ -1,5 +1,7 @@
 import { setupText, type SetupChecklist } from "../setup/checklist";
-import type { LinkSnapshot } from "../link/envelope";
+import type { ClientSnapshot } from "../view-model/snapshot";
+import { plannerProvider } from "../view-model/panel";
+import { plannerMeter } from "../view-model/selectors";
 import { cards } from "./model";
 import { runnerLabel } from "../render/accounts";
 import type { DashboardSettings } from "./settings";
@@ -10,7 +12,7 @@ export function budgetBar(used: number|null, pace: number|null, size: number): s
  const filled=Math.round(pct(used??0)*size/100), marker=pace===null?-1:Math.min(size-1,Math.floor(pct(pace)*size/100));
  return `[${Array.from({length:size},(_,i)=>i===marker?"|":i<filled?"#":"-").join("")}]`;
 }
-export function renderDashboard(s:LinkSnapshot,width:number,height:number,now:number,v:View):string {
+export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:number,v:View):string {
  const supports=(op:string)=>v.ops===undefined||v.ops.includes(op);
  width=Math.max(1,Math.floor(width)); height=Math.max(1,Math.floor(height));
  if(v.settings?.open){
@@ -20,10 +22,11 @@ export function renderDashboard(s:LinkSnapshot,width:number,height:number,now:nu
   lines.push(v.settings.prompt?`${v.settings.prompt.question}: ${v.settings.prompt.value}`:v.message??"","↑/↓ select · Enter change · a add · l link · x remove · [/] order · Esc back");
   return lines.slice(0,height).map(l=>safeText(l).slice(0,width)).join("\n");
  }
- const b=s.budget,p=b?.providers.find(p=>p.id===b.planner), compact=width<60;
- const header=`◆ pacer · ${b?.mode??"unknown"} · ${b?.strategy??"no strategy"}`;
+ const b=s.planner===undefined?s.budget:null,p=plannerProvider(s), compact=width<60;
+ const strategy=s.strategies?.find((x): x is import("../link/envelope").StrategyData=>typeof x!=="string"&&x.active);
+ const header=`◆ pacer · ${s.mode?.mode??plannerMeter(s)?.mode??b?.mode??"unknown"} · ${strategy?.name??b?.strategy??"no strategy"}`;
  const live=s.at>0 && now-s.at<30;
- const fixed=[header,`${live?"Live":"Updated"} · ${s.at?new Date(s.at*1000).toISOString().slice(11,19):"waiting for local data"}`,`Planner ${runnerLabel(p ?? {id:b?.planner??"?"})}: ${p?.usedPct==null?"?":Math.round(p.usedPct)+"%"} ${budgetBar(p?.usedPct??null,p?.pacePct??null,Math.max(4,Math.min(compact?12:24,width-24)))}`];
+ const fixed=[header,`${live?"Live":"Updated"} · ${s.at?new Date(s.at*1000).toISOString().slice(11,19):"waiting for local data"}`,`Planner ${runnerLabel(p ?? {id:plannerMeter(s)?.runner??b?.planner??"?"})}: ${p?.usedPct==null?"?":Math.round(p.usedPct)+"%"} ${budgetBar(p?.usedPct??null,p?.pacePct??null,Math.max(4,Math.min(compact?12:24,width-24)))}`];
  if(v.setup && !v.setup.complete)fixed.splice(1,0,...setupText(v.setup).split("\n"));
  if(v.updateLine)fixed.push(v.updateLine);
  const body:{text:string;selected:boolean}[]=[];let index=0,attachSelected=false;
