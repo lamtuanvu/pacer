@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 import type { ActivityEntry, AttentionItem } from "../../../src/api/read-model/types";
-import { runnerAgent } from "../../../src/view-model/agents";
+import { markAgent } from "../../../src/view-model/agents";
 import { ago, clock, elapsed } from "../../../src/view-model/format";
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, repos, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
@@ -39,7 +39,7 @@ function NeedsYou({ snapshot, scope, runner, canDismiss }: { snapshot: ClientSna
   return <section className="pc-section" aria-labelledby="needs-you"><h2 id="needs-you">Needs you</h2>
     {items.map(item => <div key={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
       <StatusGlyph kind={BAD_KINDS.has(item.kind) ? "failed" : "waiting"} />
-      {item.executor && <AgentMark agent={runnerAgent(item.executor)} size={20} labelled={false} />}
+      {item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}
       <div className="grow"><div className="pc-attn__title">{item.title}</div><div className="muted">{item.detail}</div></div>
       <div className="row-actions">{item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} strong={action.style === "primary"} />)}
         {canDismiss && <ActionButton runner={runner} id={`${item.id}:dismiss`} action={{ label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }} confirmDone={gone(item)} />}</div>
@@ -58,7 +58,7 @@ function Running({ snapshot, scope, now, runner }: { snapshot: ClientSnapshot; s
   const rows = running(snapshot, scope);
   return <section className="pc-section" aria-labelledby="running"><h2 id="running">Running</h2>
     {rows.map(t => <div key={t.id} className="pc-row">
-      {t.executor ? <AgentMark agent={runnerAgent(t.executor)} size={20} labelled={false} /> : <span className="pc-row__gap" />}
+      {t.executor ? <AgentMark agent={markAgent(t.executor)} size={20} labelled={false} /> : <span className="pc-row__gap" />}
       <div className="grow pc-row__goal">{t.goal}</div>
       <span className="muted">{t.repo?.label}</span>
       <Pill tone={t.state === "queued" ? "neutral" : "info"}>{phaseWords(t.state === "queued" ? "queued" : t.progress?.phase ?? t.state)}</Pill>
@@ -76,7 +76,7 @@ function Capacity({ snapshot }: { snapshot: ClientSnapshot }) {
   const rows = capacity(snapshot), c = counts(snapshot);
   return <section className="pc-section" aria-labelledby="capacity"><div className="row"><h2 id="capacity">Capacity</h2>{c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}</div>
     {rows.map(e => <a key={e.id} href="#/settings/executors" className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
-      <AgentMark agent={e.agent} size={20} labelled={false} />
+      <AgentMark agent={markAgent(e.id, e.account)} size={20} labelled={false} />
       <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><div className={OFF_STATES.has(e.state) ? "pc-bad-text" : "muted"}>{OFF_STATES.has(e.state) && e.reason ? e.reason : e.sub}</div></div>
       <div className="grow"><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={toneFor(e.tone)} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
       <span className="muted pc-num">{e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`}</span>

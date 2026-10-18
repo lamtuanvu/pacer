@@ -1,14 +1,14 @@
 /** Agent identity for marks on every surface: the app draws the glyph, the TUI and status line use the colour. */
 export const AGENT_IDS = ["claude-code", "codex", "cursor", "agy", "byteplus", "local", "opencode", "gemini"] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
-export type AgentGlyph = "claude" | "openai" | "cursor" | "google" | "bytedance" | "lmstudio" | "opencode" | "gemini";
+export type AgentGlyph = "claude" | "openai" | "cursor" | "antigravity" | "bytedance" | "lmstudio" | "opencode" | "gemini";
 export interface AgentInfo { name: string; glyph: AgentGlyph | null; color: string | "ink"; tile: "tint" | "page-hairline"; monogram: string }
 
 const AGENTS: Record<AgentId, Omit<AgentInfo, "monogram">> = {
   "claude-code": { name: "Claude", glyph: "claude", color: "#D97757", tile: "tint" },
   codex: { name: "Codex", glyph: "openai", color: "ink", tile: "page-hairline" },
   cursor: { name: "Cursor", glyph: "cursor", color: "ink", tile: "tint" },
-  agy: { name: "Antigravity", glyph: "google", color: "#4285F4", tile: "tint" },
+  agy: { name: "Antigravity", glyph: "antigravity", color: "#4285F4", tile: "tint" },
   byteplus: { name: "BytePlus", glyph: "bytedance", color: "#3C8CFF", tile: "tint" },
   local: { name: "Local model", glyph: "lmstudio", color: "ink", tile: "tint" },
   opencode: { name: "OpenCode", glyph: "opencode", color: "ink", tile: "tint" },
@@ -28,3 +28,8 @@ export function agentInfo(agent: string): AgentInfo {
 }
 /** The agent part of a runner id such as "codex#team@devbox". */
 export const runnerAgent = (id: string): string => id.split("@")[0]!.split("#")[0]!;
+/** Which mark to draw for a runner: an OpenCode executor on a known account (BytePlus, a local model) shows that account's mark. */
+export function markAgent(id: string, account?: string): string {
+  const agent = runnerAgent(id), acct = account ?? id.split("@")[0]!.split("#")[1];
+  return agent === "opencode" && acct && agentKey(acct) ? agentKey(acct)! : agent;
+}

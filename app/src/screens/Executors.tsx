@@ -1,5 +1,5 @@
 import { AgentMark } from "../ds/AgentMark";
-import { runnerAgent } from "../../../src/view-model/agents";
+import { markAgent } from "../../../src/view-model/agents";
 import { useState } from "preact/hooks";
 import { Button } from "../ds/Button";
 import { Card } from "../ds/Card";
@@ -31,7 +31,7 @@ export function Executors() {
 function ExecutorRow({ id, runner, account, installed, route, index, count, move, remove, reload }: { id: string; runner?: Runner; account?: Account; installed?: boolean; route?: {verdict?:string;reason:string}; index?: number; count?: number; move?: (d: -1 | 1) => void; remove: () => void; reload: () => void }) {
   const action = useAction(), [duration, setDuration] = useState("1h");
   const status = executorStatus(runner ?? { id, state: "ok", until: null, reason: null }, account, installed, route);
-  return <div className="task-row executor-row"><span>{index === undefined ? "" : index + 1}</span><AgentMark agent={runnerAgent(id)} labelled={false} /><div className="grow"><strong>{executorLabel(id, account ? [account] : [])}</strong><div className="muted">{executorCaption(account)}</div></div><Pill tone={status.tone}>{status.label}</Pill><div className="row-actions">
+  return <div className="task-row executor-row"><span>{index === undefined ? "" : index + 1}</span><AgentMark agent={markAgent(id)} labelled={false} /><div className="grow"><strong>{executorLabel(id, account ? [account] : [])}</strong><div className="muted">{executorCaption(account)}</div></div><Pill tone={status.tone}>{status.label}</Pill><div className="row-actions">
     {move && <><Button variant="ghost" size="sm" aria-label={`Move ${id} up`} disabled={index === 0} onClick={() => move(-1)}>Up</Button><Button variant="ghost" size="sm" aria-label={`Move ${id} down`} disabled={index === count! - 1} onClick={() => move(1)}>Down</Button></>}
     <details className="executor-more"><summary>More</summary><div className="executor-menu">{runner?.state === "blocked" ? <Button disabled={action.busy} onClick={() => { void action.run("runner.unblock", { id }, reload); }}>Unblock</Button> : <><label htmlFor={`executor-block-${id}`}>Block for <select id={`executor-block-${id}`} aria-label={`Block duration for ${id}`} value={duration} onChange={e => setDuration(e.currentTarget.value)}><option value="30m">30 minutes</option><option value="1h">1 hour</option><option value="1d">1 day</option><option value="">Until unblocked</option></select></label><Button disabled={action.busy} onClick={() => { void action.run("runner.block", { id, ...(duration ? { for: duration } : {}) }, reload); }}>Block</Button></>}
     {account?.kind === "endpoint" && <Button disabled={action.busy} onClick={() => { void action.run<{ state: string; detail?: string }>("account.test", { name: account.name }, result => { reload(); if (!["ready", "Ready"].includes(result.state)) throw new Error(result.detail ?? result.state); }); }}>{action.busy ? "Testing…" : "Run a test task"}</Button>}
