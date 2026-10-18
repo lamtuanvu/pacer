@@ -57,8 +57,11 @@ pub fn candidates(path: &str, home: &Path) -> Vec<PathBuf> {
         .collect();
     paths.extend([
         home.join(".local/bin/pacer"),
+        #[cfg(target_os = "macos")]
         PathBuf::from("/opt/homebrew/bin/pacer"),
         PathBuf::from("/usr/local/bin/pacer"),
+        #[cfg(target_os = "linux")]
+        PathBuf::from("/usr/bin/pacer"),
     ]);
     let mut unique = Vec::new();
     for p in paths {
@@ -383,7 +386,10 @@ mod tests {
                 PathBuf::from("/custom/bin/pacer"),
                 PathBuf::from("/usr/local/bin/pacer"),
                 home.join(".local/bin/pacer"),
-                PathBuf::from("/opt/homebrew/bin/pacer")
+                #[cfg(target_os = "macos")]
+                PathBuf::from("/opt/homebrew/bin/pacer"),
+                #[cfg(target_os = "linux")]
+                PathBuf::from("/usr/bin/pacer"),
             ]
         );
     }

@@ -1,11 +1,13 @@
 # pacer desktop (U2)
 
-An unsigned macOS Tauri v2 shell. Install the pacer CLI separately. The window
+An unsigned macOS and Linux Tauri v2 shell. Install the pacer CLI separately. The window
 loads the existing web UI from the local service; only recovery screens are
 bundled here. Closing the window keeps the native tray client running. Quit
 from the tray to exit; the Dock icon or Open pacer restores the window.
 
 ## Build
+
+### macOS
 
 Requires macOS, Xcode Command Line Tools, Rust 1.99.0 (pinned in
 `src-tauri/rust-toolchain.toml`) and Bun. From this folder:
@@ -25,13 +27,47 @@ The app is at `src-tauri/target/release/bundle/macos/pacer.app`. The manual
 then uploads a zipped unsigned app. It does not publish a release. This build
 is for owner testing; signing, notarization and updates are separate work.
 
+### Linux
+
+Requires Rust 1.99.0, Bun and a desktop session with WebKitGTK 4.1 and an
+AppIndicator-compatible tray (GNOME may need an AppIndicator extension).
+On Ubuntu 24.04, install the build dependencies:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential curl wget file libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+bun install --frozen-lockfile
+cd src-tauri
+cargo check --offline
+cargo test --offline
+cd ..
+CARGO_NET_OFFLINE=true bunx tauri build --bundles appimage,deb --no-sign
+```
+
+Fetch locked crates with `cargo fetch --locked` in `src-tauri` before the offline
+steps if they are not cached. Linux targets are configured in
+`src-tauri/tauri.linux.conf.json`. Outputs are under
+`src-tauri/target/release/bundle/appimage/` and `bundle/deb/`.
+Run the AppImage with `chmod +x pacer_*.AppImage` then `./pacer_*.AppImage`
+(FUSE 2 may be required; `--appimage-extract-and-run` avoids FUSE), or install
+the matching `.deb` with `sudo apt install ./pacer_*.deb` and run `pacer-desktop`.
+For development, run `bunx tauri dev` from this folder.
+Install the pacer CLI separately and start its local service as on macOS.
+
+The manual `desktop.yml` workflow also builds unsigned AppImage and `.deb`
+artifacts on native Ubuntu x86_64 and arm64 runners. The arm64 job requires
+`ubuntu-24.04-arm` runner availability. Each architecture uploads its own
+artifact; no release or signing is performed.
+
 Icons are generated from `design/assets/pacer-mark.svg` with `bunx tauri icon`.
 `ui/tray.svg` uses the same geometry in monochrome for the macOS template icon.
 
 ## Local service and authentication
 
 The shell searches the login shell's PATH, then `$HOME/.local/bin`,
-`/opt/homebrew/bin` and `/usr/local/bin`. Only executable files qualify.
+`/opt/homebrew/bin` and `/usr/local/bin` on macOS. Linux searches PATH,
+`$HOME/.local/bin/pacer`, `/usr/local/bin/pacer` and `/usr/bin/pacer`, in that
+order (duplicates removed). Only executable files qualify.
 The login-shell PATH is cached for the launch and refreshed on focus or Try again;
 unique output delimiters exclude profile banners.
 It passes `PACER_HOME` (default `$HOME/.pacer`) to the discovered CLI and uses
@@ -57,14 +93,21 @@ The tray title uses service-owned planner usage and attention counts. Left-click
 opens a separate `/app/tray.html` popover, created hidden once the main page has
 signed in so it shares the webview cookie session. It reads snapshots and events
 directly. The window is transparent, frameless, always on top, 340 px wide and
-120–520 px tall, anchored below the icon. Blur and Esc hide it. Right-click opens
-a minimal native menu: Open pacer, Pause 1h / Resume, Quit. Pause calls
+120–520 px tall, anchored below the icon. If the icon rectangle is unavailable,
+it opens at the top centre of the monitor. Linux uses this fallback and adds
+Show popover to the tray menu because appindicators may not emit left clicks.
+Blur and Esc hide it. The native menu offers Open pacer, Pause 1h / Resume,
+Quit, plus Show popover on Linux. Pause calls
 `delegation.pause` with `{for:"1h"}`; while `snapshot.pause` is present it offers
 Resume instead.
 
+On Linux, notifications show the title and body without action buttons; use the
+web UI for actions and questions. Launch at login uses an XDG autostart entry.
+External links use `xdg-open` (install `xdg-utils` if unavailable).
+
 Native notifications consume service-selected `notify` events addressed to this
 client, preserving the service's attention flags, notification preference, and
-delivery ledger. Up to two supplied actions become buttons: operations POST to
+delivery ledger. On macOS, up to two supplied actions become buttons: operations POST to
 `/v2/ops/<op>`, and `ui.open` navigates the window. Confirmation and answer text
 are collected with native macOS dialogs before dispatch. Notification body clicks
 and `pacer://review/<id>` / session links open the matching hash route.
@@ -112,12 +155,14 @@ links open `/app/#<route>` and resizing is skipped.
 - Stop the service: pacer isn't running; Start pacer loads the authenticated UI.
 - Hide the window; change service state and confirm tray updates continue.
 - Trigger attention under Off / Important / All; test body and action clicks.
-- Left-click toggles the popover below the icon; blur and Esc hide it.
+- Left-click (or Show popover in the Linux tray menu) toggles the popover;
+  missing icon coordinates use the top-centred fallback. Blur and Esc hide it.
 - Resize the popover via IPC; width stays 340 px and height clamps to 120–520 px.
 - Open a route from the popover; the main window focuses and the popover hides.
 - Right-click offers only Open pacer, Pause 1h / Resume, Quit; test each action.
 - Hide the app for over 45 seconds; confirm its notifier lease stays active.
-- Run `open 'pacer://review/t-example'`, including when the app is closed.
+- Run `open 'pacer://review/t-example'` on macOS or
+  `xdg-open 'pacer://review/t-example'` on Linux, including when the app is closed.
 - Launch the app twice: only one tray and window remain.
 - Resize/move/relaunch; test theme and launch at login, then turn autostart off.
 - Return protocol 1.x / 3.x from a test service: update CLI / app respectively.
