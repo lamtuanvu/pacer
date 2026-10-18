@@ -4,11 +4,12 @@ import { createApi } from "./data/api";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
-import { resolveRoute, setupCompleteFrom, type Route } from "./router";
+import { inheritQuery, resolveRoute, setupCompleteFrom, type Route } from "./router";
 import { attachKeyRegistry } from "./keys/registry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
+import { activeRepo } from "./shell/narrow";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
@@ -20,7 +21,7 @@ function App() {
   const [state, setState] = useState(store.getState);
   const [sessionEnded, setSessionEnded] = useState(false);
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
-  const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), navigate: hash => { location.hash = hash; } }), [api]);
+  const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
   const [help, setHelp] = useState(false);
   const [delegate, setDelegate] = useState(false);
@@ -48,7 +49,7 @@ function App() {
   if (!SETTINGS.has(route.name) && route.name !== "loading") lastWork.current = hash || "#/";
   useEffect(() => {
     keys.setScope(route.name);
-    const go = (to: string) => () => { location.hash = to; };
+    const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
       keys.register({ keys: "g o", label: "Go to Overview", scope: "global", run: go("#/") }),
       keys.register({ keys: "g r", label: "Go to Review", scope: "global", run: go("#/review") }),
@@ -63,9 +64,17 @@ function App() {
     return () => { offs.forEach(off => off()); detach(); };
   }, []);
   useEffect(() => { keys.setScope(route.name); }, [route.name]);
+  useEffect(() => {
+    const follow = (event: MouseEvent) => {
+      const link = (event.target as Element)?.closest<HTMLAnchorElement>("a[href^='#/']");
+      if (link) link.href = inheritQuery(link.getAttribute("href")!, location.hash);
+    };
+    document.addEventListener("click", follow, true);
+    return () => document.removeEventListener("click", follow, true);
+  }, []);
   return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}>
     <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
-    {delegate && <Delegate close={() => setDelegate(false)} filterRepo={route.query.repo} />}
+    {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
 }
