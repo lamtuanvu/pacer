@@ -1,3 +1,4 @@
+import { resume, type PauseState } from "../core/pause";
 import { taskTitle } from "../core/short-title";
 import { probeHosts } from "../remote/eligibility";
 import { dispatchNotifications } from "../notify/decide";
@@ -107,11 +108,23 @@ function statusActivity(ctx: Ctx, st: Status): void {
 }
 
 export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Envelope[]> {
+  // Expiry is independent of status refresh: even a failing provider must clear clients.
+  const expiredEvents:Envelope[]=[];
+  const pausePath=join(ctx.pacerHome,"state","pause.json"),paused=readJson<PauseState>(pausePath);
+  if(paused && typeof paused.until==="number" && Number.isFinite(paused.until) && paused.until<=ctx.now){
+    const event:Envelope={v:1,type:"pause",data:{removed:true}};
+    const report=await deps.publish(ctx,[event],{bridge:false,channel:false});
+    if(report.transports.includes("outbox")){
+      expiredEvents.push(event);
+      // A new pause may have been written while publication awaited the link lock.
+      if(JSON.stringify(readJson(pausePath))===JSON.stringify(paused))resume(ctx);
+    }
+  }
   rotateActivity(ctx);
   await drainQueue(ctx).catch(() => {});
   const latest=readLatest(ctx),out:Envelope[]=[]; let st:Status;
   try{st=await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
-    if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return out;}
+    if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return [...expiredEvents,...out];}
   const hold=readJson<{mode:string;until:number}>(join(ctx.pacerHome,"state","mode-hold.json"));
   const holdEndedPath=join(ctx.pacerHome,"state","mode-hold-ended.json");
   if(hold&&hold.until<=ctx.now&&readJson<number>(holdEndedPath)!==hold.until){
@@ -217,5 +230,5 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   if(quotaChanged && report?.transports.includes("outbox"))writeJsonAtomic(quotaPath,quotaSeen);
   // Only acknowledge changes after the durable alert reached the link outbox.
   if((!report || report.transports.includes("outbox")) && JSON.stringify(previousSeen)!==JSON.stringify(next))writeJsonAtomic(seenPath,next);
-  return out;
+  return [...expiredEvents,...out];
 }

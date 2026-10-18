@@ -43,6 +43,7 @@ import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 
 export interface OpDeps {
+  snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
   client?: string;
   delegate?: typeof core.tasks.delegate;
@@ -143,8 +144,8 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
     handler: (ctx, p) => readActivity(ctx, p),
   }),
-  "delegation.pause": op({description: "Pause new delegation for up to seven days.", params: z.object({for: z.string(), reason: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "delegation", () => {const result=delegationPause.pause(ctx,p);appendActivity(ctx,{kind:"config",level:"info",text:`Delegation paused for ${p.for}`});return result;})}),
-  "delegation.resume": op({description: "Resume delegation.", params: z.object({}), handler: ctx => mutation(ctx, "delegation", () => {const result=delegationPause.resume(ctx);appendActivity(ctx,{kind:"config",level:"info",text:"Delegation resumed"});return result;})}),
+  "delegation.pause": op({description: "Pause new delegation for up to seven days.", params: z.object({for: z.string(), reason: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "delegation", async () => {const result=delegationPause.pause(ctx,p);await publish(ctx,[{v:1,type:"pause",data:result}],{bridge:false,channel:false});appendActivity(ctx,{kind:"config",level:"info",text:`Delegation paused for ${p.for}`});return result;})}),
+  "delegation.resume": op({description: "Resume delegation.", params: z.object({}), handler: ctx => mutation(ctx, "delegation", async () => {const result=delegationPause.resume(ctx);await publish(ctx,[{v:1,type:"pause",data:{removed:true}}],{bridge:false,channel:false});appendActivity(ctx,{kind:"config",level:"info",text:"Delegation resumed"});return result;})}),
   "mode.hold": op({description: "Hold a mode until a timestamp or the planner window resets.", params: z.object({mode: z.enum(["strict", "normal", "relaxed", "emergency"]), until: z.number().optional()}), handler: (ctx, p) => mutation(ctx, "mode", () => modeHold.holdMode(ctx, p))}),
   "mode.release": op({description: "Release the held mode and return to pace-derived mode.", params: z.object({}), handler: ctx => mutation(ctx, "mode", () => modeHold.releaseMode(ctx))}),
   "agent.detect": op({ description: "Detect installed agent CLIs and their versions.", params: z.object({host: id.optional()}), handler: (ctx, p) => detectAgents(ctx, p) }),
@@ -202,7 +203,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
-  "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: ctx => setup.check(ctx) }),
+  "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: (ctx, _p, deps) => setup.check(ctx, {snapshotProbe:deps.snapshotProbe}) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
   "plugin.install": op({ description: "Install the Orca plugin under PACER_HOME without editing Orca settings.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.pluginInstall(ctx)) }),

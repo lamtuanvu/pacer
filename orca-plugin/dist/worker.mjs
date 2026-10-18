@@ -1207,6 +1207,16 @@ function parseEnvelope(raw) {
         return null;
       return { v: 1, type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
     }
+    case "pause": {
+      const d = raw.data;
+      if (!isObj(d))
+        return null;
+      if (d.removed === true)
+        return { v: 1, type: "pause", data: { removed: true } };
+      if (d.until !== null && num(d.until) === null || d.reason !== null && typeof d.reason !== "string" || d.by !== null && typeof d.by !== "string")
+        return null;
+      return { v: 1, type: "pause", data: { until: d.until, reason: d.reason, by: d.by } };
+    }
     case "config": {
       const d = raw.data;
       if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null)
