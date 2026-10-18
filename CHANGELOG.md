@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Service snapshots, event replay and task resolution stay responsive when repository volumes stall; repo existence and canonical paths refresh asynchronously.
+
 ### Changed
 
 - App links now point directly to Overview, Review, Sessions and Settings. Retired UI routes fall back to Overview; old screens and route redirects have been removed.
