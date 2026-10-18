@@ -1,5 +1,7 @@
 # Test Orca onboarding
 
+For routine runtime changes, use [live validation](live-validation.md) with isolated state and CT-11 evidence. This page covers fresh-account onboarding.
+
 Use a fresh disposable OS account or VM with Orca >=1.4.224. Run these manual
 checks only there; automated tests use temporary homes and fake process calls.
 Install agent CLIs separately if testing agent connections.

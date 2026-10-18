@@ -616,6 +616,7 @@ var package_default = {
   },
   scripts: {
     test: "TZ=Asia/Ho_Chi_Minh bun test",
+    live: "bun scripts/live/cli.ts",
     typecheck: "tsc --noEmit && tsc -p app",
     build: "bun build --compile src/cli.ts --outfile dist/pacer",
     release: "bun scripts/release/build.ts",

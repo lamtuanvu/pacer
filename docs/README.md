@@ -10,6 +10,7 @@ pacer delegates coding work according to subscription usage and pace. Start with
 - [Client protocol 3.0](protocol.md): HTTP + SSE and JSON-RPC transports, errors, events and operation schemas.
 - [Protocol 2.x overlap](protocol-v2.md): compatibility API, served for one more pacer minor release.
 - [Orca plugin](../orca-plugin/README.md): information panel, API transport and service notifications.
+- [Live validation](testing/live-validation.md): sandbox service, real executors, surface checks and CT-11 evidence.
 - [Fresh-account onboarding test](testing/onboarding.md): manual end-to-end check that installing the Orca plugin sets up pacer.
 
 `pacer --help` lists commands. `pacer doctor` checks local setup. The [design spec](specs/2026-10-11-pacer-design.md) records architecture and historical design intent; use these user docs and CLI help for current behavior.
