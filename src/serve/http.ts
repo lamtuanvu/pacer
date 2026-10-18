@@ -16,8 +16,7 @@ import { join } from "node:path";
 import { loadStrategy } from "../config/strategy";
 import { computeStatus, type Status } from "../engine/status";
 import type { Ctx } from "../types";
-import { toBudget } from "../link/budget";
-import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals, readOutboxSince } from "../link/store";
+import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from "../link/store";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 
 
@@ -35,14 +34,13 @@ export function ensureToken(ctx: Ctx): string {
   return t;
 }
 
-/** Localhost-only, token-protected API with deprecated v1 read transports. */
+/** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
   getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; pluginRefreshDeps?: Partial<PluginRefreshDeps> } = {},
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
   const token = ensureToken(initialCtx);
   recoverJobs(initialCtx);
-  const interval = opts.sseIntervalMs ?? 15_000;
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;
   let snapshot = currentSnapshot(initialCtx);
@@ -89,10 +87,9 @@ export function startServer(
     if(!cachedStatus)throw Error("status is warming up");
     return cachedStatus;
   };
-  let outbox = readOutboxSince(initialCtx,0);
   const refreshSnapshot = () => {
     if(stopped)return;
-    try{const ctx=getCtx();snapshot=currentSnapshot(ctx);outbox=readOutboxSince(ctx,0);refreshPanel();}catch{ /* Preserve last known data. */ }
+    try{const ctx=getCtx();snapshot=currentSnapshot(ctx);refreshPanel();}catch{ /* Preserve last known data. */ }
   };
   // File notifications update memory outside request handlers; the timer covers missed notifications.
   let scheduled: ReturnType<typeof setTimeout> | undefined;
@@ -103,7 +100,6 @@ export function startServer(
     try{watchers.push(watch(dir,()=>{invalidateConsoleCache(initialCtx);scheduleSnapshot();}));}catch{}
   }
   refreshStatus();
-  const enc = new TextEncoder();
   const server = Bun.serve<SessionWS>({
     websocket: sessionWebSocket,
     hostname: "127.0.0.1",
@@ -111,7 +107,7 @@ export function startServer(
     idleTimeout: 0,
     async fetch(req, server) {
       const { pathname } = new URL(req.url);
-      const sessionRoute=pathname.match(/^\/v2\/tasks\/([A-Za-z0-9_-]+)\/session$/);
+      const sessionRoute=pathname.match(/^\/v[23]\/tasks\/([A-Za-z0-9_-]+)\/session$/);
       const hosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
       if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
@@ -122,10 +118,10 @@ export function startServer(
       const bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
       if (!bearer) {
         const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
-        if (!(app || pathname.startsWith("/v2/")) || !value || !checkSession(getCtx(), value)) {
+        if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
           return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
         }
-        if (pathname === "/v2/session/exchange") return new Response("forbidden\n", { status: 403 });
+        if (/^\/v[23]\/session\/exchange$/.test(pathname)) return new Response("forbidden\n", { status: 403 });
         const site = req.headers.get("sec-fetch-site");
         if ((sessionRoute && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
             (!["GET", "HEAD"].includes(req.method) &&
@@ -135,56 +131,13 @@ export function startServer(
       }
       if (app) return appRoute(req, getCtx());
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
-      if (pathname.startsWith("/v2/")) {
+      if (/^\/v[23]\//.test(pathname)) {
         const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status });
         response.headers.set("X-Pacer","1");
         return response;
       }
       if(pathname==="/state"||pathname.startsWith("/console/"))return new Response("not found\n",{status:404});
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });
-      const legacyHeaders={...headers,Deprecation:"true",Sunset:"3.0"};
-      if (pathname === "/link") return Response.json(snapshot,{headers:legacyHeaders});
-      if (pathname === "/events") {
-        let timer: ReturnType<typeof setInterval> | undefined;
-        let tailTimer: ReturnType<typeof setInterval> | undefined;
-        let last = snapshot.seq;
-        let closed = false;
-        const clearTimers = () => { closed = true; clearInterval(timer); clearInterval(tailTimer); };
-        const stream = new ReadableStream<Uint8Array>({
-          async start(controller) {
-            const send = async () => {
-              let envelope: unknown;
-              try {
-                envelope = { v: 1, type: "budget", data: toBudget(await status()) };
-              } catch (e) {
-                const m = statusError ?? (e as Error).message;
-                envelope = { v: 1, type: "alert", data: { key: "status-error", level: "error", title: "pacer status failed", body: m, error: m, at: initialCtx.now } };
-              }
-              try {
-                controller.enqueue(enc.encode(`data: ${JSON.stringify(envelope)}\n\n`));
-              } catch {
-                clearTimers();
-              }
-            };
-            const tail = () => {
-              try {
-                for (const e of outbox.filter(e=>e.seq>last)) {
-                  if(e.envelope.type!=="entity")controller.enqueue(enc.encode(`data: ${JSON.stringify(e.envelope)}\n\n`));
-                  last = e.seq;
-                }
-              } catch { clearTimers(); }
-            };
-            await send();
-            if (closed || stopped) return;
-            timer = setInterval(send, interval);
-            tailTimer = setInterval(tail, tailMs);
-          },
-          cancel() {
-            clearTimers();
-          },
-        });
-        return new Response(stream, { headers: { ...legacyHeaders, "content-type": "text/event-stream", "cache-control": "no-cache" } });
-      }
       return new Response("not found\n", { status: 404 });
     },
   });
@@ -204,9 +157,9 @@ export function startServer(
       return pumpOnce(ctx,{
         ...defaultPumpDeps,status,
         // A tick can still be awaiting repo or setup probes when stop() runs.
-        publish:(c,envs,opts)=>stopped
+        publish:(c,envs)=>stopped
           ? Promise.resolve({seq:0,transports:[],errors:["service stopped"]})
-          : defaultPumpDeps.publish(c,envs,opts),
+          : defaultPumpDeps.publish(c,envs),
       });
     }).catch(() => []).finally(() => { busy = false; refreshSnapshot(); });
   };

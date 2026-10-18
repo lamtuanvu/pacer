@@ -4,7 +4,7 @@ import { activeNotifier } from "../clients/registry";
 import { withLock } from "../core/lock";
 import { getLevel, type NotificationLevel } from "../core/notify";
 import { readJson, writeJsonAtomic } from "../fsutil";
-import type { Envelope } from "../link/envelope";
+import type { OutboxEvent } from "../link/envelope";
 import { publish } from "../link/publish";
 import type { Ctx } from "../types";
 import { postFallback } from "./fallback";
@@ -26,9 +26,9 @@ export interface DispatchDeps {
   publish?: typeof publish;
   postFallback?: typeof postFallback;
   /** Transition envelopes add mode changes and settled tasks at level all. */
-  events?: Envelope[];
+  events?: OutboxEvent[];
 }
-export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], deps: DispatchDeps = {}): Promise<Envelope[]> {
+export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], deps: DispatchDeps = {}): Promise<OutboxEvent[]> {
   return withLock(ctx, "notifications", async () => {
     const path = join(ctx.pacerHome, "state", "notified.json");
     const raw = readJson<DeliveryLedger>(path) ?? {};
@@ -44,14 +44,14 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
         candidates.push({ key, data: { key, title: `Task ${d.state}`, body: d.goal, actions: [], url: `/app/#tasks/${encodeURIComponent(d.id)}` } });
       }
     }
-    const sent: Envelope[] = [];
+    const sent: OutboxEvent[] = [];
     for (const { key, data } of candidates) {
       if (Object.hasOwn(ledger, key)) continue;
       const notifier = activeNotifier(ctx);
       let delivered: boolean;
       if (notifier) {
-        const event: Envelope = { v: 1, type: "entity", data: { kind: "notify", id: key, value: { ...data, client_id: notifier.client_id } } };
-        const report = await (deps.publish ?? publish)(ctx, [event], { channel: false, bridge: false });
+        const event: OutboxEvent = { type: "entity", data: { kind: "notify", id: key, value: { ...data, client_id: notifier.client_id } } };
+        const report = await (deps.publish ?? publish)(ctx, [event]);
         delivered = report.transports.includes("outbox");
         if (delivered) sent.push(event);
       } else delivered = await (deps.postFallback ?? postFallback)(data.title, data.body, ctx);

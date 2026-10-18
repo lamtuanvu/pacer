@@ -38,11 +38,11 @@ test("StdioClient restarts and resumes after the child exits", async () => {
   try {
     await client.hello();
     client.subscribe(0, (e) => seen.push(e.seq));
-    const alert = (key: string) => ({ v: 1 as const, type: "alert" as const, data: { key, level: "info" as const, title: key, body: "", at: ctx.now } });
-    await publish(ctx, [alert("a")], { bridge: false, channel: false });
+    const alert = (key: string) => ({ type: "alert" as const, data: { key, level: "info" as const, title: key, body: "", at: ctx.now } });
+    await publish(ctx, [alert("a")]);
     await waitFor(() => seen.length >= 1);
     (client as unknown as { child: { kill(s: string): void } }).child.kill("SIGKILL");
-    await publish(ctx, [alert("b")], { bridge: false, channel: false });
+    await publish(ctx, [alert("b")]);
     await waitFor(() => seen.length >= 2);
     expect(seen[1]).toBeGreaterThan(seen[0]!);
     expect(new Set(seen).size).toBe(seen.length);

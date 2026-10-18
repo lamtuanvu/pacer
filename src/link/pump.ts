@@ -8,7 +8,6 @@ import { snapshotTasks } from "../api/read-model/tasks";
 import type { Strategy } from "../config/strategy";
 import type { SetupChecklist } from "../setup/checklist";
 import type { EntityData } from "./envelope";
-import type { PublishOpts } from "./publish";
 import { drainQueue } from "../tasks/drain";
 import { sessionTaskData } from "../session/link";
 import { resolveTask } from "../tasks/resolution";
@@ -29,11 +28,11 @@ import { listTasks } from "../tasks/store";
 import { TERMINAL_STATES, type TaskRecord, type TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
 import { budgetKey, toBudget } from "./budget";
-import { type AlertData, type Envelope, LIMITS, type TaskData, clip } from "./envelope";
+import { type AlertData, type OutboxEvent, LIMITS, type TaskData, clip } from "./envelope";
 import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
-export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:Envelope[],opts?:PublishOpts):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
-export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t),publish:(ctx,envs,opts)=>publish(ctx,envs,opts)};
+export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:OutboxEvent[]):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
+export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t),publish};
 export function taskData(t:TaskRecord):TaskData & {title:string} {
   const last=t.attempts.at(-1); return {id:t.id,title:taskTitle(t),state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0),
     ...(t.placement?.mode && t.placement.why!==undefined ? {placement:{mode:t.placement.mode,why:t.placement.why}} : {}),
@@ -45,13 +44,13 @@ export function taskData(t:TaskRecord):TaskData & {title:string} {
     ...(["running","queued"].includes(t.state) ? {runnerAlive:!!t.runnerPid && pidAlive(t.runnerPid)} : {}),
   };
 }
-export function entityDiff(prev:Record<string,string>,rows:{kind:EntityData["kind"];id:string;value:unknown}[]):{envelopes:Envelope[];next:Record<string,string>} {
- const next:Record<string,string>={},envelopes:Envelope[]=[];
- for(const row of rows){const key=`${row.kind}:${row.id}`,value=JSON.stringify(row.value);next[key]=value;if(prev[key]!==value)envelopes.push({v:1,type:"entity",data:{kind:row.kind,id:row.id,value:row.value}});}
- for(const key of Object.keys(prev))if(!Object.hasOwn(next,key)){const split=key.indexOf(":");envelopes.push({v:1,type:"entity",data:{kind:key.slice(0,split) as EntityData["kind"],id:key.slice(split+1),removed:true}});}
+export function entityDiff(prev:Record<string,string>,rows:{kind:EntityData["kind"];id:string;value:unknown}[]):{envelopes:OutboxEvent[];next:Record<string,string>} {
+ const next:Record<string,string>={},envelopes:OutboxEvent[]=[];
+ for(const row of rows){const key=`${row.kind}:${row.id}`,value=JSON.stringify(row.value);next[key]=value;if(prev[key]!==value)envelopes.push({type:"entity",data:{kind:row.kind,id:row.id,value:row.value}});}
+ for(const key of Object.keys(prev))if(!Object.hasOwn(next,key)){const split=key.indexOf(":");envelopes.push({type:"entity",data:{kind:key.slice(0,split) as EntityData["kind"],id:key.slice(split+1),removed:true}});}
  return {envelopes,next};
 }
-const alert=(a:AlertData):Envelope=>({v:1,type:"alert",data:a});
+const alert=(a:AlertData):OutboxEvent=>({type:"alert",data:a});
 interface ActivityStatus {
   mode?: string;
   executors: Record<string, string>;
@@ -107,13 +106,13 @@ function statusActivity(ctx: Ctx, st: Status): void {
   if (JSON.stringify(prev) !== JSON.stringify(next)) writeJsonAtomic(path, next);
 }
 
-export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Envelope[]> {
+export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<OutboxEvent[]> {
   // Expiry is independent of status refresh: even a failing provider must clear clients.
-  const expiredEvents:Envelope[]=[];
+  const expiredEvents:OutboxEvent[]=[];
   const pausePath=join(ctx.pacerHome,"state","pause.json"),paused=readJson<PauseState>(pausePath);
   if(paused && typeof paused.until==="number" && Number.isFinite(paused.until) && paused.until<=ctx.now){
-    const event:Envelope={v:1,type:"pause",data:{removed:true}};
-    const report=await deps.publish(ctx,[event],{bridge:false,channel:false});
+    const event:OutboxEvent={type:"pause",data:{removed:true}};
+    const report=await deps.publish(ctx,[event]);
     if(report.transports.includes("outbox")){
       expiredEvents.push(event);
       // A new pause may have been written while publication awaited the link lock.
@@ -122,7 +121,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
   }
   rotateActivity(ctx);
   await drainQueue(ctx).catch(() => {});
-  const latest=readLatest(ctx),out:Envelope[]=[]; let st:Status;
+  const latest=readLatest(ctx),out:OutboxEvent[]=[]; let st:Status;
   try{st=await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
     if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return [...expiredEvents,...out];}
   const hold=readJson<{mode:string;until:number}>(join(ctx.pacerHome,"state","mode-hold.json"));
@@ -132,8 +131,8 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     writeJsonAtomic(holdEndedPath,hold.until);
   }
   statusActivity(ctx, st);
-  const b=toBudget(st); if(budgetKey(b)!==budgetKey(latest.budget))out.push({v:1,type:"budget",data:b});
-  const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({v:1,type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`Budget mode changed to ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
+  const b=toBudget(st); if(budgetKey(b)!==budgetKey(latest.budget))out.push({type:"budget",data:b});
+  const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`Budget mode changed to ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
   // Keep the main hotfix ledger even when a task falls out of the capped snapshot.
   const statesPath=join(ctx.pacerHome,"link","task-states.json"),knownRaw=readJson<unknown>(statesPath);
   const known:Record<string,string>=isObj(knownRaw)?Object.fromEntries(Object.entries(knownRaw).filter(([,v])=>typeof v==="string")) as Record<string,string>:{};
@@ -151,7 +150,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     if(prev && Object.keys({...prev,...d}).every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])))continue;
     // Coalesce progress-only changes; state transitions always publish immediately.
     if(prev && prev.state===d.state && Object.keys({...prev,...d}).filter(k=>k!=="progress").every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])) && ctx.now-(times[d.id]??-Infinity)<1)continue;
-    out.push({v:1,type:"task",data:d});times[d.id]=ctx.now;nextData[d.id]=d;timesChanged=true;
+    out.push({type:"task",data:d});times[d.id]=ctx.now;nextData[d.id]=d;timesChanged=true;
     const terminal=TERMINAL_STATES.includes(d.state as TaskState);
     if(terminal&&d.state!=="needs_input"&&before!==d.state&&(before!==undefined||latest.seq>0)) {
       const last=t.attempts.at(-1), name=executorName(d.executor), next=b.ranked.find(x=>x.id!==d.executor)?.id;
@@ -211,6 +210,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
     out.push(...await dispatchNotifications(ctx,model.attention,{publish:deps.publish,events:[...out]}));
     const rows:{kind:EntityData["kind"];id:string;value:unknown}[]=[
+      {kind:"planner",id:"planner",value:model.planner},
       ...model.executors.map(value=>({kind:"executor" as const,id:value.id,value})),
       ...model.accounts.map(value=>({kind:"account" as const,id:value.name,value})),
       ...model.hosts.map(value=>({kind:"host" as const,id:value.alias,value})),
@@ -223,7 +223,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     const diff=entityDiff(prev,rows);
     if(ctx.now-countsAt<1){diff.envelopes=diff.envelopes.filter(e=>e.type!=="entity"||e.data.kind!=="counts");if(prev["counts:counts"]!==undefined)diff.next["counts:counts"]=prev["counts:counts"];else delete diff.next["counts:counts"];}
     if(diff.envelopes.length){
-      const entities=await deps.publish(ctx,diff.envelopes,{channel:false,bridge:false});out.push(...diff.envelopes);
+      const entities=await deps.publish(ctx,diff.envelopes);out.push(...diff.envelopes);
       if(entities.transports.includes("outbox")){writeJsonAtomic(path,diff.next);if(diff.envelopes.some(e=>e.type==="entity"&&e.data.kind==="counts"))writeJsonAtomic(countsPath,ctx.now);}
     }
   }

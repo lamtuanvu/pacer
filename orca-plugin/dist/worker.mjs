@@ -1098,7 +1098,7 @@ function readSettings(raw, home) {
   const finite = (v) => typeof v === "number" && Number.isFinite(v);
   return {
     notifications: ["off", "important", "all"].includes(String(raw.notifications)) ? raw.notifications : "important",
-    transport: ["auto", "api", "http", "channel", "bridge"].includes(raw.transport) ? raw.transport : "auto",
+    transport: ["auto", "api"].includes(raw.transport) ? raw.transport : "auto",
     port: finite(raw.port) && Number.isInteger(raw.port) && raw.port >= 1 && raw.port <= 65535 ? raw.port : 4317,
     pacerHome: typeof raw.pacerHome === "string" && raw.pacerHome.length > 0 ? raw.pacerHome : `${home}/.pacer`,
     pollSeconds: finite(raw.pollSeconds) ? Math.max(5, Math.min(300, raw.pollSeconds)) : 10,
@@ -1108,7 +1108,7 @@ function readSettings(raw, home) {
 }
 
 // src/link/envelope.ts
-var LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, cmdLine: 4096, heartbeatS: 30 };
+var LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, heartbeatS: 30 };
 var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 var str = (v, max) => typeof v === "string" ? v.slice(0, max) : null;
 var optStr = (v, max) => typeof v === "string" && v.length > 0 ? v.slice(0, max) : null;
@@ -1189,55 +1189,47 @@ function parseAlert(d) {
     alert.notification = { kind: n.kind, ...n.fromPanel === true ? { fromPanel: true } : {}, ...n.near === true ? { near: true } : {}, ...optStr(n.executor, 64) ? { executor: optStr(n.executor, 64) } : {}, ...optStr(n.goal, 1000) ? { goal: optStr(n.goal, 1000) } : {}, ...optStr(n.nextExecutor, 64) ? { nextExecutor: optStr(n.nextExecutor, 64) } : {}, ...optStr(n.strategy, 128) ? { strategy: optStr(n.strategy, 128) } : {}, ...num(n.resetsAt) !== null ? { resetsAt: num(n.resetsAt) } : {} };
   return alert;
 }
-function parseConsole(d) {
-  if (!isObj(d))
-    return null;
-  const pid = num(d.pid), startedAt = num(d.startedAt), heartbeatAt = num(d.heartbeatAt);
-  if (pid === null || startedAt === null || heartbeatAt === null)
-    return null;
-  return { ...optStr(d.version, 64) ? { version: optStr(d.version, 64) } : {}, ...optStr(d.worktreeId, 1024) ? { worktreeId: optStr(d.worktreeId, 1024) } : {}, pid, startedAt, heartbeatAt, ...num(d.busyUntil) !== null ? { busyUntil: num(d.busyUntil) } : {}, handle: optStr(d.handle, 1024), paneKey: optStr(d.paneKey, 2048) };
-}
-function parseEnvelope(raw) {
-  if (!isObj(raw) || raw.v !== 1)
+function parseOutboxEvent(raw) {
+  if (!isObj(raw) || raw.v !== undefined && raw.v !== 1)
     return null;
   switch (raw.type) {
     case "entity": {
       const d = raw.data;
-      if (!isObj(d) || !["executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
+      if (!isObj(d) || !["planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
         return null;
-      return { v: 1, type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
+      return { type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
     }
     case "pause": {
       const d = raw.data;
       if (!isObj(d))
         return null;
       if (d.removed === true)
-        return { v: 1, type: "pause", data: { removed: true } };
+        return { type: "pause", data: { removed: true } };
       if (d.until !== null && num(d.until) === null || d.reason !== null && typeof d.reason !== "string" || d.by !== null && typeof d.by !== "string")
         return null;
-      return { v: 1, type: "pause", data: { until: d.until, reason: d.reason, by: d.by } };
+      return { type: "pause", data: { until: d.until, reason: d.reason, by: d.by } };
     }
     case "config": {
       const d = raw.data;
       if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null)
         return null;
-      return { v: 1, type: "config", data: { area: optStr(d.area, 128), at: num(d.at) } };
+      return { type: "config", data: { area: optStr(d.area, 128), at: num(d.at) } };
     }
     case "budget": {
       const data = parseBudget(raw.data);
-      return data && { v: 1, type: "budget", data };
+      return data && { type: "budget", data };
     }
     case "task": {
       const data = parseTask(raw.data);
-      return data && { v: 1, type: "task", data };
+      return data && { type: "task", data };
     }
     case "mode": {
       const data = parseMode(raw.data);
-      return data && { v: 1, type: "mode", data };
+      return data && { type: "mode", data };
     }
     case "alert": {
       const data = parseAlert(raw.data);
-      return data && { v: 1, type: "alert", data };
+      return data && { type: "alert", data };
     }
     default:
       return null;
@@ -1245,15 +1237,6 @@ function parseEnvelope(raw) {
 }
 function emptySnapshot() {
   return { v: 1, seq: 0, at: 0, budget: null, mode: null, tasks: [], alerts: [], console: null, consoles: [], strategies: [] };
-}
-function parseSnapshot(raw) {
-  if (!isObj(raw) || raw.v !== 1)
-    return null;
-  const seq = num(raw.seq), at = num(raw.at);
-  if (seq === null || at === null)
-    return null;
-  const list = (v, f, max) => (Array.isArray(v) ? v : []).map(f).filter((x) => x !== null).slice(0, max);
-  return { v: 1, seq, at, ...typeof raw.serviceInstalled === "boolean" ? { serviceInstalled: raw.serviceInstalled } : {}, budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list(raw.strategies, (v) => typeof v === "string" ? optStr(v, 128) : isObj(v) && optStr(v.name, 128) ? { name: optStr(v.name, 128), active: v.active === true, summary: str(v.summary, 1000) ?? "", description: str(v.description, 1000) ?? "" } : null, 32) };
 }
 function reduce(s, e, at) {
   const next = { ...s, seq: s.seq + 1, at };
@@ -1318,7 +1301,7 @@ class LinkStore {
 }
 
 // orca-plugin/src/transports/choose.ts
-var TRANSPORT_ORDER = ["api", "channel", "bridge"];
+var TRANSPORT_ORDER = ["api"];
 async function chooseTransport(ts, forced) {
   const probe = async (t) => {
     try {
@@ -1327,7 +1310,7 @@ async function chooseTransport(ts, forced) {
       return false;
     }
   };
-  if (forced !== "auto") {
+  if (forced === "api") {
     const transport = ts.find((t) => t.id === forced) ?? null;
     return { transport, reachable: transport ? await probe(transport) : false };
   }
@@ -1479,7 +1462,7 @@ function apiTransport(o) {
           }
           if (!["budget", "task", "mode", "alert"].includes(e.type))
             return;
-          const envelope = parseEnvelope({ v: 1, type: e.type, data: e.data });
+          const envelope = parseOutboxEvent({ type: e.type, data: e.data });
           if (envelope)
             onEnvelope(envelope);
         });
@@ -1503,212 +1486,6 @@ function apiTransport(o) {
       };
     }
   };
-}
-
-// orca-plugin/src/transports/http.ts
-function httpTransport(o) {
-  const base = `http://127.0.0.1:${o.port}`;
-  async function request(path, token) {
-    let cancel = () => {};
-    try {
-      return await Promise.race([
-        o.http.get(base + path, token, 1500),
-        new Promise((resolve) => {
-          cancel = o.timers.after(1500, () => resolve(null));
-        })
-      ]);
-    } catch {
-      return null;
-    } finally {
-      cancel();
-    }
-  }
-  async function identified() {
-    const health = await request("/health", "");
-    return health?.status === 200 && health.headers?.["x-pacer"] === "1";
-  }
-  async function get() {
-    try {
-      if (!await identified())
-        return null;
-      const token = o.readToken();
-      if (!token)
-        return null;
-      const response = await request("/link", token);
-      return response?.headers?.["x-pacer"] === "1" ? response : null;
-    } catch {
-      return null;
-    }
-  }
-  async function snapshot() {
-    const r = await get();
-    if (r?.status !== 200)
-      return null;
-    try {
-      return parseSnapshot(JSON.parse(r.body));
-    } catch {
-      return null;
-    }
-  }
-  return {
-    id: "http",
-    probe: async () => (await get())?.status === 200,
-    snapshot,
-    watch(onEnvelope, onSnapshot, onFailure) {
-      let stopped = false, failures = 0;
-      let stopStream = () => {}, cancelRetry = () => {};
-      let refreshBusy = false;
-      const reconnect = () => {
-        if (stopped)
-          return;
-        const delay = [2000, 4000, 8000, 16000, 30000][Math.min(failures++, 4)];
-        cancelRetry();
-        cancelRetry = o.timers.after(delay, () => {
-          connect();
-        });
-      };
-      const connect = async () => {
-        if (stopped)
-          return;
-        stopStream();
-        try {
-          if (!await identified()) {
-            reconnect();
-            return;
-          }
-          if (stopped)
-            return;
-          const token = o.readToken();
-          if (!token) {
-            reconnect();
-            return;
-          }
-          stopStream = o.http.stream(`${base}/events`, token, (chunk) => {
-            for (const line of chunk.split(/\r?\n/)) {
-              if (!line.startsWith("data: "))
-                continue;
-              try {
-                const e = parseEnvelope(JSON.parse(line.slice(6)));
-                if (e) {
-                  failures = 0;
-                  onEnvelope(e);
-                }
-              } catch {}
-            }
-          }, reconnect);
-        } catch {
-          reconnect();
-        }
-      };
-      const cancelPoll = o.timers.every(1e4, () => {
-        if (refreshBusy)
-          return;
-        refreshBusy = true;
-        snapshot().then((s) => {
-          if (!stopped) {
-            if (s)
-              onSnapshot(s);
-            else
-              onFailure?.();
-          }
-        }).finally(() => {
-          refreshBusy = false;
-        });
-      });
-      connect();
-      return () => {
-        stopped = true;
-        stopStream();
-        cancelRetry();
-        cancelPoll();
-      };
-    }
-  };
-}
-
-// orca-plugin/src/transports/bridge.ts
-function bridgeTransport(o) {
-  async function snapshot() {
-    try {
-      return parseSnapshot((await o.host.call("storage.get", { key: "link" })).value);
-    } catch {
-      return null;
-    }
-  }
-  return {
-    id: "bridge",
-    snapshot,
-    probe: async () => await snapshot() !== null,
-    watch(_onEnvelope, onSnapshot) {
-      let key = null, stopped = false, busy = false;
-      const cancel = o.timers.every(Math.min(o.pollMs, 1000), () => {
-        if (busy)
-          return;
-        busy = true;
-        snapshot().then((s) => {
-          if (s && !stopped) {
-            const next = contentKey(s);
-            if (next !== key) {
-              key = next;
-              onSnapshot(s);
-            }
-          }
-        }).finally(() => {
-          busy = false;
-        });
-      });
-      return () => {
-        stopped = true;
-        cancel();
-      };
-    }
-  };
-}
-
-// orca-plugin/src/transports/channel.ts
-var CHANNEL_EVENT = "plugin.message";
-function channelTransport(o) {
-  let listener = null;
-  let registered = false;
-  return {
-    id: "channel",
-    probe: async () => {
-      try {
-        await o.host.call("events.subscribe", { events: [CHANNEL_EVENT] });
-        if (!registered) {
-          o.registerEvent(CHANNEL_EVENT, (p) => {
-            if (typeof p !== "object" || !p)
-              return;
-            const e = parseEnvelope(p.data);
-            if (e)
-              listener?.(e);
-          });
-          registered = true;
-        }
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    snapshot: async () => null,
-    watch(onEnvelope) {
-      listener = onEnvelope;
-      return () => {
-        listener = null;
-      };
-    }
-  };
-}
-
-// src/link/notification.ts
-var executorName = (id) => NAMES[id ?? ""] ?? "the executor";
-var NAMES = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", opencode: "OpenCode", local: "Local model" };
-function shortGoal(goal, max = 90) {
-  const text = goal.replace(/\s+/g, " ").trim();
-  if (text.length <= max)
-    return text;
-  const prefix = text.slice(0, max - 1), space = prefix.lastIndexOf(" ");
-  return prefix.slice(0, space > max / 2 ? space : prefix.length) + "…";
 }
 
 // orca-plugin/src/notify.ts
@@ -1736,70 +1513,6 @@ async function deliverNotification(host, message, nowS, serviceDecided = false) 
   return false;
 }
 var states = new WeakMap;
-var id = (a) => JSON.stringify([a.key, a.at]);
-function notificationMessage(a) {
-  const n = a.notification, name = executorName(n?.executor);
-  const next = n?.nextExecutor ? `Moved to ${executorName(n.nextExecutor)} automatically.` : n?.kind === "failed" ? "Open the pacer panel to retry." : "Nothing to do.";
-  let title = a.title.replace(/\bpacer\b[: ]*/gi, "").trim(), body = "Nothing to do.";
-  if (n) {
-    title = n.kind === "failed" ? `Task failed on ${name}` : n.kind === "done" ? `Task done on ${name}` : n.kind === "broken" ? `${name} isn't starting` : n.kind === "quota" ? `${name} ${n.near ? "is near its limit" : "is out of quota"}${!n.near && n.resetsAt ? ` until ${new Date(n.resetsAt * 1000).toLocaleString("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "")}` : ""}` : n.kind === "strategy" ? `Switched to strategy ${n.strategy}` : "Strategy session opened";
-    body = `${shortGoal(n.goal ?? "")}
-${n.kind === "failed" && n.nextExecutor ? `Open the pacer panel to retry on ${executorName(n.nextExecutor)}.` : next}`;
-  }
-  if (!n)
-    title = title.replace(/\bagy\b/g, "Antigravity").replace(/\bcodex\b/gi, "Codex").replace(/\bcursor\b/gi, "Cursor").replace(/\bclaude-code\b/g, "Claude").replace(/\s+(via|backend)\b.*$/i, "");
-  return { title: shortGoal(title, 60), body };
-}
-async function notifyNewAlerts(host, s, settings, activatedAtS, nowS = Date.now() / 1000) {
-  if (s.planner !== undefined)
-    return settings.lastAlertAt;
-  let state = states.get(settings);
-  if (!state) {
-    state = { since: settings.settingsReady === false ? activatedAtS : Math.max(settings.lastAlertAt, activatedAtS - 300), delivered: new Set((settings.deliveredAlerts ?? []).map((a) => JSON.stringify([a.key, a.at]))), pending: new Map, lastSent: -Infinity };
-    states.set(settings, state);
-  }
-  const level = settings.notifications ?? "important";
-  if (level === "off") {
-    state.pending.clear();
-    return settings.lastAlertAt;
-  }
-  const important = (a) => a.notification?.kind === "broken" || ["failed", "done"].includes(a.notification?.kind ?? "") && a.notification?.fromPanel === true || a.notification?.kind === "quota" && a.notification.executor === "claude-code";
-  for (const a of s.alerts)
-    if (a.at > Math.max(state.since, settings.lastAlertAt) && !state.delivered.has(id(a))) {
-      if (level === "all" || important(a))
-        state.pending.set(id(a), a);
-    }
-  if (nowS - state.lastSent < 5)
-    return settings.lastAlertAt;
-  const pending = [...state.pending.values()].sort((a, b) => a.at - b.at);
-  const a = pending[0];
-  const batched = a?.notification?.kind === "failed" || a?.notification?.kind === "broken";
-  if (batched && nowS - a.at < 30)
-    return settings.lastAlertAt;
-  if (!a)
-    return settings.lastAlertAt;
-  const batch = batched ? pending.filter((x) => x.notification?.kind === a.notification?.kind && x.notification?.executor === a.notification?.executor && Math.abs(x.at - a.at) <= 30) : [a];
-  const message = notificationMessage(a);
-  if (batch.length > 1) {
-    message.title = a.notification?.kind === "broken" ? `${executorName(a.notification.executor)} isn't starting` : `${batch.length} tasks failed on ${executorName(a.notification?.executor)}`;
-    message.body = `${a.notification?.kind === "broken" ? `${batch.length} tasks affected` : shortGoal(a.notification?.goal ?? "")}
-${a.notification?.nextExecutor ? `Moved to ${executorName(a.notification.nextExecutor)} automatically.` : "Open the pacer panel to retry."}`;
-  }
-  const delivered = await deliverNotification(host, message, nowS);
-  if (!delivered)
-    return settings.lastAlertAt;
-  state.lastSent = nowS;
-  for (const item of batch) {
-    state.pending.delete(id(item));
-    state.delivered.add(id(item));
-  }
-  settings.deliveredAlerts = [...settings.deliveredAlerts ?? [], ...batch.map((x) => ({ key: x.key, at: x.at }))].slice(-200);
-  await host.call("settings.set", { key: "deliveredAlerts", value: settings.deliveredAlerts });
-  const newest = Math.max(settings.lastAlertAt, ...batch.map((x) => x.at));
-  settings.lastAlertAt = state.pending.size ? Math.min(newest, Math.min(...[...state.pending.values()].map((x) => x.at)) - 0.001) : newest;
-  await host.call("settings.set", { key: "lastAlertAt", value: settings.lastAlertAt });
-  return settings.lastAlertAt;
-}
 
 // src/view-model/selectors.ts
 var memo = new WeakMap;
@@ -2020,10 +1733,17 @@ function renderStatusPage(s, view) {
     const versions = `<p>pacer ${h((s.planner === undefined ? view.updates?.cli ?? s.console?.version : s.service?.version ?? view.updates?.cli) ?? "unknown")} · plugin ${h(view.updates?.plugin ?? "unknown")}</p>${view.updates?.available ? `<p>Update available: ${h(view.updates.latest ?? "unknown")} · <code>pacer update</code></p>` : ""}`;
     content = section("Planner", `<div class="card stack">${planner ? `<div class="row"><strong class="grow">${h(providerLabel(planner))}</strong><span>${h(percent(planner))}</span></div>${meter(planner)}<small>${h(reset(planner, true))}</small>` : "<small>Planner unknown · Reset unknown</small>"}<p class="headline">${h(headline(planner))}</p></div>`) + section("Accounts", accounts || "<small>No accounts reported.</small>") + section("Running", running || "<small>No tasks running.</small>") + section("Waiting for review", `${waiting || "<small>No tasks waiting for review.</small>"}<p>Review with <code>pacer review &lt;id&gt;</code> or in the pacer app.</p>`) + section("Alerts", alerts || "<small>No alerts.</small>") + section("Versions", versions);
   }
+  if (!view.reachable && view.transport === null)
+    content = section("Update the pacer plugin", "<p>Run <code>pacer update</code> in a terminal, then restart the plugin to connect to the pacer API.</p>") + content;
   if (setup && !setup.complete)
     content += section("Setup", `${checklist(setup)}<pre><code>pacer init</code></pre>`);
   const footer = "<footer>pacer shows information here. To delegate, review, block executors or change settings, run <code>pacer open</code> in a terminal to open the pacer app.</footer>";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
+}
+function snapshotStrategy(s) {
+  if (s.planner === undefined)
+    return s.budget?.strategy;
+  return s.strategies?.find((row) => typeof row !== "string" && row.active)?.name;
 }
 
 // src/plugin/panel-owner.ts
@@ -2121,7 +1841,6 @@ function createPlugin(deps) {
       }
       return;
     }
-    const activatedAtS = deps.nowS();
     let raw = {};
     let settingsReady = false;
     let cancelSettings = () => {};
@@ -2144,7 +1863,6 @@ function createPlugin(deps) {
     const settings = readSettings(raw, deps.home);
     settings.settingsReady = settingsReady;
     const store = new LinkStore(deps.nowS);
-    const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
       apiTransport({ timers, notifier: { version: deps.version ?? "0", deliver: (data) => deliverNotification(ctx.host, { title: data.title, body: data.body }, deps.nowS(), true) }, log: (m) => ctx.log(m), connect: async () => {
         const client = await deps.connect?.(settings) ?? null;
@@ -2164,19 +1882,11 @@ function createPlugin(deps) {
           clients.add(client);
         }
         return client;
-      } }),
-      httpTransport({ http: deps.http, readToken: () => deps.fs.readText(`${settings.pacerHome}/token`)?.trim() || null, port: settings.port, timers }),
-      channelTransport({ host: ctx.host, registerEvent: (name, handler) => ctx.events.on(name, async (payload) => {
-        await ensureConnected();
-        if (!stopped)
-          handler(payload);
-      }) }),
-      bridge
+      } })
     ];
     let active = null, reachable = false, connecting = null;
     let lastSeenAt;
-    let processing = Promise.resolve();
-    let httpFailures = 0;
+    let apiFailures = 0;
     let setup;
     let renderedHtml = null;
     let lastRenderAt = -Infinity;
@@ -2186,7 +1896,7 @@ function createPlugin(deps) {
         return updates;
       const cached = deps.cachedUpdate?.();
       const latest = cached?.latest ?? updates?.latest ?? null;
-      const cli = (store.snapshot.planner === undefined ? store.snapshot.console?.version : store.snapshot.service?.version) ?? updates?.cli ?? null;
+      const cli = store.snapshot.service?.version ?? updates?.cli ?? null;
       const check = { checkedAt: deps.nowS(), latest, current: deps.version };
       return { plugin: deps.version, cli, latest, available: updateAvailable(check) || !!cli && updateAvailable({ ...check, current: cli }) };
     };
@@ -2220,11 +1930,6 @@ function createPlugin(deps) {
         } catch (e) {
           logError(e);
         }
-        const snapshot = store.snapshot;
-        processing = processing.then(async () => {
-          if (!stopped && active?.id !== "api")
-            await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS());
-        }).catch(logError);
       });
     };
     if (deps.bootstrap) {
@@ -2276,12 +1981,6 @@ function createPlugin(deps) {
       });
     });
     store.onChange(() => scheduleRender());
-    timers.every(1000, () => {
-      processing = processing.then(async () => {
-        if (!stopped && active?.id !== "api")
-          await notifyNewAlerts(ctx.host, store.snapshot, settings, activatedAtS, deps.nowS());
-      }).catch(logError);
-    });
     timers.every(15000, () => {
       scheduleRender();
     });
@@ -2289,16 +1988,9 @@ function createPlugin(deps) {
       if (stopped)
         return;
       const previous = store.snapshot;
-      const strategyName = (s) => {
-        if (s.planner === undefined)
-          return s.budget?.strategy;
-        const active = s.strategies?.find((x) => typeof x !== "string" && x.active);
-        return active?.name;
-      };
       const taskChanged = snapshot.tasks.some((t) => !previous.tasks.some((p) => p.id === t.id) || t.dismissed !== previous.tasks.find((p) => p.id === t.id)?.dismissed || t.retriedBy !== previous.tasks.find((p) => p.id === t.id)?.retriedBy);
-      const strategyBuilt = snapshot.planner === undefined && snapshot.alerts.some((a) => a.key === "strategy-build" && !(previous.planner === undefined && previous.alerts.some((p) => p.key === a.key && p.at === a.at)));
-      const blockedChanged = snapshot.planner === undefined ? snapshot.budget?.providers.some((p) => p.blockedReason !== (previous.planner === undefined ? previous.budget?.providers.find((x) => x.id === p.id)?.blockedReason : undefined)) : snapshot.executors?.some((e) => e.state === "blocked" !== (previous.executors?.find((p) => p.id === e.id)?.state === "blocked"));
-      const initiated = strategyName(snapshot) !== strategyName(previous) || taskChanged || strategyBuilt || blockedChanged;
+      const blockedChanged = snapshot.executors?.some((e) => e.state === "blocked" !== (previous.executors?.find((p) => p.id === e.id)?.state === "blocked"));
+      const initiated = snapshotStrategy(snapshot) !== snapshotStrategy(previous) || taskChanged || blockedChanged;
       if (initiated) {
         userOutcome = true;
         if (cancelRender) {
@@ -2311,7 +2003,7 @@ function createPlugin(deps) {
     const acceptSnapshot = (snapshot) => {
       if (stopped)
         return;
-      httpFailures = 0;
+      apiFailures = 0;
       lastSeenAt = deps.nowS();
       if (!reachable) {
         reachable = true;
@@ -2324,7 +2016,7 @@ function createPlugin(deps) {
       if (stopped)
         return;
       active = chosen.transport;
-      reachable = chosen.reachable && active?.id !== "bridge";
+      reachable = chosen.reachable && !!active;
       if (reachable)
         lastSeenAt = deps.nowS();
       store.transport = active?.id ?? null;
@@ -2336,7 +2028,7 @@ function createPlugin(deps) {
         });
         return;
       }
-      const snapshot = await active.snapshot().catch(() => null) ?? await bridge.snapshot();
+      const snapshot = await active.snapshot().catch(() => null);
       if (stopped)
         return;
       if (snapshot)
@@ -2346,8 +2038,8 @@ function createPlugin(deps) {
           lastSeenAt = deps.nowS();
           store.apply(e);
         }
-      }, active.id === "bridge" ? replaceSnapshot : acceptSnapshot, () => {
-        handleHttpFailure().catch(logError);
+      }, acceptSnapshot, () => {
+        handleApiFailure().catch(logError);
       });
       scheduleRender();
     };
@@ -2363,12 +2055,9 @@ function createPlugin(deps) {
       }
       return connecting;
     }
-    const handleHttpFailure = async () => {
-      const failures = ++httpFailures;
-      const snapshot = await bridge.snapshot();
-      if (snapshot)
-        replaceSnapshot(snapshot);
-      if (stopped || active?.id !== "http")
+    const handleApiFailure = async () => {
+      const failures = ++apiFailures;
+      if (stopped || active?.id !== "api")
         return;
       reachable = false;
       if (lastSeenAt !== undefined)
@@ -2376,50 +2065,11 @@ function createPlugin(deps) {
       if (failures >= 3) {
         stopWatch?.();
         stopWatch = null;
-        httpFailures = 0;
+        apiFailures = 0;
         await ensureConnected();
       }
       scheduleRender();
     };
-    const refreshSnapshot = async () => {
-      try {
-        const snapshot = await active?.snapshot().catch(() => null);
-        if (snapshot) {
-          if (active?.id === "bridge")
-            replaceSnapshot(snapshot);
-          else
-            acceptSnapshot(snapshot);
-        } else if (active?.id === "http")
-          await handleHttpFailure();
-        else {
-          const fallback = await bridge.snapshot();
-          if (fallback)
-            replaceSnapshot(fallback);
-        }
-      } catch (e) {
-        logError(e);
-      }
-    };
-    let probing = false;
-    timers.every(settings.pollSeconds * 1000, () => {
-      if (stopped || probing || connecting || active?.id === "http" || active?.id === "api")
-        return;
-      probing = true;
-      (async () => {
-        if (active?.id === "channel")
-          await refreshSnapshot();
-        if (stopped || settings.transport !== "auto")
-          return;
-        const chosen = await chooseTransport(transports, settings.transport);
-        if (stopped || chosen.transport?.id === active?.id)
-          return;
-        stopWatch?.();
-        stopWatch = null;
-        await ensureConnected();
-      })().catch(logError).finally(() => {
-        probing = false;
-      });
-    });
     ensureConnected();
   }
   return {

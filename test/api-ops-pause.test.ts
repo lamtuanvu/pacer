@@ -28,7 +28,7 @@ test("timed pause expiry publishes removed once, even when status refresh fails"
   await pumpOnce({...ctx, now:ctx.now+59}, deps);
   expect(pauseEvents(ctx)).toHaveLength(1);
   const expired = {...ctx, now:ctx.now+60};
-  expect(await pumpOnce(expired, deps)).toContainEqual({v:1,type:"pause",data:{removed:true}});
+  expect(await pumpOnce(expired, deps)).toContainEqual({type:"pause",data:{removed:true}});
   await pumpOnce({...expired, now:expired.now+1}, deps);
   expect(pauseEvents(ctx).map(e => e.data)).toEqual([{until:ctx.now+60, reason:null, by:null}, {removed:true}]);
   expect(readPause(ctx)).toBeNull();

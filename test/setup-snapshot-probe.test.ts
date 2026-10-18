@@ -26,7 +26,7 @@ test("a snapshot can compute setup without awaiting its own cached context",asyn
  }finally{request.mockRestore();}
 });
 
-test("serve-side setup.check skips loopback probes on a custom port",async()=>{
+for(const major of [2,3]) test(`serve-side v${major} setup.check skips loopback probes on a custom port`,async()=>{
  const {startServer}=await import("../src/serve/http");
  const ctx=fakeCtx(),port=54321;
  // Exercise the real serve handler without requiring a listening socket.
@@ -40,7 +40,7 @@ test("serve-side setup.check skips loopback probes on a custom port",async()=>{
  try{
   server=startServer(()=>ctx,{port,pumpMs:0});
   expect(ctx.env.PACER_PORT).toBeUndefined();
-  const response=await handler(new Request(`http://127.0.0.1:${port}/v2/ops/setup.check`,{method:"POST",headers:{Host:`127.0.0.1:${port}`,Authorization:`Bearer ${server.token}`,"Content-Type":"application/json"},body:"{}"}),{port});
+  const response=await handler(new Request(`http://127.0.0.1:${port}/v${major}/ops/setup.check`,{method:"POST",headers:{Host:`127.0.0.1:${port}`,Authorization:`Bearer ${server.token}`,"Content-Type":"application/json"},body:"{}"}),{port});
   expect(response.status).toBe(200);
   const {result}=await response.json();
   expect(result.items.find((i:{id:string})=>i.id==="link")).toMatchObject({status:"done"});

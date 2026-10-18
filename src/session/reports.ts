@@ -50,24 +50,37 @@ function tailFile(path: string): string {
 export function transcriptReport(dir: string): string {
   try { return tailFile(join(dir, "transcript-report.md")).slice(-16000).trim(); } catch { return ""; }
 }
+/** Last assistant text in a Claude or Codex JSONL transcript. */
+function lastAssistantText(path: string): string {
+  let text = "";
+  try {
+    for (const line of tailFile(path).split("\n")) {
+      try {
+        const row = JSON.parse(line);
+        const message = row.type === "assistant" ? row.message : row.type === "response_item" && row.payload?.role === "assistant" ? row.payload : null;
+        if (Array.isArray(message?.content)) {
+          const content = message.content.filter((c: any) => ["text", "output_text"].includes(c.type) && typeof c.text === "string").map((c: any) => c.text).join("\n");
+          if (content) text = content;
+        }
+      } catch { /* incomplete JSONL record */ }
+    }
+  } catch { /* transcript may not yet exist */ }
+  return text;
+}
+/** Take-over reports when per-run hooks did not fire: read the agent's own session file by its id. */
+export function sessionTranscript(agent: string, sessionId: string, env: Record<string, string | undefined>, home: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return "";
+  const [root, pattern] = agent === "codex" ? [env.CODEX_HOME ?? join(home, ".codex"), `sessions/**/rollout-*-${sessionId}.jsonl`]
+    : agent === "claude-code" ? [env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), `projects/*/${sessionId}.jsonl`] : ["", ""];
+  if (!root) return "";
+  try { for (const file of new Bun.Glob(pattern).scanSync({cwd: root, absolute: true})) { const text = lastAssistantText(file); if (text) return text.slice(-16000).trim(); } } catch { /* no session store */ }
+  return "";
+}
 export function agentHook(dir: string, input: unknown): void {
   if (!input || typeof input !== "object") return;
   const h = input as Record<string, unknown>;
   let text = typeof h.last_assistant_message === "string" ? h.last_assistant_message : "";
-  if (!text && typeof h.transcript_path === "string") {
-    try {
-      for (const line of tailFile(h.transcript_path).split("\n")) {
-        try {
-          const row = JSON.parse(line);
-          const message = row.type === "assistant" ? row.message : row.type === "response_item" && row.payload?.role === "assistant" ? row.payload : null;
-          if (Array.isArray(message?.content)) {
-            const content = message.content.filter((c: any) => ["text", "output_text"].includes(c.type) && typeof c.text === "string").map((c: any) => c.text).join("\n");
-            if (content) text = content;
-          }
-        } catch { /* incomplete JSONL record */ }
-      }
-    } catch { /* transcript may not yet exist */ }
-  }
+  if (!text && typeof h.transcript_path === "string") text = lastAssistantText(h.transcript_path);
   if (text) writeFileSync(join(dir, "transcript-report.md"), text.slice(-16000), {mode: 0o600});
   const event = h.hook_event_name;
   if (event === "PermissionRequest" || event === "Elicitation" || (event === "PreToolUse" && ["AskUserQuestion", "request_user_input"].includes(String(h.tool_name))) || (event === "Notification" && ["permission_prompt", "idle_prompt", "elicitation_dialog"].includes(String(h.notification_type)))) {

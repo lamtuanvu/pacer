@@ -48,4 +48,6 @@ export interface Job {
  steps: { name: string; state: "pending" | "running" | "passed" | "failed" | "skipped"; detail?: string }[];
  startedAt: number; endedAt?: number; error?: { code: string; message: string; hint?: string };
 }
-export const ENTITY_EVENT_TYPES = ["executor", "account", "host", "repo", "counts", "attention", "job", "activity", "notify"] as const;
+export const ENTITY_EVENT_TYPES = ["planner", "executor", "account", "host", "repo", "counts", "attention", "job", "activity", "notify"] as const;
+
+export type SnapshotV3 = ReadModelFields & Pick<LinkSnapshot, "seq" | "at" | "mode"> & { tasks: ApiTask[]; strategies: NonNullable<LinkSnapshot["strategies"]> };
