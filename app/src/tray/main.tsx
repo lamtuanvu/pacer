@@ -4,6 +4,9 @@ import { createStore } from "../data/store";
 import { createApi } from "../data/api";
 import { createTrayIpc } from "./ipc";
 import { Tray } from "./Tray";
+import { followSavedTheme } from "../theme";
+
+followSavedTheme();
 
 const store = createStore(), ipc = createTrayIpc();
 function TrayApp() {

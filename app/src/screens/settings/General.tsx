@@ -1,3 +1,4 @@
+import { applyTheme, THEME_KEY, type ThemeChoice } from '../../theme';
 import { useEffect, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { ExecutorRow } from '../../../../src/api/read-model/types';
@@ -71,5 +72,5 @@ function NotificationsSection({initialData}:{initialData?:{level:string}}) {
 function AppearanceSection() {
  const [theme,setTheme]=useState(()=>{try{const saved=localStorage.getItem('pacer.theme');return saved&&['system','light','dark'].includes(saved)?saved:'system';}catch{return 'system';}}),[message,setMessage]=useState('');
  useEffect(()=>{if(theme==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=theme;},[theme]);
- return <Section id="appearance" title="Appearance" detail="Stored on this device."><Segment label="Appearance" value={theme} options={['system','light','dark'].map(value=>({value,label:value[0]!.toUpperCase()+value.slice(1)}))} onChange={value=>{setTheme(value);if(value==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=value;try{localStorage.setItem('pacer.theme',value);setMessage('Saved on this device.');}catch{setMessage('Applied for this session. Device storage is unavailable.');}}}/><p role="status">{message}</p></Section>;
+ return <Section id="appearance" title="Appearance" detail="Stored on this device."><Segment label="Appearance" value={theme} options={['system','light','dark'].map(value=>({value,label:value[0]!.toUpperCase()+value.slice(1)}))} onChange={value=>{setTheme(value);applyTheme(value as ThemeChoice);try{localStorage.setItem(THEME_KEY,value);setMessage('Saved on this device.');}catch{setMessage('Applied for this session. Device storage is unavailable.');}}}/><p role="status">{message}</p></Section>;
 }
