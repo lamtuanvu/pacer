@@ -157,7 +157,7 @@ impl Session {
             .await
             .map_err(|_| "Operation failed")?
             .error_for_status()
-            .map_err(|_| "Operation failed")?
+            .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?
             .json::<Value>()
             .await
             .map(|v| v["result"].clone())
@@ -169,9 +169,9 @@ impl Session {
             .timeout(Duration::from_secs(15))
             .send()
             .await
-            .map_err(|_| "stopped")?
+            .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?
             .error_for_status()
-            .map_err(|_| "stopped")?
+            .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?
             .json()
             .await
             .map_err(|_| "Invalid service response".into())
@@ -194,9 +194,11 @@ async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
     crate::activate(app, &session.origin, web_auth)?;
     *app.state::<Shell>().session.lock().unwrap() = Some(session.clone());
     crate::update_tray(app, TrayModel::from_snapshot(&snapshot));
+    let shell = app.state::<Shell>();
     tokio::select! {
         result = listen(app, &session, &client_id, seq) => result,
         result = heartbeat(&session, &client_id) => result,
+        _ = shell.expired.notified() => Err("sessionExpired".into()),
     }
 }
 async fn heartbeat(session: &Session, client_id: &str) -> Result<(), String> {
@@ -230,9 +232,9 @@ async fn listen(
         )
         .await
         .map_err(|_| "stopped")?
-        .map_err(|_| "stopped")?
+        .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?
         .error_for_status()
-        .map_err(|_| "stopped")?;
+        .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?;
         if !response
             .headers()
             .get("content-type")
@@ -291,7 +293,12 @@ async fn listen(
 
 pub async fn run(app: AppHandle) {
     let mut path = Cli::login_path().await;
+    let mut attempts = logic::Reconnect::default();
     loop {
+        tokio::time::sleep(attempts.delay(std::time::Instant::now())).await;
+        attempts.started(std::time::Instant::now());
+        // Discard signals from the old document before starting fresh sign-in.
+        let _ = tokio::time::timeout(Duration::ZERO, app.state::<Shell>().expired.notified()).await;
         if app.state::<Shell>().retry.swap(false, Ordering::SeqCst) {
             path = Cli::login_path().await;
         }
@@ -305,12 +312,7 @@ pub async fn run(app: AppHandle) {
                 }
             }
             if let Err(error) = connected(&app, &cli).await {
-                let state = match error.as_str() {
-                    "oldService" => "oldService",
-                    "oldApp" => "oldApp",
-                    "protocol" => "protocol",
-                    _ => "stopped",
-                };
+                let state = logic::recovery_page(&error);
                 crate::recovery(&app, state);
             }
         } else {

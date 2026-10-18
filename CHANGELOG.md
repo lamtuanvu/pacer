@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Service snapshots, event replay and task resolution stay responsive when repository volumes stall; repo existence and canonical paths refresh asynchronously.
+- Desktop windows silently sign in again after expired sessions and service restarts, with bounded retries and shell recovery pages. Browser error pages use themed pacer cards and sign-in guidance.
 
 ### Changed
 
