@@ -23,7 +23,7 @@ export function homeModel(snapshot: ClientSnapshot, runners: Runner[], accounts:
     // Prefer runner.list, and retain budget-only failures while that query loads.
     const failures = new Map(runners.filter(r => r.state === "broken" || r.state === "exhausted").map(r => [r.id, r]));
     for (const p of snapshot.budget?.providers ?? []) if (p.id !== snapshot.budget?.planner && !runners.some(r => r.id === p.id) && (p.brokenReason || p.verdict === "EXHAUSTED")) failures.set(p.id, { id: p.id, state: p.brokenReason ? "broken" : "exhausted", reason: p.brokenReason ?? null, until: p.resetsAt });
-    for (const runner of failures.values()) attention.push({ key: runner.id, label: runner.state === "broken" ? "Not working" : "Limit", tone: runner.state === "broken" ? "bad" : "warn", title: executorLabel(runner.id, accounts), detail: runner.reason ?? "Out of quota · work goes to the next executor", href: "#/executors", until: runner.until });
+    for (const runner of failures.values()) attention.push({ key: runner.id, label: runner.state === "broken" ? "Not working" : "Limit", tone: runner.state === "broken" ? "bad" : "warn", title: executorLabel(runner.id, accounts), detail: runner.reason ?? "Out of quota · work goes to the next executor", href: "#/settings/executors", until: runner.until });
   } else {
     attention.splice(0, attention.length, ...snapshot.attention.map(item => {
       const navigation = item.actions.find(action => action.op === "ui.open");

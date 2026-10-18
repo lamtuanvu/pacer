@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { emptySnapshot } from "../src/link/envelope";
 import { homeModel } from "../app/src/model/home";
-import { tasksModel, taskCounts, delegateParams, recentRepos, nextTaskLimit, taskActions } from "../app/src/model/tasks";
+import { tasksModel, taskCounts, delegateParams, nextTaskLimit, taskActions } from "../app/src/model/tasks";
 import { executorLabel } from "../src/view-model/words";
 
 const task = (task_id: string, state: string, extra = {}) => ({ task_id, state, kind: "tests", requested_executor: null, attempts: [], result: null, review: null, resolved: null, ...extra });
@@ -25,10 +25,6 @@ test("pagination grows bounded API limits; delegate validates input and omits au
   expect(nextTaskLimit(20)).toBe(40);
   expect(nextTaskLimit(190)).toBe(200);
   expect(nextTaskLimit(200)).toBeNull();
-  expect(() => delegateParams({ goal: " ", repo: "/repo", kind: "tests", executor: "", worktree: "auto", timeout: "30", acceptance: "" })).toThrow("Goal");
-  expect(() => delegateParams({ goal: "Test", repo: "/repo", kind: "tests", executor: "", worktree: "auto", timeout: "241", acceptance: "" })).toThrow("Timeout");
-  expect(delegateParams({ goal: " Test ", repo: " /repo ", kind: "tests", executor: "", worktree: "new", timeout: "30", acceptance: "bun test" })).toEqual({ goal: "Test", repo: "/repo", kind: "tests", worktree: "new", timeout_min: 30, acceptance: "bun test" });
-  expect(recentRepos(["/a", "/b", "/a", ""])).toEqual(["/a", "/b"]);
 });
 test("dismissed history stays hidden when a task is older than the snapshot", () => {
   expect(tasksModel([task("old", "failed")], [], "history", ["old"])).toEqual([]);
@@ -43,4 +39,26 @@ test("service review attention controls review and history membership", () => {
   const counts = { attention: 9, problems: 2, review: 7, running: 3, queued: 2, ready: 1, executors: 1, setupOpen: 0, hostsWithProblems: 0, byRepo: {} };
   expect(taskCounts({ ...live, counts })).toEqual({ running: 5, review: 7 });
   expect(homeModel({ ...live, counts }, []).attentionCount).toBe(9);
+});
+
+const draft = { goal: " Add SSH keepalive ", repo: "github.com/acme/api", base: "main", acceptance: " bun test ", executor: "" };
+const known = ["github.com/acme/api"];
+test("quick delegate sends a repo key, base, source and an idempotency id to a 2.1+ service", () => {
+  expect(delegateParams(draft, new Set(["repo.list"]), "req-1", known)).toEqual({ goal: "Add SSH keepalive", repo: "github.com/acme/api", base: "main", acceptance: "bun test", source: "ui", request_id: "req-1" });
+  expect(delegateParams({ ...draft, executor: "codex#team", base: "" }, new Set(["repo.list"]), "req-1", known)).toEqual({ goal: "Add SSH keepalive", repo: "github.com/acme/api", acceptance: "bun test", executor: "codex#team", source: "ui", request_id: "req-1" });
+});
+test("an older service gets only the fields it knows and needs an absolute path", () => {
+  expect(delegateParams({ ...draft, repo: "/tmp/fixture/api" }, new Set(), "req-1", [])).toEqual({ goal: "Add SSH keepalive", repo: "/tmp/fixture/api", acceptance: "bun test" });
+  expect(() => delegateParams(draft, new Set(), "req-1", known)).toThrow("Choose a repository.");
+});
+test("quick delegate refuses an empty goal or an unknown repository", () => {
+  expect(() => delegateParams({ ...draft, goal: "  " }, new Set(["repo.list"]), "r", known)).toThrow("Goal is required.");
+  expect(() => delegateParams({ ...draft, repo: "acme" }, new Set(["repo.list"]), "r", known)).toThrow("Choose a repository.");
+  expect(() => delegateParams({ ...draft, repo: "" }, new Set(["repo.list"]), "r", known)).toThrow("Choose a repository.");
+});
+test("the dialog starts on the filtered repo unless a draft already chose one", async () => {
+  const { initialDelegateDraft, blankDelegate } = await import("../app/src/model/tasks");
+  expect(initialDelegateDraft(blankDelegate, "github.com/acme/web").repo).toBe("github.com/acme/web");
+  expect(initialDelegateDraft({ ...blankDelegate, repo: "/tmp/x" }, "github.com/acme/web").repo).toBe("/tmp/x");
+  expect(initialDelegateDraft(blankDelegate, null).repo).toBe("");
 });

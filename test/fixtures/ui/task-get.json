@@ -1,0 +1,77 @@
+{
+  "id": "t-0412",
+  "goal": "Fix flaky retry test in the payments client",
+  "state": "done",
+  "executor": "codex#team@devbox",
+  "backend": "headless",
+  "worktree": "/tmp/fixture/api/.worktrees/t-0412",
+  "updatedAt": 1799998200,
+  "repo": {
+    "key": "github.com/acme/api",
+    "label": "acme/api",
+    "path": "/tmp/fixture/api"
+  },
+  "kind": "feature",
+  "host": null,
+  "rev": 3,
+  "acceptance": {
+    "cmd": "bun test",
+    "state": "passed",
+    "tail": "38 passed",
+    "durationS": 41,
+    "summary": "38 passed",
+    "machine": "devbox"
+  },
+  "brief": {
+    "goal": "Fix flaky retry test in the payments client",
+    "repo": "/tmp/fixture/api",
+    "acceptance": "bun test"
+  },
+  "attempts": [],
+  "routing": {
+    "kind": "feature",
+    "kindSource": "classifier",
+    "rule": "default",
+    "chosen": "codex#team@devbox",
+    "why": "Best available capacity",
+    "skipped": [
+      {
+        "executor": "other",
+        "reason": "over budget"
+      }
+    ]
+  },
+  "cost": {
+    "executor": null,
+    "planner": null
+  },
+  "summary": "Implemented and verified the change.",
+  "branch": "pacer/review",
+  "base": "main",
+  "machine": "devbox",
+  "startedAt": 1799996400,
+  "endedAt": 1799999400,
+  "files": [
+    {
+      "path": "src/example.ts",
+      "status": "modified",
+      "added": 3,
+      "removed": 1,
+      "binary": false
+    }
+  ],
+  "retryOptions": [
+    {
+      "id": "codex",
+      "state": "ready",
+      "reason": "available"
+    },
+    {
+      "id": "other",
+      "state": "down",
+      "reason": "not signed in"
+    }
+  ],
+  "timeline": [],
+  "queue": null
+}

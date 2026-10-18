@@ -109,3 +109,22 @@ test("a key a dialog already handled does not also run a global shortcut", () =>
   expect(registry.handle(e)).toBe(false);
   expect(ran).toEqual([]);
 });
+
+test("while a dialog is open no shortcut runs or swallows the key, so the dialog's own Escape works", () => {
+  let dialog = true;
+  const ran: string[] = [];
+  const registry = createKeyRegistry({ controlActive: () => false, blocked: () => dialog });
+  for (const keys of ["a", "Escape", "?"]) registry.register({ keys, label: keys, scope: "global", run: () => ran.push(keys) });
+  for (const k of ["a", "Escape", "?"]) { const e = key(k); expect(registry.handle(e)).toBe(false); expect(e.prevented).toBe(false); }
+  expect(ran).toEqual([]);
+  dialog = false;
+  registry.handle(key("a"));
+  expect(ran).toEqual(["a"]);
+});
+
+test("dialogOpen finds an open modal dialog", async () => {
+  const { dialogOpen } = await import("../app/src/keys/instance");
+  expect(dialogOpen({ querySelector: (s: string) => (s === "dialog[open]" ? {} : null) })).toBe(true);
+  expect(dialogOpen({ querySelector: () => null })).toBe(false);
+  expect(dialogOpen(undefined)).toBe(false);
+});

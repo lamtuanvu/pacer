@@ -7,7 +7,6 @@ import { routingStatus } from "../model/executors";
 import type { Routing } from "../model/home";
 import { activeTask, mergeTask, needsReview, taskHref, type TaskSummary } from "../model/tasks";
 import { executorLabel, taskStatus } from "../../../src/view-model/words";
-import { resolveRoute } from "../router";
 import { ErrorMessage, useAction, useDraft, useQuery, useTaskContext } from "./task-shared";
 interface TaskDiff { base: string | null; worktree: string; diff: string; untracked: string[]; truncated: boolean }
 function LiveLog({ id }: { id: string }) {
@@ -59,10 +58,8 @@ function Review({ task, reload }: { task: TaskSummary; reload: () => void }) {
     <div aria-live="polite"><ErrorMessage error={action.error} />{action.message}</div>
   </Card>;
 }
-export function TaskDetail() {
-  const route = resolveRoute(location.hash);
-  if (route.name !== "task") return null;
-  return <Task key={route.id} id={route.id} />;
+export function TaskDetail({ id }: { id: string }) {
+  return <Task key={id} id={id} />;
 }
 function Task({ id }: { id: string }) {
   const { state } = useTaskContext();
@@ -73,7 +70,7 @@ function Task({ id }: { id: string }) {
   const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
   const task = query.data && mergeTask(query.data, live);
   const status = taskStatus({ state: task?.state ?? live?.state ?? "Loading", review: live?.review ?? task?.review });
-  return <section className="screen"><a href="#/tasks">← Tasks</a><div className="top"><h1>{task?.goal || live?.goal || id}</h1><Pill tone={status.tone}>{status.label}{task && needsReview(task) ? " · waiting for review" : ""}</Pill></div><ErrorMessage error={query.error} />{query.error && <Button onClick={query.reload}>Try again</Button>}
+  return <section className="screen"><a href="#/sessions">← Sessions</a><div className="top"><h1>{task?.goal || live?.goal || id}</h1><Pill tone={status.tone}>{status.label}{task && needsReview(task) ? " · waiting for review" : ""}</Pill></div><ErrorMessage error={query.error} />{query.error && <Button onClick={query.reload}>Try again</Button>}
     {task && <><Card><dl className="facts"><dt>Executor</dt><dd>{executorLabel(live?.executor ?? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requested_executor, accounts.data ?? [])}</dd><dt>Kind</dt><dd>{task.kind ?? "Not specified"}</dd><dt>Where</dt><dd><code>{live?.worktree ?? task.result?.worktree ?? "Not available"}</code></dd><dt>Changes</dt><dd>{live?.progress ? `${live.progress.files} files · ${live.progress.commits} commits` : task.result?.files || "Not available"}</dd>{task.result?.acceptance && <><dt>Acceptance</dt><dd><Pill tone={task.result.acceptance.passed ? "good" : "bad"}>{task.result.acceptance.passed ? "Passed" : "Failed"}</Pill><pre className="acceptance-output">{task.result.acceptance.tail}</pre></dd></>}</dl></Card>
     <div className="tabs" aria-label="Task view">{["changes", "log", "brief"].map(key => <Button className={tab === key ? "tab on" : "tab"} aria-pressed={tab === key} key={key} onClick={() => setTab(key)}>{key === "changes" ? "Changes" : key === "log" ? "Log" : "Brief"}</Button>)}</div>
     {tab === "changes" && <Changes id={id} revision={revision} />}{tab === "log" && <LiveLog id={id} />}{tab === "brief" && <Card><h2>Goal</h2><p>{task.goal || live?.goal || "Goal not available."}</p><h2>Executor report</h2><pre className="report">{task.result?.report || "No report yet."}</pre></Card>}

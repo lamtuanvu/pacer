@@ -67,3 +67,10 @@ test("ds-sync writes tokens and reports changes", () => {
   expect(readFileSync(join(out, "tokens.css"), "utf8")).toContain("--ink: #111111;");
   expect(readFileSync(join(out, "tokens.ts"), "utf8")).toContain("#111111");
 });
+
+test("app CSS only uses token variables that exist", () => {
+  const defined = new Set([...read("tokens.css").matchAll(/--([a-z0-9-]+(?:\\\.[0-9]+)?):/g)].map(m => m[1]));
+  const css = read("components.css") + readFileSync(join(import.meta.dir, "../app/src/styles.css"), "utf8");
+  const used = new Set([...css.matchAll(/var\(--((?:space|radius|type|font)-[a-z0-9-]+(?:\\\.[0-9]+)?)[,)]/g)].map(m => m[1]));
+  expect([...used].filter(name => !defined.has(name))).toEqual([]);
+});

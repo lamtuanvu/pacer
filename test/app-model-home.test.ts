@@ -16,7 +16,7 @@ test("attention includes unreviewed work, limits and broken runners once; runnin
   const snapshot = { ...emptySnapshot(), tasks: [task, { ...task, id: "t2", review: { accepted: true, kind: null, note: null, at: 1 } }, { ...task, id: "t3", state: "running" }] };
   const model = homeModel(snapshot, [{ id: "cursor", state: "exhausted", until: 900, reason: null }, { id: "local", state: "broken", until: null, reason: "Key rejected" }]);
   expect(model.attention.map(a => a.label)).toEqual(["Review", "Limit", "Not working"]);
-  expect(model.attention[0]?.href).toBe("#/tasks/t1");
+  expect(model.attention[0]?.href).toBe("#/sessions/t1");
   expect(model.attention[2]?.detail).toContain("Key rejected");
   expect(model.running.map(t => t.id)).toEqual(["t3"]);
 });

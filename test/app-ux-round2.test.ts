@@ -41,7 +41,7 @@ test("all screen form controls have IDs and a text label or aria-label", () => {
 
 test("endpoint titles and captions do not duplicate their kind", () => {
  const account={name:"byteplus",kind:"endpoint" as const,connection:{base_url_host:"api.example.com",models:[]}};
- expect(executorLabel("opencode#byteplus",[account])).toBe("byteplus");
+ expect(executorLabel("opencode#byteplus",[account])).toBe("BytePlus");
  expect(executorCaption(account)).toBe("Model endpoint · api.example.com");
  expect(executorCaption({name:"legacy",kind:"endpoint"})).toBe("External OpenCode provider");
  expect(executorCaption()).toBe("Agent CLI");
