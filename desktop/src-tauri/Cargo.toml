@@ -20,3 +20,10 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time"] }
 futures-util = "0.3"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", features = ["NSBundle", "NSError"] }
+objc2-service-management = { version = "0.3.2", features = ["SMAppService"] }
+objc2-user-notifications = { version = "0.3.2", features = ["UNUserNotificationCenter", "block2"] }
