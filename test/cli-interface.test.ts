@@ -10,7 +10,7 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
 function setup(){const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  local: { via: opencode, model: local/q, usage: unmetered }\n");return ctx;}
-const summaryKeys=["task_id","goal","state","kind","requested_executor","placement","queue","attempts","result","review","resolved"].sort();
+const summaryKeys=["title","task_id","goal","state","kind","requested_executor","placement","queue","attempts","result","review","resolved"].sort();
 test("CLI status and route pin JSON top-level keys",async()=>{
  const ctx=setup();
  expect(Object.keys(JSON.parse((await main(["status","--json"],ctx)).out)).sort()).toEqual(["generatedAt","strategy","planner","mode","disabled","calendarPace","accounts","providers","executors","paused","modeHold"].sort());
@@ -22,9 +22,9 @@ test("brief-file and stdin preserve text and command flags override file fields"
  writeFileSync(path,JSON.stringify(brief));
  const fromFile=await main(["delegate","--brief-file",path,"--kind","docs","--timeout-min","3","--worktree","new","--json"],ctx);
  expect(fromFile.code).toBe(0);const t=JSON.parse(fromFile.out);
- expect(Object.keys(t).sort()).toEqual(["id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo","rev","source"].sort());
+ expect(Object.keys(t).sort()).toEqual(["title","id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo","rev","source"].sort());
  expect(t).toMatchObject({source:"cli",brief:{goal,repo:ctx.home,scope:"s"},kind:"docs",timeoutS:180,placement:{requested:"new",reason:"follow-up"}});
- const original=io.readBriefStdin;try{io.readBriefStdin=async()=>JSON.stringify(brief);const r=await main(["delegate","--brief-file","-","--goal","override","--json"],ctx);expect(r.code).toBe(0);expect(JSON.parse(r.out).brief.goal).toBe("override");}finally{io.readBriefStdin=original;}
+ const original=io.readBriefStdin;try{io.readBriefStdin=async()=>JSON.stringify(brief);const r=await main(["delegate","--brief-file","-","--goal","override","--title","  Queue fix  ","--json"],ctx);expect(r.code).toBe(0);expect(JSON.parse(r.out).brief.goal).toBe("override");expect(JSON.parse(r.out).title).toBe("Queue fix");}finally{io.readBriefStdin=original;}
 });
 test("brief validation is shared and executor CLI guard runs before reading stdin",async()=>{
  const ctx=setup();
