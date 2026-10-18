@@ -1,4 +1,4 @@
-import { stat, readFile } from "node:fs/promises";
+import { repoFs, withTimeout } from "./path-probe";
 import { join, resolve } from "node:path";
 import { boundedGitRead } from "./git";
 import { computeStatus } from "../engine/status";
@@ -100,14 +100,14 @@ function timelineFor(ctx: Ctx, task: TaskRecord): TaskDetail["timeline"] {
 type GitSummary = { files: DiffFile[]; branch: string | null; filesState: "ready" | "unavailable"; branchState: "ready" | "unavailable" };
 const summaries = new Map<string, { key: string; at: number; value: Promise<GitSummary> }>();
 async function stamp(path: string): Promise<string> {
-  try { const s = await stat(path); return `${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`; } catch { return "missing"; }
+  try { const s = await repoFs.stat(path); return `${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`; } catch { return "missing"; }
 }
 async function worktreeStamp(worktree: string): Promise<string> {
   let git = join(worktree, ".git");
   try {
-    if ((await stat(git)).isFile()) git = resolve(worktree, (await readFile(git, "utf8")).trim().replace(/^gitdir: /, ""));
-    const head = await readFile(join(git, "HEAD"), "utf8");
-    const common = await readFile(join(git, "commondir"), "utf8").catch(() => ".");
+    if ((await repoFs.stat(git)).isFile()) git = resolve(worktree, (await repoFs.readText(git)).trim().replace(/^gitdir: /, ""));
+    const head = await repoFs.readText(join(git, "HEAD"));
+    const common = await repoFs.readText(join(git, "commondir")).catch(() => ".");
     const ref = head.startsWith("ref: ") ? head.slice(5).trim() : "HEAD";
     return JSON.stringify([head, ...await Promise.all([worktree, join(git, "index"), resolve(git, common.trim(), ref), resolve(git, common.trim(), "packed-refs")].map(stamp))]);
   } catch { return stamp(worktree); }
@@ -115,7 +115,7 @@ async function worktreeStamp(worktree: string): Promise<string> {
 async function gitSummary(ctx: Ctx, task: TaskRecord): Promise<GitSummary> {
   const worktree = task.run?.host ? task.result?.worktree ?? task.brief.repo : task.run?.workdir ?? task.worktree ?? task.result?.worktree ?? task.brief.repo;
   // Metadata invalidates commits/index changes without spawning git. TTL catches nested unstaged edits and base-ref changes.
-  const key = JSON.stringify([task.rev, worktree, await worktreeStamp(worktree)]), id = `${ctx.pacerHome}:${task.id}`;
+  const key = JSON.stringify([task.rev, worktree, await withTimeout(() => worktreeStamp(worktree), 250).catch(() => "unavailable")]), id = `${ctx.pacerHome}:${task.id}`;
   const hit = summaries.get(id);
   if (hit?.key === key && Date.now() - hit.at < 5000) return hit.value;
   const knownBranch = task.run?.remoteBranch ?? (task.run?.mode === "new" ? `pacer/${task.id}` : null);
