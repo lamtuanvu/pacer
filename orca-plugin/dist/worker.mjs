@@ -616,6 +616,7 @@ var package_default = {
   },
   scripts: {
     test: "TZ=Asia/Ho_Chi_Minh bun test",
+    live: "bun scripts/live/cli.ts",
     typecheck: "tsc --noEmit && tsc -p app",
     build: "bun build --compile src/cli.ts --outfile dist/pacer",
     release: "bun scripts/release/build.ts",
@@ -1198,6 +1199,16 @@ function parseOutboxEvent(raw) {
       if (!isObj(d) || !["planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
         return null;
       return { type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
+    }
+    case "pause": {
+      const d = raw.data;
+      if (!isObj(d))
+        return null;
+      if (d.removed === true)
+        return { type: "pause", data: { removed: true } };
+      if (d.until !== null && num(d.until) === null || d.reason !== null && typeof d.reason !== "string" || d.by !== null && typeof d.by !== "string")
+        return null;
+      return { type: "pause", data: { until: d.until, reason: d.reason, by: d.by } };
     }
     case "config": {
       const d = raw.data;

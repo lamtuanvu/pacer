@@ -1,5 +1,7 @@
 # Real-Orca bootstrap release check
 
+For runtime changes, follow [live validation](live-validation.md) to exercise a sandbox service and record CT-11 evidence. This page covers the additional Orca release check.
+
 Run this before releasing an Orca plugin, with Orca open and this repository registered as a worktree:
 
 ```sh

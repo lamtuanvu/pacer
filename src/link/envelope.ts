@@ -1,3 +1,4 @@
+import type { PauseState } from "../core/pause";
 import type { NotificationData } from "./notification";
 /** Durable outbox events and compatibility snapshot data. */
 export const PLUGIN_KEY = "lamtuanvu.pacer";
@@ -11,7 +12,7 @@ export interface ModeData { mode: string; previous: string | null; strategy: str
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export interface ConfigData { area: string; at: number }
 export interface EntityData { kind: "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify"; id: string; value?: unknown; removed?: true }
-export type OutboxEvent = { type: "entity"; data: EntityData } | { type: "config"; data: ConfigData } | { type: "budget"; data: BudgetData } | { type: "task"; data: TaskData } | { type: "mode"; data: ModeData } | { type: "alert"; data: AlertData };
+export type OutboxEvent = { type: "pause"; data: PauseState | {removed:true} } | { type: "entity"; data: EntityData } | { type: "config"; data: ConfigData } | { type: "budget"; data: BudgetData } | { type: "task"; data: TaskData } | { type: "mode"; data: ModeData } | { type: "alert"; data: AlertData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { attention?: import("../attention/types").AttentionItem[]; counts?: import("../api/read-model/types").Counts; serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
@@ -80,6 +81,13 @@ export function parseOutboxEvent(raw: unknown): OutboxEvent | null {
       const d=raw.data;
       if(!isObj(d) || !["planner","executor","account","host","repo","counts","attention","activity","job","notify"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>(d.kind==="notify"?512:128))return null;
       return {type:"entity",data:{kind:d.kind as EntityData["kind"],id:d.id,...(d.removed===true?{removed:true}:{value:d.value})}};
+    }
+    case "pause": {
+      const d=raw.data;
+      if(!isObj(d))return null;
+      if(d.removed===true)return {type:"pause",data:{removed:true}};
+      if(d.until!==null&&num(d.until)===null || d.reason!==null&&typeof d.reason!=="string" || d.by!==null&&typeof d.by!=="string")return null;
+      return {type:"pause",data:{until:d.until as number|null,reason:d.reason as string|null,by:d.by as string|null}};
     }
     case "config": {
       const d = raw.data;

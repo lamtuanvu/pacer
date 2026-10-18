@@ -1,0 +1,34 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { checkout, sandboxEnv, type Session } from "./core";
+
+/** D3 applies before dispatch, including calls made by the TUI or task runner. */
+export function refusal(args: string[]): string | undefined {
+  const [command, action] = args;
+  if (["install", "uninstall", "init", "setup", "statusline", "update", "orca"].includes(command)) return `D3: ${command} changes the real user environment`;
+  const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["install", "set"], account: ["add", "rm", "login"], host: ["setup"] };
+  if (blocked[command]?.includes(action)) return `D3: ${command} ${action} changes the real user environment`;
+  if (command === "open" && !args.includes("--print")) return "D3: open requires --print; use the agent's browser tools";
+  return undefined;
+}
+
+if (import.meta.main) {
+  try {
+    const [sessionFile, ...args] = process.argv.slice(2);
+    const reason = refusal(args);
+    if (reason) {
+      console.error(`Live validation guard refused: ${reason}`);
+      process.exit(3);
+    }
+    const session = JSON.parse(readFileSync(sessionFile, "utf8")) as Session;
+    const child = Bun.spawn([process.execPath, join(checkout, "src/cli.ts"), ...args], {
+      cwd: join(session.root, "repo"), env: sandboxEnv(session), stdin: "inherit", stdout: "inherit", stderr: "inherit",
+    });
+    // Forward shutdown to the guarded process, including nested task runners.
+    for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => child.kill(signal));
+    process.exit(await child.exited);
+  } catch (error) {
+    console.error(`Live validation guard: ${(error as Error).message}`);
+    process.exit(1);
+  }
+}
