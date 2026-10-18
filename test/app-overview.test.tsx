@@ -10,14 +10,44 @@ const snap = fixture as unknown as ClientSnapshot;
 const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: async () => true, refetch: () => {}, navigate: () => {} });
 const activity: ActivityEntry[] = [{ id: "a1", at: snap.at - 600, kind: "mode", level: "info", text: "Mode Normal → Relaxed · planner behind pace" }];
 const view = (repo: string | null = null, s: ClientSnapshot = snap) =>
-  renderToString(<OverviewView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} activity={activity} ops={new Set(["attention.dismiss", "task.stop"])} />);
+  renderToString(<OverviewView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} activity={activity} ops={new Set(["attention.dismiss", "task.stop"])} quickDelegate={<p>quick delegate form</p>} />);
 const order = (html: string, words: string[]) => words.map(w => html.indexOf(w));
 
-test("sections appear in the fixed order", () => {
+test("the canvas layout: planner strip, then work on the left and capacity alongside", () => {
   const html = view();
-  const at = order(html, [">Needs you<", ">Running<", ">Capacity<", ">Done today<", ">Activity<"]);
-  expect(at.every(i => i >= 0)).toBe(true);
+  const main = html.indexOf("pc-overview__main"), side = html.indexOf("pc-overview__side");
+  expect(html.indexOf("pc-planner-strip")).toBeLessThan(main);
+  const at = order(html, [">Needs you<", ">Running<", ">Done today<"]);
+  expect(at.every(i => i > main && i < side)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
+  const right = order(html, [">Capacity<", ">Quick delegate<", ">Activity<"]);
+  expect(right.every(i => i > side)).toBe(true);
+  expect([...right].sort((a, b) => a - b)).toEqual(right);
+});
+
+test("the planner strip gives the advice, usage and the day's numbers", () => {
+  const html = view();
+  expect(html).toContain("Planner · Claude");
+  expect(html).toContain("14 pts under pace — spend it.");
+  expect(html).toContain("63% used · pace 77%");
+  expect(html).toMatch(/>4<\/div><div[^>]*>need you</);
+  expect(html).toMatch(/>2<\/div><div[^>]*>running</);
+  expect(html).toMatch(/>7<\/div><div[^>]*>done today</);
+});
+
+test("needs you links to the review queue and the footer lists the main keys", () => {
+  const html = view();
+  expect(html).toContain('href="#/review"');
+  expect(html).toContain("Open review queue");
+  expect(html).toMatch(/pc-keys-footer[\s\S]*g o[\s\S]*\?/);
+});
+
+test("capacity with no usage reading says so with a glyph and the reason", () => {
+  const html = view();
+  const at = html.indexOf(">Cursor<", html.indexOf("pc-overview__side"));
+  const row = html.slice(at, at + 700);
+  expect(row).toContain("◐");
+  expect(row).toContain("Unknown · no limit reported");
 });
 
 test("repo chips show counts, pressed state and the shared-budget note", () => {

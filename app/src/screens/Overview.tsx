@@ -1,19 +1,22 @@
+import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { ActivityEntry, AttentionItem } from "../../../src/api/read-model/types";
-import { markAgent } from "../../../src/view-model/agents";
-import { ago, clock, elapsed } from "../../../src/view-model/format";
-import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, repos, running, type Scope } from "../../../src/view-model/selectors";
+import { agentInfo, markAgent } from "../../../src/view-model/agents";
+import { ago, clock, elapsed, meterText } from "../../../src/view-model/format";
+import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, repos, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
 import { executorLabel, phaseWords, taskStatus, toneFor } from "../../../src/view-model/words";
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import { AgentMark } from "../ds/AgentMark";
+import { Kbd } from "../ds/Kbd";
 import { Pill } from "../ds/Pill";
 import { StatusGlyph } from "../ds/StatusGlyph";
 import { UsageMeter } from "../ds/UsageMeter";
 import { keys } from "../keys/instance";
 import { withQuery, type RouteQuery } from "../router";
 import { ActionButton } from "./ActionButton";
+import { QuickDelegate } from "./QuickDelegate";
 import { useQuery, useTaskContext } from "./task-shared";
 
 const BAD_KINDS = new Set(["failed", "limit", "executor_down", "host_down"]);
@@ -36,7 +39,7 @@ function RepoFilter({ snapshot, query }: { snapshot: ClientSnapshot; query: Rout
 
 function NeedsYou({ snapshot, scope, runner, canDismiss }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; canDismiss: boolean }) {
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);
-  return <section className="pc-section" aria-labelledby="needs-you"><h2 id="needs-you">Needs you</h2>
+  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><h2 id="needs-you">Needs you</h2>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" /><a href={withQuery("#/review", { repo: scope.repo, scope: null })}>Open review queue</a></div>
     {items.map(item => <div key={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
       <StatusGlyph kind={BAD_KINDS.has(item.kind) ? "failed" : "waiting"} />
       {item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}
@@ -56,7 +59,7 @@ function lastOutput(t: ClientTask, now: number) {
 }
 function Running({ snapshot, scope, now, runner }: { snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner }) {
   const rows = running(snapshot, scope);
-  return <section className="pc-section" aria-labelledby="running"><h2 id="running">Running</h2>
+  return <section className="pc-card-section" aria-labelledby="running"><div className="pc-card-section__head"><h2 id="running">Running</h2><span className="muted">{rows.length}</span></div>
     {rows.map(t => <div key={t.id} className="pc-row">
       {t.executor ? <AgentMark agent={markAgent(t.executor)} size={20} labelled={false} /> : <span className="pc-row__gap" />}
       <div className="grow pc-row__goal">{t.goal}</div>
@@ -74,11 +77,11 @@ function Running({ snapshot, scope, now, runner }: { snapshot: ClientSnapshot; s
 
 function Capacity({ snapshot }: { snapshot: ClientSnapshot }) {
   const rows = capacity(snapshot), c = counts(snapshot);
-  return <section className="pc-section" aria-labelledby="capacity"><div className="row"><h2 id="capacity">Capacity</h2>{c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}</div>
+  return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><h2 id="capacity">Capacity</h2>{c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" /><a href="#/settings/executors">Details</a></div>
     {rows.map(e => <a key={e.id} href="#/settings/executors" className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
       <AgentMark agent={markAgent(e.id, e.account)} size={20} labelled={false} />
-      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><div className={OFF_STATES.has(e.state) ? "pc-bad-text" : "muted"}>{OFF_STATES.has(e.state) && e.reason ? e.reason : e.sub}</div></div>
-      <div className="grow"><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={toneFor(e.tone)} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
+      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><div className={OFF_STATES.has(e.state) ? "pc-bad-text" : "muted"}>{OFF_STATES.has(e.state) && e.reason ? e.reason : e.usedPct === null ? <><StatusGlyph kind="waiting" /> Unknown · {e.paceReason ?? e.reason ?? "no usage reported"}</> : e.sub}</div></div>
+      <div><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={toneFor(e.tone)} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
       <span className="muted pc-num">{e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`}</span>
       <span className="muted pc-num">{e.slots.used}/{e.slots.max}</span>
     </a>)}
@@ -88,7 +91,7 @@ function Capacity({ snapshot }: { snapshot: ClientSnapshot }) {
 
 function DoneToday({ snapshot, scope, now }: { snapshot: ClientSnapshot; scope: Scope; now: number }) {
   const rows = doneToday(snapshot, scope), today = snapshot.today;
-  return <section className="pc-section" aria-labelledby="done-today"><div className="row"><h2 id="done-today">Done today</h2>{today && <span className="muted">{today.done} · {today.accepted} accepted</span>}</div>
+  return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><h2 id="done-today">Done today</h2>{today && <span className="muted">{today.done} · {today.accepted} accepted</span>}<span className="grow" /><a href="#/sessions">All tasks</a></div>
     {rows.map(t => { const status = taskStatus(t); return <div key={t.id} className="pc-row">
       <span className="muted pc-num">{clock(t.updatedAt, now)}</span><div className="grow pc-row__goal">{t.goal}</div>
       <span className="muted">{t.repo?.label}</span><span className="muted">{executorLabel(t.executor)}</span><Pill tone={status.tone}>{status.label}</Pill>
@@ -98,23 +101,51 @@ function DoneToday({ snapshot, scope, now }: { snapshot: ClientSnapshot; scope: 
 }
 
 function Activity({ entries, now }: { entries: ActivityEntry[]; now: number }) {
-  return <section className="pc-section" aria-labelledby="activity"><h2 id="activity">Activity</h2>
+  return <section className="pc-card-section" aria-labelledby="activity"><div className="pc-card-section__head"><h2 id="activity">Activity</h2></div>
     {entries.slice(0, 20).map(e => <div key={e.id} className="pc-row pc-activity"><span className="muted pc-num">{clock(e.at, now)}</span><span className={`pc-dot pc-dot--${e.level}`} aria-label={e.level} /><span className="grow">{e.text}</span></div>)}
     {!entries.length && <p className="muted">No activity yet.</p>}
   </section>;
 }
 
-export interface OverviewProps { snapshot: ClientSnapshot; query: RouteQuery; now: number; runner: ActionRunner; activity: ActivityEntry[]; ops: ReadonlySet<string> }
-/** Needs you → Running → Capacity → Done today → Activity. Everything here is the service's data, filtered by repo. */
-export function OverviewView({ snapshot, query, now, runner, activity, ops }: OverviewProps) {
+function PlannerStrip({ snapshot, now }: { snapshot: ClientSnapshot; now: number }) {
+  const p = plannerMeter(snapshot), c = counts(snapshot);
+  if (!p) return null;
+  const name = agentInfo(p.agent).name;
+  const extra = [p.activeHoursLeft !== null ? `${Math.round(p.activeHoursLeft)} active-h` : null, p.resetsAt !== null ? `resets ${clock(p.resetsAt, now)}` : null].filter(Boolean).join(" · ");
+  const stat = (n: number | undefined, label: string, warn = false) => <div className="pc-stat"><div className={`pc-stat__n${warn && n ? " pc-warn-text" : ""}`}>{n ?? 0}</div><div className="muted">{label}</div></div>;
+  return <section className="pc-planner-strip" aria-label="Planner">
+    <AgentMark agent={p.agent} size={28} labelled={false} />
+    <div className="pc-planner-strip__body">
+      <div className="row"><span className="pc-label">Planner · {name}</span><span className="pc-planner-strip__advice">{p.advice}</span></div>
+      {p.usedPct !== null && <div className="row"><div className="grow"><UsageMeter used={p.usedPct} pace={p.pacePct} tone={toneFor(p.verdict)} verdict={p.verdict} size="bar" text="none" label={`${name} planner usage`} stale={p.stale} staleAt={snapshot.at} now={now} /></div><span className="muted">{meterText(p.usedPct, p.pacePct, "full")}{extra ? ` · ${extra}` : ""}</span></div>}
+    </div>
+    <div className="pc-stats">{stat(c?.attention, "need you", true)}{stat(c?.running, "running")}{stat(snapshot.today?.done, "done today")}</div>
+  </section>;
+}
+function KeysFooter() {
+  return <footer className="pc-keys-footer muted"><Kbd>g o</Kbd> Overview · <Kbd>g r</Kbd> Review · <Kbd>g s</Kbd> Sessions · <Kbd>d</Kbd> Delegate · <Kbd>/</Kbd> Filter repos · <Kbd>?</Kbd> All shortcuts</footer>;
+}
+
+export interface OverviewProps { snapshot: ClientSnapshot; query: RouteQuery; now: number; runner: ActionRunner; activity: ActivityEntry[]; ops: ReadonlySet<string>; quickDelegate?: ComponentChildren }
+/** The canvas Main board: planner strip and repo chips, then Needs you, Running and Done today with Capacity, Quick delegate and Activity alongside. */
+export function OverviewView({ snapshot, query, now, runner, activity, ops, quickDelegate }: OverviewProps) {
   const scope: Scope = { repo: query.repo };
   return <div className="pc-overview">
+    <PlannerStrip snapshot={snapshot} now={now} />
     <RepoFilter snapshot={snapshot} query={query} />
-    <NeedsYou snapshot={snapshot} scope={scope} runner={runner} canDismiss={ops.has("attention.dismiss")} />
-    <Running snapshot={snapshot} scope={scope} now={now} runner={runner} />
-    <Capacity snapshot={snapshot} />
-    <DoneToday snapshot={snapshot} scope={scope} now={now} />
-    <Activity entries={activity} now={now} />
+    <div className="pc-overview__cols">
+      <div className="pc-overview__main">
+        <NeedsYou snapshot={snapshot} scope={scope} runner={runner} canDismiss={ops.has("attention.dismiss")} />
+        <Running snapshot={snapshot} scope={scope} now={now} runner={runner} />
+        <DoneToday snapshot={snapshot} scope={scope} now={now} />
+      </div>
+      <div className="pc-overview__side">
+        <Capacity snapshot={snapshot} />
+        <section className="pc-card-section" aria-labelledby="quick-delegate"><div className="pc-card-section__head"><h2 id="quick-delegate">Quick delegate</h2></div><div className="pc-card-section__body">{quickDelegate}</div></section>
+        <Activity entries={activity} now={now} />
+      </div>
+    </div>
+    <KeysFooter />
   </div>;
 }
 
@@ -127,5 +158,5 @@ export function Overview({ query }: { query: RouteQuery }) {
   const focusRef = useRef(() => document.querySelector<HTMLButtonElement>("#repo-filter button")?.focus());
   useEffect(() => keys.register({ keys: "/", label: "Focus the repo filter", scope: "overview", run: () => focusRef.current() }), []);
   if (!state.snapshot) return null;
-  return <OverviewView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} activity={activity} ops={state.features.ops} />;
+  return <OverviewView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} activity={activity} ops={state.features.ops} quickDelegate={<QuickDelegate filterRepo={query.repo} />} />;
 }
