@@ -1850,7 +1850,11 @@ var tones = {
   OK: "good",
   ON_PACE: "good",
   BEHIND: "good",
-  UNMETERED: "good"
+  UNMETERED: "good",
+  behind: "good",
+  on_pace: "good",
+  ahead: "warn",
+  out: "bad"
 };
 var toneFor = (value) => Object.hasOwn(tones, value) ? tones[value] : "neutral";
 var verdicts = {

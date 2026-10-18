@@ -207,3 +207,11 @@ test("append publishes activity through the entity envelope and advertises it", 
   expect(events!.events).toContainEqual(expect.objectContaining({ type: "activity", data: entry }));
   expect(helloBody().events).toContain("activity");
 });
+
+test("budget refresh names only accounts with a runner and a reading", async () => {
+  const ctx = fakeCtx();
+  const s = status(ctx.now);
+  s.accounts!.push({ ...s.accounts![0]!, name: "no-runner", runners: [] }, { ...s.accounts![0]!, name: "no-reading", runners: ["cursor"], usedPct: null });
+  await pumpOnce(ctx, { status: async () => s, tasks: () => [], publish });
+  for (const entry of readActivity(ctx, { kinds: ["budget_refreshed"] }).entries) expect(entry.text).not.toMatch(/unknown|the executor/);
+});
