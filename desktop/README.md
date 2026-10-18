@@ -52,7 +52,7 @@ Run the AppImage with `chmod +x pacer_*.AppImage` then `./pacer_*.AppImage`
 (FUSE 2 may be required; `--appimage-extract-and-run` avoids FUSE), or install
 the matching `.deb` with `sudo apt install ./pacer_*.deb` and run `pacer-desktop`.
 For development, run `bunx tauri dev` from this folder.
-Install the pacer CLI separately and start its local service as on macOS.
+Install the pacer CLI separately and let the app manage its local service.
 
 The manual `desktop.yml` workflow also builds unsigned AppImage and `.deb`
 artifacts on native Ubuntu x86_64 and arm64 runners. The arm64 job requires
@@ -68,7 +68,7 @@ The shell searches the login shell's PATH, then `$HOME/.local/bin`,
 `/opt/homebrew/bin` and `/usr/local/bin` on macOS. Linux searches PATH,
 `$HOME/.local/bin/pacer`, `/usr/local/bin/pacer` and `/usr/bin/pacer`, in that
 order (duplicates removed). Only executable files qualify.
-The login-shell PATH is cached for the launch and refreshed on focus or Try again;
+The login-shell PATH is cached for the launch and refreshed on focus;
 unique output delimiters exclude profile banners.
 It passes `PACER_HOME` (default `$HOME/.pacer`) to the discovered CLI and uses
 that same directory's `token` file for native sign-in. `PACER_PORT` is inherited;
@@ -91,11 +91,9 @@ notifications. A 401 from either webview reports `session_expired` through origi
 Page-load checks also catch expired sign-in links and cookie-less session-ended
 pages (including older service pages). The single connection task signs in again
 with `POST /v2/session/exchange` and a fresh webview code, reloads the saved main
-route and recreates the tray after sign-in. Failed connections show the bundled
-starting/stopped page. Attempts are at least five seconds apart, including focus
-and repeated IPC signals, and recovery continues automatically.
-Recovery retries every five seconds and on focus; Start pacer
-invokes `pacer service install` without a shell.
+route and recreates the tray after sign-in. Failed connections return to a small
+Starting pacer… page and recover automatically.
+One task owns retries, with at least one second between attempts.
 
 The tray title uses service-owned planner usage and attention counts. Left-click
 opens a separate `/app/tray.html` popover, created hidden once the main page has
@@ -108,6 +106,13 @@ Blur and Esc hide it. The native menu offers Open pacer, Pause 1h / Resume,
 Quit, plus Show popover on Linux. Pause calls
 `delegation.pause` with `{for:"1h"}`; while `snapshot.pause` is present it offers
 Resume instead.
+
+macOS notification authorization is requested through `UNUserNotificationCenter`
+when running an app bundle. Launch-at-login changes use `SMAppService.mainApp`
+on macOS 13+ (the LaunchAgent plugin remains the fallback on older systems).
+These native APIs own the approval UI; one-line explanations are shown only
+while an identified pacer OS approval dialog is visible. Modern login item
+registration requires a code-signed app, so it remains unverified in unsigned builds.
 
 On Linux, notifications show the title and body without action buttons; use the
 web UI for actions and questions. Launch at login uses an XDG autostart entry.
@@ -153,12 +158,12 @@ links open `/app/#<route>` and resizing is skipped.
 
 ## Manual smoke checks
 
-- Without an installed CLI: Install pacer first; install it and refocus.
-- Stop a loaded service: pacer stopped; Start pacer starts the job without reinstalling.
-- A missing launchd job: pacer isn't installed; only this page offers Install.
-- Block the service with a privacy dialog: pacer is busy, elapsed seconds update,
-  and allowing access automatically opens the authenticated UI. Check the tray too.
-- After 30 seconds busy without an identified prompt, Restart pacer is offered.
+- With a located/bundled CLI and missing job: service installation and start happen automatically.
+- Stop a loaded service: the app starts it automatically.
+- Block on a volume permission: the main window and tray show the approval message;
+  allowing access opens the app automatically, with no restart while waiting.
+- With an unanswered health request and no OS prompt: automatic restarts back off
+  from 20 to 40 to 80 seconds (capped).
 - Restart the service with the main window and popover open; both sign in again.
 - Revoke app sessions, reload without a cookie, or load an expired sign-in URL;
   the shell recovers automatically. Stop the service during recovery; the bundled
@@ -189,43 +194,45 @@ the sandbox (CI does this). It checks POST exchange, memory cookie authenticatio
 loopback Host, Origin, versioned client headers, and absence of bearer authorization
 on subsequent requests.
 
-## Connection diagnostics and previews
+## Automatic lifecycle and previews
 
-The shell probes the loopback TCP port and `/health` separately (a two-second
-health deadline). It polls about once a second while disconnected; unanswered
-health requests can take two seconds. `PACER_PORT` selects the port, default 4317.
-A listening service that cannot answer is **busy**, never described as uninstalled.
-A starting health response or `service.starting` snapshot shows **Starting pacer…**.
-Ready services sign in and load automatically. The tray uses the same diagnosis.
+The app owns the local service lifecycle. It probes loopback TCP and `/health`
+with two-second deadlines. Missing jobs are installed through the located or
+bundled CLI's service installer and then started. Stopped or refused services
+are started with `launchctl kickstart gui/<uid>/com.pacer.serve` on macOS or
+`systemctl --user start pacer-serve.service` on Linux. Linux without a working
+user manager retains the direct CLI fallback. No terminal or recovery button is shown.
+Lifecycle decisions and failures are written to the shell's stderr log.
 
-On macOS, a refused connection is checked against
-`launchctl print gui/<uid>/com.pacer.serve`. A missing job offers installation;
-a stopped, loaded job offers **Start pacer**, which runs `launchctl kickstart`
-without opening a terminal. **Restart pacer** uses `kickstart -k` and appears
-after 30 seconds busy with no identified consent prompt. Actions recheck the
-current diagnosis before running. On Linux, the shell checks `pacer-serve.service`
-and uses `systemctl --user start` / `restart`; the CLI is the fallback when no
-unit can be found. Service-manager failures remain visible while polling resumes.
+A listening service that does not answer health is polled. After 20 seconds
+without an OS prompt or a volume wait, the app restarts it automatically with
+`launchctl kickstart -k` (systemd: restart), then waits 40 seconds and 80 seconds
+between further restarts. A successful app connection resets recovery backoff.
 
-The macOS consent check reads only on-screen window metadata through
-`CGWindowListCopyWindowInfo`, without requesting Screen Recording access.
-It requires a consent-process owner and a title identifying pacer file access.
-Redacted, missing, or unrelated titles are inconclusive: the shell then says
-that macOS consent is a likely cause instead of claiming a specific dialog exists.
-Linux busy copy does not mention macOS.
+The additive `service.waiting = { kind: "volume", path, since }` snapshot field
+is understood in plain and wrapped snapshots. While present, the shell never
+restarts and shows only the permission message with the path's basename, plus a
+link to System Settings › Privacy & Security › Files and Folders. Without a known
+path it says “your external drive”. Snapshot polling resumes automatically; when
+the wait clears, the app signs in and loads. A positively identified on-screen
+pacer file-access consent window uses the same message. Detection reads only
+CoreGraphics window metadata; redacted titles are inconclusive and do not require
+Screen Recording or Accessibility permission. Old blocked builds without this
+snapshot field rely on visible consent detection and the health timeout fallback.
+Protocol mismatch and incompatible installations still explain the required update.
 
-For screenshots, open `desktop/ui/index.html` directly in a browser, or serve
-`desktop/ui/` with a static server. Query parameters render deterministic previews
-without running commands or requiring Tauri:
+Discovery prefers `PACER_BIN`, then a bundled executable beside the desktop shell
+or in bundle Resources, then the normal login PATH candidates. A missing CLI
+requires installing a complete app distribution; the shell never displays commands.
 
-- `?state=not_installed`, `?state=stopped`, `?state=starting`, `?state=ready`
-- `?state=busy&prompt=1&for=14` — identified consent prompt, live elapsed timer
-- `?state=busy&for=31` — likely-cause copy and Restart pacer
-- `?state=busy&for=14&platform=linux` — Linux busy copy
-- Add `&compact=1` for the tray layout (340 px wide).
-- Existing pages: `install`, `oldService`, `oldApp`, `protocol`, `startFailed`.
+For screenshots, open `desktop/ui/index.html` or serve `desktop/ui/` statically:
 
-The elapsed timer advances from the preview's `for` value. Live restart visibility
-comes from the native diagnosis; previews choose it from `for` and `prompt`
-(or explicitly `restart=1`). The shell CSS embeds the shared design tokens;
-`test/desktop-shell.test.ts` checks that this copy stays in sync.
+- `?state=starting` — pacer mark and small starting status.
+- `?state=permission&path=/Volumes/External/Project` — OS approval with “Project”.
+- `?state=permission` — approval with “your external drive”.
+- `?state=busy&prompt=1` — consent-window preview alias.
+- `?state=oldService`, `?state=oldApp`, `?state=protocol` — incompatible installs.
+- Add `&compact=1` for the 340 px tray layout.
+
+Previews never run commands. The shell CSS embeds the shared design tokens;
+`test/desktop-shell.test.ts` verifies those tokens and the page behavior.

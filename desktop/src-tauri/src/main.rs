@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod actions;
+mod approvals;
 mod client;
 mod logic;
 mod notifications;
@@ -30,7 +31,7 @@ struct Shell {
     route: Mutex<String>,
     recovery: Mutex<String>,
     granted: Mutex<Vec<String>>,
-    service_action: Mutex<Option<String>>,
+    waiting: Mutex<Option<String>>,
     diagnosis: Mutex<Option<logic::Diagnosis>>,
     retry: AtomicBool,
     session: Mutex<Option<client::Session>>,
@@ -44,7 +45,7 @@ impl Default for Shell {
             route: Mutex::new("#/".into()),
             recovery: Mutex::new(String::new()),
             granted: Mutex::new(Vec::new()),
-            service_action: Mutex::new(None),
+            waiting: Mutex::new(None),
             diagnosis: Mutex::new(None),
             retry: AtomicBool::new(false),
             session: Mutex::new(None),
@@ -199,13 +200,21 @@ fn setLaunchAtLogin(window: WebviewWindow, app: AppHandle, enabled: bool) -> Res
     launch_at_login(&app, enabled)
 }
 fn launch_at_login(app: &AppHandle, enabled: bool) -> Result<(), String> {
-    let manager = app.autolaunch();
-    (if enabled {
-        manager.enable()
+    #[cfg(target_os = "macos")]
+    let native = approvals::launch_at_login(enabled);
+    #[cfg(not(target_os = "macos"))]
+    let native: Option<Result<(), String>> = None;
+    if let Some(result) = native {
+        result?;
     } else {
-        manager.disable()
-    })
-    .map_err(|e| e.to_string())?;
+        let manager = app.autolaunch();
+        (if enabled {
+            manager.enable()
+        } else {
+            manager.disable()
+        })
+        .map_err(|e| e.to_string())?;
+    }
     if let Some(tray) = app.tray_by_id("pacer") {
         let _ = tray.set_tooltip(Some("pacer"));
     }
@@ -263,7 +272,9 @@ fn shell_url(url: &Url) -> bool {
     url.scheme() == "tauri" && url.host_str() == Some("localhost")
 }
 fn shell_action(app: &AppHandle, label: &str, url: &Url) -> bool {
-    if !shell_url(url) || !matches!(url.path(), "/start" | "/install" | "/restart" | "/retry") {
+    if url.as_str()
+        != "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
+    {
         return false;
     }
     let bundled = app
@@ -275,11 +286,14 @@ fn shell_action(app: &AppHandle, label: &str, url: &Url) -> bool {
     if !bundled {
         return false;
     }
-    let shell = app.state::<Shell>();
-    if url.path() == "/retry" {
-        shell.retry.store(true, Ordering::SeqCst);
-    } else {
-        *shell.service_action.lock().unwrap() = Some(url.path().trim_start_matches('/').into());
+    #[cfg(target_os = "macos")]
+    {
+        tauri::async_runtime::spawn(async {
+            let result = tokio::process::Command::new("/usr/bin/open")
+                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")
+                .status().await;
+            eprintln!("pacer lifecycle: open Files and Folders settings: {result:?}");
+        });
     }
     true
 }
@@ -319,22 +333,17 @@ fn recovery(app: &AppHandle, state: &str) {
     {
         let mut detail = shell.diagnosis.lock().unwrap();
         if detail.as_ref().is_none_or(|d| d.page != state) {
-            let mut value = logic::diagnose(
-                logic::HealthProbe::Starting,
-                logic::JobState::Unknown,
-                false,
-                0,
+            let value = logic::diagnosis(
+                match state {
+                    "oldService" => "oldService",
+                    "oldApp" => "oldApp",
+                    "protocol" => "protocol",
+                    "permission" => "permission",
+                    "install" => "install",
+                    _ => "starting",
+                },
+                None,
             );
-            // Only fixed, internal page names enter this function.
-            value.page = match state {
-                "install" => "install",
-                "startFailed" => "startFailed",
-                "oldService" => "oldService",
-                "oldApp" => "oldApp",
-                "protocol" => "protocol",
-                "unavailable" => "unavailable",
-                _ => "starting",
-            };
             *detail = Some(value);
         }
     }
@@ -347,14 +356,12 @@ fn recovery(app: &AppHandle, state: &str) {
     }
     render_diagnosis(app);
     let title = match state {
-        "busy" => "pacer is busy",
-        "stopped" => "pacer stopped",
-        "not_installed" => "pacer isn't installed",
-        "install" => "Install pacer first",
-        "starting" => "Starting pacer…",
+        "permission" => "macOS needs your permission",
         "oldApp" => "Update the pacer app",
         "oldService" => "Update pacer",
-        _ => "Unable to connect to pacer",
+        "install" => "Install the pacer app",
+        "protocol" => "Unable to connect to pacer",
+        _ => "Starting pacer…",
     };
     if changed {
         if let Some(tray) = app.tray_by_id("pacer") {
@@ -837,6 +844,9 @@ fn main() {
                     navigate(&notifications, &target);
                 }
             })?;
+            #[cfg(target_os = "macos")]
+            approvals::request_notifications();
+            tauri::async_runtime::spawn(client::monitor_approvals(handle.clone()));
             tauri::async_runtime::spawn(client::run(handle));
             Ok(())
         })

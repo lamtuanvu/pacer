@@ -21,36 +21,93 @@ pub enum JobState {
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Diagnosis {
     pub page: &'static str,
-    pub prompt: bool,
-    pub seconds: u64,
-    pub restart: bool,
-    pub recover: bool,
-    pub macos: bool,
-    pub action_error: Option<String>,
+    pub path: Option<String>,
 }
-/// No I/O: transport evidence takes precedence over service-manager evidence.
-pub fn diagnose(health: HealthProbe, job: JobState, prompt: bool, seconds: u64) -> Diagnosis {
-    let page = match health {
-        HealthProbe::Refused => match job {
-            JobState::NotLoaded => "not_installed",
-            JobState::Stopped => "stopped",
-            JobState::Running => "starting",
-            JobState::Unknown => "unavailable",
-        },
-        HealthProbe::NoAnswer => "busy",
-        HealthProbe::Starting => "starting",
-        HealthProbe::Ready => "ready",
-        HealthProbe::Invalid => "protocol",
-        HealthProbe::Unreachable => "unavailable",
-    };
-    Diagnosis {
-        page,
-        prompt,
-        seconds: if page == "busy" { seconds } else { 0 },
-        restart: page == "busy" && seconds >= 30 && !prompt,
-        recover: page == "ready",
-        macos: cfg!(target_os = "macos"),
-        action_error: None,
+pub fn diagnosis(page: &'static str, path: Option<String>) -> Diagnosis {
+    Diagnosis { page, path }
+}
+/// Additive v2/v3 snapshot field; absent/unknown waiting kinds are ignored.
+pub fn volume_waiting(snapshot: &Value) -> Option<String> {
+    let service = snapshot
+        .get("snapshot")
+        .unwrap_or(snapshot)
+        .get("service")?;
+    let waiting = service.get("waiting")?;
+    (waiting["kind"] == "volume").then(|| waiting["path"].as_str().unwrap_or("").to_owned())
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RecoveryAction {
+    Install,
+    Start,
+    Restart,
+    Connect,
+    Wait,
+    Protocol,
+}
+/// Ordered manager actions; a failed install must not run the following start.
+pub fn service_steps(action: RecoveryAction) -> &'static [&'static str] {
+    match action {
+        RecoveryAction::Install => &["install", "start"],
+        RecoveryAction::Start => &["start"],
+        RecoveryAction::Restart => &["restart"],
+        _ => &[],
+    }
+}
+/// One owner schedules lifecycle actions. Timestamps are monotonic elapsed seconds.
+#[derive(Default)]
+pub struct Lifecycle {
+    hung_since: Option<u64>,
+    next_action: u64,
+    restart_delay: u64,
+}
+impl Lifecycle {
+    pub fn step(
+        &mut self,
+        now: u64,
+        health: HealthProbe,
+        job: JobState,
+        waiting: bool,
+    ) -> RecoveryAction {
+        use RecoveryAction::*;
+        if waiting {
+            self.hung_since = None;
+            return if matches!(health, HealthProbe::Ready | HealthProbe::Starting) {
+                Connect
+            } else {
+                Wait
+            };
+        }
+        if health != HealthProbe::NoAnswer {
+            self.hung_since = None;
+        }
+        match health {
+            HealthProbe::Ready | HealthProbe::Starting => Connect,
+            HealthProbe::Invalid => Protocol,
+            HealthProbe::Refused if now >= self.next_action => {
+                self.next_action = now.saturating_add(20);
+                if job == JobState::NotLoaded {
+                    Install
+                } else {
+                    Start
+                }
+            }
+            HealthProbe::NoAnswer => {
+                let since = *self.hung_since.get_or_insert(now);
+                let delay = self.restart_delay.max(20);
+                if now.saturating_sub(since) >= delay && now >= self.next_action {
+                    self.hung_since = Some(now);
+                    self.restart_delay = (delay * 2).min(80);
+                    self.next_action = now.saturating_add(self.restart_delay);
+                    Restart
+                } else {
+                    Wait
+                }
+            }
+            _ => Wait,
+        }
+    }
+    pub fn ready(&mut self) {
+        *self = Self::default();
     }
 }
 pub fn health_probe(value: &Value) -> HealthProbe {
@@ -65,10 +122,10 @@ pub fn health_probe(value: &Value) -> HealthProbe {
         HealthProbe::Invalid
     }
 }
-pub fn consent_window(owner: &str, title: &str) -> bool {
+pub fn approval_window(owner: &str, title: &str) -> Option<&'static str> {
     let owner = owner.to_ascii_lowercase();
     let title = title.to_ascii_lowercase();
-    [
+    if ![
         "usernotificationcenter",
         "notificationcenter",
         "coreauthui",
@@ -77,12 +134,28 @@ pub fn consent_window(owner: &str, title: &str) -> bool {
     ]
     .iter()
     .any(|name| owner == *name)
-        && title
+        || !title
             .split(|c: char| !c.is_alphanumeric())
             .any(|word| word == "pacer")
-        && ["removable", "external", "files"]
-            .iter()
-            .any(|word| title.contains(word))
+    {
+        return None;
+    }
+    if ["removable", "external", "files", "folder", "volume"]
+        .iter()
+        .any(|word| title.contains(word))
+    {
+        Some("volume")
+    } else if title.contains("notification") {
+        Some("notifications")
+    } else if title.contains("login") || title.contains("background") {
+        Some("login")
+    } else {
+        None
+    }
+}
+#[cfg(test)]
+pub fn consent_window(owner: &str, title: &str) -> bool {
+    approval_window(owner, title) == Some("volume")
 }
 pub fn launchctl_args(uid: u32, action: &str) -> Vec<String> {
     let target = format!("gui/{uid}/com.pacer.serve");
@@ -122,7 +195,7 @@ pub fn recovery_page(error: &str) -> &'static str {
         "oldApp" => "oldApp",
         "protocol" => "protocol",
         "sessionExpired" => "starting",
-        _ => "stopped",
+        _ => "starting",
     }
 }
 
@@ -359,50 +432,93 @@ mod tests {
             "UserNotificationCenter",
             "pacer would like to access the microphone"
         ));
+        assert_eq!(
+            approval_window(
+                "UserNotificationCenter",
+                "pacer would like to send notifications"
+            ),
+            Some("notifications")
+        );
+        assert_eq!(
+            approval_window("UserNotificationCenter", "Allow pacer at login"),
+            Some("login")
+        );
+        assert_eq!(
+            approval_window("UserNotificationCenter", "OtherApp notifications"),
+            None
+        );
     }
     #[test]
-    fn service_diagnosis_uses_transport_and_job_evidence() {
+    fn automatic_lifecycle_transitions() {
         use HealthProbe::*;
-        assert_eq!(
-            diagnose(Refused, JobState::NotLoaded, false, 0).page,
-            "not_installed"
-        );
-        assert_eq!(
-            diagnose(Refused, JobState::Stopped, false, 0).page,
-            "stopped"
-        );
-        assert_eq!(
-            diagnose(Refused, JobState::Running, false, 0).page,
-            "starting"
-        );
-        assert_eq!(
-            diagnose(Refused, JobState::Unknown, false, 0).page,
-            "unavailable"
-        );
-        for prompt in [false, true] {
-            let state = diagnose(NoAnswer, JobState::NotLoaded, prompt, 14);
-            assert_eq!(state.page, "busy");
-            assert_eq!(state.prompt, prompt);
-            assert!(!state.restart);
-            assert_eq!(state.seconds, 14);
+        use RecoveryAction::*;
+        let mut state = Lifecycle::default();
+        let action = state.step(0, Refused, JobState::NotLoaded, false);
+        assert_eq!(action, Install);
+        assert_eq!(service_steps(action), &["install", "start"]);
+        // A pending manager action is not duplicated on the next probe.
+        assert_eq!(state.step(1, Refused, JobState::Stopped, false), Wait);
+        assert_eq!(state.step(20, Refused, JobState::Stopped, false), Start);
+        assert_eq!(state.step(21, Ready, JobState::Running, false), Connect);
+        state.ready();
+        let refused = state.step(22, Refused, JobState::Running, false);
+        assert_eq!(refused, Start);
+        assert_eq!(service_steps(refused), &["start"]);
+        assert_eq!(state.step(23, Ready, JobState::Running, false), Connect);
+    }
+    #[test]
+    fn hung_service_restarts_with_capped_backoff_until_ready() {
+        use HealthProbe::*;
+        use RecoveryAction::*;
+        let mut state = Lifecycle::default();
+        for (now, expected) in [
+            (0, Wait),
+            (19, Wait),
+            (20, Restart),
+            (59, Wait),
+            (60, Restart),
+            (139, Wait),
+            (140, Restart),
+            (219, Wait),
+            (220, Restart),
+        ] {
             assert_eq!(
-                diagnose(NoAnswer, JobState::Running, prompt, 30).restart,
-                !prompt
+                state.step(now, NoAnswer, JobState::Running, false),
+                expected,
+                "{now}"
             );
         }
+        assert_eq!(state.step(221, Ready, JobState::Running, false), Connect);
+        state.ready();
+        assert_eq!(state.step(222, NoAnswer, JobState::Running, false), Wait);
+        assert_eq!(state.step(242, NoAnswer, JobState::Running, false), Restart);
+    }
+    #[test]
+    fn waiting_snapshot_and_consent_window_prevent_restart() {
+        use HealthProbe::*;
+        use RecoveryAction::*;
+        let snapshot = json!({"service":{"waiting":{"kind":"volume","path":"/Volumes/Drive/repo","since":"now"}}});
         assert_eq!(
-            diagnose(Starting, JobState::Unknown, false, 50).page,
-            "starting"
+            volume_waiting(&snapshot).as_deref(),
+            Some("/Volumes/Drive/repo")
         );
-        let ready = diagnose(Ready, JobState::Unknown, false, 99);
-        assert_eq!(ready.page, "ready");
-        assert!(ready.recover);
-        assert!(!ready.restart);
-        assert_eq!(ready.seconds, 0);
         assert_eq!(
-            diagnose(Invalid, JobState::Running, false, 0).page,
-            "protocol"
+            volume_waiting(&json!({"snapshot":snapshot})).as_deref(),
+            Some("/Volumes/Drive/repo")
         );
+        assert!(volume_waiting(&json!({"service": {}})).is_none());
+        assert!(volume_waiting(&json!({"service": {"waiting": {"kind": "other"}}})).is_none());
+        let mut state = Lifecycle::default();
+        for now in [0, 20, 80, 1000] {
+            assert_eq!(state.step(now, NoAnswer, JobState::Running, true), Wait);
+        }
+        assert_eq!(state.step(1001, Ready, JobState::Running, false), Connect);
+        let prompt = consent_window(
+            "UserNotificationCenter",
+            "pacer access files on external drive",
+        );
+        assert!(prompt);
+        assert_eq!(state.step(2000, NoAnswer, JobState::Running, prompt), Wait);
     }
     #[test]
     fn launchctl_commands_use_fixed_argument_vectors() {
@@ -435,8 +551,8 @@ mod tests {
     fn expired_session_reenters_sign_in_and_unreachable_service_uses_shell_page() {
         assert_eq!(session_error(Some(401)), "sessionExpired");
         assert_eq!(recovery_page(session_error(Some(401))), "starting");
-        assert_eq!(recovery_page(session_error(None)), "stopped");
-        assert_eq!(recovery_page(session_error(Some(503))), "stopped");
+        assert_eq!(recovery_page(session_error(None)), "starting");
+        assert_eq!(recovery_page(session_error(Some(503))), "starting");
         assert_eq!(recovery_page("oldApp"), "oldApp");
     }
     #[test]
@@ -709,5 +825,4 @@ mod tests {
             "one\ntwo"
         );
     }
-
 }

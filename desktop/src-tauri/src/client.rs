@@ -41,7 +41,19 @@ impl Cli {
     }
     pub fn find(path: &str) -> Option<Self> {
         let home = PathBuf::from(std::env::var_os("HOME")?);
-        let binary = logic::candidates(path, &home).into_iter().find(|p| {
+        let mut candidates = Vec::new();
+        if let Some(binary) = std::env::var_os("PACER_BIN") {
+            candidates.push(PathBuf::from(binary));
+        }
+        // A packaged CLI sits beside the shell executable (or in bundle Resources).
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                candidates.push(dir.join("pacer"));
+                candidates.push(dir.join("../Resources/pacer"));
+            }
+        }
+        candidates.extend(logic::candidates(path, &home));
+        let binary = candidates.into_iter().find(|p| {
             use std::os::unix::fs::PermissionsExt;
             p.metadata()
                 .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
@@ -178,10 +190,33 @@ impl Session {
     }
 }
 
+async fn wait_for_snapshot(app: &AppHandle, session: &Session) -> Result<Value, String> {
+    let mut paused = false;
+    loop {
+        let snapshot = session.json("/v2/snapshot").await?;
+        let waiting = logic::volume_waiting(&snapshot);
+        *app.state::<Shell>().waiting.lock().unwrap() = waiting.clone();
+        if waiting.is_some() || privacy_prompt() {
+            if !paused {
+                eprintln!("pacer lifecycle: waiting for OS volume approval; restart suppressed");
+            }
+            paused = true;
+            crate::diagnostic_recovery(app, &logic::diagnosis("permission", waiting));
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        } else {
+            if paused {
+                eprintln!("pacer lifecycle: OS volume wait cleared; authenticating automatically");
+                return Err("sessionExpired".into());
+            }
+            return Ok(snapshot);
+        }
+    }
+}
+
 async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
     let web_auth = cli.auth().await?;
     let session = Session::connect(cli, &web_auth).await?;
-    let snapshot = session.json("/v2/snapshot").await?;
+    let snapshot = wait_for_snapshot(app, &session).await?;
     if snapshot["service"]["starting"] == true
         || snapshot["snapshot"]["service"]["starting"] == true
     {
@@ -209,7 +244,10 @@ async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
 async fn monitor_health(client: &Client) -> Result<(), String> {
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        if health(client).await != logic::HealthProbe::Ready {
+        if !matches!(
+            health(client).await,
+            logic::HealthProbe::Ready | logic::HealthProbe::Starting
+        ) {
             return Err("diagnose".into());
         }
     }
@@ -286,7 +324,7 @@ async fn listen(
                 refresh = true;
             }
             if refresh {
-                let snapshot = session.json("/v2/snapshot").await?;
+                let snapshot = wait_for_snapshot(app, session).await?;
                 // A reset invalidates the old sequence space; the fresh snapshot owns the cursor.
                 // Ordinary refreshes preserve the event cursor for alerts arriving during the GET.
                 seq = logic::snapshot_seq(seq, &snapshot, reset);
@@ -297,7 +335,7 @@ async fn listen(
             // Recheck version and session on reconnect, including service upgrades.
             logic::check_hello(&session.json("/v2/hello").await?).map_err(str::to_owned)?;
             // Check whether the cookie session is still valid before reconnecting.
-            let snapshot = session.json("/v2/snapshot").await?;
+            let snapshot = wait_for_snapshot(app, session).await?;
             crate::update_tray(app, TrayModel::from_snapshot(&snapshot));
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
@@ -311,9 +349,10 @@ pub async fn run(app: AppHandle) {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .expect("local health client");
-    let mut busy_since: Option<std::time::Instant> = None;
-    let mut action_error = None;
+    let clock = std::time::Instant::now();
+    let mut lifecycle = logic::Lifecycle::default();
     let mut attempts = logic::Reconnect::default();
+    let mut previous = String::new();
     loop {
         tokio::time::sleep(attempts.delay(std::time::Instant::now())).await;
         attempts.started(std::time::Instant::now());
@@ -328,66 +367,70 @@ pub async fn run(app: AppHandle) {
         } else {
             logic::JobState::Unknown
         };
-        let seconds = if probe == logic::HealthProbe::NoAnswer {
-            busy_since
-                .get_or_insert_with(std::time::Instant::now)
-                .elapsed()
-                .as_secs()
-        } else {
-            busy_since = None;
-            0
-        };
-        let prompt = probe == logic::HealthProbe::NoAnswer && privacy_prompt();
-        let mut diagnosis = logic::diagnose(probe, job, prompt, seconds);
-        if cli.is_none() && diagnosis.page == "not_installed" {
-            diagnosis.page = "install";
+        let waiting = app.state::<Shell>().waiting.lock().unwrap().clone();
+        let prompt = privacy_prompt();
+        let permission = waiting.is_some() || prompt;
+        let action = lifecycle.step(clock.elapsed().as_secs(), probe, job, permission);
+        let reason = format!(
+            "{action:?}: health={probe:?}, job={job:?}, volume_wait={}, consent_window={prompt}",
+            waiting.is_some()
+        );
+        if reason != previous
+            || matches!(
+                action,
+                logic::RecoveryAction::Install
+                    | logic::RecoveryAction::Start
+                    | logic::RecoveryAction::Restart
+            )
+        {
+            eprintln!("pacer lifecycle: {reason}");
+            previous = reason;
         }
-        let action = app.state::<Shell>().service_action.lock().unwrap().take();
-        if let Some(action) = action {
-            // Recheck evidence before acting: a stale shell cannot restart a recovered service.
-            let allowed = match action.as_str() {
-                "install" => diagnosis.page == "not_installed",
-                "start" => diagnosis.page == "stopped",
-                "restart" => diagnosis.restart,
-                _ => false,
-            };
-            if allowed {
-                crate::recovery(&app, "starting");
-                match service_action(cli.as_ref(), &action, job).await {
-                    Ok(()) => action_error = None,
-                    Err(error) => {
-                        action_error = Some(error);
-                        crate::recovery(&app, "startFailed");
+        crate::diagnostic_recovery(
+            &app,
+            &logic::diagnosis(if permission { "permission" } else { "starting" }, waiting),
+        );
+        match action {
+            logic::RecoveryAction::Install
+            | logic::RecoveryAction::Start
+            | logic::RecoveryAction::Restart => {
+                let mut action_job = job;
+                for name in logic::service_steps(action) {
+                    if let Err(error) = service_action(cli.as_ref(), name, action_job).await {
+                        eprintln!("pacer lifecycle: automatic {name} failed: {error}; polling and retrying with backoff");
+                        break;
+                    }
+                    eprintln!("pacer lifecycle: automatic {name} succeeded");
+                    if *name == "install" {
+                        action_job = logic::JobState::Stopped;
                     }
                 }
-                continue;
             }
-        }
-        if diagnosis.recover {
-            if let Some(cli) = cli {
-                let result = tokio::select! {
-                    result = connected(&app, &cli) => result,
-                    result = monitor_health(&probe_client) => result,
-                };
-                if let Err(error) = result {
-                    let state = if error == "starting" {
-                        "starting"
-                    } else {
-                        logic::recovery_page(&error)
+            logic::RecoveryAction::Connect => {
+                if let Some(cli) = cli {
+                    let result = tokio::select! {
+                        result = connected(&app, &cli) => result,
+                        result = monitor_health(&probe_client) => result,
                     };
-                    // Never label a listening service stopped just because sign-in failed.
-                    if state == "stopped" {
-                        crate::recovery(&app, "unavailable");
-                    } else {
-                        crate::recovery(&app, state);
+                    if let Err(error) = result {
+                        eprintln!(
+                            "pacer lifecycle: connection ended ({error}); rechecking automatically"
+                        );
+                        if app.state::<Shell>().session.lock().unwrap().is_some() {
+                            lifecycle.ready();
+                        }
+                        let page = logic::recovery_page(&error);
+                        crate::recovery(&app, page);
                     }
+                } else {
+                    eprintln!(
+                        "pacer lifecycle: CLI unavailable for authentication; searching again"
+                    );
+                    crate::recovery(&app, "install");
                 }
-            } else {
-                crate::recovery(&app, "install");
             }
-        } else {
-            diagnosis.action_error = action_error.clone();
-            crate::diagnostic_recovery(&app, &diagnosis);
+            logic::RecoveryAction::Protocol => crate::recovery(&app, "protocol"),
+            logic::RecoveryAction::Wait => {}
         }
     }
 }
@@ -566,11 +609,8 @@ async fn service_action(
     job: logic::JobState,
 ) -> Result<(), String> {
     if action == "install" {
-        return cli
-            .ok_or("Install the pacer CLI first")?
-            .run(&["service", "install"])
-            .await
-            .map(|_| ());
+        let cli = cli.ok_or("No located or bundled pacer CLI")?;
+        return cli.run(&["service", "install"]).await.map(|_| ());
     }
     #[cfg(target_os = "macos")]
     let output = manager_output("launchctl", &launchctl_args(action)).await?;
@@ -621,20 +661,20 @@ async fn service_action(
     if output.status.success() {
         Ok(())
     } else {
-        Err("The service manager could not start pacer. Check pacer service logs.".into())
+        Err("Service manager action failed".into())
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-fn privacy_prompt() -> bool {
-    false
+fn os_prompt() -> Option<&'static str> {
+    None
 }
 
 #[cfg(target_os = "macos")]
-fn privacy_prompt() -> bool {
+fn os_prompt() -> Option<&'static str> {
     // Only window metadata, never pixels or AX/Screen Recording permissions.
     // An unrelated consent window must not be attributed to pacer. Redacted names
-    // are inconclusive and use the likely-cause copy instead.
+    // are inconclusive; only positive matches are shown as OS approval.
     use std::ffi::{c_char, c_void};
     type CF = *const c_void;
     #[link(name = "CoreGraphics", kind = "framework")]
@@ -673,19 +713,63 @@ fn privacy_prompt() -> bool {
     unsafe {
         let windows = CGWindowListCopyWindowInfo(1 | 16, 0); // on-screen, exclude desktop
         if windows.is_null() {
-            return false;
+            return None;
         }
-        let mut detected = false;
+        let mut detected = None;
         for index in 0..CFArrayGetCount(windows) {
             let window = CFArrayGetValueAtIndex(windows, index);
             let owner = string(CFDictionaryGetValue(window, kCGWindowOwnerName));
             let title = string(CFDictionaryGetValue(window, kCGWindowName));
-            if logic::consent_window(&owner, &title) {
-                detected = true;
-                break;
+            if let Some(kind) = logic::approval_window(&owner, &title) {
+                detected = Some(kind);
+                // Never overlook a volume dialog behind another approval window.
+                if kind == "volume" {
+                    break;
+                }
             }
         }
         CFRelease(windows);
         detected
+    }
+}
+
+fn privacy_prompt() -> bool {
+    os_prompt() == Some("volume")
+}
+
+pub async fn monitor_approvals(app: AppHandle) {
+    let mut previous = None;
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let prompt = os_prompt();
+        if prompt != previous {
+            eprintln!("pacer approvals: visible OS dialog={prompt:?}");
+            if prompt == Some("volume") {
+                let path = app.state::<Shell>().waiting.lock().unwrap().clone();
+                crate::diagnostic_recovery(&app, &logic::diagnosis("permission", path));
+            } else if previous == Some("volume") {
+                // Restore any ready webviews replaced while the OS dialog was open.
+                app.state::<Shell>().expired.notify_one();
+            }
+            previous = prompt;
+        }
+        let message = match prompt {
+            Some("notifications") => {
+                "Allow pacer notifications in the macOS dialog to receive updates."
+            }
+            Some("login") => "Allow pacer in the macOS dialog to launch it at login.",
+            _ => "",
+        };
+        let text = serde_json::to_string(message).unwrap();
+        for label in ["main", "tray"] {
+            if let Some(window) = app.get_webview_window(label) {
+                let _ = window.eval(format!(r#"(() => {{
+                    let banner = document.getElementById('pacer-os-approval');
+                    if (!banner) {{ banner = document.createElement('p'); banner.id = 'pacer-os-approval';
+                        banner.setAttribute('role', 'status'); document.body.prepend(banner); }}
+                    banner.textContent = {text}; banner.hidden = !banner.textContent;
+                }})()"#));
+            }
+        }
     }
 }
