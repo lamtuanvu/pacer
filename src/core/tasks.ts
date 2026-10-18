@@ -12,7 +12,7 @@ import { repoKey } from "../config/hosts";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
 import { transferred } from "../remote/transfer";
-import { realpathSafe } from "./git";
+import { realpathSafe, boundedGitRead } from "./git";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
 import { cleanSettledSessions } from "../session/retention";
@@ -229,7 +229,7 @@ export interface DiffFile {
 }
 
 /** Diff the task's worktree against its pacer base, or HEAD for existing checkouts. */
-export async function diff(ctx: Ctx, id: string, o: { path?: string } = {}): Promise<{
+export async function diff(ctx: Ctx, id: string, o: { path?: string; summaryOnly?: boolean } = {}): Promise<{
   base: string | null; worktree: string; files: DiffFile[]; patch: string; diff: string;
   untracked: string[]; truncated: boolean; note?: string;
 }> {
@@ -244,13 +244,18 @@ export async function diff(ctx: Ctx, id: string, o: { path?: string } = {}): Pro
     return { base, worktree, files: [], patch: "", diff: "", untracked: [], truncated: false, note: `changes are on ${task.run.host} until the run ends` };
   }
   const git = async (args: string[]) => {
-    const r = await ctx.run(["git", "--literal-pathspecs", "-C", worktree, ...args], 10_000);
+    const argv = ["git", "--literal-pathspecs", "-C", worktree, ...args];
+    const r = await (o.summaryOnly ? boundedGitRead(ctx.run, argv) : ctx.run(argv, 10_000));
     if (r.code !== 0) throw new CoreError("invalid_input", `cannot diff: ${r.stderr.trim().split("\n")[0] || `git exited with code ${r.code}`}`);
     return r.stdout;
   };
   const args = ["diff", ...(base ? ["--merge-base"] : []), "--no-ext-diff", "--no-textconv", "-M"];
   const against = ["--end-of-options", base ?? "HEAD", "--"];
-  const names = (await git([...args, "--name-status", "-z", ...against])).split("\0");
+  const [nameOutput, statOutput] = await Promise.all([
+    git([...args, "--name-status", "-z", ...against]),
+    git([...args, "--numstat", "-z", ...against]),
+  ]);
+  const names = nameOutput.split("\0");
   const statuses = new Map<string, DiffFile["status"]>();
   const renamedFrom = new Map<string, string>();
   for (let i = 0; i < names.length && names[i];) {
@@ -263,7 +268,7 @@ export async function diff(ctx: Ctx, id: string, o: { path?: string } = {}): Pro
     }
     statuses.set(path, status.startsWith("R") ? "renamed" : status === "A" || status.startsWith("C") ? "added" : status === "D" ? "deleted" : "modified");
   }
-  const stats = (await git([...args, "--numstat", "-z", ...against])).split("\0");
+  const stats = statOutput.split("\0");
   const files: DiffFile[] = [];
   for (let i = 0; i < stats.length && stats[i];) {
     const entry = stats[i++];
@@ -273,6 +278,7 @@ export async function diff(ctx: Ctx, id: string, o: { path?: string } = {}): Pro
     if (!path) { i++; path = stats[i++]; } // -z encodes a rename as old NUL new NUL.
     files.push({ path, status: statuses.get(path) ?? "modified", added: added === "-" ? 0 : Number(added), removed: removed === "-" ? 0 : Number(removed), binary: added === "-" || removed === "-" });
   }
+  if (o.summaryOnly) return { base, worktree, files, patch: "", diff: "", untracked: [], truncated: false };
   const paths = o.path === undefined ? [] : [...new Set([renamedFrom.get(o.path), o.path].filter((p): p is string => p !== undefined))];
   const output = await git([...args, ...against, ...paths]);
   const untracked = (await git(["ls-files", "--others", "--exclude-standard", "-z", ...(o.path === undefined ? [] : ["--", o.path])])).split("\0").filter(Boolean);
