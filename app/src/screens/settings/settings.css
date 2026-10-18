@@ -32,3 +32,10 @@
 @media(max-width:700px){.u3-settings{padding:var(--space-4)}.u3-wizard,.u3-settings-grid,.u3-setting{grid-template-columns:minmax(0,1fr);gap:var(--space-3)}.u3-steps{display:flex;flex-wrap:wrap;gap:var(--space-1)}.u3-steps li{padding:var(--space-2)}.u3-settings th,.u3-settings td{padding:var(--space-2)}.u3-table-wrap table{min-width:540px}.u3-heading{align-items:flex-start}}
 .u3-checks{list-style:none;padding:0;margin:0}.u3-checks li{padding:var(--space-2) 0;border-bottom:1px solid var(--line)}
 @media(max-width:560px){.u3-settings .pc-btn,.u3-settings .u3-choice,.u3-settings select,.u3-settings input:not([type=checkbox]){min-height:var(--space-12)}}
+/* General keeps the board's dense label/control columns inside the shell. */
+.u3-general-sections .u3-section{margin-top:var(--space-4);padding-top:var(--space-3)}
+.u3-general-sections .u3-setting{grid-template-columns:200px minmax(0,1fr);gap:var(--space-4);align-items:center;padding:var(--space-2) var(--space-3)}
+.u3-general-sections .u3-section h2{font-size:var(--type-label-size);letter-spacing:var(--type-label-tracking);text-transform:uppercase}
+.u3-general-sections .u3-setting{border:1px solid var(--line);border-bottom:0}
+.u3-general-sections .u3-setting:last-of-type{border-bottom:1px solid var(--line)}
+@media(max-width:700px){.u3-general-sections .u3-setting{grid-template-columns:minmax(0,1fr)}}

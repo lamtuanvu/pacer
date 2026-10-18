@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { Job } from '../../../../src/api/read-model/types';
 import type { BrowserApi } from '../../data/api';
+import { useActions } from '../../data/action-context';
 import { Button } from '../../ds/Button';
 import { ErrorMessage, useTaskContext } from '../task-shared';
 import styles from './settings.css' with {type:'text'};
@@ -37,6 +38,7 @@ export async function performOperation(call:BrowserApi['call'],op:string,params:
  return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:undefined,command:typeof r.command==='string'?r.command:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
 }
 export function useOperation(onDone?:()=>void) {
+ const runner=useActions();
  const {api,state}=useTaskContext(),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<OperationResult>();const pending=useRef(false);
  const jobId=result?.jobId, eventJob=jobId?state.jobs[jobId]:undefined;
  const job=latestJob(eventJob,result?.job);
@@ -46,7 +48,12 @@ export function useOperation(onDone?:()=>void) {
  useEffect(()=>{if(job&&job.state!=='running'&&completed.current!==job.id){completed.current=job.id;onDone?.();}},[job]);
  async function run(op:string,params:unknown,done?:(data:any)=>void) {
   if(pending.current)return;pending.current=true;setBusy(true);setError(undefined);setResult(undefined);
-  try{const r=await performOperation(api.call,op,params);setResult(r);await done?.(r.data);if(!r.jobId)onDone?.();return r;}
+  try{const r=await performOperation(async <T,>(operation:string,payload:unknown)=>{
+   const key=`settings:${operation}:${JSON.stringify(payload)}`;
+   const outcome=await runner.run(key,{label:operation,op:operation,params:payload as Record<string,unknown>});
+   if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message+('hint' in outcome&&outcome.hint?` · ${outcome.hint}`:''));
+   return runner.result(key) as T;
+  },op,params);setResult(r);await done?.(r.data);if(!r.jobId)onDone?.();return r;}
   catch(e){setError(e);}finally{pending.current=false;setBusy(false);}
  }
  return {busy:busy||job?.state==='running',error,result,job,run};

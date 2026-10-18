@@ -1,4 +1,4 @@
-/** U3 screens. Import this explicit barrel: `screens/settings/index` (the legacy Settings.tsx still exists). */
+/** U3 screens. Import this explicit barrel: `screens/settings/index`. */
 export { SettingsGeneral, SettingsGeneral as Settings, PlannerPacing, AccountsSection, ExecutorsSection, HostsSection } from './General';
 export type { SettingsData } from './General';
 export { AddExecutor, executorId, executorReady } from './AddExecutor';

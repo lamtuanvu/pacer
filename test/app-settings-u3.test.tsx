@@ -77,11 +77,13 @@ test('new endpoint form includes URL, key source and model limits',()=>{
 });
 test('existing app plus all U3 exports stays within the shared 60 KB gzip budget',async()=>{
  const {APP_JS_BUDGET}=await import('../app/build');
- const result=await Bun.build({entrypoints:['u3-integrated-budget'],target:'browser',minify:true,plugins:[{name:'u3-budget-entry',setup(build){
+ const result=await Bun.build({entrypoints:['u3-integrated-budget'],target:'browser',minify:true,splitting:true,plugins:[{name:'u3-budget-entry',setup(build){
   build.onResolve({filter:/^u3-integrated-budget$/},()=>({path:'entry',namespace:'u3-budget'}));
   build.onLoad({filter:/.*/,namespace:'u3-budget'},()=>({loader:'tsx',resolveDir:process.cwd(),contents:'import "./app/src/main.tsx"; import * as screens from "./app/src/screens/settings/index"; Object.assign(globalThis, { pacerSettingsScreens: screens });'}));
  }}]});
- expect(result.success).toBe(true);expect(Bun.gzipSync(await result.outputs[0]!.text()).byteLength).toBeLessThan(APP_JS_BUDGET);
+ expect(result.success).toBe(true);
+ const entry=result.outputs.find(output=>output.kind==='entry-point')!;
+ expect(Bun.gzipSync(await entry.text()).byteLength).toBeLessThan(APP_JS_BUDGET);
 });
 test('a passed host connection check cannot make an executor Ready',()=>{
  expect(executorReady({...job,kind:'host.check',state:'passed'})).toBe(false);
