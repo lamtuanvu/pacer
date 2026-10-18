@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
+import { clock } from "../src/view-model/format";
 import { UsageMeter } from "../app/src/ds/UsageMeter";
 import { StatusGlyph } from "../app/src/ds/StatusGlyph";
 import { Tooltip } from "../app/src/ds/Tooltip";
@@ -45,7 +46,7 @@ test("stale meter is dimmed and says when it was read", () => {
   const staleAt = Date.UTC(2026, 9, 16, 4, 40) / 1000; // 11:40 in the test time zone
   const html = renderToString(<UsageMeter used={50} pace={40} tone="warn" size="top" label="x" stale staleAt={staleAt} now={staleAt + 600} />);
   expect(html).toContain("pc-meter--stale");
-  expect(html).toContain("as of 11:40");
+  expect(html).toContain(`as of ${clock(staleAt, staleAt + 600)}`);
 });
 
 test("fill width is a custom property, not a colour", () => {

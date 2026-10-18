@@ -1,15 +1,25 @@
+import { useResource } from "../screens/settings/shared";
+import type { RoutingRules } from "../model/executors";
+import type { StrategyRow } from "../model/strategy";
+import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { Counts } from "../../../src/api/read-model/types";
 import type { Route } from "../router";
 /** 220 px panel beside the rail while any settings screen is open. */
-export function SettingsPanel({ route, counts }: { route: Route; counts: Counts | null }) {
-  const hosts = counts?.hostsWithProblems ?? 0;
-  const item = (href: string, label: string, on: boolean, badge = 0) =>
-    <a className={`pc-panel__item${on ? " on" : ""}`} href={href} aria-current={on ? "page" : undefined}>{label}{badge > 0 && <span className="pc-rail__badge pc-rail__badge--warn" aria-label={`${badge} with a problem`}>{badge}</span>}</a>;
+export function SettingsPanel({ route, counts, snapshot, badges = {} }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null; badges?: Record<string, string | number> }) {
+  const hosts = snapshot?.hosts ? snapshot.hosts.filter(host => host.state === "needs_setup").length : counts?.hostsWithProblems ?? 0;
+  const down = snapshot?.executors?.filter(e => e.state === "down" || e.state === "failing").length ?? 0;
+  badges = { ...badges, ...(snapshot?.accounts ? {accounts:snapshot.accounts.length} : {}), executors:down ? `${down} down` : "" };
+  const item = (href: string, label: string, on: boolean, badge: string | number = "", tone = "neutral") =>
+    <a className={`pc-panel__item${on ? " on" : ""}`} href={href} aria-current={on ? "page" : undefined}>{label}{badge !== "" && <span className={`pc-rail__badge pc-rail__badge--${tone}`} aria-label={String(badge)}>{badge}</span>}</a>;
   return <aside className="pc-panel" aria-label="Settings">
     <h2>Settings</h2>
     {item("#/settings", "General", route.name === "settings" && !route.section)}
-    {([['planner','Planner & pacing'],['accounts','Accounts'],['executors','Executors'],['routing','Routing'],['strategies','Strategies'],['updates','Updates & plugin'],['notifications','Notifications'],['appearance','Appearance']] as const).map(([section,label])=>item(`#/settings/${section}`,label,route.name==='settings'&&route.section===section))}
-    {item("#/settings/hosts", "Remote hosts", route.name === "hosts", hosts)}
+    {([['planner','Planner & pacing'],['accounts','Accounts'],['executors','Executors'],['hosts','Remote hosts'],['routing','Routing'],['strategies','Strategies'],['updates','Updates & plugin'],['notifications','Notifications'],['appearance','Appearance']] as const).map(([section,label])=>item(`#/settings/${section}`,label,section==='hosts'?route.name==='hosts':route.name==='settings'&&route.section===section,section==='hosts'?(hosts ? `${hosts} needs setup` : ''):badges[section] ?? '',section==='hosts'?'warn':section==='executors'?'bad':'neutral'))}
     {item("#/settings/add-executor", "Add executor", route.name === "add-executor")}
   </aside>;
+}
+
+export function SettingsPanelData({ route, counts, snapshot }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null }) {
+  const routing = useResource<RoutingRules>("routing.get"), strategies = useResource<StrategyRow[]>("strategy.list");
+  return <SettingsPanel route={route} counts={counts} snapshot={snapshot} badges={{routing:routing.data ? `${routing.data.rules.length} ${routing.data.rules.length === 1 ? "rule" : "rules"}` : "",strategies:strategies.data?.length ?? ""}} />;
 }

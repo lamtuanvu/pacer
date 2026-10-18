@@ -21,16 +21,24 @@ import { initialReview, reviewReducer, verdictParams, type Verdict, type ReviewA
 export interface ReviewDiff { base: string | null; worktree: string; files: TaskDetail["files"]; patch: string; diff: string; untracked: string[]; truncated: boolean; note?: string }
 export interface ReviewProps {
   snapshot: ClientSnapshot; view: ReviewState; task?: TaskDetail; now: number;
-  filePath?: string; diff?: ReviewDiff; loading?: boolean; error?: unknown;
+  filePath?: string; diff?: ReviewDiff; loading?: boolean; updating?: boolean; error?: unknown;
   onSelect?: (id: string) => void; onFile?: (path: string) => void; onOpen?: () => void;
   verdictPanel?: ComponentChildren; announcement?: string;
 }
-function Queue({ items, selected, onSelect }: { items: AttentionItem[]; selected: string | null; onSelect?: (id: string) => void }) {
+function Queue({ items, selected, onSelect, snapshot, now }: { items: AttentionItem[]; selected: string | null; onSelect?: (id: string) => void; snapshot: ClientSnapshot; now: number }) {
   return <nav className="pc-review-queue" aria-label="Review queue"><h2>Review queue · {items.length}</h2>
     {items.map(item => <button type="button" key={item.id} aria-current={item.taskId === selected ? "true" : undefined} onClick={() => item.taskId && onSelect?.(item.taskId)}>
-      <strong>{item.title}</strong><span className="muted">{item.repo?.label}</span><span className="muted">{item.detail}</span>
-    </button>)}
+      <strong>{item.title}</strong><span className={item.kind === "failed" ? "pc-bad-text" : "pc-good-text"}>{queueStatus(item)} · {clock(item.raisedAt, now)}</span>
+    </button>)}<p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}. Your verdicts teach routing which executor suits which kind.</p>
   </nav>;
+}
+function queueStatus(item: AttentionItem): string {
+  const parts = item.detail.split(" · ");
+  return (parts.find(part => /tests? passed|failed|out of quota/i.test(part)) ?? parts[0] ?? "Waiting for review").replace(/ on .+$/, "").toLowerCase();
+}
+function CostCard({ cost }: { cost: TaskDetail["cost"] }) {
+  const planner = (cost as { planner: { deltaPct?: number | null; window?: string | null } | null }).planner;
+  return <section><h2>Cost</h2>{cost.executor ? <p>{cost.executor.account} · {cost.executor.deltaPct === null ? (cost.executor.reason === "shared" ? "Shared usage" : "No reading") : `+${cost.executor.deltaPct}% of ${cost.executor.window ?? "window"}`}</p> : <p>Cost not recorded</p>}{planner?.deltaPct != null && <p>Planner spent {planner.deltaPct}%{planner.window ? ` of ${planner.window}` : " writing the brief"}.</p>}</section>;
 }
 const REMOVED_WORKTREE = "Changes unavailable · the worktree was removed after the task finished";
 function reviewError(error: unknown): { removed: boolean; message?: string } {
@@ -42,23 +50,23 @@ function reviewError(error: unknown): { removed: boolean; message?: string } {
   const text = message + (error instanceof ApiError && error.hint ? ` · ${error.hint}` : "");
   return { removed: false, message: /\/\S|[a-z]:[\\/]/i.test(text) ? "Could not load changes. Please try again." : text };
 }
-export function ReviewView({ snapshot, view, task, now, filePath, diff, loading, error, onSelect, onFile, onOpen, verdictPanel, announcement }: ReviewProps) {
+export function ReviewView({ snapshot, view, task, now, filePath, diff, loading, updating, error, onSelect, onFile, onOpen, verdictPanel, announcement }: ReviewProps) {
   const status = task && taskStatus(task), acceptance = task?.acceptance;
   const failure = reviewError(error);
-  return <><div className="pc-review">
+  return <><div className="pc-review-hints muted">j k next · a accept · r reject · t retry elsewhere</div><div className="pc-review">
     {!view.queue.length ? <section className="pc-review-empty"><h1>Review queue is clear</h1><p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}</p></section> : <>
-      <Queue items={view.queue} selected={view.selectedId} onSelect={onSelect} />
-      <article className="pc-review-item" aria-busy={loading}>{failure.message && <p className="muted" role="status">{failure.message}</p>}
+      <Queue items={view.queue} selected={view.selectedId} onSelect={onSelect} snapshot={snapshot} now={now} />
+      <article className="pc-review-item" aria-busy={loading}>{updating && <span className="muted pc-query-updating" role="status">Updating…</span>}{failure.message && <p className="muted" role="status">{failure.message}</p>}
         {view.missing ? <section className="pc-notice"><h2>Already reviewed</h2><p><code>{view.missing}</code> is no longer waiting for review. <a href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
         : !task ? (error ? <h1 className="headline">{view.queue.find(item => item.taskId === view.selectedId)?.title}</h1> : <p className="muted">Loading task…</p>) : <>
-          <div className="row"><h1 className="headline">{task.goal}</h1><Pill tone={status!.tone}>{status!.label}</Pill></div>
+          <div className="row"><h1 className="headline">{task.title ?? view.queue.find(item => item.taskId === task.id)?.title ?? task.goal.slice(0, 60)}</h1><Pill tone={acceptance?.state === "passed" ? "good" : acceptance?.state === "failed" ? "bad" : status!.tone}>{acceptance?.state === "passed" ? "Tests passed" : acceptance?.state === "failed" ? "Failed" : status!.label}</Pill></div>
           <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{task.executor}</code>{task.startedAt !== null && task.endedAt !== null && <> · {elapsed(task.endedAt - task.startedAt)}</>} · {task.branch} → {task.base} · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
-          <section><h2>Done when</h2>{acceptance?.state === "none" ? <p>No done-when command</p> : <>
-            <code>{acceptance?.cmd}</code><p>{acceptance?.state === "passed" ? "✓ " : ""}{acceptance?.summary ?? acceptance?.state}{acceptance?.durationS !== undefined && ` · ${acceptance.durationS} s`}{acceptance?.machine && ` · run by pacer on ${acceptance.machine}`}</p>
+          <div className="pc-review-cards"><section><h2>Done when</h2>{acceptance?.state === "none" ? <p>No done-when command</p> : <>
+            <code>{acceptance?.cmd}</code><p>{acceptance?.state === "passed" ? "✓ " : ""}{acceptance?.summary ?? ({ passed: "Tests passed", failed: "Failed", pending: "Waiting for tests", running: "Testing", none: "No done-when command" }[acceptance?.state ?? "none"])}{acceptance?.durationS !== undefined && ` · ${acceptance.durationS} s`}{acceptance?.machine && ` · run by pacer on ${acceptance.machine}`}</p>
             {acceptance?.tail && <details><summary>Acceptance output</summary><pre className="acceptance-output">{acceptance.tail}</pre></details>}
           </>}</section>
-          <section><h2>Why this executor</h2><p>{task.routing?.why ?? "No routing explanation"}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{s.executor}</code> · {s.reason}</p>)}</section>
-          {task.cost.executor && <section><h2>Cost</h2><p>{task.cost.executor.account} · {task.cost.executor.deltaPct === null ? (task.cost.executor.reason === "shared" ? "Shared usage" : "No reading") : `${task.cost.executor.deltaPct}%`}{task.cost.executor.window && ` · ${task.cost.executor.window}`}</p></section>}
+          <section><h2>Why {executorLabel(task.executor)}</h2><p>{task.routing?.why ?? "No routing explanation"}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{s.executor}</code> · {s.reason}</p>)}</section>
+          <CostCard cost={task.cost} /></div>
           <details><summary>Brief</summary><dl className="facts pc-review-brief">
             {([["Goal", task.brief.goal], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
             {task.brief.qa?.map((entry, i) => <div key={i}><dt>{entry.q}</dt><dd>{entry.a}</dd></div>)}
@@ -108,8 +116,8 @@ export async function copyWorktreePath(worktree: string | null | undefined, anno
   try { await copy(worktree); announce("Worktree path copied"); }
   catch { announce("Could not copy worktree path"); }
 }
-function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announcement, detail, taskError }: {
-  id: string; detail: TaskDetail; taskError?: unknown; snapshot: ClientSnapshot; view: ReviewState; dispatch: (a: ReviewAction) => void;
+function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announcement, detail, taskError, taskUpdating }: {
+  id: string; detail: TaskDetail; taskError?: unknown; taskUpdating?: boolean; snapshot: ClientSnapshot; view: ReviewState; dispatch: (a: ReviewAction) => void;
   getView: () => ReviewState; announce: (s: string) => void; announcement: string;
 }) {
   const [filePath, setFile] = useState<string>();
@@ -135,7 +143,7 @@ function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announc
     openNote: v => handlers.current.openNote(v), retry: () => handlers.current.retry(), open: () => handlers.current.open(),
   }), []);
   return <ReviewView snapshot={snapshot} view={view} task={detail} now={Date.now() / 1000}
-    filePath={path} diff={!diff.loading ? diff.data : undefined} loading={diff.loading}
+    filePath={path} diff={diff.data} loading={diff.loading || taskUpdating} updating={taskUpdating || diff.updating}
     error={taskError ?? diff.error} onSelect={selected => { if (!view.pending) dispatch({ type: "select", id: selected }); }}
     onFile={setFile} onOpen={() => { void open(); }} announcement={announcement}
     verdictPanel={<VerdictPanel task={detail} note={note} kind={kind} executor={executor}
@@ -149,7 +157,7 @@ function ReviewItem(props: {
 }) {
   const task = useQuery<TaskDetail>("task.get", { id: props.id });
   return task.data
-    ? <ReviewLoaded {...props} detail={task.data} taskError={task.error} />
+    ? <ReviewLoaded {...props} detail={task.data} taskError={task.error} taskUpdating={task.updating} />
     : <ReviewView snapshot={props.snapshot} view={props.view} now={Date.now() / 1000} error={task.error} loading={task.loading}
         onSelect={id => props.dispatch({ type: "select", id })} announcement={props.announcement} />;
 }

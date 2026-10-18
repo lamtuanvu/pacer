@@ -13,26 +13,32 @@ import { Kbd } from "../ds/Kbd";
 import { Pill } from "../ds/Pill";
 import { StatusGlyph } from "../ds/StatusGlyph";
 import { UsageMeter } from "../ds/UsageMeter";
+import { overviewHints } from "../keys/registry";
 import { keys } from "../keys/instance";
 import { withQuery, type RouteQuery } from "../router";
 import { ActionButton } from "./ActionButton";
 import { QuickDelegate } from "./QuickDelegate";
-import { RepoFilter } from "./RepoFilter";
+import { repoChoices, RepoFilter } from "./RepoFilter";
 import { useQuery, useTaskContext } from "./task-shared";
 
 const BAD_KINDS = new Set(["failed", "limit", "executor_down", "host_down"]);
 const OFF_STATES = new Set(["down", "failing", "disabled", "blocked", "exhausted"]);
 const gone = (item: AttentionItem) => (s: { snapshot: ClientSnapshot | null }) => !s.snapshot?.attention?.some(a => a.id === item.id && a.since === item.since);
 
-function NeedsYou({ snapshot, scope, runner, canDismiss }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; canDismiss: boolean }) {
+/** Older services put the full goal in attention.title; reuse their task title in that case. */
+function attentionTitle(item: AttentionItem, snapshot: ClientSnapshot): string {
+  const task = snapshot.tasks.find(task => task.id === item.taskId);
+  return item.title === task?.goal ? task.title ?? item.title : item.title;
+}
+
+function NeedsYou({ snapshot, scope, runner, now }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number }) {
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);
   return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><h2 id="needs-you">Needs you</h2>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" /><a href={withQuery("#/review", { repo: scope.repo, scope: null })}>Open review queue</a></div>
-    {items.map(item => <div key={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
+    {items.map(item => <div key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
       <StatusGlyph kind={BAD_KINDS.has(item.kind) ? "failed" : "waiting"} />
       {item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}
-      <div className="grow"><div className="pc-attn__title">{item.title}</div><div className="muted">{item.detail}</div></div>
-      <div className="row-actions">{item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} strong={action.style === "primary"} />)}
-        {canDismiss && <ActionButton runner={runner} id={`${item.id}:dismiss`} action={{ label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }} confirmDone={gone(item)} />}</div>
+      <div className="grow"><div className="pc-attn__title">{attentionTitle(item, snapshot)}{item.repo && <code className="pc-repo-chip">{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></div>
+      <div className="row-actions">{item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} strong={i === 0} />)}</div>
     </div>)}
     {!items.length && <p className="muted">Nothing needs you.</p>}
     {others > 0 && <a href={withQuery("#/", { repo: null, scope: null })}>+{others} in other repos</a>}
@@ -99,18 +105,18 @@ function PlannerStrip({ snapshot, now }: { snapshot: ClientSnapshot; now: number
   if (!p) return null;
   const name = agentInfo(p.agent).name;
   const extra = [p.activeHoursLeft !== null ? `${Math.round(p.activeHoursLeft)} active-h` : null, p.resetsAt !== null ? `resets ${clock(p.resetsAt, now)}` : null].filter(Boolean).join(" · ");
-  const stat = (n: number | undefined, label: string, warn = false) => <div className="pc-stat"><div className={`pc-stat__n${warn && n ? " pc-warn-text" : ""}`}>{n ?? 0}</div><div className="muted">{label}</div></div>;
+  const stat = (n: number | string | undefined, label: string, warn = false) => <div className="pc-stat"><div className={`pc-stat__n${warn && n ? " pc-warn-text" : ""}`}>{n ?? 0}</div><div className="muted">{label}</div></div>;
   return <section className="pc-planner-strip" aria-label="Planner">
     <AgentMark agent={p.agent} size={28} labelled={false} />
     <div className="pc-planner-strip__body">
       <div className="row"><span className="pc-label">Planner · {name}</span><span className="pc-planner-strip__advice">{p.advice}</span></div>
       {p.usedPct !== null && <div className="row"><div className="grow"><UsageMeter used={p.usedPct} pace={p.pacePct} tone={toneFor(p.verdict)} verdict={p.verdict} size="bar" text="none" label={`${name} planner usage`} stale={p.stale} staleAt={snapshot.at} now={now} /></div><span className="muted">{meterText(p.usedPct, p.pacePct, "full")}{extra ? ` · ${extra}` : ""}</span></div>}
     </div>
-    <div className="pc-stats">{stat(c?.attention, "need you", true)}{stat(c?.running, "running")}{stat(snapshot.today?.done, "done today")}</div>
+    <div className="pc-stats">{stat(c?.attention, "need you", true)}{stat(c?.running, "running")}{stat(snapshot.today?.done, "done today")}{stat(`${c?.ready ?? 0}/${c?.executors ?? 0}`, "executors ready")}</div>
   </section>;
 }
-function KeysFooter() {
-  return <footer className="pc-keys-footer muted"><Kbd>g o</Kbd> Overview · <Kbd>g r</Kbd> Review · <Kbd>g s</Kbd> Sessions · <Kbd>d</Kbd> Delegate · <Kbd>/</Kbd> Filter repos · <Kbd>?</Kbd> All shortcuts</footer>;
+function KeysFooter({ version }: { version?: string }) {
+  return <footer className="pc-keys-footer muted">{overviewHints.map((hint, i) => <span key={hint.keys}>{i > 0 && " · "}<Kbd>{hint.keys === "Enter" ? "⏎" : hint.keys}</Kbd> {hint.label}</span>)}<span className="grow" /><span>pacer {version ?? "version unknown"}</span></footer>;
 }
 
 export interface OverviewProps { snapshot: ClientSnapshot; query: RouteQuery; now: number; runner: ActionRunner; activity: ActivityEntry[]; ops: ReadonlySet<string>; quickDelegate?: ComponentChildren }
@@ -122,7 +128,7 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
     <RepoFilter snapshot={snapshot} query={query} />
     <div className="pc-overview__cols">
       <div className="pc-overview__main">
-        <NeedsYou snapshot={snapshot} scope={scope} runner={runner} canDismiss={ops.has("attention.dismiss")} />
+        <NeedsYou snapshot={snapshot} scope={scope} runner={runner} now={now} />
         <Running snapshot={snapshot} scope={scope} now={now} runner={runner} />
         <DoneToday snapshot={snapshot} scope={scope} now={now} />
       </div>
@@ -132,7 +138,7 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
         <Activity entries={activity} now={now} />
       </div>
     </div>
-    <KeysFooter />
+    <KeysFooter version={snapshot.service?.version} />
   </div>;
 }
 
@@ -144,6 +150,23 @@ export function Overview({ query }: { query: RouteQuery }) {
   const activity = [...state.activity, ...(Array.isArray(page.data?.entries) ? page.data.entries : [])].filter(e => !seen.has(e.id) && !!seen.add(e.id));
   const focusRef = useRef(() => document.querySelector<HTMLButtonElement>("#repo-filter button")?.focus());
   useEffect(() => keys.register({ keys: "/", label: "Focus the repo filter", scope: "overview", run: () => focusRef.current() }), []);
+  const current = useRef({ snapshot: state.snapshot, query }); current.current = { snapshot: state.snapshot, query };
+  useEffect(() => {
+    const rows = () => [...document.querySelectorAll<HTMLElement>("[data-attention-id]")];
+    const move = (by: number) => { const all = rows(), at = all.indexOf(document.activeElement?.closest("[data-attention-id]") as HTMLElement); all[Math.max(0, Math.min(all.length - 1, at + by))]?.focus(); };
+    const selected = () => current.current.snapshot?.attention?.find(a => a.id === (document.activeElement?.closest("[data-attention-id]") as HTMLElement)?.dataset.attentionId);
+    const actions: Record<string, () => void> = {
+      j: () => move(1), k: () => move(-1), Enter: () => { const active = document.activeElement as HTMLElement; (active?.tagName === "BUTTON" ? active as HTMLButtonElement : active?.closest("[data-attention-id]")?.querySelector("button"))?.click(); },
+      v: () => { const item = selected(); location.hash = item?.taskId ? `#/review/${encodeURIComponent(item.taskId)}` : "#/review"; },
+      x: () => { const item = selected(); if (item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
+    };
+    const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "overview", run: actions[key] ?? (() => {
+      const { snapshot, query } = current.current;
+      const repo = snapshot && repoChoices(snapshot, query.repo).chips[Number(key) - 1];
+      if (repo) location.hash = withQuery("#/", { ...query, repo: repo.key });
+    }) })));
+    return () => offs.forEach(off => off());
+  }, [runner, state.features.ops]);
   if (!state.snapshot) return null;
   return <OverviewView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} activity={activity} ops={state.features.ops} quickDelegate={<QuickDelegate filterRepo={query.repo} />} />;
 }

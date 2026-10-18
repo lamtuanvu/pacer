@@ -40,7 +40,7 @@ test("needs you links to the review queue and the footer lists the main keys", (
   const html = view();
   expect(html).toContain('href="#/review"');
   expect(html).toContain("Open review queue");
-  expect(html).toMatch(/pc-keys-footer[\s\S]*g o[\s\S]*\?/);
+  expect(html).toMatch(/pc-keys-footer[\s\S]*j k[\s\S]*⏎[\s\S]*dismiss[\s\S]*pacer/);
 });
 
 test("capacity with no usage reading says so with a glyph and the reason", () => {
@@ -157,4 +157,23 @@ test("today's repos can fill spare chips, while zero-work repos are only in the 
   expect(list('  REPO 29  ')).toContain('aria-pressed="true"');
   expect(list('  REPO 29  ').match(/aria-pressed=/g)?.length).toBe(1);
   expect(list('unknown')).toContain('No matching repositories.');
+});
+
+test("attention uses service title, inline repo, reason and time with only its first action filled", () => {
+  const item = { ...snap.attention![1]!, title: "Short service title", detail: "Failed twice on Antigravity · test timed out after 120 s" };
+  const html = view(null, { ...snap, attention: [{ ...item, actions: item.actions.map(a => ({ ...a, style: "primary" as const })) }] });
+  const card = html.slice(html.indexOf('data-attention-id='), html.indexOf('aria-labelledby="running"'));
+  expect(card).toContain('Short service title<code class="pc-repo-chip">acme/api</code>');
+  expect(card).toContain(`${item.detail} · `);
+  expect(card.match(/pc-btn--strong/g)).toHaveLength(1);
+  expect(card.match(/pc-btn--primary/g)).toHaveLength(1);
+  expect(card).not.toContain('>Dismiss<');
+  expect(card).toContain(`>${item.actions[0]!.label}<`);
+  expect(card).toContain(`>${item.actions[1]!.label}<`);
+});
+
+test("legacy attention goals reuse the task's service short title", () => {
+  const task = snap.tasks.find(t => t.id === snap.attention![1]!.taskId)!;
+  const html = view(null, { ...snap, tasks: snap.tasks.map(t => t.id === task.id ? { ...t, title: 'Service short title' } : t), attention: [{ ...snap.attention![1]!, title: task.goal }] });
+  expect(html).toContain('Service short title<code class="pc-repo-chip">');
 });
