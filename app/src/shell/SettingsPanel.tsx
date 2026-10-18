@@ -3,14 +3,14 @@ import type { RoutingRules } from "../model/executors";
 import type { StrategyRow } from "../model/strategy";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { Counts } from "../../../src/api/read-model/types";
-import type { Route } from "../router";
+import { withQuery, type Route } from "../router";
 /** 220 px panel beside the rail while any settings screen is open. */
 export function SettingsPanel({ route, counts, snapshot, badges = {} }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null; badges?: Record<string, string | number> }) {
   const hosts = snapshot?.hosts ? snapshot.hosts.filter(host => host.state === "needs_setup").length : counts?.hostsWithProblems ?? 0;
   const down = snapshot?.executors?.filter(e => e.state === "down" || e.state === "failing").length ?? 0;
   badges = { ...badges, ...(snapshot?.accounts ? {accounts:snapshot.accounts.length} : {}), executors:down ? `${down} down` : "" };
   const item = (href: string, label: string, on: boolean, badge: string | number = "", tone = "neutral") =>
-    <a className={`pc-panel__item${on ? " on" : ""}`} href={href} aria-current={on ? "page" : undefined}>{label}{badge !== "" && <span className={`pc-rail__badge pc-rail__badge--${tone}`} aria-label={String(badge)}>{badge}</span>}</a>;
+    <a className={`pc-panel__item${on ? " on" : ""}`} href={withQuery(href, route.query)} aria-current={on ? "page" : undefined}>{label}{badge !== "" && <span className={`pc-rail__badge pc-rail__badge--${tone}`} aria-label={String(badge)}>{badge}</span>}</a>;
   return <aside className="pc-panel" aria-label="Settings">
     <h2>Settings</h2>
     {item("#/settings", "General", route.name === "settings" && !route.section)}

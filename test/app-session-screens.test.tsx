@@ -53,3 +53,22 @@ test('takeover startup and timeout keep progress and retry visible',()=>{
  expect(renderToString(<Session data={{...data,phase:'driving'}}/>)).toContain('>Driving<');
  expect(renderToString(<Session data={{...data,phase:undefined,session:{...data.session!,driving:true}}}/>)).toContain('>Driving<');
 });
+
+test('ended Sessions rows show their state once and retain a known diffstat at either width', () => {
+ for (const narrow of [false, true]) {
+  const ended = { ...data, state: 'done', phase: undefined, changesSummary: undefined };
+  const html = renderToString(<div className={narrow ? 'pc-app--narrow' : 'pc-app'}><SessionsList recent={{data:[ended]}}/></div>);
+  expect(html.match(/>Done</g)).toHaveLength(1);
+  expect(html).not.toContain('Changes and output pending');
+  const withDiff = renderToString(<SessionsList recent={{data:[{...ended,changesSummary:'3 files · +12 −4'}]}}/>);
+  expect(withDiff).toContain('3 files · +12 −4');
+  expect(withDiff.match(/>Done</g)).toHaveLength(1);
+ }
+});
+
+test('Sessions pills override their default top alignment for running and ended rows', async () => {
+ const html = renderToString(<SessionsList running={{data:[data]}} recent={{data:[{...data,id:'ended',state:'done'}]}}/>);
+ expect(html.match(/class="pc-sessions-rows"/g)).toHaveLength(2);
+ const css = await Bun.file(new URL('../app/src/screens/session/session.css', import.meta.url)).text();
+ expect(css).toMatch(/\.pc-sessions-rows \.pc-pill\s*\{[^}]*align-self:center/);
+});

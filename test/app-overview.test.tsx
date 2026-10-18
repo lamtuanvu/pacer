@@ -18,10 +18,10 @@ test("the canvas layout: planner strip, then work on the left and capacity along
   const html = view();
   const main = html.indexOf("pc-overview__main"), side = html.indexOf("pc-overview__side");
   expect(html.indexOf("pc-planner-strip")).toBeLessThan(main);
-  const at = order(html, [">Needs you<", ">Running<", ">Done today<"]);
+  const at = order(html, [">Needs you<", ">Running<", ">Capacity<", ">Done today<"]);
   expect(at.every(i => i > main && i < side)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
-  const right = order(html, [">Capacity<", ">Quick delegate<", ">Activity<"]);
+  const right = order(html, [">Quick delegate<", ">Activity<"]);
   expect(right.every(i => i > side)).toBe(true);
   expect([...right].sort((a, b) => a - b)).toEqual(right);
 });
@@ -45,7 +45,7 @@ test("needs you links to the review queue and the footer lists the main keys", (
 
 test("capacity with no usage reading says so with a glyph and the reason", () => {
   const html = view();
-  const at = html.indexOf(">Cursor<", html.indexOf("pc-overview__side"));
+  const at = html.indexOf(">Cursor<", html.indexOf('aria-labelledby="capacity"'));
   const row = html.slice(at, at + 700);
   expect(row).toContain("◐");
   expect(row).toContain("Unknown · no limit reported");
@@ -176,4 +176,18 @@ test("legacy attention goals reuse the task's service short title", () => {
   const task = snap.tasks.find(t => t.id === snap.attention![1]!.taskId)!;
   const html = view(null, { ...snap, tasks: snap.tasks.map(t => t.id === task.id ? { ...t, title: 'Service short title' } : t), attention: [{ ...snap.attention![1]!, title: task.goal }] });
   expect(html).toContain('Service short title<code class="pc-repo-chip">');
+});
+
+test("wide repo filter uses repo Done today totals and counts accepted rows only", () => {
+  const html = view('github.com/lamtuanvu/pacer');
+  const section = html.slice(html.indexOf('aria-labelledby="done-today"'), html.indexOf('pc-overview__side'));
+  expect(section).toContain('2 · 1 accepted');
+  expect(section).not.toContain('7 · 6 accepted');
+  const empty = view('unknown');
+  expect(empty.slice(empty.indexOf('aria-labelledby="done-today"'))).toContain('0 · 0 accepted');
+});
+
+test("repo Done today falls back to its filtered rows when no repo total is supplied", () => {
+  const html = view('github.com/acme/api', { ...snap, today: { ...snap.today!, byRepo: {} } });
+  expect(html.slice(html.indexOf('aria-labelledby="done-today"'))).toContain('2 · 0 accepted');
 });

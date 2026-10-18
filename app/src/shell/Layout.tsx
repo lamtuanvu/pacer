@@ -6,6 +6,7 @@ import type { Route } from "../router";
 import { Rail } from "./Rail";
 import { TaskContext } from "../screens/task-shared";
 import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
+import { NarrowContext, useNarrow } from "./narrow";
 import { TopBar } from "./TopBar";
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
@@ -18,21 +19,22 @@ function Skeleton() {
 }
 /** Rail, optional settings panel, top bar and main. Screens render inside main. */
 export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
-  if (state.sessionEnded) return <main className="session-ended"><Mark /><h1>Session ended.</h1><p>Run <code>pacer open</code>.</p></main>;
+  const narrow = useNarrow(route.query);
   const context = useContext(TaskContext), Panel = context ? SettingsPanelData : SettingsPanel;
+  if (state.sessionEnded) return <main className="session-ended"><Mark /><h1>Session ended.</h1><p>Run <code>pacer open</code>.</p></main>;
   const counts = state.snapshot?.counts ?? null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
-  return <div className="pc-app">
+  return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}`}>
     <a href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</a>
-    <Rail route={route} counts={counts} />
+    <Rail route={route} counts={counts} narrow={narrow} />
     {SETTINGS.has(route.name) && <Panel route={route} counts={counts} snapshot={state.snapshot} />}
     <div className="pc-work">
-      <TopBar title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} />
+      <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} />
       <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>
       <main id="main-content" tabIndex={-1} className={`pc-main${["settings","hosts","add-executor","sessions"].includes(route.name)?" pc-main--canvas":""}`}>
         {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><h2>Update pacer to use this view</h2><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : children}
       </main>
     </div>
-  </div>;
+  </div></NarrowContext.Provider>;
 }
