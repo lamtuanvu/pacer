@@ -1,12 +1,14 @@
 import { CoreError } from "./errors";
 import { withLock } from "./lock";
-import { existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { listTasks } from "../tasks/store";
 import { createHash } from "node:crypto";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { repoKey } from "../config/hosts";
-import { realpathSafe } from "./git";
+import { realpathSafe, boundedGitRead } from "./git";
+import { stat, realpath } from "node:fs/promises";
+import { cachedPath, rememberPath, schedulePathRefresh, withTimeout } from "./path-probe";
 import type { RepoRef } from "../api/read-model/types";
 import type { Ctx } from "../types";
 
@@ -17,8 +19,15 @@ const aliasesFile = (ctx: Ctx) => join(ctx.pacerHome,"state","repo-paths.json");
 const registry = (ctx: Ctx): Registry => readJson<Registry>(file(ctx)) ?? {};
 const canonical = (path: string): string => {
  const p=resolve(path), real=realpathSafe(p);
+ rememberPath(p,real);
  if(real!==p || dirname(p)===p)return real;
- return join(canonical(dirname(p)),basename(p));
+ const result=join(canonical(dirname(p)),basename(p));
+ rememberPath(p,result);return result;
+};
+const cachedCanonical = (path: string): string => {
+ const result=cachedPath(path).real;
+ schedulePathRefresh(path);
+ return result;
 };
 const fallback = (path: string): RepoRef => ({key:`local:${createHash("sha256").update(path).digest("hex").slice(0,12)}`,label:basename(path),path});
 export function labelsFor(entries: {key: string; path: string}[]): Map<string,string> {
@@ -35,7 +44,8 @@ function taskRepos(ctx: Ctx): RepoRef[] {
 }
 export function listRepos(ctx: Ctx, snapshotRepos?: RepoRef[]): RepoRef[] {
  const reg=registry(ctx),recent=snapshotRepos??taskRepos(ctx),keys=new Set(recent.map(r=>r.key));
- const stale=Object.keys(reg).filter(path=>!existsSync(reg[path].path)&&!keys.has(reg[path].key));
+ const stale=Object.keys(reg).filter(path=>cachedPath(reg[path].path).exists===false&&!keys.has(reg[path].key));
+ for(const entry of Object.values(reg))schedulePathRefresh(entry.path);
  const previous=lastPruned.get(file(ctx));
  if(!ctx.readOnly&&(previous===undefined||ctx.now-previous>=60)){
   lastPruned.set(file(ctx),ctx.now);
@@ -46,29 +56,44 @@ export function listRepos(ctx: Ctx, snapshotRepos?: RepoRef[]): RepoRef[] {
  return entries.filter(e=>!seen.has(e.key)&&!!seen.add(e.key)).map(e=>({key:e.key,path:e.path,label:labels.get(e.key)!}));
 }
 function registered(ctx: Ctx,path: string): Entry | undefined {
- const reg=registry(ctx), p=canonical(path),aliases=readJson<Record<string,string>>(aliasesFile(ctx))??{};
+ const reg=registry(ctx), p=cachedCanonical(path),aliases=readJson<Record<string,string>>(aliasesFile(ctx))??{};
  const roots=[...Object.keys(reg),...Object.keys(aliases)].sort((a,b)=>b.length-a.length);
  const root=roots.find(root=>p===root || p.startsWith(root+sep));
  return root ? reg[aliases[root]??root] : undefined;
 }
 export function repoFor(ctx: Ctx,path: string): RepoRef {
  const e=registered(ctx,path);
- return e ? {key:e.key,path:e.path,label:labelsFor(Object.values(registry(ctx))).get(e.key)!} : fallback(canonical(path));
+ return e ? {key:e.key,path:e.path,label:labelsFor(Object.values(registry(ctx))).get(e.key)!} : fallback(cachedCanonical(path));
 }
 function isDirectory(path: string): boolean {
  try{return statSync(path).isDirectory();}catch{return false;}
 }
 export async function resolveRepo(ctx: Ctx,path: string): Promise<RepoRef> {
+ return registerRepo(ctx,path,false);
+}
+async function canonicalAsync(path: string): Promise<string> {
+ const p=resolve(path);
+ let result: string;
+ try { result=await withTimeout(()=>realpath(p)); } catch(error) {
+  if(!["ENOENT","ENOTDIR"].includes((error as NodeJS.ErrnoException).code??""))throw error;
+  result=dirname(p)===p?p:join(await canonicalAsync(dirname(p)),basename(p));
+ }
+ rememberPath(p,result);return result;
+}
+async function registerRepo(ctx: Ctx,path: string,background: boolean): Promise<RepoRef> {
+ const canon=background?canonicalAsync:async(p:string)=>canonical(p);
+ const run=background?((args:string[],ms:number)=>boundedGitRead(ctx.run,args,Math.min(ms,2000))):ctx.run;
  // A deleted linked checkout can only be identified by the alias saved while it existed.
- if(!isDirectory(path))return repoFor(ctx,path);
- let main=canonical(path),top=main,key:string|null=null;
+ if(background){try{if(!(await withTimeout(()=>stat(path))).isDirectory())return repoFor(ctx,path);}catch{return repoFor(ctx,path);}}
+ else if(!isDirectory(path))return repoFor(ctx,path);
+ let main=await canon(path),top=main,key:string|null=null;
  try {
   // Identity does not depend on HEAD or status succeeding (e.g. an unborn branch).
-  const info=await ctx.run(["git","-C",path,"rev-parse","--path-format=absolute","--show-toplevel","--git-common-dir"],10000);
+  const info=await run(["git","-C",path,"rev-parse","--path-format=absolute","--show-toplevel","--git-common-dir"],10000);
   const [root,common]=info.stdout.trim().split("\n");
   if(info.code!==0||!root||!common)return repoFor(ctx,path);
-  top=canonical(root);main=canonical(dirname(resolve(path,common)));
-  const origin=await ctx.run(["git","-C",main,"remote","get-url","origin"],10000);
+  top=await canon(root);main=await canon(dirname(resolve(path,common)));
+  const origin=await run(["git","-C",main,"remote","get-url","origin"],10000);
   if(origin.code===0)key=repoKey(origin.stdout.trim());
  } catch { return repoFor(ctx,path); /* Keep saved identities usable without recording unresolved paths. */ }
  const reg=registry(ctx),known=registered(ctx,top);
@@ -84,7 +109,9 @@ export async function resolveRepo(ctx: Ctx,path: string): Promise<RepoRef> {
  return repoFor(ctx,main);
 }
 export async function backfillRepos(ctx: Ctx,paths: string[]): Promise<void> {
- for(const path of new Set(paths))if(!registered(ctx,path)&&isDirectory(path))await resolveRepo(ctx,path);
+ await Promise.all([...new Set(paths)].filter(path=>!registered(ctx,path)).map(path=>
+  registerRepo(ctx,path,true).catch(()=>{})
+ ));
 }
 
 /** Resolve a picker key without treating it as a relative filesystem path. */

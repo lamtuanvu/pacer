@@ -123,6 +123,8 @@ test("snapshot repos omit dead registrations but retain missing repos with windo
  for(const path of [dead,running,recent])Bun.spawnSync(["git","init","-q",path]);
  const deadRef=await resolveRepo(ctx,dead),runningRef=await resolveRepo(ctx,running),recentRef=await resolveRepo(ctx,recent);
  for(const path of [dead,running,recent])rmSync(path,{recursive:true});
+ const {refreshPath}=await import("../src/core/path-probe");
+ await Promise.all([deadRef,runningRef,recentRef].map(ref=>refreshPath(ref.path)));
  const tasks=[record("done",ctx.now-86401,{repo:deadRef}),record("running",ctx.now-86401,{repo:runningRef}),record("done",ctx.now-60,{repo:recentRef})].map(t=>apiTask(ctx,t));
  const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:[],setup:{checkedAt:ctx.now,complete:true,items:[]}});
  expect(model.repos.map(r=>r.key).sort()).toEqual([runningRef.key,recentRef.key].sort());

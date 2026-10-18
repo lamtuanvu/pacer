@@ -121,6 +121,17 @@ test("runVersion rejects a version-printing process that exits nonzero", async (
   expect(await runVersion(p)).toBe("");
 });
 
+test("replaceBinary never writes the running binary's inode: it is renamed away, intact", async () => {
+  // macOS kills a process (OS_REASON_CODESIGNING) whose signed executable changes in place.
+  const dir = join(tmpDir(), "bin");
+  const p = installed(dir, "0.1.0");
+  const running = statSync(p).ino;
+  await replaceBinary(p, enc(script("0.2.0")), "0.2.0");
+  expect(statSync(p).ino).not.toBe(running);
+  expect(statSync(`${p}.bak`).ino).toBe(running);
+  expect(readFileSync(`${p}.bak`, "utf8")).toBe(script("0.1.0"));
+});
+
 test("replaceBinary swaps the binary atomically and keeps the old one as .bak", async () => {
   const dir = join(tmpDir(), "bin");
   const p = installed(dir, "0.1.0");

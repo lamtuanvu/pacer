@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { realpathSync, mkdirSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
 import { labelsFor, resolveRepo, resolveRepoInput, repoFor, listRepos, backfillRepos } from "../src/core/repos";
+import { cachedPath, refreshPath } from "../src/core/path-probe";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 test("repo labels disambiguate hosts", () => {
@@ -115,11 +116,11 @@ test("unresolved paths fall back without recording or pruning the registry",asyn
 test("deleted local folders disappear and registry cleanup is throttled to once a minute",async()=>{
  const ctx=fakeCtx({run:realRun}),folder=gitRepo(),ref=await resolveRepo(ctx,folder);
  expect(ref.key).toMatch(/^local:/);
- rmSync(folder,{recursive:true});
+ rmSync(folder,{recursive:true});await refreshPath(cachedPath(folder).real);
  expect(listRepos(ctx)).toEqual([]);
  const registryFile=Bun.file(join(ctx.pacerHome,"state","repos.json"));
  expect(await registryFile.json()).toEqual({});
- const other=gitRepo();await resolveRepo(ctx,other);rmSync(other,{recursive:true});
+ const other=gitRepo();await resolveRepo(ctx,other);rmSync(other,{recursive:true});await refreshPath(cachedPath(other).real);
  expect(listRepos({...ctx,now:ctx.now+59})).toEqual([]);
  expect(Object.keys(await registryFile.json())).toHaveLength(1);
  expect(listRepos({...ctx,now:ctx.now+60})).toEqual([]);
@@ -131,7 +132,7 @@ test("missing repo registrations stay for running or recently settled tasks",asy
  for(const state of ["running","done"] as const){
   const ctx=fakeCtx({run:realRun}),folder=gitRepo(),ref=await resolveRepo(ctx,folder);
   const task=createTask(ctx,{brief:{repo:folder,goal:"retain repo"},kind:null,requestedExecutor:null,timeoutS:60});
-  updateTask(ctx,task.id,t=>{t.state=state;});rmSync(folder,{recursive:true});
+  updateTask(ctx,task.id,t=>{t.state=state;});rmSync(folder,{recursive:true});await refreshPath(cachedPath(folder).real);
   expect(listRepos(ctx)).toEqual([ref]);
   expect(Object.keys(await Bun.file(join(ctx.pacerHome,"state","repos.json")).json())).toHaveLength(1);
   expect(listRepos({...ctx,now:ctx.now+86401})).toEqual(state==="running"?[ref]:[]);
