@@ -1,4 +1,5 @@
-import { type AlertData, type LinkSnapshot } from "../../src/link/envelope";
+import { type AlertData } from "../../src/link/envelope";
+import type { ClientSnapshot } from "../../src/view-model/snapshot";
 import { executorName, shortGoal } from "../../src/link/notification";
 import type { OrcaHost } from "./orca-api";
 import type { PluginSettings } from "./settings";
@@ -25,7 +26,9 @@ export function notificationMessage(a:AlertData):{title:string;body:string} {
   if(!n)title=title.replace(/\bagy\b/g,"Antigravity").replace(/\bcodex\b/gi,"Codex").replace(/\bcursor\b/gi,"Cursor").replace(/\bclaude-code\b/g,"Claude").replace(/\s+(via|backend)\b.*$/i,"");
   return {title:shortGoal(title,60),body};
 }
-export async function notifyNewAlerts(host:OrcaHost,s:LinkSnapshot,settings:PluginSettings,activatedAtS:number,nowS=Date.now()/1000):Promise<number> {
+export async function notifyNewAlerts(host:OrcaHost,s:ClientSnapshot,settings:PluginSettings,activatedAtS:number,nowS=Date.now()/1000):Promise<number> {
+  // Current services deliver their own notification decisions through entity events.
+  if(s.planner!==undefined)return settings.lastAlertAt;
   let state=states.get(settings);
   if(!state) {state={since:settings.settingsReady===false?activatedAtS:Math.max(settings.lastAlertAt,activatedAtS-300),delivered:new Set((settings.deliveredAlerts??[]).map(a=>JSON.stringify([a.key,a.at]))),pending:new Map(),lastSent:-Infinity};states.set(settings,state);}
   const level=settings.notifications??"important";
