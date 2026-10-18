@@ -12,7 +12,7 @@ export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "routing",
 
 export function withQuery(href: string, query: RouteQuery): string {
   const params = new URLSearchParams();
-  if (query.repo) params.set("repo", query.repo);
+  if (query.repo !== null) params.set("repo", query.repo);
   if (query.scope) params.set("scope", query.scope);
   const search = params.toString();
   return search ? `${href}?${search}` : href;
@@ -51,4 +51,13 @@ function match(path: string): RouteBase {
   const section = /^\/settings\/([^/]+)$/.exec(path)?.[1];
   if (section && (SETTINGS_SECTIONS as readonly string[]).includes(section)) return { name: "settings", section };
   return { name: "overview" };
+}
+
+/** Preserve work scope on internal navigation, while allowing an explicit filter change. */
+export function inheritQuery(href: string, current: string): string {
+  if (!href.startsWith("#/")) return href;
+  const [path, search = ""] = href.split("?");
+  const params = new URLSearchParams(search), before = new URLSearchParams(current.split("?")[1] ?? "");
+  for (const key of ["repo", "scope"]) if (!params.has(key) && before.has(key)) params.set(key, before.get(key)!);
+  return `${path}${params.size ? `?${params}` : ""}`;
 }
