@@ -24,7 +24,7 @@ for (const repo of [populated, empty]) test(`panel board follows selectors for $
  const s=snapshot(), html=render(s,repo), local=scopeHtml(html,false), all=scopeHtml(html,true), scope={repo:repo.key};
  for (const [body,filter] of [[local,scope],[all,{repo:null}]] as const) {
   expect([...body.matchAll(/<h2>(.*?)<\/h2>/g)].map(m=>m[1])).toEqual(["Needs you","Running","Capacity","Done today"]);
-  for (const [title,n] of [["Needs you",needsYou(s,filter).length],["Running",running(s,filter).length],["Capacity",capacity(s).length],["Done today",doneToday(s,filter).length]]) expect(body).toContain(`<h2>${title}</h2><span class="pill">${n}</span>`);
+  for (const [title,n] of [["Needs you",needsYou(s,filter).length],["Running",filter.repo === null ? s.counts!.running : s.counts!.byRepo[filter.repo]?.running ?? 0],["Capacity",capacity(s).length],["Done today",filter.repo === null ? s.today!.done : s.today!.byRepo[filter.repo] ?? 0]]) expect(body).toContain(`<h2>${title}</h2><span class="pill">${n}</span>`);
   expect(body).toContain(`${counts(s)!.ready} ready`);
   for (const item of needsYou(s,filter)) expect(body).toContain(item.title);
   for (const t of running(s,filter)) expect(body).toContain(t.progress?phaseWords(t.progress.phase):taskStatus(t).label);

@@ -81,7 +81,7 @@ test("planner uses its vendor, verdict, mode, meter tick and reset time", () => 
   expect(html).toContain("Gemini</strong>");
   expect(html).toContain("pc-agent-mark--gemini");
   expect(html).not.toContain("Claude");
-  expect(html).toContain(">Behind</span>");
+  expect(html).toContain(">Behind pace</span>");
   expect(html).toContain(">Normal</span>");
   expect(html).toContain("63% used · pace 77%");
   expect(html).toContain("pc-meter__pace");
@@ -126,7 +126,7 @@ test("ahead and paused board has warn fill, Paused chip, resume icon and paused 
   expect(draw(snapshot)).toContain('aria-label="Pause delegation for 1 hour"');
   const html = draw({ ...snapshot, planner: { ...snapshot.planner!, verdict: "ahead", usedPct: 82, pacePct: 64 }, pause: { until: 3280, reason: null, by: "app" }, tasks: snapshot.tasks.filter(task => task.state === "queued").slice(0, 3) });
   expect(html).toContain("pc-meter__fill--warn");
-  expect(html).toContain(">Ahead</span>");
+  expect(html).toContain(">Ahead of pace</span>");
   expect(html).toContain(">Paused</span>");
   expect(html).toContain('aria-label="Resume delegation"');
   expect(html).toContain(">▶</button>");
