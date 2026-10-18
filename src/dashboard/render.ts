@@ -3,6 +3,8 @@ import type { ClientSnapshot } from "../view-model/snapshot";
 import { dashboardModel } from "./model";
 import { ago, clock, elapsed, meterText } from "../view-model/format";
 import { executorLabel, modeWords, phaseWords, verdictWords } from "../view-model/words";
+import { displayName } from "../render/accounts";
+import { parseRunnerId } from "../config/runner-id";
 import { cards } from "./model";
 
 import { currentVersion } from "../update/version";
@@ -38,7 +40,10 @@ function ends(left:string,right:string,width:number):string {
  const r=clip(right,width),l=clip(left,Math.max(0,width-cellWidth(r)-2));
  return l+" ".repeat(Math.max(0,width-cellWidth(l)-cellWidth(r)))+r;
 }
-const shortExecutor=(id:string|null|undefined)=>executorLabel(id?.split("@")[0]?.split("#")[0]);
+const shortExecutor=(id:string|null|undefined)=>{
+ if(id&&parseRunnerId(id)?.agent==="opencode")return displayName(id);
+ return executorLabel(id?.split("@")[0]?.split("#")[0]);
+};
 const windowName=(value:string|null|undefined)=>({weekly:"week",monthly:"month",daily:"day"}[value??""]??value??"—");
 export function budgetBar(used: number|null, pace: number|null, size: number): string {
  const pct=(n:number)=>Math.max(0,Math.min(100,n));
@@ -106,7 +111,7 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
    for(const card of group.cards) {
     const item=model.needsYou.find(a=>a.id===card.id)!;
     const hints=card.actions?.map((a,i)=>`[${i===0?"⏎":i+1} ${a.label.toLowerCase()}]`).join(" ")??"";
-    const reason=[item.executor?shortExecutor(item.executor):item.host,item.detail].filter(Boolean).join(" · ");
+    const reason=[item.executor?shortExecutor(item.executor):item.host,card.detail].filter(Boolean).join(" · ");
     const room=Math.max(0,width-6-cellWidth(hints));
     const titleWidth=Math.floor(room*(width>=120?0.52:0.5));
     body.push(selectedRow([part(item.kind==="review"?"◐ ":"✕ "),field(card.text,titleWidth),part(" "),field(reason,Math.max(0,room-titleWidth-1),"muted"),part(" "+hints)],card));

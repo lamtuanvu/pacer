@@ -42,7 +42,7 @@ export function cards(s: ClientSnapshot, now: number, ops?: readonly string[]): 
  return [
   {title:"NEEDS YOU",cards:model.needsYou.map(item=>{
    const actions=item.actions.filter(action=>actionAvailable(action,ops));
-   return {id:item.id,text:item.title,detail:item.detail,actions,action:actions[0],dismiss:actions.find(a=>a.op==="task.dismiss")};
+   return {id:item.id,text:item.title,detail:item.kind==="question"?`${taskStatus({state:"needs_input"}).label} · ${item.detail}`:item.detail,actions,action:actions[0],dismiss:actions.find(a=>a.op==="task.dismiss")};
   })},
   {title:"WHO RUNS NEXT",cards:model.capacity.map(row=>({
    id:`executor:${row.id}`, text:`${row.rank === "planner" ? "P" : row.rank} ${executorLabel(row.id)}${row.next ? " · next" : ""}`,
