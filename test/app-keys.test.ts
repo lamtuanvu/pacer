@@ -128,3 +128,10 @@ test("dialogOpen finds an open modal dialog", async () => {
   expect(dialogOpen({ querySelector: () => null })).toBe(false);
   expect(dialogOpen(undefined)).toBe(false);
 });
+
+test('the shell detects terminal control ownership from the session marker', async () => {
+ const { sessionControlActive } = await import('../app/src/keys/instance');
+ expect(sessionControlActive({querySelector:s=>s==='[data-session-control="true"]'?{}:null})).toBe(true);
+ expect(sessionControlActive({querySelector:()=>null})).toBe(false);
+ expect(sessionControlActive(undefined)).toBe(false);
+});

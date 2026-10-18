@@ -7,7 +7,7 @@ import { snapshotTasks } from "../api/read-model/tasks";
 import { buildExecutors, buildAccounts, buildPlanner } from "../api/read-model/capacity";
 import { buildSetup } from "../api/read-model/summary";
 import { readModelContext, retryTargetFor } from "../api/read-model";
-import { deriveItems } from "../attention/rules";
+import { deriveTaskItems as deriveItems } from "./task-attention";
 import { dismissItem, snoozeItem } from "../attention/store";
 import { dismiss as dismissTasks } from "./tasks";
 

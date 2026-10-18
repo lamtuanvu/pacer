@@ -23,7 +23,7 @@ export function isTaskId(id: string): boolean {
 }
 
 export function createTask(
-  ctx: Ctx, input: { brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number },
+  ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number },
 ): TaskRecord {
   const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, state: "queued", attempts: [] };
   writeJsonAtomic(taskFile(ctx, task.id), task);

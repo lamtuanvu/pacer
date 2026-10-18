@@ -630,11 +630,13 @@ var package_default = {
   },
   dependencies: {
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
+    "@xterm/xterm": "6.0.0",
     preact: "10.29.8",
     yaml: "2.8.2",
-    zod: "4.6.5",
-    "@xterm/headless": "6.0.0",
-    "@xterm/addon-serialize": "0.14.0"
+    zod: "4.6.5"
   },
   license: "Apache-2.0",
   description: "Subscription-budget-aware delegation for AI coding agents through a CLI, MCP server and Orca plugin.",
@@ -1147,6 +1149,7 @@ function parseTask(d) {
     id,
     state,
     updatedAt,
+    ...optStr(d.title, 60)?.trim() ? { title: optStr(d.title, 60).trim() } : {},
     goal: str(d.goal, LIMITS.goal) ?? "",
     executor: optStr(d.executor, 64),
     backend: optStr(d.backend, 32),

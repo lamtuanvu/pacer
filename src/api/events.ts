@@ -1,3 +1,4 @@
+import { shortTitle } from "../core/short-title";
 import { readHold } from "../core/mode-hold";
 import { drainQueueOnRead } from "../tasks/drain";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
@@ -62,8 +63,9 @@ export function eventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last
       let data:unknown=env.data;
       if(env.type==="entity")data=env.data.removed?{id:env.data.id,removed:true}:env.data.value;
       if(env.type==="task"){
+        data={...env.data,title:env.data.title || shortTitle(env.data.goal)};
         const record=readTask(ctx,env.data.id);
-        if(record){const {repo,kind,host}=apiTask(ctx,record);data={...env.data,repo,kind,host};}
+        if(record){const {repo,kind,host,title}=apiTask(ctx,record);data={...env.data,repo,kind,host,title};}
       }
       return {seq:e.seq,at:e.at??ctx.now,type:env.type==="entity"?env.data.kind:env.type,data};
     }),
