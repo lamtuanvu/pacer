@@ -6,7 +6,7 @@ interface Viewer {
  snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void;
 }
 /** Bounded output queues. Snapshot state is shared, and streamed in small writes. */
-export interface ControlHandlers { input:(bytes:Buffer)=>void; resize:(cols:number,rows:number)=>void }
+export interface ControlHandlers { release?:(label:string)=>void; input:(bytes:Buffer)=>void; resize:(cols:number,rows:number)=>void }
 export class ViewerHub {
  private holder:Viewer|null=null;
  get controller(){return this.holder?.label??null;}
@@ -93,7 +93,7 @@ export class ViewerHub {
       else if(!this.holder||body.force===true)this.setController(v,'taken');
       else this.send(v,this.state(v,'refused'));
      }else if(f.type===FrameType.release){
-      if(this.holder===v)this.setController(null,'released');
+      if(this.holder===v){this.setController(null,'released');this.control?.release?.(v.label);}
      }else if(this.holder===v){
       if(f.type===FrameType.input){if(f.data.length)this.control?.input(f.data);}
       else {

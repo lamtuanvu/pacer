@@ -38,7 +38,7 @@ export async function providerEnv(ctx: Ctx, cfg: ProviderCfg): Promise<Record<st
 
 export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessageFile?: string }
 
-export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string): Launch {
+export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string, sessionId?: string): Launch {
   const model = cfg.model;
   if (cfg.session === "interactive") {
     if (Buffer.byteLength(prompt, "utf8") > 32 * 1024) {
@@ -79,7 +79,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     case "cursor":
       return {
         cwd: repo,
-        argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--workspace", repo, ...(model ? ["--model", model] : []), prompt],
+        argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--workspace", repo, ...(sessionId ? ["--resume", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
       };
     case "agy":
       return {
@@ -89,7 +89,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     case "claude-code":
       return {
         cwd: repo,
-        argv: ["claude", "-p", "--permission-mode", "acceptEdits", "--output-format", "text", ...(model ? ["--model", model] : []), prompt],
+        argv: ["claude", "-p", "--permission-mode", "acceptEdits", "--output-format", "text", ...(sessionId ? ["--session-id", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
       };
     default:
       throw new Error(`no launcher for provider "${cfg.id}"`);
@@ -105,4 +105,16 @@ export function remoteLaunch(cfg: ProviderCfg, workdir: string, runDir = workdir
   const lastMessageFile = join(runDir, "last.md");
   launch.argv[launch.argv.indexOf("-o") + 1] = lastMessageFile;
   return { argv: launch.argv, lastMessageFile };
+}
+
+/** Resume the agent's conversation in an interactive terminal, without a new prompt. */
+export function resumeLaunchFor(cfg: ProviderCfg, sessionId: string, worktree: string, runDir: string): Launch {
+  const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
+  const models = cfg.model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", cfg.model] : [];
+  const argv = agent === "codex" ? ["codex", "-c", `projects.${JSON.stringify(worktree)}.trust_level="trusted"`, "-c", "check_for_update_on_startup=false", "resume", "--no-daemon", "-C", worktree, "-s", "workspace-write", "--add-dir", runDir, ...models, sessionId]
+    : agent === "claude-code" ? ["claude", "--permission-mode", "acceptEdits", ...models, "--resume", sessionId]
+    : agent === "cursor" ? ["cursor-agent", "--workspace", worktree, ...models, "--resume", sessionId]
+    : agent === "opencode" ? ["opencode", "--standalone", "--agent", "build", ...models, "--session", sessionId] : null;
+  if (!argv) throw Error(`no resume launcher for provider "${cfg.id}"`);
+  return {cwd: worktree, argv};
 }

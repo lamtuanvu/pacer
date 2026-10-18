@@ -59,3 +59,19 @@ test('CLI viewer displays the server refusal reason before detaching',async()=>{
  expect(renderSessionFrame(FrameType.exit,Buffer.from(JSON.stringify({code:1,reason:'Session already has 16 viewers'})),{write(){},isTTY:false} as any,{write(s:string){errors.push(s);}} as any)).toBe(true);
  expect(errors.join('')).toContain('Session already has 16 viewers');
 });
+test('only an explicit controller release hands back a takeover; disconnect and steal do not',()=>{
+ const released:string[]=[];
+ const hub=new ViewerHub(()=>wire(FrameType.snapshot,{}),()=>null,fn=>fn(),()=>{},()=>{},{
+  input:()=>{},resize:()=>{},release:label=>released.push(label),
+ });
+ const a=new Peer(),b=new Peer();hub.add(a as any);hub.add(b as any);
+ a.emit('data',wire(FrameType.hello,{v:1,label:'one'}));b.emit('data',wire(FrameType.hello,{v:1,label:'two'}));
+ a.emit('data',wire(FrameType.take,{}));b.emit('data',wire(FrameType.release,{}));
+ expect(released).toEqual([]);
+ b.emit('data',wire(FrameType.take,{force:true}));a.destroy();
+ expect(released).toEqual([]);
+ b.emit('data',wire(FrameType.release,{}));
+ expect(released).toEqual(['cli:two']);
+ b.emit('data',wire(FrameType.take,{}));b.destroy();
+ expect(released).toEqual(['cli:two']);
+});

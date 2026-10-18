@@ -1,5 +1,5 @@
-import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport } from "../session/reports";
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
 import { IDLE_AFTER_S, IDLE_FAIL_S, type ExecutionCfg, validateExecution } from "../config/execution";
@@ -14,9 +14,9 @@ import { RemoteRunIO } from "../remote/run-io";
 import { runRemoteAttempt } from "../remote/attempt";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
-import { launchFor, providerEnv } from "./launch";
+import { launchFor, providerEnv, resumeLaunchFor } from "./launch";
 import { detectLimit } from "./limits";
-import { type ExecResult, executorEnv } from "./process";
+import { type ExecResult, executorEnv, execProcess } from "./process";
 import { buildPrompt } from "./prompt";
 import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
@@ -26,20 +26,20 @@ import { gitFingerprint, idleSeconds, nextProgress } from "../supervisor/progres
 
 export const REPORT_CHARS = 4000;
 
-export interface AttemptOutcome { attempt: Attempt; exec: ExecResult; report: string; backend?: string; worktree?: string; partial?: string }
+export interface AttemptOutcome { takeover?: boolean; attempt: Attempt; exec: ExecResult; report: string; backend?: string; worktree?: string; partial?: string }
 
 export function tail(s: string, n: number): string {
   return s.length > n ? s.slice(-n) : s;
 }
 
-export function outcome(cfg: ProviderCfg, startedAt: number, exec: ExecResult, log: string, report: string): AttemptOutcome {
+export function outcome(cfg: ProviderCfg, startedAt: number, exec: ExecResult, log: string, report: string, skipLimits = false): AttemptOutcome {
   return {
     backend: "direct",
     exec,
     report,
     attempt: {
       executor: cfg.id, model: cfg.model, startedAt, endedAt: Date.now() / 1000,
-      exitCode: exec.code, timedOut: exec.timedOut, limitHit: detectLimit(cfg.id, cfg.session === "interactive" ? {...exec, stdout: report, stderr: ""} : exec), log,
+      exitCode: exec.code, timedOut: exec.timedOut, limitHit: !skipLimits && detectLimit(cfg.id, cfg.session === "interactive" ? {...exec, stdout: report, stderr: ""} : exec), log,
     },
   };
 }
@@ -48,6 +48,23 @@ export const runDir = (ctx: Ctx, taskId: string, attempt: number) => join(ctx.pa
 
 function loadExec(ctx: Ctx): ExecutionCfg {
   try { return validateExecution(loadStrategy(ctx).execution); } catch { return validateExecution(undefined); }
+}
+
+export function parseSessionHeader(header: string): string | undefined {
+  return /(?:^|\n)\s*session id:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=\s|$)/i.exec(header)?.[1];
+}
+function discoverSession(ctx: Ctx, task: TaskRecord, run: RunRef) {
+  if (run.host || run.agentSession || (parseRunnerId(run.executor)?.agent ?? run.executor) !== "codex") return;
+  try {
+    const fd = openSync(join(run.dir, existsSync(join(run.dir, "session.json")) && !(existsSync(join(run.dir,"session.host")) && readFileSync(join(run.dir,"session.host"),"utf8").trim() === "none") ? "stdout" : "stderr"), "r");
+    let header: string;
+    try { const bytes = Buffer.alloc(16 * 1024); header = bytes.subarray(0, readSync(fd, bytes, 0, bytes.length, 0)).toString("utf8"); } finally { closeSync(fd); }
+    const id = parseSessionHeader(header);
+    if (id) {
+      run.agentSession = {id, source:"header"};
+      updateTask(ctx, task.id, t => { if (t.run?.dir === run.dir) t.run.agentSession = run.agentSession; });
+    }
+  } catch { /* header may not have been written yet */ }
 }
 
 /** Progress every poll (written at most every 10 s or on a phase change); git activity every 30 s; idle stop after idleFailS. */
@@ -62,6 +79,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   let prev = readTask(ctx, task.id)?.progress;
   return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle"> => {
     const now = Date.now() / 1000;
+    discoverSession(ctx, task, run);
     if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !(s.interactive && s.controller))) resumedAt = now;
     controlled = !!(s.interactive && s.controller);
     let changed = false;
@@ -105,6 +123,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       waitKey = undefined;
     }
     waiting = !!needsInput;
+    if (run.takeover) p.phase = "driving";
     if (p.phase !== prev?.phase || now - writtenAt >= 10) {
       updateTask(ctx, task.id, t => { t.progress = p; });
       writtenAt = now;
@@ -116,7 +135,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       } catch { /* alerts are best effort */ }
     }
     prev = p;
-    return !needsInput && !controlled && !turnEnded && idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
+    return !run.takeover && !needsInput && !controlled && !turnEnded && idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
   };
 }
 
@@ -126,7 +145,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   if (run.host && (!host || !run.remoteDir)) throw new Error(`remote run ${task.id} has no configured host or run directory`);
   const io = host ? new RemoteRunIO(ctx, host, run.remoteDir!, run.dir) : localRunIO(run.dir);
   const end: SuperviseEnd = await supervise({
-    io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: (run.startedAt + task.timeoutS) * 1000,
+    io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
     isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
   });
   const out = readOutput(run.dir);
@@ -140,8 +159,11 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
     } catch { /* mirrored output remains available */ }
   }
   try {
-    writeFileSync(run.logFile, `$ ${launchArgv(run)}\n--- stdout\n${exec.stdout}\n--- stderr\n${exec.stderr}\n--- exit ${exec.code}${exec.timedOut ? " (timed out)" : ""}\n`);
+    (run.takeover ? appendFileSync : writeFileSync)(run.logFile, `$ ${launchArgv(run)}\n--- stdout\n${exec.stdout}\n--- stderr\n${exec.stderr}\n--- exit ${exec.code}${exec.timedOut ? " (timed out)" : ""}\n`);
   } catch { /* the run directory keeps the full record */ }
+  if (!run.takeover && !run.host && existsSync(join(run.dir, "takeover.json")) && readTask(ctx, task.id)?.state !== "stopped") {
+    return startTakeoverRun(ctx, cfg, task, run, note);
+  }
   const interactive = existsSync(join(run.dir, "interactive.json"));
   const signal = interactive ? readReport(run.dir) : null;
   const completed = end.kind === "reported";
@@ -151,13 +173,60 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   if (interactive) {
     const transcript = transcriptReport(run.dir);
     if (transcript) report += `\n\n${tail(transcript, REPORT_CHARS)}`;
-    if (end.kind === "exited" && !completed) exec.stderr += "\npacer: interactive agent exited without an explicit completion report";
+    if (!run.takeover && end.kind === "exited" && !completed) exec.stderr += "\npacer: interactive agent exited without an explicit completion report";
   }
   if (!interactive && run.lastMessageFile && existsSync(run.lastMessageFile)) report = tail(readFileSync(run.lastMessageFile, "utf8").trim(), REPORT_CHARS) || report;
+  if (run.takeover) {
+    let endedAt = Date.now() / 1000;
+    try { endedAt = Number(readFileSync(join(run.dir, "session.ended"), "utf8")) || endedAt; } catch { /* launch failure */ }
+    let rawCode = end.code;
+    try { rawCode = Number(readFileSync(join(run.dir, "exit"), "utf8")); } catch { /* supervisor result */ }
+    const startupFailed = end.kind === "lost" || (end.kind === "exited" && rawCode !== 0 && endedAt - run.startedAt <= 5 && !existsSync(join(run.dir, "session.input")));
+    if (startupFailed) { exec.stderr = exec.stderr.trim() || exec.stdout.trim() || "Take over resume failed to start"; exec.code = 127; }
+    const failedReport = signal?.status === "failed";
+    exec.code = failedReport || startupFailed || end.kind === "timeout" || end.kind === "stopped" ? exec.code || 1 : 0;
+    report = failedReport ? signal!.summary : startupFailed ? exec.stderr.trim() || exec.stdout.trim() || "Take over resume failed to start"
+      : transcriptReport(run.dir) || (run.agentSession ? sessionTranscript(cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id, run.agentSession.id, executorEnv(ctx.env, await providerEnv(ctx, cfg).catch(() => ({})), task.id), ctx.home) : "") || "You drove this task; the agent left no summary";
+    updateTask(ctx, task.id, t => { if (t.takeover) t.takeover.state = "ended"; });
+    const result = outcome({...cfg, session:"interactive"}, task.attemptStartedAt ?? run.startedAt, exec, run.logFile, note + report, true);
+    result.attempt.limitHit = false;
+    return {...result, takeover:true, ...(run.mode === "new" ? {worktree:run.workdir} : {})};
+  }
   return {
     ...outcome(interactive ? {...cfg, session: "interactive"} : cfg, run.startedAt, exec, run.logFile, note + report),
     ...(run.mode === "new" ? { worktree: run.host ? `${run.host}:${run.remoteWorktree}` : run.workdir } : {}),
   };
+}
+
+/** The second run belongs to the original attempt and always uses its worktree. */
+async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, previous: RunRef, note: string): Promise<AttemptOutcome> {
+  const dir = runDir(ctx, task.id, previous.attempt) + "-takeover";
+  const run: RunRef = {dir, attempt:previous.attempt, executor:previous.executor, startedAt:Date.now()/1000, mode:previous.mode, workdir:previous.workdir, logFile:previous.logFile, takeover:true};
+  try {
+    const request = JSON.parse(readFileSync(join(previous.dir, "takeover.json"), "utf8")) as {sessionId:string;at:number;by?:string};
+    if (typeof request.sessionId !== "string" || !request.sessionId) throw Error("Take over request has no session id");
+    run.agentSession = {id:request.sessionId, source:readTask(ctx,task.id)?.run?.agentSession?.source ?? "lookup"};
+    const env = executorEnv(ctx.env, await providerEnv(ctx,cfg), task.id);
+    const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
+    if (agent === "codex") await requireCodexInteractive(ctx,env);
+    const launch = prepareInteractive(agent,dir,resumeLaunchFor(cfg,request.sessionId,run.workdir,dir));
+    env.PACER_HOME = ctx.pacerHome; env.PACER_RUN_DIR = dir; env.PACER_TRANSCRIPT_REPORT = join(dir,"transcript-report.md");
+    mkdirSync(dir,{recursive:true,mode:0o700});
+    writeFileSync(join(dir,"argv"),launch.argv.join(" "),{mode:0o600});
+    run.startedAt = Date.now()/1000;
+    // Publish before spawn so run-bound reports validate even from a fast CLI.
+    updateTask(ctx,task.id,t=>{t.run=run;t.takeover={...t.takeover,state:"driving",at:request.at,sessionId:request.sessionId,...(request.by?{by:request.by}:{})};t.progress={lastOutputAt:null,lastChangeAt:null,files:0,commits:0,logBytes:0,host:"local",...t.progress,phase:"driving",updatedAt:Date.now()/1000};});
+    const started = startRun({dir,argv:launch.argv,cwd:run.workdir,env,session:"interactive",takeover:true});
+    if ("error" in started) throw Error(started.error);
+    return await finishRun(ctx,cfg,task,run,note,progressPoller(ctx,task,run));
+  } catch (e) {
+    const message = (e as Error).message;
+    updateTask(ctx,task.id,t=>{if(t.takeover)t.takeover.state="ended";});
+    try {appendFileSync(previous.logFile, `\n--- takeover launch error\n${message}\n`);}catch{/* full run retained */}
+    const result = outcome(cfg,task.attemptStartedAt ?? previous.startedAt,{code:127,stdout:"",stderr:message,timedOut:false},previous.logFile,note+message,true);
+    result.attempt.limitHit=false;
+    return {...result,takeover:true,...(previous.mode==="new"?{worktree:previous.workdir}:{})};
+  }
 }
 
 const launchArgv = (run: RunRef) => { try { return readFileSync(join(run.dir, "argv"), "utf8"); } catch { return ""; } };
@@ -208,11 +277,23 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
     : buildPrompt(task.brief, task.id);
   let launch: ReturnType<typeof launchFor>;
   let env: Record<string, string | undefined>;
+  let agentSession: RunRef["agentSession"];
   try {
     env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
     const interactive = cfg.session === "interactive";
     const instructions = interactive ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
-    launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id);
+    const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+    if (!interactive && cfg.via !== "opencode") {
+      if (agent === "claude-code") agentSession = {id:crypto.randomUUID(),source:"assigned"};
+      if (agent === "cursor") {
+        try {
+          const chat = await execProcess({argv:["cursor-agent","create-chat"],cwd:workdir,env,timeoutMs:5000});
+          const id = chat.stdout.trim();
+          if (chat.code === 0 && id && !/\s|[\x00-\x1f\x7f]/.test(id)) agentSession = {id,source:"assigned"};
+        } catch { /* best effort: launch unchanged */ }
+      }
+    }
+    launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id);
     if (interactive) {
       const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
       if (agent === "codex") await requireCodexInteractive(ctx, env);
@@ -228,7 +309,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
   }
   mkdirSync(rdir, { recursive: true });
   writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
-  const run: RunRef = { dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
+  const run: RunRef = { ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
   updateTask(ctx, task.id, t => { t.run = run; });
   const started = startRun({ dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}) });
   if ("error" in started) {
@@ -243,6 +324,10 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
 export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
   if (!task.run) throw new Error(`task ${task.id} has no run to resume`);
   const run = task.run;
+  if (run.takeover && !existsSync(join(run.dir,"pid"))) {
+    const dir = runDir(ctx,task.id,run.attempt);
+    if (existsSync(join(dir,"takeover.json"))) return startTakeoverRun(ctx,cfg,task,{...run,dir,takeover:false},"");
+  }
   const result = await finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
   if (!run.host || readTask(ctx, task.id)?.state === "stopped") return result;
   const host = loadStrategy(ctx).hosts[run.host];

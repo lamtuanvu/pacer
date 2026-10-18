@@ -13,7 +13,7 @@ export class AttachKeys {
   private terminalEscape: 'esc'|'csi'|'ss3'|'string'|'stringEsc'|null=null;
   private requested=false;
   private confirming=false;
-  constructor(private send:(bytes:Buffer)=>void,private prompt:(message:string)=>void=()=>{}){}
+  constructor(private send:(bytes:Buffer)=>void,private prompt:(message:string)=>void=()=>{},private takeover=false){}
   take(force=false){this.requested=true;this.send(wire(FrameType.take,force?{force:true}:{}));}
   controlState(state:{you?:boolean;controller?:string|null;reason?:string}){
     this.setControl(state.you===true);
@@ -48,7 +48,7 @@ export class AttachKeys {
       }else if(this.escaped){
         this.escaped=false;
         if(byte===100){flush();return true;}
-        if(byte===114){flush();this.send(wire(FrameType.release,{}));}
+        if(byte===114){flush();if(this.takeover)this.prompt("Releasing hands the task back for review.\n");this.send(wire(FrameType.release,{}));}
         else if(byte===29)pending.push(29);
         else pending.push(29,byte);
       }else if(byte===29){flush();this.escaped=true;}
@@ -62,7 +62,7 @@ export function attachDirectory(ctx:Ctx,id:string,attempt?:number):string {
   const root=join(ctx.pacerHome,"runs",id);
   const n=attempt ?? (task.run?.attempt || Math.max(...readdirSync(root).filter(n=>/^\d+$/.test(n)).map(Number)));
   if(!Number.isSafeInteger(n) || n<1) throw Error("invalid session attempt");
-  const dir=join(root,String(n));
+  const dir=task.run?.dir && (attempt===undefined || attempt===task.run.attempt)?task.run.dir:join(root,String(n));
   if(!existsSync(join(dir,"session.log")) && !existsSync(join(dir,"session.ckpt"))) throw Error("This attempt has no PTY recording (enable execution.session: pty)");
   return dir;
 }
@@ -89,7 +89,9 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
   const detached=new Promise<void>(resolve=>{detach=()=>{didDetach=true;resolve();};});
   let send:(bytes:Buffer)=>void=()=>{};
   let controlling=false;
-  const keys=new AttachKeys(bytes=>send(bytes),message=>process.stderr.write(message));
+  let takeover=false;
+  try{takeover=JSON.parse(readFileSync(join(dir,"session.json"),"utf8")).takeover===true;}catch{/* optional metadata */}
+  const keys=new AttachKeys(bytes=>send(bytes),message=>process.stderr.write(message),takeover);
   const input=(data:Buffer)=>{if(keys.push(data))detach();};
   const title=()=>{if(stdout.isTTY)stdout.write(`\x1b]0;${label.replace(/[\x00-\x1f\x7f]/g,"")} · ${controlling?'controlling':'watching'}\x07`);};
   const resize=()=>{if(controlling)send(wire(FrameType.size,{cols:stdout.columns??120,rows:stdout.rows??40}));};

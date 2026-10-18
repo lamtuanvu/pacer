@@ -14,9 +14,12 @@ export const V2_EVENT = Symbol('v2 event');
 export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budget'|'alerts'|'console'|'consoles'|'serviceInstalled'> };
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
+/** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
+export const V3_ONLY_OPS = new Set(['task.takeover']);
+
 export function v2Hello() {
  const {previous:_,...hello}=helloBody();
- return {...hello,protocol:V2_PROTOCOL,events:[...V2_EVENT_TYPES]};
+ return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
 }
 
 function budget(s: SnapshotV3): BudgetData | null {
@@ -53,12 +56,14 @@ export function toV2OpResult(name:string,result:any):unknown {
  return result;
 }
 export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):Promise<unknown> {
+ if(V3_ONLY_OPS.has(name))throw new CoreError('unknown_op',`unknown operation "${name}"`,`${name} requires protocol 3`);
  return toV2OpResult(name,await callOp(ctx,name,v2Params(name,params),deps));
 }
 
 /** Keep the existing v2 document/schema check stable until the documentation task. */
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
+ for(const op of V3_ONLY_OPS)delete schemas[op];
  schemas['task.list'].description="Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.";
  const review=schemas['task.review'].params as {properties:Record<string,unknown>;required:string[]};
  review.properties.accepted={type:'boolean'};

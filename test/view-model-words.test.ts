@@ -17,6 +17,7 @@ test("verdict words cover v1 provider verdicts and planner verdicts", () => {
 });
 
 test("phases and modes read as words", () => {
+  expect(phaseWords("driving")).toBe("You're driving");
   expect(["starting", "working", "testing", "idle", "lost-contact", "queued", "other"].map(phaseWords))
     .toEqual(["Starting", "Editing", "Testing", "Idle", "Lost contact", "Queued", "other"]);
   expect(["strict", "normal", "relaxed", "emergency"].map(modeWords)).toEqual(["Strict", "Normal", "Relaxed", "Emergency"]);

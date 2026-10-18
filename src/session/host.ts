@@ -1,4 +1,4 @@
-import { readReport } from "./reports";
+import { readReport, writeReport } from "./reports";
 import { createServer, createConnection } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -10,7 +10,7 @@ import { FrameType, WireDecoder, wire } from "./framing";
 import { SecretMasker } from "./masking";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
-export interface SessionLaunch { interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
+export interface SessionLaunch { takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
 export function socketPath(dir:string):string {
   const direct=join(dir,"session.sock");
   if(Buffer.byteLength(direct) < 104) return direct;
@@ -78,7 +78,9 @@ export async function sessionHost(dir:string):Promise<number> {
       }
       try{atomic('session.state',JSON.stringify({viewers,controller,cols:recording.term.cols,rows:recording.term.rows}));}catch{/* optional live metadata */}
     },{
+      release:label=>{if(launch.takeover)writeReport(dir,"done",`Handed back by ${label}`,"user");},
       input:bytes=>{
+        if(bytes.length)try{writeFileSync(join(dir,"session.input"),"",{mode:0o600});}catch{/* optional input marker */}
         proc.terminal?.write(bytes);
         try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
       },
@@ -106,11 +108,12 @@ export async function sessionHost(dir:string):Promise<number> {
         } catch { disableRecording(); }
       },exit(){terminalClosed();}},
     });
-  } catch {
+  } catch (error) {
     if (launch.interactive) {
       removeErrorHandlers();
       await recording.close();
-      writeFileSync(join(dir, "stderr"), "pacer: interactive mode requires PTY support\n", {mode: 0o600});
+      writeFileSync(join(dir, "stderr"), `pacer: interactive mode requires PTY support: ${String(error)}\n`, {mode: 0o600});
+      atomic("session.ended",String(Date.now()/1000));
       atomic("exit", "127");
       return 127;
     }
@@ -157,7 +160,7 @@ export async function sessionHost(dir:string):Promise<number> {
     }
   }, 100) : undefined;
   let code: number;
-  try { code = await proc.exited; }
+  try { code = await proc.exited; atomic("session.ended",String(Date.now()/1000)); }
   finally { if (reports) clearInterval(reports); if (escalation) clearTimeout(escalation); }
   // Process exit and PTY EOF are separate. Bound the drain if a descendant holds the slave.
   await Promise.race([closed,Bun.sleep(250)]);

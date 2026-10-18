@@ -18,7 +18,7 @@ const verdicts: Record<string, string> = {
 };
 export const verdictWords = (v: string): string => Object.hasOwn(verdicts, v) ? verdicts[v]! : "Unknown";
 
-const phases: Record<string, string> = { starting: "Starting", working: "Editing", testing: "Testing", idle: "Idle", "lost-contact": "Lost contact", queued: "Queued" };
+const phases: Record<string, string> = { driving: "You're driving", starting: "Starting", working: "Editing", testing: "Testing", idle: "Idle", "lost-contact": "Lost contact", queued: "Queued" };
 export const phaseWords = (phase: string): string => Object.hasOwn(phases, phase) ? phases[phase]! : phase;
 export const modeWords = (mode: string): string => mode ? mode[0]!.toUpperCase() + mode.slice(1).toLowerCase() : mode;
 
