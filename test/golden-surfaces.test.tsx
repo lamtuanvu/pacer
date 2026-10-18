@@ -27,8 +27,9 @@ function strip(text: string): string {
   let previous: string, out = text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
   do { previous = out; out = out.replace(/<(style|script|svg)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "").replace(/<[^>]*>/g, " "); } while (out !== previous);
   return out
-    .replace(/&#(x[\da-f]+|\d+);/gi, (_, n: string) => String.fromCodePoint(n[0] === "x" ? parseInt(n.slice(1), 16) : Number(n)))
-    .replace(/&(amp|lt|gt|quot|apos|#39|nbsp);/g, (_, n: string) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", nbsp: " " })[n]!)
+    // Decoding never produces < or >, so stripped markup cannot be reintroduced.
+    .replace(/&#(x[\da-f]+|\d+);/gi, (m, n: string) => { const c = n[0] === "x" ? parseInt(n.slice(1), 16) : Number(n); return c === 60 || c === 62 ? m : String.fromCodePoint(c); })
+    .replace(/&(amp|quot|apos|#39|nbsp);/g, (_, n: string) => ({ amp: "&", quot: '"', apos: "'", "#39": "'", nbsp: " " })[n]!)
     .replace(/\s+/g, " ").trim();
 }
 const snapshot = structuredClone(fixture) as unknown as ClientSnapshot;
