@@ -57,7 +57,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
   if (p && !(p.modeHeldUntil && p.modeHeldUntil>input.now) && (p.verdict === "out" || p.verdict === "ahead" && ["strict","emergency"].includes(p.mode))) {
     add("planner_quota",p.runner,`${displayName(p.runner)} ${p.verdict === "out" ? "is out of quota" : "is ahead of pace"}`,p.advice,[open("Open planner settings",{view:"settings",section:"planner"}),{label:"Keep normal",op:"mode.hold",params:{mode:"normal"}}],{executor:p.runner});
   }
-  for (const s of input.setup.items) if (s.required && s.status!=="done") add("setup",s.id,s.title,"Setup required",[open("Open setup",{view:"overview"})]);
+  for (const s of input.setup.items) if (s.required && s.status!=="done") add("setup",s.id,s.title,"Setup required",[open("Open settings",{view:"settings",section:s.id})]);
   if (input.update?.available) add("update",input.update.latest,`Update to ${input.update.latest}`,"An update is available",[{label:"Update",op:"update.apply",params:{}},{label:"Later",op:"attention.dismiss",params:{id:`update:${input.update.latest}`}}]);
   return sortItems(items);
 }

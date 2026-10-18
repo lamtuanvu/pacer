@@ -9,6 +9,10 @@ type RouteBase =
   ;
 export type Route = RouteBase & { query: RouteQuery };
 export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "routing", "strategies", "updates", "notifications", "appearance"] as const;
+/** A service `ui.open {view:"settings", section}` path; setup items (binary, service, link…) live on Overview's Setup. */
+export function settingsPath(section: unknown): string {
+  return typeof section === "string" && (SETTINGS_SECTIONS as readonly string[]).includes(section) ? `/settings/${section}` : typeof section === "string" ? "/" : "/settings";
+}
 
 export function withQuery(href: string, query: RouteQuery): string {
   const params = new URLSearchParams();

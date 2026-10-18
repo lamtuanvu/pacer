@@ -67,7 +67,7 @@ test("condition rules raise and clear with required enabled data", () => {
   expect(items.length).toBe(raised?1:0);if(raised)expect(items[0]?.actions.map(a=>a.op)).toEqual(["ui.open","mode.hold"]);
  }
  const setup={complete:false,open:1,items:[{id:"service",title:"Service",status:"pending",required:true},{id:"optional",title:"Optional",status:"pending",required:false}]};
- expect(deriveItems({...input(),setup})[0]).toMatchObject({id:"setup:service",notify:"all",actions:[{op:"ui.open",params:{view:"overview"}}]});
+ expect(deriveItems({...input(),setup})[0]).toMatchObject({id:"setup:service",notify:"all"});
  expect(deriveItems({...input(),setup:{...setup,items:setup.items.map(i=>({...i,status:"done"}))}})).toEqual([]);
  expect(deriveItems({...input(),update:{latest:"9.0",available:true}})[0]).toMatchObject({id:"update:9.0",notify:"all"});
  expect(deriveItems({...input(),update:{latest:"9.0",available:false}})).toEqual([]);

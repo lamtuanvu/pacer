@@ -1,3 +1,4 @@
+import { settingsPath } from "../router";
 import type { Action } from "../../../src/attention/types";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { ActivityEntry } from "../../../src/activity/log";
@@ -17,7 +18,7 @@ export function actionRoute(action: Action): string {
   const { route, view, id, section } = action.params;
   if (typeof route === "string" && /^#?\//.test(route)) return route.replace(/^#/, "");
   if ((view === "task" || view === "session" || view === "review") && typeof id === "string") return `/${view === "review" ? "review" : "sessions"}/${encodeURIComponent(id)}`;
-  if (view === "settings" && typeof section === "string") return `/settings/${encodeURIComponent(section)}`;
+  if (view === "settings" && typeof section === "string") return settingsPath(section);
   return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/sessions", strategy: "/settings/strategies" } as Record<string, string>)[String(view)] ?? "/";
 }
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
