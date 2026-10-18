@@ -22,6 +22,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Removed
 
+- Old app route redirects. Retired and unknown hashes now fall back to Overview (`#/`); incomplete setup redirects to Settings.
+
 - Protocol 3.0 snapshot fields `v`, `budget`, `alerts`, `console`, `consoles`, `serviceInstalled`. Read `planner`/`accounts`/`executors`, `attention` and `setup` instead.
 - Protocol 3.0 `budget` and `alert` events. Subscribe to `planner`, `account`, `executor`, `attention` and `notify` instead.
 - Bearer-only `/link` and legacy `/events` routes (404). Use `/v3/snapshot` and `/v3/events`; `/state` and `/console/open|forget` were already removed in 2.6.
