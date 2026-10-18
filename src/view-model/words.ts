@@ -1,3 +1,4 @@
+import { agentInfo, agentKey } from "./agents";
 /** The one vocabulary for statuses, verdicts, phases and modes. Every surface imports these; none spells a status on its own. */
 export type StatusTone = "good" | "warn" | "bad" | "info" | "neutral";
 export type Tone = StatusTone;
@@ -6,6 +7,7 @@ const tones: Record<string, StatusTone> = {
   good: "good", info: "info", warn: "warn", bad: "bad", muted: "neutral",
   EXHAUSTED: "bad", AHEAD: "warn", NEAR_LIMIT: "warn", EXPIRING: "warn", EXPIRING_SOON: "warn",
   OK: "good", ON_PACE: "good", BEHIND: "good", UNMETERED: "good",
+  behind: "good", on_pace: "good", ahead: "warn", out: "bad",
 };
 /** Maps a tone or verdict string the service wrote to a status tone; the UI never derives one from numbers. */
 export const toneFor = (value: string): StatusTone => Object.hasOwn(tones, value) ? tones[value]! : "neutral";
@@ -35,7 +37,9 @@ export function executorLabel(id: string | null | undefined, accounts: AccountLi
     (agent === "claude-code" && account.folder.endsWith("/.claude"))
   ));
   const suffix = name && !defaultAccount ? ` · ${account?.name ?? name}` : "";
-  const label = agent === "opencode" ? `${account?.name ?? name ?? "OpenCode"}` : `${native ?? agent}${suffix}`;
+  // Known agents and accounts (BytePlus, Local model) get their proper names; a user-named account keeps its name.
+  const known = (id: string | undefined) => id && agentKey(id) ? agentInfo(id).name : id;
+  const label = agent === "opencode" ? `${known(account?.name ?? name) ?? "OpenCode"}` : `${native ?? known(agent)}${suffix}`;
   return label + (host ? ` on ${host}` : "");
 }
 export function executorCaption(account?: AccountLike): string {

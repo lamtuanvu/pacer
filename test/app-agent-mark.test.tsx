@@ -70,3 +70,18 @@ test("brand colours in components.css match the agent table", () => {
     expect(rule?.[1] ?? "ink").toBe(color);
   }
 });
+
+test("Antigravity uses its own mark, not the Google G", () => {
+  expect(agentInfo("agy").glyph).toBe("antigravity");
+  expect(AGENT_GLYPHS.antigravity.source).toBe("lobe-icons");
+});
+
+test("an OpenCode executor on a known account shows that account's mark", async () => {
+  const { markAgent } = await import("../src/view-model/agents");
+  expect(markAgent("opencode#byteplus")).toBe("byteplus");
+  expect(markAgent("opencode#local")).toBe("local");
+  expect(markAgent("opencode#team")).toBe("opencode");
+  expect(markAgent("codex#team@devbox")).toBe("codex");
+  expect(markAgent("local")).toBe("local");
+  expect(markAgent("opencode", "byteplus")).toBe("byteplus");
+});

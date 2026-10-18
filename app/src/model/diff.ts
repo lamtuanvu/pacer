@@ -27,3 +27,11 @@ export function parseDiff(text: string): DiffFile[] {
   }
   return files;
 }
+
+/** task.diff(path) normally includes Git headers; older services may return only a hunk. */
+export function parseFilePatch(patch: string, path: string): DiffFile {
+  const files = parseDiff(patch);
+  if (files.length) return files.find(f => f.path === path) ?? files[0]!;
+  if (!patch) return { path, added: 0, removed: 0, binary: false, lines: [] };
+  return parseDiff(`diff --git a/${path} b/${path}\n${patch}`)[0]!;
+}
