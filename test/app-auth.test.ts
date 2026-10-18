@@ -295,6 +295,14 @@ test("desktop exchanges a bearer for an app cookie; cookie-only exchange is forb
   expect(cookie).toContain("HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000");
   expect(checkSession(ctx, cookie.split(";")[0]!.slice("pacer_session=".length))).toBe(true);
   expect((await fetch(url + "/app/", { headers: { cookie: cookie.split(";")[0]! } })).status).toBe(200);
+  ctx.now += 30 * 86400;
+  const ended = await fetch(url + "/app/", { headers: { cookie: cookie.split(";")[0]! } });
+  expect(ended.status).toBe(401);
+  expect(await ended.text()).toContain('data-pacer-session-ended="true"');
+  const exchanged = await fetch(path, { method: "POST", headers });
+  expect(exchanged.status).toBe(204);
+  const renewedCookie = exchanged.headers.get("set-cookie")!.split(";")[0]!;
+  expect((await fetch(url + "/app/", { headers: { cookie: renewedCookie } })).status).toBe(200);
   expect((await fetch(path, { headers })).status).toBe(405);
   const session = await login();
   for (const extra of [{}, { origin: url, "x-pacer-client": "app" }] as Record<string, string>[]) {
@@ -305,4 +313,37 @@ test("desktop exchanges a bearer for an app cookie; cookie-only exchange is forb
   expect((await fetch(path, { method: "POST" })).status).toBe(401);
   expect((await fetch(path, { method: "POST", headers: { authorization: "Bearer wrong" } })).status).toBe(401);
   expect((await fetch(path, { method: "POST", headers: { ...headers, cookie: session } })).status).toBe(204);
+});
+
+test("script-free app error cards embed design tokens with an exact CSP style hash", async () => {
+  const { createHash } = await import("node:crypto");
+  const { appPage, appRoute } = await import("../src/serve/app-routes");
+  const tokens = readFileSync(new URL("../app/src/ds/tokens.css", import.meta.url), "utf8");
+  const ctx = fakeCtx();
+  const responses = [
+    appPage("Session ended. Run `pacer open`.", 401),
+    appRoute(new Request("http://127.0.0.1:4317/app/auth?code=expired"), ctx),
+    appRoute(new Request("http://127.0.0.1:4317/app/", { method: "POST" }), ctx),
+    appRoute(new Request("http://127.0.0.1:4317/app/missing.css"), ctx),
+    appPage("Forbidden.", 403),
+  ];
+  for (const response of responses) {
+    const html = await response.text();
+    expect(html).toContain(tokens);
+    expect(html).toContain("font: var(--type-body-size)/var(--type-body-line) var(--font-sans)");
+    expect(html).toContain("prefers-color-scheme: dark");
+    expect(html).toContain('<a class="button"');
+    expect(html).toContain('readonly value="pacer open"');
+    expect(html).not.toMatch(/<script|onclick=|javascript:/i);
+    const style = html.match(/<style>([\s\S]*?)<\/style>/)![1]!;
+    const hash = createHash("sha256").update(style).digest("base64");
+    const csp = response.headers.get("content-security-policy")!;
+    expect(csp).toContain(`style-src 'self' 'sha256-${hash}'`);
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toContain("unsafe-inline");
+    expect(html.includes('data-pacer-session-ended="true"')).toBe(response.status === 401 || responses.indexOf(response) === 1);
+  }
+  const escaped = await appPage('<script>alert("test")</script>', 400).text();
+  expect(escaped).toContain("&lt;script&gt;");
+  expect(escaped).not.toContain("<script>");
 });

@@ -8,6 +8,7 @@ fn main() {
             "tray_open",
             "tray_hide",
             "app_quit",
+            "session_expired",
         ]),
     ))
     .expect("build desktop shell");

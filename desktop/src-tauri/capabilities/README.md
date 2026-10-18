@@ -3,9 +3,9 @@ Rust adds runtime capabilities for the exact `http://127.0.0.1:<port>` origin,
 with local pages excluded:
 
 - `service-<port>`, main window only: `allow-setLaunchAtLogin`, `allow-setTheme`,
-  `allow-notifyRoute`.
+  `allow-notifyRoute`, `allow-session-expired`.
 - `tray-service-<port>`, tray window only: `allow-tray-resize`, `allow-tray-open`,
-  `allow-tray-hide`, `allow-app-quit`.
+  `allow-tray-hide`, `allow-app-quit`, `allow-session-expired`.
 
 Each command also verifies its caller's label and current origin against the
 active service. The tray is created hidden after the main webview finishes
