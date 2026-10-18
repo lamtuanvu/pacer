@@ -53,3 +53,9 @@ export function attachKeyRegistry(registry: KeyRegistry, target: Window): () => 
   target.addEventListener("keydown", listener);
   return () => target.removeEventListener("keydown", listener);
 }
+
+/** Overview bindings and their compact footer vocabulary share one registry definition. */
+export const overviewHints = [
+  { keys: "j k", label: "select" }, { keys: "Enter", label: "act" }, { keys: "v", label: "review" },
+  { keys: "d", label: "delegate" }, { keys: "1–4", label: "repo filter" }, { keys: "x", label: "dismiss" },
+];
