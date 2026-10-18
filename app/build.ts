@@ -13,6 +13,8 @@ const root = import.meta.dir;
 export async function buildApp(): Promise<AppFile[]> {
   const result = await Bun.build({ entrypoints: [join(root, "src/main.tsx"), join(root, "src/term/term.tsx")], splitting: true, naming: { entry: "[name].js", chunk: "chunk-[hash].js" }, target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
   if (!result.success) throw new AggregateError(result.logs, "app build failed");
+  const tray = await Bun.build({ entrypoints: [join(root, "src/tray/main.tsx")], target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
+  if (!tray.success) throw new AggregateError(tray.logs, "tray build failed");
   const css = [generateTokensCss(readTokens(join(root, "src/ds"))), await Bun.file(join(root, "src/ds/components.css")).text(), await Bun.file(join(root, "src/styles.css")).text(), await Bun.file(join(root, "src/screens/session/session.css")).text()].join("\n");
   return [
     { path: "index.html", type: "text/html; charset=utf-8", text: await Bun.file(join(root, "index.html")).text() },
@@ -20,6 +22,9 @@ export async function buildApp(): Promise<AppFile[]> {
     { path: "app.css", type: "text/css; charset=utf-8", text: css },
     ...await Promise.all(result.outputs.filter(output => !output.path.endsWith("/main.js")).map(async output => ({ path: output.path.split("/").pop()!, type: "text/javascript; charset=utf-8", text: await output.text() }))),
     { path: "term.css", type: "text/css; charset=utf-8", text: await Bun.file(join(root, "../node_modules/@xterm/xterm/css/xterm.css")).text() },
+    { path: "tray.html", type: "text/html; charset=utf-8", text: await Bun.file(join(root, "src/tray/tray.html")).text() },
+    { path: "tray.js", type: "text/javascript; charset=utf-8", text: await tray.outputs[0]!.text() },
+    { path: "tray.css", type: "text/css; charset=utf-8", text: [generateTokensCss(readTokens(join(root, "src/ds"))), await Bun.file(join(root, "src/ds/components.css")).text(), await Bun.file(join(root, "src/tray/tray.css")).text()].join("\n") },
   ];
 }
 export function generatedSource(files: AppFile[]): string {

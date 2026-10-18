@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { realpathSync, mkdirSync } from "node:fs";
+import { realpathSync, mkdirSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
-import { labelsFor, resolveRepo, repoFor } from "../src/core/repos";
+import { labelsFor, resolveRepo, resolveRepoInput, repoFor, listRepos, backfillRepos } from "../src/core/repos";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 test("repo labels disambiguate hosts", () => {
@@ -71,4 +71,77 @@ test("repo ops list current branch first, cap branches and remove registrations"
  expect(await callOp(ctx,"repo.remove",{key:ref.key})).toEqual({removed:true});
  expect(await callOp(ctx,"repo.list",{})).toEqual([]);
  await expect(callOp(ctx,"repo.add",{path:tmpDir()})).rejects.toMatchObject({code:"invalid_input"});
+});
+
+
+test("deleted linked worktrees retain the main repo identity on resolution and reads",async()=>{
+ const repo=gitRepo(),ctx=fakeCtx({run:realRun});
+ await realRun(["git","-C",repo,"remote","add","origin","git@github.com:acme/main.git"],10000);
+ const main=await resolveRepo(ctx,repo),wt=join(tmpDir(),"linked");
+ expect((await realRun(["git","-C",repo,"worktree","add","-b","deleted",wt],10000)).code).toBe(0);
+ expect(await resolveRepo(ctx,join(wt,"."))).toEqual(main);
+ rmSync(wt,{recursive:true});
+ const offline={...ctx,run:async()=>{throw Error("no git for deleted paths");}};
+ expect(await resolveRepo(offline,wt)).toEqual(main);
+ expect(repoFor(offline,join(wt,"src"))).toEqual(main);
+ expect(listRepos(ctx)).toEqual([main]);
+ expect(Object.keys(await Bun.file(join(ctx.pacerHome,"state","repos.json")).json())).toEqual([realpathSync(repo)]);
+});
+
+test("missing unknown paths never create registry entries during resolution or backfill",async()=>{
+ const ctx=fakeCtx({run:realRun}),folder=tmpDir();rmSync(folder,{recursive:true});
+ expect(await resolveRepo(ctx,folder)).toEqual(repoFor(ctx,folder));
+ await backfillRepos(ctx,[folder]);
+ expect(listRepos(ctx)).toEqual([]);
+ expect(await Bun.file(join(ctx.pacerHome,"state","repos.json")).exists()).toBe(false);
+});
+
+test("unresolved paths fall back without recording or pruning the registry",async()=>{
+ for(const mode of ["missing","non-git","git-fails"]){
+  const ctx=fakeCtx({run:realRun}),registered=gitRepo();
+  await resolveRepo(ctx,registered);
+  rmSync(registered,{recursive:true});
+  const registryFile=Bun.file(join(ctx.pacerHome,"state","repos.json")),before=await registryFile.text();
+  const folder=mode==="git-fails"?gitRepo():tmpDir();
+  if(mode==="missing")rmSync(folder,{recursive:true});
+  if(mode==="git-fails")ctx.run=async()=>{throw Error("git unavailable");};
+  const ref=await resolveRepoInput(ctx,folder);
+  expect(ref).toEqual(repoFor(ctx,folder));
+  expect(ref.key).toMatch(/^local:[0-9a-f]{12}$/);
+  expect(await registryFile.text()).toBe(before);
+ }
+});
+
+test("deleted local folders disappear and registry cleanup is throttled to once a minute",async()=>{
+ const ctx=fakeCtx({run:realRun}),folder=gitRepo(),ref=await resolveRepo(ctx,folder);
+ expect(ref.key).toMatch(/^local:/);
+ rmSync(folder,{recursive:true});
+ expect(listRepos(ctx)).toEqual([]);
+ const registryFile=Bun.file(join(ctx.pacerHome,"state","repos.json"));
+ expect(await registryFile.json()).toEqual({});
+ const other=gitRepo();await resolveRepo(ctx,other);rmSync(other,{recursive:true});
+ expect(listRepos({...ctx,now:ctx.now+59})).toEqual([]);
+ expect(Object.keys(await registryFile.json())).toHaveLength(1);
+ expect(listRepos({...ctx,now:ctx.now+60})).toEqual([]);
+ expect(await registryFile.json()).toEqual({});
+});
+
+test("missing repo registrations stay for running or recently settled tasks",async()=>{
+ const {createTask,updateTask}=await import("../src/tasks/store");
+ for(const state of ["running","done"] as const){
+  const ctx=fakeCtx({run:realRun}),folder=gitRepo(),ref=await resolveRepo(ctx,folder);
+  const task=createTask(ctx,{brief:{repo:folder,goal:"retain repo"},kind:null,requestedExecutor:null,timeoutS:60});
+  updateTask(ctx,task.id,t=>{t.state=state;});rmSync(folder,{recursive:true});
+  expect(listRepos(ctx)).toEqual([ref]);
+  expect(Object.keys(await Bun.file(join(ctx.pacerHome,"state","repos.json")).json())).toHaveLength(1);
+  expect(listRepos({...ctx,now:ctx.now+86401})).toEqual(state==="running"?[ref]:[]);
+ }
+});
+
+test("linked checkout identity does not require a successful git status",async()=>{
+ const repo=gitRepo(),wt=join(tmpDir(),"linked"),ctx=fakeCtx({run:realRun});
+ const main=await resolveRepo(ctx,repo);
+ expect((await realRun(["git","-C",repo,"worktree","add","-b","status-fails",wt],10000)).code).toBe(0);
+ const run:typeof realRun=(args,...rest)=>args.includes("status")?Promise.resolve({code:1,stdout:"",stderr:"cannot inspect"}):realRun(args,...rest);
+ expect(await resolveRepo({...ctx,run},wt)).toEqual(main);
 });

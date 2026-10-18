@@ -33,8 +33,9 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
  const safe=(text:string|null)=>text===null?null:redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
  const pause=paused?{...paused,reason:safe(paused.reason),by:safe(paused.by)}:null;
- const repos=[...listRepos(ctx)],known=new Set(repos.map(r=>r.key));
- for(const t of tasks)if(!known.has(t.repo.key)){repos.push(t.repo);known.add(t.repo.key);}
+ const recent=tasks.filter(t=>["queued","running"].includes(t.state)||(!t.dismissed&&t.updatedAt>=ctx.now-86400));
+ const repos=[...listRepos(ctx,recent.map(t=>t.repo))],known=new Set(repos.map(r=>r.key));
+ for(const t of recent)if(!known.has(t.repo.key)){repos.push(t.repo);known.add(t.repo.key);}
  const labels=labelsFor(repos);
  const notifier=activeNotifier(ctx);
  return {pause,attention,service:{version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifier:notifier?{client_id:notifier.client_id,kind:notifier.kind}:null},planner,executors,accounts,hosts,repos:repos.map(r=>({...r,label:labels.get(r.key)!})),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
