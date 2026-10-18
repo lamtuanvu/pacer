@@ -2,7 +2,7 @@ import { CoreError, type CoreErrorCode } from "../core/errors";
 import pkg from "../../package.json";
 import { opNames } from "./ops";
 
-export const PROTOCOL_VERSION = "2.8.0";
+export const PROTOCOL_VERSION = "2.9.0";
 
 export function helloBody(): { protocol: string; pacer: string; ops: string[]; events: string[] } {
   return { protocol: PROTOCOL_VERSION, pacer: pkg.version, ops: opNames(), events: ["budget", "task", "mode", "alert", "config", "reset", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"] };

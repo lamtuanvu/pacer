@@ -11,7 +11,7 @@ import { validateExecution } from "../config/execution";
 import { fileURLToPath } from "node:url";
 import { pruneSessions } from "../session/retention";
 
-export interface RunSpec { dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe" | "interactive"; sessionLogMb?: number }
+export interface RunSpec { takeover?: boolean; dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe" | "interactive"; sessionLogMb?: number }
 export interface RunState { controller?: string | null; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
 
 const num = (file: string): number | null => {
@@ -23,7 +23,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
   try {
     mkdirSync(spec.dir, { recursive: true });
     // A reused directory must not hand a stale exit or output to the new run.
-    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.json", "session.activity", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
+    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.json", "session.activity", "session.input", "session.ended", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
     const script = join(spec.dir, "run.sh");
     writeFileSync(script, WRAPPER_SH, { mode: 0o700 });
     if (spec.stdin !== undefined) writeFileSync(join(spec.dir, "stdin"), spec.stdin, { mode: 0o600 });
@@ -38,7 +38,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     let command=["/bin/sh", script, spec.dir, ...spec.argv];
     if(pty) {
       chmodSync(spec.dir,0o700); if(taskRun) chmodSync(dirname(spec.dir),0o700);
-      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,argv:spec.argv,cwd:spec.cwd,pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
+      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,takeover:spec.takeover,argv:spec.argv,cwd:spec.cwd,pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
       // Bun source runs and compiled binaries both re-enter through the CLI.
       command=/(^|\/)bun(?:\.exe)?$/.test(process.execPath)
         ? [process.execPath,fileURLToPath(new URL("../cli.ts",import.meta.url)),"_session",spec.dir]
