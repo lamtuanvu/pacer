@@ -30,7 +30,7 @@ export function useQuery<T>(op: string, params: unknown, revision = "") {
     void api.call<T>(op, JSON.parse(serialized)).then(result => { if (active) { setData(result); setError(undefined); } }, error => { if (active) setError(error); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [api, op, serialized, revision, invalidation, state.connected, version]);
-  return { data, error, loading, reload: () => reload(v => v + 1) };
+  return { data, setData, error, loading, reload: () => reload(v => v + 1) };
 }
 export function useAction() {
   const runner = useActions();

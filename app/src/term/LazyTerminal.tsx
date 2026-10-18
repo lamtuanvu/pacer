@@ -9,5 +9,5 @@ export function LazyTerminal(props:TerminalViewProps){
   if(!document.querySelector('link[data-pacer-terminal]')){const link=document.createElement('link');link.rel='stylesheet';link.href='/app/term.css';link.dataset.pacerTerminal='true';document.head.append(link);}
   void import('./term').then(module=>{if(active)setView(()=>module.TerminalView);}).catch(()=>{if(active)setError('Could not load the terminal.');});return ()=>{active=false;};
  },[attempt]);
- return View?<View {...props}/>:<div className="pc-session-empty" role={error?'alert':'status'}>{error||'Loading terminal…'}{error&&<Button onClick={()=>setAttempt(n=>n+1)}>Try again</Button>}</div>;
+ return View?<View {...props}/>:<div className="pc-session-empty" role={error?'alert':'status'}>{error||'Loading terminal…'}{props.takeover}{error&&<Button onClick={()=>setAttempt(n=>n+1)}>Try again</Button>}</div>;
 }

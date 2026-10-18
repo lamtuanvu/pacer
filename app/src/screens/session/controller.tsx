@@ -10,18 +10,19 @@ import { keys } from '../../keys/instance';
 import { useActions } from '../../data/action-context';
 import { useQuery, useTaskContext } from '../task-shared';
 import { Session } from './Session';
+import { takeoverSession, type TakeoverState } from './takeover';
 import { SessionsList } from './SessionsList';
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
  return {id:task.id,goal:task.goal,state:task.state,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
- elapsed:task.attemptStartedAt?elapsed(Date.now()/1000-task.attemptStartedAt):undefined,
+ phase:task.progress?.phase,elapsed:task.attemptStartedAt?elapsed(Date.now()/1000-task.attemptStartedAt):undefined,
  changesSummary:task.progress?`${task.progress.files} files · ${task.progress.commits} commits`:undefined};
 }
 export function Sessions({query}:{query:RouteQuery}) {
- const {state}=useTaskContext(),snapshot=state.snapshot;
+ const {state}=useTaskContext(),snapshot=state.snapshot,runner=useActions();
  const scoped=snapshot?.tasks.filter(t=>!t.dismissed&&(!query.repo||t.repo?.key===query.repo));
  const resource=(data:SessionData[]|undefined)=>({data,loading:!snapshot});
- return <SessionsList running={resource(snapshot?running(snapshot,{repo:query.repo}).map(sessionRow):undefined)} recent={resource(scoped?.filter(t=>!['running','queued'].includes(t.state)).sort((a,b)=>b.updatedAt-a.updatedAt).map(sessionRow))} query={withQuery('',query)}/>;
+ return <SessionsList runner={runner} running={resource(snapshot?running(snapshot,{repo:query.repo}).map(sessionRow):undefined)} recent={resource(scoped?.filter(t=>!['running','queued'].includes(t.state)).sort((a,b)=>b.updatedAt-a.updatedAt).map(sessionRow))} query={withQuery('',query)}/>;
 }
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,
@@ -30,8 +31,30 @@ export function sessionDetail(task:TaskDetail):SessionData {
 export function SessionRoute({id}:{id:string}) {
  const {state,api}=useTaskContext(),runner=useActions();
  const [shortcutError,setShortcutError]=useState('');
+ const [takeoverBusy,setTakeoverBusy]=useState(false),[takeoverStarting,setTakeoverStarting]=useState(false),[takeoverError,setTakeoverError]=useState(''),[takeRequested,setTakeRequested]=useState(false);
+ const takeoverState=useRef<TakeoverState>(),takeoverAbort=useRef<AbortController>();
  const revision=JSON.stringify([state.snapshot?.tasks.find(t=>t.id===id),state.activity.filter(e=>e.taskId===id)]);
  const task=useQuery<TaskDetail>('task.get',{id},revision),session=useQuery<SessionInfo>('task.session',{id},revision),diff=useQuery<{diff:string;untracked:string[];truncated:boolean}>('task.diff',{id},revision);
+ const takeOver=async(initial?:TakeoverState)=>{
+  if(takeoverAbort.current)return;
+  const abort=new AbortController();takeoverAbort.current=abort;
+  setTakeoverBusy(true);setTakeoverError('');
+  try{
+   await takeoverSession({id,call:api.call.bind(api),state:initial??takeoverState.current,signal:abort.signal,
+    starting:()=>{takeoverState.current='starting';setTakeoverStarting(true);},
+    ready:info=>{session.setData(info);setTakeRequested(true);takeoverState.current='driving';}});
+   if(!abort.signal.aborted){task.reload();session.reload();}
+  }catch(error){if(!abort.signal.aborted)setTakeoverError(message(error)??'Takeover failed');}
+  finally{if(!abort.signal.aborted){setTakeoverBusy(false);setTakeoverStarting(false);takeoverAbort.current=undefined;}}
+ };
+ useEffect(()=>{
+  const pending=new URLSearchParams(location.hash.split('?')[1]).get('takeover');
+  if(pending==='starting'||pending==='driving'){
+   history.replaceState(null,'',location.href.replace(/([?&])takeover=(starting|driving)(&?)/,(_,before,_state,after)=>after?before:''));
+   void takeOver(pending);
+  }
+  return ()=>{takeoverAbort.current?.abort();};
+ },[id]);
  const invoke=async(action:Action)=>{
   if(runner.needsConfirm(action)&&!window.confirm(runner.needsConfirm(action)!))return;
   let currentAction=action;
@@ -54,6 +77,6 @@ export function SessionRoute({id}:{id:string}) {
  changes:{data:diff.data?`${diff.data.diff}${diff.data.untracked.length?'\nUntracked files:\n'+diff.data.untracked.join('\n'):''}${diff.data.truncated?'\nDiff truncated.':''}`:undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}),[]);
- return <>{shortcutError&&<p role="status">{shortcutError}</p>}<Session data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
+ return <>{shortcutError&&<p role="status">{shortcutError}</p>}<Session onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;
