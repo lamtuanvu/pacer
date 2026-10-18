@@ -51,9 +51,11 @@ export function makeClassifierHooks(deps: Partial<HookDeps> = {}): DecisionHooks
       return classifierConfig(s);
     } catch { return validateClassifier({}, s?.providers ?? {}); }
   };
+  // Keyed by home as well as id: ids are only unique within one pacer home.
+  const key = (ctx: Ctx, id: string) => `${ctx.pacerHome}\0${id}`;
   const hooks: DecisionHooks = {
     taskKind(ctx, task) {
-      let pending = kindCache.get(task.id);
+      let pending = kindCache.get(key(ctx, task.id));
       if (!pending) {
         pending = (async () => {
           const cfg = config(ctx);
@@ -66,7 +68,7 @@ export function makeClassifierHooks(deps: Partial<HookDeps> = {}): DecisionHooks
           const value = decision.answer.value;
           return typeof value === "string" && (KINDS as readonly string[]).includes(value) ? value : task.kind;
         })().catch(() => task.kind);
-        kindCache.set(task.id, pending);
+        kindCache.set(key(ctx, task.id), pending);
       }
       return pending;
     },
@@ -74,10 +76,10 @@ export function makeClassifierHooks(deps: Partial<HookDeps> = {}): DecisionHooks
       try {
         const cfg = config(ctx, s);
         const threshold = cfg.decisions.difficulty.maxForCheap;
-        let pending = difficultyCache.get(task.id);
+        let pending = difficultyCache.get(key(ctx, task.id));
         if (!pending) {
           pending = (async () => {
-            const kind = kindCache.has(task.id) ? await kindCache.get(task.id)! : task.kind;
+            const kind = kindCache.has(key(ctx, task.id)) ? await kindCache.get(key(ctx, task.id))! : task.kind;
             const set = adapters(ctx, cfg);
             const hasShadow = cfg.shadow.some(id => id !== cfg.decisions.difficulty.use
               && (!set[id].external || cfg.shadowExternal));
@@ -89,7 +91,7 @@ export function makeClassifierHooks(deps: Partial<HookDeps> = {}): DecisionHooks
             });
             return typeof decision.answer.value === "number" ? decision.answer.value : null;
           })().catch(() => null);
-          difficultyCache.set(task.id, pending);
+          difficultyCache.set(key(ctx, task.id), pending);
         }
         const score = await pending;
         if (threshold > 0 && score !== null && score < threshold) {
