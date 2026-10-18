@@ -1,7 +1,7 @@
 import type { Hello } from "../../../src/api/client-types";
 import type { NotifyData } from "../../../src/notify/decide";
 import type { ApiClient } from "../../../src/api/client-types";
-import { parseEnvelope, type LinkSnapshot } from "../../../src/link/envelope";
+import { parseOutboxEvent, type LinkSnapshot } from "../../../src/link/envelope";
 import type { Timers } from "../plugin";
 import type { Transport } from "./choose";
 
@@ -106,7 +106,7 @@ export function apiTransport(o: { connect: () => Promise<ApiClient | null>; time
             return;
           }
           if (!["budget", "task", "mode", "alert"].includes(e.type)) return;
-          const envelope = parseEnvelope({ v: 1, type: e.type, data: e.data });
+          const envelope = parseOutboxEvent({ type: e.type, data: e.data });
           if (envelope) onEnvelope(envelope);
         });
       };

@@ -1,5 +1,7 @@
 # pacer: design spec
 
+> Historical context: protocol 3.0 retired the v1 Orca link, storage bridge, channel sends, console command lines and unversioned read routes on 2026-10-18. The owner waived the release gate; `/v2` remains for one more pacer minor release. See [current protocol](../protocol.md).
+
 - **Date:** 2026-10-11
 - **Status:** Draft for review
 - **Owner:** 3332603+lamtuanvu@users.noreply.github.com

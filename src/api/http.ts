@@ -1,8 +1,9 @@
+import { callV2Op, v2Hello } from "./v2-compat";
 import { sessionCookie } from "../serve/app-routes";
 import * as core from "../core";
 import type { Status } from "../engine/status";
 import type { Ctx } from "../types";
-import { eventsSince, liveSnapshot } from "./events";
+import { eventsSince, liveSnapshot, liveV2Snapshot } from "./events";
 import { callOp, type OpDeps } from "./ops";
 import { helloBody, httpStatus, toApiError, type ApiErrorBody } from "./protocol";
 
@@ -38,7 +39,9 @@ function sse(tailMs: number, poll: (send: (frame: string) => void) => boolean): 
 
 /** Auth is enforced by startServer before dispatching any v2 route. */
 export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?: OpDeps; tailMs?: number; status?: () => Promise<Status> }): Promise<Response> {
-  const url = new URL(req.url), { pathname } = url;
+  const url = new URL(req.url);
+  const version=url.pathname.startsWith("/v3/")?3:2;
+  const pathname=version===3?url.pathname.replace(/^\/v3\//,"/v2/"):url.pathname;
   const tailMs = deps.tailMs ?? 1_000;
   try {
     if (pathname === "/v2/session/exchange") {
@@ -65,17 +68,17 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       catch { return errorResponse({ code: "invalid_input", message: "body is not JSON" }); }
       const label=req.headers.get("X-Pacer-Client")??"";
       const client=/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/.test(label)?label:undefined;
-      const result = await callOp(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
+      const result = await (version===3?callOp:callV2Op)(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
       return Response.json({ result });
     }
     if (req.method !== "GET") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
-    if (pathname === "/v2/hello") return Response.json(helloBody());
-    if (pathname === "/v2/snapshot") return Response.json(await liveSnapshot(deps.getCtx(), { status: deps.status }));
+    if (pathname === "/v2/hello") return Response.json(version===3?helloBody():v2Hello());
+    if (pathname === "/v2/snapshot") return Response.json(await (version===3?liveSnapshot:liveV2Snapshot)(deps.getCtx(), { status: deps.status }));
     if (pathname === "/v2/events") {
       let last = Number(req.headers.get("last-event-id") ?? url.searchParams.get("since") ?? 0);
       if (!Number.isSafeInteger(last) || last < 0) return errorResponse({ code: "invalid_input", message: "since must be a non-negative integer" });
       return sse(tailMs, send => {
-        const batch = eventsSince(deps.getCtx(), last);
+        const batch = eventsSince(deps.getCtx(), last,version);
         for (const e of batch.events) send(`id: ${e.seq}\nevent: ${e.type}\ndata: ${JSON.stringify(e.data)}\n\n`);
         last = batch.last;
         return false;
@@ -103,3 +106,6 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
     return errorResponse({ code: "unknown_op", message: "not found" });
   } catch (e) { return errorResponse(toApiError(e)); }
 }
+
+/** Both versioned route families share auth, body limits and streaming behavior. */
+export const handleV3 = handleV2;

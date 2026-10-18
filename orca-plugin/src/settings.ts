@@ -1,10 +1,10 @@
-export type TransportChoice = "auto" | "api" | "http" | "channel" | "bridge";
+export type TransportChoice = "auto" | "api";
 export interface PluginSettings { transport: TransportChoice; port: number; pacerHome: string; pollSeconds: number; lastAlertAt: number; deliveredAlerts?: {key:string;at:number}[]; settingsReady?: boolean; notifications?: "off"|"important"|"all" }
 export function readSettings(raw: Record<string, unknown>, home: string): PluginSettings {
   const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
   return {
     notifications:["off","important","all"].includes(String(raw.notifications))?raw.notifications as "off"|"important"|"all":"important",
-    transport: ["auto", "api", "http", "channel", "bridge"].includes(raw.transport as string) ? raw.transport as TransportChoice : "auto",
+    transport: ["auto", "api"].includes(raw.transport as string) ? raw.transport as TransportChoice : "auto",
     port: finite(raw.port) && Number.isInteger(raw.port) && raw.port >= 1 && raw.port <= 65535 ? raw.port : 4317,
     pacerHome: typeof raw.pacerHome === "string" && raw.pacerHome.length > 0 ? raw.pacerHome : `${home}/.pacer`,
     pollSeconds: finite(raw.pollSeconds) ? Math.max(5, Math.min(300, raw.pollSeconds)) : 10,

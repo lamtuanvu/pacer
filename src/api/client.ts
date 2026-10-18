@@ -1,12 +1,13 @@
+import { callV2Op, v2Hello } from "./v2-compat";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Status } from "../engine/status";
 import { DEFAULT_PORT } from "../serve/http";
 import type { LinkSnapshot } from "../link/envelope";
 import type { Ctx } from "../types";
-import { eventsSince, liveSnapshot } from "./events";
-import { callOp, type OpDeps } from "./ops";
-import { helloBody, toApiError, type ApiEvent } from "./protocol";
+import { eventsSince, liveV2Snapshot } from "./events";
+import { type OpDeps } from "./ops";
+import { toApiError, type ApiEvent } from "./protocol";
 import { ApiError, type ApiClient, type Hello } from "./client-types";
 import { HttpClient } from "./http-client";
 export { ApiError, type ApiClient, type ApiErrorCode, type Hello } from "./client-types";
@@ -42,14 +43,14 @@ export class InProcessClient implements ApiClient {
 
   private liveCtx(): Ctx { return { ...this.getCtx(), now: Date.now() / 1000 }; }
 
-  async hello(): Promise<Hello> { return helloBody(); }
+  async hello(): Promise<Hello> { return v2Hello(); }
 
   snapshot(): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot }> {
-    return liveSnapshot(this.liveCtx(), { status: this.o.status });
+    return liveV2Snapshot(this.liveCtx(), { status: this.o.status });
   }
 
   async call<T = unknown>(op: string, params?: unknown): Promise<T> {
-    try { return await callOp(this.liveCtx(), op, params, this.o.opDeps) as T; }
+    try { return await callV2Op(this.liveCtx(), op, params, this.o.opDeps) as T; }
     catch (e) {
       const error = toApiError(e);
       throw new ApiError(error.code, error.message, error.hint);

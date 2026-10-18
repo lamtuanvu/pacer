@@ -65,7 +65,7 @@ function entries(ctx: Ctx): ActivityEntry[] {
 export function appendActivity(ctx: Ctx, e: Omit<ActivityEntry, "id" | "at">, onAppend: (entry: ActivityEntry) => void = () => {}): ActivityEntry {
   const entry: ActivityEntry = { ...e, text: safeText(e.text), id: `${ctx.now}-${randomBytes(2).toString("hex")}`, at: ctx.now };
   withLogLock(ctx, () => appendFileSync(logPath(ctx), JSON.stringify(entry) + "\n", { mode: 0o600 }));
-  void publish(ctx, [{ v: 1, type: "entity", data: { kind: "activity", id: entry.id, value: entry } }], { channel: false });
+  void publish(ctx, [{ type: "entity", data: { kind: "activity", id: entry.id, value: entry } }]);
   onAppend(entry);
   return entry;
 }

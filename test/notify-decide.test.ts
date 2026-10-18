@@ -22,7 +22,7 @@ test("levels filter attention and keys include since with at most two actions", 
 
 test("a durable targeted event stays delivered after the notifier lease lapses", async () => {
  const ctx=fakeCtx(), notifier=register(ctx,{kind:"orca",version:"1",notifier:true});let fallback=0;
- const deps={publish:(c:typeof ctx,e:Parameters<typeof publish>[1])=>publish(c,e,{channel:false,bridge:false}),postFallback:async()=>{fallback++;return true;}};
+ const deps={publish:(c:typeof ctx,e:Parameters<typeof publish>[1])=>publish(c,e),postFallback:async()=>{fallback++;return true;}};
  await dispatchNotifications(ctx,[item()],deps);
  expect(eventsSince(ctx,0).events).toEqual([expect.objectContaining({type:"notify",data:expect.objectContaining({client_id:notifier.client_id,key:"failed:t-1:100",title:item().title})})]);
  ctx.now+=46;
@@ -52,7 +52,7 @@ test("failed publication remains eligible for delivery", async()=>{
 test("all includes mode transitions and every settled state while important excludes them", async()=>{
  const {setLevel}=await import("../src/core/notify");
  const ctx=fakeCtx(),shown:string[]=[];
- const events:import("../src/link/envelope").Envelope[]=[{v:1,type:"mode",data:{mode:"strict",previous:"normal",strategy:"s",at:ctx.now}},...["done","partial","failed","limit","stopped"].map(state=>({v:1 as const,type:"task" as const,data:{id:state,state,goal:state,executor:null,backend:null,worktree:null,updatedAt:ctx.now}}))];
+ const events:import("../src/link/envelope").OutboxEvent[]=[{type:"mode",data:{mode:"strict",previous:"normal",strategy:"s",at:ctx.now}},...["done","partial","failed","limit","stopped"].map(state=>({type:"task" as const,data:{id:state,state,goal:state,executor:null,backend:null,worktree:null,updatedAt:ctx.now}}))];
  const deps={events,postFallback:async(title:string)=>{shown.push(title);return true;}};
  await dispatchNotifications(ctx,[],deps);expect(shown).toEqual([]);
  setLevel(ctx,"all");

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { resolvePlacement, type TaskRecord } from "../src/tasks/types";
 import { delegate, validateInput } from "../src/tasks/api";
 import { validateStrategy } from "../src/config/strategy";
-import { parseEnvelope } from "../src/link/envelope";
+import { parseOutboxEvent } from "../src/link/envelope";
 import { taskData } from "../src/link/pump";
 import { summarizeTask } from "../src/mcp/server";
 import { placementLine } from "../orca-plugin/src/panel/overview";
@@ -35,8 +35,8 @@ test("delegate validates and stores placement before spawning",()=>{
 test("resolved placement propagates through status, link and escaped panel text",()=>{
  const t={rev:1,id:"t",state:"running",createdAt:1,kind:null,requestedExecutor:null,timeoutS:60,brief,attempts:[],worktree:"/new/path",placement:{requested:"new",mode:"new",why:"agent: <risky>"}} as TaskRecord;
  const d=taskData(t);expect(summarizeTask(t).placement).toMatchObject({mode:"new",why:"agent: <risky>"});expect(d.worktree).toBe("/new/path");
- const parsed=parseEnvelope({v:1,type:"task",data:d});expect(parsed).toMatchObject({data:{placement:{mode:"new",why:"agent: <risky>"}}});
+ const parsed=parseOutboxEvent({type:"task",data:d});expect(parsed).toMatchObject({data:{placement:{mode:"new",why:"agent: <risky>"}}});
  expect(placementLine(d)).toContain('class="muted"');expect(placementLine(d)).toContain("new worktree /new/path (agent: &lt;risky&gt;)");
- for(const placement of [{mode:"invalid",why:"x"},{mode:"new",why:42},null])expect(parseEnvelope({v:1,type:"task",data:{...d,placement}})).not.toHaveProperty("data.placement");
- expect(parseEnvelope({v:1,type:"task",data:{...d,placement:{mode:"current",why:"x".repeat(500)}}})).toMatchObject({data:{placement:{mode:"current",why:"x".repeat(240)}}});
+ for(const placement of [{mode:"invalid",why:"x"},{mode:"new",why:42},null])expect(parseOutboxEvent({type:"task",data:{...d,placement}})).not.toHaveProperty("data.placement");
+ expect(parseOutboxEvent({type:"task",data:{...d,placement:{mode:"current",why:"x".repeat(500)}}})).toMatchObject({data:{placement:{mode:"current",why:"x".repeat(240)}}});
 });

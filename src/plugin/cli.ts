@@ -21,7 +21,7 @@ export function parseSetting(key: string, value: string): unknown {
       if (!["on", "off"].includes(value)) throw new Error("autoConsole must be on or off");
       return value === "on";
     case "transport":
-      if (!["auto", "http", "channel", "bridge"].includes(value)) throw new Error("transport must be auto, http, channel or bridge");
+      if (!["auto", "api"].includes(value)) throw new Error("transport must be auto or api");
       return value;
     case "port": {
       const n = Number(value);

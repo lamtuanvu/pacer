@@ -80,6 +80,6 @@ export function save(ctx:Ctx,name:string,draft:Draft,reason:string,opts:{overwri
 }
 export async function use(ctx:Ctx,name:string):Promise<string> {
   show(ctx,name); const path=useStrategy(ctx,name);
-  await publish(ctx,[{v:1,type:"alert",data:{key:"strategy-switch",level:"info",title:`Switched to strategy ${name}`,body:"Nothing to do.",notification:{kind:"strategy",strategy:name},at:ctx.now}}]); return path;
+  await publish(ctx,[{type:"alert",data:{key:"strategy-switch",level:"info",title:`Switched to strategy ${name}`,body:"Nothing to do.",notification:{kind:"strategy",strategy:name},at:ctx.now}}]); return path;
 }
 export function remove(ctx:Ctx,name:string) {checkName(name,true); if(loadStrategy(ctx).name===name) throw new Error("cannot delete the active strategy"); const path=pathFor(ctx,name); if(!existsSync(path))throw new Error(`unknown strategy "${name}"`); rmSync(path); return {name,deleted:true};}

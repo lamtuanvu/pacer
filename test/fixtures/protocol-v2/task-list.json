@@ -1,0 +1,120 @@
+{
+  "result": [
+    {
+      "task_id": "t-20261010-190000-0007",
+      "title": "Fixture needs_input",
+      "goal": "Fixture needs_input",
+      "state": "needs_input",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "question": {
+        "text": "Which approach?",
+        "at": 1791633600
+      },
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0006",
+      "title": "Fixture stopped",
+      "goal": "Fixture stopped",
+      "state": "stopped",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0005",
+      "title": "Fixture limit",
+      "goal": "Fixture limit",
+      "state": "limit",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0004",
+      "title": "Fixture failed",
+      "goal": "Fixture failed",
+      "state": "failed",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0003",
+      "title": "Fixture partial",
+      "goal": "Fixture partial",
+      "state": "partial",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0002",
+      "title": "Fixture done",
+      "goal": "Fixture done",
+      "state": "done",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0001",
+      "title": "Fixture running",
+      "goal": "Fixture running",
+      "state": "running",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0000",
+      "title": "Fixture queued",
+      "goal": "Fixture queued",
+      "state": "queued",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    }
+  ]
+}

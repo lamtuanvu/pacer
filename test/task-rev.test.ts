@@ -35,7 +35,7 @@ test("stale review returns the current task in conflict data without recording a
   const { ctx, task } = fixture();
   updateTask(ctx, task.id, t => { t.state = "done"; });
   updateTask(ctx, task.id, () => {});
-  const result = await callOp(ctx, "task.review", { id: task.id, accepted: true, expect_rev: 1 }).catch(toApiError);
+  const result = await callOp(ctx, "task.review", { id: task.id, verdict: "accept", expect_rev: 1 }).catch(toApiError);
   expect(result).toMatchObject({ code: "conflict", message: "task changed", data: { task: { id: task.id, rev: 3, repo: { key: expect.any(String) } } } });
   expect(readTask(ctx, task.id)?.review).toBeUndefined();
 });
@@ -43,7 +43,7 @@ test("stale review returns the current task in conflict data without recording a
 test("concurrent reviews with the same revision record exactly one verdict", async () => {
   const { ctx, task } = fixture();
   const rev = updateTask(ctx, task.id, t => { t.state = "done"; }).rev;
-  const results = await Promise.allSettled([true, false].map(accepted => callOp(ctx, "task.review", { id: task.id, accepted, expect_rev: rev })));
+  const results = await Promise.allSettled([true, false].map(accepted => callOp(ctx, "task.review", { id: task.id, verdict: accepted ? "accept" : "reject", expect_rev: rev })));
   expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
   const rejected = results.find(r => r.status === "rejected") as PromiseRejectedResult;
   expect(toApiError(rejected.reason)).toMatchObject({ code: "conflict", data: { task: { rev: rev + 1 } } });

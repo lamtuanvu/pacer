@@ -73,7 +73,7 @@ test("task.list filters before paging and keeps limit-only legacy arrays",async(
  expect(new Set([...first.tasks,...second.tasks].map(t=>t.id)).size).toBe(4);
  expect((await callOp(ctx,"task.list",{executor:"absent"}) as any).tasks).toEqual([]);
  expect((await callOp(ctx,"task.list",{since:ctx.now+4}) as any).tasks).toHaveLength(1);
- expect(Array.isArray(await callOp(ctx,"task.list",{limit:5}))).toBe(true);
+ expect(await callOp(ctx,"task.list",{limit:5})).toMatchObject({tasks:expect.any(Array),next:null});
 });
 
 test("routing.route classifies a goal and accepts a repo key",async()=>{

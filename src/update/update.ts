@@ -1,6 +1,5 @@
 import { realpathSync } from "node:fs";
 import { refreshIntegrations, refreshStrategy } from "../commands/update-refresh";
-import { restartConsoles } from "../console/restart";
 import { restartAfterUpdate } from "../service";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
@@ -25,7 +24,7 @@ export interface UpdateDeps {
   smoke?: SmokeFn;
   refreshIntegrations?: (path: string) => Promise<string[]>;
   migrateStrategy?: () => string[];
-  restartService?: (path: string) => Promise<boolean | { restarted: boolean; consoles: number; warning?: string }>;
+  restartService?: (path: string) => Promise<boolean | { restarted: boolean; warning?: string }>;
 }
 
 export function parseUpdateArgs(args: string[]): UpdateOptions | string {
@@ -68,8 +67,7 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
       let restarted = false, warning: string | undefined;
       try { restarted = await restartAfterUpdate(ctx, path); } catch (e) { warning = `could not restart pacer serve: ${(e as Error).message}`; }
       const warnings = warning ? [warning] : [];
-      const consoles = await restartConsoles(ctx, undefined, message => warnings.push(message));
-      return { restarted, warning: warnings.length ? warnings.join("; ") : undefined, consoles };
+      return { restarted, warning: warnings.length ? warnings.join("; ") : undefined };
     },
   };
 }
@@ -159,7 +157,7 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
       try { const result = await d.restartService(r.path);
         if(!(typeof result === "boolean" ? result : result.restarted)) d.progress?.("Restart","skipped","Service was not restarted");
         if (typeof result === "boolean") { if (result) serviceNote = "\nrestarted pacer serve"; }
-        else serviceNote = (result.restarted ? "\nrestarted pacer serve" : "") + `\nrestarted ${result.consoles} pacer consoles` + (result.warning ? `\nWARNING: ${result.warning}` : "");
+        else serviceNote = (result.restarted ? "\nrestarted pacer serve" : "") + (result.warning ? `\nWARNING: ${result.warning}` : "");
       }
       catch (e) { d.progress?.("Restart","skipped",String(e)); serviceNote = `\nWARNING: could not restart pacer serve: ${(e as Error).message}`; }
     }

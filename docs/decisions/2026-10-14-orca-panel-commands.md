@@ -1,5 +1,7 @@
 # Orca panel commands decision — 2026-10-14
 
+> Historical context: protocol 3.0 retired the v1 Orca link, storage bridge, channel sends, console command lines and unversioned read routes on 2026-10-18. The owner waived the release gate; `/v2` remains for one more pacer minor release. See [current protocol](../protocol.md).
+
 Status: superseded for panel commands (D2) by the [information-only decision](2026-10-15-orca-plugin-information-only.md); D1 and D3 remain in effect. Human live verification pending.
 Source: `docs/specs/2026-10-14-core-contract-design.md`, section 5, on branch
 `docs/remote-runners-design`, and the panel restrictions recorded in the

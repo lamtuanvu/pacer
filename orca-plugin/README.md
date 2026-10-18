@@ -59,41 +59,34 @@ reload and enable `lamtuanvu.pacer` in Orca. `pacer plugin status` detects older
 installs, and `pacer plugin uninstall` can remove either tracked identity.
 Orca settings and installed plugin trees are never edited by these CLI commands.
 
-After the development-folder handoff, transport selection is HTTP on loopback (default port 4317, bearer token read
-from `<pacerHome>/token`), a future `plugin.message` channel, then the storage
-bridge. The channel is unavailable in current Orca and is probed safely.
-Settings include `releaseBase` (optional release folder), `transport` (`auto`, `http`, `channel`, `bridge`), `port`,
-`autoConsole` (default true), `pacerHome` (default `~/.pacer`), `pollSeconds` (5–300, default 10), and the
-persisted `lastAlertAt` watermark. Orca filters `PACER_HOME` out of worker env;
-set the plugin's `pacerHome` setting for a custom location.
+After the development-folder handoff, the worker connects to the v2 API over
+loopback HTTP (default port 4317, bearer token from `<pacerHome>/token`), or
+starts a `pacer api --stdio` child. The storage bridge, channel sends, legacy
+HTTP transport and `pacer console` were removed in protocol 3.0. The panel is
+information only; use `pacer open` or `pacer dashboard` for actions.
 
-With `pacer serve` running, the HTTP worker checks the active worktree every five
-seconds and opens its own pacer console automatically.
-Use `pacer plugin set autoConsole off` (or `on`) and reload the plugin to change
-this default; bridge/channel transports never open consoles. The panel shows
-“Starting pacer console in this worktree...” while connected with autoConsole on;
-otherwise “Start console” types `pacer console` with `enter:false` for you to run.
+Settings include `releaseBase`, `transport` (`auto` or `api`), `port`,
+`pacerHome` (default `~/.pacer`) and `pollSeconds` (5–300, default 10).
+Older transport values select API; `autoConsole` is ignored. Orca filters
+`PACER_HOME` out of the worker environment; set `pacerHome` for a custom location.
 
-Serve retains its GET routes and adds one token-gated `POST /console/open`, with
-JSON bodies capped at 4 KiB and validated terminal/branch selectors. It refuses
-worktrees with a live console, limits opens to one per worktree per minute and
-ten per hour overall, and creates a terminal without focusing it. The command
-comes only from pacer's own executable argv; each open emits an info alert.
+The worker registers as a service notifier, renews its lease every 30 seconds
+and delivers only notifications addressed to its client id. If the API is
+unavailable, the panel shows **Update the pacer plugin** and `pacer update`.
+Update and restart the plugin to reconnect.
 
-Manual fallback: run `pacer console --open` to enable Delegate and Switch strategy. Commands
-use only the console's advertised terminal handle while its heartbeat is at
-most 30 seconds old. Their `: pacer '<json>'` lines are inert in a POSIX shell.
-Open console reports whether a console is running; it does not spawn a process.
+Protocol [3.0](../docs/protocol.md) is current; the [2.x compatibility
+API](../docs/protocol-v2.md) remains for one more pacer minor release.
 
 ## Known limitations (Orca pluginApi 1, verified on Orca 1.4.224)
 
 | Limitation | What pacer does today | Upstream |
 | --- | --- | --- |
-| No panel → worker messaging | Panel buttons type shell-inert commands into a pacer console with a fresh heartbeat; each worktree needs its own console. The prospective channel transport is probed safely but unavailable. | [#25129 comment](https://github.com/stablyai/orca/issues/25129#issuecomment-6126817756) |
-| `terminal.sendText` only reaches the active worktree; the Node worker can create terminals through the Orca CLI | The HTTP service opens a console in the focused worktree. Commands only target a console whose heartbeat is at most 30 seconds old. Manual fallback remains `pacer console --open`. | [#28008](https://github.com/stablyai/orca/issues/28008) |
+| No panel → worker messaging | The panel is information only. Use `pacer open` for actions. | [#25129 comment](https://github.com/stablyai/orca/issues/25129#issuecomment-6126817756) |
+| `terminal.sendText` only reaches the active worktree; the Node worker can create terminals through the Orca CLI | The worker uses the versioned API; task sessions use the app or TUI. | [#28008](https://github.com/stablyai/orca/issues/28008) |
 | No worker → panel push | Marketplace panels stay static and hand off to a managed development folder. Only that folder rewrites `panel/live.html`; reopen to refresh. | [#26951 comment](https://github.com/stablyai/orca/issues/26951#issuecomment-6126818405), related [#15638](https://github.com/stablyai/orca/issues/15638) |
 | Forms do not submit inside panels | Use `type="button"` controls and click handlers, with Enter handled in script. Native form submission and validation cannot be relied on. | [#28009](https://github.com/stablyai/orca/issues/28009) |
-| No plugin exec / declared command API | Panel actions use terminal IPC; the Node worker uses execFile for its own bootstrap and terminal preparation. | [#18214 comment](https://github.com/stablyai/orca/issues/18214#issuecomment-6126819013) |
+| No plugin exec / declared command API | The panel has no actions; the Node worker uses execFile for its own bootstrap and terminal preparation. | [#18214 comment](https://github.com/stablyai/orca/issues/18214#issuecomment-6126819013) |
 
 The worker uses loopback HTTP, token reads, atomic writes only to its managed development panel, verified release downloads and execFile without a shell. It never edits agent configs automatically. See the [upstream evidence](../docs/upstream/orca/README.md) and [roadmap](../ROADMAP.md) for the API changes that would remove these workarounds.
 
@@ -104,7 +97,7 @@ Execution defaults to `child-of-current`, using the current branch under the own
 
 Update availability is checked on plugin startup and every six hours, with one
 notification per new version. Marketplace: Orca Settings > Plugins > Refresh,
-then Update plugin. Development folder: use the live panel's Updates card or
+then Update plugin. Development folder: run
 `pacer update`, then turn pacer off and on in Orca Settings > Plugins; if only the
 plugin is behind the CLI, run `pacer plugin install` first. `pacer update --check
 --json` reports versions without installing. Disable checks with

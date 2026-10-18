@@ -6,7 +6,6 @@ import { cmdToOp, runMappedCmd } from "../src/api/cmd";
 import { ApiError } from "../src/api/client";
 import { CoreError } from "../src/core/errors";
 import { consoleCommands, type ConsoleDeps } from "../src/console/console";
-import { CMD_NAMES } from "../src/link/envelope";
 import { createTask, readTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
@@ -69,7 +68,7 @@ test("retry mapping opts console commands into panel semantics", () => {
 });
 
  test("every non-local console command maps to a v2 op", () => {
-  for (const cmd of CMD_NAMES.filter(cmd => !["refresh", "agent-done", "worktree-created", "focus", "attach"].includes(cmd))) {
+  for (const cmd of (["check-setup","check-updates","update","delegate","retry","retry-all","dismiss","block","unblock","stop","use","strategy-build","notify-level","config-set","account-remove","runner-remove","open-terminal"] as const)) {
    expect(cmdToOp({cmd}), cmd).not.toBeNull();
   }
   expect(cmdToOp({cmd:"delegate",goal:"fix",path:"/repo"})).toEqual({op:"task.delegate",params:{goal:"fix",repo:"/repo",source:"ui"}});

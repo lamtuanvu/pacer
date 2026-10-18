@@ -2,8 +2,8 @@
 
 The pacer app is a browser interface for budgets, delegated work and configuration.
 It is served by `pacer serve` at `http://127.0.0.1:4317/app/`, with its files
-embedded in the pacer binary. It uses the same [v2 API](protocol.md) as other
-pacer clients.
+embedded in the pacer binary. It uses the same [2.x compatibility API](protocol-v2.md) as other
+pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available for one pacer minor release. The app consumes the read model during this overlap.
 
 ## Open the app
 
@@ -133,11 +133,11 @@ port.
 ## Client compatibility
 
 Console commands and TUI actions use v2 operations. The TUI hides actions
-missing from `hello.ops`; task focus uses the console until live sessions ship.
-`/state` and `/console/*` have been removed. Internal status probes use
-`/v2/snapshot`. `/link` and `/events` remain available with
-`Deprecation: true` and `Sunset: 3.0` for older plugins. Automatic Orca transport
-selection tries API, channel, then bridge; HTTP can still be selected explicitly.
+missing from `hello.ops`. Task sessions use the session API. `/state`,
+`/console/*`, `/link` and the unversioned `/events` route are removed.
+Internal probes and the app use `/v2/snapshot` during the one-minor overlap.
+The Orca plugin uses only the API transport, with HTTP v2 or stdio.
+
 
 `pacer status --line` adds `▸<running> ⚑<attention>` from the service counts.
 It waits up to 300 ms, then uses local budget data without counts. When the

@@ -14,7 +14,7 @@ test("link status with nothing running reports absent transports", async () => {
   const f = fakeRun([[ ["orca", "agent-context"], raw('{"commands":[]}') ]]);
   const r = await linkCli(["status"], fakeCtx({ run: f.run }));
   expect(r.code).toBe(0);
-  for (const text of ["outbox:", "serve: not reachable", "console: not running", "bridge: plugin not installed", "channel: not available"]) expect(r.out).toContain(text);
+  for (const text of ["outbox:", "serve: not reachable"]) expect(r.out).toContain(text);
 });
 test("unknown link subcommand returns usage", async () => {
   const r = await linkCli(["bogus"], fakeCtx()); expect(r.code).toBe(2); expect(r.err).toContain("link status|probe");

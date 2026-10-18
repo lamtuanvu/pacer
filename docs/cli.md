@@ -197,13 +197,12 @@ the running plugin. These checks never install a newer release automatically;
 bootstrap installation still only installs/updates the CLI version shipped with
 that plugin.
 
-## Console (deprecated)
+## Console retirement
 
-`pacer console` is deprecated and remains available for one release. Use
-`pacer dashboard` to delegate, review, block executors or change settings until
-the pacer app ships. The Orca plugin shows a read-only status page and never
-starts or contacts consoles; **pacer: Open** directs you to the dashboard.
-The bootstrap installer still opens setup or the dashboard as before.
+`pacer console` and its command lines were removed in protocol 3.0. Use
+`pacer dashboard` for terminal actions or `pacer open` for the app. The Orca
+panel reads the API and delivers service notifications; **pacer: Open** points
+to the app. `pacer link status|probe` checks the outbox and versioned service.
 
 ## Remote hosts
 

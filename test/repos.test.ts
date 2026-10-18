@@ -56,7 +56,7 @@ test("pump backfills old task repo refs without git during subsequent reads",asy
  await realRun(["git","-C",repo,"remote","add","origin","git@github.com:acme/old.git"],10000);
  const old=createTask(ctx,{brief:{goal:"old task",repo},kind:null,requestedExecutor:null,timeoutS:60});
  expect(apiTask(ctx,old).repo.key).toMatch(/^local:/);
- await pumpOnce(ctx,{status:async()=>st,strategy:()=>s,tasks:()=>[old],setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,e,o)=>publish(c,e,{...o,bridge:false,channel:false})});
+ await pumpOnce(ctx,{status:async()=>st,strategy:()=>s,tasks:()=>[old],setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,e)=>publish(c,e)});
  expect(apiTask({...ctx,run:async()=>{throw Error("no git on reads");}},old).repo.key).toBe("github.com/acme/old");
 });
 

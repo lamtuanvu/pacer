@@ -1,4 +1,3 @@
-import { restartConsoles } from "../console/restart";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { readText } from "../install/fsx";
@@ -15,9 +14,7 @@ export async function serviceCli(args: string[], ctx: Ctx, deps: ServiceDeps = {
       case "install": out = ["installed pacer serve", ...await b.install()].join("\n"); break;
       case "uninstall": await b.uninstall(); out = "uninstalled pacer serve"; break;
       case "restart": {
-        await b.restart(); const warnings: string[] = [];
-        const count = await restartConsoles(ctx, undefined, message => warnings.push(`WARNING: ${message}`));
-        out = [`restarted pacer serve`, `restarted ${count} pacer consoles`, ...warnings].join("\n"); break;
+        await b.restart(); out = "restarted pacer serve"; break;
       }
       case "status": {
         const s = await b.status();

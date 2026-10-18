@@ -246,11 +246,11 @@ test("update restarts after successful replacement, warns on restart failure, an
   }
 });
 
-test("update reports service and console restart counts and retains warning with counts", async()=>{
+test("update reports service restart and retains its warning", async()=>{
  for(const warning of [undefined,"could not restart pacer serve: unavailable"]) {
   const root=tmpDir();release(root,"0.2.0");const exec=installed();
-  const result=await runUpdate({check:false},deps(root,exec,{restartService:async()=>({restarted:!warning,consoles:2,warning})}));
-  expect(result.code).toBe(0);expect(result.out).toContain("restarted 2 pacer consoles");if(warning)expect(result.out).toContain(`WARNING: ${warning}`);else expect(result.out).toContain("restarted pacer serve");
+  const result=await runUpdate({check:false},deps(root,exec,{restartService:async()=>({restarted:!warning,warning})}));
+  expect(result.code).toBe(0);expect(result.out).not.toContain("pacer consoles");if(warning)expect(result.out).toContain(`WARNING: ${warning}`);else expect(result.out).toContain("restarted pacer serve");
  }
 });
 

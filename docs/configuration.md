@@ -117,27 +117,14 @@ Save named YAML files under `~/.pacer/strategies/`. `pacer strategy list` and `p
 
 ## Orca plugin transport
 
-The Orca plugin's `transport` setting accepts `auto | api | http | channel | bridge`
-and defaults to `auto`. This is a plugin setting, separate from `strategy.yaml`.
-
-| Value | Behavior |
-| --- | --- |
-| `auto` | Tries `api`, then `http`, `channel` and `bridge`, choosing the first reachable transport. |
-| `api` | Reads the v2 API over loopback HTTP when `pacer serve` is running, otherwise through a `pacer api --stdio` child. |
-| `http` | Uses the legacy loopback `pacer serve` link transport; requires the server. |
-| `channel` | Uses the `orca plugin send` channel transport, when available; deprecated. |
-| `bridge` | Reads the plugin storage bridge; deprecated. |
-
-Selecting a specific value forces that transport rather than automatic fallback.
-The storage bridge and channel remain supported for this release and will be
-removed in the next minor release.
-
-The panel is a read-only status page. The worker never starts or contacts
-consoles. The `autoConsole` plugin setting has been removed; existing values are
-ignored. The only plugin command, **pacer: Open**, shows where to act: run
-`pacer open` in a terminal to open the [pacer app](app.md). The bootstrap
-installer is unchanged. See the
-[information-only decision](decisions/2026-10-15-orca-plugin-information-only.md).
+The Orca plugin uses only the versioned API: HTTP v2 on loopback when the
+service is available, otherwise a `pacer api --stdio` child. The `transport`
+setting accepts `auto` or `api`; older saved values fall back to API selection.
+The storage bridge, channel sends and legacy HTTP routes are retired in 3.0.
+If no API can connect, the panel shows **Update the pacer plugin** with
+`pacer update`. Restart the plugin after updating. Notifications still use the
+service notifier registration and heartbeat. `autoConsole` is ignored;
+use `pacer dashboard` or `pacer open` to act.
 
 ## Capacity, pause and executor settings
 
