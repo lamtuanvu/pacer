@@ -24,7 +24,7 @@ export async function fixture() {
  if(state==='needs_input')t.question={text:'Which approach?',at:ctx.now};
  writeJsonAtomic(join(ctx.pacerHome,'tasks',`${t.id}.json`),t);
  });
- await publish(ctx,[{v:1,type:'alert',data:{key:'fixture',level:'warn',title:'Fixture attention',body:'Check the build',at:ctx.now}}],{bridge:false,channel:false});
+ await publish(ctx,[{type:'alert',data:{key:'fixture',level:'warn',title:'Fixture attention',body:'Check the build',at:ctx.now}}]);
  const status:Status={generatedAt:ctx.now,strategy:'default',planner:'claude-code',mode:'normal',disabled:false,calendarPace:false,providers:[],executors:{ranked:[],excluded:[]}};
  return {ctx,status};
 }

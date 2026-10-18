@@ -1,4 +1,4 @@
-import { contentKey, emptySnapshot, reduce, type Envelope } from "../../src/link/envelope";
+import { contentKey, emptySnapshot, reduce, type OutboxEvent } from "../../src/link/envelope";
 import type { ClientSnapshot } from "../../src/view-model/snapshot";
 import type { TransportId } from "./transports/choose";
 /** Ignore heartbeat-only updates, but observe every field the status page renders. */
@@ -11,7 +11,7 @@ export class LinkStore {
   transport: TransportId | null = null;
   private listeners: ((s: ClientSnapshot) => void)[] = [];
   constructor(private nowS: () => number) {}
-  apply(e: Envelope): void { this.replace(reduce(this.snapshot, e, this.nowS())); }
+  apply(e: OutboxEvent): void { this.replace(reduce(this.snapshot, e, this.nowS())); }
   replace(s: ClientSnapshot): void {
     const changed = snapshotKey(s) !== snapshotKey(this.snapshot); this.snapshot = s;
     if (changed) for (const fn of this.listeners) fn(s);

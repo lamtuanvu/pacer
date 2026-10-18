@@ -37,7 +37,7 @@ test('v3 event cursors resume without resetting or replaying and preserve public
  expect(first.events[0]!.at).toBe(ctx.now);
  expect(eventsSince(ctx,first.last,3)).toEqual({events:[],last:first.last,reset:false});
  const {publish}=await import('../src/link/publish');
- await publish({...ctx,now:ctx.now+5},[{v:1,type:'budget',data:{generatedAt:ctx.now+5,strategy:'default',planner:'claude-code',mode:'normal',providers:[],ranked:[]}}],{bridge:false,channel:false});
+ await publish({...ctx,now:ctx.now+5},[{type:'budget',data:{generatedAt:ctx.now+5,strategy:'default',planner:'claude-code',mode:'normal',providers:[],ranked:[]}}]);
  const next=eventsSince({...ctx,now:ctx.now+10},first.last,3);
  expect(next.events).toHaveLength(1);expect(next.events[0]).toMatchObject({type:'planner',at:ctx.now+5,data:{runner:'claude-code'}});
  expect(next.reset).toBe(false);
@@ -51,7 +51,7 @@ test('v3 resets old cursors in an empty outbox and preserves retention-gap reset
  const {fakeCtx}=await import('./helpers');const ctx=fakeCtx();
  expect(eventsSince(ctx,1,3)).toMatchObject({reset:true,events:[{type:'reset'}]});
  const {appendOutbox}=await import('../src/link/store');
- appendOutbox(ctx,[{seq:50,envelope:{v:1,type:'config',data:{area:'config',at:ctx.now}}}]);
+ appendOutbox(ctx,[{seq:50,envelope:{type:'config',data:{area:'config',at:ctx.now}}}]);
  const batch=eventsSince(ctx,V3_CURSOR_BASE+10,3);
  expect(batch.reset).toBe(true);expect(batch.events.map(e=>e.seq)).toEqual([V3_CURSOR_BASE+49,V3_CURSOR_BASE+50]);
 });
@@ -80,7 +80,7 @@ test('durable outbox drops v and reads both old and new entries',async()=>{
  const {outboxPath}=await import('../src/link/paths');
  const {appendFileSync}=await import('node:fs');
  const data={area:'config',at:ctx.now};
- appendOutbox(ctx,[{seq:1,envelope:{v:1,type:'config',data}}]);
+ appendOutbox(ctx,[{seq:1,envelope:{type:'config',data}}]);
  expect((await Bun.file(outboxPath(ctx)).json()).envelope).toEqual({type:'config',data});
  appendFileSync(outboxPath(ctx),JSON.stringify({seq:2,envelope:{v:1,type:'config',data}})+'\n');
  expect(readOutboxSince(ctx,0).map(e=>e.envelope)).toEqual([{type:'config',data},{type:'config',data}]);

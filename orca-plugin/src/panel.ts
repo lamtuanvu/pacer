@@ -60,7 +60,14 @@ export function renderStatusPage(s:ClientSnapshot, view:StatusView):string {
   const versions=`<p>pacer ${h((s.planner===undefined?view.updates?.cli??s.console?.version:s.service?.version??view.updates?.cli)??"unknown")} · plugin ${h(view.updates?.plugin??"unknown")}</p>${view.updates?.available?`<p>Update available: ${h(view.updates.latest??"unknown")} · <code>pacer update</code></p>`:""}`;
   content=section("Planner",`<div class="card stack">${planner?`<div class="row"><strong class="grow">${h(providerLabel(planner))}</strong><span>${h(percent(planner))}</span></div>${meter(planner)}<small>${h(reset(planner,true))}</small>`:"<small>Planner unknown · Reset unknown</small>"}<p class="headline">${h(headline(planner))}</p></div>`)+section("Accounts",accounts||"<small>No accounts reported.</small>")+section("Running",running||"<small>No tasks running.</small>")+section("Waiting for review",`${waiting||"<small>No tasks waiting for review.</small>"}<p>Review with <code>pacer review &lt;id&gt;</code> or in the pacer app.</p>`)+section("Alerts",alerts||"<small>No alerts.</small>")+section("Versions",versions);
  }
+ if(!view.reachable && view.transport===null)content=section("Update the pacer plugin", "<p>Run <code>pacer update</code> in a terminal, then restart the plugin to connect to the pacer API.</p>")+content;
  if(setup&&!setup.complete)content+=section("Setup",`${checklist(setup)}<pre><code>pacer init</code></pre>`);
  const footer='<footer>pacer shows information here. To delegate, review, block executors or change settings, run <code>pacer open</code> in a terminal to open the pacer app.</footer>';
  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><title>pacer</title><style>${style}</style></head><body><main class="content">${header}${content}${footer}</main></body></html>`;
+}
+
+/** Strategy identity for older services as well as the current read model. */
+export function snapshotStrategy(s:ClientSnapshot):string|undefined {
+ if(s.planner===undefined)return s.budget?.strategy;
+ return s.strategies?.find((row):row is import("../../src/link/envelope").StrategyData=>typeof row!=="string"&&row.active)?.name;
 }

@@ -54,7 +54,7 @@ pacer never edits Orca settings to add a development folder.
 ## Recovery and cleanup
 
 In the disposable account, stop the pacer service and verify the worker restarts
-it with bounded retries. After the development handoff, close a pacer console
+it with bounded retries. After the development handoff, close the pacer dashboard
 and confirm autoConsole reopens it in the focused worktree. Bootstrap mode opens only the dashboard, once per Orca session.
 
 Undo connected agents with `pacer uninstall <agent>`, run `pacer service

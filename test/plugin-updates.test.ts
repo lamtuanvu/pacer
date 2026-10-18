@@ -1,3 +1,4 @@
+import { ManualTimers, flush } from "./plugin-transports.test";
 import { expect, test } from "bun:test";
 import { notifyUpdates, UPDATE_INTERVAL_MS } from "../orca-plugin/src/updates";
 import { createPlugin, type Timers } from "../orca-plugin/src/plugin";
@@ -41,12 +42,12 @@ test("status page shows versions and update instructions",()=>{
  const current=renderPanel(emptySnapshot(),{nowS:0,transport:null,reachable:false,updates:{plugin:"1.2.0",cli:"1.2.0",latest:"1.2.0",available:false}});expect(current).toContain("pacer 1.2.0 · plugin 1.2.0");expect(current).not.toContain('data-command="u"');
 });
 test("live panel sees CLI-forced cache refresh without waiting for the six-hour network timer",async()=>{
- const h=harness(),jobs:{ms:number;fn:()=>void;cancelled:boolean;repeat:boolean}[]=[];
- const schedule=(ms:number,fn:()=>void,repeat:boolean)=>{const j={ms,fn,cancelled:false,repeat};jobs.push(j);return()=>{j.cancelled=true;};};
- let now=0,html="",latest="1.0.0";
- const plugin=createPlugin({version:"1.0.0",cachedUpdate:()=>({checkedAt:now,current:"1.0.0",latest}),timers:{every:(ms,fn)=>schedule(ms,fn,true),after:(ms,fn)=>schedule(ms,fn,false)},nowS:()=>now,home:"/tmp/pacer-fixture",pluginRoot:"/tmp/plugin-fixture",fs:{readText:()=>null,exists:()=>true,writeTextAtomic:(_path,text)=>{html=text;}},http:{get:async()=>({status:503,body:""}),stream:()=>()=>{}}});
- await plugin.activate({host:h.host,commands:{register(){}},events:{on(){}},log(){},grantedCapabilities:[]});for(let i=0;i<100;i++)await Promise.resolve();
- jobs.filter(j=>!j.repeat&&!j.cancelled).at(-1)!.fn();expect(html).toContain("pacer unknown · plugin 1.0.0");
- latest="1.2.0";now=15;jobs.find(j=>j.repeat&&j.ms===15000)!.fn();jobs.filter(j=>!j.repeat&&!j.cancelled).at(-1)!.fn();
- expect(html).toContain("Update available: 1.2.0");expect(html).toContain("pacer update");await plugin.deactivate();
+ const h=harness(),timers=new ManualTimers();let html="",latest="1.0.0";
+ const plugin=createPlugin({version:"1.0.0",cachedUpdate:()=>({checkedAt:timers.now/1000,current:"1.0.0",latest}),timers,nowS:()=>timers.now/1000,home:"/tmp/pacer-fixture",pluginRoot:"/tmp/plugin-fixture",fs:{readText:()=>null,exists:()=>true,writeTextAtomic:(_path,text)=>{html=text;}},http:{get:async()=>({status:503,body:""}),stream:()=>()=>{}}});
+ try {
+  await plugin.activate({host:h.host,commands:{register(){}},events:{on(){}},log(){},grantedCapabilities:[]});await flush();
+  await timers.advance(2000);expect(html).toContain("pacer unknown · plugin 1.0.0");
+  latest="1.2.0";await timers.advance(15000);
+  expect(html).toContain("Update available: 1.2.0");expect(html).toContain("pacer update");
+ } finally { await plugin.deactivate(); }
 });
