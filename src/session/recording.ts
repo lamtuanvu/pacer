@@ -40,25 +40,9 @@ export class Recording extends Screen {
   }
   /** Resume only when the complete requested suffix still exists in retained generations. */
   since(from:number): Buffer[] | null {
-    if(!Number.isSafeInteger(from) || from<0 || from>this.outputOffset) return null;
-    if(from===this.outputOffset) return [];
-    let next=from;const chunks:Buffer[]=[];
-    try {
-      for(const name of ["session.log.1","session.log"]) {
-        const path=join(this.dir,name);if(!existsSync(path)) continue;
-        const log=decodeLog(readFileSync(path));let offset=log.header.outputOffset ?? 0;
-        for(const frame of log.frames) if(frame.type===1) {
-          const end=offset+frame.data.length;
-          if(end>next) {
-            if(offset>next) return null;
-            chunks.push(frame.data.subarray(next-offset));next=end;
-          }
-          offset=end;
-        }
-      }
-    } catch {return null;}
-    return next===this.outputOffset?chunks:null;
+    return recordingSince(this.dir,from,this.outputOffset);
   }
+
   override resize(cols:number,rows:number) {
     super.resize(cols,rows);
     const bytes=Buffer.alloc(4);bytes.writeUInt16BE(cols,0);bytes.writeUInt16BE(rows,2);
@@ -67,7 +51,29 @@ export class Recording extends Screen {
   marker(event:string,label:string) { this.record(3,Buffer.from(JSON.stringify({event,label}))); }
   async close() { const tail=this.transcript.flush(); if(tail) this.disk(()=>appendFileSync(join(this.dir,"stdout"),tail,{mode:0o600})); this.dispose(); }
 }
-export function readRecording(dir:string): {checkpoint?:Checkpoint; frames:Frame[]} {
+/** Read a gap-free suffix shared by live resume and offline replay. */
+function recordingSince(dir:string,from:number,outputOffset:number):Buffer[]|null {
+  if(!Number.isSafeInteger(from) || from<0 || from>outputOffset) return null;
+  if(from===outputOffset) return [];
+  let next=from;const chunks:Buffer[]=[];
+  try {
+    for(const name of ["session.log.1","session.log"]) {
+      const path=join(dir,name);if(!existsSync(path)) continue;
+      const log=decodeLog(readFileSync(path));let offset=log.header.outputOffset ?? 0;
+      for(const frame of log.frames) if(frame.type===1) {
+        const end=offset+frame.data.length;
+        if(end>next) {
+          if(offset>next) return null;
+          chunks.push(frame.data.subarray(next-offset));next=end;
+        }
+        offset=end;
+      }
+    }
+  } catch {return null;}
+  return next===outputOffset?chunks:null;
+}
+/** Restore from a checkpoint, or omit it when a requested byte suffix is retained. */
+export function readRecording(dir:string,from?:number): {checkpoint?:Checkpoint; frames:Frame[]} {
   const checkpoint = existsSync(join(dir,"session.ckpt")) ? JSON.parse(readFileSync(join(dir,"session.ckpt"),"utf8")) as Checkpoint : undefined;
   const frames:Frame[]=[];
   // The checkpoint covers a prefix of the absolute masked output stream.
@@ -77,7 +83,7 @@ export function readRecording(dir:string): {checkpoint?:Checkpoint; frames:Frame
   catch(error) {
     // A crash between rename and new-header creation leaves the previous generation.
     if(existsSync(join(dir,"session.log.1"))) current=decodeLog(readFileSync(join(dir,"session.log.1")));
-    else if(checkpoint) return {checkpoint,frames};
+    else if(checkpoint) return from===checkpoint.outputOffset?{frames}:{checkpoint,frames};
     else throw error;
   }
   offset=current.header.outputOffset ?? (checkpoint && current.header.generation > checkpoint.generation ? checkpoint.outputOffset : 0);
@@ -88,7 +94,14 @@ export function readRecording(dir:string): {checkpoint?:Checkpoint; frames:Frame
       offset=end;
     } else if(offset >= (checkpoint?.outputOffset ?? 0)) frames.push(frame);
   }
-  return {checkpoint,frames};
+  if(from!==undefined) {
+    const suffix=recordingSince(dir,from,Math.max(offset,checkpoint?.outputOffset??0));
+    if(suffix) return {frames:suffix.map(data=>({type:1,data}))};
+  }
+  return {checkpoint:checkpoint??{
+    generation:current.header.generation,outputOffset:current.header.outputOffset??0,
+    cols:current.header.cols,rows:current.header.rows,scrollbackAnsi:"",screenAnsi:"",modes:{},
+  },frames};
 }
 export async function replayRecording(dir:string):Promise<Screen> {
   const {checkpoint,frames}=readRecording(dir), screen=new Screen();
