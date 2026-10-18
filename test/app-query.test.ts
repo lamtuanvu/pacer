@@ -1,0 +1,100 @@
+import { expect, test } from 'bun:test';
+import { createQuery, type QueryState } from '../app/src/data/query';
+import { queryRevision } from '../app/src/screens/task-shared';
+import { initialState } from '../app/src/data/store';
+import snapshot from './fixtures/ui/snapshot.json';
+import type { ClientSnapshot } from '../src/view-model/snapshot';
+
+function deferredApi() {
+  const calls: { op: string; params: unknown; resolve: (value: string) => void; reject: (error: Error) => void }[] = [];
+  let concurrent = 0, maxConcurrent = 0;
+  return {
+    calls,
+    get maxConcurrent() { return maxConcurrent; },
+    call(op: string, params: unknown) {
+      concurrent++;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      return new Promise<string>((resolve, reject) => calls.push({ op, params,
+        resolve: value => { concurrent--; resolve(value); },
+        reject: error => { concurrent--; reject(error); },
+      }));
+    },
+  };
+}
+const settle = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+for (const op of ['task.get', 'task.diff']) test(`${op} publishes a slow first result and coalesces revisions into one follow-up`, async () => {
+  const api = deferredApi(), states: QueryState<string>[] = [];
+  const query = createQuery(api.call, state => states.push(state));
+  const params = JSON.stringify({ id: 't-one' });
+  query.update(op, params, '1');
+  query.update(op, params, '2');
+  query.update(op, params, '3');
+  query.update(op, params, '3');
+  expect(api.calls).toHaveLength(1);
+  api.calls[0]!.resolve('first task result');
+  await settle();
+  expect(states.some(state => state.data === 'first task result' && !state.loading)).toBe(true);
+  expect(states.at(-1)).toEqual({ data: 'first task result', loading: true });
+  expect(api.calls).toHaveLength(2);
+  expect(api.maxConcurrent).toBe(1);
+  api.calls[1]!.resolve('updated task result');
+  await settle();
+  query.update(op, params, '3');
+  expect(states.at(-1)).toEqual({ data: 'updated task result', loading: false });
+  expect(api.calls).toHaveLength(2);
+  query.dispose();
+});
+
+test('parameter changes isolate results and returning to a pending query coalesces it', async () => {
+  const api = deferredApi(), states: QueryState<string>[] = [];
+  const query = createQuery(api.call, state => states.push(state));
+  query.update('task.get', '{"id":"one"}', '1');
+  query.update('task.get', '{"id":"two"}', '1');
+  api.calls[0]!.resolve('one');
+  await settle();
+  expect(states.at(-1)?.data).toBeUndefined();
+  query.update('task.get', '{"id":"two"}', '2');
+  query.update('task.get', '{"id":"one"}', '2');
+  query.update('task.get', '{"id":"two"}', '2');
+  expect(api.calls.filter(call => (call.params as { id: string }).id === 'two')).toHaveLength(1);
+  api.calls[1]!.resolve('two');
+  await settle();
+  expect(states.at(-1)?.data).toBe('two');
+  query.dispose();
+});
+
+test('refresh errors retain data and disposed queries cannot publish or refetch', async () => {
+  const api = deferredApi(), states: QueryState<string>[] = [];
+  const query = createQuery(api.call, state => states.push(state));
+  query.update('task.get', '{}', '1');
+  api.calls[0]!.resolve('visible');
+  await settle();
+  query.update('task.get', '{}', '2');
+  const error = new Error('offline');
+  api.calls[1]!.reject(error);
+  await settle();
+  expect(states.at(-1)).toEqual({ data: 'visible', error, loading: false });
+  query.update('task.get', '{}', '3');
+  query.update('task.get', '{}', '4');
+  query.dispose();
+  const count = states.length;
+  api.calls[2]!.resolve('ignored');
+  await settle();
+  expect(states).toHaveLength(count);
+  expect(api.calls).toHaveLength(3);
+});
+
+test('task query revisions ignore unrelated snapshot, configuration and activity changes', () => {
+  const state = { ...initialState(), snapshot: snapshot as unknown as ClientSnapshot };
+  const task = state.snapshot.tasks[0]!;
+  for (const op of ['task.get', 'task.diff']) {
+    const revision = queryRevision(state, op, { id: task.id });
+    const unrelated = { ...state, invalidations: { config: 10 }, snapshot: { ...state.snapshot, seq: state.snapshot.seq + 1,
+      tasks: state.snapshot.tasks.map(t => t.id === task.id ? t : { ...t, updatedAt: t.updatedAt + 1 }) },
+      activity: [{ id: 'a-1', taskId: 'another-task' }] as typeof state.activity };
+    expect(queryRevision(unrelated, op, { id: task.id })).toBe(revision);
+    expect(queryRevision({ ...state, snapshot: { ...state.snapshot, tasks: state.snapshot.tasks.map(t => t.id === task.id ? { ...t, updatedAt: t.updatedAt + 1 } : t) } }, op, { id: task.id })).not.toBe(revision);
+    expect(queryRevision({ ...unrelated, activity: [{ id: 'a-2', taskId: task.id }] as typeof state.activity }, op, { id: task.id })).not.toBe(revision);
+  }
+});

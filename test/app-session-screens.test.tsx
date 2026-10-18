@@ -24,3 +24,10 @@ test('unavailable attach targets, retry states and resource empties use service 
  const html=renderToString(<Session data={{...data,session:{...data.session!,targets:[]},retryOptions:[{...data.retryOptions![0]!,available:false,reason:'No free slot'}],timeline:{data:[]},doneWhen:{error:'Command unavailable'}}}/>);
  expect(html).toContain('Open in Orca terminal · unavailable');expect(html).toContain('Open in my terminal · unavailable');expect(html).toContain('No free slot');expect(html).toContain('No timeline events yet.');expect(html).toContain('Command unavailable');
 });
+
+test('Sessions list uses short titles and ended outcomes or diffstats, reserving pending for running',()=>{
+ const ended={...data,id:'ended',title:'Short title',goal:'Long instructions that belong in Brief',state:'failed',phase:undefined,changesSummary:undefined};
+ const html=renderToString(<SessionsList running={{data:[]}} recent={{data:[ended,{...ended,id:'diff',changesSummary:'3 files · +12 −4'}]}}/>);
+ expect(html).toContain('Short title');expect(html).not.toContain(ended.goal);expect(html).toContain('Failed');expect(html).toContain('3 files · +12 −4');expect(html).not.toContain('Changes and output pending');
+ expect(renderToString(<SessionsList running={{data:[{...data,changesSummary:undefined}]}}/>)).toContain('Changes and output pending');
+});

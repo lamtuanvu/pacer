@@ -39,8 +39,8 @@ test("other Review query errors stay useful and redact path-bearing errors and h
 });
 test("review item shows run line, facts, collapsed brief and all file counts", () => {
   const html = view();
-  for (const word of [task.goal, task.executor!, "50m", "pacer/review → main", task.repo.label, "Done when", "bun test", "✓ 38 passed · 41 s · run by pacer on devbox", "Why this executor", "Best available capacity", "other", "over budget", "Implemented and verified", "src/example.ts", "+3", "−1"]) expect(html).toContain(word);
-  expect(html).not.toContain(">Cost<");
+  for (const word of [task.goal, task.executor!, "50m", "pacer/review → main", task.repo.label, "Done when", "bun test", "✓ 38 passed · 41 s · run by pacer on devbox", "Why Codex · team on devbox", "Best available capacity", "other", "over budget", "Implemented and verified", "src/example.ts", "+3", "−1"]) expect(html).toContain(word);
+  expect(html).toContain("Cost not recorded");
   expect(html).toContain("<details>");
   expect(html).not.toContain("<details open");
 });
@@ -76,4 +76,27 @@ test("the diff's button says what it does", () => {
   const html = renderToString(<Diff path="a.ts" patch={"diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n" + "+x\n".repeat(2100)} />);
   expect(html).toContain("Copy worktree path");
   expect(html).not.toContain("Open in editor");
+});
+
+test("review heading uses the service title and inline test state while Brief keeps the full goal", () => {
+  const html = view({ ...task, title: "Short service title", goal: "A longer goal with detailed requirements", brief: { ...task.brief, goal: "A longer goal with detailed requirements" } });
+  expect(html).toMatch(/<h1[^>]*>Short service title<\/h1><span[^>]*>Tests passed<\/span>/);
+  expect(html).toMatch(/<summary>Brief<\/summary>[\s\S]*A longer goal with detailed requirements/);
+  expect(view({ ...task, title: "Failed task", state: "failed", acceptance: { ...task.acceptance, state: "failed" } })).toMatch(/<h1[^>]*>Failed task<\/h1><span[^>]*>Failed<\/span>/);
+});
+
+test("review keeps all three cards, the compact queue status and verdict learning note", () => {
+  const html = view({ ...task, cost: { executor: { account: "team", deltaPct: 1.2, window: "week" }, planner: null } });
+  expect(html).toMatch(/pc-review-cards[\s\S]*Done when[\s\S]*Why Codex[\s\S]*Cost/);
+  expect(html).toContain('+1.2% of week');
+  expect(html).toContain('Your verdicts teach routing which executor suits which kind.');
+  expect(html).toMatch(/pc-good-text[^>]*>tests passed · /);
+  expect(html).toContain('j k next · a accept · r reject · t retry elsewhere');
+});
+
+test('review keeps task content visible with a subtle updating status during a refresh',()=>{
+ const html=renderToString(<ReviewView snapshot={snap} view={reviewReducer(initialReview,{type:'queue',items:reviewQueue(snap)})} task={task} now={snap.at} loading updating/>);
+ expect(html).toContain('Updating…');
+ expect(html).toContain('Executor summary');
+ expect(html).not.toContain('Loading task…');
 });

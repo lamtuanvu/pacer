@@ -2,9 +2,10 @@ import { useActions } from "../data/action-context";
 import { AgentMark } from "../ds/AgentMark";
 import { markAgent } from "../../../src/view-model/agents";
 import { createContext, type ComponentChildren } from "preact";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StoreState } from "../data/store";
 import { ApiError, type BrowserApi } from "../data/api";
+import { createQuery, type QueryState } from "../data/query";
 import { draftStorage } from "../model/draft";
 import { Button } from "../ds/Button";
 import { Pill } from "../ds/Pill";
@@ -16,21 +17,28 @@ export function ErrorMessage({ error }: { error: unknown }) {
   if (!error) return null;
   return <div className="op-error" role="status"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && <p>{error.hint}</p>}</div>;
 }
+/** Task reads follow only this task, rather than unrelated snapshot traffic. */
+export function queryRevision(state: StoreState, op: string, params: unknown): string {
+  if (["task.get", "task.diff", "task.session"].includes(op)) {
+    const id = (params as { id?: string } | null)?.id;
+    const task = state.snapshot?.tasks.find(task => task.id === id);
+    return JSON.stringify([task?.rev, task?.updatedAt, state.activity.filter(entry => entry.taskId === id)]);
+  }
+  return JSON.stringify(state.invalidations);
+}
 export function useQuery<T>(op: string, params: unknown, revision = "") {
   const { api, state } = useTaskContext();
-  const [data, setData] = useState<T>();
-  const [error, setError] = useState<unknown>();
-  const [loading, setLoading] = useState(true);
+  const [published, setResult] = useState<{ key: string; state: QueryState<T> }>();
   const [version, reload] = useState(0);
   const serialized = JSON.stringify(params);
-  const invalidation = JSON.stringify(state.invalidations);
+  const invalidation = queryRevision(state, op, params);
+  const query = useMemo(() => createQuery<T>((op, params) => api.call<T>(op, params), (state, key) => setResult({ state, key })), [api]);
+  useEffect(() => () => query.dispose(), [query]);
   useEffect(() => {
-    let active = true;
-    setLoading(true);
-    void api.call<T>(op, JSON.parse(serialized)).then(result => { if (active) { setData(result); setError(undefined); } }, error => { if (active) setError(error); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [api, op, serialized, revision, invalidation, state.connected, version]);
-  return { data, error, loading, reload: () => reload(v => v + 1) };
+    query.update(op, serialized, JSON.stringify([revision, invalidation, state.connected, version]));
+  }, [query, op, serialized, revision, invalidation, state.connected, version]);
+  const result = published?.key === JSON.stringify([op, serialized]) ? published.state : { loading: true };
+  return { ...result, updating: result.loading && result.data !== undefined, reload: () => reload(v => v + 1) };
 }
 export function useAction() {
   const runner = useActions();

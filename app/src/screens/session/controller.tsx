@@ -13,7 +13,7 @@ import { Session } from './Session';
 import { SessionsList } from './SessionsList';
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
- return {id:task.id,goal:task.goal,state:task.state,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
+ return {id:task.id,title:task.title,goal:task.goal,state:task.state,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
  elapsed:task.attemptStartedAt?elapsed(Date.now()/1000-task.attemptStartedAt):undefined,
  changesSummary:task.progress?`${task.progress.files} files · ${task.progress.commits} commits`:undefined};
 }
@@ -30,8 +30,7 @@ export function sessionDetail(task:TaskDetail):SessionData {
 export function SessionRoute({id}:{id:string}) {
  const {state,api}=useTaskContext(),runner=useActions();
  const [shortcutError,setShortcutError]=useState('');
- const revision=JSON.stringify([state.snapshot?.tasks.find(t=>t.id===id),state.activity.filter(e=>e.taskId===id)]);
- const task=useQuery<TaskDetail>('task.get',{id},revision),session=useQuery<SessionInfo>('task.session',{id},revision),diff=useQuery<{diff:string;untracked:string[];truncated:boolean}>('task.diff',{id},revision);
+ const task=useQuery<TaskDetail>('task.get',{id}),session=useQuery<SessionInfo>('task.session',{id}),diff=useQuery<{diff:string;untracked:string[];truncated:boolean}>('task.diff',{id});
  const invoke=async(action:Action)=>{
   if(runner.needsConfirm(action)&&!window.confirm(runner.needsConfirm(action)!))return;
   let currentAction=action;
