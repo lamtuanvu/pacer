@@ -2,198 +2,9 @@
   "protocol": "2.8.0",
   "seq": 1,
   "snapshot": {
-    "v": 1,
     "seq": 1,
     "at": 1791633600,
-    "budget": {
-      "generatedAt": 1791633600,
-      "strategy": "default",
-      "planner": "claude-code",
-      "mode": "normal",
-      "providers": [],
-      "ranked": []
-    },
     "mode": null,
-    "tasks": [
-      {
-        "id": "t-20261010-190000-0000",
-        "title": "Fixture queued",
-        "state": "queued",
-        "goal": "Fixture queued",
-        "executor": null,
-        "backend": null,
-        "worktree": null,
-        "updatedAt": 1791633600,
-        "runnerAlive": false,
-        "rev": 1,
-        "queue": null,
-        "repo": {
-          "key": "local:fa5472fa3a53",
-          "label": "pacer-protocol-v2-golden",
-          "path": "/private/tmp/pacer-protocol-v2-golden"
-        },
-        "kind": null,
-        "host": null
-      },
-      {
-        "id": "t-20261010-190000-0001",
-        "title": "Fixture running",
-        "state": "running",
-        "goal": "Fixture running",
-        "executor": null,
-        "backend": null,
-        "worktree": null,
-        "updatedAt": 1791633599,
-        "runnerAlive": false,
-        "rev": 1,
-        "queue": null,
-        "repo": {
-          "key": "local:fa5472fa3a53",
-          "label": "pacer-protocol-v2-golden",
-          "path": "/private/tmp/pacer-protocol-v2-golden"
-        },
-        "kind": null,
-        "host": null
-      },
-      {
-        "id": "t-20261010-190000-0002",
-        "title": "Fixture done",
-        "state": "done",
-        "goal": "Fixture done",
-        "executor": null,
-        "backend": null,
-        "worktree": null,
-        "updatedAt": 1791633598,
-        "rev": 1,
-        "queue": null,
-        "repo": {
-          "key": "local:fa5472fa3a53",
-          "label": "pacer-protocol-v2-golden",
-          "path": "/private/tmp/pacer-protocol-v2-golden"
-        },
-        "kind": null,
-        "host": null
-      },
-      {
-        "id": "t-20261010-190000-0003",
-        "title": "Fixture partial",
-        "state": "partial",
-        "goal": "Fixture partial",
-        "executor": null,
-        "backend": null,
-        "worktree": null,
-        "updatedAt": 1791633597,
-        "rev": 1,
-        "queue": null,
-        "repo": {
-          "key": "local:fa5472fa3a53",
-          "label": "pacer-protocol-v2-golden",
-          "path": "/private/tmp/pacer-protocol-v2-golden"
-        },
-        "kind": null,
-        "host": null
-      },
-      {
-        "id": "t-20261010-190000-0004",
-        "title": "Fixture failed",
-        "state": "failed",
-        "goal": "Fixture failed",
-        "executor": null,
-        "backend": null,
-        "worktree": null,
-        "updatedAt": 1791633596,
-        "rev": 1,
-        "queue": null,
-        "repo": {
-          "key": "local:fa5472fa3a53",
-          "label": "pacer-protocol-v2-golden",
-          "path": "/private/tmp/pacer-protocol-v2-golden"
-        },
-        "kind": null,
-        "host": null
-      },
-      {
-        "id": "t-20261010-190000-0005",
-        "title": "Fixture limit",
-        "state": "limit",
-        "goal": "Fixture limit",
-        "executor": null,
-        "backend": null,
-        "worktree": null,
-        "updatedAt": 1791633595,
-        "rev": 1,
-        "queue": null,
-        "repo": {
-          "key": "local:fa5472fa3a53",
-          "label": "pacer-protocol-v2-golden",
-          "path": "/private/tmp/pacer-protocol-v2-golden"
-        },
-        "kind": null,
-        "host": null
-      },
-      {
-        "id": "t-20261010-190000-0006",
-        "title": "Fixture stopped",
-        "state": "stopped",
-        "goal": "Fixture stopped",
-        "executor": null,
-        "backend": null,
-        "worktree": null,
-        "updatedAt": 1791633594,
-        "rev": 1,
-        "queue": null,
-        "repo": {
-          "key": "local:fa5472fa3a53",
-          "label": "pacer-protocol-v2-golden",
-          "path": "/private/tmp/pacer-protocol-v2-golden"
-        },
-        "kind": null,
-        "host": null
-      },
-      {
-        "id": "t-20261010-190000-0007",
-        "title": "Fixture needs_input",
-        "state": "needs_input",
-        "goal": "Fixture needs_input",
-        "executor": null,
-        "backend": null,
-        "worktree": null,
-        "updatedAt": 1791633593,
-        "question": {
-          "text": "Which approach?",
-          "at": 1791633600
-        },
-        "rev": 1,
-        "queue": null,
-        "repo": {
-          "key": "local:fa5472fa3a53",
-          "label": "pacer-protocol-v2-golden",
-          "path": "/private/tmp/pacer-protocol-v2-golden"
-        },
-        "kind": null,
-        "host": null
-      }
-    ],
-    "alerts": [
-      {
-        "key": "fixture",
-        "level": "warn",
-        "title": "Fixture attention",
-        "body": "Check the build",
-        "at": 1791633600
-      }
-    ],
-    "console": null,
-    "consoles": [],
-    "strategies": [
-      {
-        "name": "default",
-        "active": true,
-        "summary": "Codex first, Claude keeps 15%",
-        "description": ""
-      }
-    ],
-    "serviceInstalled": false,
     "pause": null,
     "attention": [
       {
@@ -296,27 +107,6 @@
         ],
         "notify": "important",
         "taskId": "t-20261010-190000-0005"
-      },
-      {
-        "id": "setup:link",
-        "kind": "setup",
-        "severity": "problem",
-        "repo": null,
-        "title": "Link",
-        "detail": "Setup required",
-        "raisedAt": 1791633600,
-        "since": 1791633600,
-        "actions": [
-          {
-            "label": "Open settings",
-            "op": "ui.open",
-            "params": {
-              "view": "settings",
-              "section": "link"
-            }
-          }
-        ],
-        "notify": "all"
       },
       {
         "id": "setup:service",
@@ -525,7 +315,7 @@
     ],
     "setup": {
       "complete": false,
-      "open": 2,
+      "open": 1,
       "items": [
         {
           "id": "binary",
@@ -548,7 +338,7 @@
         {
           "id": "link",
           "title": "Link",
-          "status": "pending",
+          "status": "done",
           "required": true
         },
         {
@@ -590,14 +380,14 @@
       ]
     },
     "counts": {
-      "attention": 7,
-      "problems": 5,
+      "attention": 6,
+      "problems": 4,
       "review": 2,
       "running": 1,
       "queued": 1,
       "ready": 1,
       "executors": 1,
-      "setupOpen": 2,
+      "setupOpen": 1,
       "hostsWithProblems": 0,
       "byRepo": {
         "local:fa5472fa3a53": {
@@ -616,6 +406,195 @@
       "byRepo": {
         "local:fa5472fa3a53": 6
       }
-    }
+    },
+    "tasks": [
+      {
+        "id": "t-20261010-190000-0000",
+        "title": "Fixture queued",
+        "state": "queued",
+        "goal": "Fixture queued",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633600,
+        "runnerAlive": false,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      },
+      {
+        "id": "t-20261010-190000-0001",
+        "title": "Fixture running",
+        "state": "running",
+        "goal": "Fixture running",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633599,
+        "runnerAlive": false,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      },
+      {
+        "id": "t-20261010-190000-0002",
+        "title": "Fixture done",
+        "state": "done",
+        "goal": "Fixture done",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633598,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      },
+      {
+        "id": "t-20261010-190000-0003",
+        "title": "Fixture partial",
+        "state": "partial",
+        "goal": "Fixture partial",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633597,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      },
+      {
+        "id": "t-20261010-190000-0004",
+        "title": "Fixture failed",
+        "state": "failed",
+        "goal": "Fixture failed",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633596,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      },
+      {
+        "id": "t-20261010-190000-0005",
+        "title": "Fixture limit",
+        "state": "limit",
+        "goal": "Fixture limit",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633595,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      },
+      {
+        "id": "t-20261010-190000-0006",
+        "title": "Fixture stopped",
+        "state": "stopped",
+        "goal": "Fixture stopped",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633594,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      },
+      {
+        "id": "t-20261010-190000-0007",
+        "title": "Fixture needs_input",
+        "state": "needs_input",
+        "goal": "Fixture needs_input",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633593,
+        "question": {
+          "text": "Which approach?",
+          "at": 1791633600
+        },
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      }
+    ],
+    "strategies": [
+      {
+        "name": "default",
+        "active": true,
+        "summary": "Codex first, Claude keeps 15%",
+        "description": ""
+      }
+    ],
+    "v": 1,
+    "budget": {
+      "generatedAt": 1791633600,
+      "strategy": "default",
+      "planner": "claude-code",
+      "mode": "normal",
+      "providers": [],
+      "ranked": []
+    },
+    "alerts": [
+      {
+        "key": "fixture",
+        "level": "warn",
+        "title": "Fixture attention",
+        "body": "Check the build",
+        "at": 1791633600
+      }
+    ],
+    "console": null,
+    "consoles": [],
+    "serviceInstalled": false
   }
 }

@@ -97,6 +97,7 @@
     "mode",
     "alert",
     "config",
+    "pause",
     "reset",
     "executor",
     "account",

@@ -8,7 +8,7 @@ import { helloBody, type ApiEventV2, type ApiEventV3 } from './protocol';
 
 // The current 2.x service is 2.8.0; PREVIOUS names the promised 2.7 overlap baseline.
 export const V2_PROTOCOL = '2.8.0';
-export const V2_EVENT_TYPES = ['budget','task','mode','alert','config','reset','executor','account','host','repo','counts','attention','activity','job','notify'];
+export const V2_EVENT_TYPES = ['budget','task','mode','alert','config','pause','reset','executor','account','host','repo','counts','attention','activity','job','notify'];
 export const V2_STATE = Symbol('v2 snapshot state');
 export const V2_EVENT = Symbol('v2 event');
 export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budget'|'alerts'|'console'|'consoles'|'serviceInstalled'> };

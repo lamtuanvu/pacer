@@ -55,7 +55,7 @@ export function startServer(
     void Promise.resolve().then(async () => {
       const ctx = getCtx();
       if (!panelSetup || Date.now() - panelSetupAt >= 60_000) {
-        panelSetup = await checkSetup({ ...ctx, env: { ...ctx.env, PACER_PORT: String(server.port) } });
+        panelSetup = await checkSetup(ctx, {snapshotProbe:false});
         panelSetupAt = Date.now();
       }
       const setup = panelSetup;
@@ -133,7 +133,7 @@ export function startServer(
       if (app) return appRoute(req, getCtx());
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, terminalPresetsOnly: !bearer}, tailMs, status });
+        const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status });
         response.headers.set("X-Pacer","1");
         return response;
       }

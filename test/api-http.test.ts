@@ -212,3 +212,29 @@ test("client version header labels delegated tasks and ignores invalid labels",a
  expect(readTask(ctx,body.result.task_id)?.client).toBe(client==="tui/0.3.0"?client:undefined);
  }
 });
+
+for (const major of [2, 3]) test(`v${major} clients receive pause, resume and expiry events`, async () => {
+  const ctx = fakeCtx(), url = "http://localhost";
+  const request = async (input: string, init?: RequestInit) => handleV2(new Request(input, init), {getCtx:() => ctx});
+  const op = (name: string, body: string) => request(`${url}/v${major}/ops/${name}`, {method:"POST", body});
+  const { pumpOnce } = await import("../src/link/pump");
+  const hello = await (await request(`${url}/v${major}/hello`)).json();
+  expect(hello.events).toContain("pause");
+  const pause = async () => {
+    const response = await op("delegation.pause", JSON.stringify({for:"1m", reason:"Review work"}));
+    expect(response.status).toBe(200);
+    return (await response.json()).result;
+  };
+  const state = await pause();
+  expect((await op("delegation.resume", "{}")).status).toBe(200);
+  await pause();
+  await pumpOnce({...ctx, now:ctx.now+60}, {
+    status:async () => {throw new Error("provider unavailable");}, tasks:() => [], publish,
+  });
+  const { eventsSince } = await import("../src/api/events");
+  const count = eventsSince(ctx, 0, major as 2 | 3).events.length;
+  const text = await readSse(await request(`${url}/v${major}/events?since=0`), count);
+  const data = text.split("\n\n").filter(frame => frame.includes("event: pause\n"))
+    .map(frame => JSON.parse(frame.match(/^data: (.+)$/m)![1]!));
+  expect(data).toEqual([state, {removed:true}, state, {removed:true}]);
+});

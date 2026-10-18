@@ -6,12 +6,12 @@ export const PROTOCOL_VERSION = "3.0.0";
 
 export const PREVIOUS = "2.8.0";
 export function helloBody() {
-  return { protocol: PROTOCOL_VERSION, previous: PREVIOUS, pacer: pkg.version, ops: opNames(), events: ["task", "mode", "config", "reset", "planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"] };
+  return { protocol: PROTOCOL_VERSION, previous: PREVIOUS, pacer: pkg.version, ops: opNames(), events: ["pause", "task", "mode", "config", "reset", "planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"] };
 }
 
 export type ApiErrorCode = CoreErrorCode | "unknown_op" | "too_large" | "internal";
 export interface ApiErrorBody { error: { code: ApiErrorCode; message: string; hint?: string; data?: Record<string, unknown> } }
-export interface ApiEvent { seq: number; at: number; type: "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "budget" | "task" | "mode" | "alert" | "config" | "reset"; data: unknown }
+export interface ApiEvent { seq: number; at: number; type: "pause" | "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "budget" | "task" | "mode" | "alert" | "config" | "reset"; data: unknown }
 
 export type ApiEventV2 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "planner"> };
 export type ApiEventV3 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "budget" | "alert"> };
