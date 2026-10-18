@@ -14,12 +14,10 @@ async function withStrategy() {
   return ctx;
 }
 
-test("status rejects --json --line instead of choosing a mode", async () => {
+test("status --line --json prints the line's fields as JSON", async () => {
   const r = await main(["status", "--json", "--line"], await withStrategy());
-  expect(r.code).toBe(2);
-  expect(r.out).toBe("");
-  expect(r.err).toContain("only one of");
-  expect(r.err).toContain("usage: pacer status [--line | --json | --hook <planner>]");
+  expect(r.code).toBe(0);
+  expect(JSON.parse(r.out)).toHaveProperty("online");
 });
 
 test("status --hook needs an explicit planner", async () => {
@@ -51,17 +49,22 @@ test("status rejects unknown flags", async () => {
 });
 
 test("status reports unknown arguments before conflicting modes", async () => {
-  const r = await main(["status", "--json", "--line", "--jsn", "extra"], await withStrategy());
+  const r = await main(["status", "--json", "--hook", "--jsn", "extra"], await withStrategy());
   expect(r.code).toBe(2);
   expect(r.out).toBe("");
   expect(r.err).toContain('unknown argument "--jsn", "extra"');
   expect(r.err).not.toContain("only one of");
 });
 
-test("status rejects repeated mode flags", async () => {
-  const r = await main(["status", "--line", "--line"], await withStrategy());
+test("status rejects conflicting modes without --line", async () => {
+  const r = await main(["status", "--json", "--json"], await withStrategy());
   expect(r.code).toBe(2);
   expect(r.err).toContain("only one of");
+});
+
+test("status --line never fails on stray flags", async () => {
+  const r = await main(["status", "--line", "--line", "--bogus"], await withStrategy());
+  expect(r.code).toBe(0);
 });
 
 test("status --hook configured planner renders subscription budget context", async () => {
@@ -76,14 +79,14 @@ test("status --line renders the budget line", async () => {
   await Bun.write(join(ctx.pacerHome,"link/latest.json"),JSON.stringify({v:1,seq:0,at:ctx.now,budget:null,mode:null,tasks:[],alerts:[],console:null}));
   const r = await main(["status", "--line"], ctx);
   expect(r.code).toBe(0);
-  expect(r.out).toContain("◆ Budget");
+  expect(r.out).toContain("▬┃");
   expect(r.err).toBe("");
 });
 
 test("status --line exits zero without a strategy", async () => {
   const r = await main(["status", "--line"], fakeCtx());
   expect(r.code).toBe(0);
-  expect(r.out).toBe("pacer not running · pacer serve");
+  expect(r.out).toMatch(/▬┃(\x1b\[0m)? pacer not running · pacer serve$/);
   expect(r.err).toBe("");
 });
 

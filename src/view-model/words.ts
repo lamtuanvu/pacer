@@ -52,3 +52,8 @@ export function taskStatus(task: { state: string; review?: { accepted: boolean }
   const [label, tone] = labels[task.state] ?? [task.state, "neutral"];
   return { label, tone };
 }
+
+/** Compact status-line vocabulary, shared with integrations. */
+export const offlineWords = "pacer not running · pacer serve";
+export const compactVerdictWords = (verdict: string): string =>
+  verdict === "out" || verdict === "EXHAUSTED" ? "out" : verdict === "ahead" || verdict === "AHEAD" ? "ahead" : "";

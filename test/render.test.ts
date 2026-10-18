@@ -29,16 +29,8 @@ test("fmtReset shows a time within 20h and a weekday after", () => {
   expect(fmtReset(null, now)).toBe("");
 });
 
-test("status line: two explicit lines, Unicode symbols, no emoji", () => {
-  const out = strip(renderLine(ST));
-  const [l1, l2] = out.split("\n");
-  expect(l1).toContain("◆ Budget");
-  expect(l1).toContain("Claude 4% used / 10% pace ✓ on pace ↻ Sat 12:00");
-  expect(l1).toContain("Codex 100% used / 30% pace ✗ exhausted, avoid ↻ Thu 17:29");
-  expect(l1).toContain("BytePlus 17% used / 86% pace ↓ resets soon unused, use it ↻ 01:00");
-  expect(l1).toContain("Local ✓ ok");
-  expect(l2).toBe("» Mode  normal: Claude plans + tiny edits, delegate execution  │  next executor: BytePlus (Codex unavailable)");
-  expect(/\p{Extended_Pictographic}/u.test(out.replace(/[✓✗↓↻▲▼◆»│!]/g, ""))).toBe(false);
+test("status line shows the planner on one line", () => {
+  expect(strip(renderLine(ST))).toBe("▬┃ Claude 4%·10");
 });
 
 test("text report and claude-code hook JSON", () => {
