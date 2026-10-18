@@ -52,6 +52,8 @@ async function localRepo(ctx: Ctx, path: string) {
 }
 
 export interface HostSummary {
+  /** "full" runs the pacer session host on the host; "recording" (default) mirrors a read-only recording. */
+  session: "recording" | "full";
   alias: string;
   ssh: string;
   maxTasks: number;
@@ -79,7 +81,7 @@ function summary(ctx: Ctx, host: HostCfg): HostSummary {
   const state = host.paused ? "paused" : (reachability?.failures ?? 0) >= 2 ? "down"
     : listJobs(ctx, { target: host.alias }).some(j => j.kind === "host.check" && j.state === "running") ? "checking"
     : stored?.checks.some(c => !c.ok) || listRepos(ctx).some(r=>!r.key.startsWith("local:")&&!host.repos[r.key]&&Object.values(s.runners).some(e=>e.host===host.alias&&e.enabled!==false)) ? "needs_setup" : "ready";
-  return { alias: host.alias, ssh: host.ssh, maxTasks: host.maxTasks, paused: host.paused ?? false, state,
+  return { alias: host.alias, ssh: host.ssh, maxTasks: host.maxTasks, paused: host.paused ?? false, session: host.session ?? "recording", state,
     repos: Object.keys(host.repos), runners: Object.values(s.runners).filter(r => r.host === host.alias).map(r => r.id),
     running, slots: { used: running, max: host.maxTasks } };
 }
