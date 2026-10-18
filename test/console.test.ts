@@ -10,7 +10,7 @@ import { encodeCmdLine, type ConsoleData } from "../src/link/envelope";
 import { DelegateError, type DelegateInput } from "../src/tasks/api";
 import { createTask, newTaskId, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 import { readBlocked } from "../src/executors/blocked";
 
 function harness(overrides: Partial<ConsoleDeps> = {}) {
@@ -56,6 +56,16 @@ test("plugin delegate resolves branch and queues brief before pumping", async ()
   expect(h.calls).toEqual(["resolve:feat-x", "delegate", "pump"]);
   expect(h.inputs).toEqual([{ brief: { goal: "fix the flaky test", repo: "/wt/feat-x" }, kind: null, repoRef:repoFor(h.ctx,"/wt/feat-x") }]);
   expect(h.output()).toContain("delegate requested from Orca (feat-x)"); expect(h.output()).toContain("queued");
+});
+test("delegate with a non-existent repo path queues a fallback repo identity", async () => {
+  const repo=join(tmpDir(),"missing-repo"),h=harness({resolveWorktreePath:async()=>repo});
+  await h.run([encodeCmdLine({cmd:"delegate",branch:"missing",goal:"fix"})]);
+  expect(h.calls).toEqual(["delegate","pump"]);
+  expect(h.inputs[0]).toMatchObject({brief:{repo,goal:"fix"},repoRef:{
+    key:expect.stringMatching(/^local:[0-9a-f]{12}$/),label:"missing-repo",path:repoFor(h.ctx,repo).path,
+  }});
+  expect(h.inputs[0].repoRef).toEqual(repoFor(h.ctx,repo));
+  expect(await Bun.file(join(h.ctx.pacerHome,"state","repos.json")).exists()).toBe(false);
 });
 test("empty goal cancels delegation", async () => {
   const h = harness(); await h.run(["delegate", ""]);
