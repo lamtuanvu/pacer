@@ -32,9 +32,11 @@ function attentionTitle(item: AttentionItem, snapshot: ClientSnapshot): string {
   return item.title === task?.goal ? task.title ?? item.title : item.title;
 }
 
-function NeedsYou({ snapshot, scope, runner, now, query }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery }) {
+function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean }) {
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);
-  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><h2 id="needs-you">Needs you</h2>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" /><a href={withQuery("#/review", { ...query, repo: scope.repo ?? query.repo })}>Open review queue</a></div>
+  const otherRepos = others > 0 ? <a href={withQuery("#/", { ...query, repo: "" })}>+{others} in other repos</a> : null;
+  const reviewQueue = <a href={withQuery("#/review", { ...query, repo: scope.repo ?? query.repo })}>Open review queue</a>;
+  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><h2 id="needs-you">Needs you</h2>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{narrow && otherRepos ? otherRepos : reviewQueue}</div>
     {items.map(item => <div key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
       <StatusGlyph kind={BAD_KINDS.has(item.kind) ? "failed" : "waiting"} />
       {item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}
@@ -42,7 +44,7 @@ function NeedsYou({ snapshot, scope, runner, now, query }: { snapshot: ClientSna
       <div className="row-actions">{item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} strong={i === 0} />)}</div>
     </div>)}
     {!items.length && <p className="muted">Nothing needs you.</p>}
-    {others > 0 && <a href={withQuery("#/", { ...query, repo: "" })}>+{others} in other repos</a>}
+    {narrow && otherRepos ? reviewQueue : otherRepos}
   </section>;
 }
 
@@ -87,7 +89,9 @@ function Capacity({ snapshot, narrow, query }: { snapshot: ClientSnapshot; narro
 
 function DoneToday({ snapshot, scope, now, query }: { snapshot: ClientSnapshot; scope: Scope; now: number; query: RouteQuery }) {
   const rows = doneToday(snapshot, scope), today = snapshot.today;
-  return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><h2 id="done-today">Done today</h2>{today && <span className="muted">{today.done} · {today.accepted} accepted</span>}<span className="grow" /><a href={withQuery("#/sessions", query)}>All tasks</a></div>
+  const done = scope.repo === null ? today?.done : today?.byRepo[scope.repo] ?? rows.length;
+  const accepted = scope.repo === null ? today?.accepted : rows.filter(t => t.review?.accepted).length;
+  return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><h2 id="done-today">Done today</h2>{today && <span className="muted">{done} · {accepted} accepted</span>}<span className="grow" /><a href={withQuery("#/sessions", query)}>All tasks</a></div>
     {rows.map(t => { const status = taskStatus(t); return <div key={t.id} className="pc-row">
       <span className="muted pc-num">{clock(t.updatedAt, now)}</span><div className="grow pc-row__goal">{t.goal}</div>
       <span className="muted">{t.repo?.label}</span><span className="muted">{executorLabel(t.executor)}</span><Pill tone={status.tone}>{status.label}</Pill>
@@ -132,7 +136,7 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
     <RepoFilter snapshot={snapshot} query={query} narrow={narrow} />
     <div className="pc-overview__cols">
       <div className="pc-overview__main">
-        <NeedsYou snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} />
+        <NeedsYou snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />
         <Running snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />
         <Capacity snapshot={snapshot} narrow={narrow} query={query} />
         <DoneToday snapshot={snapshot} scope={scope} now={now} query={query} />

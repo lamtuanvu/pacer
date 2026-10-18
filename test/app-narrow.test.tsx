@@ -107,3 +107,32 @@ test("scope toggle has exactly two 44px controls", async () => {
   const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
   expect(css).toContain('.pc-app--narrow button,.pc-app--narrow .pc-btn,.pc-btn--touch{min-height:44px}');
 });
+
+test("narrow Overview stretches every section, including compact Capacity, across the column", async () => {
+  const html = atWidth(400, () => overview({ repo: null, scope: `repo:${repo}` }));
+  expect(html).toContain('pc-overview--narrow');
+  for (const id of ['needs-you', 'running', 'capacity', 'done-today']) {
+    expect(html).toContain(`aria-labelledby="${id}"`);
+  }
+  const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
+  // Overrides Capacity's desktop align-self:start even when scope forces narrow above 560px.
+  expect(css).toMatch(/\.pc-overview--narrow \.pc-overview__main>section\[aria-labelledby\]\s*\{[^}]*align-self:stretch/);
+});
+
+test("narrow repo scope shows its own Done today totals", () => {
+  for (const width of [400, 1200]) {
+    const html = atWidth(width, () => overview({ repo: null, scope: `repo:${repo}` }));
+    const section = html.slice(html.indexOf('aria-labelledby="done-today"'));
+    expect(section).toContain('3 · 0 accepted');
+    expect(section).not.toContain('7 · 6 accepted');
+  }
+});
+
+test("narrow Needs you puts other repos on the right of its header, once", () => {
+  const html = atWidth(400, () => overview({ repo: null, scope: `repo:${repo}` }));
+  const section = html.slice(html.indexOf('aria-labelledby="needs-you"'));
+  const header = section.slice(0, section.indexOf('</div>'));
+  expect(header).toContain('+1 in other repos');
+  expect(header.indexOf('class="grow"')).toBeLessThan(header.indexOf('+1 in other repos'));
+  expect(section.match(/\+1 in other repos/g)).toHaveLength(1);
+});

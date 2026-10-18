@@ -177,3 +177,17 @@ test("legacy attention goals reuse the task's service short title", () => {
   const html = view(null, { ...snap, tasks: snap.tasks.map(t => t.id === task.id ? { ...t, title: 'Service short title' } : t), attention: [{ ...snap.attention![1]!, title: task.goal }] });
   expect(html).toContain('Service short title<code class="pc-repo-chip">');
 });
+
+test("wide repo filter uses repo Done today totals and counts accepted rows only", () => {
+  const html = view('github.com/lamtuanvu/pacer');
+  const section = html.slice(html.indexOf('aria-labelledby="done-today"'), html.indexOf('pc-overview__side'));
+  expect(section).toContain('2 · 1 accepted');
+  expect(section).not.toContain('7 · 6 accepted');
+  const empty = view('unknown');
+  expect(empty.slice(empty.indexOf('aria-labelledby="done-today"'))).toContain('0 · 0 accepted');
+});
+
+test("repo Done today falls back to its filtered rows when no repo total is supplied", () => {
+  const html = view('github.com/acme/api', { ...snap, today: { ...snap.today!, byRepo: {} } });
+  expect(html.slice(html.indexOf('aria-labelledby="done-today"'))).toContain('2 · 0 accepted');
+});
