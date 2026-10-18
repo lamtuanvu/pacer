@@ -8,6 +8,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Desktop windows silently sign in again after expired sessions and service restarts, with bounded retries and shell recovery pages. Browser error pages use themed pacer cards and sign-in guidance.
 
+### Changed
+
+- App links now point directly to Overview, Review, Sessions and Settings. Retired UI routes fall back to Overview; old screens and route redirects have been removed.
+
 ### Added
 
 - Executor questions raise blocked Needs you items with Answer and Stop actions; `pacer answer`, `task.answer` and MCP `task_answer` retry on the same executor with cumulative question/answer brief context (protocol 2.7.0).

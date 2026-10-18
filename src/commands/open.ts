@@ -10,9 +10,18 @@ const defaultOpener: OpenDeps["opener"] = async url => {
   if (result !== 0) throw Error("could not open the browser; run pacer open --print");
 };
 
+/** CLI screen names resolve before opening either desktop or browser. */
+export function screenRoute(screen = "overview"): string {
+  const [name = "", ...rest] = screen.replace(/^\/+/, "").split("/");
+  if (name === "executors" && rest.join("/") === "add") return "/settings/add-executor";
+  const root = ({ overview: "", home: "", setup: "", delegate: "", tasks: "sessions", session: "sessions", executors: "settings/executors", accounts: "settings/accounts", hosts: "settings/hosts", strategy: "settings/strategies" } as Record<string, string>)[name] ?? name;
+  return `/${[root, ...rest].filter(Boolean).join("/")}`;
+}
+
 /** Let the registered desktop handler open its own authenticated session. */
 export async function openDesktop(ctx: Ctx, screen = "overview", platform = process.platform): Promise<boolean> {
-  const url = `pacer://${screen.replace(/^\/+/, "")}`;
+  const route = screenRoute(screen);
+  const url = `pacer://${route === "/" ? "overview" : route.slice(1)}`;
   const argv = platform === "darwin" ? ["open", "-b", "dev.pacer.desktop", url]
     : platform === "linux" ? ["xdg-open", url] : null;
   if (!argv) return false;
@@ -50,7 +59,7 @@ export async function openCmd(args: string[], ctx: Ctx, deps: OpenDeps = { opene
     if (!args.includes("--browser") && !args.includes("--print") && await openDesktop(ctx, screens[0])) return { code: 0, out: "Opened the pacer desktop app.", err: "" };
     const url = new URL(`${base}/app/auth`);
     url.searchParams.set("code", createCode(ctx));
-    if (screens[0]) url.hash = `/${screens[0].replace(/^\/+/, "")}`;
+    url.hash = screenRoute(screens[0]);
     if (args.includes("--print")) return { code: 0, out: url.href, err: "" };
     if (!args.includes("--browser") && await openInOrca(ctx, url.href)) return { code: 0, out: "Opened the pacer app in an Orca browser tab.", err: "" };
     await deps.opener(url.href);

@@ -151,24 +151,12 @@ pub fn route(raw: &str) -> Option<String> {
     if !value.starts_with('/') || value.starts_with("//") || value.contains(['?', '#', '\\']) {
         return None;
     }
-    if value == "/" {
+    if value == "/" || value == "/overview" {
         return Some("#/".into());
     }
     let parts: Vec<_> = value.trim_matches('/').split('/').collect();
-    if !matches!(
-        parts[0],
-        "overview"
-            | "review"
-            | "session"
-            | "sessions"
-            | "settings"
-            | "delegate"
-            | "tasks"
-            | "executors"
-            | "accounts"
-            | "strategy"
-            | "hosts"
-    ) || parts.len() > 3
+    if !matches!(parts[0], "review" | "sessions" | "settings")
+        || parts.len() > 3
         || (parts.len() == 3 && (parts[0] != "settings" || parts[1] != "hosts"))
         || parts.iter().any(|p| {
             p.is_empty()
@@ -338,12 +326,24 @@ mod tests {
             "/",
             "/overview",
             "#/review/t-123",
-            "/session/t-123",
+            "/sessions/t-123",
             "/settings/hosts/workstation",
         ] {
             let normalized = route(raw).expect("supported tray destination");
             assert_eq!(route(&normalized), Some(normalized));
         }
+        for retired in [
+            "tasks",
+            "executors",
+            "accounts",
+            "strategy",
+            "hosts",
+            "setup",
+        ] {
+            assert!(route(&format!("/{retired}")).is_none());
+            assert!(route(&format!("pacer://{retired}/id")).is_none());
+        }
+        assert_eq!(route("pacer://overview"), Some("#/".into()));
         for raw in [
             "javascript:alert(1)",
             "//evil.test",
@@ -467,8 +467,8 @@ mod tests {
             Some("#/review/t-0412".into())
         );
         assert_eq!(
-            route("pacer://session/t-0412"),
-            Some("#/session/t-0412".into())
+            route("pacer://sessions/t-0412"),
+            Some("#/sessions/t-0412".into())
         );
         for bad in [
             "https://evil.test",

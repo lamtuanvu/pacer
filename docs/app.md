@@ -22,9 +22,11 @@ If you have not installed the service, run `pacer service install` first.
 Alternatively, keep `pacer serve` running in a terminal. `pacer open` requires
 a running daemon; it does not start one.
 
-To open Settings, use `pacer open settings`. Pages use bookmarkable hash routes
-such as `#/`, `#/review`, `#/sessions` and `#/sessions/<id>`; bookmarks require
-an active browser session. Old app routes (`#/tasks`, `#/tasks/<id>`,
+To open a particular screen, use, for example, `pacer open sessions` or
+`pacer open settings`. Pages use bookmarkable hash routes such as `#/`,
+`#/review`, `#/review/<id>` for tasks waiting for review, `#/sessions` and
+`#/sessions/<id>`; bookmarks require an active browser session. Old app routes
+(`#/tasks`, `#/tasks/<id>`,
 `#/executors`, `#/executors/add`, `#/accounts`, `#/strategy`, `#/hosts` and
 `#/setup`) no longer redirect to their replacement screens. They fall back to
 Overview (`#/`), as do other unknown or malformed hashes. Incomplete setup

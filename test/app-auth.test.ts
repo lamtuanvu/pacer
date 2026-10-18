@@ -119,7 +119,7 @@ test("open uses the injected opener, keeps screen in the fragment, and reports a
   const { openCmd } = await import("../src/commands/open");
   const opened: string[] = [];
   expect((await openCmd(["tasks/one"], ctx, { opener: async url => { opened.push(url); } })).code).toBe(0);
-  expect(new URL(opened[0]!).hash).toBe("#/tasks/one");
+  expect(new URL(opened[0]!).hash).toBe("#/sessions/one");
   s.stop(); stop = undefined;
   const down = await main(["open"], ctx);
   expect(down.code).toBe(1);
@@ -237,7 +237,7 @@ test("HTTP browser access and open work through the server handler without a lis
   try {
     const printed = await main(["open", "--print", "tasks/one"], ctx);
     expect(printed.code).toBe(0);
-    expect(new URL(printed.out).hash).toBe("#/tasks/one");
+    expect(new URL(printed.out).hash).toBe("#/sessions/one");
     expect((await request(new URL(printed.out).pathname + new URL(printed.out).search)).status).toBe(303);
     const opened: string[] = [];
     expect((await openCmd([], ctx, { opener: async value => { opened.push(value); } })).code).toBe(0);

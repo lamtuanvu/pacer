@@ -16,13 +16,14 @@ export interface ActionDeps {
 }
 const CONFIRM_TIMEOUT_MS = 10_000;
 
+import { settingsPath } from "../router";
 /** ui.open is the one client-side action: every client maps it to its own screen. */
 export function uiHref(params: Record<string, unknown>): string {
   const id = typeof params.id === "string" ? encodeURIComponent(params.id) : "";
   switch (params.view) {
     case "review": return id ? `#/review/${id}` : "#/review";
     case "task": case "session": return id ? `#/sessions/${id}` : "#/sessions";
-    case "settings": return typeof params.section === "string" ? `#/settings/${encodeURIComponent(params.section)}` : "#/settings";
+    case "settings": return `#${settingsPath(params.section)}`;
     default: return "#/";
   }
 }
