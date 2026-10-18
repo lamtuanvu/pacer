@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { ApiError, connectClient, InProcessClient } from "../src/api/client";
-import { liveSnapshot } from "../src/api/events";
+import { liveV2Snapshot as liveSnapshot } from "../src/api/events";
 import { publish } from "../src/link/publish";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";

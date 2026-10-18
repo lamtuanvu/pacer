@@ -42,6 +42,8 @@ import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegat
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 
+export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
+
 export interface OpDeps {
   terminalPresetsOnly?: boolean;
   client?: string;
@@ -217,13 +219,14 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "repo.list": op({ description: "Registered repos with local branches, current first.", params: z.object({}), handler: ctx => listReposWithBranches(ctx) }),
   "repo.add": op({ description: "Register a git repository.", params: z.object({path:z.string().min(1).max(4096)}), handler: (ctx,p) => addRepo(ctx,p.path) }),
   "repo.remove": op({ description: "Remove a repository from the registry.", params: z.object({key:z.string().min(1)}), handler: (ctx,p) => removeRepo(ctx,p.key) }),
-  "task.list": op({ description: "Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.", params: z.object({
+  "task.list": op({ description: "Recent tasks, newest first, always returned as a cursor page.", params: z.object({
     limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
   }), handler: (ctx,p) => {
-    if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))return core.tasks.list(ctx,p).map(summarizeTask);
     const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
-    return {tasks:rows.slice(0,limit).map(t=>apiTask(ctx,t)),next:rows.length>limit?rows[limit-1].id:null};
+    const page={tasks:rows.slice(0,limit).map(t=>apiTask(ctx,t)),next:rows.length>limit?rows[limit-1].id:null};
+    if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
+    return page;
   } }),
   "task.delegate": op({
     description: "Hand a brief to an executor chosen by budget and priority (or `executor`).",
@@ -281,11 +284,10 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     description: "Record the planner's verdict on a task.",
     params: z.object({
       id, expect_rev,
-      verdict: z.enum(["accept", "reject", "send_back", "retry"]).optional(),
-      accepted: z.boolean().optional(), executor: z.string().optional(), kind: z.string().optional(),
+      verdict: z.enum(["accept", "reject", "send_back", "retry"]), executor: z.string().optional(), kind: z.string().optional(),
       note: z.string().max(2000).optional(),
       expect_state: z.enum(["queued", "running", "done", "partial", "failed", "limit", "stopped"]).optional(),
-    }).refine(p => p.verdict !== undefined || p.accepted !== undefined, "give a verdict or accepted")
+    })
       .refine(p => p.verdict !== "send_back" || !!p.note?.trim(), "send_back requires a note")
       .refine(p => p.verdict !== "retry" || !!p.executor?.trim(), "retry requires an executor"),
     handler: (ctx, p, deps) => {
@@ -309,7 +311,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     return { dismissed, unknown };
   } }),
   "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
-  "task.diff": op({ description: "Tracked changes against the task's base, plus untracked filenames.", params: z.object({ id, path: z.string().min(1).max(4096).refine(path => !path.includes("\0"), "path must not contain NUL").optional() }), handler: (ctx, p) => core.tasks.diff(ctx, p.id, { path: p.path }) }),
+  "task.diff": op({ description: "Tracked changes against the task's base, plus untracked filenames.", params: z.object({ id, path: z.string().min(1).max(4096).refine(path => !path.includes("\0"), "path must not contain NUL").optional() }), handler: async (ctx, p) => { const {diff:_,...result}=await core.tasks.diff(ctx,p.id,{path:p.path});return result; } }),
   "runner.list": op({ description: "Configured executors and their availability.", params: z.object({}), handler: (ctx) => core.runners.list(ctx) }),
   "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),
   "runner.unblock": op({ description: "Remove an executor's manual block.", params: z.object({ id }), handler: (ctx, p) => { core.runners.unblock(ctx, p.id); return { ok: true }; } }),
@@ -346,6 +348,7 @@ export function opJsonSchemas(): Record<string, { description: string; params: u
 
 export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
   if (!Object.hasOwn(OPS, name)) throw new CoreError("unknown_op", `unknown operation "${name}"`, `operations: ${opNames().join(", ")}`);
+  if(name==="task.review"&&params&&typeof params==="object"&&Object.hasOwn(params,"accepted"))throw new CoreError("invalid_input","task.review requires verdict; accepted was removed in protocol 3");
   const def = OPS[name];
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));

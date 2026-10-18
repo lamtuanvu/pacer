@@ -1,0 +1,61 @@
+{
+  "result": {
+    "id": "t-20261010-190000-0002",
+    "state": "done",
+    "goal": "Fixture done",
+    "executor": null,
+    "backend": null,
+    "worktree": null,
+    "updatedAt": 1791633598,
+    "rev": 1,
+    "queue": null,
+    "repo": {
+      "key": "local:fa5472fa3a53",
+      "label": "pacer-protocol-v2-golden",
+      "path": "/private/tmp/pacer-protocol-v2-golden"
+    },
+    "kind": null,
+    "host": null,
+    "brief": {
+      "goal": "Fixture done",
+      "repo": "/tmp/pacer-protocol-v2-golden"
+    },
+    "attempts": [],
+    "routing": null,
+    "cost": {
+      "executor": null,
+      "planner": null
+    },
+    "acceptance": {
+      "cmd": null,
+      "state": "none",
+      "tail": "",
+      "machine": null
+    },
+    "summary": null,
+    "branch": null,
+    "base": null,
+    "machine": null,
+    "startedAt": null,
+    "endedAt": null,
+    "files": [],
+    "retryOptions": [
+      {
+        "id": "claude-code",
+        "state": "down",
+        "reason": "not installed"
+      },
+      {
+        "id": "codex",
+        "state": "down",
+        "reason": "not installed"
+      }
+    ],
+    "timeline": [
+      {
+        "at": 1791633598,
+        "text": "done"
+      }
+    ]
+  }
+}

@@ -4,7 +4,7 @@ import { capacityFixture } from "./read-model-helpers";
 import { fakeCtx, localTs } from "./helpers";
 import { record } from "./read-model-helpers";
 import { apiTask } from "../src/api/read-model/tasks";
-import { liveSnapshot } from "../src/api/events";
+import { liveSnapshot, liveV2Snapshot } from "../src/api/events";
 import { emptySnapshot } from "../src/link/envelope";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -17,10 +17,10 @@ test("counts split by repo, today uses local midnight and setup counts required 
  expect(model.today).toMatchObject({since:localTs(2026,10,16),done:4,accepted:1,rejected:1,failed:1});
  expect(model.hosts[0]).toMatchObject({state:"ready",maxTasks:3});
 });
-test("live snapshot adds fields and preserves every old key",async()=>{
+test("v2 adapter preserves every old snapshot key",async()=>{
  const ctx=fakeCtx(),{st}=capacityFixture();mkdirSync(ctx.pacerHome,{recursive:true});
  await Bun.write(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
- const {snapshot}=await liveSnapshot(ctx,{status:async()=>st});
+ const {snapshot}=await liveV2Snapshot(ctx,{status:async()=>st});
  for(const key of Object.keys(emptySnapshot()))expect(snapshot).toHaveProperty(key);
  expect(snapshot).toHaveProperty("budget");expect(snapshot).toHaveProperty("planner");expect(snapshot).toHaveProperty("counts");
 });

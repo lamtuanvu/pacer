@@ -1200,7 +1200,7 @@ function parseEnvelope(raw) {
   switch (raw.type) {
     case "entity": {
       const d = raw.data;
-      if (!isObj(d) || !["executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
+      if (!isObj(d) || !["planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
         return null;
       return { v: 1, type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
     }

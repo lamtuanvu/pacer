@@ -14,7 +14,7 @@ test("docs/protocol.md is generated from the registry and up to date: run `bun r
 
 test("2.2+ hello advertises attention, activity and repository operations", () => {
   const hello = helloBody();
-  expect(hello.protocol).toBe("2.8.0");
+  expect(hello.protocol).toBe("3.0.0");
   for (const op of ["attention.dismiss", "attention.snooze", "task.retry_options", "activity.list", "repo.list", "repo.add", "repo.remove"]) expect(hello.ops).toContain(op);
   for (const text of ["ui.open", "expect_rev", "POST /v2/session/exchange", "## Activity", "## Attention and actions"]) expect(renderProtocolDoc()).toContain(text);
 });

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { opJsonSchemas } from "../src/api/ops";
-import { httpStatus, PROTOCOL_VERSION, type ApiErrorCode } from "../src/api/protocol";
+import { v2OpJsonSchemas as opJsonSchemas, V2_PROTOCOL as PROTOCOL_VERSION } from "../src/api/v2-compat";
+import { httpStatus, type ApiErrorCode } from "../src/api/protocol";
 
 /** Deterministic documentation of the v2 transports and registered operation schemas. */
 export function renderProtocolDoc(): string {

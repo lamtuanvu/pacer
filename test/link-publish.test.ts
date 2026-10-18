@@ -37,7 +37,7 @@ test("entity envelopes stay in the outbox even when the channel is available", a
   expect(report.transports).toEqual(["outbox"]);
   expect(calls).toEqual([]);
   expect(readFileSync(storage,"utf8")).toBe(before);
-  expect(readOutboxSince(c,1)[0]?.envelope).toEqual(entity);
+  expect(readOutboxSince(c,1)[0]?.envelope).toEqual({type:entity.type,data:entity.data});
   await publish(c,[entity,b],{bridge:false});
   const sent=calls.filter(argv=>argv[1]==="plugin"&&argv[2]==="send");
   expect(sent).toHaveLength(1);

@@ -22,7 +22,7 @@ test("task.get returns detail and task.list keeps summaries", async () => {
   const ctx = await ctxWithStrategy();
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   expect(await callOp(ctx, "task.get", { id: t.id })).toMatchObject({ id: t.id, state: "queued", brief: { goal: "g" } });
-  expect((await callOp(ctx, "task.list", {})) as unknown[]).toHaveLength(1);
+  expect((await callOp(ctx, "task.list", {})) as unknown).toMatchObject({tasks:expect.any(Array),next:null});
 });
 
 test("task.delegate uses the injected spawner and validates its brief", async () => {

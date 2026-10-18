@@ -29,7 +29,7 @@ test("a since older than the retained outbox yields reset", () => {
 test("the snapshot carries the protocol version and its seq", async () => {
   const ctx = fakeCtx();
   await publish(ctx, [alert("a", ctx.now)], { bridge: false, channel: false });
-  expect(await apiSnapshot(ctx)).toMatchObject({ protocol: "2.8.0", seq: eventsSince(ctx, 0).last });
+  expect(await apiSnapshot(ctx)).toMatchObject({ protocol: "3.0.0", seq: eventsSince(ctx, 0, 3).last });
 });
 
 test("events retain publication time and map internal entities", async () => {
@@ -61,7 +61,7 @@ test("v2 task events include repo, kind and host without changing v1 envelopes",
 });
 
 test("hello advertises additive 2.1 events for clients that skip unknown event types",async()=>{
- const {helloBody}=await import("../src/api/protocol");
+ const {v2Hello:helloBody}=await import("../src/api/v2-compat");
  expect(helloBody()).toMatchObject({protocol:"2.8.0",events:expect.arrayContaining(["budget","task","mode","alert","config","reset","executor","account","host","repo","counts"])});
 });
 

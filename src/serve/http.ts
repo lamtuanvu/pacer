@@ -111,7 +111,7 @@ export function startServer(
     idleTimeout: 0,
     async fetch(req, server) {
       const { pathname } = new URL(req.url);
-      const sessionRoute=pathname.match(/^\/v2\/tasks\/([A-Za-z0-9_-]+)\/session$/);
+      const sessionRoute=pathname.match(/^\/v[23]\/tasks\/([A-Za-z0-9_-]+)\/session$/);
       const hosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
       if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
@@ -122,10 +122,10 @@ export function startServer(
       const bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
       if (!bearer) {
         const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
-        if (!(app || pathname.startsWith("/v2/")) || !value || !checkSession(getCtx(), value)) {
+        if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
           return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
         }
-        if (pathname === "/v2/session/exchange") return new Response("forbidden\n", { status: 403 });
+        if (/^\/v[23]\/session\/exchange$/.test(pathname)) return new Response("forbidden\n", { status: 403 });
         const site = req.headers.get("sec-fetch-site");
         if ((sessionRoute && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
             (!["GET", "HEAD"].includes(req.method) &&
@@ -135,7 +135,7 @@ export function startServer(
       }
       if (app) return appRoute(req, getCtx());
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
-      if (pathname.startsWith("/v2/")) {
+      if (/^\/v[23]\//.test(pathname)) {
         const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, terminalPresetsOnly: !bearer}, tailMs, status });
         response.headers.set("X-Pacer","1");
         return response;
@@ -169,7 +169,7 @@ export function startServer(
             const tail = () => {
               try {
                 for (const e of outbox.filter(e=>e.seq>last)) {
-                  if(e.envelope.type!=="entity")controller.enqueue(enc.encode(`data: ${JSON.stringify(e.envelope)}\n\n`));
+                  if(e.envelope.type!=="entity")controller.enqueue(enc.encode(`data: ${JSON.stringify({v:1,...e.envelope})}\n\n`));
                   last = e.seq;
                 }
               } catch { clearTimers(); }

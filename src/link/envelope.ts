@@ -10,8 +10,11 @@ export interface TaskData { session?:SessionData; progress?: { phase: string; la
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export interface ConfigData { area: string; at: number }
-export interface EntityData { kind: "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify"; id: string; value?: unknown; removed?: true }
+export interface EntityData { kind: "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify"; id: string; value?: unknown; removed?: true }
 export type Envelope = { v: 1; type: "entity"; data: EntityData } | { v: 1; type: "config"; data: ConfigData } | { v: 1; type: "budget"; data: BudgetData } | { v: 1; type: "task"; data: TaskData } | { v: 1; type: "mode"; data: ModeData } | { v: 1; type: "alert"; data: AlertData };
+/** Durable internal event; legacy transports add their own v:1 envelope. */
+type WithoutVersion<E> = E extends { v: 1 } ? Omit<E, "v"> : never;
+export type OutboxEvent = WithoutVersion<Envelope>;
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { attention?: import("../attention/types").AttentionItem[]; counts?: import("../api/read-model/types").Counts; serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
@@ -80,7 +83,7 @@ export function parseEnvelope(raw: unknown): Envelope | null {
   switch (raw.type) {
     case "entity": {
       const d=raw.data;
-      if(!isObj(d) || !["executor","account","host","repo","counts","attention","activity","job","notify"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>(d.kind==="notify"?512:128))return null;
+      if(!isObj(d) || !["planner","executor","account","host","repo","counts","attention","activity","job","notify"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>(d.kind==="notify"?512:128))return null;
       return {v:1,type:"entity",data:{kind:d.kind as EntityData["kind"],id:d.id,...(d.removed===true?{removed:true}:{value:d.value})}};
     }
     case "config": {
@@ -94,6 +97,14 @@ export function parseEnvelope(raw: unknown): Envelope | null {
     case "alert": { const data = parseAlert(raw.data); return data && { v: 1, type: "alert", data }; }
     default: return null;
   }
+}
+/** Read both durable formats while legacy publishers still use Envelope. */
+export function parseOutboxEvent(raw: unknown): OutboxEvent | null {
+  if (!isObj(raw) || (raw.v !== undefined && raw.v !== 1)) return null;
+  const parsed = parseEnvelope({ ...raw, v: 1 });
+  if (!parsed) return null;
+  const { v: _, ...event } = parsed;
+  return event;
 }
 export function emptySnapshot(): LinkSnapshot { return { v: 1, seq: 0, at: 0, budget: null, mode: null, tasks: [], alerts: [], console: null, consoles: [], strategies: [] }; }
 export function parseSnapshot(raw: unknown): LinkSnapshot | null {

@@ -196,6 +196,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
     const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
     out.push(...await dispatchNotifications(ctx,model.attention,{publish:deps.publish,events:[...out]}));
     const rows:{kind:EntityData["kind"];id:string;value:unknown}[]=[
+      {kind:"planner",id:"planner",value:model.planner},
       ...model.executors.map(value=>({kind:"executor" as const,id:value.id,value})),
       ...model.accounts.map(value=>({kind:"account" as const,id:value.name,value})),
       ...model.hosts.map(value=>({kind:"host" as const,id:value.alias,value})),

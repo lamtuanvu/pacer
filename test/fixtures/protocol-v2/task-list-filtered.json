@@ -1,0 +1,43 @@
+{
+  "result": {
+    "tasks": [
+      {
+        "id": "t-20261010-190000-0004",
+        "state": "failed",
+        "goal": "Fixture failed",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633596,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      },
+      {
+        "id": "t-20261010-190000-0002",
+        "state": "done",
+        "goal": "Fixture done",
+        "executor": null,
+        "backend": null,
+        "worktree": null,
+        "updatedAt": 1791633598,
+        "rev": 1,
+        "queue": null,
+        "repo": {
+          "key": "local:fa5472fa3a53",
+          "label": "pacer-protocol-v2-golden",
+          "path": "/private/tmp/pacer-protocol-v2-golden"
+        },
+        "kind": null,
+        "host": null
+      }
+    ],
+    "next": null
+  }
+}

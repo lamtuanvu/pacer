@@ -1,0 +1,112 @@
+{
+  "result": [
+    {
+      "task_id": "t-20261010-190000-0007",
+      "goal": "Fixture needs_input",
+      "state": "needs_input",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "question": {
+        "text": "Which approach?",
+        "at": 1791633600
+      },
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0006",
+      "goal": "Fixture stopped",
+      "state": "stopped",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0005",
+      "goal": "Fixture limit",
+      "state": "limit",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0004",
+      "goal": "Fixture failed",
+      "state": "failed",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0003",
+      "goal": "Fixture partial",
+      "state": "partial",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0002",
+      "goal": "Fixture done",
+      "state": "done",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0001",
+      "goal": "Fixture running",
+      "state": "running",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    },
+    {
+      "task_id": "t-20261010-190000-0000",
+      "goal": "Fixture queued",
+      "state": "queued",
+      "kind": null,
+      "requested_executor": null,
+      "placement": null,
+      "queue": null,
+      "attempts": [],
+      "result": null,
+      "review": null,
+      "resolved": null
+    }
+  ]
+}

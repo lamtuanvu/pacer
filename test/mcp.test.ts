@@ -91,7 +91,7 @@ test("report_limit marks exhaustion; task_review and guard_feedback record label
   expect((await call("report_limit", { provider: "nope" })).isError).toBe(true);
   const d = await call("delegate", { goal: "g", repo: tmpDir() });
   updateTask(ctx, d.structuredContent.task_id, t => { t.state = "done"; });
-  await call("task_review", { task_id: d.structuredContent.task_id, accepted: false, kind: "refactor", note: "wrong file" });
+  await call("task_review", { task_id: d.structuredContent.task_id, verdict: "reject", kind: "refactor", note: "wrong file" });
   await call("guard_feedback", { event_id: "e-1", correct: true });
   expect(readTask(ctx,d.structuredContent.task_id)).toMatchObject({resolved:"reviewed",review:{accepted:false,kind:"refactor",note:"wrong file"}});
   const labels = readLabels(ctx);

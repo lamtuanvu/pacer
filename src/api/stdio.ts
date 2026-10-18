@@ -1,6 +1,7 @@
+import { callV2Op, v2Hello } from "./v2-compat";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
-import { liveSnapshot, eventsSince } from "./events";
+import { liveSnapshot, liveV2Snapshot, eventsSince } from "./events";
 import { callOp, type OpDeps } from "./ops";
 import { helloBody, rpcError } from "./protocol";
 
@@ -14,8 +15,9 @@ export async function runStdio(
   const pending = new Set<Promise<void>>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let last = 0;
+  let protocol:2|3=2;
   const poll = () => {
-    const batch = eventsSince(getCtx(), last);
+    const batch = eventsSince(getCtx(), last,protocol);
     for (const event of batch.events) send({ jsonrpc: "2.0", method: "event", params: event });
     last = batch.last;
   };
@@ -40,10 +42,17 @@ export async function runStdio(
     try {
       let result: unknown;
       switch (r.method) {
-        case "hello":
-          result = helloBody();
+        case "hello": {
+          const params=r.params??{};
+          if(!params||typeof params!=="object"||Array.isArray(params))throw new CoreError("invalid_input","hello params must be an object");
+          const version=(params as Record<string,unknown>).protocol??2;
+          if(version!==2&&version!==3)throw new CoreError("invalid_input","protocol must be 2 or 3");
+          if(protocol!==version){clearInterval(timer);timer=undefined;last=0;}
+          protocol=version;
+          result = protocol===3?helloBody():v2Hello();
           break;
-        case "snapshot": result = await liveSnapshot(getCtx()); break;
+        }
+        case "snapshot": result = await (protocol===3?liveSnapshot:liveV2Snapshot)(getCtx()); break;
         case "subscribe": {
           const params = r.params ?? {};
           if (typeof params !== "object" || Array.isArray(params)) throw new CoreError("invalid_input", "subscribe params must be an object");
@@ -51,11 +60,11 @@ export async function runStdio(
           if (typeof since !== "number" || !Number.isSafeInteger(since) || since < 0) throw new CoreError("invalid_input", "since must be a non-negative integer");
           clearInterval(timer);
           last = since;
-          result = { subscribed: true, last: eventsSince(getCtx(), last).last };
+          result = { subscribed: true, last: eventsSince(getCtx(), last,protocol).last };
           timer = setInterval(poll, o.pollMs ?? 500);
           break;
         }
-        default: result = await callOp(getCtx(), r.method, r.params ?? {}, o.opDeps);
+        default: result = await (protocol===3?callOp:callV2Op)(getCtx(), r.method, r.params ?? {}, o.opDeps);
       }
       if (hasId) send({ jsonrpc: "2.0", id: r.id, result });
     } catch (e) {
