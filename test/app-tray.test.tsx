@@ -201,8 +201,8 @@ test("tray assets use their own entry and external CSS and are served with the a
   const html = files.find(f => f.path === "tray.html")!.text;
   expect(html).toContain('src="/app/tray.js"');
   expect(html).toContain('href="/app/tray.css"');
-  expect(html).not.toMatch(/\sstyle=|\son\w+=|<style\b/);
-  expect(html).not.toMatch(/<script\b[^>]*>\s*\S[\s\S]*?<\/script>/);
+  expect(html).not.toMatch(/\sstyle=|\son\w+=|<style\b/i);
+  expect(html).not.toMatch(/<script\b[^>]*>\s*\S[\s\S]*?<\/script\s*>/i);
   const js = files.find(f => f.path === "tray.js")!.text;
   expect(js).toContain("/v2/events?since=");
   expect(js).toContain("tray_resize");
