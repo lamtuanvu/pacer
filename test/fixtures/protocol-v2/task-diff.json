@@ -1,0 +1,11 @@
+{
+  "result": {
+    "base": null,
+    "worktree": "/tmp/pacer-protocol-v2-golden",
+    "files": [],
+    "patch": "",
+    "diff": "",
+    "untracked": [],
+    "truncated": false
+  }
+}

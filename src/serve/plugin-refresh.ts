@@ -30,9 +30,9 @@ export async function refreshManagedPlugin(ctx: Ctx, version: string, overrides:
     await deps.install({ ctx, pacerArgv: [deps.execPath] });
     const hint = `pacer: refreshed the Orca plugin to ${version}; turn pacer off and on in Orca Settings > Plugins to load it`;
     deps.log(hint);
-    await deps.publish(ctx, [{ v: 1, type: "alert", data: {
+    await deps.publish(ctx, [{ type: "alert", data: {
       key: "plugin-refreshed", level: "info", title: "Orca plugin refreshed", body: hint, at: ctx.now,
-    } }], { bridge: false, channel: false });
+    } }]);
   } catch (error) {
     const reason = (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0];
     deps.log(`pacer: could not refresh the Orca plugin: ${reason}`);

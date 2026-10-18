@@ -7,7 +7,7 @@ import { taskReview } from "../src/tasks/api";
 import { createTask, updateTask, readTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
 import { taskData, pumpOnce } from "../src/link/pump";
-import { emptySnapshot, parseEnvelope } from "../src/link/envelope";
+import { emptySnapshot, parseOutboxEvent } from "../src/link/envelope";
 import { attentionGroups } from "../orca-plugin/src/panel/model";
 
 function setup(){const ctx=fakeCtx(),repo=tmpDir(),worker=join(ctx.home,"worker");
@@ -34,7 +34,7 @@ test("an empty worker diff and in-place runs never count as landed",()=>{
 });
 test("removed worktree and both review verdicts settle attention and roundtrip",()=>{
  const {ctx,worker,task}=setup();rmSync(worker,{recursive:true});expect(resolveTask(ctx,task).resolved).toBe("worktree removed");
- for(const accepted of [true,false]){taskReview(ctx,task.id,accepted);const data=taskData(readTask(ctx,task.id)!);expect(parseEnvelope({v:1,type:"task",data})?.data).toMatchObject({review:{accepted},resolved:"reviewed"});}
+ for(const accepted of [true,false]){taskReview(ctx,task.id,accepted);const data=taskData(readTask(ctx,task.id)!);expect(parseOutboxEvent({type:"task",data})?.data).toMatchObject({review:{accepted},resolved:"reviewed"});}
 });
 test("resolution checks are persisted and limited to once per task per minute",()=>{
  const {ctx,worker,task}=setup();writeFileSync(join(worker,"tracked"),"pending");const checked=resolveTask(ctx,task);expect(checked.resolved).toBeUndefined();

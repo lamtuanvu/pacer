@@ -50,7 +50,7 @@ test("subscribe streams events as notifications", async () => {
   const { ctx, out, ch, done } = await setup();
   ch.send({ jsonrpc: "2.0", id: 1, method: "subscribe", params: { since: 0 } });
   await waitFor(() => out.some((o) => o.id === 1));
-  await publish(ctx, [{ v: 1, type: "alert", data: { key: "k", level: "info", title: "t", body: "", at: ctx.now } }], { bridge: false, channel: false });
+  await publish(ctx, [{ type: "alert", data: { key: "k", level: "info", title: "t", body: "", at: ctx.now } }]);
   await waitFor(() => out.some((o) => o.method === "event"));
   ch.close(); await done;
   expect(out.find((o) => o.method === "event")).toMatchObject({ params: { type: "alert" } });
@@ -75,7 +75,7 @@ test("EOF drains pending requests and stops subscription polling", async () => {
   expect(out.find((o) => o.id === 1)).toMatchObject({ result: { protocol: "2.8.0", seq: 0 } });
   expect(out.find((o) => o.id === 2)).toMatchObject({ result: { subscribed: true, last: 0 } });
   const count = out.length;
-  await publish(ctx, [{ v: 1, type: "alert", data: { key: "k", level: "info", title: "t", body: "", at: ctx.now } }], { bridge: false, channel: false });
+  await publish(ctx, [{ type: "alert", data: { key: "k", level: "info", title: "t", body: "", at: ctx.now } }]);
   await Bun.sleep(60);
   expect(out).toHaveLength(count);
 });

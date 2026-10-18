@@ -1,5 +1,7 @@
 # Live executor sessions: watch and drive a delegated task's terminal
 
+> Historical context: protocol 3.0 retired the v1 Orca link, storage bridge, channel sends, console command lines and unversioned read routes on 2026-10-18. The owner waived the release gate; `/v2` remains for one more pacer minor release. See [current protocol](../protocol.md).
+
 Status: proposed 2026-10-16. Builds on the [core contract](2026-10-14-core-contract-design.md) (protocol v2), [remote runners](2026-10-14-remote-runners-design.md) and [the pacer app](2026-10-15-pacer-app-design.md). Design only; nothing here is implemented yet.
 
 ## Why

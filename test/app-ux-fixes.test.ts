@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
+import { callV2Op } from "../src/api/v2-compat";
 import { callOp } from "../src/api/ops";
 import { createTask } from "../src/tasks/store";
 import { emptySnapshot, LIMITS, clip } from "../src/link/envelope";
@@ -25,7 +26,7 @@ test("task summaries include the clipped brief goal", async () => {
  const ctx=fakeCtx(), goal="Goal ".repeat(100);
  const t=createTask(ctx,{brief:{goal,repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
  expect(await callOp(ctx,"task.get",{id:t.id})).toMatchObject({goal:clip(goal,LIMITS.goal)});
- expect(await callOp(ctx,"task.list",{})).toEqual(expect.arrayContaining([expect.objectContaining({goal:clip(goal,LIMITS.goal)})]));
+ expect(await callV2Op(ctx,"task.list",{})).toEqual(expect.arrayContaining([expect.objectContaining({goal:clip(goal,LIMITS.goal)})]));
 });
 test("checklist distinguishes installed CLI from connected integration", async () => {
  const ctx=fakeCtx({which:bin=>bin==="codex"?"/fixture/codex":null});
