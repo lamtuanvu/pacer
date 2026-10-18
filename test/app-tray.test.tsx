@@ -222,3 +222,10 @@ test("tray assets use their own entry and external CSS and are served with the a
     expect(await response.text()).toBe(files.find(f => f.path === name)!.text);
   }
 });
+
+test("row actions show one short verb and keep the full label as a tooltip", async () => {
+  const { rowLabel } = await import("../app/src/tray/Tray");
+  expect(rowLabel("Retry on OpenCode")).toBe("Retry");
+  expect(rowLabel("Review")).toBe("Review");
+  expect(rowLabel("Open settings")).toBe("Open settings");
+});

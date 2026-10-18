@@ -16,6 +16,11 @@ import { appHref, type TrayIpc } from "./ipc";
 import { actionRoute, executorValue, primaryAction, shortTitle, trayModel } from "./model";
 
 export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[] }
+/** One short verb per row, as on the board; the full label stays in the tooltip. */
+export function rowLabel(label: string): string {
+  return label.replace(/ on .+$/, "");
+}
+
 export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc) {
   if (action.op === "ui.open") await ipc.open(actionRoute(action));
   else await api.call(action.op, action.params);
@@ -92,7 +97,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           return <div className={`tray-attention tray-attention--${item.kind}`} key={item.id}>
             <span className="tray-glyph" aria-hidden="true">{glyph}</span>
             <span className="tray-grow"><strong className="tray-ellipsis">{shortTitle({ title: item.title, goal: task?.goal })}</strong><span className="tray-reason tray-ellipsis">{[item.repo?.label ?? task?.repo?.label, item.detail].filter(Boolean).join(" · ")}</span></span>
-            {action && <button className={`tray-action${action.style === "primary" ? " tray-action--primary" : ""}`} type="button" disabled={busy || sessionEnded} onClick={() => act(() => performAction(action, api, ipc))}>{action.label}</button>}
+            {action && <button className={`tray-action${action.style === "primary" ? " tray-action--primary" : ""}`} type="button" disabled={busy || sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}>{rowLabel(action.label)}</button>}
           </div>;
         })}
         {model.needsCount > 3 && <a className="tray-more" href={appHref("/")} onClick={navigate("/")}>+{model.needsCount - 3} more in the app</a>}
