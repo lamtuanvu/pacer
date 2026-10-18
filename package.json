@@ -15,7 +15,7 @@
     "test": "TZ=Asia/Ho_Chi_Minh bun test",
     "live": "bun scripts/live/cli.ts",
     "typecheck": "tsc --noEmit && tsc -p app",
-    "build": "bun build --compile src/cli.ts --outfile dist/pacer",
+    "build": "bun build --compile src/cli.ts --outfile dist/pacer && bun scripts/sign-local.ts dist/pacer",
     "release": "bun scripts/release/build.ts",
     "release:prepare": "bun scripts/release/prepare.ts",
     "release:host": "bun scripts/release/build.ts --host",

@@ -14,3 +14,8 @@ test("defaultRun captures output and reports a missing binary as code 127 instea
   const missing = await defaultRun(["definitely-not-a-binary-pacer"], 5000);
   expect(missing.code).toBe(127);
 });
+
+test("defaultRun preserves timeout status for bounded diagnostics", async () => {
+  const result = await defaultRun(["sleep", "2"], 20);
+  expect(result.timedOut).toBe(true);
+});

@@ -24,7 +24,7 @@ export interface UsageReading {
   error?: string;
 }
 
-export interface RunResult { code: number; stdout: string; stderr: string }
+export interface RunResult { timedOut?: boolean; code: number; stdout: string; stderr: string }
 export type RunFn = (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined>; stdin?: string }) => Promise<RunResult>;
 
 export interface Ctx {

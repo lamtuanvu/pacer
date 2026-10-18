@@ -1,3 +1,4 @@
+import { removableVolumeChecks } from "./removable-volume";
 import { executorCliCheck } from "./cli-check";
 import { serviceBackend, type ServiceStatus } from "../service";
 import { existsSync } from "node:fs";
@@ -63,6 +64,7 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     }
   }
 
+  checks.push(...await removableVolumeChecks(ctx));
   checks.push(await linkLatencyCheck(ctx));
 
   if (ctx.which("orca") === null) {
