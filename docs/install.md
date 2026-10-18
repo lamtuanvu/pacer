@@ -147,3 +147,44 @@ Checks only GET `latest.json`, time out after three seconds, and cache in
 `~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours. The static marketplace
 panel has no update buttons or host calls, and the worker never installs a newer
 release than the version shipped with its plugin.
+
+## macOS: removable volumes
+
+When repositories live on an external or removable volume, macOS may ask whether
+pacer can access files on that volume. Allow the prompt once. If it was dismissed
+or denied, open **System Settings > Privacy & Security > Files and Folders** and
+allow **Removable Volumes** for pacer. Restart the service after changing access.
+
+Bun's compiled binaries normally have an ad hoc signature. Its identity changes
+with the binary contents, so rebuilding or updating can trigger the prompt again.
+To keep a stable identity across local builds and downloaded updates, run once
+from a source checkout:
+
+```sh
+bun scripts/sign-local.ts --create-identity
+bun run build
+```
+
+The setup creates the self-signed **pacer local code signing** certificate and
+private key in your login keychain, valid for ten years, and adds user trust for
+code signing. It uses OpenSSL and macOS's `security` tools. macOS may request your
+keychain password or a confirmation; approve that request and retry if the
+bounded command times out. Setup reuses an existing identity. Keep that
+certificate and private key: replacing them changes the signing identity.
+
+Reinstall the resulting `dist/pacer` using the usual source-build instructions,
+then run `pacer service install` to refresh the service. Builds and updates use
+this identity with identifier `dev.pacer.cli` when available. Signing leaves
+hardened runtime disabled so the compiled Bun runtime can execute. The release
+builder signs macOS outputs when run on macOS with this identity; CI without it
+keeps the usual ad hoc signature. Both `pacer update` and `install.sh` sign a
+staged file before installation, preserving the running binary's inode.
+
+Run `pacer doctor` to check registered repositories on removable volumes. It
+probes each path in a child process with a three-second timeout. A timeout
+suggests a pending permission prompt; an “Operation not permitted” result
+indicates denied access. Doctor also reports an installed ad hoc signature and
+the one-time identity setup command. Successful probes describe the current
+process's access; repeat the check in the service's context if launchd access
+still differs. Installing the stable identity does not approve the macOS access
+prompt for you: the first signed build may still need permission once.

@@ -1,5 +1,6 @@
 import { chmodSync, closeSync, copyFileSync, fsyncSync, linkSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { signStaged } from "./signing";
 import { ReleaseError } from "./errors";
 
 /** Runs `<path> --version` and returns its stdout. */
@@ -38,7 +39,7 @@ function fsyncDir(dir: string): void {
  * (hard link, else copy), then rename over the target. A running process keeps its old inode, and
  * macOS never sees a signed binary modified in place.
  */
-export async function replaceBinary(target: string, bytes: Uint8Array, version: string, smoke: SmokeFn = runVersion): Promise<ReplaceResult> {
+export async function replaceBinary(target: string, bytes: Uint8Array, version: string, smoke: SmokeFn = runVersion, sign: (path: string) => Promise<unknown> = signStaged): Promise<ReplaceResult> {
   let real: string;
   try {
     real = realpathSync(target);
@@ -59,6 +60,7 @@ export async function replaceBinary(target: string, bytes: Uint8Array, version: 
       closeSync(fd);
     }
     chmodSync(tmp, 0o755);
+    await sign(tmp);
     const out = await smoke(tmp);
     if (!reportsVersion(out, version)) {
       throw new ReleaseError(`the downloaded binary did not report version ${version} when run (output: ${out.trim().slice(0, 200) || "none"}); nothing was changed`);

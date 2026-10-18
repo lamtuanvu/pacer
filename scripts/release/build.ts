@@ -5,6 +5,7 @@ import {
   type Manifest, type Platform, type ReleaseAsset, type Target, TARGETS, assetFile, formatSha256Sums,
   hostPlatform, hostTarget, parseLatest, sha256Hex,
 } from "../../src/update/manifest";
+import { signLocal } from "../../src/update/signing";
 import { compareVersions, isVersion } from "../../src/update/version";
 
 export const BUILD_USAGE = "usage: bun run release [--host | --targets <os-arch,...>] [--write-only] [--out <dir>] [--version <x.y.z>]";
@@ -66,6 +67,7 @@ export async function compileTarget(o: { root: string; target: Target; version: 
   const p = Bun.spawn(argv, { cwd: o.root, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   if (code !== 0) throw new Error(`bun build failed for ${o.target.bunTarget} (exit ${code}):\n${(err || out).trim()}`);
+  if (o.target.os === "darwin") await signLocal(o.outfile, { smoke: isHost });
 }
 
 function readLatestVersion(path: string): string | null {
