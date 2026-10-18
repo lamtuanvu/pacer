@@ -182,6 +182,11 @@ async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
     let web_auth = cli.auth().await?;
     let session = Session::connect(cli, &web_auth).await?;
     let snapshot = session.json("/v2/snapshot").await?;
+    if snapshot["service"]["starting"] == true
+        || snapshot["snapshot"]["service"]["starting"] == true
+    {
+        return Err("starting".into());
+    }
     let registration = session.op("client.register", &serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":true})).await?;
     let client_id = registration["client_id"]
         .as_str()
@@ -199,6 +204,14 @@ async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
         result = listen(app, &session, &client_id, seq) => result,
         result = heartbeat(&session, &client_id) => result,
         _ = shell.expired.notified() => Err("sessionExpired".into()),
+    }
+}
+async fn monitor_health(client: &Client) -> Result<(), String> {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        if health(client).await != logic::HealthProbe::Ready {
+            return Err("diagnose".into());
+        }
     }
 }
 async fn heartbeat(session: &Session, client_id: &str) -> Result<(), String> {
@@ -293,42 +306,89 @@ async fn listen(
 
 pub async fn run(app: AppHandle) {
     let mut path = Cli::login_path().await;
+    let probe_client = Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("local health client");
+    let mut busy_since: Option<std::time::Instant> = None;
+    let mut action_error = None;
     let mut attempts = logic::Reconnect::default();
     loop {
         tokio::time::sleep(attempts.delay(std::time::Instant::now())).await;
         attempts.started(std::time::Instant::now());
-        // Discard signals from the old document before starting fresh sign-in.
         let _ = tokio::time::timeout(Duration::ZERO, app.state::<Shell>().expired.notified()).await;
         if app.state::<Shell>().retry.swap(false, Ordering::SeqCst) {
             path = Cli::login_path().await;
         }
-        if let Some(cli) = Cli::find(&path) {
-            if app.state::<Shell>().start.swap(false, Ordering::SeqCst) {
+        let cli = Cli::find(&path);
+        let probe = health(&probe_client).await;
+        let job = if probe == logic::HealthProbe::Refused {
+            job_state().await
+        } else {
+            logic::JobState::Unknown
+        };
+        let seconds = if probe == logic::HealthProbe::NoAnswer {
+            busy_since
+                .get_or_insert_with(std::time::Instant::now)
+                .elapsed()
+                .as_secs()
+        } else {
+            busy_since = None;
+            0
+        };
+        let prompt = probe == logic::HealthProbe::NoAnswer && privacy_prompt();
+        let mut diagnosis = logic::diagnose(probe, job, prompt, seconds);
+        if cli.is_none() && diagnosis.page == "not_installed" {
+            diagnosis.page = "install";
+        }
+        let action = app.state::<Shell>().service_action.lock().unwrap().take();
+        if let Some(action) = action {
+            // Recheck evidence before acting: a stale shell cannot restart a recovered service.
+            let allowed = match action.as_str() {
+                "install" => diagnosis.page == "not_installed",
+                "start" => diagnosis.page == "stopped",
+                "restart" => diagnosis.restart,
+                _ => false,
+            };
+            if allowed {
                 crate::recovery(&app, "starting");
-                if cli.run(&["service", "install"]).await.is_err() {
-                    crate::recovery(&app, "startFailed");
-                    wait_retry(&app).await;
-                    continue;
+                match service_action(cli.as_ref(), &action, job).await {
+                    Ok(()) => action_error = None,
+                    Err(error) => {
+                        action_error = Some(error);
+                        crate::recovery(&app, "startFailed");
+                    }
                 }
+                continue;
             }
-            if let Err(error) = connected(&app, &cli).await {
-                let state = logic::recovery_page(&error);
-                crate::recovery(&app, state);
+        }
+        if diagnosis.recover {
+            if let Some(cli) = cli {
+                let result = tokio::select! {
+                    result = connected(&app, &cli) => result,
+                    result = monitor_health(&probe_client) => result,
+                };
+                if let Err(error) = result {
+                    let state = if error == "starting" {
+                        "starting"
+                    } else {
+                        logic::recovery_page(&error)
+                    };
+                    // Never label a listening service stopped just because sign-in failed.
+                    if state == "stopped" {
+                        crate::recovery(&app, "unavailable");
+                    } else {
+                        crate::recovery(&app, state);
+                    }
+                }
+            } else {
+                crate::recovery(&app, "install");
             }
         } else {
-            crate::recovery(&app, "install");
+            diagnosis.action_error = action_error.clone();
+            crate::diagnostic_recovery(&app, &diagnosis);
         }
-        wait_retry(&app).await;
-    }
-}
-async fn wait_retry(app: &AppHandle) {
-    for _ in 0..10 {
-        if app.state::<Shell>().retry.load(Ordering::SeqCst)
-            || app.state::<Shell>().start.load(Ordering::SeqCst)
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
 
@@ -395,5 +455,237 @@ mod tests {
         let session = Session::exchange(&auth, "test-token".into()).await.unwrap();
         session.op("client.register", &serde_json::json!({"kind":"desktop","notifier":true,"version":env!("CARGO_PKG_VERSION")})).await.unwrap();
         worker.join().unwrap();
+    }
+}
+
+fn service_port() -> u16 {
+    std::env::var("PACER_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4317)
+}
+async fn health(client: &Client) -> logic::HealthProbe {
+    use logic::HealthProbe;
+    let port = service_port();
+    match tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)),
+    )
+    .await
+    {
+        Ok(Ok(socket)) => drop(socket),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
+            return HealthProbe::Refused
+        }
+        _ => return HealthProbe::Unreachable,
+    }
+    // The timeout includes the body: a connected but blocked process is busy, not stopped.
+    match tokio::time::timeout(Duration::from_secs(2), async {
+        let response = client
+            .get(format!("http://127.0.0.1:{port}/health"))
+            .send()
+            .await?;
+        response.json::<Value>().await
+    })
+    .await
+    {
+        Ok(Ok(value)) => logic::health_probe(&value),
+        Ok(Err(e)) if e.is_decode() => HealthProbe::Invalid,
+        _ => HealthProbe::NoAnswer,
+    }
+}
+async fn manager_output(program: &str, args: &[String]) -> Result<std::process::Output, String> {
+    let mut command = Command::new(program);
+    command.args(args).kill_on_drop(true);
+    tokio::time::timeout(Duration::from_secs(3), command.output())
+        .await
+        .map_err(|_| "Service manager timed out".to_owned())?
+        .map_err(|_| "Unable to run service manager".to_owned())
+}
+#[cfg(target_os = "macos")]
+fn launchctl_args(action: &str) -> Vec<String> {
+    extern "C" {
+        fn getuid() -> u32;
+    }
+    logic::launchctl_args(unsafe { getuid() }, action)
+}
+async fn job_state() -> logic::JobState {
+    use logic::JobState;
+    #[cfg(target_os = "macos")]
+    {
+        match manager_output("launchctl", &launchctl_args("print")).await {
+            Ok(output) if output.status.success() => {
+                if String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .any(|line| line.trim() == "state = running")
+                {
+                    JobState::Running
+                } else {
+                    JobState::Stopped
+                }
+            }
+            Ok(_) => JobState::NotLoaded,
+            Err(_) => JobState::Unknown,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let args = [
+            "--user",
+            "show",
+            "pacer-serve.service",
+            "--property=LoadState",
+            "--property=ActiveState",
+        ]
+        .map(String::from);
+        match manager_output("systemctl", &args).await {
+            Ok(output) => {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if text.lines().any(|line| line == "LoadState=not-found") {
+                    JobState::NotLoaded
+                } else if !output.status.success() {
+                    JobState::Unknown
+                } else if text
+                    .lines()
+                    .any(|line| line == "ActiveState=active" || line == "ActiveState=activating")
+                {
+                    JobState::Running
+                } else if text.lines().any(|line| line == "LoadState=loaded") {
+                    JobState::Stopped
+                } else {
+                    JobState::Unknown
+                }
+            }
+            Err(_) => JobState::Unknown,
+        }
+    }
+}
+async fn service_action(
+    cli: Option<&Cli>,
+    action: &str,
+    job: logic::JobState,
+) -> Result<(), String> {
+    if action == "install" {
+        return cli
+            .ok_or("Install the pacer CLI first")?
+            .run(&["service", "install"])
+            .await
+            .map(|_| ());
+    }
+    #[cfg(target_os = "macos")]
+    let output = manager_output("launchctl", &launchctl_args(action)).await?;
+    #[cfg(target_os = "macos")]
+    let _ = job;
+    #[cfg(not(target_os = "macos"))]
+    let output = {
+        let job = if job == logic::JobState::Unknown {
+            job_state().await
+        } else {
+            job
+        };
+        if matches!(job, logic::JobState::NotLoaded | logic::JobState::Unknown) {
+            if action == "restart" {
+                return cli
+                    .ok_or("Unable to find pacer")?
+                    .run(&["service", "restart"])
+                    .await
+                    .map(|_| ());
+            }
+            let cli = cli.ok_or("Unable to find pacer")?;
+            Command::new(&cli.binary)
+                .arg("serve")
+                .env("PATH", &cli.path)
+                .env("PACER_HOME", &cli.pacer_home)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|_| "Unable to start pacer".to_owned())?;
+            return Ok(());
+        }
+        manager_output(
+            "systemctl",
+            &[
+                "--user".into(),
+                if action == "restart" {
+                    "restart"
+                } else {
+                    "start"
+                }
+                .into(),
+                "pacer-serve.service".into(),
+            ],
+        )
+        .await?
+    };
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err("The service manager could not start pacer. Check pacer service logs.".into())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn privacy_prompt() -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn privacy_prompt() -> bool {
+    // Only window metadata, never pixels or AX/Screen Recording permissions.
+    // An unrelated consent window must not be attributed to pacer. Redacted names
+    // are inconclusive and use the likely-cause copy instead.
+    use std::ffi::{c_char, c_void};
+    type CF = *const c_void;
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGWindowListCopyWindowInfo(options: u32, relative_to: u32) -> CF;
+        static kCGWindowOwnerName: CF;
+        static kCGWindowName: CF;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFArrayGetCount(array: CF) -> isize;
+        fn CFArrayGetValueAtIndex(array: CF, index: isize) -> CF;
+        fn CFDictionaryGetValue(dictionary: CF, key: CF) -> CF;
+        fn CFGetTypeID(value: CF) -> usize;
+        fn CFStringGetTypeID() -> usize;
+        fn CFStringGetCString(string: CF, buffer: *mut c_char, size: isize, encoding: u32) -> bool;
+        fn CFRelease(value: CF);
+    }
+    unsafe fn string(value: CF) -> String {
+        if value.is_null() || CFGetTypeID(value) != CFStringGetTypeID() {
+            return String::new();
+        }
+        let mut buffer = [0u8; 4096];
+        if !CFStringGetCString(
+            value,
+            buffer.as_mut_ptr().cast(),
+            buffer.len() as isize,
+            0x08000100,
+        ) {
+            return String::new();
+        }
+        std::ffi::CStr::from_ptr(buffer.as_ptr().cast())
+            .to_string_lossy()
+            .into_owned()
+    }
+    unsafe {
+        let windows = CGWindowListCopyWindowInfo(1 | 16, 0); // on-screen, exclude desktop
+        if windows.is_null() {
+            return false;
+        }
+        let mut detected = false;
+        for index in 0..CFArrayGetCount(windows) {
+            let window = CFArrayGetValueAtIndex(windows, index);
+            let owner = string(CFDictionaryGetValue(window, kCGWindowOwnerName));
+            let title = string(CFDictionaryGetValue(window, kCGWindowName));
+            if logic::consent_window(&owner, &title) {
+                detected = true;
+                break;
+            }
+        }
+        CFRelease(windows);
+        detected
     }
 }

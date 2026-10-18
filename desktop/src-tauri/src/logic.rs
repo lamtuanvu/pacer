@@ -2,6 +2,97 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HealthProbe {
+    Refused,
+    NoAnswer,
+    Starting,
+    Ready,
+    Invalid,
+    Unreachable,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum JobState {
+    NotLoaded,
+    Stopped,
+    Running,
+    Unknown,
+}
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Diagnosis {
+    pub page: &'static str,
+    pub prompt: bool,
+    pub seconds: u64,
+    pub restart: bool,
+    pub recover: bool,
+    pub macos: bool,
+    pub action_error: Option<String>,
+}
+/// No I/O: transport evidence takes precedence over service-manager evidence.
+pub fn diagnose(health: HealthProbe, job: JobState, prompt: bool, seconds: u64) -> Diagnosis {
+    let page = match health {
+        HealthProbe::Refused => match job {
+            JobState::NotLoaded => "not_installed",
+            JobState::Stopped => "stopped",
+            JobState::Running => "starting",
+            JobState::Unknown => "unavailable",
+        },
+        HealthProbe::NoAnswer => "busy",
+        HealthProbe::Starting => "starting",
+        HealthProbe::Ready => "ready",
+        HealthProbe::Invalid => "protocol",
+        HealthProbe::Unreachable => "unavailable",
+    };
+    Diagnosis {
+        page,
+        prompt,
+        seconds: if page == "busy" { seconds } else { 0 },
+        restart: page == "busy" && seconds >= 30 && !prompt,
+        recover: page == "ready",
+        macos: cfg!(target_os = "macos"),
+        action_error: None,
+    }
+}
+pub fn health_probe(value: &Value) -> HealthProbe {
+    if value["starting"] == true
+        || value["service"]["starting"] == true
+        || value["status"] == "starting"
+    {
+        HealthProbe::Starting
+    } else if value["ok"] == true {
+        HealthProbe::Ready
+    } else {
+        HealthProbe::Invalid
+    }
+}
+pub fn consent_window(owner: &str, title: &str) -> bool {
+    let owner = owner.to_ascii_lowercase();
+    let title = title.to_ascii_lowercase();
+    [
+        "usernotificationcenter",
+        "notificationcenter",
+        "coreauthui",
+        "securityagent",
+        "tccd",
+    ]
+    .iter()
+    .any(|name| owner == *name)
+        && title
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|word| word == "pacer")
+        && ["removable", "external", "files"]
+            .iter()
+            .any(|word| title.contains(word))
+}
+pub fn launchctl_args(uid: u32, action: &str) -> Vec<String> {
+    let target = format!("gui/{uid}/com.pacer.serve");
+    match action {
+        "print" => vec!["print".into(), target],
+        "restart" => vec!["kickstart".into(), "-k".into(), target],
+        _ => vec!["kickstart".into(), target],
+    }
+}
+
 /// Shared connection owner enforces a minimum gap even if focus/IPC floods retries.
 #[derive(Default)]
 pub struct Reconnect {
@@ -14,7 +105,7 @@ impl Reconnect {
         })
     }
     pub fn started(&mut self, now: std::time::Instant) {
-        self.next = Some(now + std::time::Duration::from_secs(5));
+        self.next = Some(now + std::time::Duration::from_secs(1));
     }
 }
 
@@ -253,6 +344,94 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[test]
+    fn consent_detection_does_not_attribute_other_prompts_to_pacer() {
+        assert!(consent_window(
+            "UserNotificationCenter",
+            "pacer would like to access files on a removable volume"
+        ));
+        assert!(!consent_window("UserNotificationCenter", ""));
+        assert!(!consent_window(
+            "UserNotificationCenter",
+            "OtherApp would like to access files"
+        ));
+        assert!(!consent_window("Safari", "pacer external files"));
+        assert!(!consent_window(
+            "UserNotificationCenter",
+            "pacer would like to access the microphone"
+        ));
+    }
+    #[test]
+    fn service_diagnosis_uses_transport_and_job_evidence() {
+        use HealthProbe::*;
+        assert_eq!(
+            diagnose(Refused, JobState::NotLoaded, false, 0).page,
+            "not_installed"
+        );
+        assert_eq!(
+            diagnose(Refused, JobState::Stopped, false, 0).page,
+            "stopped"
+        );
+        assert_eq!(
+            diagnose(Refused, JobState::Running, false, 0).page,
+            "starting"
+        );
+        assert_eq!(
+            diagnose(Refused, JobState::Unknown, false, 0).page,
+            "unavailable"
+        );
+        for prompt in [false, true] {
+            let state = diagnose(NoAnswer, JobState::NotLoaded, prompt, 14);
+            assert_eq!(state.page, "busy");
+            assert_eq!(state.prompt, prompt);
+            assert!(!state.restart);
+            assert_eq!(state.seconds, 14);
+            assert_eq!(
+                diagnose(NoAnswer, JobState::Running, prompt, 30).restart,
+                !prompt
+            );
+        }
+        assert_eq!(
+            diagnose(Starting, JobState::Unknown, false, 50).page,
+            "starting"
+        );
+        let ready = diagnose(Ready, JobState::Unknown, false, 99);
+        assert_eq!(ready.page, "ready");
+        assert!(ready.recover);
+        assert!(!ready.restart);
+        assert_eq!(ready.seconds, 0);
+        assert_eq!(
+            diagnose(Invalid, JobState::Running, false, 0).page,
+            "protocol"
+        );
+    }
+    #[test]
+    fn launchctl_commands_use_fixed_argument_vectors() {
+        assert_eq!(
+            launchctl_args(501, "print"),
+            vec!["print", "gui/501/com.pacer.serve"]
+        );
+        assert_eq!(
+            launchctl_args(501, "start"),
+            vec!["kickstart", "gui/501/com.pacer.serve"]
+        );
+        assert_eq!(
+            launchctl_args(501, "restart"),
+            vec!["kickstart", "-k", "gui/501/com.pacer.serve"]
+        );
+    }
+    #[test]
+    fn health_reports_starting_before_ready() {
+        assert_eq!(health_probe(&json!({"ok":true})), HealthProbe::Ready);
+        for value in [
+            json!({"ok":true,"starting":true}),
+            json!({"service":{"starting":true}}),
+            json!({"status":"starting"}),
+        ] {
+            assert_eq!(health_probe(&value), HealthProbe::Starting);
+        }
+        assert_eq!(health_probe(&json!({"ok":false})), HealthProbe::Invalid);
+    }
+    #[test]
     fn expired_session_reenters_sign_in_and_unreachable_service_uses_shell_page() {
         assert_eq!(session_error(Some(401)), "sessionExpired");
         assert_eq!(recovery_page(session_error(Some(401))), "starting");
@@ -268,18 +447,13 @@ mod tests {
         assert_eq!(retry.delay(now), Duration::ZERO);
         retry.started(now);
         for _ in 0..100 {
-            assert_eq!(retry.delay(now), Duration::from_secs(5));
+            assert_eq!(retry.delay(now), Duration::from_secs(1));
         }
         assert_eq!(
-            retry.delay(now + Duration::from_secs(4)),
-            Duration::from_secs(1)
+            retry.delay(now + Duration::from_millis(500)),
+            Duration::from_millis(500)
         );
-        assert_eq!(retry.delay(now + Duration::from_secs(5)), Duration::ZERO);
-        retry.started(now + Duration::from_secs(5));
-        assert_eq!(
-            retry.delay(now + Duration::from_secs(5)),
-            Duration::from_secs(5)
-        );
+        assert_eq!(retry.delay(now + Duration::from_secs(1)), Duration::ZERO);
     }
     #[test]
     fn tray_size_is_finite_and_clamped() {
@@ -535,4 +709,5 @@ mod tests {
             "one\ntwo"
         );
     }
+
 }
