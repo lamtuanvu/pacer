@@ -1,5 +1,5 @@
 #!/bin/sh
-# pacer installer. Downloads the release binary for this OS and CPU, verifies its
+#  signing_hash=$( { [ -x /usr/bin/security ] && /usr/bin/security find-identity -v -p codesigning 2>/dev/null; } | pacer installer. Downloads the release binary for this OS and CPU, verifies its
 # SHA-256 checksum against the release's SHA256SUMS, and installs it.
 #
 #   PACER_RELEASE_BASE     optional release root override, e.g.
@@ -156,7 +156,7 @@ cp "$tmp/$file" "$stage" || die "cannot write to $dir"
 chmod 755 "$stage" || die "cannot prepare staged binary in $dir"
 # Only sign the staged inode, after checksum verification and before the smoke run.
 if [ "$os" = darwin ]; then
-  signing_hash=$(/usr/bin/security find-identity -v -p codesigning | sed -n 's/^[[:space:]]*[0-9][0-9]*)[[:space:]]*\([A-Fa-f0-9]\{40\}\)[[:space:]]*"pacer local code signing"[[:space:]]*$/\1/p' | head -n 1)
+  signing_hash=$( { [ -x /usr/bin/security ] && /usr/bin/security find-identity -v -p codesigning 2>/dev/null; } | sed -n 's/^[[:space:]]*[0-9][0-9]*)[[:space:]]*\([A-Fa-f0-9]\{40\}\)[[:space:]]*"pacer local code signing"[[:space:]]*$/\1/p' | head -n 1)
   if [ -n "$signing_hash" ]; then
     say "Signing staged binary as dev.pacer.cli; unlock the login keychain if macOS requests authorization."
     /usr/bin/codesign -f -s "$signing_hash" -i dev.pacer.cli --options 0 \
