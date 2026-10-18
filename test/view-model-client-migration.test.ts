@@ -20,8 +20,9 @@ test("current clients render without legacy snapshot fields",()=>{
  expect(mutedProviders(s).map(p=>p.id)).toContain("local");
  expect(answerDetail(s,s.at)).toContain("37% left");
  const tui=renderDashboard(s,120,24,s.at,{selected:0,noColor:true});
- expect(tui).toContain("normal · current");
- expect(tui).toContain("Planner Claude: 63%");
+ expect(tui).toContain("[NORMAL]  strategy current");
+ expect(tui).toContain("Claude Code planner  week");
+ expect(tui).toContain("63% used · pace 77%");
  const html=renderStatusPage(s,{nowS:s.at,reachable:true,transport:"api"});
  expect(html).toContain("Needs you");
  expect(html).toContain("63% · pace 77 · resets Mon</span>");
@@ -34,7 +35,7 @@ test("a null planner still means a current service",()=>{
  expect(plannerProvider(s)).toBeUndefined();
  expect(rankedProviders(s)).toEqual([]);
  expect(renderStatusPage(s,{nowS:s.at,reachable:true,transport:"api"})).toContain("Planner unknown");
- expect(renderDashboard(s,100,20,s.at,{selected:0})).toContain("Planner ?: ?");
+ expect(renderDashboard(s,100,20,s.at,{selected:0})).toContain("Planner · waiting for service data");
 });
 test("plugin store observes read-model changes without legacy content keys",()=>{
  const store=new LinkStore(()=>0);let changes=0;store.onChange(()=>changes++);
@@ -46,7 +47,7 @@ test("plugin store observes read-model changes without legacy content keys",()=>
  store.replace(next);expect(changes).toBe(2);
 });
 
-test("equivalent service data keep TUI output and panel budget while the current panel uses the board",()=>{
+test("equivalent read-model and older service data: the panel and TUI both render board fields",()=>{
  const s=current();s.tasks=[];s.attention=[];s.executors=s.executors!.slice(0,2);
  s.accounts=[{name:"claude-code",agent:"claude-code",source:"default",usedPct:63,pacePct:77,resetsAt:s.planner!.resetsAt,window:"weekly",verdict:"BEHIND",signedIn:true,executors:["claude-code"]},...s.accounts!];
  const legacy={...fixture,tasks:[],attention:[],strategies:s.strategies,mode:s.mode,
@@ -55,7 +56,13 @@ test("equivalent service data keep TUI output and panel budget while the current
  // This object represents an older service; the fixture also contains new fields.
  for(const key of ["planner","executors","accounts","service","setup"])delete (legacy as Record<string,unknown>)[key];
  const old=legacy as unknown as ClientSnapshot;
- expect(renderDashboard(s,120,24,s.at,{selected:0})).toBe(renderDashboard(old,120,24,s.at,{selected:0}));
+ // The board consumes service-derived fields; legacy budget content cannot change it.
+ const board=renderDashboard(s,120,24,s.at,{selected:0,noColor:true});
+ expect(board).toContain("Claude Code planner");
+ expect(board).toMatch(/1\s+Codex\s+team\s+week/);
+ Object.defineProperty(s,"budget",{value:legacy.budget,configurable:true});
+ expect(renderDashboard(s,120,24,s.at,{selected:0,noColor:true})).toBe(board);
+ expect(renderDashboard(old,120,24,s.at,{selected:0,noColor:true})).toContain("Planner · waiting for service data");
  const view={nowS:s.at,reachable:true,transport:"api" as const};
  const currentPanel=renderStatusPage(s,view), oldPanel=renderStatusPage(old,view);
  expect(currentPanel).toContain("63% · pace 77 · resets Mon</span>");

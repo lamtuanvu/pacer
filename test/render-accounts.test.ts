@@ -7,6 +7,9 @@ import { renderText } from "../src/render/text";
 import { renderLine } from "../src/render/line";
 import { toBudget } from "../src/link/budget";
 import { emptySnapshot, parseSnapshot } from "../src/link/envelope";
+import { buildExecutors, buildAccounts, buildPlanner } from "../src/api/read-model/capacity";
+import type { Status } from "../src/engine/status";
+import type { Strategy } from "../src/config/strategy";
 import { renderDashboard } from "../src/dashboard/render";
 import { overview } from "../orca-plugin/src/panel/overview";
 import { renderPanel } from "../orca-plugin/src/panel";
@@ -21,6 +24,12 @@ async function status() {
  const reading={windows:[{name:"weekly",usedPct:34,resetsAt:ctx.now+3600,lengthS:604800,paced:true}],capturedAt:ctx.now,stale:false};
  return computeStatus(ctx,validateStrategy(raw,"test"),{profile:null,readings:new Map([["plan",reading],["team",reading]])});
 }
+// Current dashboards consume the service read model, while the panel still accepts old budgets.
+function boardSnapshot(st:Status, strategy:Strategy) {
+ return {...emptySnapshot(),at:st.generatedAt,budget:toBudget(st),
+  planner:buildPlanner(st),executors:buildExecutors(st,strategy,[],st.generatedAt),
+  accounts:buildAccounts(st,strategy)};
+}
 test("account-form status identifies each runner and its agent/account",async()=>{
  const st=await status();
  expect(renderText(st)).toContain("Codex (team): weekly 34%");
@@ -31,10 +40,11 @@ test("account-form status identifies each runner and its agent/account",async()=
 });
 test("account metadata survives the link and appears in dashboard and panel",async()=>{
  const st=await status(), s=parseSnapshot({...emptySnapshot(),budget:toBudget(st)})!;
+ const board=boardSnapshot(st,validateStrategy(raw,"test"));
  expect(s.budget!.providers.find(p=>p.id==="codex#team")).toMatchObject({account:"team",agent:"codex",usedPct:34});
- expect(renderDashboard(s,150,24,st.generatedAt,{selected:0,noColor:true})).toContain("Codex (team)");
- expect(renderDashboard(s,150,24,st.generatedAt,{selected:0,noColor:true})).toMatchSnapshot();
- expect(renderDashboard(s,150,24,st.generatedAt,{selected:0,noColor:true}).split("\n")[2]).toContain("Claude");
+ expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true})).toMatch(/Codex\s+team\s+week.*34%/);
+ expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true}).split("\n").map(line=>line.trimEnd()).join("\n")).toMatchSnapshot();
+ expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true}).split("\n")[1]).toContain("Claude");
  const html=overview(s,st.generatedAt,true,{},{});
  expect(html).toContain("Claude");
  expect(renderPanel(s,{nowS:st.generatedAt,transport:null,reachable:true})).toContain("<strong>team</strong>");
@@ -61,10 +71,18 @@ test("shared accounts group runner rows without changing executor preference",as
  const text=renderText(st);
  expect(text.indexOf("Account byteplus")).toBeLessThan(text.indexOf("BytePlus:"));
  expect(text.lastIndexOf("BytePlus:")).toBeLessThan(text.indexOf("Account team"));
- const s={...emptySnapshot(),budget:toBudget(st)};
+ const strategy=validateStrategy(raw,"test");
+ strategy.runners["opencode#byteplus@desktop"]={...strategy.runners["opencode#byteplus"]!,id:"opencode#byteplus@desktop",name:"opencode#byteplus@desktop",host:"desktop"};
+ strategy.hosts.desktop={alias:"desktop",ssh:"desktop",maxTasks:3,repos:{},accounts:{}};
+ const s=boardSnapshot(st,strategy);
  const dash=renderDashboard(s,150,30,st.generatedAt,{selected:0,noColor:true});
- expect(dash).toContain("Account byteplus");
- expect(dash.lastIndexOf("BytePlus:")).toBeLessThan(dash.indexOf("Codex (team):"));
+ // The board keeps service order and repeats the shared account in its own column.
+ const rows=dash.split("\n").filter(line=>/BytePlus\s+byteplus/.test(line));
+ expect(rows).toHaveLength(2);
+ expect(dash).toMatch(/1\s+BytePlus\s+byteplus/);
+ expect(dash).toMatch(/2\s+Codex\s+team/);
+ expect(dash).toMatch(/3\s+BytePlus\s+byteplus/);
+ expect(s.accounts.find(a=>a.name==="byteplus")?.executors).toEqual(["opencode#byteplus","opencode#byteplus@desktop"]);
  expect(s.budget.ranked.map(p=>p.id)).toEqual(["opencode#byteplus","codex#team","opencode#byteplus@desktop"]);
 });
 test("legacy strategies keep existing status and link presentation",async()=>{
@@ -105,9 +123,9 @@ test("starter text preserves provider names and main route format", async () => 
  expect(renderText(st)).toContain("- Local: local, unmetered OK");
  expect(renderLine(st)).not.toContain("BytePlus");
  expect(renderLine(st)).not.toContain("Local");
- const snapshot={...emptySnapshot(),budget:toBudget(st)};
- expect(renderDashboard(snapshot,150,24,ctx.now,{selected:0,noColor:true})).toContain("BytePlus:");
- expect(renderDashboard(snapshot,150,24,ctx.now,{selected:0,noColor:true})).toContain("Local:");
+ const snapshot=boardSnapshot(st,validateStrategy(starter,"test"));
+ expect(renderDashboard(snapshot,150,24,ctx.now,{selected:0,noColor:true})).toContain("BytePlus");
+ expect(renderDashboard(snapshot,150,24,ctx.now,{selected:0,noColor:true})).toContain("Local");
  expect(providerLabel(snapshot.budget.providers.find(p=>p.id==="opencode#byteplus")!)).toBe("BytePlus");
  const route=await main(["route"],ctx);
  expect(route.code).toBe(0);

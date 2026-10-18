@@ -32,5 +32,5 @@ test('link session data throttles lookups but reflects Orca terminal receipts at
 test('dashboard names the selected session action Attach',async()=>{
  const {renderDashboard}=await import('../src/dashboard/render');const s=emptySnapshot();
  s.tasks=[{id:'t',state:'running',goal:'g',executor:null,backend:'direct',worktree:null,updatedAt:0,session:{host:'builtin',live:true,controller:null,viewers:0}}];
- expect(renderDashboard(s,100,30,1,{selected:0,noColor:true})).toContain('Enter Attach');
+ expect(renderDashboard(s,100,30,1,{selected:0,noColor:true})).toContain('⏎ Attach');
 });
