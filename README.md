@@ -72,6 +72,16 @@ pacer status --json
 pacer route docs --json
 ```
 
+For a shell prompt, tmux or an agent status bar, `pacer status --line` reads the local
+snapshot and prints one compact line: `▬┃ Claude 63%·77  ▸2  ⚑1`. The tick turns
+amber ahead of pace and red when out of quota. The needs-you flag disappears at
+zero; the mode appears only outside normal mode. `--width N` overrides `COLUMNS`
+(default 80): at 60 columns the mode drops, at 40 the planner name drops, and at
+20 or fewer it becomes `▬┃63 ⚑1`. Content shrinks further if needed to fit.
+Use `--no-color` (or `NO_COLOR`) for plain text and `--line --json` for the same
+fields as JSON. Plain `status --json` still returns the full budget status.
+Offline it prints `pacer not running · pacer serve`; `--line` always exits zero.
+
 Run delegation in the repository you want the executor to edit. Supply a concrete scope and verification command:
 
 ```sh

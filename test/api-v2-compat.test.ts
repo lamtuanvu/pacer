@@ -27,3 +27,13 @@ test('v2 validates accepted and retains the limit-only bare summary array',async
  expect(await callV2Op(ctx,'task.list',{limit:1})).toEqual([expect.objectContaining({task_id:taskId(7)})]);
  expect(callV2Op(ctx,'task.review',{id:taskId(2),accepted:'yes'})).rejects.toMatchObject({code:'invalid_input'});
 });
+
+test('operations added after 2.8.0 stay out of the frozen 2.x surface',async()=>{
+ const {v2Hello,callV2Op,v2OpJsonSchemas}=await import('../src/api/v2-compat');
+ const {helloBody}=await import('../src/api/protocol');
+ const {fakeCtx}=await import('./helpers');
+ expect(helloBody().ops).toContain('task.takeover');
+ expect(v2Hello().ops).not.toContain('task.takeover');
+ expect(v2OpJsonSchemas()['task.takeover']).toBeUndefined();
+ await expect(callV2Op(fakeCtx(),'task.takeover',{id:'t-x'})).rejects.toMatchObject({code:'unknown_op'});
+});

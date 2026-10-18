@@ -99,3 +99,13 @@ test("storeWaiter resolves on the matching change, or false after the timeout", 
   expect(listeners.size).toBe(0);
   expect(await storeWaiter(store)(s => s.sessionEnded, 5)).toBe(false);
 });
+
+test('takeover row action navigates only after success and preserves conflict reason', async () => {
+  const { d, calls, navigated } = deps({call:async <T>()=>({state:'starting'}) as T});
+  const runner=createActionRunner(d);
+  await runner.run('takeover', {label:'Take over',op:'task.takeover',params:{id:'t 1'}});
+  expect(navigated).toEqual(['#/sessions/t%201?takeover=starting']);
+  const failed=deps({call:async()=>{throw new ApiError('conflict','No agent session id',undefined,409);}});
+  expect(await createActionRunner(failed.d).run('takeover',{label:'Take over',op:'task.takeover',params:{id:'t1'}})).toEqual({status:'error',message:'No agent session id'});
+  expect(failed.navigated).toEqual([]);
+});

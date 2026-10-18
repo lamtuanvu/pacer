@@ -46,11 +46,15 @@ export function createActionRunner(deps: ActionDeps) {
       try { result = await deps.call(action.op, action.params); }
       catch (error) {
         // The service's conflict says the state moved on (another client acted first); it names no client.
-        if (error instanceof ApiError && error.code === "conflict") return set(key, { status: "handled", message: "Already handled elsewhere" });
+        if (error instanceof ApiError && error.code === "conflict" && action.op !== "task.takeover") return set(key, { status: "handled", message: "Already handled elsewhere" });
         const e = error instanceof ApiError ? error : null;
         return set(key, { status: "error", message: e?.message ?? (error instanceof Error ? error.message : String(error)), ...(e?.hint ? { hint: e.hint } : {}) });
       }
       results.set(key, result);
+      if (action.op === "task.takeover") {
+        const state = (result as {state?: string})?.state;
+        deps.navigate(`${uiHref({view:"session",id:action.params.id})}${state === "starting" || state === "driving" ? `?takeover=${state}` : ""}`);
+      }
       const job = (result as { job?: { id?: unknown } } | null)?.job;
       if (job && typeof job.id === "string") return set(key, { status: "job", jobId: job.id });
       if (!confirmDone) return set(key, { status: "done" });
