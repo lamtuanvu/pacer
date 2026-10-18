@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { resolveRoute, withQuery, type Route } from "../app/src/router";
 
 const q = { repo: null, scope: null };
-const route = (hash: string, setup: boolean | null = true, state?: (id: string) => "review" | "sessions" | null) => resolveRoute(hash, setup, state) as Route;
+const route = (hash: string, setup: boolean | null = true) => resolveRoute(hash, setup) as Route;
 
 test("new routes resolve with their ids and sections", () => {
   expect(route("#/")).toEqual({ name: "overview", query: q });
@@ -29,28 +29,14 @@ test("the repo filter and scope come from the query and survive", () => {
   expect(withQuery("#/", q)).toBe("#/");
 });
 
-test("old routes redirect to their new homes and keep the repo filter", () => {
-  const cases: [string, string][] = [
-    ["#/tasks", "#/sessions"], ["#/executors", "#/settings/executors"], ["#/executors/add", "#/settings/add-executor"],
-    ["#/accounts", "#/settings/accounts"], ["#/strategy", "#/settings/strategies"], ["#/hosts", "#/settings/hosts"], ["#/setup", "#/"],
-  ];
-  for (const [from, to] of cases) expect(resolveRoute(from)).toEqual({ redirect: to });
-  expect(resolveRoute("#/accounts?repo=k")).toEqual({ redirect: "#/settings/accounts?repo=k" });
-});
-
-test("an old task link goes to Review when it is waiting for review, otherwise to Sessions", () => {
-  const where = (id: string) => (id === "t1" ? "review" : "sessions") as "review" | "sessions";
-  expect(resolveRoute("#/tasks/t1", true, where)).toEqual({ redirect: "#/review/t1" });
-  expect(resolveRoute("#/tasks/t2", true, where)).toEqual({ redirect: "#/sessions/t2" });
-});
-
-test("an old task link waits for the snapshot before choosing", () => {
-  expect(resolveRoute("#/tasks/t1", true, () => null)).toMatchObject({ name: "loading" });
-  expect(resolveRoute("#/tasks/t1")).toEqual({ redirect: "#/sessions/t1" });
+test("retired routes are not found, including during setup", () => {
+  for (const path of ["tasks", "tasks/t1", "executors", "executors/add", "accounts", "strategy", "hosts", "setup"]) {
+    for (const setup of [true, false, null]) expect(resolveRoute(`#/${path}?repo=k`, setup)).toEqual({ name: "not-found", query: { repo: "k", scope: null } });
+  }
 });
 
 test("incomplete setup takes over every screen except settings", () => {
-  for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing"]) expect(route(hash, false).name).toBe("setup");
+  for (const hash of ["#/", "#/review/one", "#/sessions"]) expect(route(hash, false).name).toBe("setup");
   expect(route("#/settings", false).name).toBe("settings");
   expect(route("#/settings/hosts", false).name).toBe("hosts");
 });

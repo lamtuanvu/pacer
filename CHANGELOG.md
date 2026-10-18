@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- App links now point directly to Overview, Review, Sessions and Settings. Retired UI routes show Not found with a link to Overview; old screens and route redirects have been removed.
+
 ### Added
 
 - Executor questions raise blocked Needs you items with Answer and Stop actions; `pacer answer`, `task.answer` and MCP `task_answer` retry on the same executor with cumulative question/answer brief context (protocol 2.7.0).

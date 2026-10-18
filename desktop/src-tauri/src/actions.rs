@@ -11,10 +11,14 @@ pub fn dispatch(action: &Value) -> Option<Dispatch> {
     let op = action["op"].as_str()?;
     let params = action.get("params").filter(|p| p.is_object())?.clone();
     if op == "ui.open" {
+        if let Some(route) = params["route"].as_str() {
+            return Some(Dispatch::Open(logic::route(route)?));
+        }
         let screen = match params["view"].as_str()? {
-            "task" => "tasks",
+            "overview" => return Some(Dispatch::Open("#/".into())),
+            "task" => "sessions",
             "review" => "review",
-            "session" => "session",
+            "session" => "sessions",
             "settings" => "settings",
             _ => return None,
         };
@@ -47,9 +51,16 @@ pub fn attention_route(item: &Value) -> String {
             _ => None,
         })
         .or_else(|| {
-            item["taskId"]
-                .as_str()
-                .and_then(|id| logic::route(&format!("/tasks/{id}")))
+            item["taskId"].as_str().and_then(|id| {
+                logic::route(&format!(
+                    "/{}/{id}",
+                    if item["kind"] == "review" {
+                        "review"
+                    } else {
+                        "sessions"
+                    }
+                ))
+            })
         })
         .unwrap_or_else(|| "#/".into())
 }
@@ -82,10 +93,22 @@ mod tests {
         assert!(dispatch(&json!({"op":"../x","params":{}})).is_none());
     }
     #[test]
+    fn attention_fallback_uses_review_only_for_review_items() {
+        assert_eq!(
+            attention_route(&json!({"kind":"review","taskId":"t-1"})),
+            "#/review/t-1"
+        );
+        assert_eq!(
+            attention_route(&json!({"kind":"failed","taskId":"t-1"})),
+            "#/sessions/t-1"
+        );
+        assert_eq!(attention_route(&json!({"kind":"setup"})), "#/");
+    }
+    #[test]
     fn navigation_is_local_and_maps_task_view() {
         assert_eq!(
             dispatch(&json!({"op":"ui.open","params":{"view":"task","id":"t-1"}})),
-            Some(Dispatch::Open("#/tasks/t-1".into()))
+            Some(Dispatch::Open("#/sessions/t-1".into()))
         );
         assert_eq!(
             dispatch(&json!({"op":"ui.open","params":{"view":"settings","section":"accounts"}})),

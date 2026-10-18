@@ -45,9 +45,7 @@ function App() {
   }, [api, state.invalidations.setup, state.connected]);
   // Unknown until the first setup check answers, so screens wait instead of flashing Setup.
   const setupComplete = setupCompleteFrom(checklist);
-  const resolved = resolveRoute(hash, setupComplete, id => !state.snapshot ? null : state.snapshot.attention?.some(a => a.kind === "review" && a.taskId === id) ? "review" : "sessions");
-  useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
-  const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
+  const route = resolveRoute(hash, setupComplete);
   if (!SETTINGS.has(route.name) && route.name !== "loading") lastWork.current = hash || "#/";
   useEffect(() => {
     keys.setScope(route.name);

@@ -13,9 +13,7 @@ import detail from './fixtures/ui/task-get.json';
 import type { TaskDetail } from '../src/core/task-detail';
 const state={...initialState(),snapshot:snapshot as any};
 function destination(hash:string):Route {
- let result=resolveRoute(hash);
- while('redirect' in result)result=resolveRoute(result.redirect);
- return result;
+ return resolveRoute(hash);
 }
 const runner=createActionRunner({call:async<T,>()=>({}) as T,waitFor:async()=>true,refetch:()=>{},navigate:()=>{}});
 const html=(hash:string)=>renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})} as any}}><ActionContext.Provider value={runner}><Screen route={destination(hash)}/></ActionContext.Provider></TaskContext.Provider>);
@@ -28,12 +26,12 @@ test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  expect(html('#/sessions')).toContain('Recently ended');
  expect(html('#/sessions/t1')).toContain('Loading session');
 });
-test('every legacy route reaches a mounted destination',()=>{
- for(const path of ['/tasks','/tasks/t1','/executors','/executors/add','/accounts','/strategy','/hosts','/settings','/setup']) {
-  expect(destination(`#${path}`).name).not.toBe('not-found');
-  expect(html(`#${path}`).length).toBeGreaterThan(0);
+test('retired routes show Not found and an Overview recovery link',()=>{
+ for(const path of ['/tasks','/tasks/t1','/executors','/executors/add','/accounts','/strategy','/hosts','/setup']) {
+  expect(destination(`#${path}`).name).toBe('not-found');
+  expect(html(`#${path}`)).toContain('Page not found');
+  expect(html(`#${path}`)).toContain('<a href="#/">Go to Overview</a>');
  }
- expect(resolveRoute('#/tasks/t1',true,()=> 'review')).toEqual({redirect:'#/review/t1'});
  expect(html('#/review/t1')).toContain('pc-review');
 });
 test('Add executor keeps the host prefill from host detail links',()=>{

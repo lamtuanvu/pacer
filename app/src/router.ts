@@ -1,4 +1,4 @@
-/** Hash routes for the redesigned shell. Old routes redirect for one minor release. */
+/** Hash routes for the app shell. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
   | { name: "overview" | "setup" | "loading" | "not-found" }
@@ -9,11 +9,6 @@ type RouteBase =
   ;
 export type Route = RouteBase & { query: RouteQuery };
 export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "routing", "strategies", "updates", "notifications", "appearance"] as const;
-
-const REDIRECTS: Record<string, string> = {
-  "/tasks": "/sessions", "/executors": "/settings/executors", "/executors/add": "/settings/add-executor",
-  "/accounts": "/settings/accounts", "/strategy": "/settings/strategies", "/hosts": "/settings/hosts", "/setup": "/",
-};
 
 export function withQuery(href: string, query: RouteQuery): string {
   const params = new URLSearchParams();
@@ -26,28 +21,14 @@ export function withQuery(href: string, query: RouteQuery): string {
 export const setupCompleteFrom = (check: { complete: boolean } | "error" | undefined): boolean | null => check === undefined || check === "error" ? null : check.complete;
 function decode(part: string): string | null { try { return decodeURIComponent(part); } catch { return null; } }
 
-/**
- * setupComplete: true, false, or null while the first setup check is still in flight (screens wait rather than flash Setup).
- * reviewTarget sends an old #/tasks/<id> link to Review when the task waits for review, else to Sessions; null means the snapshot
- * has not arrived yet, so the link waits rather than guessing.
- */
-export function resolveRoute(hash: string, setupComplete: boolean | null = true, reviewTarget?: (id: string) => "review" | "sessions" | null): Route | { redirect: string } {
+/** Unknown setup state keeps work screens loading until the first check answers. */
+export function resolveRoute(hash: string, setupComplete: boolean | null = true): Route {
   const raw = hash.replace(/^#/, "") || "/";
   const [path = "/", search = ""] = raw.split("?");
   const params = new URLSearchParams(search);
   const query: RouteQuery = { repo: params.get("repo"), scope: params.get("scope") };
-  const keep = (to: string) => ({ redirect: withQuery(`#${to}`, query) });
-  if (Object.hasOwn(REDIRECTS, path)) return keep(REDIRECTS[path]!);
-  const oldTask = /^\/tasks\/([^/]+)$/.exec(path);
-  if (oldTask) {
-    const id = decode(oldTask[1]!);
-    if (id !== null) {
-      const target = reviewTarget ? reviewTarget(id) : "sessions";
-      if (target === null) return { name: "loading", query };
-      return keep(`/${target}/${encodeURIComponent(id)}`);
-    }
-  }
   const route = match(path);
+  if (route.name === "not-found") return { ...route, query };
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   if (!settingsArea && setupComplete === null) return { name: "loading", query };
   if (!settingsArea && setupComplete === false) return { name: "setup", query };

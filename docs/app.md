@@ -22,9 +22,9 @@ If you have not installed the service, run `pacer service install` first.
 Alternatively, keep `pacer serve` running in a terminal. `pacer open` requires
 a running daemon; it does not start one.
 
-To open a particular screen, use, for example, `pacer open tasks` or
-`pacer open settings`. Pages use bookmarkable hash routes such as `#/tasks`
-and `#/tasks/<id>`; bookmarks require an active browser session.
+To open a particular screen, use, for example, `pacer open sessions` or
+`pacer open settings`. Pages use bookmarkable hash routes such as `#/sessions`
+and `#/sessions/<id>`, or `#/review/<id>` for tasks waiting for review; bookmarks require an active browser session. Retired routes show Not found with a link to Overview.
 
 `pacer open --print` prints a sign-in URL instead of opening the browser.
 Open it within 60 seconds; it works once. Treat it as a credential and do not
