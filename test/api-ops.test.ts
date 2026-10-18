@@ -149,3 +149,17 @@ test('strategy.build op uses the selected planner and returns terminal result',a
  expect(o.argv[0]).toBe('cursor-agent');expect(o.argv[1]).toContain('Help');return {opened:true,target:'terminal',command:'safe command'};
  }})).toEqual({opened:true,target:'terminal',command:'safe command'});
 });
+
+test("short titles are additive across delegate, get and both list forms",async()=>{
+ const ctx=await ctxWithStrategy(),goal="Fix queue. Then verify every runner";
+ const r=await callOp(ctx,"task.delegate",{goal,repo:ctx.home,title:"  Queue fix  "},{spawnRunner:()=>1}) as {task_id:string};
+ expect(r).toMatchObject({title:"Queue fix",goal});
+ expect(await callOp(ctx,"task.get",{id:r.task_id})).toMatchObject({title:"Queue fix",brief:{goal}});
+ // 3.0: task.list always pages; the 2.x bare array is served by the /v2 adapter (pinned by the protocol-v2 goldens).
+ expect(await callOp(ctx,"task.list",{})).toMatchObject({tasks:expect.arrayContaining([expect.objectContaining({title:"Queue fix"})])});
+ expect(await callOp(ctx,"task.list",{states:["queued"]})).toMatchObject({tasks:[{title:"Queue fix"}]});
+ for(const title of [" ","x".repeat(61)])expect(await codeOf(callOp(ctx,"task.delegate",{goal,repo:ctx.home,title},{spawnRunner:()=>1}))).toBe("invalid_input");
+ const old=createTask(ctx,{brief:{goal,repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+ expect(await callOp(ctx,"task.get",{id:old.id})).toMatchObject({title:"Fix queue"});
+ expect(await callOp(ctx,"task.list",{})).toMatchObject({tasks:expect.arrayContaining([expect.objectContaining({id:old.id,title:"Fix queue"})])});
+});

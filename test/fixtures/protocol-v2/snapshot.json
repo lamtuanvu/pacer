@@ -17,6 +17,7 @@
     "tasks": [
       {
         "id": "t-20261010-190000-0000",
+        "title": "Fixture queued",
         "state": "queued",
         "goal": "Fixture queued",
         "executor": null,
@@ -36,6 +37,7 @@
       },
       {
         "id": "t-20261010-190000-0001",
+        "title": "Fixture running",
         "state": "running",
         "goal": "Fixture running",
         "executor": null,
@@ -55,6 +57,7 @@
       },
       {
         "id": "t-20261010-190000-0002",
+        "title": "Fixture done",
         "state": "done",
         "goal": "Fixture done",
         "executor": null,
@@ -73,6 +76,7 @@
       },
       {
         "id": "t-20261010-190000-0003",
+        "title": "Fixture partial",
         "state": "partial",
         "goal": "Fixture partial",
         "executor": null,
@@ -91,6 +95,7 @@
       },
       {
         "id": "t-20261010-190000-0004",
+        "title": "Fixture failed",
         "state": "failed",
         "goal": "Fixture failed",
         "executor": null,
@@ -109,6 +114,7 @@
       },
       {
         "id": "t-20261010-190000-0005",
+        "title": "Fixture limit",
         "state": "limit",
         "goal": "Fixture limit",
         "executor": null,
@@ -127,6 +133,7 @@
       },
       {
         "id": "t-20261010-190000-0006",
+        "title": "Fixture stopped",
         "state": "stopped",
         "goal": "Fixture stopped",
         "executor": null,
@@ -145,6 +152,7 @@
       },
       {
         "id": "t-20261010-190000-0007",
+        "title": "Fixture needs_input",
         "state": "needs_input",
         "goal": "Fixture needs_input",
         "executor": null,

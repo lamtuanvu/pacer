@@ -99,6 +99,7 @@ export interface RunRef {
 }
 
 export interface TaskRecord {
+  title?: string;
   source?: "planner" | "ui" | "cli";
   requestId?: string;
   repo?: RepoRef;

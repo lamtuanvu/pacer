@@ -2512,6 +2512,12 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60,
+      "description": "Short task title (trimmed, 1–60 characters), stored separately from the full goal. Omitted titles are derived from the first goal clause with paths, URLs and backticked code removed and word-boundary truncation with an ellipsis. Snapshot tasks, task events, task.get, task.list, attention titles and activity text expose this title; older tasks derive it on read."
+    },
     "request_id": {
       "type": "string",
       "minLength": 1,

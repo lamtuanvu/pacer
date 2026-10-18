@@ -114,3 +114,14 @@ test("a fresh mode hold and its expiry invalidate the snapshot status cache",asy
  const expired=(await liveSnapshot({...ctx,now:ctx.now+30})).snapshot.planner!;
  expect(expired.mode).toBe("normal");expect(expired.modeHeldUntil).toBeUndefined();
 });
+
+test("service attention uses short titles and counts only the latest retry",()=>{
+ for(const state of ["failed","partial"] as const) for(const nextState of ["queued","running","done"] as const){
+  const ctx=fakeCtx(),{s,st}=capacityFixture();
+  const original=apiTask(ctx,record(state,ctx.now-1000,{title:"Original title"}));
+  const next=apiTask(ctx,record(nextState,ctx.now-700,{title:"Queue fix",retryOf:original.id}));
+  const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[original,next],hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}});
+  expect(model.attention.filter(i=>i.taskId)).toEqual(nextState==="done"?[expect.objectContaining({taskId:next.id,title:"Queue fix"})]:[]);
+  expect(model.counts).toMatchObject({attention:nextState==="done"?1:0,review:nextState==="done"?1:0});
+ }
+});
