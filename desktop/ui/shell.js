@@ -17,6 +17,8 @@ function renderShell(detail) {
     : message;
   status.hidden = !status.textContent;
   document.querySelector('#privacy').hidden = !permission;
+  // Only the plain starting state spins; permission and error pages ask for something.
+  document.querySelector('#spinner').hidden = permission || Boolean(pages[detail.page]);
 }
 window.renderShell = renderShell;
 renderShell({ page: query.get('state'), prompt: query.get('prompt') === '1', path: query.get('path') });

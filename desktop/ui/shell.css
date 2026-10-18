@@ -152,3 +152,6 @@ a:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
 .compact { padding: var(--space-3); }
 .compact main { padding: var(--space-4); }
 .compact img { width: 32px; height: 32px; }
+.spinner { display: block; width: 14px; height: 14px; margin: var(--space-2) auto 0; border: 2px solid var(--line); border-top-color: var(--ink-muted); border-radius: 50%; animation: pacer-spin 0.9s linear infinite; }
+@keyframes pacer-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-top-color: var(--line); } }

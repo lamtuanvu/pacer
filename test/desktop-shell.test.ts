@@ -59,3 +59,11 @@ test("shell uses the server page's current design tokens", () => {
   const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
   expect(css.startsWith(tokens)).toBe(true);
 });
+
+test("Starting pacer shows a subtle spinner that stops for reduced motion", async () => {
+  const html = await Bun.file("desktop/ui/index.html").text(), css = await Bun.file("desktop/ui/shell.css").text(), js = await Bun.file("desktop/ui/shell.js").text();
+  expect(html).toContain('id="spinner"');
+  expect(css).toMatch(/\.spinner\s*\{[^}]*animation:\s*pacer-spin/);
+  expect(css).toMatch(/prefers-reduced-motion:\s*reduce\)\s*\{\s*\.spinner\s*\{[^}]*animation:\s*none/);
+  expect(js).toContain("document.querySelector('#spinner').hidden = permission || Boolean(pages[detail.page]);");
+});
