@@ -5,10 +5,13 @@ import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
 import { resolveRoute, type Route } from "./router";
-import { attachKeyRegistry, createKeyRegistry } from "./keys/registry";
+import { attachKeyRegistry } from "./keys/registry";
+import { keys } from "./keys/instance";
+import { ActionContext } from "./data/action-context";
+import { createActionRunner, storeWaiter } from "./data/actions";
+import { Overview } from "./screens/Overview";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
-import { Home } from "./screens/Home";
 import { Tasks } from "./screens/Tasks";
 import { TaskDetail } from "./screens/TaskDetail";
 import { AddExecutor } from "./screens/AddExecutor";
@@ -17,11 +20,10 @@ import { SettingsGeneral } from "./screens/SettingsGeneral";
 import { Setup } from "./screens/Setup";
 import { Delegate } from "./screens/Delegate";
 const store = createStore();
-export const keys = createKeyRegistry({ controlActive: () => false });
 const TITLES: Record<Route["name"], string> = { overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", setup: "Setup", loading: "pacer", "not-found": "Page not found" };
 function Screen({ route }: { route: Route }) {
   switch (route.name) {
-    case "overview": return <Home />;
+    case "overview": return <Overview query={route.query} />;
     case "review": return <section><p className="muted">Review is being rebuilt.</p></section>;
     case "sessions": return route.id ? <TaskDetail id={route.id} /> : <Tasks />;
     case "settings": return <SettingsGeneral section={route.section} />;
@@ -37,6 +39,7 @@ function App() {
   const [state, setState] = useState(store.getState);
   const [sessionEnded, setSessionEnded] = useState(false);
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
+  const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), navigate: hash => { location.hash = hash; } }), [api]);
   const [hash, setHash] = useState(location.hash);
   const [help, setHelp] = useState(false);
   const [delegate, setDelegate] = useState(false);
@@ -78,10 +81,10 @@ function App() {
     return () => { offs.forEach(off => off()); detach(); };
   }, []);
   useEffect(() => { keys.setScope(route.name); }, [route.name]);
-  return <TaskContext.Provider value={{ state, api }}>
+  return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}>
     <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={route.query.repo} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
-  </TaskContext.Provider>;
+  </ActionContext.Provider></TaskContext.Provider>;
 }
 render(<App />, document.getElementById("app")!);
