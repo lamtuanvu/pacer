@@ -6,6 +6,6 @@ export function Diff({ path, patch, binary, truncated, note, onOpen }: DiffProps
   return <section aria-label={`Diff for ${path}`}>
     {note && <p className="muted">{note}</p>}
     {binary || file.binary ? <p>Binary file</p> : <pre className="diff" tabIndex={0}>{file.lines.slice(0, 2000).map((line, i) => <span key={i} className={`diff-${line.kind}`}>{line.text}</span>)}</pre>}
-    {(truncated || file.lines.length > 2000) && <p className="muted">Showing the first 2,000 lines. <Button size="sm" onClick={onOpen}>Open in editor</Button></p>}
+    {(truncated || file.lines.length > 2000) && <p className="muted">Showing the first 2,000 lines. <Button size="sm" onClick={onOpen}>Copy worktree path</Button></p>}
   </section>;
 }

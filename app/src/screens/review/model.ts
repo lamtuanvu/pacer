@@ -1,9 +1,10 @@
 import type { AttentionItem } from "../../../../src/api/read-model/types";
-export interface ReviewView { queue: AttentionItem[]; selectedId: string | null; noteFor: "reject" | "send_back" | null; pending: boolean }
-export const initialReview: ReviewView = { queue: [], selectedId: null, noteFor: null, pending: false };
+/** missing: a task the URL asked for that is no longer waiting for review; the screen says so rather than picking another. */
+export interface ReviewView { queue: AttentionItem[]; selectedId: string | null; noteFor: "reject" | "send_back" | null; pending: boolean; missing: string | null }
+export const initialReview: ReviewView = { queue: [], selectedId: null, noteFor: null, pending: false, missing: null };
 export type ReviewAction =
   | { type: "queue"; items: AttentionItem[] } | { type: "move"; by: 1 | -1 }
-  | { type: "select"; id: string } | { type: "verdict-sent" } | { type: "verdict-settled" }
+  | { type: "select"; id: string } | { type: "request"; id: string } | { type: "verdict-sent" } | { type: "verdict-settled" }
   | { type: "verdict-done"; id: string } | { type: "open-note"; for: "reject" | "send_back" } | { type: "close-note" };
 function queue(v: ReviewView, items: AttentionItem[]): ReviewView {
   const index = v.queue.findIndex(i => i.taskId === v.selectedId);
@@ -11,13 +12,14 @@ function queue(v: ReviewView, items: AttentionItem[]): ReviewView {
   const successor = v.queue.slice(index + 1).find(i => ids.has(i.taskId));
   const predecessor = v.queue.slice(0, Math.max(0, index)).reverse().find(i => ids.has(i.taskId));
   const selectedId = ids.has(v.selectedId ?? undefined) ? v.selectedId
-    : successor?.taskId ?? predecessor?.taskId ?? items[0]?.taskId ?? null;
+    : v.missing ? null : successor?.taskId ?? predecessor?.taskId ?? items[0]?.taskId ?? null;
   return { ...v, queue: items, selectedId, ...(selectedId !== v.selectedId ? { noteFor: null } : {}) };
 }
 export function reviewReducer(v: ReviewView, a: ReviewAction): ReviewView {
   switch (a.type) {
     case "queue": return queue(v, a.items);
-    case "select": return v.queue.some(i => i.taskId === a.id) ? { ...v, selectedId: a.id, noteFor: a.id === v.selectedId ? v.noteFor : null } : v;
+    case "select": return v.queue.some(i => i.taskId === a.id) ? { ...v, selectedId: a.id, missing: null, noteFor: a.id === v.selectedId ? v.noteFor : null } : v;
+    case "request": return v.queue.some(i => i.taskId === a.id) ? reviewReducer(v, { type: "select", id: a.id }) : { ...v, selectedId: null, noteFor: null, missing: a.id };
     case "move": {
       const index = v.queue.findIndex(i => i.taskId === v.selectedId);
       const id = v.queue[Math.max(0, Math.min(v.queue.length - 1, index + a.by))]?.taskId;
@@ -35,5 +37,7 @@ export function verdictParams(task: { id: string; rev?: number }, v: Verdict): R
   if (v.verdict === "retry" && !v.executor?.trim()) throw new Error("Choose an executor to retry on.");
   if ((v.verdict === "reject" || v.verdict === "send_back") && !v.note?.trim()) throw new Error("Add a note first.");
   return { id: task.id, verdict: v.verdict, accepted: v.verdict === "accept",
-    ...(v.note?.trim() ? { note: v.note } : {}), ...(v.kind ? { kind: v.kind } : {}), ...(v.executor ? { executor: v.executor } : {}) };
+    ...(v.note?.trim() ? { note: v.note } : {}), ...(v.kind ? { kind: v.kind } : {}), ...(v.executor ? { executor: v.executor } : {}),
+    // The service answers conflict when the task moved on (another client reviewed it), instead of overwriting that verdict.
+    ...(typeof task.rev === "number" ? { expect_rev: task.rev } : {}) };
 }

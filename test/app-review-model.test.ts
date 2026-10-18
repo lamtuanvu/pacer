@@ -24,9 +24,9 @@ test("notes reset on selection and pending ends on verdict", () => {
   expect(reviewReducer(v, { type: "move", by: 1 }).noteFor).toBeNull();
   expect(reviewReducer(reviewReducer(v, { type: "verdict-sent" }), { type: "verdict-done", id: "one" })).toMatchObject({ selectedId: "two", pending: false, noteFor: null });
 });
-test("verdict params preserve compatibility without expect_rev", () => {
+test("verdict params carry the task revision so a stale window cannot overwrite another verdict", () => {
   for (const verdict of ["accept", "reject", "send_back", "retry"] as const) {
-    expect(verdictParams({ id: "one", rev: 8 }, { verdict, note: "fix it", kind: "tests", executor: "codex" })).toEqual({ id: "one", verdict, accepted: verdict === "accept", note: "fix it", kind: "tests", executor: "codex" });
+    expect(verdictParams({ id: "one", rev: 8 }, { verdict, note: "fix it", kind: "tests", executor: "codex" })).toEqual({ id: "one", verdict, accepted: verdict === "accept", note: "fix it", kind: "tests", executor: "codex", expect_rev: 8 });
   }
   expect(verdictParams({ id: "one" }, { verdict: "accept" })).toEqual({ id: "one", verdict: "accept", accepted: true });
   for (const verdict of ["reject", "send_back"] as const) expect(() => verdictParams({ id: "one" }, { verdict, note: "  " })).toThrow("Add a note first.");
@@ -37,4 +37,16 @@ test("batched removals select the surviving successor from the previous queue", 
   let v = reviewReducer(initialReview, { type: "queue", items: [...items, extra] });
   v = reviewReducer(v, { type: "select", id: "two" });
   expect(reviewReducer(v, { type: "queue", items: [items[2]!, extra] }).selectedId).toBe("three");
+});
+
+test("a review link for a task no longer in the queue says so instead of picking another", async () => {
+  const { reviewReducer, initialReview } = await import("../app/src/screens/review/model");
+  const items = [{ id: "review:a", taskId: "a" }, { id: "review:b", taskId: "b" }] as never[];
+  const v = reviewReducer(reviewReducer(initialReview, { type: "queue", items }), { type: "request", id: "gone" });
+  expect(v.missing).toBe("gone");
+  expect(v.selectedId).toBeNull();
+  const picked = reviewReducer(v, { type: "select", id: "b" });
+  expect(picked).toMatchObject({ missing: null, selectedId: "b" });
+  const present = reviewReducer(reviewReducer(initialReview, { type: "queue", items }), { type: "request", id: "b" });
+  expect(present).toMatchObject({ missing: null, selectedId: "b" });
 });

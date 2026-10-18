@@ -13,7 +13,6 @@ const REDIRECTS: Record<string, string> = {
   "/tasks": "/sessions", "/executors": "/settings/executors", "/executors/add": "/settings/add-executor",
   "/accounts": "/settings/accounts", "/strategy": "/settings/strategies", "/hosts": "/settings/hosts", "/setup": "/",
 };
-const SETTLED = new Set(["done", "partial", "failed", "limit", "stopped", "needs_input"]);
 
 export function withQuery(href: string, query: RouteQuery): string {
   const params = new URLSearchParams();
@@ -22,13 +21,16 @@ export function withQuery(href: string, query: RouteQuery): string {
   const search = params.toString();
   return search ? `${href}?${search}` : href;
 }
+/** A setup check that has not answered, or failed, leaves setup unknown: screens wait rather than flash Setup. */
+export const setupCompleteFrom = (check: { complete: boolean } | "error" | undefined): boolean | null => check === undefined || check === "error" ? null : check.complete;
 function decode(part: string): string | null { try { return decodeURIComponent(part); } catch { return null; } }
 
 /**
  * setupComplete: true, false, or null while the first setup check is still in flight (screens wait rather than flash Setup).
- * taskState lets an old #/tasks/<id> link land on Review for settled work and on Sessions otherwise.
+ * reviewTarget sends an old #/tasks/<id> link to Review when the task waits for review, else to Sessions; null means the snapshot
+ * has not arrived yet, so the link waits rather than guessing.
  */
-export function resolveRoute(hash: string, setupComplete: boolean | null = true, taskState?: (id: string) => string | undefined): Route | { redirect: string } {
+export function resolveRoute(hash: string, setupComplete: boolean | null = true, reviewTarget?: (id: string) => "review" | "sessions" | null): Route | { redirect: string } {
   const raw = hash.replace(/^#/, "") || "/";
   const [path = "/", search = ""] = raw.split("?");
   const params = new URLSearchParams(search);
@@ -38,7 +40,11 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   const oldTask = /^\/tasks\/([^/]+)$/.exec(path);
   if (oldTask) {
     const id = decode(oldTask[1]!);
-    if (id !== null) return keep(`/${SETTLED.has(taskState?.(id) ?? "") ? "review" : "sessions"}/${encodeURIComponent(id)}`);
+    if (id !== null) {
+      const target = reviewTarget ? reviewTarget(id) : "sessions";
+      if (target === null) return { name: "loading", query };
+      return keep(`/${target}/${encodeURIComponent(id)}`);
+    }
   }
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";

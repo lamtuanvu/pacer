@@ -4,7 +4,7 @@ import { createApi } from "./data/api";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
-import { resolveRoute, type Route } from "./router";
+import { resolveRoute, setupCompleteFrom, type Route } from "./router";
 import { attachKeyRegistry } from "./keys/registry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
@@ -61,8 +61,8 @@ function App() {
     return () => { active = false; clearInterval(timer); };
   }, [api, state.invalidations.setup, state.connected]);
   // Unknown until the first setup check answers, so screens wait instead of flashing Setup.
-  const setupComplete = checklist === undefined ? null : checklist !== "error" && checklist.complete;
-  const resolved = resolveRoute(hash, setupComplete, id => state.snapshot?.tasks.find(t => t.id === id)?.state);
+  const setupComplete = setupCompleteFrom(checklist);
+  const resolved = resolveRoute(hash, setupComplete, id => !state.snapshot ? null : state.snapshot.attention?.some(a => a.kind === "review" && a.taskId === id) ? "review" : "sessions");
   useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
   const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
   if (!SETTINGS.has(route.name) && route.name !== "loading") lastWork.current = hash || "#/";
@@ -76,7 +76,8 @@ function App() {
       keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),
       keys.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => setHelp(true) }),
       keys.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => setDelegate(true) }),
-      keys.register({ keys: "Escape", label: "Close the settings panel", scope: "global", run: () => { if (SETTINGS.has(keys.scope() ?? "")) location.hash = lastWork.current; } }),
+      // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
+      ...[...SETTINGS].map(scope => keys.register({ keys: "Escape", label: "Close the settings panel", scope, run: () => { location.hash = lastWork.current; } })),
     ];
     const detach = attachKeyRegistry(keys, window);
     return () => { offs.forEach(off => off()); detach(); };

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { resolveRoute, withQuery, type Route } from "../app/src/router";
 
 const q = { repo: null, scope: null };
-const route = (hash: string, setup: boolean | null = true, state?: (id: string) => string | undefined) => resolveRoute(hash, setup, state) as Route;
+const route = (hash: string, setup: boolean | null = true, state?: (id: string) => "review" | "sessions" | null) => resolveRoute(hash, setup, state) as Route;
 
 test("new routes resolve with their ids and sections", () => {
   expect(route("#/")).toEqual({ name: "overview", query: q });
@@ -38,11 +38,15 @@ test("old routes redirect to their new homes and keep the repo filter", () => {
   expect(resolveRoute("#/accounts?repo=k")).toEqual({ redirect: "#/settings/accounts?repo=k" });
 });
 
-test("an old task link goes to Review when settled and to Sessions while running", () => {
-  const state = (id: string) => ({ t1: "done", t2: "running" } as Record<string, string>)[id];
-  expect(resolveRoute("#/tasks/t1", true, state)).toEqual({ redirect: "#/review/t1" });
-  expect(resolveRoute("#/tasks/t2", true, state)).toEqual({ redirect: "#/sessions/t2" });
-  expect(resolveRoute("#/tasks/unknown", true, state)).toEqual({ redirect: "#/sessions/unknown" });
+test("an old task link goes to Review when it is waiting for review, otherwise to Sessions", () => {
+  const where = (id: string) => (id === "t1" ? "review" : "sessions") as "review" | "sessions";
+  expect(resolveRoute("#/tasks/t1", true, where)).toEqual({ redirect: "#/review/t1" });
+  expect(resolveRoute("#/tasks/t2", true, where)).toEqual({ redirect: "#/sessions/t2" });
+});
+
+test("an old task link waits for the snapshot before choosing", () => {
+  expect(resolveRoute("#/tasks/t1", true, () => null)).toMatchObject({ name: "loading" });
+  expect(resolveRoute("#/tasks/t1")).toEqual({ redirect: "#/sessions/t1" });
 });
 
 test("incomplete setup takes over every screen except settings", () => {
@@ -55,4 +59,12 @@ test("while the first setup check is in flight, screens wait instead of flashing
   expect(route("#/", null).name).toBe("loading");
   expect(route("#/review/t1", null).name).toBe("loading");
   expect(route("#/settings", null).name).toBe("settings");
+});
+
+test("setup is unknown until a setup check answers; a failed check keeps waiting instead of showing Setup", async () => {
+  const { setupCompleteFrom } = await import("../app/src/router");
+  expect(setupCompleteFrom(undefined)).toBeNull();
+  expect(setupCompleteFrom("error")).toBeNull();
+  expect(setupCompleteFrom({ complete: false })).toBe(false);
+  expect(setupCompleteFrom({ complete: true })).toBe(true);
 });

@@ -12,7 +12,7 @@ export interface TopBarProps {
   title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
   now?: number; onDelegate: () => void; delegatePrimary?: boolean;
 }
-/** 44 px bar: title, planner meter, mode (only when not Normal), live state and Delegate. */
+/** 44 px bar: title, planner meter, mode, live state, the time and Delegate. */
 export function TopBar({ title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);

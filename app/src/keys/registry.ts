@@ -13,7 +13,8 @@ function isTextTarget(target: unknown): boolean {
   return el.isContentEditable === true || tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && !NOT_TEXT_INPUTS.has((el.type ?? "text").toLowerCase()));
 }
 
-export function createKeyRegistry(opts: { controlActive: () => boolean; timeoutMs?: number; now?: () => number }) {
+/** controlActive: a terminal has control (only allowInControl keys run). blocked: a modal dialog owns the keyboard (nothing runs). */
+export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?: () => boolean; timeoutMs?: number; now?: () => number }) {
   const timeout = opts.timeoutMs ?? 1000, now = opts.now ?? (() => Date.now());
   const shortcuts: Shortcut[] = [];
   let scope: string | null = null, pending: { keys: string; at: number } | null = null;
@@ -27,7 +28,7 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; timeoutM
     scope: (): string | null => scope,
     list: (): Shortcut[] => [...shortcuts],
     handle(e: KeyInput): boolean {
-      if (e.defaultPrevented || e.metaKey || e.altKey) return false;
+      if (e.defaultPrevented || e.metaKey || e.altKey || opts.blocked?.()) return false;
       const token = e.ctrlKey ? `Ctrl-${e.key}` : e.key;
       if (e.ctrlKey && e.key === "Control") return false;
       // Escape and Ctrl combinations stay available in text fields; plain keys do not.

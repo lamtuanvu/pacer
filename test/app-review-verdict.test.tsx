@@ -61,7 +61,7 @@ test("r then empty Enter validates without sending; accept advances to next item
   expect(h.calls).toHaveLength(0);
   expect(h.messages).toEqual(["Add a note first."]);
   await submitVerdict(task, { verdict: "accept" }, h.runner, h.dispatch, h.announce, h.getView);
-  expect(h.calls).toEqual([{ op: "task.review", params: { id: task.id, verdict: "accept", accepted: true } }]);
+  expect(h.calls).toEqual([{ op: "task.review", params: { id: task.id, verdict: "accept", accepted: true, expect_rev: task.rev } }]);
   expect(h.getView().selectedId).toBe("next");
   expect(h.messages.at(-1)).toBe("Accepted · next: Next goal");
 });

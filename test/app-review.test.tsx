@@ -28,7 +28,7 @@ test("diff truncates after 2000 lines, labels binaries and escapes content", () 
   const patch = "diff --git a/x b/x\n" + Array.from({ length: 2500 }, (_, i) => i === 0 ? "@@ -0,0 +1,2499 @@" : `+line-${i}`).join("\n");
   const html = renderToString(<Diff path="x" patch={patch} />);
   expect(html.match(/class="diff-/g)?.length).toBe(2000);
-  expect(html).toContain("Open in editor");
+  expect(html).toContain("Copy worktree path");
   expect(html).not.toContain("+line-2000");
   expect(renderToString(<Diff path="x" binary patch="" />)).toContain("Binary file");
   const deleted = renderToString(<Diff path="x" patch={'diff --git a/x b/x\ndeleted file mode 100644\n--- a/x\n+++ /dev/null\n@@ -1 +0,0 @@\n-<script>bad</script>'} />);
@@ -37,4 +37,17 @@ test("diff truncates after 2000 lines, labels binaries and escapes content", () 
 });
 test("remote diff note is visible", () => {
   expect(renderToString(<Diff path="x" patch="" note="changes are on devbox until the run ends" />)).toContain("changes are on devbox until the run ends");
+});
+test("a requested task that left the queue gets a notice, the queue stays, and no other task opens", () => {
+  const v = reviewReducer(reviewReducer(initialReview, { type: "queue", items: reviewQueue(snap) }), { type: "request", id: "t-0999" });
+  const html = renderToString(<ReviewView snapshot={snap} view={v} now={snap.at} />);
+  expect(html).toContain("is no longer waiting for review");
+  expect(html).toContain('href="#/sessions/t-0999"');
+  expect(html).toContain("Review queue · 2");
+  expect(html).not.toContain("Accept and bring back");
+});
+test("the diff's button says what it does", () => {
+  const html = renderToString(<Diff path="a.ts" patch={"diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n" + "+x\n".repeat(2100)} />);
+  expect(html).toContain("Copy worktree path");
+  expect(html).not.toContain("Open in editor");
 });

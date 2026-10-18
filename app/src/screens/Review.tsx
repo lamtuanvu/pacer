@@ -37,7 +37,8 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
     {!view.queue.length ? <section className="pc-review-empty"><h1>Review queue is clear</h1><p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}</p></section> : <>
       <Queue items={view.queue} selected={view.selectedId} onSelect={onSelect} />
       <article className="pc-review-item" aria-busy={loading}><ErrorMessage error={error} />
-        {!task ? <p className="muted">Loading task…</p> : <>
+        {view.missing ? <section className="pc-notice"><h2>Already reviewed</h2><p><code>{view.missing}</code> is no longer waiting for review. <a href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
+        : !task ? (error ? null : <p className="muted">Loading task…</p>) : <>
           <div className="row"><h1 className="headline">{task.goal}</h1><Pill tone={status!.tone}>{status!.label}</Pill></div>
           <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{task.executor}</code>{task.startedAt !== null && task.endedAt !== null && <> · {elapsed(task.endedAt - task.startedAt)}</>} · {task.branch} → {task.base} · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
           <section><h2>Done when</h2>{acceptance?.state === "none" ? <p>No done-when command</p> : <>
@@ -56,7 +57,7 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
           </section>
         </>}
       </article>
-      <aside className="pc-review-verdict" aria-label="Verdict">{verdictPanel}</aside>
+      {!view.missing && <aside className="pc-review-verdict" aria-label="Verdict">{verdictPanel}</aside>}
     </>}
   </div><div role="status" aria-live="polite">{announcement}</div></>;
 }
@@ -143,12 +144,12 @@ function ReviewItem(props: {
 function ReviewController({ snapshot, route }: { snapshot: ClientSnapshot; route: Route & { id?: string } }) {
   const [view, dispatch] = useReducer(reviewReducer, initialReview, v => {
     const queued = reviewReducer(v, { type: "queue", items: reviewQueue(snapshot) });
-    return route.id ? reviewReducer(queued, { type: "select", id: route.id }) : queued;
+    return route.id ? reviewReducer(queued, { type: "request", id: route.id }) : queued;
   });
   const [announcement, announce] = useState("");
   const current = useRef(view); current.current = view;
   useEffect(() => { dispatch({ type: "queue", items: reviewQueue(snapshot) }); }, [snapshot]);
-  useEffect(() => { if (route.id) dispatch({ type: "select", id: route.id }); }, [route.id]);
+  useEffect(() => { if (route.id) dispatch({ type: "request", id: route.id }); }, [route.id]);
   useEffect(() => {
     history.replaceState(null, "", withQuery(view.selectedId ? `#/review/${encodeURIComponent(view.selectedId)}` : "#/review", route.query));
   }, [view.selectedId]);
