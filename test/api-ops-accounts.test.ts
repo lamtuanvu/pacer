@@ -83,6 +83,14 @@ test("host operations reserve local and refuse removing a used alias", async () 
   expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => (e.data as {area: string}).area)).toEqual(["hosts", "runners", "runners", "hosts"]);
 });
 
+test("host.set switches a host between recording-only and full live sessions", async () => {
+  const ctx = configured();
+  await callOp(ctx, "host.add", {alias: "box", ssh: "box-ssh"});
+  expect(await callOp(ctx, "host.set", {alias: "box", session: "full"})).toMatchObject({alias: "box", session: "full"});
+  expect(await callOp(ctx, "host.set", {alias: "box", session: "recording"})).toMatchObject({session: "recording"});
+  expect((await error(callOp(ctx, "host.set", {alias: "box", session: "always"}))).code).toBe("invalid_input");
+});
+
 test("account list preserves remote runner ids while sanitizing emails", async () => {
   const ctx = configured();
   await callOp(ctx, "host.add", {alias: "box", ssh: "box-ssh"});

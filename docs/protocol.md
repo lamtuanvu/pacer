@@ -1282,7 +1282,7 @@ Params JSON Schema:
 
 ### `host.set`
 
-Set host capacity and pause new work.
+Set host capacity, pause new work, or choose recording-only or full live sessions.
 
 Params JSON Schema:
 
@@ -1303,6 +1303,13 @@ Params JSON Schema:
     },
     "paused": {
       "type": "boolean"
+    },
+    "session": {
+      "type": "string",
+      "enum": [
+        "recording",
+        "full"
+      ]
     }
   },
   "required": [
