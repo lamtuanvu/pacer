@@ -1,0 +1,289 @@
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { tmpDir } from "./helpers";
+import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
+import { refusal } from "../scripts/live/guard";
+import { isolatedWorker } from "../scripts/live/surfaces";
+import { main } from "../scripts/live/cli";
+import { BLOCKED_OPS, ClientWebSocket, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
+
+function fixture(): Session {
+  const root = join(tmpDir(), "sandbox");
+  for (const path of ["", "home", "bin", "repo", "evidence", "logs"]) mkdirSync(join(root, path), { recursive: true });
+  return { id: "sandbox", root, pid: 12345, port: 49672, createdAt: "2026-10-18T00:00:00Z" };
+}
+
+describe("live guard (D3)", () => {
+  for (const args of [
+    ["install", "codex"], ["uninstall"], ["init"], ["setup"], ["statusline"], ["update", "--check"],
+    ["service", "install"], ["service", "uninstall"], ["plugin", "install"], ["plugin", "set"],
+    ["account", "add"], ["account", "rm"], ["account", "login"], ["host", "setup"], ["orca"], ["orca", "status"], ["open"], ["open", "--browser"],
+  ]) test(`refuses ${args.join(" ")}`, () => expect(refusal(args)).toContain("D3"));
+  for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
+    test(`allows ${args.join(" ")}`, () => expect(refusal(args)).toBeUndefined());
+  }
+  test("executable guard exits 3 without reading a session or dispatching pacer", () => {
+    const child = Bun.spawnSync([process.execPath, "scripts/live/guard.ts", "missing-session", "install"], { cwd: join(import.meta.dir, "..") });
+    expect(child.exitCode).toBe(3);
+    expect(child.stderr.toString()).toContain("D3");
+  });
+});
+
+test("sandbox environment keeps HOME and auth references but overrides pacer state", () => {
+  const session = fixture();
+  const env = sandboxEnv(session, { HOME: "/real-home", PATH: "/tool-bin", PACER_HOME: "/wrong", PACER_PORT: "4317", PACER_BIN: "/installed-pacer", PACER_BACKEND: "orca", PACER_ROLE: "executor" });
+  expect(env.HOME).toBe("/real-home");
+  expect(env.PATH).toBe(`${session.root}/bin:/tool-bin`);
+  expect(env.PACER_HOME).toBe(join(session.root, "home"));
+  expect(env.PACER_BIN).toBe(join(session.root, "bin/pacer"));
+  expect(env.PACER_PORT).toBe("49672");
+  expect(env.PACER_NO_UPDATE_CHECK).toBe("1");
+  expect(env.PACER_BACKEND).toBe("direct");
+  expect(env.PACER_ROLE).toBe("executor");
+  expect(env.PACER_ORCA_USER_DATA).toBe(join(session.root, "orca-profile"));
+  expect(environmentScript(session)).not.toContain("export HOME=");
+});
+
+test("environment shell quoting preserves text without executing substitutions", () => {
+  const value = "a'b $(false) `false`\nnext";
+  const child = Bun.spawnSync(["/bin/sh", "-c", `printf %s ${shellQuote(value)}`]);
+  expect(child.exitCode).toBe(0);
+  expect(child.stdout.toString()).toBe(value);
+});
+
+test("port selection refuses default and invalid ports", async () => {
+  const candidates = [4317, 0, 70000, 43210];
+  expect(await freePort(async () => candidates.shift()!)).toBe(43210);
+  await expect(freePort(async () => 4317)).rejects.toThrow("non-default");
+});
+
+test("session ids cannot escape the live root; metadata must match", () => {
+  for (const id of ["../escape", "/absolute", "a/b", ".", "x y"]) expect(() => validId(id)).toThrow();
+  const session = fixture();
+  const base = join(session.root, "..");
+  saveSession(session);
+  expect(loadSession(session.id, base)).toEqual(session);
+  expect(sessions(base)).toEqual([session]);
+  atomicWrite(join(session.root, "session.json"), JSON.stringify({ ...session, port: 4317 }));
+  expect(() => loadSession(session.id, base)).toThrow("Invalid");
+  for (const extra of [{ innerPort: 4317 }, { innerPort: session.port }, { innerPort: 70000 }, { proxyPid: 0 }]) {
+    atomicWrite(join(session.root, "session.json"), JSON.stringify({ ...session, ...extra }));
+    expect(() => loadSession(session.id, base)).toThrow("Invalid");
+  }
+});
+
+test("evidence is appended and reports retain commands, steps, captures and verdicts", async () => {
+  const session = fixture();
+  record(session, { kind: "note", behavior: "isolated service", surface: "API", verdict: "PASS", steps: "up | status", text: "Fresh token\nhealthy" });
+  record(session, { kind: "note", behavior: "desktop", surface: "desktop", text: "App unavailable" });
+  record(session, { kind: "note", behavior: "example", surface: "CLI", verdict: "FAIL", text: "Observed failure" });
+  record(session, { kind: "capture", path: "evidence/screen.png" });
+  const result = await run([process.execPath, "-e", 'console.log("x".repeat(17000)); console.error("observed"); process.exit(3)'], session);
+  expect(result.code).toBe(3);
+  expect(result.stdout.length).toBeGreaterThan(16000);
+  const entries = readEvidence(session);
+  expect(entries).toHaveLength(5);
+  expect(entries.every(entry => Number.isFinite(Date.parse(entry.at)))).toBe(true);
+  expect(entries[4].stdout).toContain("[truncated]");
+  expect(entries[4].stderr).toContain("observed");
+  const report = renderReport(session);
+  expect(report).toContain("1 PASS, 1 FAIL, 1 UNVERIFIED");
+  expect(report).toContain("up \\| status");
+  expect(report).toContain("Fresh token<br>healthy");
+  expect(report).toContain("evidence/screen.png");
+  expect(report).toContain("exit 3");
+  expect(statSync(join(session.root, "evidence/log.jsonl")).mode & 0o777).toBe(0o600);
+  expect(renderReport(session, [])).toContain("UNVERIFIED");
+});
+
+test("Orca worker overrides every host settings read with sandbox service coordinates", () => {
+  const session = fixture();
+  const source = isolatedWorker(session);
+  expect(source).toContain(`port: ${session.port}`);
+  expect(source).toContain(JSON.stringify(join(session.root, "home")));
+  expect(source).toContain('method !== "settings.get"');
+});
+
+let canBind = true;
+try { await freePort(); }
+catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+  canBind = false;
+  console.warn("Live lifecycle test UNVERIFIED: sandbox denies loopback binding (EPERM)");
+}
+test.skipIf(!canBind)("up/status/down uses a free port and leaves no service", async () => {
+  const base = tmpDir();
+  const session = await up("cycle", undefined, base);
+  try {
+    expect(session.port).not.toBe(4317);
+    expect(session.innerPort).not.toBe(4317);
+    expect(session.innerPort).not.toBe(session.port);
+    expect(session.proxyPid).toBeGreaterThan(1);
+    expect(await healthy({ ...session, proxyPid: 1 })).toBe(false);
+    expect(await healthy({ ...session, pid: 1 })).toBe(false);
+    expect(await healthy(session)).toBe(true);
+    expect(sessions(base)[0].pid).toBe(session.pid);
+    const status = await run([join(session.root, "bin/pacer"), "status", "--json"], session);
+    expect(status.code).toBe(0);
+    expect(JSON.parse(status.stdout)).toHaveProperty("generatedAt");
+    const login = await run([join(session.root, "bin/pacer"), "open", "--print"], session);
+    expect(login.code).toBe(0);
+    expect(login.stdout).toContain(`http://127.0.0.1:${session.port}/app/auth?code=`);
+    const blocked = await run([join(session.root, "bin/pacer"), "install"], session);
+    expect(blocked.code).toBe(3);
+    expect(readFileSync(join(session.root, "env.sh"), "utf8")).toContain(session.root);
+  } finally { await down(session); }
+  expect(existsSync(session.root)).toBe(false);
+  expect(await healthy(session)).toBe(false);
+  for (const port of [session.port, session.innerPort!]) {
+    await expect(fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })).rejects.toThrow();
+  }
+}, 10000);
+
+test("CLI rejects incomplete or unknown harness options before touching a session", async () => {
+  await expect(main(["note", "--id"])).rejects.toThrow("requires a value");
+  await expect(main(["pacer", "--unknown"])).rejects.toThrow("Unknown option");
+  await expect(main(["up", "--id", "../escape"])).rejects.toThrow("id must contain");
+});
+
+test("allowed guard command dispatches checkout CLI with sandbox state", async () => {
+  const session = fixture();
+  saveSession(session);
+  atomicWrite(join(session.root, "home/strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {usage: quota}\nrouting:\n  - default: [codex]\n");
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/guard.ts"), join(session.root, "session.json"), "status", "--json"], {
+    env: { ...process.env, PACER_HOME: join(tmpDir(), "wrong-home") }, stdout: "pipe", stderr: "pipe",
+  });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(stderr).toBe("");
+  expect(code).toBe(0);
+  expect(JSON.parse(stdout)).toHaveProperty("generatedAt");
+});
+
+describe("live service guard (D8)", () => {
+  for (const version of [2, 3]) {
+    for (const op of Object.keys(BLOCKED_OPS).filter(op => op !== "service.*")) {
+      test(`refuses v${version} ${op}`, () => {
+        expect(refusedOp("POST", `/v${version}/ops/${op}`)).toBe(op);
+      });
+    }
+    for (const op of ["service.install", "service.uninstall", "service.restart", "service.future"]) {
+      test(`refuses v${version} ${op}`, () => expect(refusedOp("POST", `/v${version}/ops/${op}`)).toBe(op));
+    }
+    for (const op of ["service.status", "setup.init", "plugin.install", "agent.preview", "task.delegate", "task.session", "account.list"]) {
+      test(`allows v${version} ${op}`, () => expect(refusedOp("POST", `/v${version}/ops/${op}`)).toBeUndefined());
+    }
+  }
+  test("only op POSTs are filtered", () => {
+    expect(refusedOp("GET", "/v3/ops/agent.connect")).toBeUndefined();
+    expect(refusedOp("POST", "/app/agent.connect")).toBeUndefined();
+    expect(refusedOp("POST", "/v1/ops/agent.connect")).toBeUndefined();
+  });
+  test("procedure lists exactly the exported policy with its handler audit", () => {
+    const doc = readFileSync(join(import.meta.dir, "../docs/testing/live-validation.md"), "utf8");
+    const table = doc.split("<!-- D8 policy -->")[1].split("<!-- /D8 policy -->")[0];
+    const rows = table.split("\n").filter(row => row.startsWith("| `"));
+    expect(rows).toEqual(Object.entries(BLOCKED_OPS).map(([op, reason]) => `| \`${op}\` | ${reason} |`));
+  });
+  test("Host and only matching public Origins are rewritten; authentication survives", () => {
+    for (const host of ["127.0.0.1", "localhost"]) {
+      const input = new Headers({ host: `${host}:49100`, origin: `http://${host}:49100`, cookie: "pacer_session=example", authorization: "Bearer example", "x-pacer-client": "app" });
+      const result = upstreamHeaders(input, 49100, 49101);
+      expect(result.get("host")).toBe("127.0.0.1:49101");
+      expect(result.get("origin")).toBe("http://127.0.0.1:49101");
+      expect(result.get("cookie")).toBe(input.get("cookie"));
+      expect(result.get("authorization")).toBe(input.get("authorization"));
+      expect(result.get("x-pacer-client")).toBe("app");
+      expect(input.get("host")).toBe(`${host}:49100`);
+    }
+    for (const origin of [undefined, "null", "http://evil.invalid", "http://127.0.0.1:4317", "https://127.0.0.1:49100"]) {
+      const result = upstreamHeaders(new Headers(origin ? { origin } : {}), 49100, 49101);
+      expect(result.get("origin")).toBe(origin ?? null);
+    }
+  });
+});
+
+test.skipIf(!canBind)("real proxy forwards assets, ops, cookies, streaming SSE and WebSocket frames", async () => {
+  const session = fixture();
+  session.port = await freePort();
+  session.innerPort = await freePort();
+  while (session.innerPort === session.port) session.innerPort = await freePort();
+  const seen: string[] = [];
+  let release!: () => void;
+  const upstream = Bun.serve({
+    hostname: "127.0.0.1", port: session.innerPort,
+    async fetch(req, server) {
+      const url = new URL(req.url);
+      seen.push(url.pathname);
+      if (req.headers.get("host") !== `127.0.0.1:${session.innerPort}`) return new Response("bad host", { status: 421 });
+      if (req.headers.get("upgrade") === "websocket") {
+        if (req.headers.get("cookie") !== "pacer_session=example" || req.headers.get("origin") !== `http://127.0.0.1:${session.innerPort}`) return new Response("bad auth", { status: 403 });
+        if (server.upgrade(req)) return;
+      }
+      if (url.pathname.endsWith("/events")) {
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(": first\n\n"));
+            release = () => { controller.enqueue(new TextEncoder().encode("data: second\n\n")); controller.close(); };
+          },
+        }), { headers: { "content-type": "text/event-stream" } });
+      }
+      if (req.method === "POST") return Response.json({ body: await req.text(), origin: req.headers.get("origin"), client: req.headers.get("x-pacer-client"), cookie: req.headers.get("cookie") });
+      return new Response(`asset${url.search}`, { status: 201, headers: [ ["set-cookie", "a=1; HttpOnly"], ["set-cookie", "b=2; SameSite=Strict"], ["content-type", "text/plain"], ["content-security-policy", "default-src 'self'"] ] });
+    },
+    websocket: { message(ws, message) { ws.send(message); } },
+  });
+  const proxy = startProxy(session);
+  const origin = `http://127.0.0.1:${session.port}`;
+  try {
+    const asset = await fetch(`${origin}/app/example.js?x=1`, { redirect: "manual" });
+    expect(asset.status).toBe(201);
+    expect(await asset.text()).toBe("asset?x=1");
+    expect(asset.headers.getSetCookie()).toEqual(["a=1; HttpOnly", "b=2; SameSite=Strict"]);
+    expect(asset.headers.get("content-security-policy")).toBe("default-src 'self'");
+    const wrongHost = await fetch(`${origin}/app/`, { headers: { host: "evil.invalid" } });
+    expect(wrongHost.status).toBe(421);
+    for (const version of [2, 3]) {
+      const path = `/v${version}/ops/agent.connect`;
+      const blocked = await fetch(origin + path, { method: "POST", body: "{}" });
+      expect(blocked.status).toBe(403);
+      expect(await blocked.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: agent.connect changes the real user environment" } });
+      expect(seen).not.toContain(path);
+      const response = await fetch(`${origin}/v${version}/ops/setup.init`, { method: "POST", headers: { origin, "x-pacer-client": "app", cookie: "pacer_session=example" }, body: '{"planner":"codex"}' });
+      expect(await response.json()).toEqual({ body: '{"planner":"codex"}', origin: `http://127.0.0.1:${session.innerPort}`, client: "app", cookie: "pacer_session=example" });
+      const stream = await fetch(`${origin}/v${version}/events`);
+      expect(stream.headers.get("content-type")).toBe("text/event-stream");
+      const reader = stream.body!.getReader();
+      // The upstream stays open until after the first chunk reaches the client.
+      const first = await Promise.race([reader.read(), Bun.sleep(1000).then(() => { throw Error("SSE was buffered"); })]);
+      expect(new TextDecoder().decode(first.value)).toBe(": first\n\n");
+      release();
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe("data: second\n\n");
+      expect((await reader.read()).done).toBe(true);
+      await new Promise<void>((ok, fail) => {
+        const ws = new ClientWebSocket(`${origin.replace("http:", "ws:")}/v${version}/tasks/example/session`, { headers: { origin, cookie: "pacer_session=example" } });
+        const timer = setTimeout(() => { ws.close(); fail(Error("WebSocket timeout")); }, 2000);
+        let textReceived = false;
+        ws.binaryType = "arraybuffer";
+        ws.onopen = () => ws.send("hello");
+        ws.onerror = () => { clearTimeout(timer); fail(Error("WebSocket error")); };
+        ws.onmessage = event => {
+          try {
+            if (!textReceived) {
+              expect(event.data).toBe("hello");
+              textReceived = true;
+              ws.send(new Uint8Array([0, 1, 255]));
+            } else {
+              expect(new Uint8Array(event.data)).toEqual(new Uint8Array([0, 1, 255]));
+              clearTimeout(timer); ws.close(); ok();
+            }
+          } catch (error) { clearTimeout(timer); ws.close(); fail(error); }
+        };
+      });
+    }
+    const notes = readEvidence(session);
+    expect(notes).toHaveLength(2);
+    expect(notes.every(note => note.kind === "note" && note.verdict === "UNVERIFIED")).toBe(true);
+    expect(renderReport(session)).toContain("D8 blocked agent.connect");
+  } finally { proxy.stop(true); upstream.stop(true); }
+}, 10000);
