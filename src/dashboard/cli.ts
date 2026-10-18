@@ -1,5 +1,6 @@
+import { basename } from "node:path";
 import { attachDirectory, attachSession } from "../session/attach";
-import { openSession, sessionInfo } from "../session/service";
+import { openCmd } from "../commands/open";
 import { checkSetup } from "../setup/check";
 import type { SetupChecklist } from "../setup/checklist";
 import { readUpdateCheck, updateLine } from "../update/check";
@@ -15,8 +16,9 @@ import { delegate, taskStop } from "../tasks/api";
 import { use as switchStrategy } from "../strategy/service";
 import { selfHandle, resolveWorktreePath } from "../console/cli";
 import { consoleCommands, type ConsoleDeps } from "../console/console";
-import { cards } from "./model";
-import { commandAvailable, delegateViaClient, refreshView, runCommand, withFallback } from "./data";
+import { cards, actionAvailable, type DashboardAction } from "./model";
+import type { ClientSnapshot } from "../view-model/snapshot";
+import { attachViewer, delegateViaClient, refreshView, runCommand, withFallback } from "./data";
 import { DashboardSettings, terminalLogin } from "./settings";
 import { renderDashboard } from "./render";
 import { Keys, moveSelection, selectionAction, viewerAction, updateKey, UPDATE_PROMPT } from "./input";
@@ -29,11 +31,15 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  let selected=0,help=false,message="",messageUntil=0,busy=false,suspended=false,closed=false,exitError="";
  let statusTimer:ReturnType<typeof setTimeout>|undefined;
  let prompt:null|{type:"update"|"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
+ const branchResult=await ctx.run(["git","-C",process.cwd(),"branch","--show-current"],10_000);
+ const branch=branchResult.code===0?branchResult.stdout.trim()||"HEAD":"—";
+ const repo=basename(process.cwd());
  const primary=await connectClient(ctx);
  let ops:readonly string[]=[];
- let snapshot=emptySnapshot(),inFlight:Promise<void>|undefined;
+ let confirmation: DashboardAction | undefined;
+ let snapshot:ClientSnapshot=emptySnapshot();let inFlight:Promise<void>|undefined;
  const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
- const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{ops,settings,setup,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
+ const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{repo,branch,ops,settings,setup,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:confirmation&&"op" in confirmation?`${confirmation.confirm} (y/n)`:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
  const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
  const client=withFallback(primary,()=>new InProcessClient(fresh),()=>report("pacer serve unavailable; working locally"));
  const refresh=()=>{
@@ -58,11 +64,22 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   resume(){if(closed)return;process.stdin.setRawMode(true);process.stdout.write(ENTER_SCREEN);process.stdin.on("data",input);process.stdin.resume();suspended=false;refresh();}
  })});
  const fallback=consoleCommands(ctx,deps,report,{startDelegate,chooseStrategy,use,refresh:async()=>{refresh();report("Refreshed");}});
- const command=async(data:CmdData)=>{if(commandAvailable(data,ops))await runCommand(client,data,fallback,reportOp);};
+ const open=async(screen:string)=>{const result=await openCmd(screen?[screen]:[],fresh());report(result.err||result.out||"Opened pacer.");};
+ const command=async(data:DashboardAction)=>{
+  if(!actionAvailable(data,ops))return;
+  if("op" in data&&data.confirm){confirmation=data;draw();return;}
+  await runCommand(client,data,fallback,reportOp,open);
+ };
  let finish!:(code:number)=>void;const done=new Promise<number>(resolve=>{finish=resolve;});
  const quit=(code=0)=>{if(closed)return;closed=true;finish(code);};
  const handle=async(key:string)=>{
   if(key==="interrupt"){quit(130);return;}
+  if(confirmation){
+   const action=confirmation;
+   if(key.toLowerCase()==="y"){confirmation=undefined;await runCommand(client,action,fallback,reportOp,open);}
+   else if(["n","N","escape","enter"].includes(key))confirmation=undefined;
+   draw();return;
+  }
   if(settings.open||key===","&&!prompt){await settings.handle(key);draw();return;}
   if(prompt){
    if(key==="escape"){prompt=null;draw();return;}
@@ -93,13 +110,13 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   else if(updateKey(key)==="confirm"&&ops.includes("update.apply"))prompt={type:"update",step:0,value:"",goal:"",repo:"",names:[]};
   else {
    const viewer=viewerAction(key,card);
-   if(viewer){
-    const c=fresh(), info=await sessionInfo(c,viewer.id,undefined,false);
-    if(viewer.target==='here'&&info.host==='builtin'){
+   if(viewer&&ops.includes("task.attach")){
+    await attachViewer(client,viewer,async()=>{
+     const c=fresh();
      suspended=true;clearTimeout(escapeTimer);keys.flush();process.stdin.off('data',input);process.stdin.setRawMode(false);process.stdout.write(LEAVE_SCREEN);
      try{await attachSession(attachDirectory(c,viewer.id),{},`pacer ${viewer.id}`);}
      finally{if(!closed){process.stdin.setRawMode(true);process.stdout.write(ENTER_SCREEN);process.stdin.on('data',input);process.stdin.resume();suspended=false;void refresh();}}
-    }else{const result=await openSession(c,viewer.id,viewer.target==='here'?'orca':viewer.target);report(result.opened?'Opened task session.':result.command??'Task session unavailable.');}
+    },report);
    }else{const action=selectionAction(key,card);if(action)await command(action);}
   }
   draw();

@@ -186,13 +186,25 @@ test("withFallback switches to local but does not repeat an operation after a tr
   expect(commandAvailable({cmd:"focus",taskId:"t1"},[])).toBe(true);
  });
 
- test("TUI Retry all is only visible when advertised by hello",async()=>{
-  const {cards}=await import("../src/dashboard/model");
-  const snapshot=snap([]);snapshot.tasks=[{id:"t1",goal:"fix",state:"failed",updatedAt:1,executor:"codex",backend:null,worktree:null}];
-  const actions=(ops:string[])=>cards(snapshot,10,ops).flatMap(g=>g.cards).filter(c=>c.text==="Retry all");
-  expect(actions(["task.retry"])).toEqual([]);
-  expect(actions(["task.retry_all"])[0]?.action).toEqual({cmd:"retry-all",taskIds:["t1"]});
- });
+test("service actions dispatch exact ops and params, preserving revision guards",async()=>{
+ const {cards}=await import("../src/dashboard/model");
+ const {selectionAction}=await import("../src/dashboard/input");
+ const fixture=(await import("./fixtures/ui/snapshot.json")).default;
+ const snapshot=structuredClone(fixture) as unknown as import("../src/view-model/snapshot").ClientSnapshot;
+ snapshot.attention![1]!.actions[0]!.params.expect_rev=3;
+ const actions=cards(snapshot,snapshot.at,["task.retry"])[0].cards;
+ const action=selectionAction("enter",actions[1])!;
+ const calls:unknown[]=[],reports:string[]=[];
+ const client:ApiClient={...fake(snap([])),call:async<T>(op:string,params?:unknown)=>{calls.push({op,params});return {} as T;}};
+ await runCommand(client,action,async()=>{throw Error("fallback called");},s=>reports.push(s));
+ expect(calls).toEqual([{op:"task.retry",params:{id:"t-0409",executor:"codex#team@devbox",expect_rev:3}}]);
+ expect(reports).toEqual(["Retry on Codex: done"]);
+ expect(actions[0].action).toBeUndefined();
+ expect(actions[2].actions?.map(a=>a.op)).toEqual(["ui.open"]);
+ client.call=async()=>{throw new ApiError("conflict","revision changed","refresh");};
+ await runCommand(client,action,async()=>{},s=>reports.push(s));
+ expect(reports.at(-1)).toBe("pacer: revision changed (refresh)");
+});
 
 test("dashboard help hides unavailable operation shortcuts",async()=>{
  const {renderDashboard}=await import("../src/dashboard/render");
@@ -200,11 +212,31 @@ test("dashboard help hides unavailable operation shortcuts",async()=>{
  for(const label of ["d: delegate","x: dismiss","b: block","s: strategy","c: check updates","u: update"])expect(text).not.toContain(label);
 });
 
-test("Retry all excludes reviewed, resolved and superseded retry attempts",async()=>{
+test("TUI does not infer attention or retry targets from legacy task states",async()=>{
  const {cards}=await import("../src/dashboard/model");
- const snapshot=snap([]),base={goal:"fix",state:"failed",updatedAt:1,executor:"codex",backend:null,worktree:null};
- snapshot.tasks=[{...base,id:"old",retriedBy:"latest"},{...base,id:"latest",retryOf:"old"},{...base,id:"reviewed",review:{accepted:true,kind:null,note:null,at:2}},{...base,id:"resolved",resolved:"fixed"}];
- const action=()=>cards(snapshot,10,["task.retry_all"]).flatMap(g=>g.cards).find(c=>c.text==="Retry all")?.action;
- expect(action()).toEqual({cmd:"retry-all",taskIds:["latest"]});
- snapshot.tasks[1]={...snapshot.tasks[1],state:"done"};expect(action()).toBeUndefined();
+ const snapshot=snap([task("failed","failed")]);
+ expect(cards(snapshot,10,["task.retry_all"])[0].cards).toEqual([]);
+});
+
+test("ui.open navigates locally and is never sent as a service op",async()=>{
+ const screens:string[]=[];
+ await runCommand(fake(snap([])),{label:"Review",op:"ui.open",params:{view:"review",id:"t-0412"}},async()=>{throw Error("fallback");},()=>{},async screen=>{screens.push(screen);});
+ expect(screens).toEqual(["review/t-0412"]);
+});
+test("Attach dispatches terminal and tmux ops, suspends locally for builtin sessions",async()=>{
+ const {attachViewer}=await import("../src/dashboard/data");
+ const calls:unknown[]=[],reports:string[]=[];let attached=0,host="builtin";
+ const client:ApiClient={...fake(snap([])),call:async<T>(op:string,params?:unknown)=>{calls.push({op,params});return (op==="task.session"?{host}:{opened:false,command:"pacer attach t-1"}) as T;}};
+ const here=async()=>{attached++;};
+ await attachViewer(client,{id:"t-1",target:"here"},here,text=>reports.push(text));
+ expect(attached).toBe(1);expect(calls).toEqual([{op:"task.session",params:{id:"t-1"}}]);
+ for(const target of ["terminal","tmux"] as const)await attachViewer(client,{id:"t-1",target},here,text=>reports.push(text));
+ host="orca";await attachViewer(client,{id:"t-1",target:"here"},here,text=>reports.push(text));
+ expect(calls.slice(1)).toEqual([
+  {op:"task.attach",params:{id:"t-1",target:"terminal"}},
+  {op:"task.attach",params:{id:"t-1",target:"tmux"}},
+  {op:"task.session",params:{id:"t-1"}},
+  {op:"task.attach",params:{id:"t-1",target:"orca"}},
+ ]);
+ expect(reports).toEqual(["pacer attach t-1","pacer attach t-1","pacer attach t-1"]);
 });
