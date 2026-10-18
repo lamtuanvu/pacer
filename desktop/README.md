@@ -76,7 +76,8 @@ that same directory's `token` file for native sign-in. `PACER_PORT` is inherited
 used only by the webview. The native client uses the bearer token exclusively
 for `POST /v2/session/exchange`, then drops it and uses an in-memory cookie jar.
 Tokens are never persisted or logged. Redirects and HTTP proxies are disabled.
-All native requests include `X-Pacer-Client: desktop/<package version>`.
+Native reads and exchange include `X-Pacer-Client: desktop/<package version>`;
+cookie-authenticated writes use `X-Pacer-Client: app` with the service Origin.
 The authenticated `/v2/hello` gates protocol major 2; newer minors and unknown
 event kinds are supported by refetching the snapshot.
 
@@ -86,7 +87,14 @@ and reconnects with delay. A concurrent heartbeat renews the `client.register`
 notifier lease every 30 seconds, including during snapshot reads and stream
 reconnection. Failure returns to recovery, obtains fresh sessions, and registers
 again. The lease lapses after exit, allowing the service to resume its fallback
-notifications. Recovery retries every five seconds and on focus; Start pacer
+notifications. A 401 from either webview reports `session_expired` through origin-scoped IPC.
+Page-load checks also catch expired sign-in links and cookie-less session-ended
+pages (including older service pages). The single connection task signs in again
+with `POST /v2/session/exchange` and a fresh webview code, reloads the saved main
+route and recreates the tray after sign-in. Failed connections show the bundled
+starting/stopped page. Attempts are at least five seconds apart, including focus
+and repeated IPC signals, and recovery continues automatically.
+Recovery retries every five seconds and on focus; Start pacer
 invokes `pacer service install` without a shell.
 
 The tray title uses service-owned planner usage and attention counts. Left-click
@@ -112,13 +120,6 @@ delivery ledger. On macOS, up to two supplied actions become buttons: operations
 are collected with native macOS dialogs before dispatch. Notification body clicks
 and `pacer://review/<id>` / session links open the matching hash route.
 
-**Service compatibility:** the current service cookie-write guard still requires
-exactly `X-Pacer-Client: app`, while the desktop contract requires
-`desktop/<version>` on every native request. That guard must accept the desktop
-label before registration, heartbeats, and native operations can succeed; the
-shell does not bypass it with bearer-authenticated operations. No service code is
-changed by this desktop-only update.
-
 ## Shell IPC
 
 No static capabilities or plugin commands are exposed. Rust grants only the
@@ -128,6 +129,7 @@ active `http://127.0.0.1:<port>` origin in the main window these app commands:
 await window.__TAURI__.core.invoke('setLaunchAtLogin', { enabled: true });
 await window.__TAURI__.core.invoke('setTheme', { theme: 'system' }); // light, dark
 await window.__TAURI__.core.invoke('notifyRoute', { route: '#/review/t-example' });
+await window.__TAURI__.core.invoke('session_expired'); // also allowed from tray
 ```
 
 Each handler also verifies the caller window and current service origin. Local
@@ -153,6 +155,10 @@ links open `/app/#<route>` and resizing is skipped.
 
 - Without an installed CLI: Install pacer first; install it and refocus.
 - Stop the service: pacer isn't running; Start pacer loads the authenticated UI.
+- Restart the service with the main window and popover open; both sign in again.
+- Revoke app sessions, reload without a cookie, or load an expired sign-in URL;
+  the shell recovers automatically. Stop the service during recovery; the bundled
+  page appears and reconnects after restart without rapid retries.
 - Hide the window; change service state and confirm tray updates continue.
 - Trigger attention under Off / Important / All; test body and action clicks.
 - Left-click (or Show popover in the Linux tray menu) toggles the popover;
@@ -167,8 +173,8 @@ links open `/app/#<route>` and resizing is skipped.
 - Resize/move/relaunch; test theme and launch at login, then turn autostart off.
 - Return protocol 1.x / 3.x from a test service: update CLI / app respectively.
 - Try IPC from another origin: denied. Confirm the three allowed IPC calls from
-  the authenticated main page work, the four tray commands work only from the
-  tray window, and all plugin calls are denied.
+  the authenticated main page work, tray commands work only from the tray
+  window, session expiration works from both, and all plugin calls are denied.
 
 Unit tests cover discovery order, auth URL validation, route validation,
 protocol majors, fragmented SSE, tray projection, attention notification mapping,

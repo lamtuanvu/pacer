@@ -33,6 +33,7 @@ struct Shell {
     start: AtomicBool,
     retry: AtomicBool,
     session: Mutex<Option<client::Session>>,
+    expired: tokio::sync::Notify,
     actions: Mutex<std::collections::HashMap<String, Value>>,
 }
 impl Default for Shell {
@@ -45,6 +46,7 @@ impl Default for Shell {
             start: AtomicBool::new(false),
             retry: AtomicBool::new(false),
             session: Mutex::new(None),
+            expired: tokio::sync::Notify::new(),
             actions: Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -76,6 +78,20 @@ fn authorized_tray(window: &WebviewWindow, app: &AppHandle) -> Result<(), String
     }
     Ok(())
 }
+#[tauri::command]
+fn session_expired(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    match window.label() {
+        "main" => authorized(&window, &app)?,
+        "tray" => authorized_tray(&window, &app)?,
+        _ => return Err("Unknown caller".into()),
+    }
+    app.state::<Shell>().expired.notify_one();
+    Ok(())
+}
+// Runs in the trusted service document, including script-free error pages. Also
+// recognizes pages from older services which do not yet carry the marker.
+const CHECK_SESSION_PAGE: &str = r#"if (document.querySelector('[data-pacer-session-ended]') || (!document.getElementById('app') && /Session ended|This link has expired/.test(document.body.textContent))) { window.__TAURI__?.core.invoke('session_expired').catch(() => {}); }"#;
+
 #[tauri::command]
 fn tray_resize(window: WebviewWindow, app: AppHandle, height: f64) -> Result<(), String> {
     authorized_tray(&window, &app)?;
@@ -128,6 +144,11 @@ fn create_tray_window(app: &AppHandle, origin: &str) -> tauri::Result<()> {
     .skip_taskbar(true)
     .visible(false)
     .focused(false)
+    .on_page_load(|window, payload| {
+        if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            let _ = window.eval(CHECK_SESSION_PAGE);
+        }
+    })
     .on_navigation(move |url| {
         let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
         logic::command_authorized("tray", "tray", url, origin.as_deref())
@@ -266,7 +287,8 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .remote(format!("{origin}/*"))
                 .permission("allow-setLaunchAtLogin")
                 .permission("allow-setTheme")
-                .permission("allow-notifyRoute"),
+                .permission("allow-notifyRoute")
+                .permission("allow-session-expired"),
         )
         .map_err(|e| e.to_string())?;
         app.add_capability(
@@ -280,7 +302,8 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
             .permission("allow-tray-resize")
             .permission("allow-tray-open")
             .permission("allow-tray-hide")
-            .permission("allow-app-quit"),
+            .permission("allow-app-quit")
+            .permission("allow-session-expired"),
         )
         .map_err(|e| e.to_string())?;
         granted.push(origin.into());
@@ -505,7 +528,8 @@ fn main() {
             tray_resize,
             tray_open,
             tray_hide,
-            app_quit
+            app_quit,
+            session_expired
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -516,9 +540,11 @@ fn main() {
                     .inner_size(1120., 760.)
                     .min_inner_size(720., 520.)
                     .on_page_load(|window, payload| {
-                        if payload.event() != tauri::webview::PageLoadEvent::Finished
-                            || !matches!(payload.url().path(), "/app" | "/app/")
-                        {
+                        if payload.event() != tauri::webview::PageLoadEvent::Finished {
+                            return;
+                        }
+                        let _ = window.eval(CHECK_SESSION_PAGE);
+                        if !matches!(payload.url().path(), "/app" | "/app/") {
                             return;
                         }
                         let app = window.app_handle().clone();

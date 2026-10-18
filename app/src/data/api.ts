@@ -2,11 +2,16 @@ import type { Hello, ApiClient } from "../../../src/api/client-types";
 export class ApiError extends Error {
   constructor(readonly code: string, message: string, readonly hint?: string, readonly status?: number) { super(message); this.name = "ApiError"; }
 }
+/** Only the desktop shell exposes this bridge; browsers keep their sign-in guidance. */
+export function reportSessionEnded(): void {
+  const host = globalThis as typeof globalThis & { __TAURI__?: { core?: { invoke: (command: string) => Promise<unknown> } } };
+  void host.__TAURI__?.core?.invoke("session_expired").catch(() => { /* shell may already be navigating to recovery */ });
+}
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   async function request<T>(path: string, params?: unknown): Promise<T> {
     const response = await fetch(path, { credentials: "same-origin", method: params === undefined ? "GET" : "POST", ...(params === undefined ? {} : { headers: { "X-Pacer-Client": "app", "content-type": "application/json" }, body: JSON.stringify(params) }) });
-    if (response.status === 401) { onSessionEnded(); throw new ApiError("not_allowed", "Session ended. Run `pacer open`.", undefined, 401); }
+    if (response.status === 401) { reportSessionEnded(); onSessionEnded(); throw new ApiError("not_allowed", "Session ended. Run `pacer open`.", undefined, 401); }
     if (!response.ok) {
       const text = await response.text();
       let error: { code: string; message: string; hint?: string } | undefined;
