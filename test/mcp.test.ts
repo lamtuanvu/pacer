@@ -178,3 +178,13 @@ test("task_review supports verdicts and retries with the configured runner", asy
   expect(spawned).toEqual([id, r.structuredContent.retry.id]);
   await client.close();
 });
+
+test("MCP delegate accepts trimmed short titles and rejects oversized titles",async()=>{
+ const {ctx,call,client}=await connect();
+ const d=await call("delegate",{goal:"Fix queue. Then verify",repo:ctx.home,title:"  Queue fix  "});
+ expect(d.isError).toBeFalsy();
+ expect(d.structuredContent.title).toBe("Queue fix");
+ expect(readTask(ctx,d.structuredContent.task_id)?.title).toBe("Queue fix");
+ expect((await call("delegate",{goal:"g",repo:ctx.home,title:"x".repeat(61)})).isError).toBe(true);
+ await client.close();
+});

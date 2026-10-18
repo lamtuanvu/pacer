@@ -1,3 +1,4 @@
+import { taskTitle } from "../core/short-title";
 import { probeHosts } from "../remote/eligibility";
 import { dispatchNotifications } from "../notify/decide";
 import { repoFor, backfillRepos } from "../core/repos";
@@ -32,8 +33,8 @@ import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
 export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:Envelope[],opts?:PublishOpts):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
 export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t),publish:(ctx,envs,opts)=>publish(ctx,envs,opts)};
-export function taskData(t:TaskRecord):TaskData {
-  const last=t.attempts.at(-1); return {id:t.id,state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0),
+export function taskData(t:TaskRecord):TaskData & {title:string} {
+  const last=t.attempts.at(-1); return {id:t.id,title:taskTitle(t),state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0),
     ...(t.placement?.mode && t.placement.why!==undefined ? {placement:{mode:t.placement.mode,why:t.placement.why}} : {}),
     ...(t.review?{review:t.review}:{}),...(t.resolved?{resolved:t.resolved}:{}),
     ...(t.dismissed ? {dismissed:true} : {}), ...(t.retryOf ? {retryOf:t.retryOf} : {}), ...(t.retriedBy ? {retriedBy:t.retriedBy} : {}),
@@ -145,7 +146,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<En
       // A manual stop is recorded by core.tasks.stop, rather than reported as a failure.
       if (d.state !== "stopped") appendActivity(ctx, {
         kind: "task_settled", level: d.state === "done" ? "info" : "warn",
-        text: d.state === "done" ? `${name} finished “${shortGoal(t.brief.goal, 60)}” · waiting for review` : `${name} failed “${shortGoal(t.brief.goal, 60)}”`,
+        text: d.state === "done" ? `${name} finished “${taskTitle(t)}” · waiting for review` : `${name} failed “${taskTitle(t)}”`,
         ...(t.brief.repo ? { repo: (t.repo ?? repoFor(ctx, t.brief.repo)).key } : {}), taskId: t.id,
         ...(d.executor ? { executor: d.executor } : {}), ...(t.run?.host ? { host: t.run.host } : {}),
       });

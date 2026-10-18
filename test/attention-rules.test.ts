@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { deriveItems, type RuleInput } from "../src/attention/rules";
 import { apiTask } from "../src/api/read-model/tasks";
+import { deriveTaskItems } from "../src/core/task-attention";
+import { buildCounts } from "../src/api/read-model/summary";
 import { buildReadModel } from "../src/api/read-model";
 import { capacityFixture, record } from "./read-model-helpers";
 import { fakeCtx } from "./helpers";
@@ -79,4 +81,36 @@ test("quota hold clears attention and sign-in actions name their concrete target
  expect(deriveItems({...input(),planner:{...planner,modeHeldUntil:ctx.now}})[0]?.actions[1]).toEqual({label:"Keep normal",op:"mode.hold",params:{mode:"normal"}});
  const executor=model.executors.find(e=>e.rank!=="planner")!,account=model.accounts.find(a=>a.name===executor.account)!;
  expect(deriveItems({...input(),executors:[executor],accounts:[{...account,signedIn:false}]})[0]?.actions).toEqual([{label:"Sign in",op:"account.signin",params:{name:account.name}},{label:"Disable",op:"runner.set",params:{id:executor.id,enabled:false}}]);
+});
+
+test("queued tasks waiting for a slot or pause never need attention, even after 600 seconds",()=>{
+ for(const reason of ["no_slot","paused"] as const) {
+  const t={...task("queued",ctx.now-3600),queue:{reason,since:ctx.now-3600,position:1},progress:{phase:"idle",lastOutputAt:ctx.now-3600,files:0,commits:0,logBytes:0}};
+  expect(deriveItems({...input(),tasks:[t]})).toEqual([]);
+ }
+});
+test("superseded failed and partial attempts contribute no duplicate attention",()=>{
+ for(const state of ["failed","partial"] as const) for(const nextState of ["queued","running","done"] as const) {
+  const original=task(state,ctx.now-1200),next={...task(nextState,ctx.now-700),retryOf:original.id};
+  const items=deriveTaskItems({...input(),tasks:[original,next]});
+  expect(items.map(i=>i.taskId)).toEqual(nextState==="done"?[next.id]:[]);
+  expect(buildCounts([original,next],[],input().setup,[],items)).toMatchObject({attention:nextState==="done"?1:0,review:nextState==="done"?1:0});
+  expect(deriveTaskItems({...input(),tasks:[{...original,retriedBy:next.id},next]})).toHaveLength(nextState==="done"?1:0);
+ }
+});
+test("task attention titles use the short task title",()=>{
+ const raw=record("failed",ctx.now,{title:"Queue fix"});
+ expect(deriveTaskItems({...input(),tasks:[apiTask(ctx,raw)]})[0]?.title).toBe("Queue fix");
+});
+
+test("dismissed or stopped retries restore the original attention",()=>{
+ for(const state of ["failed","partial"] as const) for(const retry of ["dismissed","stopped","missing"] as const) for(const forward of [false,true]) {
+  const original=task(state,ctx.now-1200), next={...task(retry==="stopped"?"stopped":"running",ctx.now-700),retryOf:original.id,dismissed:retry==="dismissed"};
+  const tasks=[{...original,...(forward?{retriedBy:next.id}:{})},...(retry==="missing"?[]:[next])];
+  const items=deriveTaskItems({...input(),tasks});
+  // A forward link to a retry not yet in the snapshot still hides the original, so clients drop it at once.
+  const hidden=retry==="missing"&&forward;
+  expect(items.map(i=>i.taskId)).toEqual(hidden?[]:[original.id]);
+  expect(buildCounts(tasks,[],input().setup,[],items)).toMatchObject({attention:hidden?0:1,review:state==="partial"?1:0});
+ }
 });

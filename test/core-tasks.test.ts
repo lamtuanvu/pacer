@@ -1,3 +1,7 @@
+import { shortTitle } from "../src/core/short-title";
+import { readActivity } from "../src/activity/log";
+import { parseDelegateBrief, delegateSchema } from "../src/tasks/api";
+import { z } from "zod";
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -128,4 +132,32 @@ test("concurrent retries create exactly one retry", async () => {
 test("retry of an unknown task is unknown_task", async () => {
   const ctx = fakeCtx();
   await expect(tasks.retry(ctx, "missing")).rejects.toMatchObject({ code: "unknown_task" });
+});
+
+test("shortTitle removes code, paths and URLs before selecting the first clause", () => {
+  expect(shortTitle("  Fix `task.run()` in src/core/tasks.ts at https://example.com/a. Then test. ")).toBe("Fix in at");
+  expect(shortTitle("Fix the queue; then update docs")).toBe("Fix the queue");
+  expect(shortTitle("Fix /README.md. Then test")).toBe("Fix");
+  expect(shortTitle("Fix src/core/tasks.ts. Then test")).toBe("Fix");
+  expect(shortTitle("Repair queue, then document changes")).toBe("Repair queue");
+  expect(shortTitle("Fix /tmp/work/file.ts and C:\\work\\file.ts: then test")).toBe("Fix and");
+  expect(shortTitle("x".repeat(100))).toBe("X" + "x".repeat(58) + "…");
+  const title=shortTitle("Repair " + "queue handling ".repeat(10));
+  expect(title.length).toBeLessThanOrEqual(60);
+  expect(title).toEndWith("…");
+  expect(shortTitle("`code` https://example.com /tmp/file")).toBe("Task");
+});
+test("delegate stores trimmed titles and derives absent ones, including activity and retries", async () => {
+  const ctx=fakeCtx(), brief={goal:"Fix queue. Then test everything",repo:tmpDir()};
+  const t=tasks.delegate(ctx,{brief,title:"  Queue fix  "},()=>1,s);
+  expect(t.title).toBe("Queue fix");
+  expect(readTask(ctx,t.id)?.title).toBe("Queue fix");
+  expect(readActivity(ctx,{}).entries[0]?.text).toContain("“Queue fix”");
+  expect(tasks.delegate(ctx,{brief},()=>1,s).title).toBe("Fix queue");
+  expect(()=>tasks.delegate(ctx,{brief,title:"x".repeat(61)},()=>1,s)).toThrow(/title/);
+  expect(()=>tasks.delegate(ctx,{brief,title:"   "},()=>1,s)).toThrow(/title/);
+  expect(parseDelegateBrief({...brief,title:"  Short  "},brief.repo).title).toBe("Short");
+  expect(z.object(delegateSchema).safeParse({...brief,title:"x".repeat(61)}).success).toBe(false);
+  const r=await tasks.retry(ctx,t.id,{}, {delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
+  expect(r.retry.title).toBe("Queue fix");
 });

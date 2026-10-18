@@ -51,7 +51,7 @@ const USAGE = `usage: pacer <command>
   status [--line | --json | --hook <planner>]   budget status (default: text report)
   pause <for> | resume                          pause or resume delegation
   route [kind] [--json]                          executors pacer would use, in order
-  delegate [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
+  delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-reason <text>]
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
@@ -222,7 +222,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     let raw:Record<string,unknown>={};
     if(file){const parsed=JSON.parse(file==="-" ? await io.readBriefStdin() : readFileSync(file,"utf8"));
       if(!parsed || typeof parsed!=="object" || Array.isArray(parsed))throw new DelegateError("brief must be a JSON object");raw=parsed;}
-    for(const key of ["goal","repo","scope","acceptance","constraints","context","kind","executor","worktree"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
+    for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);

@@ -1149,6 +1149,7 @@ function parseTask(d) {
     id,
     state,
     updatedAt,
+    ...optStr(d.title, 60)?.trim() ? { title: optStr(d.title, 60).trim() } : {},
     goal: str(d.goal, LIMITS.goal) ?? "",
     executor: optStr(d.executor, 64),
     backend: optStr(d.backend, 32),

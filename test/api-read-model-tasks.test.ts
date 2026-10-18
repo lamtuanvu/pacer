@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { apiTask, needsReview, snapshotTasks } from "../src/api/read-model/tasks";
+import { apiTask, needsReview, snapshotTasks, supersededTaskIds } from "../src/api/read-model/tasks";
 import { fakeCtx } from "./helpers";
 import { record } from "./read-model-helpers";
 test("task window keeps active and recent undismissed settled tasks",()=>{
@@ -18,4 +18,27 @@ test("stored repo labels are normalized when different hosts clash",()=>{
  const ctx=fakeCtx();
  const records=["github.com/acme/api","gitlab.com/acme/api"].map((key,i)=>record("done",ctx.now-i,{repo:{key,label:"acme/api",path:`/repo${i}`}}));
  expect(snapshotTasks(ctx,records).map(t=>t.repo.label)).toEqual(["github.com/acme/api","gitlab.com/acme/api"]);
+});
+
+test("task snapshots derive titles for older records and retain stored titles",()=>{
+ const ctx=fakeCtx();
+ expect(apiTask(ctx,record("done",ctx.now,{brief:{goal:"Fix the queue. Then run tests",repo:ctx.home}})).title).toBe("Fix the queue");
+ expect(snapshotTasks(ctx,[record("done",ctx.now,{title:"Queue fix"})])[0]?.title).toBe("Queue fix");
+});
+
+
+test("superseded status requires a present, undismissed, unstopped retry",()=>{
+ const ctx=fakeCtx();
+ for(const state of ["queued","running","done","failed","stopped"] as const) for(const dismissed of [false,true]) for(const link of ["forward","reverse","both"] as const) {
+  const original=apiTask(ctx,record("failed",ctx.now-10)),retry=apiTask(ctx,record(state,ctx.now,{dismissed}));
+  if(link!=="reverse")original.retriedBy=retry.id;
+  if(link!=="forward")retry.retryOf=original.id;
+  expect(supersededTaskIds([original,retry]).has(original.id)).toBe(!dismissed&&state!=="stopped");
+  expect(supersededTaskIds([original]).has(original.id)).toBe(false);
+ }
+});
+
+test("task snapshots clip stored emoji titles without splitting code points",()=>{
+ const ctx=fakeCtx(),title="🚀".repeat(61);
+ expect(apiTask(ctx,record("done",ctx.now,{title})).title).toBe("🚀".repeat(59)+"…");
 });

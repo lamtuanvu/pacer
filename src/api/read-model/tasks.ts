@@ -16,3 +16,13 @@ export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
 export function needsReview(t: Pick<TaskData,"state"|"review"|"resolved"|"dismissed"|"retriedBy">): boolean {
  return ["done","partial"].includes(t.state)&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy;
 }
+
+/** Reverse retry links also cover snapshots published before retriedBy was persisted. */
+export function supersededTaskIds(tasks: Pick<TaskData,"id"|"retryOf"|"retriedBy"|"state"|"dismissed">[]): Set<string> {
+ const activeRetries = tasks.filter(t=>!t.dismissed&&t.state!=="stopped");
+ const ids = new Set(activeRetries.map(t=>t.id));
+ return new Set([
+  ...tasks.filter(t=>t.retriedBy&&ids.has(t.retriedBy)).map(t=>t.id),
+  ...activeRetries.flatMap(t=>t.retryOf?[t.retryOf]:[]),
+ ]);
+}

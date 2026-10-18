@@ -5,7 +5,7 @@ export type { ActivityEntry } from "../../activity/log";
 import type { LinkSnapshot, TaskData } from "../../link/envelope";
 
 export interface RepoRef { key: string; label: string; path: string }
-export type TaskDataV2 = TaskData & { question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: "planner" | "ui" | "cli" };
+export type TaskDataV2 = TaskData & { title: string; question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: "planner" | "ui" | "cli" };
 export type ApiTask = TaskDataV2;
 export interface ExecutorRow {
  id: string; agent: string; account: string; host: string | null; model: string | null;
