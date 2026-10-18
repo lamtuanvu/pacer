@@ -26,14 +26,17 @@ pub struct Diagnosis {
 pub fn diagnosis(page: &'static str, path: Option<String>) -> Diagnosis {
     Diagnosis { page, path }
 }
-/// Additive v2/v3 snapshot field; absent/unknown waiting kinds are ignored.
+/// Additive v2/v3 snapshot field `service.waiting { kind: "volume" | "folder", path, since }`:
+/// a repo filesystem call has been outstanding for a second or more, usually behind a macOS
+/// privacy prompt. Both kinds suppress restarts; unknown kinds are ignored.
 pub fn volume_waiting(snapshot: &Value) -> Option<String> {
     let service = snapshot
         .get("snapshot")
         .unwrap_or(snapshot)
         .get("service")?;
     let waiting = service.get("waiting")?;
-    (waiting["kind"] == "volume").then(|| waiting["path"].as_str().unwrap_or("").to_owned())
+    matches!(waiting["kind"].as_str(), Some("volume" | "folder"))
+        .then(|| waiting["path"].as_str().unwrap_or("").to_owned())
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RecoveryAction {
@@ -824,5 +827,16 @@ mod tests {
             s.push(b"event: reset\ndata: one\ndata: two\n\n").unwrap()[0].data,
             "one\ntwo"
         );
+    }
+
+    #[test]
+    fn waiting_on_a_volume_or_a_folder_both_ask_for_os_approval() {
+        let volume = serde_json::json!({"snapshot":{"service":{"waiting":{"kind":"volume","path":"/Volumes/External","since":1}}}});
+        let folder = serde_json::json!({"service":{"waiting":{"kind":"folder","path":"/Users/me/Projects/app","since":1}}});
+        let other = serde_json::json!({"service":{"waiting":{"kind":"network","path":"/x","since":1}}});
+        assert_eq!(volume_waiting(&volume).as_deref(), Some("/Volumes/External"));
+        assert_eq!(volume_waiting(&folder).as_deref(), Some("/Users/me/Projects/app"));
+        assert_eq!(volume_waiting(&other), None);
+        assert_eq!(volume_waiting(&serde_json::json!({"service":{}})), None);
     }
 }
