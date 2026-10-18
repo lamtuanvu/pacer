@@ -28,12 +28,11 @@ test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  expect(html('#/sessions')).toContain('Recently ended');
  expect(html('#/sessions/t1')).toContain('Loading session');
 });
-test('every legacy route reaches a mounted destination',()=>{
- for(const path of ['/tasks','/tasks/t1','/executors','/executors/add','/accounts','/strategy','/hosts','/settings','/setup']) {
-  expect(destination(`#${path}`).name).not.toBe('not-found');
-  expect(html(`#${path}`).length).toBeGreaterThan(0);
+test('legacy and unknown routes mount Overview',()=>{
+ for(const path of ['/tasks','/tasks/t1','/executors','/executors/add','/accounts','/strategy','/hosts','/setup','/missing']) {
+  expect(destination(`#${path}`).name).toBe('overview');
+  expect(html(`#${path}`)).toContain('pc-overview');
  }
- expect(resolveRoute('#/tasks/t1',true,()=> 'review')).toEqual({redirect:'#/review/t1'});
  expect(html('#/review/t1')).toContain('pc-review');
 });
 test('Add executor keeps the host prefill from host detail links',()=>{

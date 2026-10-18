@@ -17,7 +17,7 @@ import { Delegate } from "./screens/Delegate";
 import { followSavedTheme } from "./theme";
 followSavedTheme();
 const store = createStore();
-const TITLES: Record<Route["name"], string> = { overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", setup: "Setup", loading: "pacer", "not-found": "Page not found" };
+const TITLES: Record<Route["name"], string> = { overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 function App() {
   const [state, setState] = useState(store.getState);
@@ -45,7 +45,7 @@ function App() {
   }, [api, state.invalidations.setup, state.connected]);
   // Unknown until the first setup check answers, so screens wait instead of flashing Setup.
   const setupComplete = setupCompleteFrom(checklist);
-  const resolved = resolveRoute(hash, setupComplete, id => !state.snapshot ? null : state.snapshot.attention?.some(a => a.kind === "review" && a.taskId === id) ? "review" : "sessions");
+  const resolved = resolveRoute(hash, setupComplete);
   useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
   const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
   if (!SETTINGS.has(route.name) && route.name !== "loading") lastWork.current = hash || "#/";

@@ -1,7 +1,7 @@
-/** Hash routes for the redesigned shell. Old routes redirect for one minor release. */
+/** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
-  | { name: "overview" | "setup" | "loading" | "not-found" }
+  | { name: "overview" | "loading" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions"; id?: string }
   | { name: "settings"; section?: string }
@@ -9,11 +9,6 @@ type RouteBase =
   ;
 export type Route = RouteBase & { query: RouteQuery };
 export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "routing", "strategies", "updates", "notifications", "appearance"] as const;
-
-const REDIRECTS: Record<string, string> = {
-  "/tasks": "/sessions", "/executors": "/settings/executors", "/executors/add": "/settings/add-executor",
-  "/accounts": "/settings/accounts", "/strategy": "/settings/strategies", "/hosts": "/settings/hosts", "/setup": "/",
-};
 
 export function withQuery(href: string, query: RouteQuery): string {
   const params = new URLSearchParams();
@@ -28,29 +23,16 @@ function decode(part: string): string | null { try { return decodeURIComponent(p
 
 /**
  * setupComplete: true, false, or null while the first setup check is still in flight (screens wait rather than flash Setup).
- * reviewTarget sends an old #/tasks/<id> link to Review when the task waits for review, else to Sessions; null means the snapshot
- * has not arrived yet, so the link waits rather than guessing.
  */
-export function resolveRoute(hash: string, setupComplete: boolean | null = true, reviewTarget?: (id: string) => "review" | "sessions" | null): Route | { redirect: string } {
+export function resolveRoute(hash: string, setupComplete: boolean | null = true): Route | { redirect: string } {
   const raw = hash.replace(/^#/, "") || "/";
   const [path = "/", search = ""] = raw.split("?");
   const params = new URLSearchParams(search);
   const query: RouteQuery = { repo: params.get("repo"), scope: params.get("scope") };
-  const keep = (to: string) => ({ redirect: withQuery(`#${to}`, query) });
-  if (Object.hasOwn(REDIRECTS, path)) return keep(REDIRECTS[path]!);
-  const oldTask = /^\/tasks\/([^/]+)$/.exec(path);
-  if (oldTask) {
-    const id = decode(oldTask[1]!);
-    if (id !== null) {
-      const target = reviewTarget ? reviewTarget(id) : "sessions";
-      if (target === null) return { name: "loading", query };
-      return keep(`/${target}/${encodeURIComponent(id)}`);
-    }
-  }
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   if (!settingsArea && setupComplete === null) return { name: "loading", query };
-  if (!settingsArea && setupComplete === false) return { name: "setup", query };
+  if (!settingsArea && setupComplete === false) return { redirect: withQuery("#/settings", query) };
   return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), query } as Route;
 }
 function match(path: string): RouteBase {
@@ -62,13 +44,13 @@ function match(path: string): RouteBase {
   if (parts) {
     if (parts[2] === undefined) return { name: parts[1] as "review" | "sessions" };
     const id = decode(parts[2]);
-    return id === null ? { name: "not-found" } : { name: parts[1] as "review" | "sessions", id };
+    return id === null ? { name: "overview" } : { name: parts[1] as "review" | "sessions", id };
   }
   const host = /^\/settings\/hosts\/([^/]+)$/.exec(path);
-  if (host) { const alias = decode(host[1]!); return alias === null ? { name: "not-found" } : { name: "hosts", alias }; }
+  if (host) { const alias = decode(host[1]!); return alias === null ? { name: "overview" } : { name: "hosts", alias }; }
   const section = /^\/settings\/([^/]+)$/.exec(path)?.[1];
   if (section && (SETTINGS_SECTIONS as readonly string[]).includes(section)) return { name: "settings", section };
-  return { name: "not-found" };
+  return { name: "overview" };
 }
 
 /** Preserve work scope on internal navigation, while allowing an explicit filter change. */

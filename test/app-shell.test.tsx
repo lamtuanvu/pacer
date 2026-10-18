@@ -93,3 +93,12 @@ test("settings counts are neutral while executor and host status badges use thei
   expect(html).toMatch(/pc-rail__badge--warn"[^>]*>1 needs setup</);
   expect(html).toContain('>1 rule</span>');
 });
+
+test("retired and unknown hashes select Overview in the shell", () => {
+  for (const hash of ["#/tasks/t1", "#/accounts", "#/missing"]) {
+    const html = renderToString(<Layout route={at(hash)} state={ready()} title="Overview"><p>Overview body</p></Layout>);
+    expect(html).toContain("<p>Overview body</p>");
+    expect(html).toMatch(/aria-current="page"[^>]*aria-label="Overview|aria-label="Overview[^"]*"[^>]*aria-current="page"/);
+    expect(html).not.toContain("<aside");
+  }
+});

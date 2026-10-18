@@ -11,7 +11,6 @@ import { mergeTask, tasksModel } from "../app/src/model/tasks";
 import { executorLabel } from "../src/view-model/words";
 import { executorStatus, routingStatus } from "../app/src/model/executors";
 import { homeModel } from "../app/src/model/home";
-import { setupModel } from "../app/src/model/setup";
 import { endpointResult, modelsFound } from "../app/src/model/wizard";
 import { accountsModel } from "../app/src/model/accounts";
 
@@ -77,16 +76,6 @@ test("wizard and delegate controls have wrapping labels", () => {
  expect(prefix.lastIndexOf("<label")).toBeGreaterThan(prefix.lastIndexOf("</label>"));
  }
  }
-});
-test("setup hides finished commands and gives clear missing strategy guidance", () => {
- const model=setupModel({checkedAt:0,complete:false,items:[{id:"link",title:"Link",required:true,status:"done",command:"pacer init"},{id:"strategy",title:"Strategy",required:true,status:"failed",detail:"no strategy found at /private/fixture"},{id:"link",title:"Link",required:true,status:"pending"}]});
- expect(model.items[0]?.command).toBeUndefined();
- expect(model.items[1]?.detail).toBe("No strategy yet. Choose a planner to create one.");
- expect(model.items[2]?.guidance).toBe("Start pacer: pacer service install");
- const source=readFileSync(join(import.meta.dir,"../app/src/screens/Setup.tsx"),"utf8");
- expect(source.match(/variant="primary"/g)).toHaveLength(1);
- expect(source).toContain('variant="ghost" onClick={query.reload}>Check again');
- expect(source).toContain("i.action==='service'&&i.status!=='done'");
 });
 test("accounts capitalize guidance and simplify default-folder sign-in commands", () => {
  const rows=accountsModel([{name:"personal",kind:"claude",folder:"/fixture/.claude",signin_command:"CLAUDE_CONFIG_DIR='/fixture/.claude' claude\n# Then run /login to sign in."},{name:"work",kind:"codex",folder:"/fixture/.codex-work",signin_command:"CODEX_HOME='/fixture/.codex-work' codex login"}], [{account:"personal",capturedAt:1,stale:true,hint:"run codex login"}]);
