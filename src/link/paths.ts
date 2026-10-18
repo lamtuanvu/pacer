@@ -7,7 +7,6 @@ export const latestPath = (ctx: Pick<Ctx,"pacerHome">) => join(linkDir(ctx),"lat
 export const outboxPath = (ctx: Pick<Ctx,"pacerHome">) => join(linkDir(ctx),"outbox.jsonl");
 export const consolesDir = (ctx: Pick<Ctx,"pacerHome">) => join(linkDir(ctx),"consoles");
 export const consolePath = (ctx: Pick<Ctx,"pacerHome">) => join(linkDir(ctx),"console.json");
-export const channelPath = (ctx: Pick<Ctx,"pacerHome">) => join(linkDir(ctx),"channel.json");
 /** Orca's Electron userData dir. F10: verified on darwin; linux/win32 follow the Electron default. */
 export function orcaUserDataDir(ctx: Pick<Ctx,"home"|"env">, platform: NodeJS.Platform = process.platform): string {
   if(ctx.env.PACER_ORCA_USER_DATA) return ctx.env.PACER_ORCA_USER_DATA;

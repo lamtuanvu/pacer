@@ -1,0 +1,30 @@
+{
+  "result": {
+    "task": {
+      "id": "t-20261010-190000-0002",
+      "title": "Fixture done",
+      "state": "done",
+      "goal": "Fixture done",
+      "executor": null,
+      "backend": null,
+      "worktree": null,
+      "updatedAt": 1791633598,
+      "review": {
+        "accepted": true,
+        "kind": null,
+        "note": null,
+        "at": 1791633600
+      },
+      "resolved": "reviewed",
+      "rev": 2,
+      "queue": null,
+      "repo": {
+        "key": "local:fa5472fa3a53",
+        "label": "pacer-protocol-v2-golden",
+        "path": "/private/tmp/pacer-protocol-v2-golden"
+      },
+      "kind": null,
+      "host": null
+    }
+  }
+}

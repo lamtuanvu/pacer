@@ -114,12 +114,12 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     if (needsInput) {
       if (!waiting) {
         waitKey = `needs-input-${task.id}-${crypto.randomUUID()}`;
-        try { await publish(ctx, [{v: 1, type: "alert", data: {key: waitKey!, level: "warn", title: "Task needs input: attach to answer", body: cleanSummary(s.report!.summary).slice(0, 1000), at: Math.floor(now)}}]); } catch { /* best effort */ }
+        try { await publish(ctx, [{type: "alert", data: {key: waitKey!, level: "warn", title: "Task needs input: attach to answer", body: cleanSummary(s.report!.summary).slice(0, 1000), at: Math.floor(now)}}]); } catch { /* best effort */ }
       }
       p.phase = "needs-input";
     } else if (controlled || turnEnded) p.phase = "working";
     if (waiting && !needsInput && waitKey) {
-      try { await publish(ctx, [{v: 1, type: "alert", data: {key: waitKey, level: "info", title: "Task input resumed", body: "The input wait has cleared", at: Math.floor(now)}}]); } catch { /* best effort */ }
+      try { await publish(ctx, [{type: "alert", data: {key: waitKey, level: "info", title: "Task input resumed", body: "The input wait has cleared", at: Math.floor(now)}}]); } catch { /* best effort */ }
       waitKey = undefined;
     }
     waiting = !!needsInput;
@@ -131,7 +131,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     if (p.phase === "idle" && !alerted) {
       alerted = true;
       try {
-        await publish(ctx, [{ v: 1, type: "alert", data: { key: `idle-${task.id}`, level: "warn", title: "Task is idle", body: `${task.brief.goal.slice(0, 120)}: no output or file changes for ${Math.round(idleSeconds(p, run.startedAt, now) / 60)} min`, at: Math.floor(now) } }]);
+        await publish(ctx, [{ type: "alert", data: { key: `idle-${task.id}`, level: "warn", title: "Task is idle", body: `${task.brief.goal.slice(0, 120)}: no output or file changes for ${Math.round(idleSeconds(p, run.startedAt, now) / 60)} min`, at: Math.floor(now) } }]);
       } catch { /* alerts are best effort */ }
     }
     prev = p;

@@ -1,4 +1,6 @@
 <!-- New issue, template: Feature request -->
+
+> Historical context: protocol 3.0 retired the v1 Orca link, storage bridge, channel sends, console command lines and unversioned read routes on 2026-10-18. The owner waived the release gate; `/v2` remains for one more pacer minor release. See [current protocol](../../protocol.md).
 <!-- Title: [Feature]: Let a plugin create terminals and send text to terminals it created, in any worktree -->
 <!-- Status: draft for review. Not posted. -->
 

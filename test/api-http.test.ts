@@ -32,8 +32,8 @@ test("hello and snapshot need the token and describe the protocol", async () => 
   const { url, h } = await serve();
   expect((await fetch(`${url}/v2/hello`)).status).toBe(401);
   const hello = await (await fetch(`${url}/v2/hello`, { headers: h })).json();
-  expect(hello).toMatchObject({ protocol: "2.9.0", ops: expect.arrayContaining(["task.list", "limits.check"]) });
-  expect(await (await fetch(`${url}/v2/snapshot`, { headers: h })).json()).toMatchObject({ protocol: "2.9.0", seq: expect.any(Number) });
+  expect(hello).toMatchObject({ protocol: "2.8.0", ops: expect.arrayContaining(["task.list", "limits.check"]) });
+  expect(await (await fetch(`${url}/v2/snapshot`, { headers: h })).json()).toMatchObject({ protocol: "2.8.0", seq: expect.any(Number) });
 });
 
 test("ops run through the registry and return results", async () => {
@@ -63,7 +63,7 @@ test("unknown op and unknown task map to 404 with codes", async () => {
 
 test("SSE resumes from Last-Event-ID", async () => {
   const { ctx, url, h } = await serve();
-  await publish(ctx, [{ v: 1, type: "alert", data: { key: "a", level: "info", title: "a", body: "", at: ctx.now } }, { v: 1, type: "alert", data: { key: "b", level: "info", title: "b", body: "", at: ctx.now } }], { bridge: false, channel: false });
+  await publish(ctx, [{ type: "alert", data: { key: "a", level: "info", title: "a", body: "", at: ctx.now } }, { type: "alert", data: { key: "b", level: "info", title: "b", body: "", at: ctx.now } }]);
   const first = await fetch(`${url}/v2/events?since=0`, { headers: h });
   const text = await readSse(first, 2);
   const ids = [...text.matchAll(/^id: (\d+)$/gm)].map((m) => Number(m[1]));
@@ -74,7 +74,7 @@ test("SSE resumes from Last-Event-ID", async () => {
 
 test("SSE on a fresh outbox whose oldest entry is newer than since sends reset first", async () => {
   const { ctx, url, h } = await serve();
-  appendOutbox(ctx, [{ seq: 1000, envelope: { v: 1, type: "alert", data: { key: "z", level: "info", title: "z", body: "", at: ctx.now } } }]);
+  appendOutbox(ctx, [{ seq: 1000, envelope: { type: "alert", data: { key: "z", level: "info", title: "z", body: "", at: ctx.now } } }]);
   const gap = await readSse(await fetch(`${url}/v2/events?since=500`, { headers: h }), 2);
   expect(gap.indexOf("event: reset")).toBeGreaterThanOrEqual(0);
   expect(gap.indexOf("event: reset")).toBeLessThan(gap.indexOf("id: 1000"));

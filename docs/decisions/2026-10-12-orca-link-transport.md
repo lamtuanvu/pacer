@@ -1,5 +1,7 @@
 # Orca link transport decision — 2026-10-12
 
+> Historical context: protocol 3.0 retired the v1 Orca link, storage bridge, channel sends, console command lines and unversioned read routes on 2026-10-18. The owner waived the release gate; `/v2` remains for one more pacer minor release. See [current protocol](../protocol.md).
+
 Status: code-derived decisions recorded; human live verification pending.
 Target: Orca 1.4.224, pluginApi 1. Source: the verified facts F1–F16 in
 [Plan 6](../plans/2026-10-12-pacer-orca-plugin.md), which take precedence over

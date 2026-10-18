@@ -72,13 +72,13 @@ test("plugin uninstall reports missing install", async () => {
 test("plugin set validates values and writes isolated Orca settings", async () => {
   const { ctx, userData } = setup();
   await pluginCli(["install"], ctx);
-  expect(await pluginCli(["set", "transport", "http"], ctx)).toMatchObject({ code: 0 });
-  expect(JSON.parse(readFileSync(join(userData, "plugins-data", "lamtuanvu.pacer", "settings.json"), "utf8"))).toEqual({ transport: "http" });
+  expect(await pluginCli(["set", "transport", "api"], ctx)).toMatchObject({ code: 0 });
+  expect(JSON.parse(readFileSync(join(userData, "plugins-data", "lamtuanvu.pacer", "settings.json"), "utf8"))).toEqual({ transport: "api" });
   expect((await pluginCli(["set", "transport", "ftp"], ctx)).code).toBe(2);
   expect((await pluginCli(["set", "port", "0"], ctx)).code).toBe(2);
   const settings = join(userData, "plugins-data", "lamtuanvu.pacer", "settings.json");
   writeFileSync(settings, "unreadable");
-  expect((await pluginCli(["set", "transport", "bridge"], ctx)).code).toBe(1);
+  expect((await pluginCli(["set", "transport", "api"], ctx)).code).toBe(1);
   expect(readFileSync(settings, "utf8")).toBe("unreadable");
 });
 

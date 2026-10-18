@@ -22,7 +22,7 @@ test("task.get returns detail and task.list keeps summaries", async () => {
   const ctx = await ctxWithStrategy();
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   expect(await callOp(ctx, "task.get", { id: t.id })).toMatchObject({ id: t.id, state: "queued", brief: { goal: "g" } });
-  expect((await callOp(ctx, "task.list", {})) as unknown[]).toHaveLength(1);
+  expect((await callOp(ctx, "task.list", {})) as unknown).toMatchObject({tasks:expect.any(Array),next:null});
 });
 
 test("task.delegate uses the injected spawner and validates its brief", async () => {
@@ -155,10 +155,11 @@ test("short titles are additive across delegate, get and both list forms",async(
  const r=await callOp(ctx,"task.delegate",{goal,repo:ctx.home,title:"  Queue fix  "},{spawnRunner:()=>1}) as {task_id:string};
  expect(r).toMatchObject({title:"Queue fix",goal});
  expect(await callOp(ctx,"task.get",{id:r.task_id})).toMatchObject({title:"Queue fix",brief:{goal}});
- expect(await callOp(ctx,"task.list",{})).toEqual(expect.arrayContaining([expect.objectContaining({title:"Queue fix"})]));
+ // 3.0: task.list always pages; the 2.x bare array is served by the /v2 adapter (pinned by the protocol-v2 goldens).
+ expect(await callOp(ctx,"task.list",{})).toMatchObject({tasks:expect.arrayContaining([expect.objectContaining({title:"Queue fix"})])});
  expect(await callOp(ctx,"task.list",{states:["queued"]})).toMatchObject({tasks:[{title:"Queue fix"}]});
  for(const title of [" ","x".repeat(61)])expect(await codeOf(callOp(ctx,"task.delegate",{goal,repo:ctx.home,title},{spawnRunner:()=>1}))).toBe("invalid_input");
  const old=createTask(ctx,{brief:{goal,repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
  expect(await callOp(ctx,"task.get",{id:old.id})).toMatchObject({title:"Fix queue"});
- expect(await callOp(ctx,"task.list",{})).toEqual(expect.arrayContaining([expect.objectContaining({task_id:old.id,title:"Fix queue"})]));
+ expect(await callOp(ctx,"task.list",{})).toMatchObject({tasks:expect.arrayContaining([expect.objectContaining({id:old.id,title:"Fix queue"})])});
 });

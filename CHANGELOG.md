@@ -22,7 +22,18 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Removed
 
-- `/state` and `/console/open|forget`. `/link` and the legacy `/events` stream are deprecated until 3.0.
+- Protocol 3.0 snapshot fields `v`, `budget`, `alerts`, `console`, `consoles`, `serviceInstalled`. Read `planner`/`accounts`/`executors`, `attention` and `setup` instead.
+- Protocol 3.0 `budget` and `alert` events. Subscribe to `planner`, `account`, `executor`, `attention` and `notify` instead.
+- Bearer-only `/link` and legacy `/events` routes (404). Use `/v3/snapshot` and `/v3/events`; `/state` and `/console/open|forget` were already removed in 2.6.
+- Orca storage bridge writes, channel sends and plugin HTTP/channel/bridge transports. The plugin uses the v2 API over HTTP or a `pacer api --stdio` child; run `pacer update` and restart the plugin if it cannot connect.
+- `pacer console`, automatic console opening/restarting, `CMD_NAMES` and shell command line encoding/decoding. Use `pacer dashboard`, `pacer open` or API operations; old `agent-done` and `worktree-created` commands are no longer accepted.
+
+### Changed
+
+- Protocol 3.0 is served at `/v3/*`; `/v2/*` restores 2.8.0 shapes through an adapter for one more pacer minor release. Stdio clients select `{ protocol: 3 }` in `hello` (default remains 2 during overlap); v3 hello advertises `previous: "2.8.0"`.
+- In v3, `task.review.accepted` is removed; send required `verdict`. `task.diff.diff` is removed; read `patch`. `task.list` no longer returns a bare array; read `{ tasks, next }` and paginate. `notifications.set`, `pacer status --json` and planner hook output are unchanged.
+- Durable outbox events are named `OutboxEvent` and omit `v`; pre-upgrade v3 event cursors receive `reset` and must fetch a fresh snapshot.
+- The owner waived the v1 retirement release gate on 2026-10-18. The next minor release removes the v2 adapter, routes, reference document and `hello.previous`.
 
 ## [0.2.3] - 2026-10-16
 

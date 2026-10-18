@@ -4,7 +4,7 @@ import type { ApiEvent } from "./protocol";
 // Kept local so API clients never load the core operation registry at runtime.
 export type ApiErrorCode = "unknown_op" | "unknown_task" | "invalid_input" | "unknown_executor" | "conflict" | "not_allowed" | "too_large" | "internal";
 
-export type Hello = { protocol: string; pacer: string; ops: string[]; events: string[] };
+export type Hello = { protocol: string; previous?: string; pacer: string; ops: string[]; events: string[] };
 
 export interface ApiClient {
   kind: "inprocess" | "http" | "stdio";

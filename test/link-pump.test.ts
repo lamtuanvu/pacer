@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { fakeCtx } from "./helpers";
 import { pumpOnce, type PumpDeps } from "../src/link/pump";
-import { emptySnapshot, type Envelope } from "../src/link/envelope";
+import { emptySnapshot, type OutboxEvent } from "../src/link/envelope";
 import { writeJsonAtomic } from "../src/fsutil";
 import { latestPath } from "../src/link/paths";
 import { reduce } from "../src/link/envelope";
 const status = (mode = "normal") => ({ generatedAt: 1, strategy: "s", planner: "p", mode, disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } }) as any;
 const task = (state: string, id = "t") => ({ id, state, brief: { goal: "goal" }, createdAt: 1, attempts: [{ executor: "codex", backend: "orca", startedAt: 2, endedAt: 3 }], result: { executor: "codex", backend: "orca", worktree: null } }) as any;
 test("first pump publishes budget and mode without alerts; unchanged input is quiet", async () => {
-  const c = fakeCtx(); const sent: Envelope[][] = []; const deps: PumpDeps = { status: async () => status(), tasks: () => [task("running")], publish: async (_c,e) => { sent.push(e); let s = (await import("../src/link/store")).readLatest(c); for (const x of e) s = reduce(s,x,c.now); writeJsonAtomic(latestPath(c),s); return { seq: 1, transports: [], errors: [] }; } };
+  const c = fakeCtx(); const sent: OutboxEvent[][] = []; const deps: PumpDeps = { status: async () => status(), tasks: () => [task("running")], publish: async (_c,e) => { sent.push(e); let s = (await import("../src/link/store")).readLatest(c); for (const x of e) s = reduce(s,x,c.now); writeJsonAtomic(latestPath(c),s); return { seq: 1, transports: [], errors: [] }; } };
   expect((await pumpOnce(c,deps)).map(e=>e.type)).toEqual(["budget","mode","task"]); expect((await pumpOnce(c,deps))).toEqual([]); expect(sent).toHaveLength(1);
 });
 test("mode and task transitions alert with appropriate levels", async () => {
@@ -25,12 +25,12 @@ test("terminal first seen alerts after initial snapshot and status failures dedu
 test("a different status-error message produces a new alert", async () => {
   const c = fakeCtx();
   writeJsonAtomic(latestPath(c), {...emptySnapshot(), alerts:[{key:"status-error",level:"error",title:"Status could not be refreshed",body:"first failure",error:"first failure",at:1}]});
-  const published: Envelope[][] = [];
+  const published: OutboxEvent[][] = [];
   const out = await pumpOnce(c, {
     status:async()=>{throw new Error("second failure");}, tasks:()=>[],
     publish:async(_ctx,envs)=>{published.push(envs);return {seq:1,transports:[],errors:[]};},
   });
-  expect(out).toEqual([{v:1,type:"alert",data:{key:"status-error",level:"error",title:"Status could not be refreshed",body:"second failure",error:"second failure",at:c.now}}]);
+  expect(out).toEqual([{type:"alert",data:{key:"status-error",level:"error",title:"Status could not be refreshed",body:"second failure",error:"second failure",at:c.now}}]);
   expect(published).toEqual([out]);
 });
 
@@ -59,7 +59,7 @@ test("a finished task that dropped out of the capped snapshot does not re-alert 
  const c=fakeCtx();let verdict="ON_PACE";
  const st=()=>({...status(),providers:[{id:"claude-code",verdict,stale:false,windows:[],binding:null}]});
  const deps:PumpDeps={status:async()=>st(),tasks:()=>[],publish:async(ctx,envs)=>{let s=(await import("../src/link/store")).readLatest(ctx);for(const e of envs)s=reduce(s,e,ctx.now);writeJsonAtomic(latestPath(ctx),s);return {seq:1,transports:["outbox"],errors:[]};}};
- const quotas=(envs:Envelope[])=>envs.filter(e=>e.type==="alert"&&e.data.notification?.kind==="quota");
+ const quotas=(envs:OutboxEvent[])=>envs.filter(e=>e.type==="alert"&&e.data.notification?.kind==="quota");
  await pumpOnce(c,deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce(c,deps))).toHaveLength(1);
  verdict="ON_PACE";await pumpOnce({...c,now:c.now+1},deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+2},deps))).toHaveLength(0);
  verdict="EXHAUSTED";expect(quotas(await pumpOnce({...c,now:c.now+3},deps))).toHaveLength(1);
@@ -94,7 +94,7 @@ test("entityDiff publishes changed rows and tombstones only",async()=>{
  const rows=["a","b"].map(id=>({kind:"executor" as const,id,value:{id}}));
  const first=entityDiff({},rows);expect(first.envelopes).toHaveLength(2);
  expect(entityDiff(first.next,rows).envelopes).toHaveLength(0);
- expect(entityDiff(first.next,rows.slice(0,1)).envelopes).toEqual([{v:1,type:"entity",data:{kind:"executor",id:"b",removed:true}}]);
+ expect(entityDiff(first.next,rows.slice(0,1)).envelopes).toEqual([{type:"entity",data:{kind:"executor",id:"b",removed:true}}]);
 });
 test("pump persists entity changes only after outbox success, never sends them to channel",async()=>{
  const {capacityFixture}=await import("./read-model-helpers");
@@ -102,9 +102,8 @@ test("pump persists entity changes only after outbox success, never sends them t
  const {eventsSince}=await import("../src/api/events");
  const {s,st}=capacityFixture(),ctx=fakeCtx();
  let success=true,backfilled:string[]=[];
- const deps:PumpDeps={status:async()=>st,tasks:()=>[],strategy:()=>s,backfillRepos:async(_c,paths)=>{backfilled=paths;},setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:async(c,envs,opts)=>{
-  if(envs.some(e=>e.type==="entity")){expect(opts?.channel).toBe(false);expect(opts?.bridge).toBe(false);}
-  return success?publish(c,envs,{bridge:false,channel:false}):{seq:0,transports:[],errors:["disk full"]};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[],strategy:()=>s,backfillRepos:async(_c,paths)=>{backfilled=paths;},setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:async(c,envs)=>{
+  return success?publish(c,envs):{seq:0,transports:[],errors:["disk full"]};
  }};
  await pumpOnce(ctx,deps);const before=eventsSince(ctx,0).last;
  st.providers.find(p=>p.id==="codex")!.brokenReason="not working";
@@ -121,7 +120,7 @@ test("counts and progress coalesce, while state transitions are immediate",async
  const {publish}=await import("../src/link/publish");
  const {s,st}=capacityFixture(),ctx=fakeCtx(),record={...task("running"),brief:{goal:"g",repo:"/missing/api"},executor:"codex",progress:{phase:"working",lastOutputAt:ctx.now,files:0,commits:0,logBytes:0}};
  const paths:string[][]=[];
- const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),backfillRepos:async(_c,p)=>{paths.push(p);},publish:(c,e,o)=>publish(c,e,{...o,bridge:false,channel:false})};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),backfillRepos:async(_c,p)=>{paths.push(p);},publish:(c,e)=>publish(c,e)};
  await pumpOnce(ctx,deps);
  record.progress.files=1;
  expect((await pumpOnce({...ctx,now:ctx.now+0.2},deps)).filter(e=>e.type==="task")).toHaveLength(0);
@@ -137,35 +136,24 @@ test("counts and progress coalesce, while state transitions are immediate",async
 test("running tasks beyond the legacy 20-row cache still stream progress",async()=>{
  const {publish}=await import("../src/link/publish");const ctx=fakeCtx();
  const tasks=Array.from({length:21},(_,i)=>({...task("running",`t${i}`),createdAt:ctx.now-i,attempts:[],progress:{phase:"working",lastOutputAt:ctx.now,files:0,commits:0,logBytes:0}}));
- const deps:PumpDeps={status:async()=>status(),tasks:()=>tasks,publish:(c,e)=>publish(c,e,{bridge:false,channel:false})};
+ const deps:PumpDeps={status:async()=>status(),tasks:()=>tasks,publish:(c,e)=>publish(c,e)};
  await pumpOnce(ctx,deps);tasks[20]!.progress.files=1;
  const out=await pumpOnce({...ctx,now:ctx.now+1},deps);
  expect(out.filter(e=>e.type==="task")).toHaveLength(1);
  expect(out.find(e=>e.type==="task")).toMatchObject({data:{id:"t20",progress:{files:1}}});
 });
 
-test("entity batches preserve the installed v1 bridge snapshot",async()=>{
+test("pump publishes entity events without creating plugin storage",async()=>{
  const {capacityFixture}=await import("./read-model-helpers");
  const {publish}=await import("../src/link/publish");
- const {writeManifest}=await import("../src/install/manifest");
  const {pluginDataDir}=await import("../src/link/paths");
- const {readJson}=await import("../src/fsutil");
+ const {existsSync}=await import("node:fs");
  const {join}=await import("node:path");
  const {eventsSince}=await import("../src/api/events");
- const {readLatest}=await import("../src/link/store");
  const {s,st}=capacityFixture(),ctx=fakeCtx();
- writeManifest(ctx,{version:1,planners:{"orca-plugin":{planner:"orca-plugin",installedAt:1,pacerArgv:[],files:[],commands:[],notes:[]}}});
- const batches:Envelope[][]=[];
- await pumpOnce(ctx,{status:async()=>st,tasks:()=>[],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:async(c,envs,opts)=>{
-  batches.push([...envs]);return publish(c,envs,{...opts,channel:false});
- }});
- const stored=readJson<{link:ReturnType<typeof emptySnapshot>}>(join(pluginDataDir(ctx),"storage.json"))!.link;
- expect(Object.keys(stored).sort()).toEqual([...Object.keys(emptySnapshot()),"serviceInstalled"].sort());
- // Activity can publish before the legacy batch; only later entity batches leave the bridge untouched.
- expect(stored.seq).toBe(readLatest(ctx).seq-batches.slice(1).flat().length);
- expect(readLatest(ctx).seq).toBeGreaterThan(stored.seq);
- expect(eventsSince(ctx,stored.seq).events.some(e=>e.type==="executor")).toBe(true);
- expect(stored.tasks).toEqual([]);
+ await pumpOnce(ctx,{status:async()=>st,tasks:()=>[],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish});
+ expect(existsSync(join(pluginDataDir(ctx),"storage.json"))).toBe(false);
+ expect(eventsSince(ctx,0).events.some(e=>e.type==="executor")).toBe(true);
 });
 
 test("terminal receipt changes publish immediately alongside entity events",async()=>{
@@ -178,7 +166,7 @@ test("terminal receipt changes publish immediately alongside entity events",asyn
  ctx.run=async argv=>argv[0]==="orca"&&argv[1]==="terminal"
   ? {code:0,stdout:JSON.stringify({ok:true,result:{terminal:{handle:"term_worker",connected,writable:true}}}),stderr:""}
   : {code:1,stdout:"",stderr:"offline"};
- const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,envs,opts)=>publish(c,envs,{...opts,channel:false,bridge:false})};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,envs)=>publish(c,envs)};
  const first=await pumpOnce(ctx,deps);
  expect(first.find(e=>e.type==="task")).toMatchObject({data:{terminalPresent:true}});
  expect(first.some(e=>e.type==="entity")).toBe(true);
@@ -191,7 +179,7 @@ test("a failed task publishes attention and counts, then clears attention on ret
  const {capacityFixture}=await import("./read-model-helpers");
  const {publish}=await import("../src/link/publish");
  const {s,st}=capacityFixture(),ctx=fakeCtx(),record={...task("running"),createdAt:ctx.now,brief:{goal:"g",repo:ctx.home},attempts:[]};
- const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,e,o)=>publish(c,e,{...o,channel:false,bridge:false})};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,e)=>publish(c,e)};
  await pumpOnce(ctx,deps);record.state="failed";
  const out=await pumpOnce({...ctx,now:ctx.now+1},deps);
  expect(out.filter(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject([{data:{id:`failed:${record.id}`,value:{kind:"failed"}}}]);
@@ -204,7 +192,7 @@ test("pump dispatches attention notifications once to the active notifier",async
  const {capacityFixture}=await import("./read-model-helpers"),{publish}=await import("../src/link/publish"),{register}=await import("../src/clients/registry");
  const {s,st}=capacityFixture(),ctx=fakeCtx();register(ctx,{kind:"orca",version:"1",notifier:true});
  const record={...task("failed"),createdAt:ctx.now,brief:{goal:"failed goal",repo:ctx.home},attempts:[]};
- const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,envs,opts)=>publish(c,envs,{...opts,channel:false,bridge:false})};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,envs)=>publish(c,envs)};
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(1);
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(0);
 });
