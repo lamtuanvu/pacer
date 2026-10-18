@@ -13,6 +13,8 @@ import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
 import { Delegate } from "./screens/Delegate";
+import { followSavedTheme } from "./theme";
+followSavedTheme();
 const store = createStore();
 const TITLES: Record<Route["name"], string> = { overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", setup: "Setup", loading: "pacer", "not-found": "Page not found" };
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
