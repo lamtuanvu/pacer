@@ -6,7 +6,7 @@ export type Level = "info" | "warn" | "error";
 export interface ProviderLine { id: string; agent?: string; account?: string; unavailableReason?: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
 export interface SessionData { host:"builtin"|"orca"|"none"; live:boolean; controller:string|null; viewers:number }
-export interface TaskData { session?:SessionData; progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
+export interface TaskData { title?: string; session?:SessionData; progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export interface ConfigData { area: string; at: number }
@@ -41,7 +41,7 @@ function parseBudget(d: unknown): BudgetData | null {
 function parseTask(d: unknown): TaskData | null {
   if (!isObj(d)) return null; const id = str(d.id, LIMITS.id), state = str(d.state, 16), updatedAt = num(d.updatedAt);
   if (!id || !state || updatedAt === null) return null;
-  return { id, state, updatedAt, goal: str(d.goal, LIMITS.goal) ?? "", executor: optStr(d.executor, 64), backend: optStr(d.backend, 32), worktree: optStr(d.worktree, 4096),
+  return { id, state, updatedAt, ...(optStr(d.title, 60)?.trim() ? {title:optStr(d.title,60)!.trim()} : {}), goal: str(d.goal, LIMITS.goal) ?? "", executor: optStr(d.executor, 64), backend: optStr(d.backend, 32), worktree: optStr(d.worktree, 4096),
     ...(isObj(d.placement) && ["current","new"].includes(String(d.placement.mode)) && typeof d.placement.why==="string" ? {placement:{mode:d.placement.mode as "current"|"new",why:d.placement.why.slice(0,240)}} : {}),
     ...(isObj(d.session) && ["builtin","orca","none"].includes(String(d.session.host)) && typeof d.session.live==='boolean' && num(d.session.viewers)!==null
       ? {session:{host:d.session.host as SessionData['host'],live:d.session.live,controller:optStr(d.session.controller,64),viewers:Math.max(0,Math.min(99,Math.floor(num(d.session.viewers)!)))}} : {}),

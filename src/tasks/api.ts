@@ -1,3 +1,4 @@
+import { shortTitle, taskTitle } from "../core/short-title";
 import type { RepoRef } from "../api/read-model/types";
 import { readPause } from "../core/pause";
 import { clip, LIMITS } from "../link/envelope";
@@ -25,6 +26,7 @@ export function validBase(base: string): boolean {
   return spawnSync("git", ["check-ref-format", "--branch", base], { stdio: "ignore" }).status === 0;
 }
 export const delegateSchema = {
+  title: z.string().trim().min(1).max(60).describe("Short task title (trimmed, 1–60 characters), stored separately from the full goal. Omitted titles are derived from the first goal clause with paths, URLs and backticked code removed and word-boundary truncation with an ellipsis. Snapshot tasks, task events, task.get, task.list, attention titles and activity text expose this title; older tasks derive it on read.").optional(),
   request_id: z.string().min(1).max(128).optional(),
   base: z.string().min(1).max(4096).refine(validBase, "base must be a branch name or a 7–40 hex SHA").optional(),
   source: z.enum(["planner", "ui", "cli"]).optional(),
@@ -39,11 +41,11 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
   const a=parsed.data;
   return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, constraints:a.constraints, context:a.context, base:a.base },
-    requestId:a.request_id, source:a.source,
+    title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return { task_id:t.id, goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null, queue:t.queue??null,
+  return { task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null, queue:t.queue??null,
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
     result:t.result??null, review:t.review??null, resolved:t.resolved??null };
@@ -68,7 +70,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
+export interface DelegateInput { title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -91,6 +93,7 @@ export const spawnRunner: SpawnRunner = (ctx, taskId) => {
 export function validateInput(s: Strategy, input: DelegateInput): string[] {
   const p: string[] = [];
   const b = input.brief;
+  if (input.title !== undefined && (typeof input.title !== "string" || !input.title.trim() || input.title.trim().length > 60)) p.push("title must be 1–60 characters after trimming");
   if (!b.goal?.trim()) p.push("goal is required");
   if (!b.repo || !isAbsolute(b.repo)) p.push("repo must be an absolute path");
   else if (!existsSync(b.repo) || !statSync(b.repo).isDirectory()) p.push(`repo does not exist: ${b.repo}`);
@@ -123,6 +126,7 @@ export function delegate(
   if(input.executor && Object.keys(readBlocked(ctx)).some(id => (resolveRunner(s,id)?.id ?? id) === input.executor))problems.push(`${input.executor}: Blocked by you; run pacer executor unblock ${input.executor}`);
   if (problems.length) throw new DelegateError(problems.join("; "));
   const task = createTask(ctx, {
+    title: input.title?.trim() ?? shortTitle(input.brief.goal),
     brief: input.brief,
     kind: input.kind ?? null,
     requestedExecutor: input.executor ?? null,
