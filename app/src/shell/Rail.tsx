@@ -11,11 +11,11 @@ const ITEMS: { name: "overview" | "review" | "sessions"; label: string; href: st
 ];
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 /** 56 px icon rail. Badges and the gear dot come from the service's counts only. */
-export function Rail({ route, counts }: { route: Route; counts: Counts | null }) {
+export function Rail({ route, counts, narrow = false }: { route: Route; counts: Counts | null; narrow?: boolean }) {
   const setupOpen = (counts?.setupOpen ?? 0) > 0;
-  return <nav className="pc-rail" aria-label="pacer">
-    <a className="pc-rail__mark" href={withQuery("#/", route.query)} aria-label="pacer home"><Mark size={22} wordmark={false} /></a>
-    <span className="pc-rail__divider" />
+  return <nav className={narrow ? "pc-bottom-bar" : "pc-rail"} aria-label="pacer">
+    {!narrow && <a className="pc-rail__mark" href={withQuery("#/", route.query)} aria-label="pacer home"><Mark size={22} wordmark={false} /></a>}
+    {!narrow && <span className="pc-rail__divider" />}
     {ITEMS.map(item => {
       const n = counts ? item.count(counts) : 0;
       const label = n > 0 ? `${item.label} · ${n} ${item.words}` : item.label;
@@ -25,9 +25,9 @@ export function Rail({ route, counts }: { route: Route; counts: Counts | null })
         </a>
       </Tooltip>;
     })}
-    <span className="grow" />
+    {!narrow && <span className="grow" />}
     <Tooltip text={setupOpen ? "Settings · setup needs you" : "Settings"}>
-      <a className={`pc-rail__item${SETTINGS.has(route.name) ? " on" : ""}`} href="#/settings" aria-label={setupOpen ? "Settings · setup needs you" : "Settings"} aria-current={SETTINGS.has(route.name) ? "page" : undefined}>
+      <a className={`pc-rail__item${SETTINGS.has(route.name) ? " on" : ""}`} href={withQuery("#/settings", route.query)} aria-label={setupOpen ? "Settings · setup needs you" : "Settings"} aria-current={SETTINGS.has(route.name) ? "page" : undefined}>
         <Icon name="settings" />{setupOpen && <span className="pc-rail__dot" aria-hidden="true" />}
       </a>
     </Tooltip>
