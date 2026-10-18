@@ -50,9 +50,15 @@ function lastOutput(t: ClientTask, now: number) {
   if (t.progress?.phase === "idle" && t.progress.lastOutputAt) return <span className="pc-warn-text">idle {elapsed(now - t.progress.lastOutputAt)}</span>;
   return t.progress?.lastOutputAt ? <span className="muted">output {ago(t.progress.lastOutputAt, now)}</span> : null;
 }
+/** Running comes from the service counts; queued rows shown in the same list are counted separately. */
+function runningCount(snapshot: ClientSnapshot, scope: Scope, rows: ClientTask[]): string {
+  const c = counts(snapshot), n = (scope.repo === null ? c?.running : c?.byRepo[scope.repo]?.running) ?? rows.filter(t => t.state === "running").length;
+  const queued = rows.filter(t => t.state === "queued").length;
+  return queued ? `${n} · ${queued} queued` : String(n);
+}
 function Running({ snapshot, scope, now, runner }: { snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner }) {
   const rows = running(snapshot, scope);
-  return <section className="pc-card-section" aria-labelledby="running"><div className="pc-card-section__head"><h2 id="running">Running</h2><span className="muted">{rows.length}</span></div>
+  return <section className="pc-card-section" aria-labelledby="running"><div className="pc-card-section__head"><h2 id="running">Running</h2><span className="muted">{runningCount(snapshot, scope, rows)}</span></div>
     {rows.map(t => <div key={t.id} className="pc-row">
       {t.executor ? <AgentMark agent={markAgent(t.executor)} size={20} labelled={false} /> : <span className="pc-row__gap" />}
       <div className="grow pc-row__goal">{t.goal}</div>
