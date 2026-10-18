@@ -1,6 +1,6 @@
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
-import { createManagedPanelWriter } from "./panel";
+import { createManagedPanelWriter, panelRepo } from "./panel";
 import { checkSetup } from "../setup/check";
 import { MANAGED_MARKER, pluginDir } from "../plugin/install";
 import { installedPlugin, readUpdateCheck, updateAvailable } from "../update/check";
@@ -59,10 +59,11 @@ export function startServer(
         panelSetupAt = Date.now();
       }
       const setup = panelSetup;
+      const repo = (snapshot as import("../view-model/snapshot").ClientSnapshot).planner === undefined ? null : await panelRepo(snapshot, ctx.run);
       const cli = currentVersion(), plugin = installedPlugin(ctx, cli)?.version ?? cli;
       const check = readUpdateCheck(ctx, plugin);
       if (!stopped) panelWriter.refresh(snapshot, {
-        nowS: ctx.now, reachable: true, transport: "http", setup,
+        nowS: ctx.now, reachable: true, transport: "http", setup, repo,
         updates: { cli, plugin, latest: check?.latest ?? null, available: updateAvailable(check) || updateAvailable(check ? { ...check, current: cli } : null) },
       });
     }).catch(error => {

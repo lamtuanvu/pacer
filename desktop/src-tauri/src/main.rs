@@ -19,7 +19,9 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_notification::{Action, ActionType, NotificationExt};
+use tauri_plugin_notification::NotificationExt;
+#[cfg(target_os = "macos")]
+use tauri_plugin_notification::{Action, ActionType};
 use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
 
@@ -81,8 +83,7 @@ fn tray_resize(window: WebviewWindow, app: AppHandle, height: f64) -> Result<(),
     window
         .set_size(tauri::LogicalSize::new(TRAY_WIDTH, height))
         .map_err(|e| e.to_string())?;
-    // Before the first tray event there is no icon position yet. The first click positions it.
-    let positioned = window.move_window(Position::TrayBottomCenter);
+    let positioned = position_tray(&window);
     if window.is_visible().map_err(|e| e.to_string())? {
         positioned.map_err(|e| e.to_string())?;
     }
@@ -141,11 +142,21 @@ fn create_tray_window(app: &AppHandle, origin: &str) -> tauri::Result<()> {
     });
     Ok(())
 }
+fn position_tray(window: &WebviewWindow) -> tauri::Result<()> {
+    // Linux appindicators do not expose tray coordinates. Other platforms may
+    // also lack a rectangle before their first tray event.
+    #[cfg(not(target_os = "linux"))]
+    if window.move_window(Position::TrayBottomCenter).is_ok() {
+        return Ok(());
+    }
+    window.move_window(Position::TopCenter)
+}
 fn toggle_tray(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("tray") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
-        } else if window.move_window(Position::TrayBottomCenter).is_ok() {
+        } else {
+            let _ = position_tray(&window);
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -309,6 +320,14 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
     ] {
         menu.append(&MenuItem::with_id(app, id, label, enabled, None::<&str>)?)?;
     }
+    #[cfg(target_os = "linux")]
+    menu.append(&MenuItem::with_id(
+        app,
+        "popover",
+        "Show popover",
+        true,
+        None::<&str>,
+    )?)?;
     tray.set_title(Some(&model.title))?;
     tray.set_menu(Some(menu))
 }
@@ -356,6 +375,7 @@ fn dispatch_action(app: &AppHandle, action: Value) {
     });
 }
 // Dialog strings are argv, never interpolated into AppleScript or a shell.
+#[cfg(target_os = "macos")]
 async fn native_dialog(message: &str, answer: bool) -> Option<String> {
     let script = if answer {
         "on run argv\nset r to display dialog (item 1 of argv) default answer \"\" with title \"pacer\" buttons {\"Cancel\", \"Answer\"} default button \"Answer\"\nreturn text returned of r\nend run"
@@ -377,6 +397,22 @@ async fn native_dialog(message: &str, answer: bool) -> Option<String> {
             .into(),
     )
 }
+// No native dialog dependency on Linux. Actions needing input remain in the web UI.
+#[cfg(not(target_os = "macos"))]
+async fn native_dialog(_message: &str, _answer: bool) -> Option<String> {
+    None
+}
+#[cfg(not(target_os = "macos"))]
+fn notify(app: &AppHandle, notification: notifications::Notification) {
+    let _ = app
+        .notification()
+        .builder()
+        .title(notification.title)
+        .body(notification.body)
+        .extra("route", notification.route)
+        .show();
+}
+#[cfg(target_os = "macos")]
 fn notify(app: &AppHandle, notification: notifications::Notification) {
     // Each category has stable, unique action ids so later notifications cannot remap earlier buttons.
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -423,6 +459,13 @@ fn notify(app: &AppHandle, notification: notifications::Notification) {
         .extra("route", notification.route)
         .show();
 }
+fn open_external(url: &Url) {
+    #[cfg(target_os = "macos")]
+    let opener = "/usr/bin/open";
+    #[cfg(not(target_os = "macos"))]
+    let opener = "xdg-open";
+    let _ = std::process::Command::new(opener).arg(url.as_str()).spawn();
+}
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
@@ -436,11 +479,14 @@ fn main() {
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(
-            tauri_plugin_autostart::Builder::new()
-                .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
-                .build(),
-        )
+        .plugin({
+            let builder = tauri_plugin_autostart::Builder::new();
+            #[cfg(target_os = "macos")]
+            let builder =
+                builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+            // Linux uses the plugin's XDG autostart desktop entry.
+            builder.build()
+        })
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&["tray"])
@@ -516,9 +562,7 @@ fn main() {
                                 .and_then(|w| w.url().ok())
                                 .is_some_and(|u| u.scheme() == "tauri")
                         {
-                            let _ = std::process::Command::new("/usr/bin/open")
-                                .arg(url.as_str())
-                                .spawn();
+                            open_external(url);
                             return false;
                         }
                         if local && matches!(url.path(), "/" | "/index.html") {
@@ -527,9 +571,7 @@ fn main() {
                         let origin = state.origin.lock().unwrap().clone();
                         let current = nav.get_webview_window("main").and_then(|w| w.url().ok());
                         if logic::external_link(url, current.as_ref(), origin.as_deref()) {
-                            let _ = std::process::Command::new("/usr/bin/open")
-                                .arg(url.as_str())
-                                .spawn();
+                            open_external(url);
                             return false;
                         }
                         logic::service_navigation(url, origin.as_deref())
@@ -564,6 +606,7 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
                     let app = tray.app_handle();
+                    #[cfg(not(target_os = "linux"))]
                     tauri_plugin_positioner::on_tray_event(app, &event);
                     if matches!(
                         event,
@@ -581,6 +624,8 @@ fn main() {
                     match id {
                         "quit" => app.exit(0),
                         "open" => show(app),
+                        #[cfg(target_os = "linux")]
+                        "popover" => toggle_tray(app),
                         _ => {
                             let action = app
                                 .state::<Shell>()
@@ -639,9 +684,10 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("start pacer desktop");
-    app.run(|app, event| {
-        if let tauri::RunEvent::Reopen { .. } = event {
-            show(app);
+    app.run(|_app, _event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = _event {
+            show(_app);
         }
     });
 }
