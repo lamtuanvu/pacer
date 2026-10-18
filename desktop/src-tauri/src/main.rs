@@ -30,7 +30,8 @@ struct Shell {
     route: Mutex<String>,
     recovery: Mutex<String>,
     granted: Mutex<Vec<String>>,
-    start: AtomicBool,
+    service_action: Mutex<Option<String>>,
+    diagnosis: Mutex<Option<logic::Diagnosis>>,
     retry: AtomicBool,
     session: Mutex<Option<client::Session>>,
     expired: tokio::sync::Notify,
@@ -43,7 +44,8 @@ impl Default for Shell {
             route: Mutex::new("#/".into()),
             recovery: Mutex::new(String::new()),
             granted: Mutex::new(Vec::new()),
-            start: AtomicBool::new(false),
+            service_action: Mutex::new(None),
+            diagnosis: Mutex::new(None),
             retry: AtomicBool::new(false),
             session: Mutex::new(None),
             expired: tokio::sync::Notify::new(),
@@ -173,6 +175,11 @@ fn position_tray(window: &WebviewWindow) -> tauri::Result<()> {
     window.move_window(Position::TopCenter)
 }
 fn toggle_tray(app: &AppHandle) {
+    if app.state::<Shell>().session.lock().unwrap().is_none() {
+        if let Err(error) = create_recovery_tray(app) {
+            eprintln!("Unable to show pacer status: {error}");
+        }
+    }
     if let Some(window) = app.get_webview_window("tray") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
@@ -252,29 +259,153 @@ fn navigate(app: &AppHandle, raw: &str) {
         show(app);
     }
 }
-fn recovery(app: &AppHandle, state: &str) {
+fn shell_url(url: &Url) -> bool {
+    url.scheme() == "tauri" && url.host_str() == Some("localhost")
+}
+fn shell_action(app: &AppHandle, label: &str, url: &Url) -> bool {
+    if !shell_url(url) || !matches!(url.path(), "/start" | "/install" | "/restart" | "/retry") {
+        return false;
+    }
+    let bundled = app
+        .get_webview_window(label)
+        .and_then(|w| w.url().ok())
+        .is_some_and(|current| {
+            shell_url(&current) && matches!(current.path(), "/" | "/index.html")
+        });
+    if !bundled {
+        return false;
+    }
     let shell = app.state::<Shell>();
-    if let Some(window) = app.get_webview_window("tray") {
-        let _ = window.destroy();
+    if url.path() == "/retry" {
+        shell.retry.store(true, Ordering::SeqCst);
+    } else {
+        *shell.service_action.lock().unwrap() = Some(url.path().trim_start_matches('/').into());
     }
-    *shell.origin.lock().unwrap() = None;
-    *shell.session.lock().unwrap() = None;
-    let mut current = shell.recovery.lock().unwrap();
-    if *current == state {
-        return;
-    }
-    *current = state.into();
-    if let Some(w) = app.get_webview_window("main") {
-        let base = if cfg!(target_os = "windows") {
-            "http://tauri.localhost"
-        } else {
-            "tauri://localhost"
-        };
-        if let Ok(url) = Url::parse(&format!("{base}/index.html?state={state}")) {
-            let _ = w.navigate(url);
+    true
+}
+fn diagnostic_recovery(app: &AppHandle, diagnosis: &logic::Diagnosis) {
+    *app.state::<Shell>().diagnosis.lock().unwrap() = Some(diagnosis.clone());
+    recovery(app, diagnosis.page);
+}
+fn render_diagnosis(app: &AppHandle) {
+    let detail = app.state::<Shell>().diagnosis.lock().unwrap().clone();
+    if let Some(detail) = detail {
+        if let Ok(json) = serde_json::to_string(&detail) {
+            for label in ["main", "tray"] {
+                if let Some(window) = app.get_webview_window(label) {
+                    if window.url().is_ok_and(|url| shell_url(&url)) {
+                        let _ = window.eval(format!("window.renderShell?.({json})"));
+                    }
+                }
+            }
         }
     }
-    update_tray(app, TrayModel::from_snapshot(&Value::Null));
+}
+fn recovery(app: &AppHandle, state: &str) {
+    let shell = app.state::<Shell>();
+    let had_origin = shell.origin.lock().unwrap().take().is_some();
+    if had_origin {
+        if let Some(window) = app.get_webview_window("tray") {
+            let _ = window.destroy();
+        }
+    }
+    *shell.session.lock().unwrap() = None;
+    let changed = {
+        let mut current = shell.recovery.lock().unwrap();
+        let changed = *current != state;
+        *current = state.into();
+        changed
+    };
+    {
+        let mut detail = shell.diagnosis.lock().unwrap();
+        if detail.as_ref().is_none_or(|d| d.page != state) {
+            let mut value = logic::diagnose(
+                logic::HealthProbe::Starting,
+                logic::JobState::Unknown,
+                false,
+                0,
+            );
+            // Only fixed, internal page names enter this function.
+            value.page = match state {
+                "install" => "install",
+                "startFailed" => "startFailed",
+                "oldService" => "oldService",
+                "oldApp" => "oldApp",
+                "protocol" => "protocol",
+                "unavailable" => "unavailable",
+                _ => "starting",
+            };
+            *detail = Some(value);
+        }
+    }
+    if changed {
+        if let Some(window) = app.get_webview_window("main") {
+            if let Ok(url) = Url::parse(&format!("tauri://localhost/index.html?state={state}")) {
+                let _ = window.navigate(url);
+            }
+        }
+    }
+    render_diagnosis(app);
+    let title = match state {
+        "busy" => "pacer is busy",
+        "stopped" => "pacer stopped",
+        "not_installed" => "pacer isn't installed",
+        "install" => "Install pacer first",
+        "starting" => "Starting pacer…",
+        "oldApp" => "Update the pacer app",
+        "oldService" => "Update pacer",
+        _ => "Unable to connect to pacer",
+    };
+    if changed {
+        if let Some(tray) = app.tray_by_id("pacer") {
+            let _ = tray.set_tooltip(Some(title));
+        }
+        update_tray(
+            app,
+            TrayModel {
+                title: title.into(),
+                paused: false,
+            },
+        );
+    }
+}
+fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window("tray").is_some() {
+        return Ok(());
+    }
+    let nav = app.clone();
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        "tray",
+        WebviewUrl::App("index.html?compact=1".into()),
+    )
+    .title("pacer")
+    .inner_size(TRAY_WIDTH, 440.)
+    .decorations(false)
+    .always_on_top(true)
+    .resizable(false)
+    .skip_taskbar(true)
+    .visible(false)
+    .focused(false)
+    .on_page_load(|window, payload| {
+        if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            render_diagnosis(window.app_handle());
+        }
+    })
+    .on_navigation(move |url| {
+        if shell_action(&nav, "tray", url) {
+            return false;
+        }
+        shell_url(url) && matches!(url.path(), "/" | "/index.html")
+    })
+    .build()?;
+    let blur = window.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Focused(false)) {
+            let _ = blur.hide();
+        }
+    });
+    Ok(())
 }
 fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> {
     let shell = app.state::<Shell>();
@@ -307,6 +438,15 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
         )
         .map_err(|e| e.to_string())?;
         granted.push(origin.into());
+    }
+    if let Some(window) = app.get_webview_window("tray") {
+        if window.url().is_ok_and(|url| shell_url(&url)) {
+            let _ = window.destroy();
+        }
+    }
+    *shell.diagnosis.lock().unwrap() = None;
+    if let Some(tray) = app.tray_by_id("pacer") {
+        let _ = tray.set_tooltip(Some("pacer"));
     }
     *shell.origin.lock().unwrap() = Some(origin.into());
     shell.recovery.lock().unwrap().clear();
@@ -544,6 +684,9 @@ fn main() {
                             return;
                         }
                         let _ = window.eval(CHECK_SESSION_PAGE);
+                        if shell_url(payload.url()) {
+                            render_diagnosis(window.app_handle());
+                        }
                         if !matches!(payload.url().path(), "/app" | "/app/") {
                             return;
                         }
@@ -566,19 +709,8 @@ fn main() {
                     })
                     .on_navigation(move |url| {
                         let state = nav.state::<Shell>();
-                        let local = url.scheme() == "tauri" && url.host_str() == Some("localhost");
-                        if local
-                            && matches!(url.path(), "/start" | "/retry")
-                            && nav
-                                .get_webview_window("main")
-                                .and_then(|w| w.url().ok())
-                                .is_some_and(|u| u.scheme() == "tauri")
-                        {
-                            if url.path() == "/start" {
-                                state.start.store(true, Ordering::SeqCst);
-                            } else {
-                                state.retry.store(true, Ordering::SeqCst);
-                            }
+                        let local = shell_url(url);
+                        if shell_action(&nav, "main", url) {
                             return false;
                         }
                         if url.as_str()

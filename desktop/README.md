@@ -154,7 +154,11 @@ links open `/app/#<route>` and resizing is skipped.
 ## Manual smoke checks
 
 - Without an installed CLI: Install pacer first; install it and refocus.
-- Stop the service: pacer isn't running; Start pacer loads the authenticated UI.
+- Stop a loaded service: pacer stopped; Start pacer starts the job without reinstalling.
+- A missing launchd job: pacer isn't installed; only this page offers Install.
+- Block the service with a privacy dialog: pacer is busy, elapsed seconds update,
+  and allowing access automatically opens the authenticated UI. Check the tray too.
+- After 30 seconds busy without an identified prompt, Restart pacer is offered.
 - Restart the service with the main window and popover open; both sign in again.
 - Revoke app sessions, reload without a cookie, or load an expired sign-in URL;
   the shell recovers automatically. Stop the service during recovery; the bundled
@@ -184,3 +188,44 @@ bind loopback sockets. Run `cargo test --offline -- --include-ignored` outside
 the sandbox (CI does this). It checks POST exchange, memory cookie authentication,
 loopback Host, Origin, versioned client headers, and absence of bearer authorization
 on subsequent requests.
+
+## Connection diagnostics and previews
+
+The shell probes the loopback TCP port and `/health` separately (a two-second
+health deadline). It polls about once a second while disconnected; unanswered
+health requests can take two seconds. `PACER_PORT` selects the port, default 4317.
+A listening service that cannot answer is **busy**, never described as uninstalled.
+A starting health response or `service.starting` snapshot shows **Starting pacer…**.
+Ready services sign in and load automatically. The tray uses the same diagnosis.
+
+On macOS, a refused connection is checked against
+`launchctl print gui/<uid>/com.pacer.serve`. A missing job offers installation;
+a stopped, loaded job offers **Start pacer**, which runs `launchctl kickstart`
+without opening a terminal. **Restart pacer** uses `kickstart -k` and appears
+after 30 seconds busy with no identified consent prompt. Actions recheck the
+current diagnosis before running. On Linux, the shell checks `pacer-serve.service`
+and uses `systemctl --user start` / `restart`; the CLI is the fallback when no
+unit can be found. Service-manager failures remain visible while polling resumes.
+
+The macOS consent check reads only on-screen window metadata through
+`CGWindowListCopyWindowInfo`, without requesting Screen Recording access.
+It requires a consent-process owner and a title identifying pacer file access.
+Redacted, missing, or unrelated titles are inconclusive: the shell then says
+that macOS consent is a likely cause instead of claiming a specific dialog exists.
+Linux busy copy does not mention macOS.
+
+For screenshots, open `desktop/ui/index.html` directly in a browser, or serve
+`desktop/ui/` with a static server. Query parameters render deterministic previews
+without running commands or requiring Tauri:
+
+- `?state=not_installed`, `?state=stopped`, `?state=starting`, `?state=ready`
+- `?state=busy&prompt=1&for=14` — identified consent prompt, live elapsed timer
+- `?state=busy&for=31` — likely-cause copy and Restart pacer
+- `?state=busy&for=14&platform=linux` — Linux busy copy
+- Add `&compact=1` for the tray layout (340 px wide).
+- Existing pages: `install`, `oldService`, `oldApp`, `protocol`, `startFailed`.
+
+The elapsed timer advances from the preview's `for` value. Live restart visibility
+comes from the native diagnosis; previews choose it from `for` and `prompt`
+(or explicitly `restart=1`). The shell CSS embeds the shared design tokens;
+`test/desktop-shell.test.ts` checks that this copy stays in sync.
