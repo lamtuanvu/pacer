@@ -29,3 +29,18 @@ test('settings hides mutations absent from hello.ops and ignores their shortcuts
  for(const key of ['a','l','r','n','u','c','s'])await s.handle(key);
  expect(s.prompt).toBeNull();expect(calls).toEqual([]);
 });
+
+import migrationFixture from "./fixtures/ui/snapshot.json";
+import type { ClientSnapshot } from "../src/view-model/snapshot";
+test("settings reads account usage and executor blocks from the current read model",async()=>{
+ const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});
+ writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"accounts:\n  personal: {kind: claude}\n  team: {kind: codex}\nplanner: claude-code\npacing: {order: [codex]}\nrouting:\n  - default: [codex]\n");
+ const s=structuredClone(migrationFixture) as unknown as ClientSnapshot;
+ Object.defineProperty(s,"budget",{get(){throw new Error("Legacy budget read");}});s.accounts![0]!.usedPct=42;s.executors![1]={...s.executors![1]!,id:"codex",state:"blocked",reason:"user"};
+ const calls:unknown[]=[];
+ const settings=new DashboardSettings(ctx,{snapshot:()=>s,changed(){},report(){},command:async c=>{calls.push(c);},ops:()=>["runner.unblock","account.remove"]});
+ expect(settings.rows().find(r=>r.id==="account-team")?.text).toContain("42% used");
+ expect(settings.rows().find(r=>r.id==="executor-codex")?.text).toContain("Disabled");
+ await settings.handle(",");settings.selected=settings.rows().findIndex(r=>r.id==="executor-codex");await settings.handle("enter");await settings.pending;
+ expect(calls).toEqual([{cmd:"unblock",executor:"codex"}]);
+});

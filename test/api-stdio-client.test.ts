@@ -22,8 +22,8 @@ test("StdioClient speaks the protocol to pacer api --stdio", async () => {
   const { env } = await home();
   const client = new StdioClient(cli.slice(0, 2), env);
   try {
-    expect((await client.hello()).protocol).toBe("2.9.0");
-    expect((await client.snapshot()).protocol).toBe("2.9.0");
+    expect((await client.hello()).protocol).toBe("2.8.0");
+    expect((await client.snapshot()).protocol).toBe("2.8.0");
     const err = await client.call("task.get", { id: "missing" }).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     if (!(err instanceof ApiError)) throw new Error("expected ApiError");
@@ -38,11 +38,11 @@ test("StdioClient restarts and resumes after the child exits", async () => {
   try {
     await client.hello();
     client.subscribe(0, (e) => seen.push(e.seq));
-    const alert = (key: string) => ({ v: 1 as const, type: "alert" as const, data: { key, level: "info" as const, title: key, body: "", at: ctx.now } });
-    await publish(ctx, [alert("a")], { bridge: false, channel: false });
+    const alert = (key: string) => ({ type: "alert" as const, data: { key, level: "info" as const, title: key, body: "", at: ctx.now } });
+    await publish(ctx, [alert("a")]);
     await waitFor(() => seen.length >= 1);
     (client as unknown as { child: { kill(s: string): void } }).child.kill("SIGKILL");
-    await publish(ctx, [alert("b")], { bridge: false, channel: false });
+    await publish(ctx, [alert("b")]);
     await waitFor(() => seen.length >= 2);
     expect(seen[1]).toBeGreaterThan(seen[0]!);
     expect(new Set(seen).size).toBe(seen.length);
@@ -125,9 +125,9 @@ test("StdioClient bounds stdout lines, logs stderr, and matches fragmented respo
     child.stderr.write("diagnos"); child.stderr.write("tic\n");
     const reply = JSON.stringify({ jsonrpc: "2.0", id: 2, result: { seq: 42 } });
     child.stdout.write(reply.slice(0, 20)); child.stdout.write(reply.slice(20) + "\n");
-    child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocol: "2.9.0" } }) + "\n");
+    child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocol: "2.8.0" } }) + "\n");
     expect(await second).toMatchObject({ seq: 42 });
-    expect(await first).toMatchObject({ protocol: "2.9.0" });
+    expect(await first).toMatchObject({ protocol: "2.8.0" });
     expect(logs).toContain("diagnostic");
     expect(logs.some((m) => /1 MiB/.test(m))).toBe(true);
   } finally { client.close(); }

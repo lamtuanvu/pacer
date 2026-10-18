@@ -20,7 +20,7 @@ async function serve() {
 
 test("HttpClient calls ops and maps error bodies", async () => {
   const { client } = await serve();
-  expect((await client.hello()).protocol).toBe("2.9.0");
+  expect((await client.hello()).protocol).toBe("2.8.0");
   const r = await client.call<{ task_id: string }>("task.delegate", { goal: "g", repo: tmpDir() });
   expect(r.task_id).toMatch(/^t-/);
   const err = await client.call("task.get", { id: "missing" }).catch((e) => e);
@@ -32,13 +32,13 @@ test("subscribe reconnects after the stream ends", async () => {
   const { ctx, s, client } = await serve();
   const seen: number[] = [];
   const unsub = client.subscribe(0, (e) => seen.push(e.seq));
-  const alert = (key: string) => ({ v: 1 as const, type: "alert" as const, data: { key, level: "info" as const, title: key, body: "", at: ctx.now } });
-  await publish(ctx, [alert("a")], { bridge: false, channel: false });
+  const alert = (key: string) => ({ type: "alert" as const, data: { key, level: "info" as const, title: key, body: "", at: ctx.now } });
+  await publish(ctx, [alert("a")]);
   let end = Date.now() + 2000; while (seen.length < 1 && Date.now() < end) await Bun.sleep(10);
   s.stop();
   const again = startServer(() => ctx, { port: s.port, tailMs: 20, pumpMs: 0 });
   stops.push(again.stop);
-  await publish(ctx, [alert("b")], { bridge: false, channel: false });
+  await publish(ctx, [alert("b")]);
   end = Date.now() + 3000; while (seen.length < 2 && Date.now() < end) await Bun.sleep(10);
   unsub();
   expect(seen).toHaveLength(2);

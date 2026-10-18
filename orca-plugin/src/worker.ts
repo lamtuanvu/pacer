@@ -13,7 +13,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPlugin, type Timers } from "./plugin";
-import type { HttpPort } from "./transports/http";
+import type { HttpPort } from "./http-port";
 import type { OrcaWorkerContext } from "./orca-api";
 const timers: Timers = {
   every(ms, fn) { const timer = setInterval(fn, ms); return () => clearInterval(timer); },

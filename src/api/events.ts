@@ -1,13 +1,15 @@
+import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, toV2Snapshot, toV2Event, type CompatEvent } from "./v2-compat";
+import type { SnapshotV3 } from "./read-model/types";
+import { buildPlanner } from "./read-model/capacity";
 import { shortTitle } from "../core/short-title";
 import { readHold } from "../core/mode-hold";
 import { drainQueueOnRead } from "../tasks/drain";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { currentSnapshot, readOutboxSince } from "../link/store";
-import type { LinkSnapshot } from "../link/envelope";
 import { toBudget } from "../link/budget";
 import { apiTask, snapshotTasks } from "./read-model/tasks";
 import { buildReadModel, readModelContext } from "./read-model";
-import type { ReadModelFields, ApiTask } from "./read-model/types";
+import type { ApiTask } from "./read-model/types";
 import { listTasks, readTask } from "../tasks/store";
 import { taskStatus } from "../tasks/api";
 import { computeStatus, type Status } from "../engine/status";
@@ -15,16 +17,13 @@ import { loadStrategy, validateStrategy } from "../config/strategy";
 import type { Ctx } from "../types";
 import { type ApiEvent, PROTOCOL_VERSION } from "./protocol";
 
-export async function apiSnapshot(ctx: Ctx): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot }> {
-  await drainQueueOnRead(ctx);
-  const snapshot = currentSnapshot(ctx);
-  return { protocol: PROTOCOL_VERSION, seq: snapshot.seq, snapshot };
-}
+/** The canonical snapshot is the negotiated v3 read model. */
+export async function apiSnapshot(ctx: Ctx) { return liveSnapshot(ctx); }
 
 const statusCache=new Map<string,{at:number;strategy:string;value:Status}>();
 export async function liveSnapshot(
   ctx: Ctx, o: { maxBudgetAgeS?: number; status?: (c: Ctx) => Promise<Status> } = {},
-): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot & ReadModelFields & {tasks:ApiTask[]} }> {
+): Promise<{ protocol: string; seq: number; snapshot: SnapshotV3 }> {
   await drainQueueOnRead(ctx);
   const snapshot = currentSnapshot(ctx);
   // Only records the snapshot can show need a live status read; the rest are settled history.
@@ -47,11 +46,13 @@ export async function liveSnapshot(
   const [st,context]=await Promise.all([refresh(),readModelContext(ctx)]);
   if (statusAvailable && (!snapshot.budget || ctx.now - snapshot.budget.generatedAt > (o.maxBudgetAgeS ?? 60))) snapshot.budget = toBudget(st);
   const fields=buildReadModel(ctx,{status:st,strategy,tasks,setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
-  const result={...snapshot,...fields,tasks:snapshot.tasks as ApiTask[]};
-  return { protocol: PROTOCOL_VERSION, seq: snapshot.seq, snapshot: result };
+  const result:SnapshotV3={seq:V3_CURSOR_BASE+snapshot.seq,at:snapshot.at,mode:snapshot.mode,...fields,tasks:snapshot.tasks as ApiTask[],strategies:snapshot.strategies??[]};
+  // Legacy-only transport state must survive the overlap without appearing on v3 wires.
+  Object.defineProperty(result,V2_STATE,{value:{budget:snapshot.budget,alerts:snapshot.alerts,console:snapshot.console,consoles:snapshot.consoles,serviceInstalled:snapshot.serviceInstalled}});
+  return { protocol: PROTOCOL_VERSION, seq: result.seq, snapshot: result };
 }
 
-export function eventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last: number; reset: boolean } {
+function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last: number; reset: boolean } {
   const all = readOutboxSince(ctx, 0);
   const oldest = all[0]?.seq;
   const reset = since > 0 && oldest !== undefined && oldest > since + 1;
@@ -71,4 +72,35 @@ export function eventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last
     }),
   ];
   return { events, last: after.at(-1)?.seq ?? since, reset };
+}
+
+
+export async function liveV2Snapshot(ctx:Ctx,o:Parameters<typeof liveSnapshot>[1]={}) {
+ const result=await liveSnapshot(ctx,o),snapshot=toV2Snapshot(result.snapshot);
+ return {protocol:V2_PROTOCOL,seq:snapshot.seq,snapshot};
+}
+
+/** Default 2 preserves the in-repo legacy clients during the overlap. */
+export function eventsSince(ctx:Ctx,since:number,protocol:2|3=2):{events:ApiEvent[];last:number;reset:boolean} {
+ const oldCursor=protocol===3&&since>0&&since<V3_CURSOR_BASE;
+ const rawSince=protocol===3?(since>=V3_CURSOR_BASE?since-V3_CURSOR_BASE:0):since;
+ const batch=legacyEventsSince(ctx,rawSince);
+ const converted:CompatEvent[]=batch.events.map(e=>{
+  const seq=V3_CURSOR_BASE+e.seq;
+  let event:CompatEvent;
+  if(e.type==='budget') {
+   const b=e.data as import('../link/envelope').BudgetData;
+   // Executor and account rows are published separately by the read-model pump.
+   const st:Status={generatedAt:b.generatedAt,strategy:b.strategy,planner:b.planner,mode:b.mode as Status['mode'],disabled:false,calendarPace:false,executors:{ranked:[],excluded:[]},providers:b.providers.map(p=>({...p,usage:'quota',installed:true,windows:[],verdict:p.verdict as import('../types').Verdict,binding:p.usedPct===null?null:{name:p.window??'unknown',lengthS:0,paced:true,usedPct:p.usedPct,pace:p.pacePct??undefined,resetsAt:p.resetsAt,verdict:p.verdict as import('../types').Verdict}}))};
+   event={...e,seq,type:'planner',data:buildPlanner(st)};
+  } else if(e.type==='alert') {
+   const a=e.data as import('../link/envelope').AlertData;
+   event={...e,seq,type:'notify',data:{key:`${a.key}:${a.at}`,title:a.title,body:a.body,actions:[],url:'/app/#attention'}};
+  } else event={...e,seq,type:e.type};
+  Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"?null:e});
+  return event;
+ });
+ if(protocol===2)return {...batch,events:converted.map(toV2Event).filter(e=>e!==null)};
+ if(oldCursor)converted.unshift({seq:V3_CURSOR_BASE+rawSince,at:ctx.now,type:'reset',data:{reason:'protocol changed; fetch the snapshot again'}});
+ return {events:converted,last:V3_CURSOR_BASE+batch.last,reset:oldCursor||batch.reset};
 }

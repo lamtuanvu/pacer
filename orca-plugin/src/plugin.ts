@@ -10,11 +10,9 @@ import { LinkStore } from "./store";
 import { chooseTransport, type Transport } from "./transports/choose";
 import type { ApiClient } from "../../src/api/client-types";
 import { apiTransport } from "./transports/api";
-import { httpTransport, type HttpPort } from "./transports/http";
-import { bridgeTransport } from "./transports/bridge";
-import { channelTransport } from "./transports/channel";
-import { deliverNotification, notifyNewAlerts } from "./notify";
-import { renderStatusPage } from "./panel";
+import type { HttpPort } from "./http-port";
+import { deliverNotification } from "./notify";
+import { renderStatusPage, snapshotStrategy } from "./panel";
 import { serveOwnsPanel } from "../../src/plugin/panel-owner";
 export interface Timers { every(ms: number, fn: () => void): () => void; after(ms: number, fn: () => void): () => void }
 export interface PluginDeps {
@@ -78,7 +76,6 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       }
       return;
     }
-    const activatedAtS = deps.nowS();
     let raw: Record<string, unknown> = {};
     let settingsReady=false;
     // Settings are host IPC, but cannot consume the worker's one-second ready budget.
@@ -97,7 +94,6 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const settings = readSettings(raw, deps.home);
     settings.settingsReady=settingsReady;
     const store = new LinkStore(deps.nowS);
-    const bridge = bridgeTransport({ host: ctx.host, pollMs: settings.pollSeconds * 1000, timers });
     const transports = [
       apiTransport({ timers, notifier: {version:deps.version ?? "0",deliver:data=>deliverNotification(ctx.host,{title:data.title,body:data.body},deps.nowS(),true)}, log: m => ctx.log(m), connect: async () => {
         const client = await deps.connect?.(settings) ?? null;
@@ -109,14 +105,10 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
         }
         return client;
       } }),
-      httpTransport({ http: deps.http, readToken: () => deps.fs.readText(`${settings.pacerHome}/token`)?.trim() || null, port: settings.port, timers }),
-      channelTransport({ host: ctx.host, registerEvent: (name, handler) => ctx.events.on(name, async payload => { await ensureConnected(); if (!stopped) handler(payload); }) }),
-      bridge,
     ];
     let active: Transport | null = null, reachable = false, connecting: Promise<void> | null = null;
     let lastSeenAt: number | undefined;
-    let processing = Promise.resolve();
-    let httpFailures = 0;
+    let apiFailures = 0;
     let setup:SetupChecklist|undefined;
     let renderedHtml: string | null = null;
     let lastRenderAt=-Infinity;
@@ -125,7 +117,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       if (!deps.version) return updates;
       const cached = deps.cachedUpdate?.();
       const latest = cached?.latest ?? updates?.latest ?? null;
-      const cli = store.snapshot.console?.version ?? updates?.cli ?? null;
+      const cli = store.snapshot.service?.version ?? updates?.cli ?? null;
       const check = { checkedAt: deps.nowS(), latest, current: deps.version };
       return { plugin: deps.version, cli, latest, available: updateAvailable(check) || (!!cli && updateAvailable({...check,current:cli})) };
     };
@@ -149,8 +141,6 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
             } else ctx.log("pacer: refused panel write: unmanaged root");
           }
         } catch (e) { logError(e); }
-        const snapshot = store.snapshot;
-        processing = processing.then(async () => { if (!stopped && active?.id !== "api") await notifyNewAlerts(ctx.host, snapshot, settings, activatedAtS, deps.nowS()); }).catch(logError);
       });
     };
     if (deps.bootstrap) {
@@ -185,18 +175,19 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       }).catch(()=>{}).finally(()=>{refreshingSettings=false;});
     });
     store.onChange(()=>scheduleRender());
-    timers.every(1000,()=>{processing=processing.then(async()=>{if(!stopped && active?.id!=="api")await notifyNewAlerts(ctx.host,store.snapshot,settings,activatedAtS,deps.nowS());}).catch(logError);});
     timers.every(15000, () => { scheduleRender(); });
     const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
       const previous=store.snapshot;
-      const initiated=snapshot.budget?.strategy!==previous.budget?.strategy || snapshot.tasks.some(t=>!previous.tasks.some(p=>p.id===t.id)||t.dismissed!==previous.tasks.find(p=>p.id===t.id)?.dismissed||t.retriedBy!==previous.tasks.find(p=>p.id===t.id)?.retriedBy) || snapshot.alerts.some(a=>a.key==="strategy-build"&&!previous.alerts.some(p=>p.key===a.key&&p.at===a.at)) || snapshot.budget?.providers.some(p=>p.blockedReason!==previous.budget?.providers.find(x=>x.id===p.id)?.blockedReason);
+      const taskChanged=snapshot.tasks.some(t=>!previous.tasks.some(p=>p.id===t.id)||t.dismissed!==previous.tasks.find(p=>p.id===t.id)?.dismissed||t.retriedBy!==previous.tasks.find(p=>p.id===t.id)?.retriedBy);
+      const blockedChanged=snapshot.executors?.some(e=>(e.state==="blocked")!==(previous.executors?.find(p=>p.id===e.id)?.state==="blocked"));
+      const initiated=snapshotStrategy(snapshot)!==snapshotStrategy(previous) || taskChanged || blockedChanged;
       if(initiated){userOutcome=true;if(cancelRender){cancelRender();cancelRender=null;}}
       store.replace(snapshot);
     };
     const acceptSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
-      httpFailures = 0;
+      apiFailures = 0;
       lastSeenAt = deps.nowS();
       if (!reachable) { reachable = true; scheduleRender(true); }
       replaceSnapshot(snapshot);
@@ -204,17 +195,17 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const connect = async () => {
       const chosen = await chooseTransport(transports, settings.transport);
       if (stopped) return;
-      active = chosen.transport; reachable = chosen.reachable && active?.id !== "bridge";
+      active = chosen.transport; reachable = chosen.reachable && !!active;
       if (reachable) lastSeenAt = deps.nowS(); store.transport = active?.id ?? null;
       if (!active) {
         scheduleRender();
         cancelRetry = timers.after(settings.pollSeconds * 1000, () => { cancelRetry = null; void ensureConnected(); });
         return;
       }
-      const snapshot = await active.snapshot().catch(() => null) ?? await bridge.snapshot();
+      const snapshot = await active.snapshot().catch(() => null);
       if (stopped) return;
       if (snapshot) replaceSnapshot(snapshot);
-      stopWatch = active.watch(e => { if (!stopped) { lastSeenAt = deps.nowS(); store.apply(e); } }, active.id === "bridge" ? replaceSnapshot : acceptSnapshot, () => { void handleHttpFailure().catch(logError); });
+      stopWatch = active.watch(e => { if (!stopped) { lastSeenAt = deps.nowS(); store.apply(e); } }, acceptSnapshot, () => { void handleApiFailure().catch(logError); });
       scheduleRender();
     };
     function ensureConnected(): Promise<void> {
@@ -225,41 +216,17 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       }
       return connecting;
     }
-    const handleHttpFailure = async () => {
-      const failures = ++httpFailures;
-      const snapshot = await bridge.snapshot();
-      if (snapshot) replaceSnapshot(snapshot);
-      if (stopped || active?.id !== "http") return;
+    const handleApiFailure = async () => {
+      const failures = ++apiFailures;
+      if (stopped || active?.id !== "api") return;
       reachable = false;
       if (lastSeenAt !== undefined) timers.after(Math.max(0, (20 - (deps.nowS()-lastSeenAt))*1000), scheduleRender);
       if (failures >= 3) {
-        stopWatch?.(); stopWatch = null; httpFailures = 0;
+        stopWatch?.(); stopWatch = null; apiFailures = 0;
         await ensureConnected();
       }
       scheduleRender();
     };
-    const refreshSnapshot = async () => {
-      try {
-        const snapshot = await active?.snapshot().catch(() => null);
-        if (snapshot) { if (active?.id === "bridge") replaceSnapshot(snapshot); else acceptSnapshot(snapshot); }
-        else if (active?.id === "http") await handleHttpFailure();
-        else { const fallback = await bridge.snapshot(); if (fallback) replaceSnapshot(fallback); }
-      } catch (e) { logError(e); }
-    };
-    // Re-probe higher priority transports so a recovered server replaces the bridge.
-    let probing = false;
-    timers.every(settings.pollSeconds * 1000, () => {
-      if (stopped || probing || connecting || active?.id === "http" || active?.id === "api") return;
-      probing = true;
-      void (async () => {
-        if (active?.id === "channel") await refreshSnapshot();
-        if (stopped || settings.transport !== "auto") return;
-        const chosen = await chooseTransport(transports, settings.transport);
-        if (stopped || chosen.transport?.id === active?.id) return;
-        stopWatch?.(); stopWatch = null;
-        await ensureConnected();
-      })().catch(logError).finally(() => { probing = false; });
-    });
     void ensureConnected();
   }
   return {

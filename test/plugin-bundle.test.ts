@@ -20,5 +20,5 @@ test("worker bundle has no console or terminal calls", async () => {
 });
 
  test("plugin auto transport order omits legacy HTTP",async()=>{
- const {TRANSPORT_ORDER}=await import("../orca-plugin/src/transports/choose");expect(TRANSPORT_ORDER).toEqual(["api","channel","bridge"]);
+ const {TRANSPORT_ORDER}=await import("../orca-plugin/src/transports/choose");expect(TRANSPORT_ORDER).toEqual(["api"]);
  });

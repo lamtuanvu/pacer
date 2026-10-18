@@ -5,7 +5,7 @@ import { callOp } from "../src/api/ops";
 import { helloBody, toApiError } from "../src/api/protocol";
 import { eventsSince } from "../src/api/events";
 import { loadStrategy } from "../src/config/strategy";
-import { emptySnapshot, parseEnvelope, reduce } from "../src/link/envelope";
+import { emptySnapshot, parseOutboxEvent, reduce } from "../src/link/envelope";
 import * as config from "../src/core/config";
 import * as setup from "../src/core/setup";
 import { fakeCtx } from "./helpers";
@@ -88,7 +88,7 @@ test("plugin installation and notifications round-trip", async () => {
 
 test("version.get, service.status and hello describe the additive capabilities", async () => {
   const ctx = await configured();
-  expect(await callOp(ctx, "version.get", {})).toMatchObject({ pacer: expect.any(String), protocol: "2.9.0", service: { installed: false, running: false } });
+  expect(await callOp(ctx, "version.get", {})).toMatchObject({ pacer: expect.any(String), protocol: "3.0.0", service: { installed: false, running: false } });
   expect(await callOp(ctx, "service.status", {})).toEqual({ installed: false, running: false });
   expect(helloBody().events).toContain("config");
 });
@@ -112,11 +112,11 @@ test("failed planner installation rolls back without publishing", async () => {
 
 test("config envelopes validate and advance the sequence without changing snapshot content", () => {
   const snapshot = emptySnapshot();
-  const envelope = parseEnvelope({v: 1, type: "config", data: {area: "setup", at: 42}});
-  expect(envelope).toEqual({v: 1, type: "config", data: {area: "setup", at: 42}});
+  const envelope = parseOutboxEvent({type: "config", data: {area: "setup", at: 42}});
+  expect(envelope).toEqual({type: "config", data: {area: "setup", at: 42}});
   expect(reduce(snapshot, envelope!, 42)).toEqual({...snapshot, seq: 1, at: 42});
-  expect(parseEnvelope({v: 1, type: "config", data: {area: "setup"}})).toBeNull();
-  expect(parseEnvelope({v: 1, type: "future", data: {}})).toBeNull();
+  expect(parseOutboxEvent({type: "config", data: {area: "setup"}})).toBeNull();
+  expect(parseOutboxEvent({type: "future", data: {}})).toBeNull();
 });
 
 test("cookie config-set restricts terminal presets while bearer and CLI allow templates", async () => {

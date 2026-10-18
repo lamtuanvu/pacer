@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { ApiError, connectClient, InProcessClient } from "../src/api/client";
-import { liveSnapshot } from "../src/api/events";
+import { liveV2Snapshot as liveSnapshot } from "../src/api/events";
 import { publish } from "../src/link/publish";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
@@ -24,7 +24,7 @@ test("liveSnapshot refreshes capacity status while preserving fresh budgets and 
     const a = await liveSnapshot(ctx, { status });
     expect(calls).toBe(1);
     expect(a.snapshot.budget?.generatedAt).toBe(ctx.now);
-    await publish(ctx, [{ v: 1, type: "budget", data: a.snapshot.budget! }], { bridge: false, channel: false });
+    await publish(ctx, [{ type: "budget", data: a.snapshot.budget! }]);
     await liveSnapshot({ ...ctx, now: ctx.now + 30 }, { status });
     expect(calls).toBe(2);
     await liveSnapshot({ ...ctx, now: ctx.now + 120 }, { status });
@@ -39,14 +39,14 @@ test("liveSnapshot refreshes capacity status while preserving fresh budgets and 
 test("InProcessClient calls ops, maps errors and streams events", async () => {
   const ctx = await ctxWithStrategy();
   const client = new InProcessClient(() => ctx, { pollMs: 20, status: fakeStatus(ctx.now) });
-  expect((await client.hello()).protocol).toBe("2.9.0");
+  expect((await client.hello()).protocol).toBe("2.8.0");
   const err = await client.call("task.get", { id: "missing" }).catch((e) => e);
   expect(err).toBeInstanceOf(ApiError);
   if (!(err instanceof ApiError)) throw new Error("expected an ApiError");
   expect(err.code).toBe("unknown_task");
   const seen: string[] = [];
   const stop = client.subscribe(0, (e) => seen.push(e.type));
-  await publish(ctx, [{ v: 1, type: "alert", data: { key: "k", level: "info", title: "t", body: "", at: ctx.now } }], { bridge: false, channel: false });
+  await publish(ctx, [{ type: "alert", data: { key: "k", level: "info", title: "t", body: "", at: ctx.now } }]);
   const end = Date.now() + 2000; while (!seen.length && Date.now() < end) await Bun.sleep(10);
   stop(); client.close();
   expect(seen).toEqual(["alert"]);

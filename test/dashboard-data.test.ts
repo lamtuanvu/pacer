@@ -35,7 +35,7 @@ test("cmdToOp maps exactly the op-backed commands", () => {
   expect(cmdToOp(block)).toEqual({ op: "runner.block", params: { id: "codex", for: "1h", reason: "reserved" } });
   expect(cmdToOp({ cmd: "unblock", executor: "codex" })).toEqual({ op: "runner.unblock", params: { id: "codex" } });
   expect(cmdToOp({ cmd: "use", strategy: "night" })).toEqual({ op: "strategy.use", params: { name: "night" } });
-  for (const cmd of ["focus", "refresh", "agent-done", "worktree-created"] as const) expect(cmdToOp({ cmd })).toBeNull();
+  for (const cmd of ["focus", "refresh"] as const) expect(cmdToOp({ cmd })).toBeNull();
 });
 
 test("op errors become pacer: messages; unmapped commands use the fallback", async () => {

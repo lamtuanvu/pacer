@@ -4,9 +4,6 @@ import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { readJson } from "../fsutil";
 import { DEFAULT_PORT } from "../serve/http";
-import { pluginInstalled } from "./bridge";
-import { detectChannel } from "./channel";
-import { liveConsole, parseSnapshot } from "./envelope";
 import { pluginDataDir } from "./paths";
 import { publish } from "./publish";
 import { currentSnapshot } from "./store";
@@ -14,14 +11,10 @@ import { currentSnapshot } from "./store";
 export async function linkCli(args: string[], ctx: Ctx): Promise<Result> {
   if (args.length !== 1 || !["status", "probe"].includes(args[0])) return { code: 2, out: "", err: "usage: pacer link status|probe\n" };
   if (args[0] === "probe") {
-    const report = await publish(ctx, [{ v: 1, type: "alert", data: { key: "probe", level: "info", title: "pacer link probe", body: `sent at ${new Date(ctx.now * 1000).toISOString()}`, at: ctx.now } }]);
+    const report = await publish(ctx, [{ type: "alert", data: { key: "probe", level: "info", title: "pacer link probe", body: `sent at ${new Date(ctx.now * 1000).toISOString()}`, at: ctx.now } }]);
     return { code: report.errors.length ? 1 : 0, out: `${JSON.stringify(report, null, 2)}\n`, err: "" };
   }
   const snapshot = currentSnapshot(ctx);
-  const file = join(pluginDataDir(ctx), "storage.json");
-  const bridge = readJson<{ link?: unknown }>(file);
-  const linked = parseSnapshot(bridge?.link);
-  const bridgeText = pluginInstalled(ctx) ? `${file} exists=${existsSync(file)}${linked ? ` link.at=${linked.at} age=${Math.max(0, ctx.now - linked.at)}s` : " link unavailable"}` : "plugin not installed";
   const settings = readJson<Record<string, unknown>>(join(pluginDataDir(ctx), "settings.json"));
   const port = typeof settings?.port === "number" && Number.isInteger(settings.port) && settings.port > 0 && settings.port <= 65535 ? settings.port : DEFAULT_PORT;
   const pacerHome = typeof settings?.pacerHome === "string" && settings.pacerHome.startsWith("/") ? settings.pacerHome : ctx.pacerHome;
@@ -38,8 +31,5 @@ export async function linkCli(args: string[], ctx: Ctx): Promise<Result> {
       await response.body?.cancel();
     }
   } catch (e) { serve = `not reachable (${e instanceof Error ? e.message : String(e)})`; }
-  let channel = "not available";
-  try { if (await detectChannel(ctx)) channel = "available"; } catch (e) { channel += ` (${e instanceof Error ? e.message : String(e)})`; }
-  const console = liveConsole(snapshot, ctx.now);
-  return { code: 0, out: `outbox: seq=${snapshot.seq} at=${snapshot.at}\nbridge: ${bridgeText}\nserve: ${serve} (${url})\nchannel: ${channel}\nconsole: ${console?.handle ?? "not running"}\n`, err: "" };
+  return { code: 0, out: `outbox: seq=${snapshot.seq} at=${snapshot.at}\nserve: ${serve} (${url})\n`, err: "" };
 }
