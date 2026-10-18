@@ -1,5 +1,4 @@
 import type { Route } from '../router';
-import { Setup } from './Setup';
 import { Overview } from './Overview';
 import { Review } from './Review';
 import { SettingsGeneral, RemoteHosts, HostDetail, AddExecutor } from './settings/index';
@@ -13,8 +12,6 @@ export function Screen({route}:{route:Route}) {
  case 'settings': return <SettingsGeneral section={route.section}/>;
  case 'hosts': return route.alias?<HostDetail key={route.alias} alias={route.alias}/>:<RemoteHosts/>;
  case 'add-executor': return <AddExecutor host={route.host}/>;
- case 'setup': return <Setup/>;
  case 'loading': return null;
- default: return <section><h1>Page not found</h1><a href="#/">Go to Overview</a></section>;
  }
 }
