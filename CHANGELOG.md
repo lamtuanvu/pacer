@@ -35,6 +35,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Durable outbox events are named `OutboxEvent` and omit `v`; pre-upgrade v3 event cursors receive `reset` and must fetch a fresh snapshot.
 - The owner waived the v1 retirement release gate on 2026-10-18. The next minor release removes the v2 adapter, routes, reference document and `hello.previous`.
 
+### Fixed
+
+- `pacer serve` answers right after a restart. Clients replaying events from cursor 0 made the service read every task file once per outbox event, blocking all requests for over a minute on a large home; task events are now enriched in one batch. While the first status is still being computed, snapshots answer within a second with `service.starting: true` instead of waiting.
+
 ## [0.2.3] - 2026-10-16
 
 ### Fixed
