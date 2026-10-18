@@ -25,7 +25,10 @@ export function isTaskId(id: string): boolean {
 export function createTask(
   ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number },
 ): TaskRecord {
-  const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, state: "queued", attempts: [] };
+  // Ids carry only two random bytes per second; never reuse one already on disk.
+  let id = newTaskId(ctx.now);
+  for (let i = 0; i < 64 && existsSync(taskFile(ctx, id)); i++) id = newTaskId(ctx.now);
+  const task: TaskRecord = { rev: 1, id, createdAt: ctx.now, ...input, state: "queued", attempts: [] };
   writeJsonAtomic(taskFile(ctx, task.id), task);
   return task;
 }

@@ -174,3 +174,12 @@ test("activeHooks without classifier preserve default kind and executor lists", 
     expect(await activeHooks.filterExecutors(ctx, t, ["cheap", "codex"], s)).toEqual(await defaultHooks.filterExecutors(ctx, t, ["cheap", "codex"], s));
   }
 });
+
+test("hook caches never mix tasks from different pacer homes that share an id", async () => {
+  const hooks = makeClassifierHooks({ loadStrategy: () => strategy() });
+  const a = fakeCtx(), b = fakeCtx();
+  const first = task(a, null);
+  const twin = { ...first, kind: "tests" };
+  expect(await hooks.taskKind(a, first)).toBeNull();
+  expect(await hooks.taskKind(b, twin)).toBe("tests");
+});
