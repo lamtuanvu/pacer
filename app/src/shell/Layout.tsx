@@ -1,10 +1,11 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useContext, useEffect, useState } from "preact/hooks";
 import { Mark } from "../ds/Mark";
 import type { StoreState } from "../data/store";
 import type { Route } from "../router";
 import { Rail } from "./Rail";
-import { SettingsPanel } from "./SettingsPanel";
+import { TaskContext } from "../screens/task-shared";
+import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
 import { TopBar } from "./TopBar";
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
@@ -18,13 +19,14 @@ function Skeleton() {
 /** Rail, optional settings panel, top bar and main. Screens render inside main. */
 export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   if (state.sessionEnded) return <main className="session-ended"><Mark /><h1>Session ended.</h1><p>Run <code>pacer open</code>.</p></main>;
+  const context = useContext(TaskContext), Panel = context ? SettingsPanelData : SettingsPanel;
   const counts = state.snapshot?.counts ?? null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   return <div className="pc-app">
     <a href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</a>
     <Rail route={route} counts={counts} />
-    {SETTINGS.has(route.name) && <SettingsPanel route={route} counts={counts} />}
+    {SETTINGS.has(route.name) && <Panel route={route} counts={counts} snapshot={state.snapshot} />}
     <div className="pc-work">
       <TopBar title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} />
       <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>

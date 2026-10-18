@@ -88,3 +88,31 @@ test('existing app plus all U3 exports stays within the shared 60 KB gzip budget
 test('a passed host connection check cannot make an executor Ready',()=>{
  expect(executorReady({...job,kind:'host.check',state:'passed'})).toBe(false);
 });
+
+test('Accounts show usage words, sign-in pills, used-by and sign-in commands only in a disclosure',()=>{
+ const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id],signin_command:'CODEX_HOME=$HOME/.codex-team codex login'},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'}];
+ const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
+ const html=render(<SettingsGeneral initialData={{...settings,accounts}}/>,s);
+ expect(html).toContain('17% of week · resets Mon');expect(html).not.toContain('ON_PACE');
+ expect(html).toMatch(/pc-pill[^>]*>Signed in<\/span>/);expect(html).toMatch(/pc-pill[^>]*>No subscription<\/span>/);expect(html).toMatch(/pc-pill[^>]*>Unknown<\/span>/);
+ expect(html).toContain('<th>Used by</th>');expect(html).toContain(executor.id);
+ expect(html).toMatch(/<details><summary>Fix sign-in<\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
+});
+
+test('multiple accounts always shows the threshold beside Spread and Fill, disabled only for Spread',()=>{
+ for(const mode of ['spread','fill']) {
+  const html=render(<SettingsGeneral initialData={{...settings,config:{...settings.config,keys:{...settings.config.keys,'pacing.accounts':{value:mode}}}}}/>);
+  expect(html).toContain('class="u3-accounts-mode"');
+  expect(html).toContain('Move to the next account at');
+  expect(html).toContain('% used');
+  expect(html).toMatch(mode==='spread'?/max="100" disabled value="80"/:/max="100" value="80"/);
+ }
+});
+
+test('settings navigation pluralises rule counts',()=>{
+ for(const count of [1,3]) {
+  const rules=Array.from({length:count},()=>settings.routing.rules[0]!);
+  const html=render(<SettingsGeneral initialData={{...settings,routing:{...settings.routing,rules}}}/>);
+  expect(html).toContain(`>${count} ${count===1?'rule':'rules'}</span>`);
+ }
+});

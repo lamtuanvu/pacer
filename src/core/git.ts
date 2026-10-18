@@ -27,3 +27,14 @@ export async function gitInfo(run: RunFn, repo: string): Promise<RepoInfo | { er
   const main=realpathSafe(dirname(common?resolve(repo,common):resolve(top,".git")));
   return { top, branch, sub, main, linked:realpathSafe(top)!==main, dirty: st.code === 0 && st.stdout.trim() !== "" };
 }
+
+/** UI-only reads must finish even when a RunFn does not enforce its timeout. */
+export async function boundedGitRead(run: RunFn, argv: string[], timeoutMs = 250) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => run(argv, timeoutMs)),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("git read timed out")), timeoutMs); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}

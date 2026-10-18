@@ -14,7 +14,7 @@ import { takeoverSession, type TakeoverState } from './takeover';
 import { SessionsList } from './SessionsList';
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
- return {id:task.id,goal:task.goal,state:task.state,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
+ return {id:task.id,title:task.title,goal:task.goal,state:task.state,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
  phase:task.progress?.phase,elapsed:task.attemptStartedAt?elapsed(Date.now()/1000-task.attemptStartedAt):undefined,
  changesSummary:task.progress?`${task.progress.files} files · ${task.progress.commits} commits`:undefined};
 }
@@ -33,8 +33,7 @@ export function SessionRoute({id}:{id:string}) {
  const [shortcutError,setShortcutError]=useState('');
  const [takeoverBusy,setTakeoverBusy]=useState(false),[takeoverStarting,setTakeoverStarting]=useState(false),[takeoverError,setTakeoverError]=useState(''),[takeRequested,setTakeRequested]=useState(false);
  const takeoverState=useRef<TakeoverState>(),takeoverAbort=useRef<AbortController>();
- const revision=JSON.stringify([state.snapshot?.tasks.find(t=>t.id===id),state.activity.filter(e=>e.taskId===id)]);
- const task=useQuery<TaskDetail>('task.get',{id},revision),session=useQuery<SessionInfo>('task.session',{id},revision),diff=useQuery<{diff:string;untracked:string[];truncated:boolean}>('task.diff',{id},revision);
+ const task=useQuery<TaskDetail>('task.get',{id}),session=useQuery<SessionInfo>('task.session',{id}),diff=useQuery<{diff:string;untracked:string[];truncated:boolean}>('task.diff',{id});
  const takeOver=async(initial?:TakeoverState)=>{
   if(takeoverAbort.current)return;
   const abort=new AbortController();takeoverAbort.current=abort;
