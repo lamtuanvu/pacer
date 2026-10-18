@@ -62,7 +62,7 @@ function Running({ snapshot, scope, now, runner }: { snapshot: ClientSnapshot; s
         ? <><span className="muted">{t.queue?.reason === "no_slot" ? "waiting for a slot" : "queued"}</span><ActionButton runner={runner} id={`${t.id}:stop`} action={{ label: "Stop", op: "task.stop", params: { id: t.id } }} confirmDone={s => !s.snapshot?.tasks.some(x => x.id === t.id && x.state === "queued")} /></>
         : <>{t.attemptStartedAt && <span className="muted">{elapsed(now - t.attemptStartedAt)}</span>}
           {t.progress && <span className="muted">{t.progress.files} files · {t.progress.commits} commits</span>}
-          {lastOutput(t, now)}<a className="pc-btn pc-btn--secondary pc-btn--sm" href={`#/sessions/${encodeURIComponent(t.id)}`}>Watch</a></>}
+          {lastOutput(t, now)}<a className="pc-btn pc-btn--secondary pc-btn--sm" href={`#/sessions/${encodeURIComponent(t.id)}`}>Watch</a><ActionButton runner={runner} id={`${t.id}:takeover`} action={{label:"Take over",op:"task.takeover",params:{id:t.id}}}/></>}
     </div>)}
     {!rows.length && <p className="muted">Nothing running. Delegate a task, or ask your planner to.</p>}
   </section>;

@@ -98,3 +98,29 @@ test('task query revisions ignore unrelated snapshot, configuration and activity
     expect(queryRevision({ ...unrelated, activity: [{ id: 'a-2', taskId: task.id }] as typeof state.activity }, op, { id: task.id })).not.toBe(revision);
   }
 });
+
+test('takeover data is cached during refresh and remains isolated by task', async () => {
+  const api = deferredApi(), states: QueryState<string>[] = [];
+  const query = createQuery(api.call, state => states.push(state));
+  const one = JSON.stringify({ id: 'one' }), two = JSON.stringify({ id: 'two' });
+  query.update('task.session', one, '1');
+  api.calls[0]!.resolve('read-only');
+  await settle();
+  query.update('task.session', one, '2');
+  query.setData('task.session', one, 'driving');
+  expect(states.at(-1)).toEqual({ data: 'driving', error: undefined, loading: true });
+  query.update('task.session', one, '2');
+  expect(states.at(-1)?.data).toBe('driving');
+  expect(api.calls).toHaveLength(2);
+  query.update('task.session', two, '1');
+  const count = states.length;
+  query.setData('task.session', one, 'driving update');
+  expect(states).toHaveLength(count);
+  api.calls[1]!.resolve('refreshed driving');
+  api.calls[2]!.resolve('other task');
+  await settle();
+  expect(states.at(-1)?.data).toBe('other task');
+  query.dispose();
+  query.setData('task.session', two, 'ignored');
+  expect(states.at(-1)?.data).toBe('other task');
+});

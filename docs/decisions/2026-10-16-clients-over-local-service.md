@@ -25,7 +25,7 @@ The protocol to share already exists. The v2 client protocol
 (`PROTOCOL_VERSION` in `src/api/protocol.ts`, operations in `src/api/ops.ts`)
 is served over HTTP and SSE by `pacer serve` and over JSON-RPC by
 `pacer api --stdio`. The older v1 envelope in `src/link/envelope.ts` is the Orca
-link transport, scheduled for retirement by the core contract.
+link transport, retired with protocol 3.0 on 2026-10-18.
 
 The planner is not fixed: `PLANNERS` in `src/config/strategy.ts` lists
 `claude-code`, `codex`, `cursor` and `opencode`.
@@ -117,8 +117,13 @@ The planner is not fixed: `PLANNERS` in `src/config/strategy.ts` lists
   a small standalone helper for users who do not want the app.
 - Who owns system notifications when several clients are open, so the user
   is not notified twice.
-- When the v1 Orca link (`src/link/envelope.ts`) is retired and the Orca panel
-  moves fully to the v2 API.
+## Retirement decision (2026-10-18)
+
+The v1 Orca link is retired with protocol 3.0. The owner waived the release
+gate; the Orca panel, TUI and app already consume the read model. The storage
+bridge, channel sends, command lines, console and unversioned read routes are
+removed. `/v2` is served through the compatibility adapter for one more pacer
+minor release, then removed along with `hello.previous` and its reference doc.
 
 ## Revisit when
 

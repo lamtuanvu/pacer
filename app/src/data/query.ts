@@ -37,6 +37,12 @@ export function createQuery<T>(call: (op: string, params: unknown) => Promise<T>
       }
       emit(entry);
     },
+    setData(op: string, serialized: string, data: T) {
+      const entry = entries.get(JSON.stringify([op, serialized]));
+      if (!entry || disposed) return;
+      entry.state = { ...entry.state, data, error: undefined };
+      emit(entry);
+    },
     dispose() { disposed = true; },
   };
 }

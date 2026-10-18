@@ -31,3 +31,25 @@ test('Sessions list uses short titles and ended outcomes or diffstats, reserving
  expect(html).toContain('Short title');expect(html).not.toContain(ended.goal);expect(html).toContain('Failed');expect(html).toContain('3 files · +12 −4');expect(html).not.toContain('Changes and output pending');
  expect(renderToString(<SessionsList running={{data:[{...data,changesSummary:undefined}]}}/>)).toContain('Changes and output pending');
 });
+test('takeover stays visible with the service refusal reason',()=>{
+ const html=renderToString(<Session data={{...data,session:{...data.session!,host:'none',takeover:{available:false,reason:'No agent session id'}}}}/>);
+ expect(html).toMatch(/disabled[^>]*title="No agent session id"|title="No agent session id"[^>]*disabled/);
+ expect(html).toContain('Take over');
+});
+test('driving header and terminal explain hand back',async()=>{
+ const html=renderToString(<Session data={{...data,phase:'driving',session:{...data.session!,driving:true}}}/>);
+ expect(html).toContain('>Driving<');expect(html).toContain("You're driving · keystrokes go to the agent");expect(html).not.toContain('Take over');
+ const {TerminalView}=await import('../app/src/term/term');
+ const {TerminalControls}=await import('../app/src/term/term');
+ const terminal=renderToString(<TerminalControls control live driving state={{status:'live',you:true,controller:'app',cols:120,rows:40,viewers:1}} onControl={()=>{}}/>);
+ expect(terminal).toContain('Hand back');expect(terminal).toContain('Ends this session and sends the task to review');
+});
+test('takeover startup and timeout keep progress and retry visible',()=>{
+ expect(renderToString(<Session data={data} takeoverStarting takeoverBusy/>)).toContain('Starting interactive session…');
+ const html=renderToString(<Session data={data} takeoverError="Interactive session did not start within 30 seconds." onTakeover={()=>{}}/>);
+ expect(html).toContain('role="alert"');expect(html).toContain('Try again');
+ const builtin=renderToString(<Session data={{...data,session:{...data.session!,takeover:{available:false,reason:'Already interactive'}}}}/>);
+ expect(builtin).toContain('title="Already interactive"');
+ expect(renderToString(<Session data={{...data,phase:'driving'}}/>)).toContain('>Driving<');
+ expect(renderToString(<Session data={{...data,phase:undefined,session:{...data.session!,driving:true}}}/>)).toContain('>Driving<');
+});

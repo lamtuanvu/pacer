@@ -30,7 +30,8 @@ function fakeBin(name: string, script: string): string {
 }
 
 async function setup(name: string, script: string, o: { git?: boolean } = {}) {
-  const bin = fakeBin(name, script);
+  // Headless Cursor launches first ask for a chat id; these fakes have none.
+  const bin = fakeBin(name, name === "cursor-agent" ? `[ "$1" = create-chat ] && exit 1\n${script}` : script);
   const repo = o.git ? gitRepo() : tmpDir();
   const ctx = fakeCtx({ ...(o.git ? { run: realRun } : {}), env: { PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME } });
   const task = createTask(ctx, { brief: { goal: "Do it", repo }, kind: null, requestedExecutor: null, timeoutS: 30 });

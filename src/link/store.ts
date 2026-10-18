@@ -6,12 +6,12 @@ import { appendFileSync, readdirSync, existsSync, readFileSync, rmSync, statSync
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
-import { type ConsoleData, type Envelope, LIMITS, type LinkSnapshot, emptySnapshot, parseEnvelope, parseSnapshot } from "./envelope";
+import { type ConsoleData, type OutboxEvent, LIMITS, type LinkSnapshot, emptySnapshot, parseOutboxEvent, parseSnapshot } from "./envelope";
 import { consolePath, consolesDir, latestPath, linkDir, outboxPath } from "./paths";
 import { list as listStrategies } from "../strategy/service";
 export const OUTBOX_MAX_BYTES = 1024 * 1024;
 export const OUTBOX_KEEP = 1000;
-export interface OutboxEntry { seq:number; at?:number; envelope:Envelope }
+export interface OutboxEntry { seq:number; at?:number; envelope:OutboxEvent }
 export function readLatest(ctx:Ctx):LinkSnapshot { return parseSnapshot(readJson<unknown>(latestPath(ctx)))??emptySnapshot(); }
 export function pidAlive(pid:number):boolean { try { process.kill(pid,0); return true; } catch(e) { return (e as NodeJS.ErrnoException).code==="EPERM"; } }
 export function readConsole(ctx:Ctx, alive:(pid:number)=>boolean=pidAlive):ConsoleData|null {
@@ -118,11 +118,11 @@ export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapsh
   return {...readLatest(ctx),serviceInstalled:serviceInstalled(ctx),consoles,console:consoles[0] ?? (() => { const c = readConsole(ctx,alive); return c && consoleVersionCurrent(c) ? c : null; })(),strategies:listStrategies(ctx)};
 }
 export function appendOutbox(ctx:Ctx,entries:OutboxEntry[]):void {
-  if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true}); const p=outboxPath(ctx); appendFileSync(p,entries.map(e=>`${JSON.stringify(e)}\n`).join(""));
+  if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true}); const p=outboxPath(ctx); appendFileSync(p,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join(""));
   if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) { const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP); writeFileSync(`${p}.tmp`,`${lines.join("\n")}\n`); renameSync(`${p}.tmp`,p); }
 }
 export function readOutboxSince(ctx:Ctx,seq:number):OutboxEntry[] {
   const p=outboxPath(ctx); if(!existsSync(p))return []; const out:OutboxEntry[]=[];
-  for(const line of readFileSync(p,"utf8").split("\n")) { if(!line)continue; try { const raw=JSON.parse(line) as {seq?:unknown;at?:unknown;envelope?:unknown}; const envelope=parseEnvelope(raw.envelope); if(typeof raw.seq==="number"&&raw.seq>seq&&envelope)out.push({seq:raw.seq,...(typeof raw.at==="number"?{at:raw.at}:{}),envelope}); } catch { /* skip torn line */ } }
+  for(const line of readFileSync(p,"utf8").split("\n")) { if(!line)continue; try { const raw=JSON.parse(line) as {seq?:unknown;at?:unknown;envelope?:unknown}; const envelope=parseOutboxEvent(raw.envelope); if(typeof raw.seq==="number"&&raw.seq>seq&&envelope)out.push({seq:raw.seq,...(typeof raw.at==="number"?{at:raw.at}:{}),envelope}); } catch { /* skip torn line */ } }
   return out;
 }

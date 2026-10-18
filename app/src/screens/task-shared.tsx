@@ -38,7 +38,7 @@ export function useQuery<T>(op: string, params: unknown, revision = "") {
     query.update(op, serialized, JSON.stringify([revision, invalidation, state.connected, version]));
   }, [query, op, serialized, revision, invalidation, state.connected, version]);
   const result = published?.key === JSON.stringify([op, serialized]) ? published.state : { loading: true };
-  return { ...result, updating: result.loading && result.data !== undefined, reload: () => reload(v => v + 1) };
+  return { ...result, updating: result.loading && result.data !== undefined, setData: (data: T) => query.setData(op, serialized, data), reload: () => reload(v => v + 1) };
 }
 export function useAction() {
   const runner = useActions();

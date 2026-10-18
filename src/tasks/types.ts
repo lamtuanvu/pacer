@@ -82,6 +82,8 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
 }
 
 export interface RunRef {
+  takeover?: boolean;
+  agentSession?: {id: string; source: "header" | "assigned" | "lookup"};
   host?: string;
   remoteDir?: string;
   remoteWorktree?: string;
@@ -109,6 +111,7 @@ export interface TaskRecord {
   rev: number;
   question?: { text: string; at: number; answer?: string; answeredAt?: number };
   run?: RunRef;
+  takeover?: {state: "starting" | "driving" | "ended"; at: number; sessionId: string; by?: string};
   progress?: Progress;
   resumeSpawnedAt?: number;
   review?: {accepted:boolean; kind:string|null; note:string|null; at:number};

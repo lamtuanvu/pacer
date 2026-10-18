@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { callV2Op } from "../src/api/v2-compat";
 import { callOp, OPS } from "../src/api/ops";
 import { toApiError } from "../src/api/protocol";
 import * as tasks from "../src/core/tasks";
@@ -41,7 +42,7 @@ test("retry verdict records rejection and requests the specified executor", asyn
 
 test("legacy accepted works through task.review and returns the reviewed task", async () => {
   const { ctx, task } = fixture();
-  expect(await callOp(ctx, "task.review", { id: task.id, accepted: true })).toMatchObject({ task: { id: task.id, rev: 3, review: { accepted: true } } });
+  expect(await callV2Op(ctx, "task.review", { id: task.id, accepted: true })).toMatchObject({ task: { id: task.id, rev: 3, review: { accepted: true } } });
 });
 
 for (const state of ["running", "queued"] as const) test(`reviewing ${state} conflicts without side effects`, async () => {
@@ -110,12 +111,12 @@ test("CLI retry-on passes executor and note to the review", async () => {
 });
 
 
-test("task.review schema requires a verdict or legacy accepted and verdict-specific fields", () => {
+test("v3 task.review schema requires a verdict and verdict-specific fields", () => {
   const schema = OPS["task.review"].params;
-  for (const input of [{}, { verdict: "send_back" }, { verdict: "retry" }]) {
+  for (const input of [{}, { accepted: false }, { verdict: "send_back" }, { verdict: "retry" }]) {
     expect(schema.safeParse({ id: "t-x", ...input }).success).toBe(false);
   }
-  for (const input of [{ accepted: false }, { verdict: "accept" }, { verdict: "send_back", note: "fix" }, { verdict: "retry", executor: "cursor" }]) {
+  for (const input of [{ verdict: "accept" }, { verdict: "send_back", note: "fix" }, { verdict: "retry", executor: "cursor" }]) {
     expect(schema.safeParse({ id: "t-x", ...input }).success).toBe(true);
   }
 });
