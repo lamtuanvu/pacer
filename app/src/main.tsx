@@ -9,6 +9,7 @@ import { attachKeyRegistry } from "./keys/registry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
+import { Review } from "./screens/Review";
 import { Overview } from "./screens/Overview";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
@@ -24,7 +25,7 @@ const TITLES: Record<Route["name"], string> = { overview: "Overview", review: "R
 function Screen({ route }: { route: Route }) {
   switch (route.name) {
     case "overview": return <Overview query={route.query} />;
-    case "review": return <section><p className="muted">Review is being rebuilt.</p></section>;
+    case "review": return <Review route={route} />;
     case "sessions": return route.id ? <TaskDetail id={route.id} /> : <Tasks />;
     case "settings": return <SettingsGeneral section={route.section} />;
     case "hosts": return <Hosts />;
