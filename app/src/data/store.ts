@@ -143,6 +143,8 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
   }
   return {
     getState: () => state,
+    /** Refetch the snapshot now (an action saw no event in time). */
+    refresh: () => refresh(),
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     start() { stopped = false; void refresh(); return () => { stopped = true; generation++; stream?.close(); clearTimeout(timer); }; },
   };
