@@ -5,11 +5,13 @@ import {loadStrategy,strategyPath} from '../config/strategy';
 import {StrategyDoc} from '../config/edit';
 import {listStrategies} from '../link/strategies';
 import type {Ctx} from '../types';
-import type {CmdData,LinkSnapshot} from '../link/envelope';
+import type {CmdData} from '../link/envelope';
+import type {ClientSnapshot} from '../view-model/snapshot';
+import {providers} from '../view-model/panel';
 import type {Result} from '../commands/types';
 import {moveSelection} from './input';
 export interface SettingsRow {id:string;section:string;text:string;reason?:string;run?:()=>Promise<unknown>}
-export interface SettingsDeps {ops?:()=>readonly string[];changed():void;report(text:string):void;command(data:CmdData):Promise<void>;login?:AccountDeps['login'];snapshot?:()=>LinkSnapshot}
+export interface SettingsDeps {ops?:()=>readonly string[];changed():void;report(text:string):void;command(data:CmdData):Promise<void>;login?:AccountDeps['login'];snapshot?:()=>ClientSnapshot}
 /** Terminal settings calls the same validated writers as the CLI. */
 export class DashboardSettings {
  open=false;selected=0;busy=false;pending:Promise<void>=Promise.resolve();
@@ -21,20 +23,23 @@ export class DashboardSettings {
  private async remove(kind:'account'|'runner',name:string){if(!/^y(?:es)?$/i.test(await this.ask(`Remove ${name}? y/N`)))return;await this.result((kind==='account'?accountCmd:runnerCmd)(['rm',name],this.ctx));}
  rows():SettingsRow[]{
   const s=loadStrategy(this.ctx),runners=Object.values(s.runners),rows:SettingsRow[]=[];
+  const snapshot=this.deps.snapshot?.(),ps=snapshot?providers(snapshot):[];
+  const blocked=(id:string)=>snapshot?.planner===undefined?!!ps.find(p=>p.id===id)?.blockedReason:snapshot.executors?.find(e=>e.id===id)?.state==='blocked';
   const add=(section:string,id:string,text:string,run?:SettingsRow['run'],reason?:string)=>rows.push({section,id,text,run,reason});
   const planner=runners.find(r=>r.agent===s.planner.agent&&r.account===s.planner.account)?.id??s.planner.agent;
   const choices=runners.filter(r=>['claude-code','codex','cursor','opencode'].includes(r.agent)&&!r.host).map(r=>r.id);
   add('Planner','planner',planner,()=>this.set('planner',choices[(choices.indexOf(planner)+1)%choices.length]??planner));
   for(const a of Object.values(s.accounts)){
-   const users=runners.filter(r=>r.account===a.name),p=this.deps.snapshot?.().budget?.providers.find(p=>p.account===a.name||users.some(r=>r.id===p.id));
+   const users=runners.filter(r=>r.account===a.name),p=ps.find(p=>p.account===a.name||users.some(r=>r.id===p.id)),usage=snapshot?.planner===undefined?p:snapshot.accounts?.find(row=>row.name===a.name);
+   const available=snapshot?.planner!==undefined&&usage&&'signedIn' in usage&&usage.signedIn===false?'Unavailable':p?(p.unavailableReason||p.brokenReason?'Unavailable':'Available'):'Sign-in state unknown';
    const reason=s.planner.account===a.name?"Planner — can't remove":users.length?`In use by ${users.map(r=>r.id).join(', ')}`:undefined;
-   add('Accounts',`account-${a.name}`,`${a.name} · ${a.kind} · ${a.source} · ${p?.usedPct==null?'Usage unknown':`${Math.round(p.usedPct)}% used`} · ${p?(p.unavailableReason||p.brokenReason?'Unavailable':'Available'):'Sign-in state unknown'} · Runners: ${users.map(r=>r.id).join(', ')||'None'}`,()=>this.remove('account',a.name),reason);
+   add('Accounts',`account-${a.name}`,`${a.name} · ${a.kind} · ${a.source} · ${usage?.usedPct==null?'Usage unknown':`${Math.round(usage.usedPct)}% used`} · ${available} · Runners: ${users.map(r=>r.id).join(', ')||'None'}`,()=>this.remove('account',a.name),reason);
   }
   const account=(link=false)=>this.result(accountCmd(['add',...(link?['--orca']:[])],this.ctx,{prompt:this.ask,login:this.deps.login,print:this.deps.report}));
   add('Accounts','account-add','Add account',()=>account());add('Accounts','account-link','Link Orca account',()=>account(true));
   for(const r of runners)add('Runners',`runner-${r.id}`,`${r.id} · ${r.agent} · ${r.account} · ${r.model??'default model'}`,()=>this.remove('runner',r.id),r.id===planner?"Planner — can't remove":runners.length<=1?'Last runner':undefined);
   add('Runners','runner-add','Add runner',()=>this.result(runnerCmd(['add'],this.ctx,{prompt:this.ask})));
-  for(const id of s.pacing.order){const blocked=!!this.deps.snapshot?.().budget?.providers.find(p=>p.id===id)?.blockedReason;add('Executors',`executor-${id}`,`${id} · ${blocked?'Disabled':'Enabled'} · [ / ] reorder`,()=>this.deps.command({cmd:blocked?'unblock':'block',executor:id}));}
+  for(const id of s.pacing.order){const disabled=blocked(id);add('Executors',`executor-${id}`,`${id} · ${disabled?'Disabled':'Enabled'} · [ / ] reorder`,()=>this.deps.command({cmd:disabled?'unblock':'block',executor:id}));}
   add('Executors','routing',`Routing: ${s.routing.map(r=>`${r.kinds?.join(', ')??'default'} → ${r.executors.join(', ')}`).join('; ')} · Edit routing`,()=>this.builder());
   const policies=['priority','even','burn-before-reset','cheapest-first'];
   add('Pacing','policy',`Policy: ${s.pacing.policy}`,()=>this.set('pacing.policy',policies[(policies.indexOf(s.pacing.policy)+1)%policies.length]));
@@ -52,7 +57,7 @@ export class DashboardSettings {
   return rows.filter(row=>{
    if(!row.run)return true;
    const id=row.id;
-   const op=id==='account-add'||id==='account-link'?'account.signin':id==='runner-add'?'runner.add':id.startsWith('account-')?'account.remove':id.startsWith('runner-')?'runner.remove':id.startsWith('executor-')?(this.deps.snapshot?.().budget?.providers.find(p=>p.id===id.slice(9))?.blockedReason?'runner.unblock':'runner.block'):id==='routing'||id==='strategy-new'?'strategy.build':id.startsWith('strategy-')?'strategy.use':id==='check-updates'?'update.check':id==='update'?'update.apply':'config.set';
+   const op=id==='account-add'||id==='account-link'?'account.signin':id==='runner-add'?'runner.add':id.startsWith('account-')?'account.remove':id.startsWith('runner-')?'runner.remove':id.startsWith('executor-')?(blocked(id.slice(9))?'runner.unblock':'runner.block'):id==='routing'||id==='strategy-new'?'strategy.build':id.startsWith('strategy-')?'strategy.use':id==='check-updates'?'update.check':id==='update'?'update.apply':'config.set';
    return supports(op);
   });
  }

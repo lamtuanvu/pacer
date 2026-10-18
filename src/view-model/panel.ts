@@ -1,18 +1,42 @@
-import { type LinkSnapshot, type ProviderLine, type TaskData } from "../link/envelope";
+import { type ProviderLine, type TaskData } from "../link/envelope";
+import type { ClientSnapshot } from "./snapshot";
+import { capacity, plannerMeter } from "./selectors";
 import { displayName, duration, backIn } from "./format";
 import { runnerLabel } from "../render/accounts";
 export const providerLabel=(p:ProviderLine)=>p.agent ? runnerLabel(p) : displayName(p.id);
-export function initialView(s: LinkSnapshot, reachable: boolean, now: number): "overview" | "setup" {
- return reachable && s.budget && [...(s.consoles ?? []), ...(s.console ? [s.console] : [])].some(c=>c.handle && now-c.heartbeatAt<=30) ? "overview" : "setup";
-}
 export { verdictWords, toneFor as tone } from "./words";
-export function rankedProviders(s: LinkSnapshot): ProviderLine[] {
- const b=s.budget;
- return (b?.ranked ?? []).filter((r,i,a)=>r.id!==b?.planner && a.findIndex(x=>x.id===r.id)===i).map(r => b?.providers.find(p=>p.id===r.id) ?? { ...r, usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false }).filter(p=>p.verdict!=="EXHAUSTED"&&!p.brokenReason&&!p.blockedReason&&!p.unavailableReason);
+/** Presentation rows for the existing panel and TUI. Only pre-read-model services use budget. */
+export function providers(s: ClientSnapshot): ProviderLine[] {
+ if(s.planner === undefined) return s.budget?.providers ?? [];
+ return capacity(s).map(e => {
+  const a=s.accounts?.find(a=>a.name===e.account);
+  return {id:e.id,agent:e.agent,account:e.account,usedPct:e.usedPct,pacePct:e.pacePct,
+   resetsAt:a?.resetsAt??null,window:a?.window??null,verdict:e.state==="exhausted"?"EXHAUSTED":a?.verdict??"UNKNOWN",stale:e.rank==="planner"?(plannerMeter(s)?.stale??false):false,
+   ...(e.state==="blocked"?{blockedReason:e.reason??"blocked"}:{}),
+   ...(e.state==="down"?{brokenReason:e.reason??"not available"}:{}),
+   ...(!e.enabled?{unavailableReason:e.reason??"disabled"}:{})};
+ });
 }
-export function mutedProviders(s: LinkSnapshot): ProviderLine[] {
- const ids=new Set(rankedProviders(s).map(p=>p.id));
- return (s.budget?.providers??[]).filter(p=>p.id!==s.budget?.planner&&!ids.has(p.id));
+export function plannerProvider(s: ClientSnapshot): ProviderLine | undefined {
+ if(s.planner === undefined) return s.budget?.providers.find(p=>p.id===s.budget?.planner);
+ const p=plannerMeter(s);
+ if(!p) return undefined;
+ const e=capacity(s).find(e=>e.id===p.runner);
+ return {id:p.runner,agent:p.agent,account:e?.account,usedPct:p.usedPct,pacePct:p.pacePct,resetsAt:p.resetsAt,window:p.window,stale:p.stale,
+  verdict:({behind:"BEHIND",on_pace:"ON_PACE",ahead:"AHEAD",out:"EXHAUSTED",unknown:"UNKNOWN"}[p.verdict])};
+}
+export function rankedProviders(s: ClientSnapshot): ProviderLine[] {
+ if(s.planner === undefined) {
+  const b=s.budget;
+  return (b?.ranked ?? []).filter((r,i,a)=>r.id!==b?.planner && a.findIndex(x=>x.id===r.id)===i).map(r => b?.providers.find(p=>p.id===r.id) ?? { ...r, usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false }).filter(p=>p.verdict!=="EXHAUSTED"&&!p.brokenReason&&!p.blockedReason&&!p.unavailableReason);
+ }
+ const rows=providers(s);
+ return capacity(s).filter(e=>e.rank!=="planner"&&e.enabled&&["ready","busy","full","failing","checking"].includes(e.state))
+  .sort((a,b)=>Number(b.next)-Number(a.next)||Number(a.rank)-Number(b.rank)).map(e=>rows.find(p=>p.id===e.id)!);
+}
+export function mutedProviders(s: ClientSnapshot): ProviderLine[] {
+ const ids=new Set(rankedProviders(s).map(p=>p.id)),planner=plannerProvider(s)?.id;
+ return providers(s).filter(p=>p.id!==planner&&!ids.has(p.id));
 }
 export function headline(p?: ProviderLine, _now=0): string {
  const name=p?.agent ? providerLabel(p) : "Claude";
@@ -24,8 +48,8 @@ export function headline(p?: ProviderLine, _now=0): string {
   default: return "Budget unknown.";
  }
 }
-export function answerDetail(s: LinkSnapshot, now: number): string {
- const p=s.budget?.providers.find(p=>p.id===s.budget?.planner), top=rankedProviders(s)[0];
+export function answerDetail(s: ClientSnapshot, now: number): string {
+ const p=plannerProvider(s), top=rankedProviders(s)[0];
  const parts:string[]=[];
  if(p?.usedPct!=null) parts.push(`${providerLabel(p)} has ${Math.round(100-p.usedPct)}% left${p.resetsAt==null?"":` with ${duration(p.resetsAt-now,true)} to go`}.`);
  else if(p?.resetsAt!=null) parts.push(`${providerLabel(p)} has ${duration(p.resetsAt-now,true)} to go.`);
@@ -40,7 +64,7 @@ export function providerDetail(p: ProviderLine, now: number): string {
  return p.verdict==="UNKNOWN" ? "No budget reported" : "No limit reported";
 }
 export interface AttentionGroup { count:number; goal:string; tasks:TaskData[]; latest:TaskData; stuck:boolean; retry:ProviderLine|null; attention?: import("../attention/types").AttentionItem; brokenExecutor?:string; brokenReason?:string }
-export function attentionGroups(s: LinkSnapshot, now: number): AttentionGroup[] {
+export function attentionGroups(s: ClientSnapshot, now: number): AttentionGroup[] {
  if(s.attention !== undefined) return s.attention.map(item => {
   const task = s.tasks.find(t => t.id === item.taskId);
   const retryAction = item.actions.find(action => action.op === "task.retry");

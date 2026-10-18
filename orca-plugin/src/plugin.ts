@@ -125,7 +125,7 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
       if (!deps.version) return updates;
       const cached = deps.cachedUpdate?.();
       const latest = cached?.latest ?? updates?.latest ?? null;
-      const cli = store.snapshot.console?.version ?? updates?.cli ?? null;
+      const cli = (store.snapshot.planner===undefined?store.snapshot.console?.version:store.snapshot.service?.version) ?? updates?.cli ?? null;
       const check = { checkedAt: deps.nowS(), latest, current: deps.version };
       return { plugin: deps.version, cli, latest, available: updateAvailable(check) || (!!cli && updateAvailable({...check,current:cli})) };
     };
@@ -190,7 +190,17 @@ export function createPlugin(deps: PluginDeps): { activate(ctx: OrcaWorkerContex
     const replaceSnapshot = (snapshot: Parameters<LinkStore["replace"]>[0]) => {
       if (stopped) return;
       const previous=store.snapshot;
-      const initiated=snapshot.budget?.strategy!==previous.budget?.strategy || snapshot.tasks.some(t=>!previous.tasks.some(p=>p.id===t.id)||t.dismissed!==previous.tasks.find(p=>p.id===t.id)?.dismissed||t.retriedBy!==previous.tasks.find(p=>p.id===t.id)?.retriedBy) || snapshot.alerts.some(a=>a.key==="strategy-build"&&!previous.alerts.some(p=>p.key===a.key&&p.at===a.at)) || snapshot.budget?.providers.some(p=>p.blockedReason!==previous.budget?.providers.find(x=>x.id===p.id)?.blockedReason);
+      const strategyName=(s:typeof snapshot)=>{
+        if(s.planner===undefined)return s.budget?.strategy;
+        const active=s.strategies?.find((x): x is import("../../src/link/envelope").StrategyData=>typeof x!=="string"&&x.active);
+        return active?.name;
+      };
+      const taskChanged=snapshot.tasks.some(t=>!previous.tasks.some(p=>p.id===t.id)||t.dismissed!==previous.tasks.find(p=>p.id===t.id)?.dismissed||t.retriedBy!==previous.tasks.find(p=>p.id===t.id)?.retriedBy);
+      const strategyBuilt=snapshot.planner===undefined && snapshot.alerts.some(a=>a.key==="strategy-build"&&!(previous.planner===undefined&&previous.alerts.some(p=>p.key===a.key&&p.at===a.at)));
+      const blockedChanged=snapshot.planner===undefined
+        ? snapshot.budget?.providers.some(p=>p.blockedReason!==(previous.planner===undefined?previous.budget?.providers.find(x=>x.id===p.id)?.blockedReason:undefined))
+        : snapshot.executors?.some(e=>(e.state==="blocked")!==(previous.executors?.find(p=>p.id===e.id)?.state==="blocked"));
+      const initiated=strategyName(snapshot)!==strategyName(previous) || taskChanged || strategyBuilt || blockedChanged;
       if(initiated){userOutcome=true;if(cancelRender){cancelRender();cancelRender=null;}}
       store.replace(snapshot);
     };
