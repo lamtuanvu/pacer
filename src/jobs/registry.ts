@@ -47,7 +47,7 @@ function jobChanged(ctx: Ctx, job: Job) {
   const safe=(text:string)=>redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
   const value={...job,steps:job.steps.map(s=>({...s,...(s.detail?{detail:safe(s.detail)}:{})})),...(job.error?{error:{...job.error,message:safe(job.error.message),...(job.error.hint?{hint:safe(job.error.hint)}:{})}}:{})};
   const home=resolve(ctx.pacerHome);
-  const pending=(publications.get(home)??Promise.resolve()).then(()=>publish(ctx,[{v:1,type:"entity",data:{kind:"job",id:job.id,value}}],{channel:false,bridge:false})).catch(()=>{});
+  const pending=(publications.get(home)??Promise.resolve()).then(()=>publish(ctx,[{type:"entity",data:{kind:"job",id:job.id,value}}])).catch(()=>{});
   publications.set(home,pending);
   void pending.finally(()=>{if(publications.get(home)===pending)publications.delete(home);});
 }

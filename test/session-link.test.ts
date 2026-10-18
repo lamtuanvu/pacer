@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { parseEnvelope, parseCmd, emptySnapshot } from '../src/link/envelope';
+import { parseOutboxEvent, emptySnapshot } from '../src/link/envelope';
 import { cards } from '../src/dashboard/model';
 import { viewerAction } from '../src/dashboard/input';
 import { sessionTaskData } from '../src/session/link';
@@ -8,17 +8,10 @@ import { createTask } from '../src/tasks/store';
 import { updateOrcaState } from '../src/exec/orca/state';
 test('session envelope clips labels and viewer counts and rejects unknown hosts',()=>{
  const base={id:'t',state:'running',updatedAt:0};
- const e=parseEnvelope({v:1,type:'task',data:{...base,session:{host:'builtin',live:true,controller:'a'.repeat(100),viewers:1000}}});
+ const e=parseOutboxEvent({type:'task',data:{...base,session:{host:'builtin',live:true,controller:'a'.repeat(100),viewers:1000}}});
  expect(e?.type==='task'&&e.data.session).toEqual({host:'builtin',live:true,controller:'a'.repeat(64),viewers:99});
- const bad=parseEnvelope({v:1,type:'task',data:{...base,session:{host:'evil',live:true}}});
+ const bad=parseOutboxEvent({type:'task',data:{...base,session:{host:'evil',live:true}}});
  expect(bad?.type==='task'&&bad.data.session).toBeUndefined();
-});
-test('attach requires taskId, validates target; focus remains valid',()=>{
- const cmd=(data:unknown)=>parseCmd({v:1,type:'cmd',data});
- expect(cmd({cmd:'attach'})).toBeNull();expect(cmd({cmd:'attach',taskId:'t',target:'tmux'})).toBeNull();
- expect(cmd({cmd:'attach',taskId:'t',target:'terminal'})?.data.target).toBe('terminal');
- expect(cmd({cmd:'attach',taskId:'t'})?.data.target).toBe('orca');
- expect(cmd({cmd:'focus',taskId:'t'})?.data.cmd).toBe('focus');
 });
 test('dashboard shows Attach and chooses here, terminal and tmux targets',()=>{
  const s=emptySnapshot();s.tasks=[{id:'t',state:'running',goal:'g',executor:null,backend:'direct',worktree:null,updatedAt:0,session:{host:'builtin',live:true,controller:null,viewers:0}}];

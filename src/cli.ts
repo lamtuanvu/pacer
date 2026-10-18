@@ -4,6 +4,7 @@ import { resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
+import { takeoverTask } from "./session/takeover";
 import { sessionHost } from "./session/host";
 import { attachDirectory, attachSession } from "./session/attach";
 import { createInterface } from "node:readline/promises";
@@ -62,6 +63,7 @@ const USAGE = `usage: pacer <command>
   executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   report --task <task-id> --outcome done|failed|needs-input|running --summary <text>
+  takeover <task-id> [--no-attach]
   attach <task-id> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
   answer <task-id> "<text>"                       answer a question and retry on the same executor
@@ -438,6 +440,17 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       if(rest.length!==1) return {code:2,out:"",err:"usage: pacer _session <run-dir>"};
       try {return {code:await sessionHost(rest[0]),out:"",err:""};}
       catch(e) {return {code:2,out:"",err:explain(e)};}
+    case "takeover": {
+      const {opts,pos}=parseFlags(rest,["no-attach"]);
+      if(pos.length!==1 || Object.keys(opts).some(k=>k!=="no-attach")) return {code:2,out:"",err:"usage: pacer takeover <task-id> [--no-attach]"};
+      try {
+        process.stderr.write("Taking over the headless run…\n");
+        const result=await takeoverTask(ctx,pos[0]);
+        process.stderr.write(`Take over: ${result.state}.\n`);
+        if(opts["no-attach"]===true || result.state!=="driving")return {code:result.state==="ended"?1:0,out:result.attach.cli,err:""};
+        return main(["attach",pos[0],"--control"],ctx);
+      }catch(e){return {code:2,out:"",err:explain(e)};}
+    }
     case "attach": {
       const {opts,pos}=parseFlags(rest,["replay","control","force"]);
       if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","control","force","attempt","open"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"};
