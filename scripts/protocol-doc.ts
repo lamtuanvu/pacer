@@ -90,7 +90,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
     "",
     "| Field | Contents |",
     "|---|---|",
-    "| `service` | Pacer version, protocol, process id and service start time |",
+    "| `service` | Pacer version, protocol, process id and service start time; `starting: true` while the service is still computing its first status after a restart (planner, accounts and executors fill in by event) |",
     "| `planner` | Planner runner and agent, used/pace percentages, delta, verdict, active hours left, reset, window, stale flag, mode and advice; null without a planner |",
     "| `executors` | Planner first, then default routing order: identity, account, host, model, rank, state, tone, usage, slots, recent failures and next flag |",
     "| `accounts` | Name, agent, source, usage, window, reset, verdict, sign-in state and executor ids; no credentials or emails |",

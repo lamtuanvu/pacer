@@ -1,5 +1,6 @@
-import { useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
+import { activeRepo, scopeRepo } from "../shell/narrow";
 import { withQuery, type RouteQuery } from "../router";
 
 export function repoChoices(snapshot: ClientSnapshot, active: string | null) {
@@ -28,12 +29,23 @@ export function RepoList({ snapshot, active, search, onSelect }: { snapshot: Cli
   </div>;
 }
 
-export function RepoFilter({ snapshot, query }: { snapshot: ClientSnapshot; query: RouteQuery }) {
+export function RepoFilter({ snapshot, query, narrow = false }: { snapshot: ClientSnapshot; query: RouteQuery; narrow?: boolean }) {
   const [open, setOpen] = useState(false), [search, setSearch] = useState("");
+  const lastRepo = useRef(query.repo);
+  if (query.repo) lastRepo.current = query.repo;
   const { all, chips } = repoChoices(snapshot, query.repo);
   const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); setOpen(false); };
+  if (narrow) {
+    const here = scopeRepo(query) ?? (query.repo || lastRepo.current) ?? null;
+    const selected = activeRepo(query);
+    const label = snapshot.repos?.find(repo => repo.key === here)?.label ?? here;
+    return <div className="pc-chips pc-scope-toggle" role="group" aria-label="Scope" id="repo-filter">
+      <button type="button" disabled={!here} className={`pc-chip pc-btn--touch${selected ? " on" : ""}`} aria-pressed={!!selected} onClick={() => go(here)}>This repo{label ? ` · ${label}` : ""}</button>
+      <button type="button" className={`pc-chip pc-btn--touch${!selected ? " on" : ""}`} aria-pressed={!selected} onClick={() => go("")}>All repos</button>
+    </div>;
+  }
   const chip = (repo: string | null, label: string, n?: number) =>
-    <button type="button" key={repo ?? "all"} className={`pc-chip${query.repo === repo ? " on" : ""}`} aria-pressed={query.repo === repo ? "true" : "false"} onClick={() => go(repo)}>{label}{n !== undefined && <> <span className="pc-chip__n">{n}</span></>}</button>;
+    <button type="button" key={repo ?? "all"} className={`pc-chip${(query.repo || null) === repo ? " on" : ""}`} aria-pressed={(query.repo || null) === repo ? "true" : "false"} onClick={() => go(repo)}>{label}{n !== undefined && <> <span className="pc-chip__n">{n}</span></>}</button>;
   return <div className="pc-filter">
     <div className="pc-chips" role="group" aria-label="Repository filter" id="repo-filter">
       {chip(null, "All repos")}

@@ -15,6 +15,7 @@ import { StatusGlyph } from "../ds/StatusGlyph";
 import { UsageMeter } from "../ds/UsageMeter";
 import { overviewHints } from "../keys/registry";
 import { keys } from "../keys/instance";
+import { activeRepo, NarrowContext, useNarrow } from "../shell/narrow";
 import { withQuery, type RouteQuery } from "../router";
 import { ActionButton } from "./ActionButton";
 import { QuickDelegate } from "./QuickDelegate";
@@ -31,9 +32,11 @@ function attentionTitle(item: AttentionItem, snapshot: ClientSnapshot): string {
   return item.title === task?.goal ? task.title ?? item.title : item.title;
 }
 
-function NeedsYou({ snapshot, scope, runner, now }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number }) {
+function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean }) {
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);
-  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><h2 id="needs-you">Needs you</h2>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" /><a href={withQuery("#/review", { repo: scope.repo, scope: null })}>Open review queue</a></div>
+  const otherRepos = others > 0 ? <a href={withQuery("#/", { ...query, repo: "" })}>+{others} in other repos</a> : null;
+  const reviewQueue = <a href={withQuery("#/review", { ...query, repo: scope.repo ?? query.repo })}>Open review queue</a>;
+  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><h2 id="needs-you">Needs you</h2>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{narrow && otherRepos ? otherRepos : reviewQueue}</div>
     {items.map(item => <div key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
       <StatusGlyph kind={BAD_KINDS.has(item.kind) ? "failed" : "waiting"} />
       {item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}
@@ -41,7 +44,7 @@ function NeedsYou({ snapshot, scope, runner, now }: { snapshot: ClientSnapshot; 
       <div className="row-actions">{item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} strong={i === 0} />)}</div>
     </div>)}
     {!items.length && <p className="muted">Nothing needs you.</p>}
-    {others > 0 && <a href={withQuery("#/", { repo: null, scope: null })}>+{others} in other repos</a>}
+    {narrow && otherRepos ? reviewQueue : otherRepos}
   </section>;
 }
 
@@ -56,7 +59,7 @@ function runningCount(snapshot: ClientSnapshot, scope: Scope, rows: ClientTask[]
   const queued = rows.filter(t => t.state === "queued").length;
   return queued ? `${n} · ${queued} queued` : String(n);
 }
-function Running({ snapshot, scope, now, runner }: { snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner }) {
+function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner; query: RouteQuery }) {
   const rows = running(snapshot, scope);
   return <section className="pc-card-section" aria-labelledby="running"><div className="pc-card-section__head"><h2 id="running">Running</h2><span className="muted">{runningCount(snapshot, scope, rows)}</span></div>
     {rows.map(t => <div key={t.id} className="pc-row">
@@ -68,29 +71,33 @@ function Running({ snapshot, scope, now, runner }: { snapshot: ClientSnapshot; s
         ? <><span className="muted">{t.queue?.reason === "no_slot" ? "waiting for a slot" : "queued"}</span><ActionButton runner={runner} id={`${t.id}:stop`} action={{ label: "Stop", op: "task.stop", params: { id: t.id } }} confirmDone={s => !s.snapshot?.tasks.some(x => x.id === t.id && x.state === "queued")} /></>
         : <>{t.attemptStartedAt && <span className="muted">{elapsed(now - t.attemptStartedAt)}</span>}
           {t.progress && <span className="muted">{t.progress.files} files · {t.progress.commits} commits</span>}
-          {lastOutput(t, now)}<a className="pc-btn pc-btn--secondary pc-btn--sm" href={`#/sessions/${encodeURIComponent(t.id)}`}>Watch</a><ActionButton runner={runner} id={`${t.id}:takeover`} action={{label:"Take over",op:"task.takeover",params:{id:t.id}}}/></>}
+          {lastOutput(t, now)}<a className="pc-btn pc-btn--secondary pc-btn--sm" href={withQuery(`#/sessions/${encodeURIComponent(t.id)}`, query)}>Watch</a><ActionButton runner={runner} id={`${t.id}:takeover`} action={{label:"Take over",op:"task.takeover",params:{id:t.id}}}/></>}
     </div>)}
     {!rows.length && <p className="muted">Nothing running. Delegate a task, or ask your planner to.</p>}
   </section>;
 }
 
-function Capacity({ snapshot }: { snapshot: ClientSnapshot }) {
+function Capacity({ snapshot, narrow, query }: { snapshot: ClientSnapshot; narrow: boolean; query: RouteQuery }) {
   const rows = capacity(snapshot), c = counts(snapshot);
-  return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><h2 id="capacity">Capacity</h2>{c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" /><a href="#/settings/executors">Details</a></div>
-    {rows.map(e => <a key={e.id} href="#/settings/executors" className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
+  const next = rows.find(e => e.next), down = rows.filter(e => e.state === "down" || e.state === "failing").length;
+  return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><h2 id="capacity">Capacity</h2>{!narrow && c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" />{narrow && next ? <span className="muted">next: <b>{executorLabel(next.id)}</b></span> : <a href={withQuery("#/settings/executors", query)}>Details</a>}</div>
+    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{rows.map(e => <a key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${e.state}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
       <AgentMark agent={markAgent(e.id, e.account)} size={20} labelled={false} />
+      {narrow && <span className={`pc-cap__dot pc-cap__dot--${e.state === "down" ? "bad" : e.state === "busy" ? "info" : toneFor(e.tone)}`} />}
       <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><div className={OFF_STATES.has(e.state) ? "pc-bad-text" : "muted"}>{OFF_STATES.has(e.state) && e.reason ? e.reason : e.usedPct === null ? <><StatusGlyph kind="waiting" /> Unknown · {e.paceReason ?? e.reason ?? "no usage reported"}</> : e.sub}</div></div>
       <div><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={toneFor(e.tone)} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
       <span className="muted pc-num">{e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`}</span>
       <span className="muted pc-num">{e.slots.used}/{e.slots.max}</span>
-    </a>)}
-    {!rows.length && <p className="muted">No executors yet. <a href="#/settings/add-executor">Add one.</a></p>}
+    </a>)}{narrow && <span className="muted">{c?.ready ?? 0} ready · {down} down</span>}</div>
+    {!rows.length && <p className="muted">No executors yet. <a href={withQuery("#/settings/add-executor", query)}>Add one.</a></p>}
   </section>;
 }
 
-function DoneToday({ snapshot, scope, now }: { snapshot: ClientSnapshot; scope: Scope; now: number }) {
+function DoneToday({ snapshot, scope, now, query }: { snapshot: ClientSnapshot; scope: Scope; now: number; query: RouteQuery }) {
   const rows = doneToday(snapshot, scope), today = snapshot.today;
-  return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><h2 id="done-today">Done today</h2>{today && <span className="muted">{today.done} · {today.accepted} accepted</span>}<span className="grow" /><a href="#/sessions">All tasks</a></div>
+  const done = scope.repo === null ? today?.done : today?.byRepo[scope.repo] ?? rows.length;
+  const accepted = scope.repo === null ? today?.accepted : rows.filter(t => t.review?.accepted).length;
+  return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><h2 id="done-today">Done today</h2>{today && <span className="muted">{done} · {accepted} accepted</span>}<span className="grow" /><a href={withQuery("#/sessions", query)}>All tasks</a></div>
     {rows.map(t => { const status = taskStatus(t); return <div key={t.id} className="pc-row">
       <span className="muted pc-num">{clock(t.updatedAt, now)}</span><div className="grow pc-row__goal">{t.goal}</div>
       <span className="muted">{t.repo?.label}</span><span className="muted">{executorLabel(t.executor)}</span><Pill tone={status.tone}>{status.label}</Pill>
@@ -126,26 +133,27 @@ function KeysFooter({ version }: { version?: string }) {
 }
 
 export interface OverviewProps { snapshot: ClientSnapshot; query: RouteQuery; now: number; runner: ActionRunner; activity: ActivityEntry[]; ops: ReadonlySet<string>; quickDelegate?: ComponentChildren }
-/** The canvas Main board: planner strip and repo chips, then Needs you, Running and Done today with Capacity, Quick delegate and Activity alongside. */
+/** Shared Main / Panel tree; CSS places Capacity alongside work on desktop. */
 export function OverviewView({ snapshot, query, now, runner, activity, ops, quickDelegate }: OverviewProps) {
-  const scope: Scope = { repo: query.repo };
-  return <div className="pc-overview">
-    <PlannerStrip snapshot={snapshot} now={now} />
-    <RepoFilter snapshot={snapshot} query={query} />
+  const narrow = useNarrow(query);
+  const scope: Scope = { repo: narrow ? activeRepo(query) : query.repo || null };
+  return <NarrowContext.Provider value={narrow}><div className={`pc-overview${narrow ? " pc-overview--narrow" : ""}`}>
+    {!narrow && <PlannerStrip snapshot={snapshot} now={now} />}
+    <RepoFilter snapshot={snapshot} query={query} narrow={narrow} />
     <div className="pc-overview__cols">
       <div className="pc-overview__main">
-        <NeedsYou snapshot={snapshot} scope={scope} runner={runner} now={now} />
-        <Running snapshot={snapshot} scope={scope} now={now} runner={runner} />
-        <DoneToday snapshot={snapshot} scope={scope} now={now} />
+        <NeedsYou snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />
+        <Running snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />
+        <Capacity snapshot={snapshot} narrow={narrow} query={query} />
+        <DoneToday snapshot={snapshot} scope={scope} now={now} query={query} />
       </div>
-      <div className="pc-overview__side">
-        <Capacity snapshot={snapshot} />
-        <section className="pc-card-section" aria-labelledby="quick-delegate"><div className="pc-card-section__head"><h2 id="quick-delegate">Quick delegate</h2></div><div className="pc-card-section__body">{quickDelegate}</div></section>
-        <Activity entries={activity} now={now} />
+      <div className="pc-overview__side" hidden={narrow}>
+        {!narrow && <section className="pc-card-section" aria-labelledby="quick-delegate"><div className="pc-card-section__head"><h2 id="quick-delegate">Quick delegate</h2></div><div className="pc-card-section__body">{quickDelegate}</div></section>}
+        {!narrow && <Activity entries={activity} now={now} />}
       </div>
     </div>
-    <KeysFooter version={snapshot.service?.version} />
-  </div>;
+    {!narrow && <KeysFooter version={snapshot.service?.version} />}
+  </div></NarrowContext.Provider>;
 }
 
 export function Overview({ query }: { query: RouteQuery }) {
@@ -163,7 +171,7 @@ export function Overview({ query }: { query: RouteQuery }) {
     const selected = () => current.current.snapshot?.attention?.find(a => a.id === (document.activeElement?.closest("[data-attention-id]") as HTMLElement)?.dataset.attentionId);
     const actions: Record<string, () => void> = {
       j: () => move(1), k: () => move(-1), Enter: () => { const active = document.activeElement as HTMLElement; (active?.tagName === "BUTTON" ? active as HTMLButtonElement : active?.closest("[data-attention-id]")?.querySelector("button"))?.click(); },
-      v: () => { const item = selected(); location.hash = item?.taskId ? `#/review/${encodeURIComponent(item.taskId)}` : "#/review"; },
+      v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/review/${encodeURIComponent(item.taskId)}` : "#/review", current.current.query); },
       x: () => { const item = selected(); if (item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
     };
     const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "overview", run: actions[key] ?? (() => {

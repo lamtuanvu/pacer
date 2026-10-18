@@ -23,9 +23,10 @@ import { fakeCtx } from "./helpers";
 
 /** Compare visible prose, never CSS, SVG paths, attributes or terminal styling. */
 function strip(text: string): string {
-  return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/<(style|script|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, "")
-    .replace(/<[^>]*>/g, " ")
+  // Repeat until stable so nested or split tags cannot survive a single pass.
+  let previous: string, out = text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  do { previous = out; out = out.replace(/<(style|script|svg)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "").replace(/<[^>]*>/g, " "); } while (out !== previous);
+  return out
     .replace(/&#(x[\da-f]+|\d+);/gi, (_, n: string) => String.fromCodePoint(n[0] === "x" ? parseInt(n.slice(1), 16) : Number(n)))
     .replace(/&(amp|lt|gt|quot|apos|#39|nbsp);/g, (_, n: string) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", nbsp: " " })[n]!)
     .replace(/\s+/g, " ").trim();
@@ -119,10 +120,10 @@ test("panel order is Needs you, Running, Capacity, Done today; the TUI follows t
   }
 });
 
-test("desktop app keeps work in the main column and capacity in the side column", () => {
+test("app reads Needs you, Running, Capacity, Done today; CSS places Capacity beside the work on desktop", () => {
   const [main, side] = app.split('class="pc-overview__main">')[1]!.split('class="pc-overview__side">');
-  expect(headings(main!)).toEqual(["Needs you", "Running", "Done today"]);
-  expect(headings(side!)).toEqual(["Capacity", "Quick delegate", "Activity"]);
+  expect(headings(main!)).toEqual(["Needs you", "Running", "Capacity", "Done today"]);
+  expect(headings(side!)).toEqual(["Quick delegate", "Activity"]);
 });
 
 test("tray orders Needs you, Running, executors with done today only in counts", () => {
