@@ -2988,6 +2988,29 @@ Params JSON Schema:
 }
 ```
 
+### `task.takeover`
+
+Stop a local headless run and resume its conversation interactively.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `task.wait`
 
 Block until the task settles or timeout_s passes.
