@@ -14,12 +14,13 @@ export class Keys {
  flush():Key[] {const text=this.pending;this.pending="";return text==="\x1b"?["escape"]:[];}
 }
 
-import type { Card } from "./model";
+import type { Card, DashboardAction } from "./model";
 import type { CmdData } from "../link/envelope";
-export function selectionAction(key:Key,card?:Card):CmdData|undefined {
+export function selectionAction(key:Key,card?:Card):DashboardAction|undefined {
  if(key==="enter")return card?.action;
  if(key==="x")return card?.dismiss;
- if(key==="b"&&card?.provider)return {cmd:card.provider.blockedReason?"unblock":"block",executor:card.provider.id};
+ if(/^[1-9]$/.test(key))return card?.actions?.[Number(key)-1];
+ if(key==="b"&&card?.executor)return {cmd:card.executor.state==="blocked"?"unblock":"block",executor:card.executor.id};
 }
 export function moveSelection(key:Key,selected:number,count:number):number {
  return key==="up"||key==="k"?Math.max(0,selected-1):key==="down"||key==="j"?Math.min(Math.max(0,count-1),selected+1):selected;
