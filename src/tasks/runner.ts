@@ -56,6 +56,7 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
     }
     t.result = t.state === "stopped" ? { ...result, status: "stopped" } : result;
     t.state = t.result.status;
+    if (t.takeover) t.takeover.state = "ended";
     delete t.childPid;
   });
   if (finished.state === "done") {
@@ -249,7 +250,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       if (resuming) routing = task.pendingAttempt?.routing;
       task = updateTask(ctx, id, t => {
         t.pendingAttempt = { routing, usageAtStart };
-        t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming?.startedAt ?? Date.now() / 1000;
+        t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming ? t.attemptStartedAt ?? resuming.startedAt : Date.now() / 1000;
       });
       const before = resuming ? null : await repoFingerprint(ctx, task.brief.repo);
       let out: AttemptOutcome;
@@ -276,8 +277,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         try { log = readFileSync(out.attempt.log, "utf8").slice(-4096); } catch { /* Some backends only return output. */ }
         markAuthFailed({...ctx, now: out.attempt.endedAt}, authAccount, `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}\n${log}`, {attempt: true});
       }
+      const takeover = out.takeover || !!readTask(ctx,id)?.takeover;
+      if (takeover) { delete out.attempt.brokenReason; out.attempt.limitHit = false; }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
-      if (out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
+      if (!takeover && out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
         const isolated = !!out.worktree && realpathSafe(out.worktree) !== realpathSafe(task.brief.repo);
         let unchanged: boolean | null;
         if (resuming) unchanged = null;
