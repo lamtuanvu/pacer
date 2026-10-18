@@ -13,13 +13,14 @@ use std::sync::{
 };
 use tauri::{
     ipc::CapabilityBuilder,
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    tray::TrayIconBuilder,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, WebviewUrl, WebviewWindow,
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_notification::{Action, ActionType, NotificationExt};
+use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
 
 struct Shell {
@@ -46,16 +47,111 @@ impl Default for Shell {
         }
     }
 }
+/// Popover width from the TrayPopover board.
+const TRAY_WIDTH: f64 = 340.;
+
 fn authorized(window: &WebviewWindow, app: &AppHandle) -> Result<(), String> {
     let url = window.url().map_err(|_| "Unknown caller")?;
-    let origin = logic::local_origin(&url);
-    if window.label() != "main"
-        || origin.is_none()
-        || origin != *app.state::<Shell>().origin.lock().unwrap()
-    {
+    if !logic::command_authorized(
+        window.label(),
+        "main",
+        &url,
+        app.state::<Shell>().origin.lock().unwrap().as_deref(),
+    ) {
         return Err("IPC is restricted to the active local service".into());
     }
     Ok(())
+}
+fn authorized_tray(window: &WebviewWindow, app: &AppHandle) -> Result<(), String> {
+    let url = window.url().map_err(|_| "Unknown caller")?;
+    if !logic::command_authorized(
+        window.label(),
+        "tray",
+        &url,
+        app.state::<Shell>().origin.lock().unwrap().as_deref(),
+    ) {
+        return Err("IPC is restricted to the active local tray".into());
+    }
+    Ok(())
+}
+#[tauri::command]
+fn tray_resize(window: WebviewWindow, app: AppHandle, height: f64) -> Result<(), String> {
+    authorized_tray(&window, &app)?;
+    let height = logic::tray_height(height).ok_or("Invalid height")?;
+    window
+        .set_size(tauri::LogicalSize::new(TRAY_WIDTH, height))
+        .map_err(|e| e.to_string())?;
+    // Before the first tray event there is no icon position yet. The first click positions it.
+    let positioned = window.move_window(Position::TrayBottomCenter);
+    if window.is_visible().map_err(|e| e.to_string())? {
+        positioned.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+#[tauri::command]
+fn tray_open(window: WebviewWindow, app: AppHandle, route: String) -> Result<(), String> {
+    authorized_tray(&window, &app)?;
+    let route = logic::route(&route).ok_or("Invalid route")?;
+    navigate(&app, &route);
+    window.hide().map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn tray_hide(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    authorized_tray(&window, &app)?;
+    window.hide().map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn app_quit(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    authorized_tray(&window, &app)?;
+    app.exit(0);
+    Ok(())
+}
+fn create_tray_window(app: &AppHandle, origin: &str) -> tauri::Result<()> {
+    if app.get_webview_window("tray").is_some() {
+        return Ok(());
+    }
+    let nav = app.clone();
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        "tray",
+        WebviewUrl::External(
+            Url::parse(&format!("{origin}/app/tray.html")).expect("validated service origin"),
+        ),
+    )
+    .title("pacer")
+    .inner_size(TRAY_WIDTH, 120.)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .resizable(false)
+    .skip_taskbar(true)
+    .visible(false)
+    .focused(false)
+    .on_navigation(move |url| {
+        let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
+        logic::command_authorized("tray", "tray", url, origin.as_deref())
+            && url.path() == "/app/tray.html"
+    })
+    .build()?;
+    let blur = window.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Focused(false)) {
+            let _ = blur.hide();
+        }
+    });
+    Ok(())
+}
+fn toggle_tray(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("tray") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else if window.move_window(Position::TrayBottomCenter).is_ok() {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    } else {
+        show(app);
+    }
 }
 #[allow(non_snake_case)]
 #[tauri::command]
@@ -72,7 +168,6 @@ fn launch_at_login(app: &AppHandle, enabled: bool) -> Result<(), String> {
     })
     .map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id("pacer") {
-        // Next snapshot rebuilds the check mark; the native menu toggle updates immediately itself.
         let _ = tray.set_tooltip(Some("pacer"));
     }
     Ok(())
@@ -127,6 +222,9 @@ fn navigate(app: &AppHandle, raw: &str) {
 }
 fn recovery(app: &AppHandle, state: &str) {
     let shell = app.state::<Shell>();
+    if let Some(window) = app.get_webview_window("tray") {
+        let _ = window.destroy();
+    }
     *shell.origin.lock().unwrap() = None;
     *shell.session.lock().unwrap() = None;
     let mut current = shell.recovery.lock().unwrap();
@@ -160,6 +258,20 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-notifyRoute"),
         )
         .map_err(|e| e.to_string())?;
+        app.add_capability(
+            CapabilityBuilder::new(format!(
+                "tray-service-{}",
+                auth.port_or_known_default().unwrap()
+            ))
+            .local(false)
+            .window("tray")
+            .remote(format!("{origin}/*"))
+            .permission("allow-tray-resize")
+            .permission("allow-tray-open")
+            .permission("allow-tray-hide")
+            .permission("allow-app-quit"),
+        )
+        .map_err(|e| e.to_string())?;
         granted.push(origin.into());
     }
     *shell.origin.lock().unwrap() = Some(origin.into());
@@ -179,90 +291,24 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
     let Some(tray) = app.tray_by_id("pacer") else {
         return Ok(());
     };
-    app.state::<Shell>()
-        .actions
-        .lock()
-        .unwrap()
-        .retain(|id, _| !id.starts_with("strategy-"));
     let menu = Menu::new(app)?;
-    menu.append(&MenuItem::new(app, &model.planner, false, None::<&str>)?)?;
-    for (title, items) in [("Needs you", model.needs), ("Running", model.running)] {
-        menu.append(&PredefinedMenuItem::separator(app)?)?;
-        menu.append(&MenuItem::new(app, title, false, None::<&str>)?)?;
-        for (n, item) in items.into_iter().enumerate() {
-            let id = item
-                .route
-                .clone()
-                .unwrap_or_else(|| format!("disabled-{title}-{n}"));
-            menu.append(&MenuItem::with_id(
-                app,
-                id,
-                item.label.replace('&', "&&"),
-                item.route.is_some(),
-                None::<&str>,
-            )?)?;
-        }
-    }
-    for executor in model.executors {
-        menu.append(&MenuItem::new(app, executor, false, None::<&str>)?)?;
-    }
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
     let online = app.state::<Shell>().session.lock().unwrap().is_some();
-    let pause_action = actions::pause(model.paused);
     app.state::<Shell>()
         .actions
         .lock()
         .unwrap()
-        .insert("pause".into(), pause_action);
-    let strategies = Submenu::new(app, "Switch strategy", online)?;
-    for (n, (name, active)) in model.strategies.iter().enumerate() {
-        let id = format!("strategy-{n}");
-        app.state::<Shell>()
-            .actions
-            .lock()
-            .unwrap()
-            .insert(id.clone(), actions::strategy(name));
-        strategies.append(&CheckMenuItem::with_id(
-            app,
-            id,
-            name.replace('&', "&&"),
-            online,
-            *active,
-            None::<&str>,
-        )?)?;
-    }
-    menu.append(&strategies)?;
+        .insert("pause".into(), actions::pause(model.paused));
     for (id, label, enabled) in [
-        ("#/delegate", "Delegate a task…", true),
         ("open", "Open pacer", true),
         (
             "pause",
-            if model.paused {
-                "Resume delegation"
-            } else {
-                "Pause delegation for 1 hour"
-            },
+            if model.paused { "Resume" } else { "Pause 1h" },
             online,
         ),
+        ("quit", "Quit", true),
     ] {
         menu.append(&MenuItem::with_id(app, id, label, enabled, None::<&str>)?)?;
     }
-    menu.append(&CheckMenuItem::with_id(
-        app,
-        "login",
-        "Launch at login",
-        true,
-        app.autolaunch().is_enabled().unwrap_or(false),
-        None::<&str>,
-    )?)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "quit",
-        "Quit pacer",
-        true,
-        None::<&str>,
-    )?)?;
     tray.set_title(Some(&model.title))?;
     tray.set_menu(Some(menu))
 }
@@ -387,6 +433,7 @@ fn main() {
             }
             show(app);
         }))
+        .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(
@@ -396,6 +443,7 @@ fn main() {
         )
         .plugin(
             tauri_plugin_window_state::Builder::default()
+                .with_denylist(&["tray"])
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::SIZE
                         | tauri_plugin_window_state::StateFlags::POSITION
@@ -407,7 +455,11 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             setLaunchAtLogin,
             setTheme,
-            notifyRoute
+            notifyRoute,
+            tray_resize,
+            tray_open,
+            tray_hide,
+            app_quit
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -417,6 +469,29 @@ fn main() {
                     .title("pacer")
                     .inner_size(1120., 760.)
                     .min_inner_size(720., 520.)
+                    .on_page_load(|window, payload| {
+                        if payload.event() != tauri::webview::PageLoadEvent::Finished
+                            || !matches!(payload.url().path(), "/app" | "/app/")
+                        {
+                            return;
+                        }
+                        let app = window.app_handle().clone();
+                        let origin = app.state::<Shell>().origin.lock().unwrap().clone();
+                        if let Some(origin) = origin {
+                            if logic::local_origin(payload.url()).as_deref() == Some(&origin) {
+                                let handle = app.clone();
+                                let _ = app.run_on_main_thread(move || {
+                                    if handle.state::<Shell>().origin.lock().unwrap().as_deref()
+                                        == Some(&origin)
+                                    {
+                                        if let Err(e) = create_tray_window(&handle, &origin) {
+                                            eprintln!("Unable to create pacer tray window: {e}");
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    })
                     .on_navigation(move |url| {
                         let state = nav.state::<Shell>();
                         let local = url.scheme() == "tauri" && url.host_str() == Some("localhost");
@@ -486,17 +561,26 @@ fn main() {
                 ))?)
                 .icon_as_template(true)
                 .tooltip("pacer")
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    let app = tray.app_handle();
+                    tauri_plugin_positioner::on_tray_event(app, &event);
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        toggle_tray(app);
+                    }
+                })
                 .on_menu_event(|app, event| {
                     let id = event.id.as_ref();
                     match id {
                         "quit" => app.exit(0),
                         "open" => show(app),
-                        "login" => {
-                            let enabled = !app.autolaunch().is_enabled().unwrap_or(false);
-                            if let Err(e) = launch_at_login(app, enabled) {
-                                eprintln!("Unable to change launch at login: {e}");
-                            }
-                        }
                         _ => {
                             let action = app
                                 .state::<Shell>()
