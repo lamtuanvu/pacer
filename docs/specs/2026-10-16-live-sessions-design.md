@@ -429,6 +429,49 @@ The plan follows the existing layout: `bun test` units in `test/`, fixtures in `
 - killing `pacer serve` mid-view;
 - a task on an SSH host.
 
+## 8. Take over a headless run
+
+Added 2026-10-18. A headless task (`execution.session` unset, `pipe` or `pty`) can become interactive while it runs, without starting over. A running process cannot be given a terminal after the fact, so pacer does not try. It stops the headless process and resumes the agent's own conversation in a new interactive session in the same worktree. The agent keeps its full context because the conversation lives in the agent's session store, not in the process.
+
+### Agent session ids
+
+pacer records the agent's session id on the run record (`RunRef.agentSession = { id, source }`) as early as it can. It checks each CLI's real `--help` (versions below) rather than assuming flags.
+
+| Agent | How pacer gets the id | Resume command | Checked |
+| --- | --- | --- | --- |
+| Codex | Parsed from the `session id: <uuid>` line in the run's header (`stderr` for pipe runs, the derived `stdout` for PTY runs), on each progress poll until found | `codex resume <id>` with the same `-C`, `-s workspace-write`, model and trust override as an interactive launch | codex-cli 0.162.1 |
+| Claude Code | Assigned by pacer: the headless launch adds `--session-id <uuid>` | `claude --resume <id>` | 2.1.281 |
+| Cursor agent | Assigned by pacer: `cursor-agent create-chat` before launch, then `--resume <chatId>` on the headless launch. If `create-chat` fails, the run starts as before and has no id | `cursor-agent --resume <chatId> --workspace <wt>` | current CLI |
+| OpenCode | Looked up at take-over time: `opencode session list --format json` in the worktree, the newest session titled `pacer <task id>` (the headless launch already sets `--title`) | `opencode --session <id>` | v2.0.22 |
+| agy | Not supported: `agy -p` prints no conversation id | — | — |
+
+An executor without an id gets a clear refusal: "Take over needs the agent's session id; `<executor>` does not report one. Stop the task and retry it interactively instead."
+
+### Flow
+
+`task.takeover { id }` (CLI: `pacer takeover <id>`):
+
+1. **Checks.** The task is `running`, local (not on an SSH host), on the direct backend, not already interactive, and has a known or discoverable session id. Otherwise the op fails with the reason.
+2. **Request.** The op writes `takeover.json` (`{ at, by, sessionId }`, 0600) into the current run directory, sets `task.takeover = { state: "starting", at, sessionId }`, and stops the headless process tree with SIGTERM. The task is never marked `stopped`, so the runner keeps it.
+3. **Resume.** The runner's `finishRun` sees the headless attempt end with `takeover.json` present. Instead of returning an outcome, it starts a second run in the same attempt, `runs/<task>/<attempt>-takeover/`, under the session host in interactive mode (hooks, `PACER_RUN_DIR`, report token, as in section 3), with the agent's resume command as `argv` and the same worktree as `cwd`. `task.run` points at the new run (`takeover: true`), and `task.takeover.state` becomes `driving`.
+4. **Driving.** The task shows **You're driving** (`progress.phase: "driving"`) rather than running or stopped. Idle failure is off while driving; `task.timeoutS` remains the upper bound. Limit detection is skipped for this run: a person is at the keyboard.
+5. **Finish.** The session ends when the user exits the agent, when the user explicitly **releases** control (the session host then writes a `done` report from `source: "user"` and ends the TUI as it does after a report), or when the agent runs `pacer report`. A controller that merely disconnects (closed laptop, dropped network) does not end it; the task stays "you're driving" and can be attached again.
+6. **Collect.** The attempt's outcome then follows the normal path: the report is the agent's transcript text when hooks captured it, otherwise "You drove this task; the agent left no summary", and the exit code of a user-ended session counts as success. The runner verifies the worktree and runs acceptance, and the task settles to review as usual (`done`, or `partial` when acceptance fails). The attempt's log has both runs.
+
+The op returns as soon as the new session is live (`session.sock` present), or after 20 s with `{ state: "starting" }`. `pacer takeover <id>` then attaches in the calling terminal with control (`pacer attach <id> --control`). The app opens the task's Session view and sends `take`.
+
+If the resume fails to start (the agent CLI refuses the id), the attempt ends as failed with the agent's error and no fallback executor runs: retrying on another executor would discard what the user asked for.
+
+### Resuming after a runner restart
+
+`task.run` is the take-over run and `RunRef.takeover` is true, so `resumeAttempt` re-attaches to the live session exactly as it does for any interactive run. A runner that dies between the headless stop and the resume start finds `takeover.json` in the previous run directory and starts the resume.
+
+### API and UI
+
+- Protocol 2.x, additive: `task.takeover` op; `TaskRecord.takeover`; `RunRef.agentSession`; `progress.phase: "driving"`; `task.session` gains `takeover: { available: boolean; reason?: string }` so clients can show or disable the action without guessing.
+- App: a **Take over** action on Running rows and in the Session view, next to Take/Release. In a take-over session, Release reads **Hand back** and says that the task goes to review. Placement and wording follow the redesign; the app UI session owns `app/src`.
+- CLI: `pacer takeover <id> [--no-attach]`.
+
 ## Rollout
 
 | Phase | Ships | Default |
