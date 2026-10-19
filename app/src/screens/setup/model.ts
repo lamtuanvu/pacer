@@ -8,6 +8,16 @@ export const bannerKey = (check?: SetupChecklist) => nextOptional(check) ? JSON.
 export const DISMISS_KEY = 'pacer.setup.dismissed';
 export function readDismissal(): string | null { try { return localStorage.getItem(DISMISS_KEY); } catch { return null; } }
 export function saveDismissal(key: string): void { try { localStorage.setItem(DISMISS_KEY, key); } catch { /* dismissal still lasts for this view */ } }
+export const plannerNames: Record<string, string> = { 'claude-code': 'Claude Code', codex: 'Codex', cursor: 'Cursor', opencode: 'OpenCode' };
+/** Kept for the page lifetime, including navigation away from and back to Setup. */
+export function createPlannerAutoInit() {
+  let attempted = false;
+  return (item: SetupItem, run: (planner: string) => Promise<void>): Promise<void> | undefined => {
+    if (attempted || item.action !== 'setup.init' || item.status === 'done' || item.options?.length !== 1) return;
+    attempted = true;
+    return run(item.options[0]);
+  };
+}
 export async function performSetupAction(item: SetupItem, deps: {
   api: BrowserApi; confirm: (message: string, preview?: AgentPreview) => Promise<boolean>;
   refresh: () => void; navigate: (href: string) => void; running: (id: string, executor: string) => void;
@@ -15,6 +25,9 @@ export async function performSetupAction(item: SetupItem, deps: {
   try {
     if (skip) { await deps.api.call('onboarding.skip', {}); return; }
     switch (item.action) {
+      case 'setup.init':
+        await deps.api.call('setup.init', { planner: item.agent });
+        break;
       case 'service.install':
         if (await deps.confirm(SERVICE_CONSENT)) await deps.api.call('service.install', { consent: true });
         break;

@@ -674,6 +674,26 @@ function pluginMode(pluginRoot, fs) {
   return fs.exists(join4(pluginRoot, ".pacer-managed")) ? "live" : "bootstrap";
 }
 
+// src/install/fsx.ts
+function shq(s) {
+  return /^[A-Za-z0-9_\/.:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+}
+function shellCommand(argv) {
+  return argv.map(shq).join(" ");
+}
+// src/config/accounts.ts
+var AGENTS = ["claude-code", "codex", "cursor", "agy", "opencode"];
+
+// src/config/runner-id.ts
+function parseRunnerId(id) {
+  const m = /^([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?(?:@([a-z0-9][a-z0-9-]*))?$/.exec(id);
+  if (!m || !AGENTS.includes(m[1]))
+    return null;
+  return { agent: m[1], account: m[2] ?? null, host: m[3] === "local" ? null : m[3] ?? null };
+}
+// src/config/strategy.ts
+var PLANNERS = ["claude-code", "codex", "cursor", "opencode"];
+
 // src/setup/checklist.ts
 function updateChecklist(s, f) {
   const ranked = f.executors?.ranked ?? [], excluded = f.executors?.excluded ?? [];
@@ -700,7 +720,7 @@ function setupChecklist(f, checkedAt) {
   const plannerAgent = f.planner?.split(/[#@]/)[0];
   const items = [
     item("binary", "pacer", true, !!f.version, f.version ?? undefined, "pacer init", undefined, f.errors?.binary),
-    item("planner", "Planner", true, !!f.planner && f.signedIn !== false, f.planner ? `${f.planner}${f.signedIn === false ? " · signed out" : ""}` : "Choose a planner", f.planner ? f.loginCommand : "pacer init", undefined, f.errors?.strategy),
+    f.planner ? item("planner", "Planner", true, f.signedIn !== false, `${f.planner}${f.signedIn === false ? " · signed out" : ""}`, f.loginCommand, undefined, f.errors?.strategy) : { ...item("planner", "Planner", true, false, "Choose which agent plans your work", "pacer init", "setup.init"), options: PLANNERS.filter((id) => f.agents.some((a) => a.id === id && a.cliInstalled)) },
     item("service", "Background service", true, f.service.installed && f.service.running, undefined, "pacer service install", "service.install", f.errors?.service),
     { ...item("connect", "Connect planner", true, !!f.planner && f.connected !== false, f.connected !== false ? "Connected" : "Integration missing or changed", "pacer init", "agent.connect", f.errors?.connect), ...plannerAgent ? { agent: plannerAgent, installed: f.agents.find((a) => a.id === plannerAgent)?.cliInstalled ?? false } : {} },
     item("link", "Link", true, f.link, undefined, "pacer init", undefined, f.errors?.link),
@@ -728,14 +748,6 @@ async function resolveFocusedWorktree(host, exec, cli) {
   matches.sort((a, b) => activity(b.lastActivityAt) - activity(a.lastActivityAt));
   return matches.length ? { id: matches[0].id } : null;
 }
-// src/install/fsx.ts
-function shq(s) {
-  return /^[A-Za-z0-9_\/.:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
-}
-function shellCommand(argv) {
-  return argv.map(shq).join(" ");
-}
-
 // orca-plugin/src/bootstrap.ts
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -1137,7 +1149,7 @@ function readSettings(raw, home) {
 
 // src/link/envelope.ts
 var LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, heartbeatS: 30 };
-var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var isObj2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 var str = (v, max) => typeof v === "string" ? v.slice(0, max) : null;
 var optStr = (v, max) => typeof v === "string" && v.length > 0 ? v.slice(0, max) : null;
 var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -1146,13 +1158,13 @@ function clip(s, max) {
   return s.length <= max ? s : `${s.slice(0, Math.max(0, max - 3))}...`;
 }
 function parseBudget(d) {
-  if (!isObj(d))
+  if (!isObj2(d))
     return null;
   const generatedAt = num(d.generatedAt), strategy = str(d.strategy, 128), planner = str(d.planner, 64), mode = str(d.mode, 32);
   if (generatedAt === null || strategy === null || planner === null || mode === null)
     return null;
   const providers = (Array.isArray(d.providers) ? d.providers : []).slice(0, LIMITS.providers).flatMap((p) => {
-    if (!isObj(p))
+    if (!isObj2(p))
       return [];
     const id = str(p.id, 64), verdict = str(p.verdict, 32);
     if (id === null || verdict === null)
@@ -1160,7 +1172,7 @@ function parseBudget(d) {
     return [{ id, ...optStr(p.agent, 64) && optStr(p.account, 64) ? { agent: optStr(p.agent, 64), account: optStr(p.account, 64) } : {}, ...optStr(p.unavailableReason, 500) ? { unavailableReason: optStr(p.unavailableReason, 500) } : {}, verdict, usedPct: num(p.usedPct), pacePct: num(p.pacePct), resetsAt: num(p.resetsAt), window: optStr(p.window, 32), stale: p.stale === true, ...optStr(p.brokenReason, 500) ? { brokenReason: optStr(p.brokenReason, 500) } : {}, ...optStr(p.blockedReason, 500) ? { blockedReason: optStr(p.blockedReason, 500), blockedUntil: num(p.blockedUntil) } : {} }];
   });
   const ranked = (Array.isArray(d.ranked) ? d.ranked : []).slice(0, LIMITS.providers).flatMap((r) => {
-    if (!isObj(r))
+    if (!isObj2(r))
       return [];
     const id = str(r.id, 64), verdict = str(r.verdict, 32);
     return id === null || verdict === null ? [] : [{ id, verdict }];
@@ -1168,7 +1180,7 @@ function parseBudget(d) {
   return { generatedAt, strategy, planner, mode, providers, ranked };
 }
 function parseTask(d) {
-  if (!isObj(d))
+  if (!isObj2(d))
     return null;
   const id = str(d.id, LIMITS.id), state = str(d.state, 16), updatedAt = num(d.updatedAt);
   if (!id || !state || updatedAt === null)
@@ -1182,23 +1194,23 @@ function parseTask(d) {
     executor: optStr(d.executor, 64),
     backend: optStr(d.backend, 32),
     worktree: optStr(d.worktree, 4096),
-    ...isObj(d.placement) && ["current", "new"].includes(String(d.placement.mode)) && typeof d.placement.why === "string" ? { placement: { mode: d.placement.mode, why: d.placement.why.slice(0, 240) } } : {},
-    ...isObj(d.session) && ["builtin", "orca", "none"].includes(String(d.session.host)) && typeof d.session.live === "boolean" && num(d.session.viewers) !== null ? { session: { host: d.session.host, live: d.session.live, controller: optStr(d.session.controller, 64), viewers: Math.max(0, Math.min(99, Math.floor(num(d.session.viewers)))) } } : {},
+    ...isObj2(d.placement) && ["current", "new"].includes(String(d.placement.mode)) && typeof d.placement.why === "string" ? { placement: { mode: d.placement.mode, why: d.placement.why.slice(0, 240) } } : {},
+    ...isObj2(d.session) && ["builtin", "orca", "none"].includes(String(d.session.host)) && typeof d.session.live === "boolean" && num(d.session.viewers) !== null ? { session: { host: d.session.host, live: d.session.live, controller: optStr(d.session.controller, 64), viewers: Math.max(0, Math.min(99, Math.floor(num(d.session.viewers)))) } } : {},
     ...typeof d.terminalPresent === "boolean" ? { terminalPresent: d.terminalPresent } : {},
     ...optStr(d.resolved, 240) ? { resolved: optStr(d.resolved, 240) } : {},
-    ...isObj(d.review) && typeof d.review.accepted === "boolean" && num(d.review.at) !== null ? { review: { accepted: d.review.accepted, kind: optStr(d.review.kind, 64), note: optStr(d.review.note, 1000), at: num(d.review.at) } } : {},
+    ...isObj2(d.review) && typeof d.review.accepted === "boolean" && num(d.review.at) !== null ? { review: { accepted: d.review.accepted, kind: optStr(d.review.kind, 64), note: optStr(d.review.note, 1000), at: num(d.review.at) } } : {},
     ...d.dismissed === true ? { dismissed: true } : {},
     ...optStr(d.retriedBy, 128) ? { retriedBy: optStr(d.retriedBy, 128) } : {},
     ...optStr(d.retryOf, 128) ? { retryOf: optStr(d.retryOf, 128) } : {},
     ...optStr(d.brokenExecutor, 64) ? { brokenExecutor: optStr(d.brokenExecutor, 64) } : {},
     ...optStr(d.brokenReason, 500) ? { brokenReason: optStr(d.brokenReason, 500) } : {},
     ...num(d.attemptStartedAt) !== null ? { attemptStartedAt: num(d.attemptStartedAt) } : {},
-    ...isObj(d.progress) && typeof d.progress.phase === "string" && num(d.progress.files) !== null && num(d.progress.commits) !== null && num(d.progress.logBytes) !== null ? { progress: { phase: d.progress.phase.slice(0, 16), lastOutputAt: num(d.progress.lastOutputAt), files: num(d.progress.files), commits: num(d.progress.commits), logBytes: num(d.progress.logBytes) } } : {},
+    ...isObj2(d.progress) && typeof d.progress.phase === "string" && num(d.progress.files) !== null && num(d.progress.commits) !== null && num(d.progress.logBytes) !== null ? { progress: { phase: d.progress.phase.slice(0, 16), lastOutputAt: num(d.progress.lastOutputAt), files: num(d.progress.files), commits: num(d.progress.commits), logBytes: num(d.progress.logBytes) } } : {},
     ...typeof d.runnerAlive === "boolean" ? { runnerAlive: d.runnerAlive } : {}
   };
 }
 function parseMode(d) {
-  if (!isObj(d))
+  if (!isObj2(d))
     return null;
   const mode = str(d.mode, 32), strategy = str(d.strategy, 128), at = num(d.at);
   if (!mode || strategy === null || at === null)
@@ -1206,30 +1218,30 @@ function parseMode(d) {
   return { mode, strategy, at, previous: optStr(d.previous, 32) };
 }
 function parseAlert(d) {
-  if (!isObj(d))
+  if (!isObj2(d))
     return null;
   const error = optStr(d.error, LIMITS.body), level = LEVELS.includes(d.level) ? d.level : error ? "error" : "info";
   const alert = { key: optStr(d.key, LIMITS.id) ?? "alert", level, title: clip(optStr(d.title, 4096) ?? "pacer", LIMITS.title), body: clip(str(d.body, 4096) ?? error ?? "", LIMITS.body), at: num(d.at) ?? 0 };
   if (error)
     alert.error = error;
   const n = d.notification;
-  if (isObj(n) && ["failed", "done", "broken", "quota", "strategy", "session"].includes(String(n.kind)))
+  if (isObj2(n) && ["failed", "done", "broken", "quota", "strategy", "session"].includes(String(n.kind)))
     alert.notification = { kind: n.kind, ...n.fromPanel === true ? { fromPanel: true } : {}, ...n.near === true ? { near: true } : {}, ...optStr(n.executor, 64) ? { executor: optStr(n.executor, 64) } : {}, ...optStr(n.goal, 1000) ? { goal: optStr(n.goal, 1000) } : {}, ...optStr(n.nextExecutor, 64) ? { nextExecutor: optStr(n.nextExecutor, 64) } : {}, ...optStr(n.strategy, 128) ? { strategy: optStr(n.strategy, 128) } : {}, ...num(n.resetsAt) !== null ? { resetsAt: num(n.resetsAt) } : {} };
   return alert;
 }
 function parseOutboxEvent(raw) {
-  if (!isObj(raw) || raw.v !== undefined && raw.v !== 1)
+  if (!isObj2(raw) || raw.v !== undefined && raw.v !== 1)
     return null;
   switch (raw.type) {
     case "entity": {
       const d = raw.data;
-      if (!isObj(d) || !["planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
+      if (!isObj2(d) || !["planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
         return null;
       return { type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
     }
     case "pause": {
       const d = raw.data;
-      if (!isObj(d))
+      if (!isObj2(d))
         return null;
       if (d.removed === true)
         return { type: "pause", data: { removed: true } };
@@ -1239,7 +1251,7 @@ function parseOutboxEvent(raw) {
     }
     case "config": {
       const d = raw.data;
-      if (!isObj(d) || !optStr(d.area, 128) || num(d.at) === null)
+      if (!isObj2(d) || !optStr(d.area, 128) || num(d.at) === null)
         return null;
       return { type: "config", data: { area: optStr(d.area, 128), at: num(d.at) } };
     }
@@ -1567,17 +1579,6 @@ var doneToday = (s, scope) => cached(s, `doneToday:${scope.repo}`, () => {
 var counts = (s) => s.counts ?? null;
 var repos = (s) => s.repos ?? [];
 var plannerMeter = (s) => s.planner ?? null;
-
-// src/config/accounts.ts
-var AGENTS = ["claude-code", "codex", "cursor", "agy", "opencode"];
-
-// src/config/runner-id.ts
-function parseRunnerId(id) {
-  const m = /^([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?(?:@([a-z0-9][a-z0-9-]*))?$/.exec(id);
-  if (!m || !AGENTS.includes(m[1]))
-    return null;
-  return { agent: m[1], account: m[2] ?? null, host: m[3] === "local" ? null : m[3] ?? null };
-}
 
 // src/render/accounts.ts
 var names2 = { "claude-code": "Claude", codex: "Codex", cursor: "Cursor", agy: "Antigravity", byteplus: "BytePlus", local: "Local", opencode: "OpenCode" };

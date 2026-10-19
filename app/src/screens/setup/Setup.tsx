@@ -1,10 +1,12 @@
-import { useContext, useRef, useState } from 'preact/hooks';
+import { useContext, useEffect, useRef, useState } from 'preact/hooks';
 import type { SetupChecklist, SetupItem } from '../../../../src/setup/checklist';
 import { Button } from '../../ds/Button';
 import { withQuery, type RouteQuery } from '../../router';
 import { Dialog, ErrorMessage, useTaskContext } from '../task-shared';
 import { SetupContext } from './context';
-import { performSetupAction, primaryItem, type AgentPreview } from './model';
+import { createPlannerAutoInit, performSetupAction, plannerNames, primaryItem, type AgentPreview } from './model';
+
+const autoInitPlanner = createPlannerAutoInit();
 
 function Command({ command, primary = false }: { command: string; primary?: boolean }) {
   const [copied, setCopied] = useState(false), [error, setError] = useState<unknown>();
@@ -20,19 +22,23 @@ function SetupRow({ item, primary, query, blocked = false }: { item: SetupItem; 
   const [consent, setConsent] = useState<{ message: string; preview?: AgentPreview }>();
   const answer = useRef<(yes: boolean) => void>();
   const finish = (yes: boolean) => { setConsent(undefined); answer.current?.(yes); answer.current = undefined; };
-  const run = async (skip = false) => {
+  const run = async (skip = false, planner?: string) => {
     if (busy) return;
     setBusy(true); setError(undefined);
-    try { await performSetupAction(item, { api, refresh: setup.refresh, running: setup.setRunning,
+    try { await performSetupAction(planner ? { ...item, agent: planner } : item, { api, refresh: setup.refresh, running: setup.setRunning,
       navigate: href => { location.hash = withQuery(href, query); },
       confirm: (message, preview) => new Promise(resolve => { answer.current = resolve; setConsent({ message, preview }); }),
     }, skip); } catch (error) { setError(error); } finally { setBusy(false); }
   };
+  useEffect(() => { void autoInitPlanner(item, planner => run(false, planner)); }, [item]);
   const actionable = item.status !== 'done';
   return <div className="pc-setup-row">
     <span className={item.status === 'failed' ? 'pc-bad-text' : 'muted'}>{item.status === 'done' ? 'Done' : item.status === 'failed' ? 'Failed' : 'Needs you'}</span>
     <div className="pc-setup-row__body"><h3>{item.title}</h3>{item.detail && <p className="muted">{item.detail}</p>}
       {actionable && item.action && labels[item.action] && <Button variant={primary ? 'primary' : 'secondary'} disabled={busy || blocked} onClick={() => void run()}>{busy ? 'Working…' : labels[item.action]}</Button>}
+      {actionable && item.action === 'setup.init' && ((item.options?.length ?? 0) > 0
+        ? <>{item.options!.map((planner, index) => <Button key={planner} variant={primary && index === 0 ? 'primary' : 'secondary'} disabled={busy} onClick={() => void run(false, planner)}>Use {plannerNames[planner] ?? planner}</Button>)}{busy && <p role="status">Choosing your planner…</p>}</>
+        : <p className="muted">Install Claude Code, Codex, Cursor or OpenCode to plan your work.</p>)}
       {actionable && blocked && <p className="muted">Finish the required steps first.</p>}
       {actionable && !item.action && item.command && <Command command={item.command} primary={primary} />}
       {actionable && item.id === 'first' && <Button disabled={busy} onClick={() => void run(true)}>Skip</Button>}
@@ -52,7 +58,7 @@ export function SetupView({ checklist, query }: { checklist: SetupChecklist; que
     {checklist.complete && <div className="pc-notice"><p role="status">Required setup done</p><a className="pc-btn pc-btn--primary pc-btn--touch" href={withQuery('#/', query)}>Go to Home</a></div>}
     {[true, false].map(required => <section className="pc-section" key={String(required)} aria-label={required ? 'Required' : 'Recommended'}>
       <div className="pc-section__head"><h2>{required ? 'Required' : 'Recommended'}</h2></div>
-      {checklist.items.filter(i => i.required === required).map(item => <SetupRow key={item.id} item={item} primary={primary === item.id} query={query} blocked={item.id === 'first' && !checklist.complete} />)}
+      {checklist.items.filter(i => i.required === required && i.id !== 'link').map(item => <SetupRow key={item.id} item={item} primary={primary === item.id} query={query} blocked={item.id === 'first' && !checklist.complete} />)}
     </section>)}
   </div>;
 }

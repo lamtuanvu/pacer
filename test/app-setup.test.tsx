@@ -131,3 +131,38 @@ test("first delegation waits for required setup", () => {
   const html = view(checklist);
   expect(html).toContain("Finish the required steps first.");
 });
+
+const planner = (options: string[]): SetupItem => ({ id: 'planner', title: 'Planner', required: true, status: 'pending', action: 'setup.init', options, command: 'pacer init' });
+test('Setup offers a named button for each installed planner and no terminal command', () => {
+  const html = view({ ...check, items: [planner(['claude-code', 'codex', 'cursor', 'opencode'])] });
+  for (const name of ['Claude Code', 'Codex', 'Cursor', 'OpenCode']) expect(html).toContain(`>Use ${name}</button>`);
+  expect(html).not.toContain('Copy command');
+  expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(1);
+});
+test('Setup with no installed planner asks for installation without planner buttons', () => {
+  const html = view({ ...check, items: [planner([]), { id: 'link', title: 'Link', status: 'done', required: true }] });
+  expect(html).toContain('Install Claude Code, Codex, Cursor or OpenCode to plan your work.');
+  expect(html).not.toContain('<button'); expect(html).not.toContain('>Link<');
+});
+test('planner selection initializes only that planner without consent or connections', async () => {
+  const h = harness(true);
+  await performSetupAction({ ...planner(['codex', 'cursor']), agent: 'cursor' }, h.deps);
+  expect(h.calls).toEqual([['setup.init', { planner: 'cursor' }]]);
+  expect(h.dialogs).toEqual([]); expect(h.refreshes()).toBe(1);
+});
+test('one installed planner initializes automatically only once per page, including failures', async () => {
+  const { createPlannerAutoInit } = await import('../app/src/screens/setup/model');
+  for (const fail of [false, true]) {
+    const init = createPlannerAutoInit(), h = harness(true, fail);
+    const run = (agent: string) => performSetupAction({ ...planner(['codex']), agent }, h.deps);
+    await init(planner([]), run); await init(planner(['codex', 'cursor']), run);
+    await init({ ...planner(['codex']), status: 'done' }, run);
+    expect(h.calls).toEqual([]);
+    let error: unknown;
+    try { await init(planner(['codex']), run); } catch (e) { error = e; }
+    await init(planner(['codex']), run);
+    expect(h.calls).toEqual([['setup.init', { planner: 'codex' }]]);
+    expect(h.refreshes()).toBe(1);
+    if (fail) expect(renderToString(<ErrorMessage error={error} />)).toContain('setup.init');
+  }
+});
