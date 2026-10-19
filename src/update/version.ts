@@ -2,13 +2,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ReleaseError } from "./errors";
 
-/** Replaced at compile time by scripts/release/build.ts (--define PACER_BUILD_VERSION="x.y.z"). */
+/** Replaced at compile time by the local and release build scripts. */
 declare const PACER_BUILD_VERSION: string | undefined;
 
-/** Reported by a compiled binary built without the define (e.g. `bun run build`). */
+/** Fallback for a compiled binary built without the version define. */
 export const DEV_VERSION = "0.0.0-dev";
 
-const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 export function currentVersion(): string {
   if (typeof PACER_BUILD_VERSION === "string") return PACER_BUILD_VERSION;
@@ -24,7 +24,7 @@ export function isVersion(v: string): boolean {
   return SEMVER.test(v);
 }
 
-/** -1, 0 or 1 by semver precedence (build metadata is not supported). */
+/** -1, 0 or 1 by semver precedence; build metadata does not affect ordering. */
 export function compareVersions(a: string, b: string): number {
   const pa = SEMVER.exec(a);
   const pb = SEMVER.exec(b);
