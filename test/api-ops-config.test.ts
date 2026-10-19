@@ -154,3 +154,30 @@ test("cookie config-set restricts terminal presets while bearer and CLI allow te
     expect(loadStrategy(ctx).terminal?.open).toBe("alacritty -e {cmd}");
   } finally {server.stop();}
 });
+
+test("machine parallel tasks validates whole numbers 1..16, preserves invalid edits and provides undo", async () => {
+  const ctx = await configured(), path = join(ctx.pacerHome, "strategy.yaml");
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: 2, source: "default"}}});
+  for (const value of [1, 16, "3"]) {
+    expect(await callOp(ctx, "config.set", {key: "execution.local_max_tasks", value})).toMatchObject({value: Number(value), undo: expect.stringContaining("pacer config set execution.local_max_tasks")});
+  }
+  const before = readFileSync(path, "utf8"), count = eventsSince(ctx, 0).events.length;
+  for (const value of [0, 17, 1.5, "1.5", true, "bad", ""]) {
+    expect((await error(callOp(ctx, "config.set", {key: "execution.local_max_tasks", value}))).code).toBe("invalid_input");
+    expect(readFileSync(path, "utf8")).toBe(before);
+    expect(eventsSince(ctx, 0).events.length).toBe(count);
+  }
+  const result = await callOp(ctx, "config.set", {key: "execution.local_max_tasks", value: 4});
+  expect(result).toMatchObject({previous: 3, undo: "pacer config set execution.local_max_tasks 3"});
+  await callOp(ctx, "config.set", {key: "execution.local_max_tasks", value: 3});
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: 3, source: path}}});
+});
+
+test("concurrent conflicting machine capacity changes return conflict", async () => {
+  const ctx = await configured();
+  const first = callOp(ctx, "config.set", {key: "execution.local_max_tasks", value: 3});
+  const second = error(callOp(ctx, "config.set", {key: "execution.local_max_tasks", value: 4}));
+  expect((await second).code).toBe("conflict");
+  await first;
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: 3}}});
+});

@@ -11,7 +11,7 @@ for (const second of [false, true]) test(`full executor ${second ? "falls throug
   updateTask(ctx, a.id, t => {t.state = "running"; t.executor = "codex"; t.runnerPid = process.pid;});
   const result = await runTask(ctx, b.id, queueDeps(queueStrategy(second)));
   if (second) expect(result.result?.executor).toBe("cursor");
-  else {expect(result.state).toBe("queued"); expect(result.queue).toMatchObject({reason: "no_slot", position: 1}); expect(result.attempts).toEqual([]);}
+  else {expect(result.state).toBe("queued"); expect(result.queue).toMatchObject({reason: "no_slot", position: 1, limit: "executor", capacity: {used: 1, max: 1}}); expect(result.attempts).toEqual([]);}
 });
 test("a full pinned executor queues even with a free fallback", async () => {
   const ctx = fakeCtx(), a = queueTask(ctx, "a"), b = queueTask(ctx, "b", "codex");
@@ -44,5 +44,5 @@ test("machine capacity queues a different executor", async () => {
   const ctx = fakeCtx(), active = queueTask(ctx, "active"), task = queueTask(ctx, "waiting", "cursor");
   updateTask(ctx, active.id, t => {t.state = "running"; t.executor = "codex";});
   const s = queueStrategy(true); s.execution.local_max_tasks = 1;
-  expect((await runTask(ctx, task.id, queueDeps(s))).queue?.reason).toBe("no_slot");
+  expect((await runTask(ctx, task.id, queueDeps(s))).queue).toMatchObject({reason: "no_slot", limit: "machine", capacity: {used: 1, max: 1}});
 });
