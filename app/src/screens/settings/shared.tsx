@@ -1,3 +1,4 @@
+import { clock } from "../../../../src/view-model/time";
 import { settingsMigrationMessage } from "../../../../src/view-model/feedback";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -71,7 +72,7 @@ export function Segment({label,value,options,onChange,disabled}:{label:string;va
 }
 export function Field({label,children,help}:{label:string;children:ComponentChildren;help?:string}) {return <label className="u3-field"><span>{label}</span>{children}{help&&<small>{help}</small>}</label>;}
 export const words=(value:string)=>value.replaceAll('_',' ');
-export const time=(value:number|null)=>value===null?'Not checked':new Date(value*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+export const time=(value:number|null)=>value===null?'Not checked':clock(value,Date.now()/1000);
 /** Keep host jobs visible after navigation or a service reconnect. */
 export function JobList({target,onComplete}:{target:string;onComplete:()=>void}) {
  const {state}=useTaskContext(),query=useResource<Job[]>('job.list',{target});

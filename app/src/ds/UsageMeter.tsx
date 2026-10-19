@@ -1,4 +1,5 @@
-import { clock, meterText } from "../../../src/view-model/format";
+import { clock } from "../../../src/view-model/time";
+import { meterText } from "../../../src/view-model/format";
 import { paceStatus, type StatusTone } from "../../../src/view-model/words";
 
 export interface UsageMeterProps {

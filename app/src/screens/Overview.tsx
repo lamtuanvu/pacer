@@ -6,7 +6,8 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { ActivityEntry, AttentionItem } from "../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
-import { ago, clock, elapsed, meterText } from "../../../src/view-model/format";
+import { ago, clock, elapsed } from "../../../src/view-model/time";
+import { meterText } from "../../../src/view-model/format";
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
 import { attentionStatus, executorLabel, executorStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
@@ -76,7 +77,7 @@ function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnap
       <StatusPill status={taskStatus(t)} />
       {t.state === "queued"
         ? <><span className="muted">{queueWait(t, snapshot)}</span><ActionButton runner={runner} id={`${t.id}:stop`} action={{ label: "Stop", op: "task.stop", params: { id: t.id } }} confirmDone={s => !s.snapshot?.tasks.some(x => x.id === t.id && x.state === "queued")} /></>
-        : <>{t.attemptStartedAt && <span className="muted">{elapsed(now - t.attemptStartedAt)}</span>}
+        : <>{t.attemptStartedAt && <span className="muted">running for {elapsed(now - t.attemptStartedAt)}</span>}
           {t.progress && <span className="muted">{t.progress.files} files · {t.progress.commits} commits</span>}
           {lastOutput(t, now)}<a className="pc-btn pc-btn--secondary pc-btn--sm" href={withQuery(`#/sessions/${encodeURIComponent(t.id)}`, query)}>Watch</a><ActionButton runner={runner} id={`${t.id}:takeover`} action={{label:"Take over",op:"task.takeover",params:{id:t.id}}}/></>}
     </div>)}

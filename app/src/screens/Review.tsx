@@ -1,3 +1,4 @@
+import { costCopy, reasonCopy } from "../../../src/view-model/copy";
 import { displayTitle } from "../../../src/view-model/titles";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
@@ -5,7 +6,7 @@ import { useEffect, useReducer, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../src/api/read-model/types";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
-import { clock, elapsed } from "../../../src/view-model/format";
+import { clock, elapsed } from "../../../src/view-model/time";
 import { attentionStatus, executorLabel, taskStatus } from "../../../src/view-model/words";
 import { ApiError } from "../data/api";
 import { StatusPill } from "../ds/StatusPill";
@@ -36,8 +37,7 @@ function Queue({ items, selected, onSelect, snapshot, now }: { items: AttentionI
   </nav>;
 }
 function CostCard({ cost }: { cost: TaskDetail["cost"] }) {
-  const planner = (cost as { planner: { deltaPct?: number | null; window?: string | null } | null }).planner;
-  return <section><SectionHeading>Cost</SectionHeading>{cost.executor ? <p>{cost.executor.account} · {cost.executor.deltaPct === null ? (cost.executor.reason === "shared" ? "Shared usage" : "No reading") : `+${cost.executor.deltaPct}% of ${cost.executor.window ?? "window"}`}</p> : <p>Cost not recorded</p>}{planner?.deltaPct != null && <p>Planner spent {planner.deltaPct}%{planner.window ? ` of ${planner.window}` : " writing the brief"}.</p>}</section>;
+  return <section><SectionHeading>Cost</SectionHeading><p>{costCopy(cost.executor)}</p>{cost.executor && <details className="pc-disclosure"><summary>Technical cost details</summary><pre className="mono pc-code-scroll" tabIndex={0}>{JSON.stringify(cost, null, 2)}</pre></details>}</section>;
 }
 const REMOVED_WORKTREE = "Changes unavailable · the worktree was removed after the task finished";
 function reviewError(error: unknown): { removed: boolean; message?: string } {
@@ -59,12 +59,12 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
         {view.missing ? <section className="pc-notice"><SectionHeading>Already reviewed</SectionHeading><p><code>{view.missing}</code> is no longer waiting for review. <a className="pc-inline-link" href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
         : !task ? (error ? <SectionHeading>{view.queue.find(item => item.taskId === view.selectedId)?.title}</SectionHeading> : <p className="muted">Loading task…</p>) : <>
           <div className="row"><SectionHeading className="pc-ellipsis grow" title={displayTitle(task)}>{displayTitle(task)}</SectionHeading><StatusPill status={status!} /></div>
-          <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{task.executor}</code>{task.startedAt !== null && task.endedAt !== null && <> · {elapsed(task.endedAt - task.startedAt)}</>} · <code>{task.branch}</code> → <code>{task.base}</code> · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
+          <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{executorLabel(task.executor)}</code>{task.startedAt !== null && task.endedAt !== null && <> · ran {elapsed(task.endedAt - task.startedAt)}</>}{task.branch && <> · <code>{task.branch}</code></>}{task.branch && task.base && <> → <code>{task.base}</code></>} · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
           <div className="pc-review-cards"><section><SectionHeading>Done when</SectionHeading>{acceptance?.state === "none" ? <p>No done-when command</p> : <>
-            <code className="pc-code-scroll" tabIndex={0}>{acceptance?.cmd}</code><p>{acceptance?.state === "passed" ? "✓ " : ""}{acceptance?.summary ?? ({ passed: "Tests passed", failed: "Failed", pending: "Waiting for tests", running: "Testing", none: "No done-when command" }[acceptance?.state ?? "none"])}{acceptance?.durationS !== undefined && ` · ${acceptance.durationS} s`}{acceptance?.machine && ` · run by pacer on ${acceptance.machine}`}</p>
+            <code className="pc-code-scroll" tabIndex={0}>{acceptance?.cmd}</code><p>{acceptance?.state === "passed" ? "✓ " : ""}{acceptance?.summary ?? ({ passed: "Tests passed", failed: "Failed", pending: "Waiting for tests", running: "Testing", none: "No done-when command" }[acceptance?.state ?? "none"])}{acceptance?.durationS !== undefined && ` · checks ran ${acceptance.durationS} s`}{acceptance?.machine && ` · run by pacer on ${acceptance.machine}`}</p>
             {acceptance?.tail && <details className="pc-disclosure"><summary>Acceptance output</summary><pre className="acceptance-output">{acceptance.tail}</pre></details>}
           </>}</section>
-          <section><SectionHeading>Why {executorLabel(task.executor)}</SectionHeading><p>{task.routing?.why ?? "No routing explanation"}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{s.executor}</code> · {s.reason}</p>)}</section>
+          <section><SectionHeading>Why {executorLabel(task.executor)}</SectionHeading><p>{reasonCopy(task.routing?.why)}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{executorLabel(s.executor)}</code> · {reasonCopy(s.reason)}</p>)}{task.routing && <details className="pc-disclosure"><summary>Technical routing details</summary><pre className="mono pc-code-scroll" tabIndex={0}>{JSON.stringify(task.routing, null, 2)}</pre></details>}</section>
           <CostCard cost={task.cost} /></div>
           <details className="pc-disclosure"><summary>Brief</summary><dl className="facts pc-review-brief">
             {([["Goal", task.brief.goal], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{label === "Done when" || label === "Base" ? <code className="pc-code-scroll" tabIndex={0}>{value}</code> : value}</dd></div>)}
