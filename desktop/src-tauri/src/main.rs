@@ -8,6 +8,9 @@ mod client;
 mod logging;
 mod logic;
 mod notifications;
+// Task 8 wires the opt-in PATH edit into onboarding.
+#[allow(dead_code)]
+mod profile;
 mod tray_model;
 
 use reqwest::Url;
