@@ -309,6 +309,33 @@ pub fn service_navigation(url: &Url, origin: Option<&str>) -> bool {
         && matches!(url.path(), "/app" | "/app/" | "/app/auth")
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Navigation {
+    Allow,
+    OpenExternal,
+    Block,
+}
+
+/// Decide from the navigation target and the last completed page load. The
+/// current page may be absent during startup; service sign-in must still work.
+pub fn main_navigation(url: &Url, current: Option<&Url>, origin: Option<&str>) -> Navigation {
+    let shell_page = |url: &Url| {
+        url.scheme() == "tauri"
+            && url.host_str() == Some("localhost")
+            && matches!(url.path(), "/" | "/index.html")
+    };
+    if shell_page(url) || service_navigation(url, origin) {
+        Navigation::Allow
+    } else if (url.as_str() == "https://github.com/lamtuanvu/pacer/blob/main/docs/install.md"
+        && current.is_some_and(shell_page))
+        || external_link(url, current, origin)
+    {
+        Navigation::OpenExternal
+    } else {
+        Navigation::Block
+    }
+}
+
 pub fn external_link(url: &Url, current: Option<&Url>, origin: Option<&str>) -> bool {
     url.scheme() == "https"
         && url.host_str().is_some_and(|host| {
@@ -795,6 +822,67 @@ mod tests {
             assert!(!service_navigation(&Url::parse(url).unwrap(), origin));
         }
     }
+    #[test]
+    fn navigation_with_missing_current_url_allows_signin_and_blocks_external_links() {
+        let origin = Some("http://127.0.0.1:7432");
+        for raw in [
+            "tauri://localhost/index.html",
+            "http://127.0.0.1:7432/app/auth?code=test",
+            "http://127.0.0.1:7432/app/#/settings",
+        ] {
+            assert_eq!(
+                main_navigation(&Url::parse(raw).unwrap(), None, origin),
+                Navigation::Allow
+            );
+        }
+        for raw in [
+            "https://example.com/",
+            "https://github.com/lamtuanvu/pacer/blob/main/docs/install.md",
+            "http://127.0.0.1:7433/app/auth?code=test",
+            "http://127.0.0.1:7432/v3/hello",
+            "file:///tmp/index.html",
+        ] {
+            assert_eq!(
+                main_navigation(&Url::parse(raw).unwrap(), None, origin),
+                Navigation::Block
+            );
+        }
+        assert_eq!(
+            main_navigation(
+                &Url::parse("http://127.0.0.1:7432/app/auth?code=test").unwrap(),
+                None,
+                None
+            ),
+            Navigation::Block
+        );
+    }
+
+    #[test]
+    fn navigation_preserves_source_checks_for_external_links() {
+        let origin = Some("http://127.0.0.1:7432");
+        let shell = Url::parse("tauri://localhost/index.html").unwrap();
+        let service = Url::parse("http://127.0.0.1:7432/app/").unwrap();
+        let install =
+            Url::parse("https://github.com/lamtuanvu/pacer/blob/main/docs/install.md").unwrap();
+        let external = Url::parse("https://example.com/").unwrap();
+        assert_eq!(
+            main_navigation(&install, Some(&shell), origin),
+            Navigation::OpenExternal
+        );
+        assert_eq!(
+            main_navigation(&external, Some(&shell), origin),
+            Navigation::Block
+        );
+        assert_eq!(
+            main_navigation(&external, Some(&service), origin),
+            Navigation::OpenExternal
+        );
+        assert_eq!(
+            main_navigation(&external, Some(&service), None),
+            Navigation::Block
+        );
+    }
+
     #[test]
     fn external_https_requires_a_service_page_and_nonlocal_target() {
         let origin = Some("http://127.0.0.1:7432");
