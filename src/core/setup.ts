@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
 import { parseRunnerId } from "../config/runner-id";
@@ -9,13 +9,18 @@ import { installPlanner } from "../install";
 import { uninstallPlanner } from "../install/uninstall";
 import { pacerArgv } from "../install/self";
 import { installPlugin, pluginDir, MANAGED_MARKER } from "../plugin/install";
-import { serviceBackend } from "../service";
+import { serviceBackend, type ServiceBackend } from "../service";
 import { checkSetup } from "../setup/check";
+import { withLock } from "./lock";
+import { loadStrategy } from "../config/strategy";
+import { accountFolder } from "../install/role";
+import { claudeConnectPreview } from "../install/claude";
 import { currentVersion } from "../update/version";
 import { PROTOCOL_VERSION } from "../api/protocol";
 import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
 import * as config from "./config";
+export { tryDelegation as onboardingTry } from "../onboarding/try";
 
 export async function check(ctx: Ctx, options: {snapshotProbe?:boolean} = {}) {
   try { return await checkSetup(ctx,options); } catch (e) { throw toCoreError(e); }
@@ -53,18 +58,26 @@ export async function pluginInstall(ctx: Ctx) {
   } catch (e) { throw toCoreError(e); }
 }
 
+function plannerTarget(ctx:Ctx,agent:AgentId) {
+  try {const s=loadStrategy(ctx);return s.planner.agent===agent?s.planner:agent;}catch{return agent;}
+}
 export function agentPreview(ctx: Ctx, agent: AgentId) {
   // Preview remains available even when a CLI has not been installed yet.
   const plan = agentPlans(ctx.home, ctx.pacerHome, () => "preview", ctx.env).find(p => p.id === agent);
   if (!plan) throw new CoreError("invalid_input", `unknown agent: ${agent}`, `choose ${PLANNERS.join(', ')}`);
-  return {agent, files: plan.files, undo: plan.undo};
+  const target=plannerTarget(ctx,agent);
+  const account=typeof target==="object"?loadStrategy(ctx).accounts[target.account]:undefined;
+  const folder=account?accountFolder(ctx,account):null;
+  const root=join(ctx.home,agent==="claude-code"?".claude":`.${agent}`);
+  const files=folder&&(agent==="codex"||agent==="claude-code")?plan.files.map(p=>p.startsWith(root+"/")?join(folder,p.slice(root.length+1)):p):plan.files;
+  return {agent,files,undo:folder&&typeof target==="object"?`pacer uninstall ${agent}#${target.account}`:plan.undo,...(agent==="claude-code"?{detail:claudeConnectPreview(ctx.home,folder??root)}:{})};
 }
 
 export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?: boolean} = {}) {
   if (options.consent !== true) throw new CoreError("not_allowed", "connecting an agent requires consent", "Review agent.preview, then pass consent: true");
   agentPreview(ctx, agent);
   try {
-    const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false}, agent);
+    const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false}, plannerTarget(ctx,agent));
     return {installed: r.touched};
   } catch (e) { throw toCoreError(e); }
 }
@@ -81,4 +94,20 @@ export async function version(ctx: Ctx) {
   let plugin: string | undefined;
   try { plugin = JSON.parse(readFileSync(join(pluginDir(ctx), MANAGED_MARKER), 'utf8')).version; } catch { /* not installed */ }
   return {pacer: currentVersion(), protocol: PROTOCOL_VERSION, ...(plugin ? {plugin} : {}), service: await serviceStatus(ctx)};
+}
+
+export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<ServiceBackend,"install"|"status">=serviceBackend(ctx)) {
+  if(consent!==true)throw new CoreError("not_allowed","installing the login service requires consent","Pass consent: true to run pacer in the background at login");
+  try {
+    return await withLock(ctx,"setup-install",async()=>{await backend.install();const s=await backend.status(2000);return {installed:s.installed,running:s.running};},{timeoutMs:0});
+  }catch(e){if(e instanceof Error&&e.message.startsWith("timed out waiting for"))throw new CoreError("conflict","setup installation is already running");throw toCoreError(e);}
+}
+
+export function onboardingSkip(ctx:Ctx) {
+  const dir=join(ctx.pacerHome,"onboarding"),path=join(dir,"skipped"),tmp=join(dir,`.skipped-${crypto.randomUUID()}`);
+  try {
+    mkdirSync(dir,{recursive:true,mode:0o700});
+    writeFileSync(tmp,"",{flag:"wx",mode:0o600});renameSync(tmp,path);
+    return {skipped:true};
+  }catch(e){throw toCoreError(e);}finally{rmSync(tmp,{force:true});}
 }

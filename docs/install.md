@@ -170,20 +170,16 @@ continue. Use `pacer resume` to end the pause early.
 
 ## Uninstall
 
-Run `pacer uninstall <agent>` for each connected agent, replacing `<agent>` with
-`claude-code`, `codex`, `cursor` or `opencode` as appropriate. Do this before
-removing pacer's state so it can restore integration backups.
-
 ```sh
-pacer service uninstall
-# If using the Orca integration:
-pacer plugin uninstall
+pacer uninstall --all
 ```
 
-Remove the pacer plugin and any development-folder entry from Orca Settings >
-Plugins. Then remove the binary (`rm ~/.local/bin/pacer`, or your custom install
-location) and the state directory (`rm -rf ~/.pacer`, or the directory selected
-by `PACER_HOME`). Removing the state deletes strategies, task history and backups.
+It lists everything it will remove (agent integrations, restoring their backups;
+the login service; the Orca plugin registration; `~/.pacer` or `PACER_HOME`), asks
+once, then removes it. Add `--binary` to delete the pacer binary too, and `--yes`
+to skip the question in scripts. Remove any pacer development-folder entry from
+Orca Settings > Plugins yourself. To disconnect a single agent, use
+`pacer uninstall <agent>`.
 
 ## Desktop app updates on macOS
 

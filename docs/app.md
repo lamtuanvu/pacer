@@ -53,6 +53,10 @@ command under Sign out; run it in a terminal.
 | Hosts | Add, check and remove remote hosts. |
 | Settings | Change the planner, notifications and integrations; check and apply updates, inspect versions and find the sign-out command. |
 
+Headless runs in the Session view show “This run is headless — Take over to work
+in it live” with a prominent **Take over** button. Watch-elsewhere options and the
+attach command appear only for live or recorded terminal sessions.
+
 Account sign-in still happens in a terminal: the app shows the command to copy
 and refreshes the sign-in state. Service installation also uses a terminal
 command. Connecting an agent, or changing the planner with integrations, shows
@@ -158,3 +162,5 @@ The Orca plugin uses only the API transport, with HTTP v2 or stdio.
 It waits up to 300 ms, then uses local budget data without counts. When the
 service is unavailable and the stored snapshot is over 120 seconds old, it
 prints `pacer not running · pacer serve`.
+
+The **Delegate** dialog starts with the active repository filter, an unfinished draft’s repository, or the last repository successfully used in the dialog. It remembers the last used repository across app restarts. Choose an optional **Kind** to guide routing; the preview updates with the goal, repository and kind and shows the next executor. Submit with **Cmd+Enter** (or **Ctrl+Enter**).

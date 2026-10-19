@@ -125,6 +125,11 @@ test('settings navigation pluralises rule counts',()=>{
  }
 });
 
+test('settings feedback explains automatic migration in plain language',async()=>{
+ const result=await performOperation(async()=>({id:'codex',migrated:{backup:'strategy.yaml.pre-accounts.bak'}}) as any,'runner.set',{id:'codex',max_tasks:2});
+ expect(result.message).toBe('Saved.');
+ expect(result.hint).toBe('Updated your settings file to the current format. A backup was saved.');
+});
 test('General exposes named parallel tasks controls and shared capacity notes',()=>{
  const limited={...executor,rank:1,slots:{used:0,max:4},limitedBy:'machine'};
  const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
@@ -136,4 +141,12 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
  expect(html).not.toContain('>Slots<');
  const planner=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
+});
+test('settings pages leave their page title to the shell and inline links are underlined', () => {
+ for (const child of [<SettingsGeneral initialData={settings}/>, <AddExecutor/>, <RemoteHosts/>, <HostDetail alias="devbox" initialData={host}/>]) {
+  expect(render(child)).not.toContain('<h1');
+ }
+ const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
+ expect(render(<RemoteHosts/>, emptyState)).not.toContain('>Remote hosts</h2>');
+ expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toContain('<a class="pc-inline-link" href="#/settings/hosts">Add a host.</a>');
 });

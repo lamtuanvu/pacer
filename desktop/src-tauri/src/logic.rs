@@ -61,10 +61,59 @@ pub enum JobState {
 pub struct Diagnosis {
     pub page: &'static str,
     pub path: Option<String>,
+    pub error: Option<String>,
 }
 pub fn diagnosis(page: &'static str, path: Option<String>) -> Diagnosis {
-    Diagnosis { page, path }
+    Diagnosis {
+        page,
+        path,
+        error: None,
+    }
 }
+/// Track an unavailable interval independently of individual retry attempts.
+pub struct Startup {
+    since: Option<std::time::Instant>,
+    pub error: String,
+}
+impl Default for Startup {
+    fn default() -> Self {
+        Self {
+            since: Some(std::time::Instant::now()),
+            error: "Waiting for the local service to finish signing in".into(),
+        }
+    }
+}
+impl Startup {
+    pub fn failed(&mut self, now: std::time::Instant, error: &str) {
+        self.since.get_or_insert(now);
+        self.error = error.into();
+    }
+    pub fn ready(&mut self) {
+        self.since = None;
+    }
+    pub fn stuck(&self, now: std::time::Instant) -> bool {
+        self.since.is_some_and(|since| {
+            now.saturating_duration_since(since) >= std::time::Duration::from_secs(45)
+        })
+    }
+    pub fn diagnosis(&self, now: std::time::Instant) -> Option<Diagnosis> {
+        self.stuck(now).then(|| Diagnosis {
+            page: "stuck",
+            path: None,
+            error: Some(self.error.clone()),
+        })
+    }
+}
+
+pub fn startup_error(error: &str) -> &str {
+    match error {
+        "sessionExpired" => "The desktop sign-in session expired or was rejected",
+        "starting" => "The local service is still starting",
+        "stopped" | "diagnose" => "The local service stopped answering",
+        _ => error,
+    }
+}
+
 /// Additive v2/v3 snapshot field `service.waiting { kind: "volume" | "folder", path, since }`:
 /// a repo filesystem call has been outstanding for a second or more, usually behind a macOS
 /// privacy prompt. Both kinds suppress restarts; unknown kinds are ignored.
@@ -936,10 +985,48 @@ mod tests {
     fn waiting_on_a_volume_or_a_folder_both_ask_for_os_approval() {
         let volume = serde_json::json!({"snapshot":{"service":{"waiting":{"kind":"volume","path":"/Volumes/External","since":1}}}});
         let folder = serde_json::json!({"service":{"waiting":{"kind":"folder","path":"/Users/me/Projects/app","since":1}}});
-        let other = serde_json::json!({"service":{"waiting":{"kind":"network","path":"/x","since":1}}});
-        assert_eq!(volume_waiting(&volume).as_deref(), Some("/Volumes/External"));
-        assert_eq!(volume_waiting(&folder).as_deref(), Some("/Users/me/Projects/app"));
+        let other =
+            serde_json::json!({"service":{"waiting":{"kind":"network","path":"/x","since":1}}});
+        assert_eq!(
+            volume_waiting(&volume).as_deref(),
+            Some("/Volumes/External")
+        );
+        assert_eq!(
+            volume_waiting(&folder).as_deref(),
+            Some("/Users/me/Projects/app")
+        );
         assert_eq!(volume_waiting(&other), None);
         assert_eq!(volume_waiting(&serde_json::json!({"service":{}})), None);
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    #[test]
+    fn stuck_threshold_survives_retries_and_resets_only_when_ready() {
+        let now = Instant::now();
+        let mut startup = Startup {
+            since: Some(now),
+            error: String::new(),
+        };
+        startup.failed(
+            now + Duration::from_secs(30),
+            "Session exchange failed (HTTP 401)",
+        );
+        assert!(!startup.stuck(now + Duration::from_secs(44)));
+        let detail = startup.diagnosis(now + Duration::from_secs(45)).unwrap();
+        assert_eq!(detail.page, "stuck");
+        assert_eq!(
+            detail.error.as_deref(),
+            Some("Session exchange failed (HTTP 401)")
+        );
+        assert!(startup.stuck(now + Duration::from_secs(3600)));
+        startup.ready();
+        assert!(!startup.stuck(now + Duration::from_secs(3600)));
+        startup.failed(now + Duration::from_secs(3600), "Session expired");
+        assert!(!startup.stuck(now + Duration::from_secs(3644)));
+        assert!(startup.stuck(now + Duration::from_secs(3645)));
     }
 }

@@ -1,3 +1,5 @@
+import { settingsMigrationMessage } from "../../../../src/view-model/feedback";
+import { SectionHeading } from "../../ds/SectionHeading";
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { Job } from '../../../../src/api/read-model/types';
@@ -16,7 +18,7 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
  return polled??event;
 }
 export function Section({id,title,detail,actions,children}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren}) {
- return <section id={id} className="u3-section"><div className="u3-heading"><div><h2>{title}</h2>{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>{children}</section>;
+ return <section id={id} className="u3-section"><div className="u3-heading"><div><SectionHeading>{title}</SectionHeading>{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>{children}</section>;
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
@@ -35,7 +37,7 @@ export interface OperationResult {data:unknown;message:string;hint?:string;comma
 export async function performOperation(call:BrowserApi['call'],op:string,params:unknown):Promise<OperationResult> {
  const data=await call<unknown>(op,params),r=(data&&typeof data==='object'?data:{}) as Record<string,unknown>;
  const candidate=(r.job??(r.steps&&r.id?r:undefined)) as Job|string|undefined;
- return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:undefined,command:typeof r.command==='string'?r.command:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
+ return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
 }
 export function useOperation(onDone?:()=>void) {
  const runner=useActions();

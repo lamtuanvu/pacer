@@ -128,7 +128,7 @@ case $version in
   *) die "invalid version: $version" ;;
 esac
 case $version in
-  *[!0-9A-Za-z.-]*) die "invalid version: $version" ;;
+  *[!0-9A-Za-z.+-]*) die "invalid version: $version" ;;
 esac
 
 release=$base/$version

@@ -29,7 +29,7 @@ export const capacity = (s: SnapshotV2): ExecutorRow[] => s.executors ?? [];
 export const doneToday = (s: SnapshotV2, scope: Scope): TaskDataV2[] => cached(s, `doneToday:${scope.repo}`, () => {
   const since = s.today?.since;
   if (since === undefined) return [];
-  return s.tasks.filter(t => !active(t.state) && t.updatedAt >= since && inScope(scope, t.repo)).sort((a, b) => b.updatedAt - a.updatedAt);
+  return s.tasks.filter(t => t.source !== "onboarding" && !active(t.state) && t.updatedAt >= since && inScope(scope, t.repo)).sort((a, b) => b.updatedAt - a.updatedAt);
 });
 /** The review queue is the review items, newest last. */
 export const reviewQueue = (s: SnapshotV2): AttentionItem[] => cached(s, "reviewQueue", () =>

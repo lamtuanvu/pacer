@@ -1,4 +1,6 @@
 /** The overlap adapter. Conversions are pure and never mutate the v3 model. */
+import { sortItems } from "../attention/rules";
+import { legacySetup, legacyCheck } from "../setup/v2";
 import type { LinkSnapshot, BudgetData } from '../link/envelope';
 import type { SnapshotV2, SnapshotV3 } from './read-model/types';
 import { callOp, opJsonSchemas, LEGACY_TASK_LIST, type OpDeps } from './ops';
@@ -15,7 +17,7 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['task.takeover']);
+export const V3_ONLY_OPS = new Set(['task.takeover','service.install','onboarding.skip','onboarding.try']);
 
 export function v2Hello() {
  const {previous:_,...hello}=helloBody();
@@ -29,8 +31,17 @@ function budget(s: SnapshotV3): BudgetData | null {
  ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN'}))};
 }
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
- const legacy=s[V2_STATE];
- return {...s,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ const legacy=s[V2_STATE],setup=legacySetup(s.setup);
+ const attention=sortItems(s.attention.flatMap(a=>{
+  if(a.id==="setup:connect")return [];
+  const id=a.id==="setup:planner"?"setup:strategy":a.id;
+  const item=setup.items.find(i=>`setup:${i.id}`===id);
+  if(!item)return [a]; // Plugin reload notices are independent of the checklist.
+  if(item.status==="done")return [];
+  return [{...a,id,title:item.title,actions:a.actions.map(action=>action.op==="ui.open"?{...action,params:{...action.params,section:item.id}}:action)}];
+ }));
+ const counts={...s.counts,attention:attention.length,problems:attention.filter(a=>a.severity!=="decide").length,setupOpen:setup.open};
+ return {...s,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
@@ -50,6 +61,7 @@ export function v2Params(name:string,params:unknown):unknown {
  return {...rest,...(p.verdict===undefined&&typeof accepted==='boolean'?{verdict:accepted?'accept':'reject'}:{})};
 }
 export function toV2OpResult(name:string,result:any):unknown {
+ if(name==='setup.check')return legacyCheck(result);
  if(name==='version.get')return {...result,protocol:V2_PROTOCOL};
  if(name==='task.diff')return {...result,diff:result.patch};
  if(name==='task.list'&&result?.[LEGACY_TASK_LIST])return result[LEGACY_TASK_LIST];

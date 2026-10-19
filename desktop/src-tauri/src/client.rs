@@ -86,7 +86,7 @@ impl Cli {
             .map_err(|_| "CLI timed out")?
             .map_err(|_| "Unable to run pacer")?;
         if !out.status.success() {
-            return Err("pacer command failed".into());
+            return Err(format!("pacer {} failed ({})", args.join(" "), out.status));
         }
         String::from_utf8(out.stdout).map_err(|_| "Invalid CLI output".into())
     }
@@ -145,9 +145,20 @@ impl Session {
             .timeout(Duration::from_secs(15))
             .send()
             .await
-            .map_err(|_| "Session exchange failed")?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    "Session exchange timed out"
+                } else if e.is_connect() {
+                    "Unable to connect to the local service for session exchange"
+                } else {
+                    "Session exchange request failed"
+                }
+            })?;
         if response.status() != reqwest::StatusCode::NO_CONTENT {
-            return Err("Session exchange failed".into());
+            return Err(format!(
+                "Session exchange failed (HTTP {})",
+                response.status().as_u16()
+            ));
         }
         logic::check_hello(&session.json("/v3/hello").await?).map_err(str::to_owned)?;
         Ok(session)
@@ -198,14 +209,16 @@ async fn wait_for_snapshot(app: &AppHandle, session: &Session) -> Result<Value, 
         *app.state::<Shell>().waiting.lock().unwrap() = waiting.clone();
         if waiting.is_some() || privacy_prompt() {
             if !paused {
-                eprintln!("pacer lifecycle: waiting for OS volume approval; restart suppressed");
+                desktop_log!("pacer lifecycle: waiting for OS volume approval; restart suppressed");
             }
             paused = true;
             crate::diagnostic_recovery(app, &logic::diagnosis("permission", waiting));
             tokio::time::sleep(Duration::from_secs(1)).await;
         } else {
             if paused {
-                eprintln!("pacer lifecycle: OS volume wait cleared; authenticating automatically");
+                desktop_log!(
+                    "pacer lifecycle: OS volume wait cleared; authenticating automatically"
+                );
                 return Err("sessionExpired".into());
             }
             return Ok(snapshot);
@@ -214,7 +227,9 @@ async fn wait_for_snapshot(app: &AppHandle, session: &Session) -> Result<Value, 
 }
 
 async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
+    desktop_log!("pacer lifecycle: requesting desktop sign-in link");
     let web_auth = cli.auth().await?;
+    desktop_log!("pacer lifecycle: exchanging local service session");
     let session = Session::connect(cli, &web_auth).await?;
     let snapshot = wait_for_snapshot(app, &session).await?;
     if snapshot["service"]["starting"] == true
@@ -342,6 +357,46 @@ async fn listen(
     }
 }
 
+pub async fn watch_startup(app: AppHandle) {
+    let mut reported = false;
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let detail = app
+            .state::<Shell>()
+            .startup
+            .lock()
+            .unwrap()
+            .diagnosis(std::time::Instant::now());
+        if let Some(detail) = detail {
+            if reported {
+                continue;
+            }
+            let page = app
+                .state::<Shell>()
+                .diagnosis
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|d| d.page);
+            // Preserve more specific permission and installation guidance.
+            if page.is_none() || matches!(page, Some("starting" | "stuck")) {
+                if page != Some("stuck") {
+                    desktop_log!(
+                        "pacer lifecycle: sign-in stuck after 45 seconds: {}",
+                        detail.error.as_deref().unwrap_or("unknown failure")
+                    );
+                }
+                crate::diagnostic_recovery(&app, &detail);
+                reported = true;
+                // Wake a stream owner whose webview never completed sign-in.
+                app.state::<Shell>().expired.notify_one();
+            }
+        } else {
+            reported = false;
+        }
+    }
+}
+
 pub async fn run(app: AppHandle) {
     let mut path = Cli::login_path().await;
     let probe_client = Client::builder()
@@ -383,7 +438,7 @@ pub async fn run(app: AppHandle) {
                     | logic::RecoveryAction::Restart
             )
         {
-            eprintln!("pacer lifecycle: {reason}");
+            desktop_log!("pacer lifecycle: {reason}");
             previous = reason;
         }
         crate::diagnostic_recovery(
@@ -397,10 +452,14 @@ pub async fn run(app: AppHandle) {
                 let mut action_job = job;
                 for name in logic::service_steps(action) {
                     if let Err(error) = service_action(cli.as_ref(), name, action_job).await {
-                        eprintln!("pacer lifecycle: automatic {name} failed: {error}; polling and retrying with backoff");
+                        app.state::<Shell>().startup.lock().unwrap().failed(
+                            std::time::Instant::now(),
+                            &format!("Service {name} failed: {error}"),
+                        );
+                        desktop_log!("pacer lifecycle: automatic {name} failed: {error}; polling and retrying with backoff");
                         break;
                     }
-                    eprintln!("pacer lifecycle: automatic {name} succeeded");
+                    desktop_log!("pacer lifecycle: automatic {name} succeeded");
                     if *name == "install" {
                         action_job = logic::JobState::Stopped;
                     }
@@ -413,24 +472,35 @@ pub async fn run(app: AppHandle) {
                         result = monitor_health(&probe_client) => result,
                     };
                     if let Err(error) = result {
-                        eprintln!(
+                        app.state::<Shell>()
+                            .startup
+                            .lock()
+                            .unwrap()
+                            .failed(std::time::Instant::now(), logic::startup_error(&error));
+                        desktop_log!(
                             "pacer lifecycle: connection ended ({error}); rechecking automatically"
                         );
                         if app.state::<Shell>().session.lock().unwrap().is_some() {
                             lifecycle.ready();
                         }
                         let page = logic::recovery_page(&error);
-                        crate::recovery(&app, page);
+                        crate::diagnostic_recovery(&app, &logic::diagnosis(page, None));
                     }
                 } else {
-                    eprintln!(
+                    desktop_log!(
                         "pacer lifecycle: CLI unavailable for authentication; searching again"
                     );
                     crate::recovery(&app, "install");
                 }
             }
             logic::RecoveryAction::Protocol => crate::recovery(&app, "protocol"),
-            logic::RecoveryAction::Wait => {}
+            logic::RecoveryAction::Wait => {
+                app.state::<Shell>().startup.lock().unwrap().failed(std::time::Instant::now(), match probe {
+                    logic::HealthProbe::NoAnswer => "The local service accepts connections but is not answering health checks",
+                    logic::HealthProbe::Unreachable => "The local service cannot be reached",
+                    _ => "Waiting for the local service to start",
+                });
+            }
         }
     }
 }
@@ -753,7 +823,7 @@ pub async fn monitor_approvals(app: AppHandle) {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let prompt = os_prompt();
         if prompt != previous {
-            eprintln!("pacer approvals: visible OS dialog={prompt:?}");
+            desktop_log!("pacer approvals: visible OS dialog={prompt:?}");
             if prompt == Some("volume") {
                 let path = app.state::<Shell>().waiting.lock().unwrap().clone();
                 crate::diagnostic_recovery(&app, &logic::diagnosis("permission", path));

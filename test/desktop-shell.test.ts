@@ -67,3 +67,18 @@ test("Starting pacer shows a subtle spinner that stops for reduced motion", asyn
   expect(css).toMatch(/prefers-reduced-motion:\s*reduce\)\s*\{\s*\.spinner\s*\{[^}]*animation:\s*none/);
   expect(js).toContain("document.querySelector('#spinner').hidden = permission || Boolean(pages[detail.page]);");
 });
+
+
+test("stuck sign-in explains the failure, logs and background retries without a spinner", () => {
+  const page = shell("?state=stuck");
+  page.render({ page: "stuck", error: "Session exchange failed (HTTP 401)" });
+  expect(page.element("h1").textContent).toContain("could not finish signing in");
+  expect(page.element("#message").textContent).toContain("Session exchange failed (HTTP 401)");
+  expect(page.element("#message").textContent).toContain("Retrying automatically");
+  expect(page.element("#message").textContent).toContain("~/Library/Logs/pacer/desktop.log");
+  expect(page.element("#message").hidden).toBe(false);
+  expect(page.element("#spinner").hidden).toBe(true);
+  page.render({ page: "starting" });
+  expect(page.element("#message").hidden).toBe(true);
+  expect(page.element("#spinner").hidden).toBe(false);
+});

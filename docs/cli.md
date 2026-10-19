@@ -46,6 +46,11 @@ Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
 (max 200 characters). Executors cannot delegate onward.
 
+Delegate accepts kind aliases in `--kind` and brief files: `bugfix`, `fix`, and `bug`
+map to `debug`; `test` maps to `tests`; `doc` maps to `docs`; and `perf` maps to
+`performance`. Tasks store the canonical kind. Invalid kinds list the allowed
+values and suggest the closest kind.
+
 Choose current for uncommitted work, research/review, installed dependencies, or small
 follow-ups. Choose new for parallel tasks, concurrent user edits, or risky experiments;
 omit the choice for auto placement.
@@ -125,7 +130,7 @@ claude-code and explains how to choose another later.
 Existing strategies are preserved; changing planner updates only the planner
 line. Completed steps print “✓ … (already done)”. Each unconnected detected agent
 shows a file preview and undo command before its own y/N consent prompt. `--yes`
-accepts all; `--agents` limits selection. No MCP servers are added. Undo an
+accepts these setup steps; `--agents` limits selection. No MCP servers are added. Undo an
 integration with `pacer uninstall <agent>`.
 
 Non-TTY runs set up strategy and service without prompts. Agents connect only
@@ -135,6 +140,48 @@ folder when Orca is installed, prints its path and guides you to Settings >
 Plugins > Development > Add folder. It waits up to five minutes for the live
 heartbeat; Enter or Ctrl-C skips with `Finish later with: pacer init`. Setup then
 prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
+
+Before opening the dashboard, interactive init offers a first delegation when
+an executor is ranked and no task has been reviewed or the exercise skipped:
+`Try a first delegation now? It runs a tiny docs task in a scratch repo. [Y/n]`.
+`--yes` still asks this question because the exercise spends executor budget;
+non-TTY and `--json` runs never ask or start it. Declining records the skip.
+
+Accepting calls the v3 `onboarding.try` operation with `{}`. It creates a fresh
+git repo with a committed README under `PACER_HOME/onboarding/try-<timestamp>/`
+and routes a 15-minute docs task: summarize README.md in three bullet points
+into SUMMARY.md, checked with `test -s SUMMARY.md`. It returns
+`{task_id, executor, repo}` and init prints the task's executor and review command.
+Review with `pacer review <id>` or `pacer open`; accepting or rejecting completes
+the first-delegation step. Failures use the normal retry flow.
+
+The dashboard offers `t try a first delegation` while that step is pending and
+an executor is ranked, alongside `s` service, `c` connect, `e` add executor and
+`k` skip. The task carries `source: "onboarding"`, stays in the task list and review
+queue, and is excluded from finished-today statistics. Scratch repos are removed
+with `pacer uninstall --all` as part of `PACER_HOME` cleanup.
+
+## Remove pacer
+
+`pacer uninstall --all [--yes] [--binary] [--json]` prints a complete removal
+plan from the install manifest, including each connected agent and its account
+folder, the installed login service, Orca plugin registration, `PACER_HOME`,
+and the binary path. In a terminal it asks once: `Remove all of this? [y/N]`.
+Without a terminal, pass `--yes`; otherwise it prints the plan and exits 2.
+
+Removal runs in order: agent integrations (using their recorded undo operations
+and restoring backups), service, plugin, then all of `PACER_HOME`. Orca may still
+require removing the development plugin path in Settings; the command prints that
+instruction. It continues after individual failures, reports each step as `ok` or
+`failed`, and exits 1 if any step failed. Review the plan carefully: `PACER_HOME`
+contains configuration, history and account data. Paths resolving to your home
+directory or `/` are refused.
+
+The binary is left in place unless you pass `--binary`. Development runs refuse
+to delete the shared Bun/Node runtime; use an installed pacer binary for that
+option. If the binary is inside `PACER_HOME`, removal requires `--binary`.
+`--json` returns `{plan, results}`; prompts and errors use stderr.
+Existing `pacer uninstall <planner>` remains available for a single integration.
 
 ## pacer open
 

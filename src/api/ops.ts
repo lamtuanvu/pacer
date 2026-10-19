@@ -45,6 +45,7 @@ import type { Ctx } from "../types";
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
+  onboardingRoute?: import("../onboarding/try").TryDeps["route"];
   snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
   client?: string;
@@ -172,23 +173,23 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     ]),
     handler: (ctx, p, deps) => mutation(ctx, "accounts", async () => {
       if (p.kind === "endpoint") return endpointAction(p.key, () => endpoints.addEndpoint(ctx, p, deps.endpoint));
-      await accounts.add(ctx, p);
-      return {account: (await accounts.list(ctx)).find(a => a.name === p.name)!};
+      const {migrated} = await accounts.add(ctx, p);
+      return {...(migrated ? {migrated} : {}), account: (await accounts.list(ctx)).find(a => a.name === p.name)!};
     }),
   }),
   "account.models": op({ description: "Discover endpoint models using a supplied or stored key.", params: z.object({name: id.optional(), base_url: endpointFields.base_url.optional(), key: z.string().optional()}), handler: (ctx, p, deps) => endpointAction(p.key, () => endpoints.listModels(ctx, p, deps.endpoint)) }),
   "account.edit": op({ description: "Edit a managed endpoint and regenerate its OpenCode provider.", params: endpointEdit, handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.editEndpoint(ctx, p, deps.endpoint))) }),
   "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),
   "account.adopt": op({ description: "Adopt an external OpenCode provider's URL and model ids, supplying a new key source.", params: z.object({name: id, key_source: endpointFields.key_source, key: endpointFields.key, env_var: endpointFields.env_var}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.adoptEndpoint(ctx, p, deps.endpoint))) }),
-  "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id.regex(/^[a-z0-9][a-z0-9-]*$/, "invalid account name"), delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", () => { accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true}; }) }),
+  "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id.regex(/^[a-z0-9][a-z0-9-]*$/, "invalid account name"), delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", () => { const {migrated} = accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
   "runner.add": op({ description: "Add an agent/account runner to the default routing rule.", params: z.union([interactive.omit({interactive:true}).extend({interactive:z.literal("runner-add")}),z.object({agent: z.enum(AGENTS), account: id.optional(), host: id.optional(), model: z.string().min(1).optional(), rank: z.number().int().nonnegative().optional(), kinds: z.array(z.enum(KINDS)).min(1).optional(), max_tasks: z.number().int().positive().optional(), test: z.boolean().optional()})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : mutation(ctx, "runners", async () => {
-    const {id} = runnersConfig.add(ctx, p);
-    return {id, ...(p.test !== false ? {job: await checkRunner(ctx, id, deps.runnerCheck)} : {})};
+    const {id, migrated} = runnersConfig.add(ctx, p);
+    return {id, ...(migrated ? {migrated} : {}), ...(p.test !== false ? {job: await checkRunner(ctx, id, deps.runnerCheck)} : {})};
   }) }),
   "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
-  "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", () => { runnersConfig.remove(ctx, p.id); return {removed: true}; }) }),
+  "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", () => { const {migrated} = runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
   "routing.get": op({ description: "Routing rules and available executor ids.", params: z.object({}), handler: ctx => routingConfig.get(ctx) }),
   "routing.set": op({ description: "Validate and replace routing rules, keeping the default last and preserving comments.", params: z.object({rules: z.array(z.object({kinds: z.array(z.string()).optional(), executors: z.array(id)}))}), handler: (ctx, p) => mutation(ctx, "routing", () => routingConfig.set(ctx, p.rules)) }),
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
@@ -207,6 +208,9 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: (ctx, _p, deps) => setup.check(ctx, {snapshotProbe:deps.snapshotProbe}) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
+  "service.install": op({ description: "Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.", params: z.object({consent: z.literal(true)}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.serviceInstall(ctx, p.consent)) }),
+  "onboarding.try": op({ description: "Start a tiny docs delegation in a scratch git repository; returns task_id, executor and repo.", params: z.object({}), handler: (ctx, _p, deps) => mutation(ctx, "setup", () => setup.onboardingTry(ctx, {route: deps.onboardingRoute, delegate: deps.delegate, spawnRunner: deps.spawnRunner})) }),
+  "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
   "plugin.install": op({ description: "Install the Orca plugin under PACER_HOME without editing Orca settings.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.pluginInstall(ctx)) }),
   "agent.preview": op({ description: "Preview agent integration files and the undo command before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),

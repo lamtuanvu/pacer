@@ -4,10 +4,10 @@ import { setupChecklist, setupKey } from "../src/setup/checklist";
 import { renderPanel } from "../orca-plugin/src/panel";
 import { emptySnapshot } from "../src/link/envelope";
 import { renderDashboard } from "../src/dashboard/render";
-const facts = { version: "0.1.22", planner: "codex", service: { installed:true, running:true }, link:true, live:true, agents:[{id:"codex",name:"Codex",installed:false}] };
+const facts = { version: "0.1.22", planner: "codex", service: { installed:true, running:true }, link:true, live:true, orcaInstalled:true,signedIn:true,connected:true,executors:{ranked:[{id:"claude-code"}],excluded:[]},reviewed:true, agents:[{id:"claude-code",name:"Claude Code",installed:false}] };
 test("required checks gate readiness; optional agents and live panel do not",()=>{
  const ready=setupChecklist(facts,10);
- expect(ready.complete).toBe(true);expect(ready.items.find(i=>i.id==="agent:codex")?.status).toBe("pending");
+ expect(ready.complete).toBe(true);expect(ready.items.find(i=>i.id==="agent:claude-code")?.status).toBe("pending");
  for(const patch of [{version:null},{planner:null},{service:{installed:true,running:false}},{link:false}]) expect(setupChecklist({...facts,...patch},10).complete).toBe(false);
  expect(setupChecklist({...facts,live:false},10).complete).toBe(true);
  expect(setupKey(ready)).toBe(setupKey(setupChecklist(facts,70)));
@@ -15,9 +15,9 @@ test("required checks gate readiness; optional agents and live panel do not",()=
 test("status page shows incomplete setup and optional agent details",()=>{
  const render=(link:boolean)=>renderPanel(emptySnapshot(),{nowS:10,transport:"http",reachable:true,setup:setupChecklist({...facts,link},10)});
  const incomplete=render(false);
- expect(incomplete).toContain("<h2>Setup</h2>");expect(incomplete).toContain("Optional");expect(incomplete).toContain("Codex");expect(incomplete).toContain("pacer init");
+ expect(incomplete).toContain("<h2>Setup</h2>");expect(incomplete).toContain("Optional");expect(incomplete).toContain("codex");expect(incomplete).toContain("pacer init");
  expect(incomplete).not.toContain("data-command");
- expect(render(true)).not.toContain("<h2>Setup</h2>");expect(render(true)).toContain("<h2>Running</h2>");
+ expect(render(true)).not.toContain("<h2>Setup</h2>");expect(render(true)).toContain("Setup ✓");expect(render(true)).toContain("<h2>Running</h2>");
 });
 test("dashboard puts the same incomplete checklist above budgets",()=>{
  const html=renderDashboard(emptySnapshot(),100,30,10,{selected:0,setup:setupChecklist({...facts,link:false},10)});
