@@ -6,7 +6,7 @@ import { latestPath } from "../src/link/paths";
 import { attentionGroups, attentionText, unavailableDetail } from "../orca-plugin/src/panel/model";
 import { renderStatusPage } from "../orca-plugin/src/panel";
 import { createTask } from "../src/tasks/store";
-import { taskStatus } from "../src/tasks/api";
+import { superviseTask } from "../src/tasks/api";
 import { fakeCtx } from "./helpers";
 const failure = (id:string, extra:Partial<TaskData>={}):TaskData=>({id,state:"failed",goal:id,executor:"agy",backend:"direct",worktree:null,updatedAt:1000,...extra});
 test("dismissed, expired and successfully retried failures leave attention",()=>{
@@ -25,10 +25,10 @@ test("live runners and started attempts never appear as waiting for executor",()
   s.tasks=[failure("live",{state:"running",executor:null,runnerAlive:true}),failure("started",{state:"running",executor:null,attemptStartedAt:1000}),failure("stuck",{state:"queued",executor:null,runnerAlive:false})];
   expect(attentionGroups(s,1700).map(g=>g.latest.id)).toEqual(["stuck"]);
 });
-test("queued task is not declared stuck before ten minutes",()=>{
+test("queued task is not declared stuck before ten minutes",async()=>{
   const ctx=fakeCtx();const t=createTask(ctx,{brief:{goal:"g",repo:"/r"},kind:null,requestedExecutor:null,timeoutS:60});
-  expect(taskStatus({...ctx,now:ctx.now+599},t.id)?.state).toBe("queued");
-  expect(taskStatus({...ctx,now:ctx.now+601},t.id)?.state).toBe("failed");
+  expect((await superviseTask({...ctx,now:ctx.now+599},t.id))?.state).toBe("queued");
+  expect((await superviseTask({...ctx,now:ctx.now+601},t.id))?.state).toBe("failed");
 });
 test("snapshot roundtrip retains current attempt and dismissal",()=>{
   const ctx=fakeCtx();const t=createTask(ctx,{brief:{goal:"g",repo:"/r"},kind:null,requestedExecutor:null,timeoutS:60});

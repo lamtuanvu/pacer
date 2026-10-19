@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { runTask } from "../src/tasks/runner";
 import { readTask, updateTask } from "../src/tasks/store";
-import { taskStatus } from "../src/tasks/api";
+import { superviseTask } from "../src/tasks/api";
 import { fakeCtx } from "./helpers";
 
 import { queueStrategy, queueTask, queueDeps } from "./queue-helpers";
@@ -29,10 +29,10 @@ test("concurrent runners reserve one slot atomically", async () => {
   expect(queued.queue?.reason).toBe("no_slot");
   release(); await Promise.all([first, second]);
 });
-test("waiting tasks survive the never-started timeout", () => {
+test("waiting tasks survive the never-started timeout", async () => {
   const ctx = fakeCtx(), t = queueTask(ctx);
   updateTask(ctx, t.id, x => {x.queue = {reason: "no_slot", since: ctx.now, position: 1};});
-  expect(taskStatus({...ctx, now: ctx.now + 700}, t.id)?.state).toBe("queued");
+  expect((await superviseTask({...ctx, now: ctx.now + 700}, t.id))?.state).toBe("queued");
 });
 test("a runner that starts during a pause queues without attempting", async () => {
   const {pause} = await import("../src/core/pause");

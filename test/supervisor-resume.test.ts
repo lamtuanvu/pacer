@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { runDir } from "../src/exec/direct";
-import { taskStatus } from "../src/tasks/api";
+import { superviseTask } from "../src/tasks/api";
 import { runTask } from "../src/tasks/runner";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readRun, startRun } from "../src/supervisor/run";
@@ -23,21 +23,21 @@ function orphan(script: string) {
   return { ctx, t, dir };
 }
 
-test("dead runner with a live run is resumed, not failed", () => {
+test("dead runner with a live run is resumed, not failed", async () => {
   const { ctx, t } = orphan("sleep 3");
   const spawned: string[] = [];
-  const st = taskStatus(ctx, t.id, (_c, id) => { spawned.push(id); return 1; });
+  const st = await superviseTask(ctx, t.id, (_c, id) => { spawned.push(id); return 1; });
   expect(st?.state).toBe("running");
   expect(spawned).toEqual([t.id]);
-  taskStatus(ctx, t.id, (_c, id) => { spawned.push(id); return 1; });
+  await superviseTask(ctx, t.id, (_c, id) => { spawned.push(id); return 1; });
   expect(spawned).toEqual([t.id]); // at most once per 60 s
 });
 
-test("dead runner whose run vanished without an exit record still fails as before", () => {
+test("dead runner whose run vanished without an exit record still fails as before", async () => {
   const { ctx, t, dir } = orphan("sleep 30");
   process.kill(-readRun(dir).pid!, "SIGKILL");
   Bun.sleepSync(200);
-  expect(taskStatus(ctx, t.id, () => 1)?.state).toBe("failed");
+  expect((await superviseTask(ctx, t.id, () => 1))?.state).toBe("failed");
 });
 
 test("resumed runner records the attempt's real exit", async () => {
@@ -59,10 +59,10 @@ test("dead runner with an exit record stays running and retries resume after 60 
   }
   let spawned = 0;
   const spawn = () => { spawned++; return 1; };
-  expect(taskStatus(ctx, t.id, spawn)?.state).toBe("running");
-  taskStatus({ ...ctx, now: ctx.now + 59 }, t.id, spawn);
+  expect((await superviseTask(ctx, t.id, spawn))?.state).toBe("running");
+  await superviseTask({ ...ctx, now: ctx.now + 59 }, t.id, spawn);
   expect(spawned).toBe(1);
-  taskStatus({ ...ctx, now: ctx.now + 60 }, t.id, spawn);
+  await superviseTask({ ...ctx, now: ctx.now + 60 }, t.id, spawn);
   expect(spawned).toBe(2);
 });
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { dashboardClient as connectTaskClient } from "./dashboard/client";
 import type { PruneResult } from "./tasks/retention";
+import { superviseTasks } from "./tasks/api";
+import { drainQueue } from "./tasks/drain";
 import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
 import { resolveRepoInput } from "./core/repos";
@@ -286,6 +288,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     } catch (e) { return { code: 2, out: "", err: explain(e) }; }
     finally { client.close(); }
   }
+  await superviseTasks(ctx, cliDeps.spawnRunner);
+  await drainQueue(ctx, cliDeps.spawnRunner);
   if (pos[0]) {
     try {
       const t = core.tasks.get(ctx, pos[0]);

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { execProcess } from "../src/exec/process";
-import { DelegateError, delegate, selfCommand, taskStatus, taskStop, taskWait, validateInput } from "../src/tasks/api";
+import { DelegateError, delegate, selfCommand, superviseTask, taskStatus, taskStop, taskWait, validateInput } from "../src/tasks/api";
 import { runTask } from "../src/tasks/runner";
 import { listTasks, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -48,16 +48,16 @@ test("taskWait returns at a terminal state or at the timeout", async () => {
   expect(await taskWait(ctx, "t-20261011-140500-abcd", 1, 50)).toBeNull();
 });
 
-test("dead runner is detected", () => {
+test("dead runner is detected", async () => {
   const ctx = fakeCtx();
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
   updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; x.attemptStartedAt = ctx.now; });
-  const r = taskStatus(ctx, t.id);
+  const r = await superviseTask(ctx, t.id);
   expect(r?.state).toBe("failed");
   expect(r?.result?.report).toBe("the pacer runner exited unexpectedly");
 });
 
-test("a finished task is not overwritten by dead-runner detection", () => {
+test("a finished task is not overwritten by dead-runner detection", async () => {
   const ctx = fakeCtx();
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
   const result = { status: "done" as const, executor: "codex", model: "m", files: "a.ts", report: "finished", backend: "direct" as const };
@@ -68,7 +68,7 @@ test("a finished task is not overwritten by dead-runner detection", () => {
     throw Object.assign(new Error("no such process"), { code: "ESRCH" });
   }) as typeof process.kill;
   let r;
-  try { r = taskStatus(ctx, t.id); } finally { process.kill = kill; }
+  try { r = await superviseTask(ctx, t.id); } finally { process.kill = kill; }
   expect(r?.state).toBe("done");
   expect(r?.result).toEqual(result);
 });
@@ -121,12 +121,12 @@ test("stopping a queued task with no live runner finalizes it; terminal tasks ar
 });
 
 
-test("a queued task without a runner fails after ten minutes but fresh tasks stay queued", () => {
+test("a queued task without a runner fails after ten minutes but fresh tasks stay queued", async () => {
   const ctx = fakeCtx();
   const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => undefined, s);
   expect(taskStatus(ctx, t.id)?.state).toBe("queued");
   expect(taskStatus({ ...ctx, now: ctx.now + 600 }, t.id)?.state).toBe("queued");
-  const old = taskStatus({ ...ctx, now: ctx.now + 601 }, t.id);
+  const old = await superviseTask({ ...ctx, now: ctx.now + 601 }, t.id);
   expect(old?.state).toBe("failed");
   expect(old?.result).toMatchObject({ status: "failed", report: "the pacer runner never started" });
 });
@@ -174,14 +174,14 @@ test("stop kills the executor's grandchild too", async () => {
   }
 });
 
-test("legacy running records with attempts reconcile a dead runner immediately",()=>{
+test("legacy running records with attempts reconcile a dead runner immediately",async()=>{
  const ctx=fakeCtx();const t=delegate(ctx,{brief:{goal:"g",repo:tmpDir()}},()=>undefined,s);
  updateTask(ctx,t.id,x=>{x.state="running";x.attempts=[{executor:"codex",model:null,startedAt:1,endedAt:2,exitCode:1,timedOut:false,limitHit:true,log:""}];});
- expect(taskStatus(ctx,t.id)?.state).toBe("failed");
+ expect((await superviseTask(ctx,t.id))?.state).toBe("failed");
 });
- test("legacy running records without attempts expire after ten minutes",()=>{
+ test("legacy running records without attempts expire after ten minutes",async()=>{
  const ctx=fakeCtx();const t=delegate(ctx,{brief:{goal:"g",repo:tmpDir()}},()=>undefined,s);
  updateTask(ctx,t.id,x=>{x.state="running";});
  expect(taskStatus(ctx,t.id)?.state).toBe("running");
- expect(taskStatus({...ctx,now:ctx.now+601},t.id)?.state).toBe("failed");
+ expect((await superviseTask({...ctx,now:ctx.now+601},t.id))?.state).toBe("failed");
 });
