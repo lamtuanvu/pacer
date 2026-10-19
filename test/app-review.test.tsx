@@ -39,7 +39,7 @@ test("other Review query errors stay useful and redact path-bearing errors and h
 });
 test("review item shows run line, facts, collapsed brief and all file counts", () => {
   const html = view();
-  for (const word of [task.goal, task.executor!, "50m", "pacer/review → main", task.repo.label, "Done when", "bun test", "✓ 38 passed · 41 s · run by pacer on devbox", "Why Codex · team on devbox", "Best available capacity", "other", "over budget", "Implemented and verified", "src/example.ts", "+3", "−1"]) expect(html).toContain(word);
+  for (const word of [task.goal, task.executor!, "50m", "pacer/review</code> → <code>main", task.repo.label, "Done when", "bun test", "✓ 38 passed · 41 s · run by pacer on devbox", "Why Codex · team on devbox", "Best available capacity", "other", "over budget", "Implemented and verified", "src/example.ts", "+3", "−1"]) expect(html).toContain(word);
   expect(html).toContain("Cost not recorded");
   expect(html).toContain('<details class="pc-disclosure">');
   expect(html).not.toContain("<details open");
@@ -99,4 +99,15 @@ test('review keeps task content visible with a subtle updating status during a r
  expect(html).toContain('Updating…');
  expect(html).toContain('Executor summary');
  expect(html).not.toContain('Loading task…');
+});
+
+test("review clips full titles with CSS and makes command scrollers keyboard reachable", () => {
+  const fullTitle = "Repair the review queue " + "for all existing workers ".repeat(5) + "(keep the closing bracket)";
+  const command = "bun run typecheck && bun run test && bun run app:build";
+  const detail = { ...task, fullTitle, title: "Repair the review queue…", acceptance: { ...task.acceptance, cmd: command } };
+  const s = { ...snap, tasks: snap.tasks.map(t => ({ ...t, fullTitle })) };
+  const html = view(detail, s);
+  expect(html).toContain(`class="pc-ellipsis" title="${fullTitle}"`);
+  expect(html).toContain(`title="${fullTitle}" class="pc-section-heading pc-ellipsis grow"`);
+  expect(html).toContain('<code class="pc-code-scroll" tabindex="0">bun run typecheck &amp;&amp; bun run test &amp;&amp; bun run app:build</code>');
 });

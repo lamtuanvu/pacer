@@ -1,3 +1,4 @@
+import { shortTitle } from "../src/core/short-title";
 import { expect, test } from "bun:test";
 import { apiTask, needsReview, snapshotTasks, supersededTaskIds } from "../src/api/read-model/tasks";
 import { fakeCtx } from "./helpers";
@@ -22,7 +23,7 @@ test("stored repo labels are normalized when different hosts clash",()=>{
 
 test("task snapshots derive titles for older records and retain stored titles",()=>{
  const ctx=fakeCtx();
- expect(apiTask(ctx,record("done",ctx.now,{brief:{goal:"Fix the queue. Then run tests",repo:ctx.home}})).title).toBe("Fix the queue");
+ expect(apiTask(ctx,record("done",ctx.now,{brief:{goal:"Fix the queue. Then run tests",repo:ctx.home}})).fullTitle).toBe("Fix the queue. Then run tests");
  expect(snapshotTasks(ctx,[record("done",ctx.now,{title:"Queue fix"})])[0]?.title).toBe("Queue fix");
 });
 
@@ -38,9 +39,9 @@ test("superseded status requires a present, undismissed, unstopped retry",()=>{
  }
 });
 
-test("task snapshots clip stored emoji titles without splitting code points",()=>{
+test("task snapshots preserve full stored emoji titles",()=>{
  const ctx=fakeCtx(),title="🚀".repeat(61);
- expect(apiTask(ctx,record("done",ctx.now,{title})).title).toBe("🚀".repeat(59)+"…");
+ expect(apiTask(ctx,record("done",ctx.now,{title})).fullTitle).toBe(title);
 });
 
 test("snapshots preserve the scheduling limit and capacity on queued tasks",()=>{
@@ -49,4 +50,11 @@ test("snapshots preserve the scheduling limit and capacity on queued tasks",()=>
   const queue={reason:'no_slot' as const,since:ctx.now,position:1,limit,capacity:{used:2,max:2}};
   expect(snapshotTasks(ctx,[record('queued',ctx.now,{queue})])[0]!.queue).toEqual(queue);
  }
+});
+
+test("full titles restore generated short labels without changing the compact API fallback",()=>{
+ const ctx=fakeCtx(),goal="Repair the review queue and preserve the complete title (no code edits are omitted)";
+ const row=apiTask(ctx,record("done",ctx.now,{title:shortTitle(goal),brief:{goal,repo:ctx.home}}));
+ expect(row.fullTitle).toBe(goal);
+ expect(row.title).toBe(shortTitle(goal));
 });

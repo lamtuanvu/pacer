@@ -148,3 +148,13 @@ test("machine snapshot capacity counts local runs across executors and excludes 
  const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,ready:true,items:[]}});
  expect(model.machine).toEqual({used:2,max:5});
 });
+
+
+test("attention keeps the complete title even when its task is outside the recent snapshot window", () => {
+ const ctx=fakeCtx(),{s,st}=capacityFixture();
+ const goal="Repair the review queue " + "for all existing workers ".repeat(8) + "(keep the closing bracket)";
+ const task=apiTask(ctx,record("done",ctx.now-2*86400,{brief:{goal,repo:ctx.home}}));
+ const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[task],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
+ expect(model.attention.find(item=>item.taskId===task.id)?.title).toBe(goal);
+ expect(task.title).not.toBe(goal);
+});

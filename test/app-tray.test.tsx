@@ -106,16 +106,13 @@ test("executor marks use current capacity, values and detailed tooltips after en
   expect(draw(state.snapshot!)).toContain(">2/2</span>");
 });
 
-test("task titles are preferred and legacy goals are clipped at a word boundary without paths", () => {
+test("task titles are preferred and legacy goals remain complete for CSS clipping", () => {
   const snapshot = fixture(), html = draw(snapshot);
   expect(html).toContain("Fix retry 0");
   expect(html).not.toContain("A long detailed goal");
   const goal = "Repair the retry system in /tmp/project/src/index.ts before adding more checks for all existing background workers";
   const title = shortTitle({ goal });
-  expect(title.length).toBeLessThanOrEqual(60);
-  expect(title).not.toContain("/tmp");
-  expect(title.endsWith("…")).toBe(true);
-  expect(goal.replace(/\/tmp\/\S+/, "").replace(/\s+/g, " ")).toContain(title.slice(0, -1) + " ");
+  expect(title).toBe(goal);
   expect(shortTitle({ title: "Short service title", goal })).toBe("Short service title");
   const legacy: ClientSnapshot = { ...snapshot, tasks: [{ ...snapshot.tasks[0]!, title: undefined, goal } as ClientTask] };
   expect(draw(legacy)).toContain(title);
