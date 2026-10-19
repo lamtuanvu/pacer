@@ -1,3 +1,5 @@
+import { readProjectStrategies, type ProjectStrategyFile } from "../../config/project-strategies";
+import { resolveProjectSelection } from "../../engine/project-routing";
 import { validateExecution } from "../../config/execution";
 import { resolveRunner } from "../../config/runner-id";
 import { readPluginReload } from "../../attention/plugin-reload";
@@ -33,8 +35,10 @@ export async function readModelContext(ctx:Ctx) {
 }
 export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;tasks:ApiTask[];setup:SetupChecklist;hosts:HostCfg[];signedIn?:{name:string;signedIn:boolean|null}[]}):ReadModelFields {
  const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now,ctx),accounts=buildAccounts(status,strategy,ctx).map(a=>({...a,signedIn:a.signedIn===false?false:input.signedIn?.find(row=>row.name===a.name)?.signedIn??a.signedIn})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks,ctx),setup=buildSetup(withStatus(input.setup,status,ctx,tasks.some(t=>!!t.review)));
+ let policies: ProjectStrategyFile | undefined, policyError: string | undefined;
+ try { policies = readProjectStrategies(ctx); } catch (error) { policyError = error instanceof Error ? error.message : String(error); }
  const attentionTasks = tasks.map(task => ({ ...task, title: task.fullTitle ?? task.title }));
- const attention=applyStore(ctx,deriveTaskItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks:attentionTasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)}));
+ const attention=applyStore(ctx,deriveTaskItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks:attentionTasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>policyError ? null : retryTargetFor(t,strategy,executors,policies)}));
  const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
  const safe=(text:string|null)=>text===null?null:redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
  const pause=paused?{...paused,reason:safe(paused.reason),by:safe(paused.by)}:null;
@@ -44,12 +48,13 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  const labels=labelsFor(repos);
  const notifier=activeNotifier(ctx);
  const machine = {used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length, max: validateExecution(strategy.execution).localMaxTasks ?? 2};
- return {machine,pause,attention,service:{version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifier:notifier?{client_id:notifier.client_id,kind:notifier.kind}:null,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
+ return {machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifier:notifier?{client_id:notifier.client_id,kind:notifier.kind}:null,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
 }
 
 /** A repo-path call stuck for a second or more, e.g. behind a macOS removable-volume prompt. */
 function waitingField(){const waiting=waitingIO();return waiting?{waiting}:{};}
 
-export function retryTargetFor(task:ApiTask,strategy:Strategy,executors:ExecutorRow[]):string|null {
- return executorsFor(task.kind,strategy).find(id=>id!==task.executor && executors.some(e=>e.id===id && e.enabled && e.rank!=="planner" && e.state==="ready" && e.slots.used<e.slots.max))??null;
+export function retryTargetFor(task:ApiTask,strategy:Strategy,executors:ExecutorRow[],policies?:ProjectStrategyFile):string|null {
+ const selection=policies ? resolveProjectSelection(strategy,task.repo.key,policies.projects) : undefined;
+ return (selection?.executors ?? executorsFor(task.kind,strategy)).find(id=>id!==task.executor && executors.some(e=>e.id===id && e.enabled && e.rank!=="planner" && e.state==="ready" && e.slots.used<e.slots.max))??null;
 }
