@@ -56,8 +56,9 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     add("host_down",h.alias,`${h.alias} is down`,`${h.running} task(s) running there. New work goes to ${next?displayName(next.id):"the next available executor"} until it is back.`,[{label:"Run checks",op:"host.check",params:{alias:h.alias}},{label:"Pause host",op:"host.set",params:{alias:h.alias,paused:true}}],{host:h.alias});
   }
   const p=input.planner;
-  if (p && !(p.modeHeldUntil && p.modeHeldUntil>input.now) && (p.verdict === "out" || p.verdict === "ahead" && ["strict","emergency"].includes(p.mode))) {
-    add("planner_quota",p.runner,`${displayName(p.runner)} ${p.verdict === "out" ? "is out of quota" : "is ahead of pace"}`,p.advice,[open("Open planner settings",{view:"settings",section:"planner"}),{label:"Keep normal",op:"mode.hold",params:{mode:"normal"}}],{executor:p.runner});
+  // Pace advice stays on the planner meter; only exhausted quota needs a decision.
+  if (p && !(p.modeHeldUntil && p.modeHeldUntil>input.now) && p.verdict === "out") {
+    add("planner_quota",p.runner,`${displayName(p.runner)} is out of quota`,p.advice,[open("Open planner settings",{view:"settings",section:"planner"}),{label:"Keep normal",op:"mode.hold",params:{mode:"normal"}}],{executor:p.runner});
   }
   for (const s of input.setup.items) if (s.required && s.status!=="done") add("setup",s.id,s.title,"Setup required",[open("Open settings",{view:"settings",section:s.id})]);
   if (input.update?.available) add("update",input.update.latest,`Update to ${input.update.latest}`,"An update is available",[{label:"Update",op:"update.apply",params:{}},{label:"Later",op:"attention.dismiss",params:{id:`update:${input.update.latest}`}}]);
