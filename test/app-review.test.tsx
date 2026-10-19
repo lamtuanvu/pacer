@@ -41,7 +41,7 @@ test("review item shows run line, facts, collapsed brief and all file counts", (
   const html = view();
   for (const word of [task.goal, task.executor!, "50m", "pacer/review → main", task.repo.label, "Done when", "bun test", "✓ 38 passed · 41 s · run by pacer on devbox", "Why Codex · team on devbox", "Best available capacity", "other", "over budget", "Implemented and verified", "src/example.ts", "+3", "−1"]) expect(html).toContain(word);
   expect(html).toContain("Cost not recorded");
-  expect(html).toContain("<details>");
+  expect(html).toContain('<details class="pc-disclosure">');
   expect(html).not.toContain("<details open");
 });
 test("acceptance none and empty review queue use the requested words", () => {

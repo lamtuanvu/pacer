@@ -88,7 +88,7 @@ test("verdict groups secondary actions, labels inline retry and collapses the CL
   const html = renderToString(<VerdictPanel task={task} note="" kind="" executor="" noteFor={null} pending={false} onNote={() => {}} onKind={() => {}} onExecutor={() => {}} onOpenNote={() => {}} onCancel={() => {}} onSubmit={() => {}} />);
   expect(html).toContain('<h2>Your verdict</h2>');
   expect(html).toMatch(/pc-verdict-pair[^>]*><button[^>]*>Send back<\/button><button[^>]*>Reject<\/button><\/div>/);
-  expect(html).toMatch(/<label for="review-retry">Or retry on<\/label><div class="row"><select id="review-retry"/);
-  expect(html).toMatch(/<details><summary>Use the CLI<\/summary><code[^>]*>pacer review/);
+  expect(html).toMatch(/<label for="review-retry">Or retry on<\/label><div class="row"><select class="pc-select" id="review-retry"/);
+  expect(html).toMatch(/<details class="pc-disclosure"><summary>Use the CLI<\/summary><code[^>]*>pacer review/);
   expect(html).not.toContain('<details open');
 });

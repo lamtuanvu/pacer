@@ -37,13 +37,13 @@ export function VerdictPanel({ task, note, kind, executor, noteFor, pending, onN
     <p className="muted">Accept records the verdict; you merge the branch.</p>
     <div className="pc-verdict-pair"><Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>
     <Button className="pc-review-reject" disabled={pending} onClick={() => onOpenNote("reject")}>Reject</Button></div>
-    <div className="pc-retry"><label htmlFor="review-retry">Or retry on</label><div className="row"><select id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
+    <div className="pc-retry"><label htmlFor="review-retry">Or retry on</label><div className="row"><select className="pc-select" id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
         <option value="">Choose an executor</option>
         {task.retryOptions.map(option => <option key={option.id} value={option.id} disabled={option.state !== "ready"}>{executorLabel(option.id)} · {option.reason}</option>)}
       </select>
     <Button disabled={pending || !executor} onClick={() => onSubmit("retry")}>Retry</Button></div></div>
     <label className="field">Kind (corrects the classifier)
-      <select value={kind} disabled={pending} onChange={e => onKind(e.currentTarget.value)}>
+      <select className="pc-select" value={kind} disabled={pending} onChange={e => onKind(e.currentTarget.value)}>
         <option value="">Unspecified</option>
         {task.kind && !kinds.includes(task.kind) && <option value={task.kind}>{task.kind}</option>}
         {kinds.map(k => <option key={k} value={k}>{k}</option>)}
@@ -56,6 +56,6 @@ export function VerdictPanel({ task, note, kind, executor, noteFor, pending, onN
       }} />
     </label>
     {noteFor && <div className="row-actions"><Button disabled={pending} onClick={() => onSubmit(noteFor)}>{noteFor === "reject" ? "Confirm rejection" : "Confirm send back"}</Button><Button disabled={pending} onClick={onCancel}>Cancel</Button><span className="muted">Enter to confirm · Shift-Enter for a new line · Escape to cancel</span></div>}
-    <footer><details><summary>Use the CLI</summary><code className="pc-review-command">{verdictCommand(task.id, { verdict, ...(kind ? { kind } : {}), ...(note ? { note } : {}), ...(verdict === "retry" && executor ? { executor } : {}) })}</code></details></footer>
+    <footer><details className="pc-disclosure"><summary>Use the CLI</summary><code className="pc-review-command">{verdictCommand(task.id, { verdict, ...(kind ? { kind } : {}), ...(note ? { note } : {}), ...(verdict === "retry" && executor ? { executor } : {}) })}</code></details></footer>
   </>;
 }
