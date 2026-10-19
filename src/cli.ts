@@ -424,6 +424,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       return { code: 0, out: "", err: "", keepAlive: true };
     }
     case "serve": {
+      if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       const { opts } = parseFlags(rest, []);
       try {
         const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });
