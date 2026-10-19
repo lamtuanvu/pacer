@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { dashboardClient as connectTaskClient } from "./dashboard/client";
+import type { PruneResult } from "./tasks/retention";
 import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
 import { resolveRepoInput } from "./core/repos";
@@ -61,7 +63,9 @@ const USAGE = `usage: pacer <command>
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
   review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
   dismiss <task-id...>                           hide settled tasks
-  tasks [<task-id>] [--json]                     recent tasks, or one task in detail
+  tasks [<task-id>] [--all] [--json]             recent tasks, including archives with --all
+  tasks prune [--dry-run] [--json]               archive old settled tasks
+  tasks restore <task-id> [--json]               restore archived artifacts
   executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   report --task <task-id> --outcome done|failed|needs-input|running --summary <text>
@@ -217,6 +221,7 @@ function renderTask(t: TaskRecord): string {
     `goal: ${t.brief.goal}`,
     `repo: ${t.brief.repo}`,
   ];
+  if(t.archived)lines.push(`archive: ${t.archivePath}`);
   if(t.placement?.mode)lines.push(`placement: ${t.placement.mode} (${t.placement.why})`);
   if (t.attempts.length) {
     lines.push(`attempts: ${t.attempts.map((a) => `${a.executor} (exit ${a.exitCode}${a.limitHit ? ", limit" : ""}${a.timedOut ? ", timed out" : ""})`).join(" > ")}`);
@@ -263,14 +268,31 @@ async function controlProgress(ctx:Ctx,t:TaskRecord):Promise<string> {
 }
 
 async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts, pos } = parseFlags(args, ["json"]);
+  const { opts, pos } = parseFlags(args, ["json", "all", "dry-run"]);
+  if (pos[0] === "prune" || pos[0] === "restore") {
+    const client = await connectTaskClient(ctx);
+    try {
+      if (pos[0] === "restore") {
+        if (pos.length !== 2) throw new Error("usage: pacer tasks restore <task-id>");
+        const task = await client.call<Record<string, unknown>>("task.restore", { id: pos[1] });
+        return { code: 0, out: opts.json ? JSON.stringify(task, null, 1) : `restored ${pos[1]}`, err: "" };
+      }
+      if (pos.length !== 1) throw new Error("usage: pacer tasks prune [--dry-run]");
+      const result = await client.call<PruneResult>("task.prune", { dry_run: opts["dry-run"] === true });
+      return { code: 0, out: opts.json ? JSON.stringify(result, null, 1) : [
+        ...result.tasks.flatMap(t => [`${t.id} -> ${t.archivePath}`, ...t.files.map(f => `  ${f}`)]),
+        `${result.dryRun ? "would archive" : "archived"} ${result.tasks.length} tasks; ${result.bytesSaved} bytes saved; ${result.workingSetBytes} bytes removed from working set`,
+      ].join("\n"), err: "" };
+    } catch (e) { return { code: 2, out: "", err: explain(e) }; }
+    finally { client.close(); }
+  }
   if (pos[0]) {
     try {
       const t = core.tasks.get(ctx, pos[0]);
       return { code: 0, out: opts.json ? JSON.stringify(summarizeTask(t), null, 1) : [renderTask(t),(await controlProgress(ctx,t))].filter(Boolean).join("\n"), err: "" };
     } catch (e) { return { code: 2, out: "", err: explain(e) }; }
   }
-  const list = core.tasks.list(ctx);
+  const list = core.tasks.list(ctx, { all: opts.all === true, ...(opts.all === true ? { limit: Infinity } : {}) });
   if (opts.json) return { code: 0, out: JSON.stringify(list.map(summarizeTask), null, 1), err: "" };
   if (!list.length) return { code: 0, out: "no tasks yet", err: "" };
   return {
