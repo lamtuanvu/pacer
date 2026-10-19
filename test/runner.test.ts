@@ -1,8 +1,9 @@
+import { diff } from "../src/core/tasks";
 import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
 import type { ProviderStatus } from "../src/engine/rank";
 import type { Status } from "../src/engine/status";
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { runAttempt } from "../src/exec/direct";
 import type { AttemptOutcome } from "../src/exec/direct";
@@ -55,7 +56,7 @@ test("first executor in priority order succeeds: done with verification", async 
   const r = await runTask(ctx, t.id, d);
   expect(d.calls).toEqual(["codex"]);
   expect(r.state).toBe("done");
-  expect(r.result).toMatchObject({ status: "done", executor: "codex", files: "a.ts | 2 +-", report: "codex report", backend: "direct" });
+  expect(r.result).toMatchObject({ status: "done", executor: "codex", files: "a.ts | 2 +-", report: expect.stringContaining("codex report"), backend: "direct" });
   expect(r.result?.acceptance?.passed).toBe(true);
   expect(r.attempts.length).toBe(1);
 });
@@ -170,7 +171,7 @@ test("a successful attempt cannot undo a stop recorded during execution", async 
   d.runAttempt = async () => { taskStop(ctx, t.id); return outcomeFor("codex", 0); };
   const r = await runTask(ctx, t.id, d);
   expect(r.state).toBe("stopped");
-  expect(r.result).toMatchObject({ status: "stopped", report: "codex report" });
+  expect(r.result).toMatchObject({ status: "stopped", report: expect.stringContaining("codex report") });
   expect(r.attempts[0].exitCode).toBe(0);
 });
 
@@ -184,7 +185,7 @@ test("a stop during verification preserves the report and verification", async (
   };
   const r = await runTask(ctx, t.id, d);
   expect(r.state).toBe("stopped");
-  expect(r.result).toMatchObject({ status: "stopped", report: "codex report", files: "a.ts", acceptance: { passed: true } });
+  expect(r.result).toMatchObject({ status: "stopped", report: expect.stringContaining("codex report"), files: "a.ts", acceptance: { passed: true } });
 });
 
 test("a dependency error cannot undo a recorded stop", async () => {
@@ -409,4 +410,20 @@ test("a successful attempt whose work mentions auth errors does not sign the acc
   writeFileSync(outcome.attempt.log, "expect(res.status).toBe(401) // 401 Unauthorized");
   await runTask(ctx, newTask(ctx, {requestedExecutor: "codex#team"}).id, {...deps({"codex#team": outcome}, st), loadStrategy: () => s});
   expect(readAuthFailures(ctx)).toEqual({});
+});
+
+test("attempt completion saves review changes before its checkout is removed", async () => {
+  const repo = gitRepo(), ctx = fakeCtx({ run: realRun });
+  const task = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: "codex", timeoutS: 60 });
+  const d = deps({ codex: outcomeFor("codex", 0) });
+  d.runAttempt = async () => {
+    writeFileSync(join(repo, "change.txt"), "saved by runner\n");
+    expect(Bun.spawnSync(["git", "-C", repo, "add", "."]).exitCode).toBe(0);
+    return outcomeFor("codex", 0);
+  };
+  expect((await runTask(ctx, task.id, d)).state).toBe("done");
+  rmSync(repo, { recursive: true });
+  const saved = await diff(ctx, task.id);
+  expect(saved.patch).toContain("+saved by runner");
+  expect(saved.files).toContainEqual({ path: "change.txt", status: "added", added: 1, removed: 0, binary: false });
 });

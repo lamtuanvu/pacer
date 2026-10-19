@@ -1,5 +1,9 @@
+import { callOp } from "../src/api/ops";
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, rmSync, statSync } from "node:fs";
+import { persistTaskDiff } from "../src/tasks/diff";
+import { readTask } from "../src/tasks/store";
+import { join } from "node:path";
 import { diff } from "../src/core/tasks";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
@@ -79,4 +83,34 @@ test("a failed transfer keeps remote-only changes out of local git", async () =>
     t.result = { status: "partial", worktree: "devbox:/remote/worktree", executor: "cursor", model: null, files: "", report: "transfer failed", backend: "remote" };
   });
   expect(await diff(ctx, task.id)).toMatchObject({ files: [], patch: "", note: "changes are on devbox until the run ends" });
+});
+
+test("saved diffs survive a removed checkout with file selection, renames and summaries", async () => {
+  const { ctx, task, repo } = fixture();
+  updateTask(ctx, task.id, t => { t.state = "done"; });
+  const before = await diff(ctx, task.id);
+  await persistTaskDiff(ctx, readTask(ctx, task.id)!);
+  const file = join(ctx.pacerHome, "runs", task.id, "0", "diff.json");
+  expect(statSync(file).mode & 0o777).toBe(0o600);
+  rmSync(repo, { recursive: true });
+  expect(await diff(ctx, task.id)).toEqual(before);
+  const { diff: _legacy, ...apiResult } = before;
+  expect(await callOp(ctx, "task.diff", { id: task.id })).toEqual(apiResult);
+  const single = await diff(ctx, task.id, { path: "modified.txt" });
+  expect(single.patch).toContain("+two");
+  expect(single.patch).not.toContain("added.txt");
+  expect((await diff(ctx, task.id, { path: "renamed.txt" })).patch).toContain("rename from old.txt");
+  expect((await diff(ctx, task.id, { path: "missing.txt" })).patch).toBe("");
+  expect(await diff(ctx, task.id, { summaryOnly: true })).toMatchObject({ files: before.files, patch: "", truncated: false });
+});
+
+test("saved per-file patches retain the larger cap after checkout removal", async () => {
+  const { ctx, task, repo, git } = fixture();
+  writeFileSync(`${repo}/large.txt`, "x".repeat(5 * 1024 * 1024));
+  git("add", ".");
+  const all = await diff(ctx, task.id), single = await diff(ctx, task.id, { path: "large.txt" });
+  await persistTaskDiff(ctx, task);
+  rmSync(repo, { recursive: true });
+  expect(await diff(ctx, task.id)).toEqual(all);
+  expect(await diff(ctx, task.id, { path: "large.txt" })).toEqual(single);
 });

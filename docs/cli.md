@@ -80,12 +80,14 @@ an error or a hint when available. JSON returns an array with `account`, `kind`,
 `source`, `capturedAt`, `ageS`, `stale`, `verdict`, `usedPct`, `window`, `resetsAt`,
 `runners`, `error` and `hint`. A successful check exits 0.
 
+Task attempts save their final diff and file statistics in the run directory. Review can still show these changes after the worktree is removed; older tasks without saved evidence still require their checkout.
+
 `pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees of
 terminal tasks that have been reviewed, dismissed or resolved. Only tasks run
 in a new worktree under pacer's worktrees directory are eligible. Dirty worktrees
 are kept with `uncommitted changes; use --force` unless `--force` is given.
 `--dry-run` reports what would be removed without changing files. Cleanup deletes
-the removed tasks' run directories and always keeps their branches. Text output
+disposable run files while retaining saved review diffs, and always keeps branches. Text output
 lists removed or kept task IDs and reasons, or `nothing to clean`; exit status is 0.
 
 JSON contracts:
