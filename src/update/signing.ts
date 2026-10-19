@@ -1,4 +1,5 @@
 import { chmodSync, closeSync, mkdtempSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execProcess } from "../exec/process";
@@ -26,7 +27,8 @@ export function parseIdentity(output: string): string | null {
 export function signArgs(binary: string, hash: string): string[] {
   if (!/^[a-fA-F0-9]{40}$/.test(hash)) throw Error("invalid signing identity fingerprint");
   return ["/usr/bin/codesign", "-f", "-s", hash, "-i", SIGNING_IDENTIFIER, "--options", "0",
-    "-r", `designated => identifier "${SIGNING_IDENTIFIER}" and certificate leaf = H"${hash}"`, binary];
+    // A leading "=" makes codesign read the requirement inline; without it the text is taken as a file path.
+    "-r", `=designated => identifier "${SIGNING_IDENTIFIER}" and certificate leaf = H"${hash}"`, binary];
 }
 export async function findIdentity(run: RunFn = signingRun): Promise<string | null> {
   const result = await run(["/usr/bin/security", "find-identity", "-v", "-p", "codesigning"], 3000);
@@ -92,9 +94,11 @@ export async function createIdentity(o: SigningOptions = {}): Promise<void> {
       writeFileSync(config, `[req]\ndistinguished_name=dn\nprompt=no\nx509_extensions=ext\n[dn]\nCN=${SIGNING_IDENTITY}\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n`, {mode: 0o600});
       await checked(run, ["openssl", "req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "3650", "-config", config, "-keyout", key, "-out", cert]);
       log(`Created a self-signed, ten-year code-signing certificate: ${SIGNING_IDENTITY}.`);
-      await checked(run, ["openssl", "pkcs12", "-export", "-inkey", key, "-in", cert, "-out", p12, "-passout", "pass:", "-keypbe", "PBE-SHA1-3DES", "-certpbe", "PBE-SHA1-3DES", "-macalg", "sha1"]);
+      // macOS cannot verify the MAC of a PKCS12 sealed with an empty passphrase, so use a one-time one.
+      const pass = randomBytes(18).toString("base64url");
+      await checked(run, ["openssl", "pkcs12", "-export", "-inkey", key, "-in", cert, "-out", p12, "-passout", `pass:${pass}`, "-keypbe", "PBE-SHA1-3DES", "-certpbe", "PBE-SHA1-3DES", "-macalg", "sha1"]);
       log("Importing into the login keychain. macOS may require your keychain password or GUI confirmation; commands time out instead of waiting indefinitely.");
-      await checked(run, ["/usr/bin/security", "import", p12, "-k", keychain, "-P", "", "-T", "/usr/bin/codesign"]);
+      await checked(run, ["/usr/bin/security", "import", p12, "-k", keychain, "-P", pass, "-T", "/usr/bin/codesign"]);
       log("Imported the certificate and private key; allowed /usr/bin/codesign access.");
     }
     log("Adding user trust for code signing. macOS may ask for your password or GUI confirmation; approve it and retry if the command times out.");
