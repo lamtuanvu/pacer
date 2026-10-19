@@ -15,7 +15,7 @@ import type { Status } from "../../engine/status";
 import type { Strategy } from "../../config/strategy";
 import type { HostCfg } from "../../config/hosts";
 import type { SetupChecklist } from "../../setup/checklist";
-import { check } from "../../core/setup";
+import { checkSetup as check, withStatus } from "../../setup/check";
 import { listRepos, labelsFor } from "../../core/repos";
 import { PROTOCOL_VERSION } from "../protocol";
 import { buildExecutors, buildAccounts, buildPlanner } from "./capacity";
@@ -25,14 +25,14 @@ export type * from "./types";
 const startedAt=Math.floor(Date.now()/1000-process.uptime());
 const cache=new Map<string,{at:number;promise:Promise<{setup:SetupChecklist;accounts:{name:string;signedIn:boolean|null}[]}>}>();
 export async function readModelContext(ctx:Ctx) {
- const hit=cache.get(ctx.pacerHome);if(hit&&ctx.now>=hit.at&&ctx.now-hit.at<60)return hit.promise;
+ const hit=cache.get(ctx.pacerHome);if(hit&&ctx.now>=hit.at&&ctx.now-hit.at<5)return hit.promise;
  // account.list spawns `orca account list`; the snapshot reads sign-in state from stored auth marks instead.
- const promise=check({...ctx,readOnly:true},{snapshotProbe:false}).then(setup=>({setup,accounts:[] as {name:string;signedIn:boolean|null}[]}));
+ const promise=check({...ctx,readOnly:true},{snapshotProbe:false,deferStatus:true}).then(setup=>({setup,accounts:[] as {name:string;signedIn:boolean|null}[]}));
  cache.set(ctx.pacerHome,{at:ctx.now,promise});
  try{return await promise;}catch(e){cache.delete(ctx.pacerHome);throw e;}
 }
 export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;tasks:ApiTask[];setup:SetupChecklist;hosts:HostCfg[];signedIn?:{name:string;signedIn:boolean|null}[]}):ReadModelFields {
- const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now,ctx),accounts=buildAccounts(status,strategy,ctx).map(a=>({...a,signedIn:a.signedIn===false?false:input.signedIn?.find(row=>row.name===a.name)?.signedIn??a.signedIn})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks,ctx),setup=buildSetup(input.setup);
+ const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now,ctx),accounts=buildAccounts(status,strategy,ctx).map(a=>({...a,signedIn:a.signedIn===false?false:input.signedIn?.find(row=>row.name===a.name)?.signedIn??a.signedIn})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks,ctx),setup=buildSetup(withStatus(input.setup,status,ctx,tasks.some(t=>!!t.review)));
  const attention=applyStore(ctx,deriveTaskItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)}));
  const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
  const safe=(text:string|null)=>text===null?null:redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");

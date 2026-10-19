@@ -122,8 +122,7 @@ test("fallback applies to ops and hello, but preserves API errors", async () => 
 
 
 test("dashboard can quit while its first snapshot is pending", async () => {
-  const api = await import("../src/api/client");
-  const setup = await import("../src/setup/check");
+  const api = await import("../src/dashboard/client");
   const { runDashboard } = await import("../src/dashboard/cli");
   const { fakeCtx } = await import("./helpers");
   let resolveSnapshot!: (value: Awaited<ReturnType<ApiClient["snapshot"]>>) => void;
@@ -133,8 +132,7 @@ test("dashboard can quit while its first snapshot is pending", async () => {
   const primary: ApiClient = { ...fake(snap([])), kind: "http",
     snapshot: () => { started(); return new Promise(resolve => { resolveSnapshot = resolve; }); },
     subscribe: () => { subscriptions++; return () => {}; }, close: () => { closes++; } };
-  const connect = spyOn(api, "connectClient").mockResolvedValue(primary);
-  const check = spyOn(setup, "checkSetup").mockImplementation(() => new Promise(() => {}));
+  const connect = spyOn(api, "dashboardClient").mockImplementation(async (_ctx,local)=>local?fake(snap([])):primary);
   const write = spyOn(process.stdout, "write").mockReturnValue(true);
   const resume = spyOn(process.stdin, "resume").mockReturnValue(process.stdin);
   const pause = spyOn(process.stdin, "pause").mockReturnValue(process.stdin);
@@ -161,7 +159,7 @@ test("dashboard can quit while its first snapshot is pending", async () => {
       if (descriptor) Object.defineProperty(object, key, descriptor);
       else Reflect.deleteProperty(object, key);
     });
-    connect.mockRestore(); check.mockRestore(); write.mockRestore(); resume.mockRestore(); pause.mockRestore();
+    connect.mockRestore(); write.mockRestore(); resume.mockRestore(); pause.mockRestore();
   }
 });
 

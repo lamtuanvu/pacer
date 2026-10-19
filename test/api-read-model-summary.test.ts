@@ -12,7 +12,7 @@ import { join } from "node:path";
 test("counts split by repo, today uses local midnight and setup counts required open items",()=>{
  const ctx=fakeCtx({now:localTs(2026,10,16,0,30)}),{st,s}=capacityFixture();
  const tasks=[record("running",ctx.now),record("running",ctx.now+1),record("queued",ctx.now+2),record("done",ctx.now+3),record("done",ctx.now+4),record("done",localTs(2026,10,16,0,10),{review:{accepted:true,kind:null,note:null,at:ctx.now}}),record("done",localTs(2026,10,15,23,50)),record("failed",ctx.now,{review:{accepted:false,kind:null,note:null,at:ctx.now}})].map((t,i)=>apiTask(ctx,{...t,repo:{key:i%2?"b":"a",label:"repo",path:"/repo"}}));
- const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:false,items:[{id:"required",title:"Required",status:"pending",required:true},{id:"optional",title:"Optional",status:"pending",required:false}]}});
+ const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:false,ready:false,items:[{id:"required",title:"Required",status:"pending",required:true},{id:"optional",title:"Optional",status:"pending",required:false}]}});
  expect(model.counts).toMatchObject({running:2,queued:1,review:3,setupOpen:1,byRepo:{a:{running:1,review:2},b:{running:1,review:1}}});
  expect(model.today).toMatchObject({since:localTs(2026,10,16),done:4,accepted:1,rejected:1,failed:1});
  expect(model.hosts[0]).toMatchObject({state:"ready",maxTasks:3});
@@ -38,7 +38,7 @@ test("new fields never expose account credentials, emails or endpoint configurat
  account.orcaAccount="person@example.test";account.home="/private/account-home";
  account.connection={api:"openai-compatible",base_url:"https://secret.example.test/private",key:"env:PRIVATE_KEY",models:[]};
  s.hosts.devbox!.accounts.private={home:"/home/person@example.test"};
- const model=buildReadModel(ctx,{status:st,strategy:s,tasks:[],hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,items:[]}});
+ const model=buildReadModel(ctx,{status:st,strategy:s,tasks:[],hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,ready:false,items:[]}});
  const json=JSON.stringify(model);
  for(const secret of ["person@example.test","PRIVATE_KEY","secret.example.test","/private/account-home"])expect(json).not.toContain(secret);
 });
@@ -55,7 +55,7 @@ test("snapshot uses current supplied status for capacity even when the old budge
 test("attention counts include severity and repo totals and snapshot exposes items",async()=>{
  const ctx=fakeCtx(),{st,s}=capacityFixture();
  const tasks=[record("done",ctx.now-1000),record("failed",ctx.now-1001),record("running",ctx.now-1002,{progress:{phase:"idle",lastOutputAt:ctx.now-1000,lastChangeAt:ctx.now-1000,host:"local",updatedAt:ctx.now,files:0,commits:0,logBytes:0}})].map(t=>apiTask(ctx,t));
- const setup={checkedAt:ctx.now,complete:true,items:[]};
+ const setup={checkedAt:ctx.now,complete:true,ready:false,items:[]};
  const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:[],setup});
  expect(model.counts).toMatchObject({attention:3,problems:2,byRepo:{[tasks[0]!.repo.key]:{attention:3}}});
  expect(model.attention.map(i=>i.kind)).toEqual(["stuck","failed","review"]);
@@ -67,7 +67,7 @@ test("planner task source survives mapping so the review grace applies",()=>{
  const ctx=fakeCtx(),{s,st}=capacityFixture();
  const t=apiTask(ctx,record("done",ctx.now-599,{source:"planner"}));
  expect(t.source).toBe("planner");
- expect(buildReadModel(ctx,{status:st,strategy:s,tasks:[t],hosts:[],setup:{checkedAt:ctx.now,complete:true,items:[]}}).attention).toEqual([]);
+ expect(buildReadModel(ctx,{status:st,strategy:s,tasks:[t],hosts:[],setup:{checkedAt:ctx.now,complete:true,ready:false,items:[]}}).attention).toEqual([]);
 });
 
 test("snapshot wires pause, hold, auth failure, readiness and disabled rows",async()=>{
@@ -77,7 +77,7 @@ test("snapshot wires pause, hold, auth failure, readiness and disabled rows",asy
  writeJsonAtomic(join(ctx.pacerHome,"state/auth-failed.json"),{[s.runners.codex!.account]:ctx.now});
  writeJsonAtomic(join(ctx.pacerHome,"state/runner-checks.json"),{codex:{at:ctx.now,passed:false,detail:"failed sk-private-test-token person@example.test"}});
  st.modeHold={mode:"normal",until:ctx.now+60};
- const model=()=>buildReadModel(ctx,{status:st,strategy:s,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}});
+ const model=()=>buildReadModel(ctx,{status:st,strategy:s,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
  expect(model()).toMatchObject({pause:{until:ctx.now+60},planner:{modeHeldUntil:ctx.now+60}});
  expect(model().accounts.find(a=>a.name===s.runners.codex!.account)?.signedIn).toBe(false);
  expect(model().executors.find(e=>e.id==="codex")).toMatchObject({state:"failing",lastCheck:{passed:false}});
@@ -96,7 +96,7 @@ test("pause and resume activity and snapshot pause fields are safe",async()=>{
  const {callOp}=await import("../src/api/ops"),{readActivity}=await import("../src/activity/log");
  const ctx=fakeCtx(),{s,st}=capacityFixture();
  await callOp(ctx,"delegation.pause",{for:"1h",reason:"sk-private-test-token person@example.test"});
- const input={strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}};
+ const input={strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}};
  const model=buildReadModel(ctx,input);
  expect(JSON.stringify(model.pause)).not.toContain("sk-private-test-token");
  expect(JSON.stringify(model.pause)).not.toContain("person@example.test");
@@ -126,7 +126,7 @@ test("snapshot repos omit dead registrations but retain missing repos with windo
  const {refreshPath}=await import("../src/core/path-probe");
  await Promise.all([deadRef,runningRef,recentRef].map(ref=>refreshPath(ref.path)));
  const tasks=[record("done",ctx.now-86401,{repo:deadRef}),record("running",ctx.now-86401,{repo:runningRef}),record("done",ctx.now-60,{repo:recentRef})].map(t=>apiTask(ctx,t));
- const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:[],setup:{checkedAt:ctx.now,complete:true,items:[]}});
+ const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:[],setup:{checkedAt:ctx.now,complete:true,ready:false,items:[]}});
  expect(model.repos.map(r=>r.key).sort()).toEqual([runningRef.key,recentRef.key].sort());
  const registry=await Bun.file(join(ctx.pacerHome,"state","repos.json")).json();
  expect(Object.values(registry).map((entry:any)=>entry.key).sort()).toEqual([runningRef.key,recentRef.key].sort());
@@ -136,7 +136,7 @@ test("service attention uses short titles and counts only the latest retry",()=>
   const ctx=fakeCtx(),{s,st}=capacityFixture();
   const original=apiTask(ctx,record(state,ctx.now-1000,{title:"Original title"}));
   const next=apiTask(ctx,record(nextState,ctx.now-700,{title:"Queue fix",retryOf:original.id}));
-  const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[original,next],hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}});
+  const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[original,next],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
   expect(model.attention.filter(i=>i.taskId)).toEqual(nextState==="done"?[expect.objectContaining({taskId:next.id,title:"Queue fix"})]:[]);
   expect(model.counts).toMatchObject({attention:nextState==="done"?1:0,review:nextState==="done"?1:0});
  }
@@ -145,6 +145,6 @@ test("service attention uses short titles and counts only the latest retry",()=>
 test("machine snapshot capacity counts local runs across executors and excludes remote runs", () => {
  const ctx=fakeCtx(),{st,s}=capacityFixture();s.execution.local_max_tasks=5;
  const tasks=[record('running',1,{executor:'codex'}),record('running',2,{executor:'cursor'}),record('running',3,{executor:'codex@devbox'}),record('queued',4)].map(t=>apiTask(ctx,t));
- const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,items:[]}});
+ const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,ready:true,items:[]}});
  expect(model.machine).toEqual({used:2,max:5});
 });

@@ -1,3 +1,4 @@
+import { setupHints } from "./setup";
 import { setupText, type SetupChecklist } from "../setup/checklist";
 import type { ClientSnapshot } from "../view-model/snapshot";
 import { dashboardModel } from "./model";
@@ -9,7 +10,7 @@ import { cards } from "./model";
 
 import { currentVersion } from "../update/version";
 import type { DashboardSettings } from "./settings";
-export interface View { repo?: string; branch?: string; version?: string; ops?: readonly string[]; settings?: DashboardSettings; setup?: SetupChecklist; updateLine?: string; selected: number; help?: boolean; prompt?: string; message?: string; noColor?: boolean }
+export interface View { repo?: string; branch?: string; version?: string; ops?: readonly string[]; settings?: DashboardSettings; setup?: SetupChecklist; updateLine?: string; selected: number; help?: boolean; preview?:string[]; prompt?: string; message?: string; noColor?: boolean }
 export const safeText = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 /** Width in terminal cells, rather than UTF-16 code units. */
 export function cellWidth(text: string): number {
@@ -66,13 +67,21 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
  const time=new Date((live?now:s.at)*1000).toISOString().slice(11,19);
  const repo=v.repo??(s.repos?.length===1?s.repos[0]!.label:s.repos?.length?`${s.repos.length} repos`:"local");
  const header=`▬┃ pacer  [${modeWords(s.mode?.mode??p?.mode??"unknown").toUpperCase()}]  strategy ${strategy?.name??s.mode?.strategy??"default"}  ${repo} · ${v.branch??"—"}`;
+ const setupKeys=v.setup?setupHints(v.setup,v.ops??[]):"";
  const fixed=[ends(header,`${live?"● live":"○ updated"} ${time}`,width)];
  if(p) {
   fixed.push(`${executorLabel(p.runner)} planner  ${windowName(p.window)} ${budgetBar(p.usedPct,p.pacePct,width>=120?20:8)} ${meterText(p.usedPct,p.pacePct,"full")}`);
   fixed.push([verdictWords(p.verdict),p.deltaPts===null?null:`${p.deltaPts>0?"+":""}${p.deltaPts} pts`,p.activeHoursLeft===null?null:`${p.activeHoursLeft} active-h`,p.resetsAt===null?null:`resets ${clock(p.resetsAt,now,"UTC")}`].filter(Boolean).join(" · "));
   if(p.advice)fixed.push(`→ ${p.advice}`);
  } else fixed.push("Planner · waiting for service data");
- if(v.setup && !v.setup.complete)fixed.splice(1,0,...setupText(v.setup).split("\n"));
+ if(v.setup&&!v.preview){
+  const hints:string[]=[];
+  for(const hint of setupKeys.split(" · ").filter(Boolean)){
+   const last=hints.at(-1);
+   if(last&&cellWidth(`${last} · ${hint}`)<=width)hints[hints.length-1]=`${last} · ${hint}`;else hints.push(hint);
+  }
+  fixed.splice(1,0,...setupText(v.setup).split("\n"),...hints);
+ }
  if(v.updateLine)fixed.push(v.updateLine);
  const c=model.counts,body:Row[]=[];
  let index=0,attachSelected=false;
@@ -143,21 +152,26 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
    }
   }
  }
- if(v.help) {body.splice(0,body.length,...["Keys", "↑/↓ or j/k: select · Enter: primary action", [supports("task.delegate")?"d: delegate":"",supports("task.dismiss")?"x: dismiss":"",supports("runner.block")||supports("runner.unblock")?"b: block/unblock":""].filter(Boolean).join(" · "), [supports("strategy.use")?"s: strategy":"",",: settings","r: refresh",supports("update.check")?"c: check updates":"",supports("update.apply")?"u: update":"","?: help","q: quit"].filter(Boolean).join(" · "), "Sessions: Enter attaches here · t: terminal window · m: tmux pane.", "1-9: inline actions · Esc cancels prompts. Budget bar: # used, | pace."].map(text=>row(text)));}
+ if(v.help) {body.splice(0,body.length,...["Keys", setupKeys.includes("k skip")?"↑/↓ or j: select · Enter: primary action":"↑/↓ or j/k: select · Enter: primary action", [supports("task.delegate")?"d: delegate":"",supports("task.dismiss")?"x: dismiss":"",supports("runner.block")||supports("runner.unblock")?"b: block/unblock":""].filter(Boolean).join(" · "), [supports("strategy.use")&&!setupKeys.includes("s install")?"s: strategy":"",",: settings","r: refresh",supports("update.check")&&!setupKeys.includes("c connect")?"c: check updates":"",supports("update.apply")?"u: update":"","?: help","q: quit"].filter(Boolean).join(" · "), "Sessions: Enter attaches here · t: terminal window · m: tmux pane.", "1-9: inline actions · Esc cancels prompts. Budget bar: # used, | pace."].map(text=>row(text)));}
+ if(v.preview)body.splice(0,body.length,...v.preview.flatMap(text=>{
+  const lines:string[]=[];let line="";
+  for(const word of text.split(" ")){if(line&&cellWidth(`${line} ${word}`)>width){lines.push(line);line=word;}else line+=`${line?" ":""}${word}`;}
+  lines.push(line);return lines.map(text=>row(text));
+ }));
  const space=Math.max(0,height-fixed.length-2), selected=body.findIndex(row=>row.selected), offset=selected>=space?Math.min(Math.max(0,body.length-space),selected-space+1):0;
  const visible=body.slice(offset,offset+space);
  const lines:Row[]=[...fixed.map(text=>row(text)),...visible];
  while(lines.length<height-2)lines.push(row(""));
  lines.push(row(v.prompt??v.message??""));
- const shortcuts="j/k select  ⏎ action  d delegate  x dismiss  b block  s strategy  , settings  r refresh  ? help";
- const compactShortcuts="j/k select  ⏎ action  d delegate  x dismiss  b block";
+ const shortcuts=setupKeys?"↑/↓ select  ⏎ action  , settings  r refresh  ? help":"j/k select  ⏎ action  d delegate  x dismiss  b block  s strategy  , settings  r refresh  ? help";
+ const compactShortcuts=setupKeys?"↑/↓ select  ⏎ action  , settings":"j/k select  ⏎ action  d delegate  x dismiss  b block";
  const status=`v${v.version??currentVersion()} · ${/^update available/i.test(v.updateLine??"")?"update available":"up to date"}`;
  // At 80 columns split the legend across the two footer lines.
  const legend=attachSelected?"⏎ Attach  t terminal window  m tmux  ? help":shortcuts;
  if(cellWidth(legend)+cellWidth(status)+2>width&&!v.prompt&&!v.message){
   const short=attachSelected?legend:compactShortcuts;
   lines[height-2]=row(clip(short,width));
-  lines.push(row(ends("s strategy  , settings  r refresh  ? help",status,width)));
+  lines.push(row(ends(setupKeys?", settings  r refresh  ? help":"s strategy  , settings  r refresh  ? help",status,width)));
  }else lines.push(row(ends(legend,status,width)));
  const codes={muted:2,amber:33,good:32,bad:31};
  return lines.slice(0,height).map(line=>{

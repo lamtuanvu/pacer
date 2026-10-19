@@ -1,13 +1,13 @@
 import { basename } from "node:path";
 import { attachDirectory, attachSession } from "../session/attach";
 import { openCmd } from "../commands/open";
-import { checkSetup } from "../setup/check";
+import { dashboardClient } from "./client";
+import { setupAction } from "./setup";
 import type { SetupChecklist } from "../setup/checklist";
 import { readUpdateCheck, updateLine } from "../update/check";
 import { StringDecoder } from "node:string_decoder";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
-import { connectClient, InProcessClient } from "../api/client";
 import { emptySnapshot, type CmdData } from "../link/envelope";
 import { listStrategies } from "../link/strategies";
 import { loadStrategy } from "../config/strategy";
@@ -27,30 +27,31 @@ export const LEAVE_SCREEN="\x1b[0m\x1b[?25h\x1b[?1049l";
 export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  if(args.length)return {code:2,out:"",err:"usage: pacer dashboard\n"};
  if(!process.stdin.isTTY||!process.stdout.isTTY)return {code:2,out:"",err:"pacer dashboard needs an interactive terminal\n"};
- let setup:SetupChecklist|undefined, setupBusy=false, nextSetupAt=0;
+ let setup:SetupChecklist|undefined;
  let selected=0,help=false,message="",messageUntil=0,busy=false,suspended=false,closed=false,exitError="";
  let statusTimer:ReturnType<typeof setTimeout>|undefined;
  let prompt:null|{type:"update"|"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
  const branchResult=await ctx.run(["git","-C",process.cwd(),"branch","--show-current"],10_000);
  const branch=branchResult.code===0?branchResult.stdout.trim()||"HEAD":"—";
  const repo=basename(process.cwd());
- const primary=await connectClient(ctx);
+ const primary=await dashboardClient(ctx);
  let ops:readonly string[]=[];
  let confirmation: DashboardAction | undefined;
+ let confirmationPreview:string[]|undefined;
  let snapshot:ClientSnapshot=emptySnapshot();let inFlight:Promise<void>|undefined;
  const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
- const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{repo,branch,ops,settings,setup,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:confirmation&&"op" in confirmation?`${confirmation.confirm} (y/n)`:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
+ const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{repo,branch,ops,settings,setup,preview:confirmationPreview,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:confirmation&&"op" in confirmation?`${confirmationPreview?"Proceed?":confirmation.confirm} (y/n)`:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
  const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
- const client=withFallback(primary,()=>new InProcessClient(fresh),()=>report("pacer serve unavailable; working locally"));
+ const local=await dashboardClient(ctx,true);
+ const client=withFallback(primary,()=>local,()=>report("pacer serve unavailable; working locally"));
  const refresh=()=>{
   if(closed)return Promise.resolve();
   if(inFlight)return inFlight;
   const c=fresh();
-  if(!setupBusy && c.now>=nextSetupAt){setupBusy=true;void checkSetup(c).then(result=>{setup=result;nextSetupAt=c.now+(result.complete?60:5);draw();}).catch(e=>report(String(e))).finally(()=>{setupBusy=false;});}
   inFlight=Promise.all([refreshView(client,{snapshot,selected,now:c.now,ops}),client.hello()]).then(([view,hello])=>{
    ops=hello.ops;
    if(closed)return;
-   snapshot=view.snapshot;selected=view.selected;draw();
+   snapshot=view.snapshot;if(snapshot.setup)setup={checkedAt:c.now,complete:snapshot.setup.complete,ready:snapshot.setup.ready??false,items:snapshot.setup.items};selected=view.selected;draw();
   }).catch(e=>{if(!closed)report(String(e));}).finally(()=>{inFlight=undefined;});
   return inFlight;
  };
@@ -67,7 +68,7 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  const open=async(screen:string)=>{const result=await openCmd(screen?[screen]:[],fresh());report(result.err||result.out||"Opened pacer.");};
  const command=async(data:DashboardAction)=>{
   if(!actionAvailable(data,ops))return;
-  if("op" in data&&data.confirm){confirmation=data;draw();return;}
+  if("op" in data&&data.confirm){confirmation=data;if(data.op==="service.install")confirmationPreview=["Run pacer in the background at login?","It keeps budgets fresh and runs delegated tasks."];draw();return;}
   await runCommand(client,data,fallback,reportOp,open);
  };
  let finish!:(code:number)=>void;const done=new Promise<number>(resolve=>{finish=resolve;});
@@ -76,8 +77,8 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   if(key==="interrupt"){quit(130);return;}
   if(confirmation){
    const action=confirmation;
-   if(key.toLowerCase()==="y"){confirmation=undefined;await runCommand(client,action,fallback,reportOp,open);}
-   else if(["n","N","escape","enter"].includes(key))confirmation=undefined;
+   if(key.toLowerCase()==="y"){confirmation=undefined;confirmationPreview=undefined;await runCommand(client,action,fallback,reportOp,open);}
+   else if(["n","N","escape","enter"].includes(key)){confirmation=undefined;confirmationPreview=undefined;}
    draw();return;
   }
   if(settings.open||key===","&&!prompt){await settings.handle(key);draw();return;}
@@ -101,11 +102,21 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   }
   if(key==="q"){quit();return;}
   if(key==="?"){help=!help;draw();return;}
+  const onboarding=setup&&setupAction(key,setup,ops);
+  if(onboarding){
+   if(onboarding==="add-executor")report("pacer runner add");
+   else if(onboarding.op==="agent.connect"){
+    const preview=await client.call<{files:string[];undo:string;detail?:string}>("agent.preview",{agent:onboarding.params.agent});
+    confirmationPreview=[`Connect ${onboarding.params.agent}?`,...preview.files,...(preview.detail?[preview.detail]:[]),`Undo: ${preview.undo}`,"No MCP servers will be added."];
+    await command({...onboarding,confirm:`Connect ${onboarding.params.agent}? Files: ${preview.files.join(", ")}${preview.detail?`. ${preview.detail}`:""}. Undo: ${preview.undo}. No MCP servers will be added.`});
+   }else await command(onboarding);
+   draw();return;
+  }
   const all=cards(snapshot,Date.now()/1000,ops).flatMap(g=>g.cards),card=all[selected];
   if(["up","down","j","k"].includes(key))selected=moveSelection(key,selected,all.length);
   else if(key==="d"&&ops.includes("task.delegate"))startDelegate(process.cwd());
   else if(key==="s"&&ops.includes("strategy.use"))chooseStrategy();
-  else if(key==="r"){nextSetupAt=0;refresh();}
+  else if(key==="r"){refresh();}
   else if(key==="c")await command(updateKey(key) as import("../link/envelope").CmdData);
   else if(updateKey(key)==="confirm"&&ops.includes("update.apply"))prompt={type:"update",step:0,value:"",goal:"",repo:"",names:[]};
   else {
@@ -144,7 +155,7 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   timer=setInterval(()=>{try{void refresh();}catch(e){report(String(e));}},2000);
   return {code:await done,out:"",err:exitError};
  }finally{
-  closed=true;unsubscribe?.();client.close();clearInterval(timer);clearTimeout(escapeTimer);clearTimeout(statusTimer);process.stdin.off("data",input);process.stdin.off("end",quit);process.stdin.pause();process.stdout.off("resize",draw);
+  closed=true;unsubscribe?.();client.close();local.close();clearInterval(timer);clearTimeout(escapeTimer);clearTimeout(statusTimer);process.stdin.off("data",input);process.stdin.off("end",quit);process.stdin.pause();process.stdout.off("resize",draw);
   process.off("SIGINT",interrupt);process.off("SIGTERM",terminate);process.off("SIGHUP",hangup);process.off("uncaughtException",crash);process.off("unhandledRejection",crash);process.off("exit",restore);restore();
  }
 }

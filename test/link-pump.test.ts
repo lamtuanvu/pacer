@@ -102,7 +102,7 @@ test("pump persists entity changes only after outbox success, never sends them t
  const {eventsSince}=await import("../src/api/events");
  const {s,st}=capacityFixture(),ctx=fakeCtx();
  let success=true,backfilled:string[]=[];
- const deps:PumpDeps={status:async()=>st,tasks:()=>[],strategy:()=>s,backfillRepos:async(_c,paths)=>{backfilled=paths;},setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:async(c,envs)=>{
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[],strategy:()=>s,backfillRepos:async(_c,paths)=>{backfilled=paths;},setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish:async(c,envs)=>{
   return success?publish(c,envs):{seq:0,transports:[],errors:["disk full"]};
  }};
  await pumpOnce(ctx,deps);const before=eventsSince(ctx,0).last;
@@ -120,7 +120,7 @@ test("counts and progress coalesce, while state transitions are immediate",async
  const {publish}=await import("../src/link/publish");
  const {s,st}=capacityFixture(),ctx=fakeCtx(),record={...task("running"),brief:{goal:"g",repo:"/missing/api"},executor:"codex",progress:{phase:"working",lastOutputAt:ctx.now,files:0,commits:0,logBytes:0}};
  const paths:string[][]=[];
- const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),backfillRepos:async(_c,p)=>{paths.push(p);},publish:(c,e)=>publish(c,e)};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),backfillRepos:async(_c,p)=>{paths.push(p);},publish:(c,e)=>publish(c,e)};
  await pumpOnce(ctx,deps);
  record.progress.files=1;
  expect((await pumpOnce({...ctx,now:ctx.now+0.2},deps)).filter(e=>e.type==="task")).toHaveLength(0);
@@ -151,7 +151,7 @@ test("pump publishes entity events without creating plugin storage",async()=>{
  const {join}=await import("node:path");
  const {eventsSince}=await import("../src/api/events");
  const {s,st}=capacityFixture(),ctx=fakeCtx();
- await pumpOnce(ctx,{status:async()=>st,tasks:()=>[],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish});
+ await pumpOnce(ctx,{status:async()=>st,tasks:()=>[],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish});
  expect(existsSync(join(pluginDataDir(ctx),"storage.json"))).toBe(false);
  expect(eventsSince(ctx,0).events.some(e=>e.type==="executor")).toBe(true);
 });
@@ -166,7 +166,7 @@ test("terminal receipt changes publish immediately alongside entity events",asyn
  ctx.run=async argv=>argv[0]==="orca"&&argv[1]==="terminal"
   ? {code:0,stdout:JSON.stringify({ok:true,result:{terminal:{handle:"term_worker",connected,writable:true}}}),stderr:""}
   : {code:1,stdout:"",stderr:"offline"};
- const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,envs)=>publish(c,envs)};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish:(c,envs)=>publish(c,envs)};
  const first=await pumpOnce(ctx,deps);
  expect(first.find(e=>e.type==="task")).toMatchObject({data:{terminalPresent:true}});
  expect(first.some(e=>e.type==="entity")).toBe(true);
@@ -179,7 +179,7 @@ test("a failed task publishes attention and counts, then clears attention on ret
  const {capacityFixture}=await import("./read-model-helpers");
  const {publish}=await import("../src/link/publish");
  const {s,st}=capacityFixture(),ctx=fakeCtx(),record={...task("running"),createdAt:ctx.now,brief:{goal:"g",repo:ctx.home},attempts:[]};
- const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,e)=>publish(c,e)};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish:(c,e)=>publish(c,e)};
  await pumpOnce(ctx,deps);record.state="failed";
  const out=await pumpOnce({...ctx,now:ctx.now+1},deps);
  expect(out.filter(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject([{data:{id:`failed:${record.id}`,value:{kind:"failed"}}}]);
@@ -192,7 +192,7 @@ test("pump dispatches attention notifications once to the active notifier",async
  const {capacityFixture}=await import("./read-model-helpers"),{publish}=await import("../src/link/publish"),{register}=await import("../src/clients/registry");
  const {s,st}=capacityFixture(),ctx=fakeCtx();register(ctx,{kind:"orca",version:"1",notifier:true});
  const record={...task("failed"),createdAt:ctx.now,brief:{goal:"failed goal",repo:ctx.home},attempts:[]};
- const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,items:[]}),publish:(c,envs)=>publish(c,envs)};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish:(c,envs)=>publish(c,envs)};
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(1);
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(0);
 });

@@ -5,7 +5,7 @@ import type { BootstrapState } from "../bootstrap";
 import { h } from "./shared";
 import { mark } from "./icons";
 export function legacyChecklist(s:ClientSnapshot,now:number,reachable:boolean,bootstrap?:BootstrapState):SetupChecklist {
- if(s.planner!==undefined) return {checkedAt:now,complete:s.setup?.complete??false,items:(s.setup?.items??[]).map(i=>({...i,status:i.status==="done"||i.status==="failed"?i.status:"pending"}))};
+ if(s.planner!==undefined) return {checkedAt:now,ready:s.setup?.ready??false,complete:s.setup?.complete??false,items:(s.setup?.items??[]).map(i=>({...i,status:i.status==="done"||i.status==="failed"?i.status:"pending"}))};
  return setupChecklist({version:bootstrap?.install.status==="done"?(s.console?.version??"installed"):null,planner:s.budget?.planner??null,service:{installed:bootstrap?.start.status==="done"||!!s.serviceInstalled,running:reachable},link:reachable,live:true,agents:bootstrap?.agents??[]},now);
 }
 function detail(i:SetupChecklist["items"][number]):string {
