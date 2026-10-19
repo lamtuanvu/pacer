@@ -62,12 +62,14 @@ export async function decideGuard(ctx: Ctx, input: GuardInput, deps: GuardDeps =
   const st = await (deps.status ? deps.status(ctx) : plannerSessionStatus(ctx));
   if (!opinion && st.providers.some((provider) =>
     input.subagentType.toLowerCase() === `${provider.id}-executor`.toLowerCase())) return verdict({ allow: true }, "rules");
+  const plannerStatus = st.providers.find(p => p.id === st.planner);
+  if (!plannerStatus || plannerStatus.verdict === "UNKNOWN") return verdict({ allow: true }, "rules");
   if (st.mode === "relaxed" || !st.executors.ranked.length) return verdict({ allow: true }, "rules");
 
   const planner = displayName(st.planner);
-  let reason = `pacer: '${input.subagentType}' is a ${planner} subagent, so it spends ${planner}'s own quota (mode: ${st.mode}). Delegate execution work with the pacer MCP tool \`delegate\` (top executor now: ${st.executors.ranked[0].id}) and a self-contained brief: goal, absolute repo path, scope, acceptance command. If this needs planner-level judgement (design, review), do it in the main conversation, or ask the user to start the session with PACER=off.`;
+  let reason = `pacer: '${input.subagentType}' is a ${planner} subagent, so it spends ${planner}'s own quota (mode: ${st.mode}). Delegate execution work with \`pacer delegate --brief-file - --json\` (top executor now: ${st.executors.ranked[0].id}) and a self-contained brief: goal, absolute repo path, scope, acceptance command. If this needs planner-level judgement (design, review), do it in the main conversation, or ask the user to start the session with PACER=off.`;
   if (opinion?.reason) reason += ` (${opinion.reason})`;
-  reason += ` (pacer event ${id}: if this block was wrong, call the pacer MCP tool guard_feedback with event_id "${id}" and correct=false)`;
+  reason += ` (pacer event ${id}: if this block was wrong, ask the user to start the session with PACER=off; with the pacer MCP tools connected, call guard_feedback with event_id "${id}" and correct=false)`;
   return verdict({ allow: false, reason }, opinion ? "classifier" : "rules");
 }
 

@@ -22,10 +22,10 @@ function status(overrides: Partial<Status> = {}): Status {
 const input = { subagentType: "general-purpose", prompt: "Implement the change" };
 const stdin = JSON.stringify({ tool_name: "Agent", tool_input: { prompt: input.prompt } });
 const deps = { status: async () => status() };
-const reason = "pacer: 'general-purpose' is a Claude subagent, so it spends Claude's own quota (mode: normal). Delegate execution work with the pacer MCP tool `delegate` (top executor now: codex) and a self-contained brief: goal, absolute repo path, scope, acceptance command. If this needs planner-level judgement (design, review), do it in the main conversation, or ask the user to start the session with PACER=off.";
+const reason = "pacer: 'general-purpose' is a Claude subagent, so it spends Claude's own quota (mode: normal). Delegate execution work with `pacer delegate --brief-file - --json` (top executor now: codex) and a self-contained brief: goal, absolute repo path, scope, acceptance command. If this needs planner-level judgement (design, review), do it in the main conversation, or ask the user to start the session with PACER=off.";
 const feedbackHint = (value: typeof input & { model?: string }) => {
   const id = guardEventId(value);
-  return ` (pacer event ${id}: if this block was wrong, call the pacer MCP tool guard_feedback with event_id "${id}" and correct=false)`;
+  return ` (pacer event ${id}: if this block was wrong, ask the user to start the session with PACER=off; with the pacer MCP tools connected, call guard_feedback with event_id "${id}" and correct=false)`;
 };
 const deny = (message: string) => ({ hookSpecificOutput: {
   hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: message,

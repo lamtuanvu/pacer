@@ -88,7 +88,7 @@ test("Cursor uninstall drops only a parent created by pacer after user edits", a
 
 const st: Status = { generatedAt: 0, strategy: "test", planner: "cursor", mode: "normal", disabled: false, paused: null, modeHold: null,
   calendarPace: true, providers: [], executors: { ranked: [], excluded: [] } };
-const BUDGET = "Subscription budget status (pacer):\nMode: NORMAL - Cursor is on pace. Delegate execution (multi-file edits, test/fix loops, boilerplate, migrations). Cursor may do tiny edits (about 20 lines, one file) itself.\nNo executor available. Cursor does the work; keep it lean.\nPace clock: calendar (not enough activity history yet)";
+const BUDGET = "Subscription budget status (pacer):\nMode: NORMAL - Cursor usage not measured yet.\nNo executor available. Cursor does the work; keep it lean.\nPace clock: calendar (not enough activity history yet)";
 
 test("Cursor session start wraps policy and budget in additional_context JSON", async () => {
   const output = await sessionStart(fakeCtx(), "cursor", { status: async () => st });
