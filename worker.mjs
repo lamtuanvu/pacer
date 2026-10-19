@@ -612,7 +612,7 @@ var package_default = {
     "preact-render-to-string": "^6.8.1",
     typescript: "^7.0.2"
   },
-  version: "0.3.0",
+  version: "0.3.1",
   bin: {
     pacer: "src/cli.ts"
   },
