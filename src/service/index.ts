@@ -217,3 +217,78 @@ export async function restartAfterUpdate(ctx: Ctx, binary: string, deps: Service
   if (text === null || !sameBinary(binaryInFile(text, platform), binary)) return false;
   await serviceBackend(ctx, deps).restart(); return true;
 }
+
+export type PlistValue = string | number | boolean | PlistValue[] | { [key: string]: PlistValue };
+/** Strict XML plist subset. Duplicate keys and unsupported values fail closed. */
+export function parsePlistDictionary(text: string): { [key: string]: PlistValue } {
+  if (text.length > 256 * 1024) throw new Error("plist exceeds inspection limit");
+  let source = text.replace(/^\s*<\?xml[^?]*\?>/, "").replace(/<!--[^]*?-->/g, "");
+  source = source.replace(/<!DOCTYPE plist PUBLIC "-\/\/Apple\/\/DTD PLIST 1\.0\/\/EN" "http:\/\/www\.apple\.com\/DTDs\/PropertyList-1\.0\.dtd">/, "").trim();
+  const wrapper = source.match(/^<plist(?:\s+version="1\.0")?>([^]*)<\/plist>$/);
+  if (!wrapper) throw new Error("unsupported plist document");
+  source = wrapper[1];
+  let at = 0;
+  const space = () => { while (/\s/.test(source[at] ?? "") && at < source.length) at++; };
+  const take = (token: string) => { space(); if (!source.startsWith(token, at)) return false; at += token.length; return true; };
+  const content = (tag: string): string => {
+    if (!take(`<${tag}>`)) throw new Error(`expected plist ${tag}`);
+    const end = source.indexOf(`</${tag}>`, at);
+    if (end < 0) throw new Error("unterminated plist value");
+    const raw = source.slice(at, end); at = end + tag.length + 3;
+    if (raw.includes("<") || /&(?!(?:amp|lt|gt|quot|apos);)/.test(raw)) throw new Error("unsupported plist text");
+    return unxml(raw);
+  };
+  const value = (depth: number): PlistValue => {
+    if (depth > 16) throw new Error("plist nesting exceeds inspection limit");
+    space();
+    if (take("<dict>")) {
+      const result: { [key: string]: PlistValue } = Object.create(null);
+      while (!take("</dict>")) {
+        const key = content("key");
+        if (Object.hasOwn(result, key)) throw new Error("duplicate plist key");
+        result[key] = value(depth + 1);
+      }
+      return result;
+    }
+    if (take("<array>")) {
+      const result: PlistValue[] = [];
+      while (!take("</array>")) result.push(value(depth + 1));
+      return result;
+    }
+    if (take("<true/>")) return true;
+    if (take("<false/>")) return false;
+    if (take("<string/>")) return "";
+    if (source.startsWith("<string>", at)) return content("string");
+    if (source.startsWith("<integer>", at)) {
+      const raw = content("integer"), number = Number(raw);
+      if (!/^-?\d+$/.test(raw) || !Number.isSafeInteger(number)) throw new Error("invalid plist integer");
+      return number;
+    }
+    throw new Error("unsupported plist value");
+  };
+  const result = value(0); space();
+  if (at !== source.length || !result || typeof result !== "object" || Array.isArray(result)) throw new Error("invalid plist dictionary");
+  return result;
+}
+
+export type DesktopServiceRegistration = { label: string; argv: string[]; home: string; pacerHome: string; port: number };
+/** Static provenance only: loaded launchd state and running process identity need native verification. */
+export function parseDesktopServiceRegistration(text: string): DesktopServiceRegistration {
+  const data = parsePlistDictionary(text);
+  const allowed = new Set(["Label", "ProgramArguments", "EnvironmentVariables", "RunAtLoad", "KeepAlive", "ThrottleInterval", "ProcessType", "StandardOutPath", "StandardErrorPath"]);
+  if (Object.keys(data).some(key => !allowed.has(key))) throw new Error("unsupported service launch configuration");
+  const argv = data.ProgramArguments, env = data.EnvironmentVariables;
+  if (data.Label !== LABEL || !Array.isArray(argv) || !argv.every(arg => typeof arg === "string") ||
+      !env || typeof env !== "object" || Array.isArray(env)) throw new Error("unrecognized service registration");
+  if (Object.keys(env).some(key => !["HOME", "PATH", "PACER_HOME", "PACER_PORT"].includes(key)) ||
+      typeof env.HOME !== "string" || typeof env.PACER_HOME !== "string") throw new Error("ambiguous service environment");
+  if (argv[1] !== "serve" || !(argv.length === 2 || (argv.length === 4 && argv[2] === "--port"))) {
+    throw new Error("unsupported or older service command; use a standalone CLI with verified admission support");
+  }
+  const configuredPort = env.PACER_PORT ?? String(DEFAULT_PORT);
+  if (typeof configuredPort !== "string" || !/^\d+$/.test(configuredPort)) throw new Error("invalid service port");
+  if (argv.length === 4 && argv[3] !== configuredPort) throw new Error("conflicting service ports");
+  const port = Number(configuredPort);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("invalid service port");
+  return { label: LABEL, argv: argv as string[], home: env.HOME, pacerHome: env.PACER_HOME, port };
+}

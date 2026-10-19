@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { isBundledExecutable } from "./desktop/identity";
 import { refreshIntegrations, refreshStrategy } from "../commands/update-refresh";
 import { restartAfterUpdate } from "../service";
 import type { Result } from "../commands/types";
@@ -76,6 +77,7 @@ const ok = (out: string): Result => ({ code: 0, out, err: "" });
 const fail = (code: number, msg: string): Result => ({ code, out: "", err: `pacer update: ${msg}` });
 
 function installHint(d: UpdateDeps): string | undefined {
+  if (isBundledExecutable(d.execPath)) return "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
   if (d.env.PACER_INSTALL_METHOD === "npm") return "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest";
   let real: string;
   try { real = realpathSync(d.execPath); } catch { return undefined; }
