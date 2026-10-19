@@ -89,10 +89,13 @@ test('refused protected home deletion keeps bytes and folders',async()=>{
  const before=readFileSync(p,'utf8'); expect((await accountCmd(['rm','work','--delete-home'],ctx,{confirm:async()=>true})).code).not.toBe(0);
  expect(readFileSync(p,'utf8')).toBe(before); expect(existsSync(ctx.home)).toBe(true);
 });
-test('legacy edits refuse with migration guidance and preserve bytes',async()=>{
+test('legacy edits migrate and print the migration once',async()=>{
  const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml'),before='planner: claude-code\nproviders: {codex: {}}\n'; writeFileSync(p,before);
- const r=await accountCmd(['add','claude','work','--no-login'],ctx);
- expect(r.err).toContain('pacer config migrate'); expect(readFileSync(p,'utf8')).toBe(before);
+ const lines:string[]=[];
+ const r=await accountCmd(['add','claude','work','--no-login'],ctx,{print:line=>lines.push(line)});
+ expect(r.code).toBe(0); expect(lines.filter(line=>line.startsWith('Backup:'))).toHaveLength(1);
+ expect(readFileSync(p+'.pre-accounts.bak','utf8')).toBe(before);
+ expect(readFileSync(p,'utf8')).toContain('accounts:');
 });
 test('removing an empty routing rule retains comments on surviving rules',async()=>{
  const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml');

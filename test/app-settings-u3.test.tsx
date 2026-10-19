@@ -125,6 +125,11 @@ test('settings navigation pluralises rule counts',()=>{
  }
 });
 
+test('settings feedback explains automatic migration in plain language',async()=>{
+ const result=await performOperation(async()=>({id:'codex',migrated:{backup:'strategy.yaml.pre-accounts.bak'}}) as any,'runner.set',{id:'codex',max_tasks:2});
+ expect(result.message).toBe('Saved.');
+ expect(result.hint).toBe('Updated your settings file to the current format. A backup was saved.');
+});
 test('General exposes named parallel tasks controls and shared capacity notes',()=>{
  const limited={...executor,rank:1,slots:{used:0,max:4},limitedBy:'machine'};
  const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});

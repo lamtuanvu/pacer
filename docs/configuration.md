@@ -17,6 +17,8 @@ routing:
   - default: [codex]
 ```
 
+Legacy `providers:` settings are automatically migrated to the current `accounts:` format the first time you edit an account, runner or endpoint. Pacer saves the original file beside it as `<strategy>.pre-accounts.bak` and then applies your edit. No separate migration command is needed.
+
 ## Providers
 
 Native IDs are `claude-code`, `codex`, `cursor` and `agy`. Other provider IDs need `via: opencode` and a `model` such as `provider/model`. See [executors](executors.md).

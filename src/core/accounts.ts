@@ -1,8 +1,9 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join, resolve, sep, parse } from "node:path";
 import { parseSize } from "../config/accounts";
 import { editStrategy } from "../config/edit";
 import { loadStrategy, strategyPath, type Strategy } from "../config/strategy";
+import { migrateStrategy, type MigrationResult } from "../config/migrate";
 import { accountFolder } from "../install/role";
 import { shq } from "../install/fsx";
 import { readOrcaAccounts } from "../orca/accounts";
@@ -14,12 +15,51 @@ import { writeOpencodeConfig } from "../endpoints/opencode-config";
 import { endpointRow } from "../endpoints/row";
 import type { Ctx } from "../types";
 
-export function requireAccounts(strategy: Strategy): void {
-  if (strategy.legacy) throw new CoreError("invalid_input", "Run pacer config migrate before editing accounts or runners.", "Run pacer config migrate.");
+/** Load and upgrade settings before editing, retaining an optimistic concurrency snapshot. */
+export function ensureAccounts(ctx: Ctx) {
+  const path = strategyPath(ctx);
+  const before = readFileSync(path, "utf8");
+  let strategy: Strategy;
+  try { strategy = loadStrategy(ctx); }
+  catch (error) {
+    if (!sameSettings(path, before)) throw settingsConflict();
+    throw error;
+  }
+  let migrated: MigrationResult | undefined;
+  if (strategyPath(ctx) !== path || !sameSettings(path, before)) throw settingsConflict();
+  if (strategy.legacy) {
+    try {
+      migrated = migrateStrategy(path, before);
+    } catch (error) {
+      if (!sameSettings(path, before) || (error instanceof Error && error.message.includes("changed during migration"))) throw settingsConflict();
+      throw new CoreError("invalid_input", "Your settings file could not be updated to the current format. Check the settings and backup file, then try again.");
+    }
+  }
+  const current = readFileSync(path, "utf8");
+  const updated = migrated ? loadStrategy(ctx) : strategy;
+  if (strategyPath(ctx) !== path || !sameSettings(path, current)) throw settingsConflict();
+  return {
+    strategy: updated,
+    ...(migrated?.changed ? {migrated} : {}),
+    edit(change: Parameters<typeof editStrategy>[1]) {
+      if (strategyPath(ctx) !== path || !sameSettings(path, current)) throw settingsConflict();
+      return applyEdit(ctx, change);
+    },
+  };
+}
+function sameSettings(path: string, expected: string): boolean {
+  try { return readFileSync(path, "utf8") === expected; }
+  catch { return false; }
+}
+function settingsConflict() {
+  return new CoreError("conflict", "Your settings changed while they were being updated. Try again.");
 }
 export function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy>[1]): string {
   const result = editStrategy(strategyPath(ctx), change);
-  if (!result.ok) throw new CoreError("invalid_input", result.error, "Check the strategy values and retry.");
+  if (!result.ok) {
+    if (result.error.includes("changed during edit")) throw settingsConflict();
+    throw new CoreError("invalid_input", result.error, "Check the strategy values and retry.");
+  }
   writeOpencodeConfig(ctx);
   return result.diff;
 }
@@ -75,7 +115,7 @@ export interface AddOptions {
 }
 export async function add(ctx: Ctx, options: AddOptions) {
   try {
-    const s = loadStrategy(ctx); requireAccounts(s);
+    const {strategy: s, migrated, edit} = ensureAccounts(ctx);
     const {kind, name} = options;
     const flags: Record<string, string | true> = {};
     for (const [key, value] of Object.entries({home: options.home, orca: options.orca, usage: options.usage, "quota-source": options.quotaSource, "weekly-tokens": options.weeklyTokens, "no-login": options.noLogin || undefined})) if (value !== undefined) flags[key] = value;
@@ -108,12 +148,12 @@ export async function add(ctx: Ctx, options: AddOptions) {
       value.home=folder;
     }
     // Validate before creating a folder; the edit writes no bytes on refusal.
-    const diff=applyEdit(ctx,doc=>doc.addMappingEntry('accounts',name,value));
+    const diff=edit(doc=>doc.addMappingEntry('accounts',name,value));
     if (folder) {
       try { mkdirSync(folder,{recursive:true,mode:0o700}); chmodSync(folder,0o700); }
       catch(e) {applyEdit(ctx,doc=>doc.removeMappingEntry('accounts',name)); throw e;}
     }
-    return {account: loadStrategy(ctx).accounts[name], folder, diff};
+    return {account: loadStrategy(ctx).accounts[name], folder, diff, ...(migrated ? {migrated} : {})};
   } catch (e) {
     const error = toCoreError(e);
     throw new CoreError(error.code, error.message, error.hint ?? "Check the account name, options and configured accounts.");
@@ -122,13 +162,13 @@ export async function add(ctx: Ctx, options: AddOptions) {
 
 export function remove(ctx: Ctx, name: string, {deleteHome = false}: {deleteHome?: boolean} = {}) {
   try {
-    const s = loadStrategy(ctx); requireAccounts(s);
+    const {strategy: s, migrated, edit} = ensureAccounts(ctx);
     const a = s.accounts[name]; if (!a) throw Error(`unknown account: ${name}`);
     if (s.planner.account === name || Object.values(s.runners).some(r => r.account === name)) throw new CoreError("conflict", `account ${name} is in use`, "Remove its runners and change the planner first.");
     const folder = deleteHome ? deletionHome(ctx, s, name) : null;
-    const diff = applyEdit(ctx, doc => doc.removeMappingEntry('accounts', name));
+    const diff = edit(doc => doc.removeMappingEntry('accounts', name));
     if (folder) rmSync(folder, {recursive: true, force: true});
-    return {removed: true as const, diff};
+    return {removed: true as const, diff, ...(migrated ? {migrated} : {})};
   } catch (e) {
     const error = toCoreError(e);
     throw new CoreError(error.code, error.message, error.hint ?? "Check the account name, options and configured accounts.");
