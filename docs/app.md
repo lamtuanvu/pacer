@@ -72,11 +72,21 @@ when the connection returns. Unsent form drafts are kept in the tab's
 Overview reads the service's attention queue in its supplied order: blocked items,
 problems, then decisions, oldest first within each group. The service includes
 review work, failed or limited tasks, stuck work, sign-in and executor problems,
-planner quota, setup and updates. Dismissed and snoozed items stay hidden as
-managed by the service. Counts and the review tab use the same snapshot.
+exhausted planner quota, setup and updates. Ahead-of-pace advice stays on the
+planner strip and tray header and does not add to Needs you or its counts.
+Dismissed and snoozed items stay hidden as managed by the service. Counts and
+the review tab use the same snapshot.
 Planner-delegated work enters the review queue after ten minutes without a
 verdict; other work enters immediately. Older services retain client fallback
 behavior.
+
+Overview and Review offer a repository filter and checkboxes to select review tasks.
+Use **Accept selected** or **Reject selected** (with a required shared note), or
+**Accept all with passing checks** to check the visible queue’s stored acceptance
+results. The confirmation lists each eligible task before recording verdicts.
+Tasks without passing checks are excluded from accept-all; errors and concurrent
+reviews are reported per task. Accepting records a verdict only; merge branches
+yourself.
 
 The API supports four review verdicts: accept, reject, send back with feedback
 to the same executor, and retry on another executor. Send back requires a note;

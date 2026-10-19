@@ -1,0 +1,40 @@
+import { expect, test } from 'bun:test';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { renderToString } from 'preact-render-to-string';
+import { HostSessionSwitch } from '../app/src/screens/settings/HostSessionSwitch';
+
+test('app links and native controls always opt into their styles', () => {
+  const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? files(path) : path.endsWith('.tsx') ? [path] : [];
+  });
+  const violations: string[] = [];
+  for (const path of ['screens', 'shell', 'tray'].flatMap(dir => files(`app/src/${dir}`))) {
+    const source = readFileSync(path, 'utf8');
+    for (const [, tag, attrs] of source.matchAll(/<(a|select|details|input)\b([^>]*?)>/g)) {
+      const cls = /className=("[^"]*"|'[^']*'|\{`[^`]*`\})/.exec(attrs!)?.[1] ?? '';
+      const required = tag === 'select' ? 'pc-select' : tag === 'details' ? 'pc-disclosure' : tag === 'input' && attrs!.includes('type="checkbox"') ? 'pc-checkbox__input' : undefined;
+      if (required && !cls.includes(required)) violations.push(`${path}: ${tag} needs ${required}`);
+      if (tag === 'a' && !cls) violations.push(`${path}: unstyled link`);
+    }
+  }
+  expect(violations).toEqual([]);
+});
+
+test('host checkbox preserves switch semantics, inline label and disabled state', () => {
+  const html = renderToString(<HostSessionSwitch alias="devbox" host={{session:'full'}} disabled run={() => {}}/>);
+  expect(html).toContain('<label class="pc-checkbox">');
+  expect(html).toContain('class="pc-checkbox__input"');
+  expect(html).toContain('role="switch"');
+  expect(html).toContain('aria-label="Full live sessions"');
+  expect(html).toContain('checked');
+  expect(html).toContain('disabled');
+  expect(renderToString(<HostSessionSwitch alias="legacy" host={{}} run={() => {}}/>)).toBe('');
+});
+
+test('new control styles only reference generated design tokens', () => {
+  const css = readFileSync('app/src/ds/components.css', 'utf8').split('/* Text actions')[1]!;
+  const tokens = readFileSync('app/src/ds/tokens.css', 'utf8');
+  for (const [, token] of css.matchAll(/var\((--[^)]+)\)/g)) expect(tokens).toContain(`${token}:`);
+});

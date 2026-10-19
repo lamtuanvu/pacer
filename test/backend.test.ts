@@ -1,3 +1,4 @@
+import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,7 +23,7 @@ const fake = (id: string, available: () => Promise<boolean>, out: AttemptOutcome
 });
 
 test("selectBackend: first available extra wins, else direct; PACER_BACKEND forces", async () => {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   const orca = fake("orca", async () => true);
   expect((await selectBackend(ctx, s, [orca])).id).toBe("orca");
   expect((await selectBackend(ctx, s, [fake("orca", async () => false)])).id).toBe("direct");
@@ -33,7 +34,7 @@ test("selectBackend: first available extra wins, else direct; PACER_BACKEND forc
 });
 
 test("throwing available falls back to direct", async () => {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   const broken = fake("orca", async () => { throw new Error("orca down"); });
   expect(await selectBackend(ctx, s, [broken])).toBe(directBackend);
 });
@@ -45,7 +46,7 @@ const status = (): Status => ({
 });
 
 test("the runner records the backend and worktree and verifies in the worktree", async () => {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   const t = createTask(ctx, { brief: { goal: "g", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const verified: string[] = [];
   const r = await runTask(ctx, t.id, {
@@ -59,7 +60,7 @@ test("the runner records the backend and worktree and verifies in the worktree",
 });
 
 test("extra backend error finishes failed", async () => {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   const t = createTask(ctx, { brief: { goal: "g", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const r = await runTask(ctx, t.id, {
     loadStrategy: () => s,
@@ -72,7 +73,7 @@ test("extra backend error finishes failed", async () => {
 });
 
 test("a throwing selected extra backend is recorded", async () => {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   const t = createTask(ctx, { brief: { goal: "g", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const backend = fake("throwing-extra", async () => true, new Error("worker startup failed"));
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: unmetered }\n");
@@ -96,7 +97,7 @@ for (const agent of ["claude-code", "codex"]) {
           planner: "claude-code#plan", routing: [{default: [`${agent}#team`]}], execution: {backend},
         };
         const strategy = validateStrategy(raw, "test");
-        const ctx = fakeCtx();
+        const ctx = withLoginIndicators(fakeCtx());
         const orca = fake("orca", async () => backend !== "direct");
         const selected = await selectBackend(ctx, strategy, [orca], `${agent}#team`);
         expect(selected.id).toBe(source === "default" && backend !== "direct" ? "orca" : "direct");

@@ -1,3 +1,4 @@
+import { withLoginIndicators } from "./helpers";
 import { test, expect } from "bun:test";
 import { mkdirSync, readFileSync, existsSync, readdirSync, statSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
@@ -20,7 +21,7 @@ pacing:
 routing:
   - default: [codex, agy]
 `;
-async function setup(){const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});await Bun.write(join(ctx.pacerHome,"strategy.yaml"),yaml);return ctx;}
+async function setup(){const ctx=withLoginIndicators(fakeCtx());mkdirSync(ctx.pacerHome,{recursive:true});await Bun.write(join(ctx.pacerHome,"strategy.yaml"),yaml);return ctx;}
 test("draft replaces arrays and objects wholesale, unsets nested keys and guards prototype paths",()=>{
  expect(s.applyDraft({pacing:{order:["a"],policy:"even"},routing:[1]}, {from:"default",set:{"pacing.order":["b","c"],routing:[{default:["b"]}]},unset:["pacing.policy"]})).toEqual({pacing:{order:["b","c"]},routing:[{default:["b"]}]});
  expect(()=>s.applyDraft({}, {from:"default",set:{"__proto__.polluted":true}})).toThrow("invalid dotted path");
