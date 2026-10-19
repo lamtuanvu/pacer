@@ -122,3 +122,12 @@ test('the Setup rail entry stays until ready and its status dot only marks requi
   expect(rail(check)).toContain('aria-label="Settings"');
   expect(rail(check)).not.toContain('Settings · setup needs you');
 });
+
+test("first delegation waits for required setup", () => {
+  const checklist = { checkedAt: 0, complete: false, ready: false, items: [
+    { id: "service", title: "Background service", status: "pending" as const, required: true, action: "service.install" },
+    { id: "first", title: "First delegation", status: "pending" as const, required: false, action: "onboarding.try" },
+  ] };
+  const html = view(checklist);
+  expect(html).toContain("Finish the required steps first.");
+});
