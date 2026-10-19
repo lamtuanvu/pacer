@@ -1,5 +1,5 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
-import { withLockSync } from "../core/lock";
+import { withLock, withLockSync } from "../core/lock";
 import { assertPacerHomeAllowed } from "../ctx";
 import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -9,14 +9,22 @@ import { TERMINAL_STATES, type Brief, type TaskRecord, type TaskState } from "./
 
 const ID_RE = /^t-\d{8}-\d{6}-[0-9a-f]{4}$/;
 export const tasksDir = (ctx: Ctx) => join(ctx.pacerHome, "tasks");
+export function taskArchiveDir(ctx: Ctx, task: TaskRecord): string {
+  if (!isTaskId(task.id)) throw new Error("invalid task id");
+  return join(ctx.pacerHome, "archive", new Date(task.createdAt * 1000).toISOString().slice(0, 7), task.id);
+}
+export function taskSettledAt(task: TaskRecord): number {
+  const times = [task.settledAt, task.review?.at, ...task.attempts.map(a => a.endedAt)].filter((n): n is number => n !== undefined && Number.isFinite(n));
+  return times.length ? Math.max(task.createdAt, ...times) : Infinity;
+}
 
 // Keep connections for the service's cheap change checks; bound handles for callers
 // that inspect many homes (including the test suite). Never evict a transaction.
 interface Connection { db: Database; generation: number; inode: number; directoryStamp?: string }
 const connections = new Map<string, Connection>();
 let generation = 0;
-const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record";
-const placeholders = "?, ?, ?, ?, ?, ?, ?, ?";
+const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record, archived";
+const placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?";
 
 function activityAt(task: TaskRecord): number {
   return Math.max(task.createdAt, task.attemptStartedAt ?? 0, task.review?.at ?? 0,
@@ -26,8 +34,8 @@ function activityAt(task: TaskRecord): number {
 function values(task: TaskRecord, now: number): SQLQueryBindings[] {
   const updated = Math.max(now, activityAt(task));
   return [task.id, task.rev, task.state, task.createdAt, updated,
-    TERMINAL_STATES.includes(task.state) ? (task.attempts.at(-1)?.endedAt ?? updated) : null,
-    task.brief.repo ?? null, JSON.stringify(task)];
+    TERMINAL_STATES.includes(task.state) && Number.isFinite(taskSettledAt(task)) ? taskSettledAt(task) : null,
+    task.brief.repo ?? null, JSON.stringify(task), task.archived ? 1 : 0];
 }
 
 // Older binaries use atomic temp-file + rename writes. Only a directory change
@@ -72,7 +80,7 @@ function importJson(ctx: Ctx, entry: Connection): void {
       db.query(`INSERT INTO tasks (${columns}, json_mtime) VALUES (${placeholders}, ?)
         ON CONFLICT(id) DO UPDATE SET rev=excluded.rev, state=excluded.state,
         created_at=excluded.created_at, updated_at=excluded.updated_at,
-        settled_at=excluded.settled_at, repo=excluded.repo, record=excluded.record,
+        settled_at=excluded.settled_at, repo=excluded.repo, record=excluded.record, archived=excluded.archived,
         json_mtime=excluded.json_mtime
         WHERE excluded.rev > tasks.rev OR (excluded.rev = tasks.rev AND
           (tasks.json_mtime IS NULL OR excluded.json_mtime > tasks.json_mtime))`)
@@ -84,7 +92,7 @@ function importJson(ctx: Ctx, entry: Connection): void {
 }
 
 function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): number {
-  const file = join(tasksDir(ctx), `${task.id}.json`);
+  const file = join(task.archived ? taskArchiveDir(ctx, task) : tasksDir(ctx), `${task.id}.json`);
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   try {
     writeFileSync(tmp, JSON.stringify(task), { flag: "wx", mode: 0o600 });
@@ -129,7 +137,7 @@ function connection(ctx: Ctx) {
     db.transaction(() => {
       db.run(`CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL,
-        updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL
+        updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state);
       CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at);
@@ -137,6 +145,8 @@ function connection(ctx: Ctx) {
       // Accept databases created by the initial SQLite implementation too.
       const fields = db.query<{ name: string }, []>("PRAGMA table_info(tasks)").all();
       if (!fields.some(field => field.name === "json_mtime")) db.run("ALTER TABLE tasks ADD COLUMN json_mtime REAL");
+      if (!fields.some(field => field.name === "archived")) db.run("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+      db.run("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at)");
     }).immediate();
   } catch (error) { db.close(); throw error; }
   for (const [key, entry] of connections) {
@@ -209,6 +219,20 @@ export function withTaskLock<T>(ctx: Ctx, id: string, action: () => T): T {
   });
 }
 
+/** Wait for the operation lock asynchronously, then perform a short synchronous
+ * commit. Only that commit is reentrant; never hold the process-local marker
+ * while awaiting artifact I/O. */
+export function withTaskLockAsync<T>(ctx: Ctx, id: string, action: () => T): Promise<T> {
+  assertPacerHomeAllowed(ctx.pacerHome);
+  if (!isTaskId(id)) return Promise.resolve().then(action);
+  const key = resolve(ctx.pacerHome, "tasks", id);
+  return withLock(ctx, `task-${id}`, async () => {
+    heldTaskLocks.add(key);
+    try { return action(); }
+    finally { heldTaskLocks.delete(key); }
+  });
+}
+
 export function updateTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void): TaskRecord {
   return withTaskLock(ctx, id, () => {
     const { db } = connection(ctx);
@@ -216,24 +240,30 @@ export function updateTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void
       const t = readTask(ctx, id);
       if (!t) throw new Error(`unknown task ${id}`);
       const rev = t.rev;
+      const priorState = t.state;
       mutate(t);
+      if (TERMINAL_STATES.includes(t.state) && !TERMINAL_STATES.includes(priorState)) t.settledAt = ctx.now;
+      if (!TERMINAL_STATES.includes(t.state)) delete t.settledAt;
       t.id = id;
       t.rev = rev + 1;
       // JSON first: a crash before SQLite commits is recovered by the next import.
       const mtime = writeCompatibilityJson(ctx, t);
-      db.query(`UPDATE tasks SET rev=?, state=?, created_at=?, updated_at=?, settled_at=?, repo=?, record=?, json_mtime=? WHERE id=?`)
+      db.query(`UPDATE tasks SET rev=?, state=?, created_at=?, updated_at=?, settled_at=?, repo=?, record=?, archived=?, json_mtime=? WHERE id=?`)
         .run(...values(t, Number.isFinite(ctx.now) ? ctx.now : Date.now() / 1000).slice(1), mtime, id);
       return t;
     }).immediate();
   });
 }
 
-export interface TaskFilter { states?: readonly TaskState[]; updatedSince?: number; limit?: number }
+export interface TaskFilter { states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number }
 
 /** Indexed filters, combined with AND. Newest id first, matching the file store. */
 export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] {
   if (filter.states?.length === 0 || filter.limit === 0) return [];
   const clauses: string[] = [], bindings: SQLQueryBindings[] = [];
+  if (!filter.all) clauses.push("archived = 0");
+  if (filter.settledBefore !== undefined) { clauses.push("settled_at < ?"); bindings.push(filter.settledBefore); }
+  if (filter.before !== undefined) { clauses.push("id < ?"); bindings.push(filter.before); }
   if (filter.states) {
     clauses.push(`state IN (${filter.states.map(() => "?").join(",")})`);
     bindings.push(...filter.states);

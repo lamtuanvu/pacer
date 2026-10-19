@@ -1,3 +1,4 @@
+import { pruneTasks, restoreTask } from "../tasks/retention";
 import { parseRunnerId } from "../config/runner-id";
 import { pacerArgv } from "../install/self";
 import * as attention from "../core/attention";
@@ -224,8 +225,10 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "repo.list": op({ description: "Registered repos with local branches, current first.", params: z.object({}), handler: ctx => listReposWithBranches(ctx) }),
   "repo.add": op({ description: "Register a git repository.", params: z.object({path:z.string().min(1).max(4096)}), handler: (ctx,p) => addRepo(ctx,p.path) }),
   "repo.remove": op({ description: "Remove a repository from the registry.", params: z.object({key:z.string().min(1)}), handler: (ctx,p) => removeRepo(ctx,p.key) }),
+  "task.prune": op({ description: "Archive old reviewed or dismissed settled tasks; dry_run reports files and bytes without moving them.", params: z.object({ dry_run: z.boolean().optional() }), handler: (ctx, p) => pruneTasks(ctx, { dryRun: p.dry_run }) }),
+  "task.restore": op({ description: "Restore an archived task and its artifacts; conflicting files are never overwritten.", params: z.object({ id }), handler: async (ctx, p) => summarizeTask(await restoreTask(ctx, p.id)) }),
   "task.list": op({ description: "Recent tasks, newest first, always returned as a cursor page.", params: z.object({
-    limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
+    all:z.boolean().optional(), limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
   }), handler: (ctx,p) => {
     const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});

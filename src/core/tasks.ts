@@ -56,7 +56,7 @@ export function get(ctx: Ctx, id: string): TaskRecord {
 }
 
 export interface ListOptions {
-  limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
+  all?: boolean; limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
 }
 
 /** Newest first; filter before taking the page. */
@@ -64,7 +64,7 @@ export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
   // Active tasks may transition during the status refresh, even when the caller
   // requested settled states. Keep them in the SQL selection, then filter again.
   const states: TaskState[] | undefined = o.states ? [...new Set<TaskState>([...o.states, "queued", "running"])] : undefined;
-  return listTasksWhere(ctx, { updatedSince: o.since, states })
+  return listTasksWhere(ctx, { updatedSince: o.since, states, all: o.all })
     .filter(t => o.before === undefined || t.id < o.before)
     .map(t => taskStatus(ctx, t.id) ?? t)
     .filter(t => (o.repo === undefined || (t.repo ?? repoFor(ctx,t.brief.repo)).key === o.repo)

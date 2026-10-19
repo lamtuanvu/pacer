@@ -114,3 +114,36 @@ reopening. Never remove a live WAL file.
 - The service becomes the only process that needs to persist lifecycle changes.
 - Database contention or task volume requires asynchronous database work or
   additional query indexes.
+
+## Addendum — task retention (2026-10-19)
+
+- `task_retention_days` defaults to 14; zero disables archiving. Only terminal,
+  reviewed or dismissed tasks with a known settlement before the window qualify.
+  Reviews extend that window. Live local worktrees and recorded remote worktrees
+  veto archiving; retention never removes worktrees. New terminal transitions
+  persist `settledAt`; legacy attempt/review timestamps supply known settlement.
+- SQLite retains the complete record, additive `archived`/`archivePath` metadata,
+  and an indexed archive flag/settlement query. Default lists and snapshots omit
+  archived rows; `task.list { all: true }` includes them and ID lookups retain them.
+- A daily single-flight service sweep uses bounded SQL pages and asynchronous,
+  streaming gzip to avoid holding bulky logs in memory or blocking health checks.
+  `task.prune` / `pacer tasks prune [--dry-run]` expose the same policy manually.
+  Dry runs estimate actual compressed sizes without writing archive files.
+- Archive artifacts live in `archive/YYYY-MM/<id>/`, using the creation month in
+  UTC, mode 0700 directories and 0600 files. Task-prefixed log, Markdown, bundle
+  and JSON files move there; only logs are gzip compressed. Compression completes
+  before taking the per-task operation lock; revision and file checks reject
+  concurrent changes. The SQLite update commits before originals are removed.
+  The sweep/restore lock also serializes administrative operations across processes.
+- **Compatibility exception to D3a:** archived JSON write-through files move with
+  the artifacts. Older binaries simply stop listing archived tasks, which is
+  acceptable for this release. Updates to archived records write JSON in the
+  archive. Opening/importing the store remains non-destructive. Rollback users
+  who need archived history visible must restore it before starting older binaries.
+- `task.restore` / `pacer tasks restore <id>` stream logs back to their original
+  names and regenerate compatibility JSON from SQLite. Existing destinations
+  produce a conflict. Administrative operations should run without older writers:
+  older binaries do not understand archive metadata. Filesystem and SQLite changes
+  are not one transaction; an interruption can leave duplicate originals or an
+  orphan archive directory, but original contents remain recoverable. Inspect those
+  copies before retrying; never delete a conflicting copy blindly.

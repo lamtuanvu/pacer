@@ -101,6 +101,9 @@ export interface RunRef {
 }
 
 export interface TaskRecord {
+  settledAt?: number;
+  archived?: boolean;
+  archivePath?: string;
   title?: string;
   source?: "planner" | "ui" | "cli" | "onboarding";
   requestId?: string;
