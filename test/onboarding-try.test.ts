@@ -106,3 +106,12 @@ test("onboarding.try uses normal routing to detect a planner-only setup", async 
  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: codex\nproviders:\n  codex: {}\n");
  await expect(callOp({...ctx,which:()=>null},"onboarding.try",{},{spawnRunner:()=>{throw Error("must not spawn");}})).rejects.toMatchObject({code:"unknown_executor",message:"Add an executor first"});
 });
+
+ test("onboarding scratch repository inherits global routing when another project has a policy", async () => {
+  const { ctx, deps } = fixture();
+  const { writeProjectStrategy } = await import("../src/config/project-strategies");
+  await writeProjectStrategy(ctx, "local:0123456789ab", ["cursor#cursor@local"], 0);
+  const result = await callOp(ctx, "onboarding.try", {}, deps) as TryResult;
+  expect(readTask(ctx, result.task_id)!.repo?.identityUnverified).not.toBe(true);
+  expect(readTask(ctx, result.task_id)!.repo?.path).toBe((await import("node:fs")).realpathSync(result.repo));
+ });
