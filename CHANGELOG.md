@@ -12,6 +12,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Task records use a private SQLite store with indexed active/recent queries, concurrent transactional updates, non-destructive legacy import and atomic JSON write-through for older binaries.
+
 - Delegate defaults to the active repository filter or remembered repository, supports an optional task kind, previews routing and submits with Cmd+Enter (Ctrl+Enter on Linux).
 - Headless Session views explain the run and highlight Take over instead of showing unavailable watch options.
 - Desktop sign-in loops show a diagnosis and last error after 45 seconds, keep retrying with a tray error dot, and write lifecycle logs to a rotating private desktop log.

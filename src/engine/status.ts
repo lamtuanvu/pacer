@@ -1,3 +1,4 @@
+import { statusTimer } from "../usage/trace";
 import { loginIndicator } from "../install/login";
 import { resolve } from "node:path";
 import { readPause, type PauseState } from "../core/pause";
@@ -61,11 +62,13 @@ export { displayName } from "../render/accounts";
 export async function computeStatus(
   ctx: Ctx, s: Strategy, opts: { cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
+  const trace = statusTimer(ctx);
   const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
     .map(a => `account ${a.name}: usage_source orca is no longer read; using ${a.kind === "claude" || a.kind === "codex" ? "native" : "reactive"}`);
   const blocked = Object.fromEntries(Object.entries(readBlocked(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
   const broken = Object.fromEntries(Object.entries(readBroken(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
   const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx).catch(() => null);
+  trace("activity");
   // Evaluate an account once; every runner draws on this same budget.
   const budgets = await Promise.all(Object.values(s.accounts).map(async (account) => {
     const runners = Object.values(s.runners).filter(r => r.account === account.name);
@@ -95,6 +98,7 @@ export async function computeStatus(
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
     return { account, runners, reading: fresh, windows, binding, verdict, endpointReason };
   }));
+  trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
     const { account, reading, windows, binding, verdict, endpointReason } = byAccount[runner.account];
@@ -119,7 +123,7 @@ export async function computeStatus(
   const byId = Object.fromEntries(providers.map(p => [p.id, p]));
   const planner = byAccount[s.planner.account];
   const modeHold = readHold(ctx);
-  return {
+  const status: Status & { accounts: AccountStatus[] } = {
     paused: readPause(ctx), modeHold,
     generatedAt: ctx.now,
     strategy: s.name,
@@ -139,4 +143,6 @@ export async function computeStatus(
     providers,
     executors: rankExecutors(null, s, byId),
   };
+  trace("providers-and-ranking");
+  return status;
 }

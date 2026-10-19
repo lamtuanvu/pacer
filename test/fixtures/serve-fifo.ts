@@ -46,7 +46,15 @@ try {
     if (response.status !== 200 || performance.now()-start >= 1000) throw Error(`${path} failed while a read was stuck: ${response.status}`);
     if (path === "/v3/snapshot") {
       const waiting = (body.snapshot ?? body as never as { service: { waiting?: { kind: string; path: string } } }).service.waiting;
-      if (waiting?.kind !== "folder" || waiting.path !== join(stuck, ".git", "HEAD")) throw Error(`service.waiting missing: ${JSON.stringify(waiting)}`);
+      // The first read can legitimately be stale; the background refresh must
+      // eventually publish the waiting marker without delaying any individual read.
+      let current = waiting;
+      for (let n = 0; n < 30 && current?.path !== join(stuck, ".git", "HEAD"); n++) {
+        await Bun.sleep(100);
+        const next = await fetch(`http://127.0.0.1:${server.port}/v3/snapshot`, { headers: { Authorization: `Bearer ${server.token}` }, signal: AbortSignal.timeout(1000) });
+        current = (await next.json() as { snapshot: { service: { waiting?: typeof waiting } } }).snapshot.service.waiting;
+      }
+      if (current?.kind !== "folder" || current.path !== join(stuck, ".git", "HEAD")) throw Error(`service.waiting missing: ${JSON.stringify(current)}`);
     }
   }
 } finally { server?.stop(); rmSync(root,{recursive:true,force:true}); }

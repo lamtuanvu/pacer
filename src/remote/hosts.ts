@@ -9,7 +9,7 @@ import { loadStrategy } from "../config/strategy";
 import { applyEdit } from "../core/accounts";
 import { CoreError } from "../core/errors";
 import { shq } from "../install/fsx";
-import { listTasks } from "../tasks/store";
+import { listTasks, listTasksWhere, listActiveAndRecentTasks } from "../tasks/store";
 import { TERMINAL_STATES } from "../tasks/types";
 import type { Ctx } from "../types";
 import { openInTerminal } from "../terminal/open";
@@ -77,7 +77,7 @@ export interface HostDetail extends Omit<HostSummary, "repos"> {
 }
 function summary(ctx: Ctx, host: HostCfg): HostSummary {
   const s = loadStrategy(ctx), stored = readHostCheck(ctx, host.alias), reachability = readHostReachability(ctx, host);
-  const running = listTasks(ctx, Infinity).filter(t => t.state === "running" && t.run?.host === host.alias).length;
+  const running = listTasksWhere(ctx, { states: ["running"] }).filter(t => t.run?.host === host.alias).length;
   const state = host.paused ? "paused" : (reachability?.failures ?? 0) >= 2 ? "down"
     : listJobs(ctx, { target: host.alias }).some(j => j.kind === "host.check" && j.state === "running") ? "checking"
     : stored?.checks.some(c => !c.ok) || listRepos(ctx).some(r=>!r.key.startsWith("local:")&&!host.repos[r.key]&&Object.values(s.runners).some(e=>e.host===host.alias&&e.enabled!==false)) ? "needs_setup" : "ready";
@@ -109,13 +109,13 @@ export async function detail(ctx: Ctx, alias: string): Promise<HostDetail> {
   ]);
   const host = configured(ctx, alias), row = summary(ctx, host), stored = readHostCheck(ctx, alias);
   const checks = stored?.checks ?? [];
-  const done = listTasks(ctx, Infinity).filter(t => {
+  const done = listTasksWhere(ctx, { states: ["done"], updatedSince: ctx.now - 7 * 86400 }).filter(t => {
     // Old task records have no updatedAt; use their persisted completion/review time.
     const at = (t as typeof t & { updatedAt?: number }).updatedAt ?? t.review?.at ?? t.attempts.at(-1)?.endedAt ?? t.createdAt;
     return t.run?.host === alias && t.state === "done" && at >= ctx.now - 7 * 86400 && at <= ctx.now;
   });
   return { ...row, checkedAt: stored?.at ?? null, reachableAt: readHostReachability(ctx, host)?.at ?? null,
-    facts: stored?.facts ?? null, checks, executors: buildExecutors(await computeStatus({...ctx,readOnly:true},loadStrategy(ctx)),loadStrategy(ctx),snapshotTasks(ctx,listTasks(ctx,Infinity)),ctx.now,ctx).filter(e=>e.host===alias),
+    facts: stored?.facts ?? null, checks, executors: buildExecutors(await computeStatus({...ctx,readOnly:true},loadStrategy(ctx)),loadStrategy(ctx),snapshotTasks(ctx,listActiveAndRecentTasks(ctx)),ctx.now,ctx).filter(e=>e.host===alias),
     doneThisWeek: { done: done.length, accepted: done.filter(t => t.review?.accepted).length },
     repos: Object.entries(host.repos).map(([key, path]) => {
       const checkout = checks.find(c => c.name === `checkout ${key}`), identity = checks.find(c => c.name === `identity ${key}`);

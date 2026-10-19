@@ -2,8 +2,8 @@ import { readPluginReload } from "../attention/plugin-reload";
 import type { Ctx } from "../types";
 import { loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
-import { listTasks } from "../tasks/store";
-import { taskStatus } from "../tasks/api";
+import { listActiveAndRecentTasks } from "../tasks/store";
+import { taskRecordStatus } from "../tasks/api";
 import { snapshotTasks } from "../api/read-model/tasks";
 import { buildExecutors, buildAccounts, buildPlanner } from "../api/read-model/capacity";
 import { buildSetup } from "../api/read-model/summary";
@@ -16,10 +16,10 @@ async function raisedItems(ctx: Ctx) {
   let strategy;
   try { strategy=loadStrategy(ctx); } catch {
     const context=await readModelContext(ctx);
-    return deriveItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks:snapshotTasks(ctx,listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t)),executors:[],accounts:[],planner:null,setup:buildSetup(context.setup),update:null,retryTarget:()=>null});
+    return deriveItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks:snapshotTasks(ctx,listActiveAndRecentTasks(ctx).map(t=>taskRecordStatus(ctx,t))),executors:[],accounts:[],planner:null,setup:buildSetup(context.setup),update:null,retryTarget:()=>null});
   }
   const [status,context]=await Promise.all([computeStatus({...ctx,readOnly:true},strategy),readModelContext(ctx)]);
-  const tasks=snapshotTasks(ctx,listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t));
+  const tasks=snapshotTasks(ctx,listActiveAndRecentTasks(ctx).map(t=>taskRecordStatus(ctx,t)));
   const executors=buildExecutors(status,strategy,tasks,ctx.now);
   const accounts=buildAccounts(status,strategy).map(a=>({...a,signedIn:context.accounts.find(row=>row.name===a.name)?.signedIn??null}));
   return deriveItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks,executors,accounts,planner:buildPlanner(status),setup:buildSetup(context.setup),update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)});
