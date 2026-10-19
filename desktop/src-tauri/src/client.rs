@@ -430,7 +430,7 @@ pub async fn run(app: AppHandle) {
         }
         let cli = Cli::find(&path);
         let probe = health(&probe_client).await;
-        // Restart is decided on NoAnswer, so ownership must be known there as well.
+        // Preserve ownership for sustained failed probes, including stale heartbeats.
         let (job, owner) = if matches!(probe, logic::HealthProbe::Refused | logic::HealthProbe::NoAnswer) {
             job_state(&pacer_home(), service_port()).await
         } else {
@@ -627,17 +627,21 @@ async fn health(client: &Client) -> logic::HealthProbe {
         }
         _ => return HealthProbe::Unreachable,
     }
-    // The timeout includes the body: a connected but blocked process is busy, not stopped.
+    // Include the body in the timeout; one slow reply never triggers a restart.
     match tokio::time::timeout(Duration::from_secs(2), async {
         let response = client
             .get(format!("http://127.0.0.1:{port}/health"))
             .send()
             .await?;
-        response.json::<Value>().await
+        let status = response.status().as_u16();
+        if status == 503 {
+            return Ok(logic::health_response(status, &Value::Null));
+        }
+        response.json::<Value>().await.map(|value| logic::health_response(status, &value))
     })
     .await
     {
-        Ok(Ok(value)) => logic::health_probe(&value),
+        Ok(Ok(probe)) => probe,
         Ok(Err(e)) if e.is_decode() => HealthProbe::Invalid,
         _ => HealthProbe::NoAnswer,
     }

@@ -41,5 +41,8 @@ test("removed routes return 404; unknown paths 404; non-GET 405", async () => {
 });
 
 test("health identifies the serving process without authentication",async()=>{
- const {url}=await serve();const r=await fetch(url+"/health");expect(r.headers.get("X-Pacer")).toBe("1");expect(await r.json()).toEqual({ok:true,pid:process.pid});
+  const { url } = await serve();
+  const r = await fetch(url + "/health");
+  expect(r.headers.get("X-Pacer")).toBe("1");
+  expect(await r.json()).toMatchObject({ ok: true, pid: process.pid, backendLagS: expect.any(Number) });
 });

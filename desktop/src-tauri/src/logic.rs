@@ -151,6 +151,7 @@ pub fn service_steps(action: RecoveryAction) -> &'static [&'static str] {
 #[derive(Default)]
 pub struct Lifecycle {
     hung_since: Option<u64>,
+    failed_probes: u32,
     next_action: u64,
     restart_delay: u64,
 }
@@ -165,6 +166,7 @@ impl Lifecycle {
         use RecoveryAction::*;
         if waiting {
             self.hung_since = None;
+            self.failed_probes = 0;
             return if matches!(health, HealthProbe::Ready | HealthProbe::Starting) {
                 Connect
             } else {
@@ -173,14 +175,32 @@ impl Lifecycle {
         }
         if job == JobState::Foreign && matches!(health, HealthProbe::Refused | HealthProbe::NoAnswer) {
             self.hung_since = None;
+            self.failed_probes = 0;
             return Foreign;
         }
-        if health != HealthProbe::NoAnswer {
+        if !matches!(health, HealthProbe::NoAnswer | HealthProbe::Refused) {
             self.hung_since = None;
+            self.failed_probes = 0;
         }
         match health {
             HealthProbe::Ready | HealthProbe::Starting => Connect,
             HealthProbe::Invalid => Protocol,
+            HealthProbe::Refused | HealthProbe::NoAnswer if job == JobState::Running => {
+                // Require sustained failure, whether the listener is absent,
+                // unresponsive, or reports a stale backend heartbeat.
+                let since = *self.hung_since.get_or_insert(now);
+                self.failed_probes = self.failed_probes.saturating_add(1);
+                let delay = self.restart_delay.max(30);
+                if self.failed_probes >= 3 && now.saturating_sub(since) >= delay && now >= self.next_action {
+                    self.hung_since = None;
+                    self.failed_probes = 0;
+                    self.restart_delay = (delay * 2).min(80);
+                    self.next_action = now.saturating_add(self.restart_delay);
+                    Restart
+                } else {
+                    Wait
+                }
+            }
             HealthProbe::Refused if now >= self.next_action => {
                 self.next_action = now.saturating_add(20);
                 if job == JobState::NotLoaded {
@@ -189,23 +209,18 @@ impl Lifecycle {
                     Start
                 }
             }
-            HealthProbe::NoAnswer => {
-                let since = *self.hung_since.get_or_insert(now);
-                let delay = self.restart_delay.max(20);
-                if now.saturating_sub(since) >= delay && now >= self.next_action {
-                    self.hung_since = Some(now);
-                    self.restart_delay = (delay * 2).min(80);
-                    self.next_action = now.saturating_add(self.restart_delay);
-                    Restart
-                } else {
-                    Wait
-                }
-            }
             _ => Wait,
         }
     }
     pub fn ready(&mut self) {
         *self = Self::default();
+    }
+}
+pub fn health_response(status: u16, value: &Value) -> HealthProbe {
+    match status {
+        200 => health_probe(value),
+        503 => HealthProbe::NoAnswer,
+        _ => HealthProbe::Invalid,
     }
 }
 pub fn health_probe(value: &Value) -> HealthProbe {
@@ -730,36 +745,60 @@ mod tests {
         assert_eq!(state.step(21, Ready, JobState::Running, false), Connect);
         state.ready();
         let refused = state.step(22, Refused, JobState::Running, false);
-        assert_eq!(refused, Start);
-        assert_eq!(service_steps(refused), &["start"]);
+        assert_eq!(refused, Wait);
+        assert_eq!(service_steps(refused), &[] as &[&str]);
         assert_eq!(state.step(23, Ready, JobState::Running, false), Connect);
     }
     #[test]
-    fn hung_service_restarts_with_capped_backoff_until_ready() {
+    fn stale_heartbeat_obeys_failure_window_and_recovery() {
+        use HealthProbe::*;
+        use RecoveryAction::*;
+        let stale = health_response(503, &json!({"ok":false,"backendLagS":46}));
+        assert_eq!(stale, NoAnswer);
+        assert_eq!(health_response(200, &json!({"ok":true})), Ready);
+        let mut state = Lifecycle::default();
+        assert_eq!(state.step(0, stale, JobState::Running, false), Wait);
+        assert_eq!(state.step(29, Ready, JobState::Running, false), Connect);
+        assert_eq!(state.step(30, stale, JobState::Running, false), Wait);
+        assert_eq!(state.step(59, NoAnswer, JobState::Running, false), Wait);
+        assert_eq!(state.step(60, stale, JobState::Running, false), Restart);
+    }
+    #[test]
+    fn unanswered_service_requires_sustained_failure() {
+        let mut state = Lifecycle::default();
+        for now in [0, 20, 29] {
+            assert_eq!(state.step(now, HealthProbe::NoAnswer, JobState::Running, false), RecoveryAction::Wait);
+        }
+        assert_eq!(state.step(30, HealthProbe::NoAnswer, JobState::Running, false), RecoveryAction::Restart);
+    }
+    #[test]
+    fn restart_requires_three_failures_over_thirty_seconds() {
         use HealthProbe::*;
         use RecoveryAction::*;
         let mut state = Lifecycle::default();
-        for (now, expected) in [
-            (0, Wait),
-            (19, Wait),
-            (20, Restart),
-            (59, Wait),
-            (60, Restart),
-            (139, Wait),
-            (140, Restart),
-            (219, Wait),
-            (220, Restart),
-        ] {
-            assert_eq!(
-                state.step(now, NoAnswer, JobState::Running, false),
-                expected,
-                "{now}"
-            );
-        }
-        assert_eq!(state.step(221, Ready, JobState::Running, false), Connect);
+        assert_eq!(state.step(0, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(29, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(30, Refused, JobState::Running, false), Restart);
+        // Backoff and a new sustained failure interval apply after a restart.
+        assert_eq!(state.step(31, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(60, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(91, Refused, JobState::Running, false), Restart);
+    }
+    #[test]
+    fn successful_health_resets_the_continuous_failure_window() {
+        use HealthProbe::*;
+        use RecoveryAction::*;
+        let mut state = Lifecycle::default();
+        assert_eq!(state.step(0, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(20, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(29, Ready, JobState::Running, false), Connect);
+        assert_eq!(state.step(30, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(59, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(60, Refused, JobState::Running, false), Restart);
+        // Sparse probes must not turn one or two failures into a restart.
         state.ready();
-        assert_eq!(state.step(222, NoAnswer, JobState::Running, false), Wait);
-        assert_eq!(state.step(242, NoAnswer, JobState::Running, false), Restart);
+        assert_eq!(state.step(100, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(200, Refused, JobState::Running, false), Wait);
     }
     #[test]
     fn waiting_snapshot_and_consent_window_prevent_restart() {

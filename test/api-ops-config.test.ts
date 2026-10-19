@@ -120,18 +120,12 @@ test("config envelopes validate and advance the sequence without changing snapsh
 });
 
 test("cookie config-set restricts terminal presets while bearer and CLI allow templates", async () => {
-  const {spyOn}=await import("bun:test");
   const {startServer}=await import("../src/serve/http");
   const {createCode}=await import("../src/serve/app-auth");
   const ctx=await configured();
-  let handler!: (req:Request, server:{port:number})=>Promise<Response>;
-  const spy=spyOn(Bun,"serve").mockImplementation(((opts:{fetch:typeof handler})=>{
-    handler=opts.fetch;return {port:4317,stop(){}};
-  }) as typeof Bun.serve);
-  let server:ReturnType<typeof startServer>;
-  try {server=startServer(()=>ctx,{pumpMs:0});} finally {spy.mockRestore();}
-  const origin="http://127.0.0.1:4317";
-  const request=(path:string,init:RequestInit={})=>handler(new Request(origin+path,{...init,headers:{host:"127.0.0.1:4317",...init.headers}}),{port:4317});
+  const server = startServer(() => ctx, { port: 0, pumpMs: 0 });
+  const origin = `http://127.0.0.1:${server.port}`;
+  const request = (path: string, init: RequestInit = {}) => fetch(origin + path, init);
   try {
     const auth=await request(`/app/auth?code=${createCode(ctx)}`),cookie=auth.headers.get("set-cookie")!.split(";")[0];
     const set=(value:string,bearer=false)=>request("/v2/ops/config.set",{method:"POST",headers:bearer

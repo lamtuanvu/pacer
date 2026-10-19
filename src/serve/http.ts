@@ -1,3 +1,6 @@
+import { startHealthListener } from "./health-listener";
+import { createReadCache } from "./read-cache";
+import { liveSnapshot } from "../api/events";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
 import { createManagedPanelWriter, panelRepo } from "./panel";
@@ -38,7 +41,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; pluginRefreshDeps?: Partial<PluginRefreshDeps> } = {},
+  getCtx: () => Ctx, opts: { port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; pluginRefreshDeps?: Partial<PluginRefreshDeps> } = {},
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
   const token = ensureToken(initialCtx);
@@ -76,22 +79,30 @@ export function startServer(
   let statusError: string | null = null;
   let statusPending: Promise<void> | null = null;
   let stopped = false;
+  let listener: ReturnType<typeof startHealthListener> | undefined;
   const refreshStatus = () => {
     if(statusPending || stopped)return;
     statusPending = Promise.resolve().then(async()=>{
       const ctx=getCtx();
       const next=await computeStatus(ctx,loadStrategy(ctx));
-      if(!stopped){cachedStatus=next;statusError=null;}
+      if (!stopped) {
+        cachedStatus = next; statusError = null;
+      }
     }).catch(e=>{if(!stopped)statusError=e instanceof Error?e.message:String(e);}).finally(()=>{statusPending=null;});
   };
   const status = async () => {
     // A cold start rebuilds the activity profile from agent logs, which can take seconds.
     // Wait briefly for it, then let callers answer as "starting" instead of hanging.
-    if(statusPending)await (cachedStatus ? statusPending : Promise.race([statusPending, Bun.sleep(STATUS_WARMUP_WAIT_MS)]));
-    if(statusError)throw Error(statusError);
+    if (!cachedStatus && statusPending) await Promise.race([statusPending, Bun.sleep(STATUS_WARMUP_WAIT_MS)]);
+    if (!cachedStatus && statusError) throw Error(statusError);
     if(!cachedStatus)throw Error("status is warming up");
     return cachedStatus;
   };
+  const readCache = createReadCache(async () => {
+    const value = await liveSnapshot(getCtx(), { status });
+    return value;
+  }, 1000);
+  let publicPort = opts.port ?? DEFAULT_PORT;
   const refreshSnapshot = () => {
     if(stopped)return;
     try{const ctx=getCtx();snapshot=currentSnapshot(ctx);refreshPanel();}catch{ /* Preserve last known data. */ }
@@ -108,12 +119,12 @@ export function startServer(
   const server = Bun.serve<SessionWS>({
     websocket: sessionWebSocket,
     hostname: "127.0.0.1",
-    port: opts.port ?? DEFAULT_PORT,
+    port: 0,
     idleTimeout: 0,
     async fetch(req, server) {
       const { pathname } = new URL(req.url);
       const sessionRoute=pathname.match(/^\/v[23]\/tasks\/([A-Za-z0-9_-]+)\/session$/);
-      const hosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
+      const hosts = [`127.0.0.1:${publicPort}`, `localhost:${publicPort}`];
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
       if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
       const headers = { "X-Pacer": "1" };
@@ -137,7 +148,7 @@ export function startServer(
       if (app) return appRoute(req, getCtx());
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status });
+        const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });
         response.headers.set("X-Pacer","1");
         return response;
       }
@@ -146,6 +157,21 @@ export function startServer(
       return new Response("not found\n", { status: 404 });
     },
   });
+  try {
+    // Handler tests can explicitly skip the public listener and use the backend.
+    if (opts.listener === false) {
+      publicPort = server.port!;
+    } else {
+      listener = startHealthListener(server.port!, publicPort);
+      publicPort = listener.port;
+    }
+  } catch (error) {
+    stopped = true;
+    readCache.stop();
+    for (const watcher of watchers) watcher.close();
+    server.stop(true);
+    throw error;
+  }
   const unregisterJobs = registerJobDaemon(initialCtx);
   refreshPanel();
   void refreshManagedPlugin(initialCtx, opts.pluginRefreshDeps).finally(refreshSnapshot);
@@ -172,5 +198,5 @@ export function startServer(
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: server.port!, token, stop: () => { unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
+  return { port: publicPort, token, stop: () => { listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
 }
