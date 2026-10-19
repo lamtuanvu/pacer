@@ -1,6 +1,10 @@
 // Deterministic browser previews: ?state=starting or ?state=permission&path=/Volumes/Drive.
 const query = new URLSearchParams(location.search);
 const pages = {
+  welcome: ['Your planner plans. Your other agents do the work.', ''],
+  consent: ["Here's what pacer will change", ''],
+  existing: ['You already have pacer', ''],
+  incomplete: ['This copy of pacer is incomplete', "The app runs pacer through a command-line tool that should come inside it, and it's missing. Download pacer again and replace this app. Your settings are kept."],
   stuck: ['pacer could not finish signing in', 'The desktop app could not connect and sign in to the local pacer service. Retrying automatically in the background.'],
   install: ['pacer needs its command-line tool', "The pacer app runs its background service through the pacer command-line tool, which isn't installed. Install it and this window continues on its own."],
   foreign: ['Another pacer is running', 'The background service belongs to the pacer folder {path}, and this app uses a different one. Stop the other service, or open the app with the same pacer folder.'],
@@ -8,8 +12,29 @@ const pages = {
   oldApp: ['Update the pacer app', 'This service uses a newer protocol. Install a newer desktop app.'],
   protocol: ['Unable to connect', 'The local service returned an incompatible response. Install a compatible version of pacer.'],
 };
+const pathChoice = document.querySelector('#path');
+const pathRow = document.querySelector('#path-row');
+let consentRc = null;
+function updateConsentLink() {
+  const addPath = !pathRow.hidden && pathChoice.checked;
+  document.querySelector('#agree').href = `tauri://localhost/action/consent?path=${addPath ? '1' : '0'}`;
+}
+pathChoice.addEventListener('change', updateConsentLink);
 function renderShell(detail) {
   const permission = detail.page === 'permission' || detail.prompt;
+  for (const page of ['welcome', 'consent', 'existing', 'incomplete']) {
+    document.querySelector(`#${page}`).hidden = permission || detail.page !== page;
+  }
+  const showPath = !permission && detail.page === 'consent' && detail.onPath === false && Boolean(detail.rc);
+  const nextRc = showPath ? detail.rc : null;
+  if (!showPath || consentRc !== nextRc) pathChoice.checked = false;
+  consentRc = nextRc;
+  pathRow.hidden = !showPath;
+  document.querySelector('#rc').textContent = detail.rc || '';
+  updateConsentLink();
+  document.querySelector('#existing-path').textContent = detail.path || '';
+  document.querySelector('#installed-version').textContent = detail.installed || '';
+  document.querySelector('#app-version').textContent = detail.version || '';
   const [title, message] = pages[detail.page] || ['Starting pacer…', ''];
   document.querySelector('h1').textContent = permission ? '' : title;
   const target = String(detail.path || '').split('/').filter(Boolean).pop() || 'your external drive';
@@ -24,5 +49,9 @@ function renderShell(detail) {
   document.querySelector('#spinner').hidden = permission || Boolean(pages[detail.page]);
 }
 window.renderShell = renderShell;
-renderShell({ page: query.get('state'), prompt: query.get('prompt') === '1', path: query.get('path') });
+renderShell({
+  page: query.get('state'), prompt: query.get('prompt') === '1', path: query.get('path'),
+  rc: query.get('rc'), onPath: query.has('onPath') ? query.get('onPath') !== 'false' : undefined,
+  installed: query.get('installed'), version: query.get('version'),
+});
 if (query.get('compact') === '1') document.body.classList.add('compact');
