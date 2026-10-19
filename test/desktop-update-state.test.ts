@@ -222,3 +222,54 @@ test("read-only contexts and non-private files or directories refuse persistence
   chmodSync(directory(ctx.pacerHome), 0o755);
   expectCode(() => writeUpdate(ctx, { ...ready(), revision: 1 }, 1), "not_allowed");
 });
+
+for (const phase of ["reserved", "installing", "verifying", "rolling-back"] as const) {
+  test(`${phase} rejects persisted state missing its candidate or retained restart authority`, () => {
+    const ctx = fakeCtx();
+    writeUpdate(ctx, ready(), 0);
+    const authorized = { ...requestRestart(ready(), restart(ready()), "boot-1"), phase };
+    const receipt = authorized.requestHistory[0]!;
+    for (const invalid of [
+      { ...ready(), phase },
+      { ...authorized, candidate: null },
+      { ...authorized, downloadedBytes: 1 },
+      { ...authorized, totalBytes: null },
+      { ...authorized, transactionId: null },
+      { ...authorized, requestId: null },
+      { ...authorized, requestedBy: null },
+      { ...authorized, requesterBootId: null },
+      { ...authorized, requestHistory: [] },
+      { ...authorized, requestHistory: [{ ...receipt, requestId: "another-request" }] },
+      { ...authorized, requestHistory: [{ ...receipt, action: "check" }] },
+      { ...authorized, requestHistory: [{ ...receipt, transactionId: "another-transaction" }] },
+    ]) {
+      writeFileSync(file(ctx.pacerHome), JSON.stringify(invalid));
+      expectCode(() => readUpdate(ctx, installation.id), "invalid_input");
+    }
+  });
+
+  test(`${phase} retains authorized state for recovery without requiring a live initiating desktop`, () => {
+    const ctx = fakeCtx();
+    const authorized = { ...requestRestart(ready(), restart(ready()), "previous-boot"), phase };
+    const written = writeUpdate(ctx, authorized, 0);
+    expect(readUpdate(ctx, installation.id)).toEqual(written);
+    expect(written).toMatchObject({
+      phase, requestedBy: "desktop-client", requesterBootId: "previous-boot",
+      requestHistory: [{ requestId: "restart-1", action: "restart", transactionId: written.transactionId }],
+    });
+  });
+}
+
+test("terminal error and recovery records preserve diagnostics without requiring active restart intent", () => {
+  for (const phase of ["restored", "error", "recovery-failed"] as const) {
+    const ctx = fakeCtx();
+    const record = {
+      ...readUpdate(ctx, installation.id), phase, failedVersion: "1.1.0",
+      error: { code: "verification_failed", message: "Retain the recovery materials for diagnosis." },
+    };
+    writeUpdate(ctx, record, record.revision);
+    expect(readUpdate(ctx, installation.id)).toMatchObject({
+      phase, transactionId: null, requestedBy: null, failedVersion: "1.1.0", error: record.error,
+    });
+  }
+});

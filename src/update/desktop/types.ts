@@ -68,11 +68,14 @@ const recordSchema = z.object({
   if (record.totalBytes !== null && record.downloadedBytes > record.totalBytes) {
     ctx.addIssue({ code: "custom", message: "download exceeds total" });
   }
-  if (["ready", "waiting"].includes(record.phase) &&
+  const requiresRestartAuthority = ["waiting", "reserved", "installing", "verifying", "rolling-back"].includes(record.phase);
+  if ((record.phase === "ready" || requiresRestartAuthority) &&
       (!record.candidate || record.totalBytes === null || record.totalBytes <= 0 || record.downloadedBytes !== record.totalBytes)) {
     ctx.addIssue({ code: "custom", message: "candidate is not complete" });
   }
-  if (record.phase === "waiting") {
+  // Retain the initiating intent through recovery; these fields do not assert
+  // that the desktop is still alive or that this is still the initiating boot.
+  if (requiresRestartAuthority) {
     const receipt = record.requestHistory.find(item => item.requestId === record.requestId);
     if (!record.transactionId || !record.requestId || !record.requestedBy || !record.requesterBootId ||
         !receipt || receipt.action !== "restart" || receipt.transactionId !== record.transactionId) {
