@@ -45,7 +45,7 @@ Install the latest binary from [GitHub Releases](https://github.com/lamtuanvu/pa
 curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
 ```
 
-This works once the repository is public and its first release exists. The installer verifies SHA-256 checksums; verify a downloaded binary's build provenance with `gh attestation verify <file> -R lamtuanvu/pacer`. `PACER_RELEASE_BASE` remains an override for another HTTPS or local `file://` release host. See [installation](docs/install.md) for source builds and installer options.
+The installer verifies SHA-256 checksums; verify a downloaded binary's build provenance with `gh attestation verify <file> -R lamtuanvu/pacer`. `PACER_RELEASE_BASE` remains an override for another HTTPS or local `file://` release host. See [installation](docs/install.md) for source builds and installer options.
 
 From a source checkout, use Bun 1.4.2 or newer:
 
@@ -62,15 +62,34 @@ The future npm package is `@lamtuanvu/pacer`; it is not published yet. The plann
 
 ## Quickstart
 
-Install and authenticate your planner and at least one executor CLI first. For a Claude Code planner:
+Install and sign in to your planner and at least one executor CLI first. For
+example, use Claude Code as planner and Codex as executor (Codex installation
+requires Node.js/npm):
 
 ```sh
-pacer init --planner claude-code
-pacer install claude-code
-pacer doctor
-pacer status --json
-pacer route docs --json
+# Claude Code: install, then sign in
+curl -fsSL https://claude.ai/install.sh | bash
+claude    # then type /login
+# Codex: install, then sign in
+npm install -g @openai/codex
+codex login
 ```
+
+See the [Claude Code install guide](https://code.claude.com/docs/en/setup),
+[Claude Code login reference](https://code.claude.com/docs/en/cli-reference) and
+[Codex CLI guide](https://developers.openai.com/codex/cli) for prerequisites.
+Then install pacer and run setup:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
+pacer init
+```
+
+`pacer init` detects your tools, writes `~/.pacer/strategy.yaml`, asks before installing the
+background service and before connecting each agent.
+Open your planner in the repository you want to work on and ask it for work —
+it delegates execution through pacer. Run `pacer open` to watch budgets and tasks,
+and `pacer doctor` to check the installation.
 
 For a shell prompt, tmux or an agent status bar, `pacer status --line` reads the local
 snapshot and prints one compact line: `▬┃ Claude 63%·77  ▸2  ⚑1`. The tick turns
@@ -111,7 +130,10 @@ The planner owns planning, decisions and review. `route` ranks configured, insta
 | strict | Delegate execution and preserve capacity for decisions and review; budget is ahead of pace or near a limit. |
 | emergency | Delegate execution; the planner's reserved budget is exhausted. |
 
-Pace uses learned active hours, falling back to calendar time until enough history exists. Modes guide installed planner policies; supported hooks can guard planner subagent execution. `PACER=off` disables pacing enforcement for a session.
+Pace uses learned active hours, falling back to calendar time until enough history exists. Modes guide installed planner policies; supported hooks can guard planner subagent execution. `PACER=off` disables pacing enforcement for a session (for example,
+`PACER=off claude`). To pause new delegation, use `pacer pause <duration>`
+(for example, `pacer pause 1h`) or choose **Pause 1h** in the tray menu. Running
+tasks continue; `pacer resume` ends the pause early.
 
 ## Configuration and executors
 
@@ -123,7 +145,7 @@ The CLI is the primary agent interface. `pacer install <planner> --mcp` optional
 
 ## Orca plugin
 
-Install the pacer CLI as well: the plugin talks to its local service. In Orca Settings > Plugins, add marketplace source URL `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer** (`lamtuanvu.pacer`). To install a specific release directly, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.14` (replace the version with the release you want).
+Install the pacer CLI as well: the plugin talks to its local service. In Orca Settings > Plugins, add marketplace source URL `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer** (`lamtuanvu.pacer`). To install a specific release directly, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.2.3` (replace the version with the release you want).
 
 For local development:
 
@@ -138,13 +160,31 @@ Add the managed development directory printed by the installer to Orca Settings 
 
 With the service running, `pacer open` opens the pacer app in your browser.
 Track budgets and pace, delegate and review tasks, manage executors and accounts,
-and change strategies, hosts and settings. Setup guides you through required
-items; account sign-in and service installation show commands to run in a terminal.
+and change strategies, hosts and settings. Incomplete setup sends you to
+Settings, which shows what is missing; account sign-in and service installation
+show commands to run in a terminal.
 
 The app is served locally by the daemon and signs you in through a one-time link.
 Use `pacer open sessions` to open a screen, `pacer open --print` to print the sign-in
 link, or `pacer open --logout` to sign out all browser sessions. See the
 [app guide](docs/app.md) for screens, security and troubleshooting.
+
+## Uninstall
+
+Run `pacer uninstall <agent>` for each connected agent, replacing `<agent>` with
+`claude-code`, `codex`, `cursor` or `opencode` as appropriate. Do this before
+removing pacer's state so it can restore integration backups.
+
+```sh
+pacer service uninstall
+# If using the Orca integration:
+pacer plugin uninstall
+```
+
+Remove the pacer plugin and any development-folder entry from Orca Settings >
+Plugins. Then remove the binary (`rm ~/.local/bin/pacer`, or your custom install
+location) and the state directory (`rm -rf ~/.pacer`, or the directory selected
+by `PACER_HOME`). Removing the state deletes strategies, task history and backups.
 
 ## Privacy
 

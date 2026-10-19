@@ -10,7 +10,7 @@ Install agent CLIs separately if testing agent connections.
 
 1. In Orca Settings > Plugins, add `https://github.com/lamtuanvu/pacer.git`
    as a marketplace and install pacer (`lamtuanvu.pacer`). Enable it and grant
-   its capabilities. For the versioned bundle, use ref `orca-plugin-v0.1.19`.
+   its capabilities. For the versioned bundle, use ref `orca-plugin-v0.2.3`.
 2. Open the static panel. It shows **Set up pacer**, an installation spinner
    and elapsed timer, dashboard instructions, and collapsed **Prefer the sidebar
    panel?** steps. After two minutes it shows the terminal version check hint.
@@ -19,7 +19,7 @@ Install agent CLIs separately if testing agent connections.
    worktree with the live dashboard. No agent configs should change.
 4. Check `pacer --version`, `pacer service status --json`, and `pacer status`.
    For staged releases, set **releaseBase** to a folder containing
-   `0.1.19/SHA256SUMS` and the binary. Missing releases get friendly failures.
+   `0.2.3/SHA256SUMS` and the binary. Missing releases get friendly failures.
 5. Restart only the plugin worker: no duplicate terminal should appear. Close
    the dashboard and restart the worker again: it must stay closed. Run
    `pacer dashboard` to reopen it yourself. A new Orca session may open one tab.

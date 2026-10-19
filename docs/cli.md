@@ -1,6 +1,7 @@
 # pacer CLI and skill
 
-`pacer install <planner>` installs the pacer skill and planner policy/hooks. Supported
+`pacer init` connects detected agents after asking. To connect an agent later,
+use `pacer install <planner>`; it installs the pacer skill and planner policy/hooks. Supported
 planners are claude-code, codex, cursor and opencode. Skills live at
 `~/.claude/skills/pacer/SKILL.md`, `${CODEX_HOME:-~/.codex}/skills/pacer/SKILL.md`,
 `~/.cursor/skills/pacer/SKILL.md`, or `${XDG_CONFIG_HOME:-~/.config}/opencode/skills/pacer/SKILL.md`.
@@ -319,7 +320,11 @@ terminal and are started only for newly created pacer-managed accounts unless
 
 ## Pause and resume delegation
 
-Run `pacer pause 30m` (or `1h`, `1d`) to pause new work for up to seven days.
+Set `PACER=off` for a session (for example, `PACER=off claude`) to disable
+planner pacing enforcement. Run `pacer pause <duration>` (for example,
+`pacer pause 30m`) to pause new work for up to seven days. Durations accept
+whole minutes, hours or days, such as `30m`, `1h` or `1d`.
+The tray menu also offers **Pause 1h**.
 Running tasks continue. New tasks wait with the `paused` queue reason and resume
 on the next queue drain after expiry. `pacer resume` ends the pause early.
 The API equivalents are `delegation.pause { for, reason? }` and
