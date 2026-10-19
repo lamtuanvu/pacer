@@ -8,6 +8,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Delegate defaults to the active repository filter or remembered repository, supports an optional task kind, previews routing and submits with Cmd+Enter (Ctrl+Enter on Linux).
 
+- `pacer delegate` accepts common kind aliases (`bugfix`/`fix`/`bug`, `test`, `doc`, `perf`) and suggests the closest kind for invalid input.
 - The macOS desktop app detects replacement of its running bundle every 30 seconds and relaunches the installed bundle while preserving window visibility and route and reconnecting the tray.
 
 - Informational planner pace notices stay on the planner strip and tray header without adding Needs you items, badge counts or a tray attention dot.
