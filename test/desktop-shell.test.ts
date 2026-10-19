@@ -103,3 +103,18 @@ test("foreign service page names the other pacer folder", () => {
   expect(page.element("#install-help").hidden).toBe(true);
   expect(page.element("#spinner").hidden).toBe(true);
 });
+
+test("OTA fallback pages distinguish installation, rollback, restored and failed recovery without private errors", () => {
+  const copy = {
+    installing: "Installing update", rollingBack: "Restoring the previous version",
+    restored: "Previous version restored", recoveryFailed: "Recovery needs attention",
+  };
+  for (const [state, title] of Object.entries(copy)) {
+    const page = shell(`?state=${state}`); page.render({ page: state, error: "private-path-and-nonce" });
+    expect(page.element("h1").textContent).toBe(title);
+    expect(page.element("#message").textContent).not.toContain("private-path-and-nonce");
+    expect(page.element("#privacy").hidden).toBe(true); expect(page.element("#install-help").hidden).toBe(true);
+  }
+  expect(shell("?state=restored").element("#message").textContent).toBe("The update couldn't start. Your previous version has been restored.");
+  expect(shell("?state=recoveryFailed").element("#message").textContent).not.toContain("has been restored");
+});

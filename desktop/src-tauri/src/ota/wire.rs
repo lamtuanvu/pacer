@@ -105,6 +105,7 @@ pub enum StatusAction {
     Cancel,
     Retry,
     Adopt,
+    Configure,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

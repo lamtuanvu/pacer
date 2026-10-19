@@ -130,3 +130,10 @@ test("ellipsis clipping and both done columns preserve navigation within termina
   expect(text.split("\n").every(line=>cellWidth(line)<=width)).toBe(true);
  }
 });
+
+import { desktopStatus } from './fixtures/desktop-update/status';
+test('desktop update status replaces legacy footer success and help shortcuts follow capabilities',()=>{
+ const snapshot={...emptySnapshot(),desktopUpdates:[desktopStatus({phase:'waiting',actions:['cancel']})]};
+ const text=renderDashboard(snapshot,120,30,0,{selected:0,noColor:true,ops:['desktop.update.cancel'],help:true});
+ expect(text).toContain('Waiting for work to finish');expect(text).not.toContain('up to date');expect(text).toContain('u: update');expect(text).not.toContain('c: check updates');
+});

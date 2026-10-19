@@ -30,8 +30,11 @@ impl TrayModel {
             .as_u64()
             .or_else(|| s["counts"]["needsYou"].as_u64())
             .unwrap_or(0);
+        let update = s["desktopUpdates"].as_array().is_some_and(|updates| {
+            updates.iter().any(|update| matches!(update["phase"].as_str(), Some("ready" | "waiting")))
+        });
         Self {
-            title: format!("{percent}{}", if count > 0 { " •" } else { "" }),
+            title: format!("{percent}{}{}", if count > 0 { " •" } else { "" }, if update { " ↑" } else { "" }),
             paused: s["pause"].is_object(),
         }
     }
@@ -40,6 +43,14 @@ impl TrayModel {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn desktop_update_indicator_preserves_attention_and_pause() {
+        let model = TrayModel::from_snapshot(&json!({"planner":{"usedPct":42},"counts":{"attention":2},"pause":{},"desktopUpdates":[{"phase":"ready"}]}));
+        assert_eq!(model.title, "42% • ↑");
+        assert!(model.paused);
+        assert_eq!(TrayModel::from_snapshot(&json!({"desktopUpdates":[{"phase":"waiting"}]})).title, "— ↑");
+        assert_eq!(TrayModel::from_snapshot(&json!({"desktopUpdates":[{"phase":"idle"}]})).title, "—");
+    }
     #[test]
     fn planner_percentage_and_service_owned_attention_dot() {
         let m = TrayModel::from_snapshot(

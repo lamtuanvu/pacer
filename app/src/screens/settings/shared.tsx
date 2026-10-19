@@ -21,10 +21,14 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
 export function Section({id,title,detail,actions,children}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren}) {
  return <section id={id} className="u3-section"><div className="u3-heading"><div><SectionHeading>{title}</SectionHeading>{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>{children}</section>;
 }
+/** update.check publishes its own config event; rereading that event would loop. */
+export function resourceInvalidation(op:string,invalidations:Record<string,number>):string {
+ return JSON.stringify(op==='update.check'?Object.fromEntries(Object.entries(invalidations).filter(([area])=>area!=='update')):invalidations);
+}
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
  const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[revision,reload]=useState(0);
- const serialized=JSON.stringify(params),invalidations=JSON.stringify(state.invalidations);
+ const serialized=JSON.stringify(params),invalidations=resourceInvalidation(op,state.invalidations);
  useEffect(()=>{let active=true;setLoading(true);setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active)setData(r);},e=>{if(active)setError(e);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
  return {data,error,loading,reload:()=>reload(v=>v+1)};
 }

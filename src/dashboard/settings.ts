@@ -1,3 +1,5 @@
+import { desktopUpdateView, updateIntent, type DesktopAction } from "../view-model/updates";
+import type { UpdateStatus } from "../update/desktop/types";
 import {readFileSync} from 'node:fs';
 import {accountCmd,runnerCmd,type AccountDeps} from '../commands/accounts';
 import {configCmd} from '../commands/config';
@@ -19,6 +21,23 @@ export class DashboardSettings {
  open=false;selected=0;busy=false;pending:Promise<void>=Promise.resolve();
  prompt:null|{question:string;value:string;resolve(value:string):void;reject(error:Error):void}=null;
  constructor(private ctx:Ctx,private deps:SettingsDeps){}
+ private updateIntent=updateIntent();
+ private async update(status:UpdateStatus,action:DesktopAction){
+  if(action==='restart'&&!/^y(?:es)?$/i.test(await this.ask(`Restart to install ${status.target} after active work finishes? y/N`)))return;
+  if(action==='adopt'&&!/^y(?:es)?$/i.test(await this.ask('Use the desktop-managed service, preserving tasks and settings? y/N')))return;
+  await this.deps.command(this.updateIntent(status,action,{autoDownload:!status.autoDownload}));
+ }
+ updateShortcut(key:string):boolean{
+  const updates=this.deps.snapshot?.().desktopUpdates;
+  if(!['c','u'].includes(key)||!updates?.length)return false;
+  this.open=true;
+  const rows=this.rows(), prefix=`desktop-${updates[0]!.installationId}-`;
+  const row=rows.find(r=>r.id===prefix+(key==='c'?'check':'primary'));
+  this.selected=Math.max(0,rows.findIndex(r=>r.id.startsWith('desktop-')));
+  if(updates.length!==1){this.deps.report('Choose a desktop update action in Settings.');return true;}
+  if(row?.run){this.selected=rows.indexOf(row);this.start(row.run);}
+  return true;
+ }
  private ask=(question:string):Promise<string>=>new Promise((resolve,reject)=>{this.prompt={question,value:'',resolve,reject};this.deps.changed();});
  private async result(result:Promise<Result>){const r=await result;this.deps.report(r.err||r.out);}
  private set(key:string,value:string){return this.result(configCmd(['set',key,value],this.ctx));}
@@ -56,8 +75,22 @@ export class DashboardSettings {
   if(s.pacing.accounts==='fill')add('Pacing','threshold',`Fill threshold: ${s.pacing.fillThreshold}%`,()=>this.set('pacing.fill_threshold',String(Math.min(100,s.pacing.fillThreshold+5))));
   for(const name of listStrategies(this.ctx))add('Strategies',`strategy-${name}`,`${name}${name===s.name?' · Active':''}`,()=>this.deps.command({cmd:'use',strategy:name}));
   add('Strategies','strategy-new','New strategy',()=>this.builder());
-  add('Updates','check-updates','Check for updates',()=>this.deps.command({cmd:'check-updates'}));
-  add('Updates','update','Update',async()=>{if(/^y(?:es)?$/i.test(await this.ask('Run pacer update? y/N')))await this.deps.command({cmd:'update'});});
+  if(snapshot?.desktopUpdates?.length){
+   for(const status of snapshot.desktopUpdates){
+    const available={...status,actions:status.actions.filter(action=>!this.deps.ops||this.deps.ops().includes(`desktop.update.${action}`))};
+    const view=desktopUpdateView(available),prefix=`desktop-${status.installationId}-`;
+    add('Updates',prefix+'status',`pacer ${status.current}${status.target&&status.target!==status.current?` → ${status.target}`:''} · ${view.label}`);
+    add('Updates',prefix+'detail',view.detail);
+    for(const blocker of status.blockers)add('Updates',prefix+'blocker-'+blocker.id,blocker.label);
+    if(view.action)add('Updates',prefix+'primary',view.primary!,()=>this.update(available,view.action!));
+    if(available.actions.includes('check')&&view.action!=='check')add('Updates',prefix+'check','Check for updates',()=>this.update(available,'check'));
+    else if(view.action==='check')rows[rows.length-1]!.id=prefix+'check';
+    if(available.actions.includes('configure'))add('Updates',prefix+'configure',`Download updates automatically: ${status.autoDownload?'on':'off'}`,()=>this.update(available,'configure'));
+   }
+  }else{
+   add('Updates','check-updates','Check for updates',()=>this.deps.command({cmd:'check-updates'}));
+   add('Updates','update','Update',async()=>{if(/^y(?:es)?$/i.test(await this.ask('Run pacer update? y/N')))await this.deps.command({cmd:'update'});});
+  }
   const check=new StrategyDoc(readFileSync(strategyPath(this.ctx),'utf8')).getIn(['update_check'])!==false;
   add('Plugin','update-check',`Update checks: ${check?'on':'off'}`,()=>this.set('update_check',String(!check)));
   add('Plugin','plugin-info','Notifications and automatic console: Orca plugin settings');
@@ -67,7 +100,7 @@ export class DashboardSettings {
   rows.sort((a,b)=>sectionOrder.indexOf(a.section)-sectionOrder.indexOf(b.section));
   const supports=(op:string)=>!this.deps.ops||this.deps.ops().includes(op);
   return rows.flatMap(row=>{
-   if(!row.run)return [row];
+   if(!row.run||row.id.startsWith('desktop-'))return [row];
    const id=row.id;
    const op=id.startsWith('host-')?'host.check':id==='account-add'||id==='account-link'?'account.signin':id==='runner-add'?'runner.add':id.startsWith('account-')?'account.remove':id.startsWith('runner-')?'runner.remove':id.startsWith('executor-')?(blocked(id.slice(9))?'runner.unblock':'runner.block'):id==='routing'||id==='strategy-new'?'strategy.build':id.startsWith('strategy-')?'strategy.use':id==='check-updates'?'update.check':id==='update'?'update.apply':'config.set';
    return supports(op)?[row]:row.id.startsWith('executor-')||row.id.startsWith('host-')?[{...row,run:undefined}]:[];
@@ -89,6 +122,7 @@ export class DashboardSettings {
   if(['[',']'].includes(key)&&row?.id.startsWith('executor-')&&(!this.deps.ops||this.deps.ops().includes('config.set'))){const s=loadStrategy(this.ctx),order=[...s.pacing.order],i=order.indexOf(row.id.slice(9)),j=i+(key==='['?-1:1);if(j>=0&&j<order.length){[order[i],order[j]]=[order[j],order[i]];this.start(()=>this.set('pacing.order',order.join(',')));}return;}
   if((key==='r'&&['Executors','Routing'].includes(row?.section??'')||key==='n'&&row?.section==='Strategies')&&(!this.deps.ops||this.deps.ops().includes('strategy.build'))){this.start(()=>this.builder());return;}
   if((key==='enter'||key==='x'&&['Accounts','Runners'].includes(row?.section)||key==='b'&&row?.section==='Executors')&&row?.run){if(row.reason)this.deps.report(row.reason);else this.start(row.run);}
+  if(this.updateShortcut(key))return;
   if(key==='c'&&rows.some(r=>r.id==='check-updates'))this.start(()=>this.deps.command({cmd:'check-updates'}));if(key==='u'){const run=rows.find(r=>r.id==='update')?.run;if(run)this.start(run);}
  }
 }

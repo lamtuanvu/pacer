@@ -31,6 +31,7 @@ test("reset and reconnect require a snapshot; errors retain content; config inva
 test("browser API uses cookie credentials and typed operation errors", async () => {
   const calls: RequestInit[] = [];
   const mock = spyOn(globalThis, "fetch").mockImplementation((async (_url: string | URL | Request, init?: RequestInit) => {
+    if (String(_url).endsWith("/hello")) return Response.json({ protocol: "3.0.0", pacer: "0.2.3", ops: [], events: [] });
     calls.push(init!);
     return Response.json({ error: { code: "invalid_input", message: "Bad name", hint: "Choose a name" } }, { status: 400 });
   }) as unknown as typeof fetch);

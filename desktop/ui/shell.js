@@ -1,6 +1,10 @@
 // Deterministic browser previews: ?state=starting or ?state=permission&path=/Volumes/Drive.
 const query = new URLSearchParams(location.search);
 const pages = {
+  installing: ['Installing update', 'pacer will restart when installation finishes. Cancellation is no longer available.'],
+  rollingBack: ['Restoring the previous version', "The update couldn't start. Restoring your previous version."],
+  restored: ['Previous version restored', "The update couldn't start. Your previous version has been restored."],
+  recoveryFailed: ['Recovery needs attention', 'The previous version could not be restored automatically. Keep your data and update recovery files in place. Quit the desktop and report the failed update at github.com/lamtuanvu/pacer/issues.'],
   stuck: ['pacer could not finish signing in', 'The desktop app could not connect and sign in to the local pacer service. Retrying automatically in the background.'],
   install: ['pacer needs its command-line tool', "The pacer app runs its background service through the pacer command-line tool, which isn't installed. Install it and this window continues on its own."],
   foreign: ['Another pacer is running', 'The background service belongs to the pacer folder {path}, and this app uses a different one. Stop the other service, or open the app with the same pacer folder.'],

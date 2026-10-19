@@ -116,6 +116,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         {model.active.length > 3 && <a className="tray-more" href={appHref("/sessions")} onClick={navigate("/sessions")}>+{model.active.length - 3} more in the app</a>}
       </section>}
       {model.waiting > 0 && <a title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></a>}
+      {model.update && <a className="tray-waiting" href={appHref(model.update.route)} onClick={navigate(model.update.route)}><StatusGlyph status={model.update}/><span className="tray-grow">{model.update.label}</span><span aria-hidden="true">›</span></a>}
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
         const readiness = executorStatus(!executor.enabled ? "disabled" : value === "off" && executor.state === "ready" ? "blocked" : executor.state);

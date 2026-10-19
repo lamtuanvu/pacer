@@ -1,3 +1,4 @@
+import { desktopUpdateView, desktopUpdateIndicator } from "../view-model/updates";
 import { setupHints } from "./setup";
 import { setupText, type SetupChecklist } from "../setup/checklist";
 import type { ClientSnapshot } from "../view-model/snapshot";
@@ -152,7 +153,7 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
    }
   }
  }
- if(v.help) {body.splice(0,body.length,...["Keys", setupKeys.includes("k skip")?"↑/↓ or j: select · Enter: primary action":"↑/↓ or j/k: select · Enter: primary action", [supports("task.delegate")?"d: delegate":"",supports("task.dismiss")?"x: dismiss":"",supports("runner.block")||supports("runner.unblock")?"b: block/unblock":""].filter(Boolean).join(" · "), [supports("strategy.use")&&!setupKeys.includes("s install")?"s: strategy":"",",: settings","r: refresh",supports("update.check")&&!setupKeys.includes("c connect")?"c: check updates":"",supports("update.apply")?"u: update":"","?: help","q: quit"].filter(Boolean).join(" · "), "Sessions: Enter attaches here · t: terminal window · m: tmux pane.", "1-9: inline actions · Esc cancels prompts. Budget bar: # used, | pace."].map(text=>row(text)));}
+ if(v.help) {body.splice(0,body.length,...["Keys", setupKeys.includes("k skip")?"↑/↓ or j: select · Enter: primary action":"↑/↓ or j/k: select · Enter: primary action", [supports("task.delegate")?"d: delegate":"",supports("task.dismiss")?"x: dismiss":"",supports("runner.block")||supports("runner.unblock")?"b: block/unblock":""].filter(Boolean).join(" · "), [supports("strategy.use")&&!setupKeys.includes("s install")?"s: strategy":"",",: settings","r: refresh",(s.desktopUpdates?.length?s.desktopUpdates.some(update=>update.actions.includes("check"))&&supports("desktop.update.check"):supports("update.check"))&&!setupKeys.includes("c connect")?"c: check updates":"",(s.desktopUpdates?.length?s.desktopUpdates.some(update=>update.actions.some(action=>supports(`desktop.update.${action}`))):supports("update.apply"))?"u: update":"","?: help","q: quit"].filter(Boolean).join(" · "), "Sessions: Enter attaches here · t: terminal window · m: tmux pane.", "1-9: inline actions · Esc cancels prompts. Budget bar: # used, | pace."].map(text=>row(text)));}
  if(v.preview)body.splice(0,body.length,...v.preview.flatMap(text=>{
   const lines:string[]=[];let line="";
   for(const word of text.split(" ")){if(line&&cellWidth(`${line} ${word}`)>width){lines.push(line);line=word;}else line+=`${line?" ":""}${word}`;}
@@ -165,7 +166,8 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
  lines.push(row(v.prompt??v.message??""));
  const shortcuts=setupKeys?"↑/↓ select  ⏎ action  , settings  r refresh  ? help":"j/k select  ⏎ action  d delegate  x dismiss  b block  s strategy  , settings  r refresh  ? help";
  const compactShortcuts=setupKeys?"↑/↓ select  ⏎ action  , settings":"j/k select  ⏎ action  d delegate  x dismiss  b block";
- const status=`v${v.version??currentVersion()} · ${/^update available/i.test(v.updateLine??"")?"update available":"up to date"}`;
+ const desktop = desktopUpdateIndicator(s.desktopUpdates) ?? (s.desktopUpdates?.[0] ? desktopUpdateView(s.desktopUpdates[0]) : null);
+ const status=`v${v.version??currentVersion()} · ${desktop?.label ?? (/^update available/i.test(v.updateLine??"")?"update available":"up to date")}`;
  // At 80 columns split the legend across the two footer lines.
  const legend=attachSelected?"⏎ Attach  t terminal window  m tmux  ? help":shortcuts;
  if(cellWidth(legend)+cellWidth(status)+2>width&&!v.prompt&&!v.message){

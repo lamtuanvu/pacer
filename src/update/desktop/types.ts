@@ -36,7 +36,7 @@ export type UpdateStatus = Pick<UpdateRecord, "installationId" | "revision" | "p
   "transactionId" | "autoDownload" | "checkedAt" | "blockers" | "downloadedBytes" |
   "totalBytes" | "error"> & {
     current: string; target: string | null; releaseNotes: string | null;
-    ownership: Ownership; actions: ("check" | "download" | "restart" | "cancel" | "retry" | "adopt")[];
+    ownership: Ownership; actions: ("check" | "download" | "restart" | "cancel" | "retry" | "adopt" | "configure")[];
   };
 export type UpdateRequest = { installationId: string; requestId: string; expectRevision: number };
 export type RestartRequest = UpdateRequest & { version: string; clientId: string };

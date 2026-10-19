@@ -95,7 +95,7 @@ export function updateStatus(installation: Installation, record: UpdateRecord): 
         actions.push("restart");
       }
       break;
-    case "waiting":
+    case "checking": case "downloading": case "waiting":
       actions.push("cancel");
       break;
     case "error": case "restored":
@@ -103,6 +103,7 @@ export function updateStatus(installation: Installation, record: UpdateRecord): 
       if (record.candidate) actions.push("download");
       break;
   }
+  if (!["reserved", "installing", "verifying", "rolling-back", "recovery-failed"].includes(record.phase)) actions.push("configure");
   if (installation.ownership === "attached" && ["idle", "ready", "complete", "error", "restored"].includes(record.phase)) {
     actions.push("adopt");
   }

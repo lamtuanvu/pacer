@@ -11,6 +11,8 @@ export function reportSessionEnded(): void {
 const V3_OPS = new Set(["setup.check", "service.install", "onboarding.try", "onboarding.skip"]);
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
+  let version: 2 | 3 | undefined;
+  let negotiation: Promise<Hello> | undefined;
   async function request<T>(path: string, params?: unknown): Promise<T> {
     const response = await fetch(path, { credentials: "same-origin", method: params === undefined ? "GET" : "POST", ...(params === undefined ? {} : { headers: { "X-Pacer-Client": "app", "content-type": "application/json" }, body: JSON.stringify(params) }) });
     if (response.status === 401) { reportSessionEnded(); onSessionEnded(); throw new ApiError("not_allowed", "Session ended. Run `pacer open`.", undefined, 401); }
@@ -22,8 +24,35 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
     }
     return response.json() as Promise<T>;
   }
+  function validateHello(value: Hello): Hello {
+    if (!value || !/^\d+\.\d+\.\d+$/.test(value.protocol) || !Array.isArray(value.ops) || !Array.isArray(value.events)) throw new ApiError("internal", "The service returned an invalid protocol response.");
+    return value;
+  }
+  const legacyHello = (hello: Hello): Hello => ({ ...hello, ops: hello.ops.filter(op => !op.startsWith("desktop.update.")), events: hello.events.filter(event => event !== "desktop.update") });
+  async function negotiate(): Promise<Hello> {
+    try {
+      const hello = validateHello(await request<Hello>("/v3/hello"));
+      if (hello.protocol.split(".")[0] === "3") { version = 3; return hello; }
+      // A well-formed unsupported major is explicit incompatibility, not a transport failure.
+    } catch (error) {
+      if (!(error instanceof ApiError) || ![404, 426].includes(error.status ?? 0)) throw error;
+    }
+    const hello = validateHello(await request<Hello>("/v2/hello"));
+    if (hello.protocol.split(".")[0] !== "2") throw new ApiError("internal", "This service protocol is not supported.");
+    version = 2;
+    return legacyHello(hello);
+  }
+  function select(): Promise<Hello> {
+    if (!negotiation) negotiation = negotiate().finally(() => { negotiation = undefined; });
+    return negotiation;
+  }
   return {
-    hello: () => request<Hello>("/v2/hello"), snapshot: () => request<Awaited<ReturnType<ApiClient["snapshot"]>>>("/v2/snapshot"),
-    call: async <T>(op: string, params: unknown = {}) => (await request<{ result: T }>(`/${V3_OPS.has(op) ? "v3" : "v2"}/ops/${encodeURIComponent(op)}`, params)).result,
+    hello: async () => { if (!version) return select(); const hello = validateHello(await request<Hello>(`/v${version}/hello`)); return version === 2 ? legacyHello(hello) : hello; },
+    snapshot: async () => { if (!version) await select(); return request<Awaited<ReturnType<ApiClient["snapshot"]>>>(`/v${version}/snapshot`); },
+    call: async <T>(op: string, params: unknown = {}) => {
+      if (!version) await select();
+      if (version === 2 && op.startsWith("desktop.update.")) throw new ApiError("unknown_op", "Desktop updates require a newer service.");
+      return (await request<{ result: T }>(`/v${version === 3 || V3_OPS.has(op) ? 3 : 2}/ops/${encodeURIComponent(op)}`, params)).result;
+    },
   };
 }

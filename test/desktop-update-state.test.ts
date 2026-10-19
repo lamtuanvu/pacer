@@ -160,7 +160,7 @@ test("status explicitly projects public fields and actions without exposing inte
     expect(Object.keys(status)).not.toContain(key);
   }
   const waiting = requestRestart(ready(), restart(ready()), "boot-1");
-  expect(updateStatus(installation, waiting).actions).toEqual(["cancel"]);
+  expect(updateStatus(installation, waiting).actions).toEqual(["cancel", "configure"]);
   expect(updateStatus(installation, { ...waiting, phase: "installing" }).actions).toEqual([]);
   expect(updateStatus(installation, { ...waiting, phase: "recovery-failed" }).actions).toEqual([]);
   expect(updateStatus({ ...installation, ownership: "attached" }, ready()).actions).toContain("adopt");
@@ -291,3 +291,12 @@ for (const phase of ["waiting", "reserved", "installing", "verifying", "rolling-
     }
   });
 }
+
+test("status advertises cancellable network and configurable live phases",()=>{
+ for(const phase of ["checking","downloading"] as const){
+  expect(updateStatus(installation,{...ready(),phase}).actions).toContain("cancel");
+  expect(updateStatus(installation,{...ready(),phase}).actions).toContain("configure");
+ }
+ expect(updateStatus(installation,ready()).actions).toContain("configure");
+ expect(updateStatus(installation,{...ready(),phase:"installing"}).actions).not.toContain("configure");
+});

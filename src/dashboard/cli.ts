@@ -40,7 +40,7 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
  let confirmationPreview:string[]|undefined;
  let snapshot:ClientSnapshot=emptySnapshot();let inFlight:Promise<void>|undefined;
  const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
- const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{repo,branch,ops,settings,setup,preview:confirmationPreview,updateLine:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:confirmation&&"op" in confirmation?`${confirmationPreview?"Proceed?":confirmation.confirm} (y/n)`:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
+ const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{repo,branch,ops,settings,setup,preview:confirmationPreview,updateLine:snapshot.desktopUpdates?.length?undefined:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:confirmation&&"op" in confirmation?`${confirmationPreview?"Proceed?":confirmation.confirm} (y/n)`:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
  const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
  const local=await dashboardClient(ctx,true);
  const client=withFallback(primary,()=>local,()=>report("pacer serve unavailable; working locally"));
@@ -117,6 +117,7 @@ export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
   else if(key==="d"&&ops.includes("task.delegate"))startDelegate(process.cwd());
   else if(key==="s"&&ops.includes("strategy.use"))chooseStrategy();
   else if(key==="r"){refresh();}
+  else if(settings.updateShortcut(key)){}
   else if(key==="c")await command(updateKey(key) as import("../link/envelope").CmdData);
   else if(updateKey(key)==="confirm"&&ops.includes("update.apply"))prompt={type:"update",step:0,value:"",goal:"",repo:"",names:[]};
   else {

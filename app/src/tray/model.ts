@@ -1,3 +1,4 @@
+import { desktopUpdateIndicator } from "../../../src/view-model/updates";
 import { settingsPath } from "../router";
 import type { Action } from "../../../src/attention/types";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
@@ -32,6 +33,6 @@ export function trayModel(snapshot: ClientSnapshot, activity: ActivityEntry[] = 
   const queued = tasks.filter(t => t.state === "queued").sort((a, b) => (a.queue?.position ?? Infinity) - (b.queue?.position ?? Infinity) || (a.queue?.since ?? a.updatedAt) - (b.queue?.since ?? b.updatedAt));
   const reviews = [...snapshot.tasks.flatMap(t => t.review?.accepted ? [t.review.at] : []),
     ...activity.filter(e => e.kind === "verdict" && /^Accepted\b/.test(e.text)).map(e => e.at)];
-  return { attention, active, queued, waiting: queued.length, needsCount: snapshot.counts?.attention ?? attention.length,
+  return { update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, active, queued, waiting: queued.length, needsCount: snapshot.counts?.attention ?? attention.length,
     done: snapshot.today?.done ?? 0, lastReview: reviews.length ? Math.max(...reviews) : null, executors: capacity(snapshot) };
 }

@@ -72,3 +72,21 @@ test("settings executor and host checks dispatch advertised ops",async()=>{
   {label:"Run host checks",op:"host.check",params:{alias:"devbox"}},
  ]);
 });
+
+import { desktopStatus } from './fixtures/desktop-update/status';
+test('desktop TUI actions use displayed revision/version and require restart confirmation',async()=>{
+ const calls:any[]=[],status=desktopStatus({phase:'ready',target:'0.2.4',revision:8,actions:['restart','check','configure']});
+ const s=new DashboardSettings(fixture(),{snapshot:()=>({...emptySnapshot(),desktopUpdates:[status]}),ops:()=>['desktop.update.restart','desktop.update.check','desktop.update.configure'],changed(){},report(){},command:async c=>{calls.push(c);}});
+ await s.handle(',');expect(s.rows().some(r=>r.id==='update')).toBe(false);expect(s.rows().some(r=>r.text.includes('Restart to update'))).toBe(true);
+ await s.handle('u');await tick();expect(s.prompt?.question).toContain('0.2.4');await answer(s,'n');await s.pending;expect(calls).toEqual([]);
+ await s.handle('u');await tick();await answer(s,'y');await s.pending;expect(calls[0]).toMatchObject({op:'desktop.update.restart',params:{installationId:status.installationId,expectRevision:8,version:'0.2.4'}});
+ await s.handle('c');await s.pending;expect(calls.at(-1).op).toBe('desktop.update.check');
+});
+test('desktop TUI configuration and cancellation require advertised actions; multiple installations require selection',async()=>{
+ const calls:any[]=[],a=desktopStatus({phase:'waiting',actions:['cancel','configure']}),b=desktopStatus({installationId:'second',phase:'ready',target:'0.2.4',actions:['restart']});
+ const s=new DashboardSettings(fixture(),{snapshot:()=>({...emptySnapshot(),desktopUpdates:[a,b]}),ops:()=>['desktop.update.cancel','desktop.update.configure','desktop.update.restart'],changed(){},report(){},command:async c=>{calls.push(c);}});
+ await s.handle(',');await s.handle('u');await s.pending;expect(calls).toEqual([]);expect(s.prompt).toBeNull();
+ const cancel=s.rows().find(r=>r.text==='Cancel update')!;expect(cancel).toBeDefined();await cancel.run!();expect(calls.at(-1).op).toBe('desktop.update.cancel');
+ const configure=s.rows().find(r=>r.text==='Download updates automatically: on')!;await configure.run!();expect(calls.at(-1)).toMatchObject({op:'desktop.update.configure',params:{autoDownload:false}});
+ a.actions=[];expect(s.rows().some(r=>r.text==='Cancel update')).toBe(false);
+});

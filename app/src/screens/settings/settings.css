@@ -41,3 +41,6 @@
 @media(max-width:700px){.u3-table-wrap td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);font-weight:400;margin-bottom:4px}.u3-table-wrap td[data-label=Actions]::before{display:none}}
 .u3-nav-badge--bad{color:var(--bad-fg)}.u3-nav-badge--warn{color:var(--warn-fg)}
 .u3-accounts-mode{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.u3-fill:has(input:disabled){color:var(--ink-muted)}
+.u3-desktop-update { display: grid; gap: var(--space-3); min-width: 0; padding-block: var(--space-4); }
+.u3-desktop-update + .u3-desktop-update { border-top: 1px solid var(--line); }
+.u3-release-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
