@@ -3,6 +3,23 @@ import { renderToString } from 'preact-render-to-string';
 import { Session, type SessionData } from '../app/src/screens/session/Session';
 import { SessionsList } from '../app/src/screens/session/SessionsList';
 import fixture from './fixtures/ui/session.json';
+
+// Extract text for assertions without decoding entities into < or >.
+function textContent(html: string): string {
+  let text = '';
+  let inTag = false;
+  for (const char of html) {
+    if (char === '<') {
+      inTag = true;
+    } else if (char === '>') {
+      inTag = false;
+    } else if (!inTag) {
+      text += char;
+    }
+  }
+  return text;
+}
+
 const data=fixture as SessionData;
 test('Session board preserves layout, copy, service actions and metadata',()=>{const html=renderToString(<Session data={data}/>);
  for(const word of [data.goal,'codex#team','pacer/t-0415','this Mac','started 11:49','Testing · 14m','Changes so far','Brief','Watch it elsewhere','Done when','Timeline','Stop and retry on','pacer attach t-0415'])expect(html).toContain(word);
@@ -76,7 +93,7 @@ test('Sessions pills override their default top alignment for running and ended 
 test('headless sessions explain the run and offer one prominent takeover action without watch options', () => {
  const headless: SessionData = {...data,session:{...data.session!,host:'none',live:false,targets:[],takeover:{available:true}},log:{data:'<script>plain output</script>'}};
  const html = renderToString(<Session data={headless} onTakeover={()=>{}}/>);
- expect(html.replace(/<[^>]*>/g, '')).toContain('This run is headless — Take over to work in it live');
+ expect(textContent(html)).toContain('This run is headless — Take over to work in it live');
  expect(html).toMatch(/class="[^"]*pc-btn--primary[^"]*">Take over<\/button>/);
  expect(html.match(/>Take over<\/button>/g)).toHaveLength(1);
  expect(html).toContain('&lt;script>plain output&lt;/script>');
