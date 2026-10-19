@@ -386,7 +386,7 @@ class ReleaseError extends Error {
 import { readFileSync as readFileSync2 } from "node:fs";
 import { join as join2 } from "node:path";
 var DEV_VERSION = "0.0.0-dev";
-var SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+var SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 function currentVersion() {
   if (typeof PACER_BUILD_VERSION === "string")
     return PACER_BUILD_VERSION;
@@ -618,7 +618,7 @@ var package_default = {
     test: "TZ=Asia/Ho_Chi_Minh bun test",
     live: "bun scripts/live/cli.ts",
     typecheck: "tsc --noEmit && tsc -p app",
-    build: "bun build --compile src/cli.ts --outfile dist/pacer && bun scripts/sign-local.ts dist/pacer",
+    build: "bun scripts/build.ts",
     release: "bun scripts/release/build.ts",
     "release:prepare": "bun scripts/release/prepare.ts",
     "release:host": "bun scripts/release/build.ts --host",
