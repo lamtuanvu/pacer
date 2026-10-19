@@ -45,6 +45,11 @@ Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
 (max 200 characters). Executors cannot delegate onward.
 
+Delegate accepts kind aliases in `--kind` and brief files: `bugfix`, `fix`, and `bug`
+map to `debug`; `test` maps to `tests`; `doc` maps to `docs`; and `perf` maps to
+`performance`. Tasks store the canonical kind. Invalid kinds list the allowed
+values and suggest the closest kind.
+
 Choose current for uncommitted work, research/review, installed dependencies, or small
 follow-ups. Choose new for parallel tasks, concurrent user edits, or risky experiments;
 omit the choice for auto placement.
@@ -134,6 +139,28 @@ folder when Orca is installed, prints its path and guides you to Settings >
 Plugins > Development > Add folder. It waits up to five minutes for the live
 heartbeat; Enter or Ctrl-C skips with `Finish later with: pacer init`. Setup then
 prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
+
+## Remove pacer
+
+`pacer uninstall --all [--yes] [--binary] [--json]` prints a complete removal
+plan from the install manifest, including each connected agent and its account
+folder, the installed login service, Orca plugin registration, `PACER_HOME`,
+and the binary path. In a terminal it asks once: `Remove all of this? [y/N]`.
+Without a terminal, pass `--yes`; otherwise it prints the plan and exits 2.
+
+Removal runs in order: agent integrations (using their recorded undo operations
+and restoring backups), service, plugin, then all of `PACER_HOME`. Orca may still
+require removing the development plugin path in Settings; the command prints that
+instruction. It continues after individual failures, reports each step as `ok` or
+`failed`, and exits 1 if any step failed. Review the plan carefully: `PACER_HOME`
+contains configuration, history and account data. Paths resolving to your home
+directory or `/` are refused.
+
+The binary is left in place unless you pass `--binary`. Development runs refuse
+to delete the shared Bun/Node runtime; use an installed pacer binary for that
+option. If the binary is inside `PACER_HOME`, removal requires `--binary`.
+`--json` returns `{plan, results}`; prompts and errors use stderr.
+Existing `pacer uninstall <planner>` remains available for a single integration.
 
 ## pacer open
 
