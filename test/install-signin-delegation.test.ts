@@ -22,12 +22,15 @@ test("fake agent completion mode writes the Codex summary and exits", () => {
 
 async function sandbox() {
   const home = tmpDir();
-  const pacerHome = join(home, ".pacer"), bin = join(home, "bin"), repo = join(home, "repo");
-  for (const dir of [pacerHome, bin, repo]) mkdirSync(dir, { recursive: true });
+  const pacerHome = join(home, ".pacer"), bin = join(home, "bin"), repo = join(home, "repo"), codexHome = join(home, ".codex");
+  for (const dir of [pacerHome, bin, repo, codexHome]) mkdirSync(dir, { recursive: true });
+  // Routing checks for a login indicator even for the fake executor. This empty
+  // marker contains no credentials and stays isolated from the host Codex home.
+  writeFileSync(join(codexHome, "auth.json"), "{}");
   const env = { ...process.env };
   for (const name of Object.keys(env)) if (name.startsWith("PACER_")) delete env[name];
   Object.assign(env, {
-    HOME: home, PACER_HOME: pacerHome, PACER_BACKEND: "direct", PACER_NO_UPDATE_CHECK: "1",
+    HOME: home, CODEX_HOME: codexHome, PACER_HOME: pacerHome, PACER_BACKEND: "direct", PACER_NO_UPDATE_CHECK: "1",
     PACER_FAKE_COMPLETE: "1", PATH: `${bin}:${process.env.PATH}`, TZ: "Asia/Ho_Chi_Minh",
   });
   symlinkSync(join(root, "test/fixtures/bin/fake-agent"), join(bin, "codex"));
@@ -99,8 +102,8 @@ e2e("installed open --print URL is accepted by the desktop auth contract", async
     expect(url.pathname).toBe("/app/auth");
     expect(url.searchParams.getAll("code")).toHaveLength(1);
     expect(url.searchParams.get("code")).toBeTruthy();
-    // desktop/src-tauri/src/logic.rs::auth_url rejects any fragment.
-    expect(url.hash).toBe("");
+    // desktop/src-tauri/src/logic.rs::auth_url accepts an optional app route.
+    expect(url.hash === "" || url.hash.startsWith("#/")).toBe(true);
   } finally { await s.close(); }
 }, 90_000);
 
@@ -160,7 +163,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       while (Date.now() < deadline) {
         const { snapshot } = await browserFetch(page, "/v3/snapshot");
         const row = snapshot.tasks.find((t: { id: string }) => t.id === taskId);
-        if (row && ["failed", "limit", "stopped", "partial"].includes(row.state)) throw Error(`Fake delegation settled as ${row.state}`);
+        if (row && ["failed", "limit", "stopped", "partial"].includes(row.state)) throw Error(`Fake delegation settled as ${row.state}: ${JSON.stringify(row)}`);
         if (snapshot.attention.some((a: { kind: string; taskId?: string }) => a.kind === "review" && a.taskId === taskId)) {
           expect(row.state).toBe("done");
           expect(row.review).toBeFalsy();
