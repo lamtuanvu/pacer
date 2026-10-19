@@ -3,7 +3,6 @@ import type { SnapshotV3 } from "./read-model/types";
 import { buildPlanner } from "./read-model/capacity";
 import { fullTaskTitle, shortTitle } from "../core/short-title";
 import { readHold } from "../core/mode-hold";
-import { drainQueueOnRead } from "../tasks/drain";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import { toBudget } from "../link/budget";
@@ -11,7 +10,6 @@ import { apiTasks, snapshotTasks } from "./read-model/tasks";
 import { buildReadModel, readModelContext } from "./read-model";
 import type { ApiTask } from "./read-model/types";
 import { listTasksWhere, readTask, taskStoreVersion } from "../tasks/store";
-import { taskRecordStatus } from "../tasks/api";
 import { computeStatus, type Status } from "../engine/status";
 import { loadStrategy, validateStrategy } from "../config/strategy";
 import type { Ctx } from "../types";
@@ -25,7 +23,6 @@ const statusCache=new Map<string,{at:number;strategy:string;value:Status}>();
 export async function liveSnapshot(
   ctx: Ctx, o: { maxBudgetAgeS?: number; status?: (c: Ctx) => Promise<Status> } = {},
 ): Promise<{ protocol: string; seq: number; snapshot: SnapshotV3 }> {
-  await drainQueueOnRead(ctx);
   const snapshot = currentSnapshot(ctx);
   const version = taskStoreVersion(ctx), cachedTasks = taskCache.get(ctx.pacerHome);
   let records: TaskRecord[];
@@ -36,11 +33,9 @@ export async function liveSnapshot(
     records = [...selected.values()].sort((a, b) => b.id.localeCompare(a.id));
     taskCache.set(ctx.pacerHome, { version, at: ctx.now, records });
   }
-  // Time and runner liveness can change without a database commit. Recheck active
-  // records and age settled records out of the cached selection on every read.
+  // Age settled records out of the cached selection on every read.
   const recent = (t: TaskRecord) => !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
-  const tasks = snapshotTasks(ctx, records.filter(recent).map(t =>
-    TERMINAL_STATES.includes(t.state) ? t : taskRecordStatus(ctx, t)));
+  const tasks = snapshotTasks(ctx, records.filter(recent));
   snapshot.tasks = tasks.map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...t}));
   let strategy;
   try{strategy=loadStrategy(ctx);}catch{

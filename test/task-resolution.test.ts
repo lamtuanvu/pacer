@@ -36,8 +36,9 @@ test("removed worktree and both review verdicts settle attention and roundtrip",
  const {ctx,worker,task}=setup();rmSync(worker,{recursive:true});expect((await resolveTask(ctx,task)).resolved).toBe("worktree removed");
  for(const accepted of [true,false]){taskReview(ctx,task.id,accepted);const data=taskData(readTask(ctx,task.id)!);expect(parseOutboxEvent({type:"task",data})?.data).toMatchObject({review:{accepted},resolved:"reviewed"});}
 });
-test("resolution checks are persisted and limited to once per task per minute",async()=>{
+test("resolution checks stay in memory and are limited to once per task per minute",async()=>{
  const {ctx,worker,task}=setup();writeFileSync(join(worker,"tracked"),"pending");const checked=await resolveTask(ctx,task);expect(checked.resolved).toBeUndefined();
+ expect(readTask(ctx,task.id)?.rev).toBe(task.rev);
  rmSync(worker,{recursive:true});expect((await resolveTask({...ctx,now:ctx.now+59},checked)).resolved).toBeUndefined();expect((await resolveTask({...ctx,now:ctx.now+60},checked)).resolved).toBe("worktree removed");
 });
 
@@ -55,7 +56,7 @@ test("pump exposes terminal presence only after a live Orca terminal receipt",as
 test("pump persists and publishes settled attention",async()=>{
  const {ctx,worker,task}=setup();rmSync(worker,{recursive:true});
  const events=await pumpOnce(ctx,{tasks:()=>[task],status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled: false, paused: null, modeHold: null,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),publish:(await import("../src/link/publish")).publish});
- expect(events.find(e=>e.type==="task")?.data).toMatchObject({resolved:"worktree removed"});expect(readTask(ctx,task.id)).toMatchObject({resolved:"worktree removed",resolutionCheckedAt:ctx.now});
+ expect(events.find(e=>e.type==="task")?.data).toMatchObject({resolved:"worktree removed"});expect(readTask(ctx,task.id)).toMatchObject({resolved:"worktree removed"});
 });
 test("subdirectory task worktrees compare paths from the Git root",async()=>{
  const {ctx,repo,worker,git,task}=setup();mkdirSync(join(repo,"sub"));writeFileSync(join(repo,"sub/tracked"),"old\n");git("add",".");git("commit","-m","subdir");
@@ -79,7 +80,8 @@ test("a hung git read does not resolve and is retried after the throttle window"
  ctx.run=()=>new Promise(()=>{});
  const checked=await resolveTask(ctx,task);
  expect(checked.resolved).toBeUndefined();
- expect(readTask(ctx,task.id)?.resolutionCheckedAt).toBe(ctx.now);
+ expect(readTask(ctx,task.id)?.resolutionCheckedAt).toBeUndefined();
+ expect(readTask(ctx,task.id)?.rev).toBe(task.rev);
  rmSync(worker,{recursive:true});
  expect((await resolveTask({...ctx,now:ctx.now+59},checked)).resolved).toBeUndefined();
  expect((await resolveTask({...ctx,now:ctx.now+60},checked)).resolved).toBe("worktree removed");
@@ -117,4 +119,11 @@ test("resolution preserves edits persisted while asynchronous git is pending", a
  release();
  expect((await pending).dismissed).toBe(true);
  expect(readTask(ctx,task.id)?.dismissed).toBe(true);
+});
+
+test("repeated unchanged resolution checks never advance the revision or rewrite legacy fields", async () => {
+ const {ctx,task}=setup();
+ const legacy=updateTask(ctx,task.id,t=>{t.resolutionCheckedAt=ctx.now-120;});
+ for(const seconds of [0,60,120]) await resolveTask({...ctx,now:ctx.now+seconds},legacy);
+ expect(readTask(ctx,task.id)).toEqual(legacy);
 });

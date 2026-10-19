@@ -65,16 +65,35 @@ test("hello advertises additive 2.1 events for clients that skip unknown event t
  expect(helloBody()).toMatchObject({protocol:"2.8.0",events:expect.arrayContaining(["budget","task","mode","alert","config","reset","executor","account","host","repo","counts"])});
 });
 
-test("snapshot reads drain queued tasks even without a daemon", async () => {
+async function queuedTaskWithRemovedExecutor() {
   const {mkdirSync} = await import("node:fs"), {join} = await import("node:path");
-  const {createTask, updateTask, readTask} = await import("../src/tasks/store");
+  const {createTask, updateTask} = await import("../src/tasks/store");
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, {recursive: true});
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
   const t = createTask(ctx, {brief: {goal: "work", repo: ctx.home}, kind: null, requestedExecutor: "removed", timeoutS: 60});
-  updateTask(ctx, t.id, x => {x.queue = {reason: "no_slot", since: ctx.now, position: 1};});
+  const task = updateTask(ctx, t.id, x => {x.queue = {reason: "no_slot", since: ctx.now, position: 1};});
+  return {ctx, task};
+}
+
+test("snapshot reads leave queued tasks and their revisions unchanged", async () => {
+  const {readTask} = await import("../src/tasks/store");
+  const {ctx, task} = await queuedTaskWithRemovedExecutor();
+  expect(task.state).toBe("queued");
   await apiSnapshot(ctx);
-  expect(readTask(ctx, t.id)?.result?.report).toBe("removed was removed while the task waited");
+  expect(readTask(ctx, task.id)).toEqual(task);
+});
+
+test("service supervision and queue draining settle a task whose executor was removed", async () => {
+  const {superviseTasks} = await import("../src/tasks/api");
+  const {drainQueue} = await import("../src/tasks/drain");
+  const {readTask} = await import("../src/tasks/store");
+  const {ctx, task} = await queuedTaskWithRemovedExecutor();
+  await superviseTasks(ctx);
+  await drainQueue(ctx);
+  const settled = readTask(ctx, task.id);
+  expect(settled).toMatchObject({state: "failed", result: {report: "removed was removed while the task waited"}});
+  expect(settled?.queue).toBeUndefined();
 });
 
 test("task events expose complete titles, including retained legacy events",async()=>{
