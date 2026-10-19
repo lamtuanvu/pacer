@@ -212,7 +212,18 @@ bundled CLI's service installer and then started. Stopped or refused services
 are started with `launchctl kickstart gui/<uid>/com.pacer.serve` on macOS or
 `systemctl --user start pacer-serve.service` on Linux. Linux without a working
 user manager retains the direct CLI fallback. No terminal or recovery button is shown.
-Lifecycle decisions and failures are written to the shell's stderr log.
+After 45 seconds without a completed desktop sign-in, the shell explains what
+failed and shows the last error while retrying automatically. The tray icon gains
+an error dot, with the same diagnosis in its tooltip and popover. A completed
+sign-in clears the warning. Specific permission and installation guidance takes
+precedence over the generic sign-in warning.
+
+Every lifecycle line is timestamped and written to stderr and
+`~/Library/Logs/pacer/desktop.log` on macOS. On Linux it uses
+`$XDG_STATE_HOME/pacer/desktop.log` (default `~/.local/state/pacer/desktop.log`).
+The log rotates at 5 MiB, keeping one previous file (`desktop.log.1`). Files are
+private (0600), and new log directories use 0700. Include these logs when
+reporting startup problems; sign-in URLs, tokens and raw CLI output are never logged.
 
 A listening service that does not answer health is polled. After 20 seconds
 without an OS prompt or a volume wait, the app restarts it automatically with
@@ -237,6 +248,7 @@ requires installing a complete app distribution; the shell never displays comman
 
 For screenshots, open `desktop/ui/index.html` or serve `desktop/ui/` statically:
 
+- `?state=stuck` — failed sign-in diagnosis with background retry and log guidance.
 - `?state=starting` — pacer mark and small starting status.
 - `?state=permission&path=/Volumes/External/Project` — OS approval with “Project”.
 - `?state=permission` — approval with “your external drive”.
