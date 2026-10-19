@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cliDeps, main } from "../src/cli";
 import { createTask, readTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
+import { KINDS } from "../src/config/strategy";
 
 const OK_STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {}\n  local: { via: opencode, model: lmstudio/q, usage: unmetered }\n";
 
@@ -101,6 +102,60 @@ async function withNoSpawn<T>(fn: (spawned: string[]) => Promise<T>): Promise<T>
   cliDeps.spawnRunner = (_c, id) => { spawned.push(id); return 1; };
   try { return await fn(spawned); } finally { cliDeps.spawnRunner = original; }
 }
+
+test("delegate accepts kind aliases and preserves canonical kinds", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const aliases = { bugfix: "debug", fix: "debug", bug: "debug", test: "tests", doc: "docs", perf: "performance" };
+  await withNoSpawn(async (spawned) => {
+    for (const [kind, canonical] of [...Object.entries(aliases), ...KINDS.map(kind => [kind, kind])]) {
+      const result = await main(["delegate", "--goal", "Fix the task", "--repo", ctx.home, "--kind", kind, "--json"], ctx);
+      expect(result.code).toBe(0);
+      const task = JSON.parse(result.out);
+      expect(task.kind).toBe(canonical);
+      expect(readTask(ctx, task.id)?.kind).toBe(canonical);
+    }
+    expect(spawned).toHaveLength(Object.keys(aliases).length + KINDS.length);
+  });
+});
+
+test("delegate normalizes brief-file and stdin kinds after flag overrides", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const path = join(ctx.home, "brief.json");
+  writeFileSync(path, JSON.stringify({ goal: "Fix the task", repo: ctx.home, kind: "bugfix" }));
+  await withNoSpawn(async () => {
+    const fromFile = await main(["delegate", "--brief-file", path, "--json"], ctx);
+    expect(fromFile.code).toBe(0);
+    expect(JSON.parse(fromFile.out).kind).toBe("debug");
+    const overridden = await main(["delegate", "--brief-file", path, "--kind", "doc", "--json"], ctx);
+    expect(overridden.code).toBe(0);
+    expect(JSON.parse(overridden.out).kind).toBe("docs");
+    const { io } = await import("../src/install/stdin");
+    const original = io.readBriefStdin;
+    try {
+      io.readBriefStdin = async () => JSON.stringify({ goal: "Test the task", repo: ctx.home, kind: "test" });
+      const fromStdin = await main(["delegate", "--brief-file", "-", "--json"], ctx);
+      expect(fromStdin.code).toBe(0);
+      expect(JSON.parse(fromStdin.out).kind).toBe("tests");
+    } finally { io.readBriefStdin = original; }
+  });
+});
+
+test("delegate suggests the closest kind for typos without starting a task", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  await withNoSpawn(async (spawned) => {
+    for (const [kind, closest] of [["debg", "debug"], ["performnce", "performance"], ["tsets", "tests"]]) {
+      const result = await main(["delegate", "--goal", "Fix the task", "--repo", ctx.home, "--kind", kind], ctx);
+      expect(result.code).toBe(2);
+      expect(result.err).toContain(`unknown kind "${kind}"`);
+      expect(result.err).toContain(`allowed: ${KINDS.join(", ")}`);
+      expect(result.err).toContain(`did you mean "${closest}"?`);
+    }
+    const inheritedKey = await main(["delegate", "--goal", "Fix the task", "--repo", ctx.home, "--kind", "toString"], ctx);
+    expect(inheritedKey.code).toBe(2);
+    expect(inheritedKey.err).toContain('unknown kind "toString"');
+    expect(spawned).toEqual([]);
+  });
+});
 
 test("retry queues a retry of a task and links them", async () => {
   const ctx = await withStrategy(OK_STRATEGY);
