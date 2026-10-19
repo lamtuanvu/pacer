@@ -1704,13 +1704,60 @@ function executorLabel(id, accounts = []) {
   const label = agent === "opencode" ? `${known(account?.name ?? name) ?? "OpenCode"}` : `${native ?? known(agent)}${suffix}`;
   return label + (host ? ` on ${host}` : "");
 }
+var status = (label, tone, glyph) => ({ label, tone, glyph });
+var unknownStatus = status("Unknown", "neutral", "?");
+var taskStates = {
+  needs_input: status("Needs your answer", "warn", "!"),
+  running: status("Working", "info", "▶"),
+  queued: status("Queued", "neutral", "…"),
+  done: status("Done", "good", "✓"),
+  partial: status("Partial", "warn", "!"),
+  failed: status("Failed", "bad", "✕"),
+  limit: status("Out of quota", "bad", "!"),
+  stopped: status("Stopped", "neutral", "■")
+};
+var sessionStates = {
+  driving: status("You're driving", "info", "▶"),
+  starting: status("Starting", "info", "▶"),
+  working: status("Editing", "info", "▶"),
+  testing: status("Testing", "info", "▶"),
+  idle: status("Idle", "warn", "…"),
+  "lost-contact": status("Lost contact", "bad", "!"),
+  queued: taskStates.queued
+};
+var waitingReview = status("Waiting for review", "warn", "◐");
 function taskStatus(task) {
   if (task.review)
-    return { label: task.review.accepted ? "Accepted" : "Rejected", tone: task.review.accepted ? "good" : "bad" };
-  const labels = { needs_input: ["Needs your answer", "warn"], running: ["Working", "info"], queued: ["Queued", "neutral"], done: ["Done", "good"], partial: ["Partial", "warn"], failed: ["Failed", "bad"], limit: ["Out of quota", "warn"], stopped: ["Stopped", "neutral"] };
-  const [label, tone] = labels[task.state] ?? [task.state, "neutral"];
-  return { label, tone };
+    return task.review.accepted ? status("Accepted", "good", "✓") : status("Rejected", "bad", "✕");
+  if (["done", "partial"].includes(task.state) && !task.dismissed && !task.resolved && !task.retriedBy)
+    return waitingReview;
+  const phase = task.progress?.phase ?? task.phase;
+  if (task.state === "running" && phase)
+    return sessionStatus(phase);
+  return Object.hasOwn(taskStates, task.state) ? taskStates[task.state] : unknownStatus;
 }
+var sessionStatus = (phase) => Object.hasOwn(sessionStates, phase) ? sessionStates[phase] : unknownStatus;
+var executorStates = {
+  ready: status("Ready", "good", "✓"),
+  busy: status("Busy", "info", "▶"),
+  full: status("At capacity", "info", "■"),
+  failing: status("Failing", "warn", "!"),
+  down: status("Unavailable", "bad", "✕"),
+  blocked: status("Blocked", "neutral", "■"),
+  exhausted: taskStates.limit,
+  disabled: status("Disabled", "neutral", "■"),
+  checking: status("Checking", "info", "…")
+};
+var paceStates = {
+  behind: status("Behind pace", "good", "↓"),
+  on_pace: status("On pace", "good", "✓"),
+  ahead: status("Ahead of pace", "warn", "↑"),
+  out: taskStates.limit,
+  UNMETERED: status("Unmetered", "good", "∞"),
+  EXPIRING: status("Expiring soon", "warn", "!"),
+  EXPIRING_SOON: status("Expiring soon", "warn", "!"),
+  unknown: status("Usage unknown", "neutral", "?")
+};
 
 // src/view-model/panel.ts
 var providerLabel = (p) => p.agent ? runnerLabel(p) : displayName2(p.id);

@@ -1,5 +1,5 @@
 import { SetupBanner } from "./setup/SetupBanner";
-import { queueWait } from "../../../src/view-model/capacity";
+import { executorPace, queueWait } from "../../../src/view-model/capacity";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
@@ -8,12 +8,12 @@ import { agentInfo, markAgent } from "../../../src/view-model/agents";
 import { ago, clock, elapsed, meterText } from "../../../src/view-model/format";
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
-import { executorLabel, phaseWords, taskStatus, toneFor } from "../../../src/view-model/words";
+import { attentionStatus, executorLabel, executorStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import { AgentMark } from "../ds/AgentMark";
 import { Kbd } from "../ds/Kbd";
-import { Pill } from "../ds/Pill";
+import { StatusPill } from "../ds/StatusPill";
 import { StatusGlyph } from "../ds/StatusGlyph";
 import { UsageMeter } from "../ds/UsageMeter";
 import { overviewHints } from "../keys/registry";
@@ -26,7 +26,6 @@ import { QuickDelegate } from "./QuickDelegate";
 import { repoChoices, RepoFilter } from "./RepoFilter";
 import { useQuery, useTaskContext } from "./task-shared";
 
-const BAD_KINDS = new Set(["failed", "limit", "executor_down", "host_down"]);
 const OFF_STATES = new Set(["down", "failing", "disabled", "blocked", "exhausted"]);
 const gone = (item: AttentionItem) => (s: { snapshot: ClientSnapshot | null }) => !s.snapshot?.attention?.some(a => a.id === item.id && a.since === item.since);
 
@@ -42,13 +41,13 @@ function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: C
   const reviewQueue = <a className="pc-text-action" href={withQuery("#/review", { ...query, repo: scope.repo ?? query.repo })}>Open review queue</a>;
   return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><SectionHeading id="needs-you">Needs you</SectionHeading>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{narrow && otherRepos ? otherRepos : reviewQueue}</div>
     <BulkReview key={scope.repo ?? "all"} snapshot={snapshot} repo={scope.repo} runner={runner}>
-    {items.map(item => <div key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
+    {items.map(item => { const status = attentionStatus(item, snapshot.tasks); return <div key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${status.tone === "bad" ? " pc-attn--bad" : ""}`}>
       <ReviewCheckbox item={item} />
-      <StatusGlyph kind={BAD_KINDS.has(item.kind) ? "failed" : "waiting"} />
+      <span className={`pc-status--${status.tone}`}><StatusGlyph status={status} />{status.label}</span>
       {item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}
       <div className="grow"><div className="pc-attn__title">{attentionTitle(item, snapshot)}{item.repo && <code className="pc-repo-chip">{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></div>
       <div className="row-actions">{item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} strong={i === 0} />)}</div>
-    </div>)}
+    </div>; })}
     </BulkReview>
     {!items.length && <p className="muted">Nothing needs you.</p>}
     {narrow && otherRepos ? reviewQueue : otherRepos}
@@ -73,7 +72,7 @@ function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnap
       {t.executor ? <AgentMark agent={markAgent(t.executor)} size={20} labelled={false} /> : <span className="pc-row__gap" />}
       <div className="grow pc-row__goal">{t.goal}</div>
       <span className="muted">{t.repo?.label}</span>
-      <Pill tone={t.state === "queued" ? "neutral" : "info"}>{phaseWords(t.state === "queued" ? "queued" : t.progress?.phase ?? t.state)}</Pill>
+      <StatusPill status={taskStatus(t)} />
       {t.state === "queued"
         ? <><span className="muted">{queueWait(t, snapshot)}</span><ActionButton runner={runner} id={`${t.id}:stop`} action={{ label: "Stop", op: "task.stop", params: { id: t.id } }} confirmDone={s => !s.snapshot?.tasks.some(x => x.id === t.id && x.state === "queued")} /></>
         : <>{t.attemptStartedAt && <span className="muted">{elapsed(now - t.attemptStartedAt)}</span>}
@@ -88,11 +87,11 @@ function Capacity({ snapshot, narrow, query }: { snapshot: ClientSnapshot; narro
   const rows = capacity(snapshot), c = counts(snapshot);
   const next = rows.find(e => e.next), down = rows.filter(e => e.state === "down" || e.state === "failing").length;
   return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><SectionHeading id="capacity">Capacity</SectionHeading>{!narrow && c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" />{narrow && next ? <span className="muted">next: <b>{executorLabel(next.id)}</b></span> : <a className="pc-text-action" href={withQuery("#/settings/executors", query)}>Details</a>}</div>
-    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{rows.map(e => <a key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${e.state}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
+    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{rows.map(e => <a key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${executorStatus(e.state).label}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
       <AgentMark agent={markAgent(e.id, e.account)} size={20} labelled={false} />
-      {narrow && <span className={`pc-cap__dot pc-cap__dot--${e.state === "down" ? "bad" : e.state === "busy" ? "info" : toneFor(e.tone)}`} />}
-      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><div className={OFF_STATES.has(e.state) ? "pc-bad-text" : "muted"}>{OFF_STATES.has(e.state) && e.reason ? e.reason : e.usedPct === null ? <><StatusGlyph kind="waiting" /> Unknown · {e.paceReason ?? e.reason ?? "no usage reported"}</> : e.sub}</div></div>
-      <div><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={toneFor(e.tone)} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
+      {narrow && <span className={`pc-cap__dot pc-cap__dot--${executorStatus(e.state).tone}`} />}
+      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><StatusPill status={executorStatus(e.state)} /><div className="muted"><StatusGlyph status={executorPace(e, snapshot)} />{executorPace(e, snapshot).label}{e.reason || e.paceReason ? ` · ${e.reason ?? e.paceReason}` : ""}</div></div>
+      <div><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={executorPace(e, snapshot).tone} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
       <span className="muted pc-num">{e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`}</span>
       <span className="muted pc-num" aria-label={`${e.slots.used} of ${e.slots.max} parallel tasks`}>{e.slots.used}/{e.slots.max}</span>
     </a>)}{narrow && <span className="muted">{c?.ready ?? 0} ready · {down} down</span>}</div>
@@ -107,7 +106,7 @@ function DoneToday({ snapshot, scope, now, query }: { snapshot: ClientSnapshot; 
   return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><SectionHeading id="done-today">Done today</SectionHeading>{today && <span className="muted">{done} · {accepted} accepted</span>}<span className="grow" /><a className="pc-text-action" href={withQuery("#/sessions", query)}>All tasks</a></div>
     {rows.map(t => { const status = taskStatus(t); return <div key={t.id} className="pc-row">
       <span className="muted pc-num">{clock(t.updatedAt, now)}</span><div className="grow pc-row__goal">{t.goal}</div>
-      <span className="muted">{t.repo?.label}</span><span className="muted">{executorLabel(t.executor)}</span><Pill tone={status.tone}>{status.label}</Pill>
+      <span className="muted">{t.repo?.label}</span><span className="muted">{executorLabel(t.executor)}</span><StatusPill status={status} />
     </div>; })}
     {!rows.length && <p className="muted">Nothing finished yet today.</p>}
   </section>;
@@ -130,7 +129,7 @@ function PlannerStrip({ snapshot, now }: { snapshot: ClientSnapshot; now: number
     <AgentMark agent={p.agent} size={28} labelled={false} />
     <div className="pc-planner-strip__body">
       <div className="row"><SectionHeading as="span">Planner · {name}</SectionHeading><span className="pc-planner-strip__advice">{p.advice}</span></div>
-      {p.usedPct !== null && <div className="row"><div className="grow"><UsageMeter used={p.usedPct} pace={p.pacePct} tone={toneFor(p.verdict)} verdict={p.verdict} size="bar" text="none" label={`${name} planner usage`} stale={p.stale} staleAt={snapshot.at} now={now} /></div><span className="muted">{meterText(p.usedPct, p.pacePct, "full")}{extra ? ` · ${extra}` : ""}</span></div>}
+      {p.usedPct !== null && <div className="row"><div className="grow"><UsageMeter used={p.usedPct} pace={p.pacePct} tone={paceStatus(p.verdict).tone} verdict={p.verdict} size="bar" text="none" label={`${name} planner usage`} stale={p.stale} staleAt={snapshot.at} now={now} /></div><span className="muted">{meterText(p.usedPct, p.pacePct, "full")}{extra ? ` · ${extra}` : ""}</span></div>}
     </div>
     <div className="pc-stats">{stat(c?.attention, "need you", true)}{stat(c?.running, "running")}{stat(snapshot.today?.done, "done today")}{stat(`${c?.ready ?? 0}/${c?.executors ?? 0}`, "executors ready")}</div>
   </section>;

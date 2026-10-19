@@ -47,8 +47,8 @@ test("capacity with no usage reading says so with a glyph and the reason", () =>
   const html = view();
   const at = html.indexOf(">Cursor<", html.indexOf('aria-labelledby="capacity"'));
   const row = html.slice(at, at + 700);
-  expect(row).toContain("◐");
-  expect(row).toContain("Unknown · no limit reported");
+  expect(row).toContain("?");
+  expect(row).toContain("Usage unknown · no limit reported");
 });
 
 test("repo chips show counts, pressed state and the shared-budget note", () => {
@@ -98,7 +98,7 @@ test("capacity dims a down executor and gives its reason; header counts ready ex
   expect(html).toContain("2/4 executors ready");
   expect(html).toMatch(/pc-cap--off[\s\S]*LM Studio is not running/);
   expect(html).toContain('href="#/settings/executors"');
-  expect(html).toContain("on pace · this Mac + devbox");
+  expect(html).toContain("Behind pace");
 });
 
 test("done today and activity use absolute times and the service's sentences", () => {

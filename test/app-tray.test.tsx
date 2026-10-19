@@ -39,9 +39,9 @@ test("busy board has four linked counts, three attention rows, two running rows 
   expect(attention.match(/class="tray-attention /g)).toHaveLength(3);
   expect(attention).toContain('href="/app/#/">+2 more in the app');
   expect(attention).not.toContain("Attention 3");
-  expect(attention).toContain("pacer · Failed twice 0");
-  expect(attention).toContain('aria-hidden="true">✕');
-  expect(attention).toContain('aria-hidden="true">?');
+  expect(attention).toContain("pacer · Testing · Failed twice 0");
+  expect(attention).toContain('aria-hidden="true">▶');
+  expect(attention).toContain('aria-hidden="true">…');
   expect(attention).toContain('aria-hidden="true">◐');
   expect(attention.match(/<button/g)).toHaveLength(3);
   expect(attention).toContain('class="tray-action tray-action--primary"');
@@ -49,8 +49,8 @@ test("busy board has four linked counts, three attention rows, two running rows 
   expect(attention).toContain(">Answer</span></button>");
   expect(attention).toContain(">Review</span></button>");
   expect(active.match(/class="tray-running"/g)).toHaveLength(2);
-  expect(active).toContain("idle 15m");
-  expect(active).toContain("tray-idle");
+  expect(active).toContain("Idle 15m");
+  expect(active).toContain("pc-status--warn");
   expect(active).not.toContain("Queued");
   expect(html).toContain("14 waiting for parallel tasks on Codex · next: Review screen");
   const counts = html.split('aria-label="Task counts">')[1]!.split("</nav>")[0]!;
@@ -92,7 +92,7 @@ test("executor marks use current capacity, values and detailed tooltips after en
   const snapshot = fixture(), html = draw(snapshot);
   expect(html).toContain("41% used · pace 58%");
   expect(html).toContain("92% used");
-  expect(html).toContain("tray-dot--bad");
+  expect(html).toContain("pc-status--bad");
   expect(html).not.toContain("99% used");
   const executor = snapshot.executors![0]!;
   expect(executorValue(executor)).toBe("41%");

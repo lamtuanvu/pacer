@@ -107,7 +107,7 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
     const tasks = running(snapshot, { repo: name === "panel this repo" ? snapshot.repos![0]!.key : null });
     for (const task of tasks.filter(task => task.state === "running" && task.progress)) {
       const phase = phaseWords(task.progress!.phase);
-      expect(text).toContain(name === "tray" ? phase.toLowerCase() : phase);
+      expect(text).toContain(phase);
     }
     expect(text).toContain("Tests passed");
     expect(text).not.toMatch(/\b(?:ON_PACE|BEHIND|AHEAD|EXHAUSTED|NEAR_LIMIT|EXPIRING_SOON|UNMETERED|needs_input|on_pace|host_down|executor_down|no_slot|working|testing|lost-contact)\b/);

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
+import { taskStatus } from "../src/view-model/words";
 import { clock } from "../src/view-model/format";
 import { UsageMeter } from "../app/src/ds/UsageMeter";
 import { StatusGlyph } from "../app/src/ds/StatusGlyph";
@@ -56,9 +57,9 @@ test("fill width is a custom property, not a colour", () => {
 });
 
 test("glyphs are hidden from assistive tech", () => {
-  expect(renderToString(<StatusGlyph kind="failed" />)).toBe('<span class="pc-glyph pc-glyph--failed" aria-hidden="true">✕</span>');
-  expect(renderToString(<StatusGlyph kind="waiting" />)).toContain("◐");
-  expect(renderToString(<StatusGlyph kind="done" />)).toContain("✓");
+  expect(renderToString(<StatusGlyph status={taskStatus({state:"failed"})} />)).toBe('<span class="pc-glyph pc-status--bad" aria-hidden="true">✕</span>');
+  expect(renderToString(<StatusGlyph status={taskStatus({state:"done"})} />)).toContain("◐");
+  expect(renderToString(<StatusGlyph status={taskStatus({state:"done",review:{accepted:true}})} />)).toContain("✓");
 });
 
 test("tooltip is referenced by its trigger and starts hidden", () => {
@@ -79,4 +80,19 @@ test("an unknown meter is an image with words, not a meter without a value", () 
   expect(html).not.toContain('role="meter"');
   expect(html).toContain('role="img"');
   expect(html).toContain('aria-label="Codex: usage unknown"');
+});
+
+test('small usage retains fractional width and every size shares contained track geometry', async () => {
+  for (const size of ['top','bar','row'] as const) {
+    const html = renderToString(<UsageMeter used={0.4} pace={100} tone="good" size={size} label="Usage" />);
+    expect(html).toContain('--used:0.4');
+    expect(html).toContain('--pace:100');
+    expect(html).toContain('aria-valuenow="0.4"');
+    expect(renderToString(<UsageMeter used={9} pace={-10} tone="good" size={size} label="Usage" />)).toContain('--used:9');
+    expect(renderToString(<UsageMeter used={9} pace={-10} tone="good" size={size} label="Usage" />)).toContain('--pace:0');
+  }
+  const css = await Bun.file(new URL('../app/src/ds/components.css',import.meta.url)).text();
+  expect(css).toMatch(/\.pc-meter\{[^}]*overflow:hidden/);
+  expect(css).toMatch(/\.pc-meter__fill\{[^}]*border-radius:0/);
+  expect(css).toMatch(/\.pc-meter__pace\{[^}]*top:0;bottom:0;left:clamp\(0px,[^}]*calc\(100% - 2px\)\)/);
 });
