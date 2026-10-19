@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Reviewed or dismissed settled tasks archive after 14 days (configurable), with compressed logs, `tasks --all`, `tasks prune --dry-run` and `tasks restore <id>`.
+
 - Live validation supports `up --seed ui` for isolated setup-complete UI sample data without starting executors.
 
 ### Fixed
