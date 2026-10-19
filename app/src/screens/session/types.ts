@@ -9,7 +9,7 @@ export interface SessionData {
  id:string; title?:string; goal:string; state:string; executor:string|null; agent:string; repo:string; branch?:string|null; machine?:string|null; started?:string; phase?:string; changesSummary?:string; elapsed?:string;
  session?:SessionInfo|null; sessionLoading?:boolean; sessionError?:string;
  brief?:Resource<string>; doneWhen?:Resource<string>; changes?:Resource<string>; log?:Resource<string>;
- timeline?:Resource<{at:string;text:string}[]>;
+ timeline?:Resource<{at:string;text:string;raw?:string}[]>;
  stop?:Action|null; retryOptions?:RetryOption[]; retryLoading?:boolean; retryError?:string;
 }
 export interface SessionActions { onAction?:(action:Action)=>void|Promise<unknown>; onAttach?:(id:string,target:'orca'|'terminal')=>void|Promise<{opened:boolean;command?:string}|void> }

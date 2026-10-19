@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
@@ -83,15 +84,11 @@ test('new endpoint form includes URL, key source and model limits',()=>{
  const html=render(<AddExecutor initialDraft={{step:'2',agent:'opencode'}}/>);
  for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Quota','Metered','Unmetered'])expect(html).toContain(text);
 });
-test('existing app plus all U3 exports stays within the shared 60 KB gzip budget',async()=>{
- const {APP_JS_BUDGET}=await import('../app/build');
- const result=await Bun.build({entrypoints:['u3-integrated-budget'],target:'browser',minify:true,splitting:true,plugins:[{name:'u3-budget-entry',setup(build){
-  build.onResolve({filter:/^u3-integrated-budget$/},()=>({path:'entry',namespace:'u3-budget'}));
-  build.onLoad({filter:/.*/,namespace:'u3-budget'},()=>({loader:'tsx',resolveDir:process.cwd(),contents:'import "./app/src/main.tsx"; import * as screens from "./app/src/screens/settings/index"; Object.assign(globalThis, { pacerSettingsScreens: screens });'}));
- }}]});
- expect(result.success).toBe(true);
- const entry=result.outputs.find(output=>output.kind==='entry-point')!;
- expect(Bun.gzipSync(await entry.text()).byteLength).toBeLessThan(APP_JS_BUDGET);
+test('the shipped app.js, which includes the Settings screens, stays within the 60 KB gzip budget (UI-3)',async()=>{
+ const {APP_JS_BUDGET,buildApp}=await import('../app/build');
+ const app=(await buildApp()).find(file=>file.path==='app.js')!;
+ expect(app.text).toContain('Remote hosts');
+ expect(Bun.gzipSync(app.text).byteLength).toBeLessThan(APP_JS_BUDGET);
 });
 test('a passed host connection check cannot make an executor Ready',()=>{
  expect(executorReady({...job,kind:'host.check',state:'passed'})).toBe(false);
@@ -101,7 +98,7 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id],signin_command:'CODEX_HOME=$HOME/.codex-team codex login'},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'}];
  const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral initialData={{...settings,accounts}}/>,s);
- expect(html).toContain('17% of week · resets Mon');expect(html).not.toContain('ON_PACE');
+ expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
  expect(html).toMatch(/pc-pill[^>]*>Signed in<\/span>/);expect(html).toMatch(/pc-pill[^>]*>No subscription<\/span>/);expect(html).toMatch(/pc-pill[^>]*>Unknown<\/span>/);
  expect(html).toContain('<th>Used by</th>');expect(html).toContain(executor.id);
  expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');

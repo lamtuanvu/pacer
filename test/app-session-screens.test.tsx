@@ -179,3 +179,18 @@ test('session adapters preserve review outcome and suppression fields', async ()
  const task={id:'ended',goal:'Finished',state:'done',executor:'codex',backend:null,worktree:null,updatedAt:0,review:{accepted:true,kind:null,note:null,at:1},resolved:'handled',dismissed:true,retriedBy:'retry'};
  expect(sessionRow(task)).toMatchObject({review:task.review,resolved:'handled',dismissed:true,retriedBy:'retry'});
 });
+
+test('session detail maps and deduplicates timeline events with raw copy collapsed', async () => {
+ const {sessionDetail}=await import('../app/src/screens/session/controller');
+ const detail=(await import('./fixtures/ui/task-get.json')).default;
+ const model=sessionDetail({...detail,branch:null,timeline:[{at:1,text:'hook: PostToolUse'},{at:1,text:'hook: PostToolUse'},{at:2,text:'Testing'},{at:3,text:'partial'}]} as unknown as import('../src/core/task-detail').TaskDetail);
+ const html=renderToString(<Session data={model}/>);
+ const visible=html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g,'');
+ expect(visible).toContain('Branch not recorded');
+ expect(visible).toContain('Running checks');
+ expect(visible).toContain('Run ended with work to review');
+ expect(visible.match(/Agent finished a tool step/g)).toHaveLength(1);
+ expect(visible).not.toContain('hook:');
+ expect(html).toContain('<summary>Technical event details</summary>');
+ expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+});

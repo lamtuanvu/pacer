@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { PlannerMeter } from "../../../src/api/read-model/types";
 import { agentInfo } from "../../../src/view-model/agents";
-import { ago, clock } from "../../../src/view-model/format";
+import { ago, clock } from "../../../src/view-model/time";
 import { modeWords, paceStatus } from "../../../src/view-model/words";
 import { AgentMark } from "../ds/AgentMark";
 import { Button } from "../ds/Button";

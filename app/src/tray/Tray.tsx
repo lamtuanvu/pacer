@@ -5,7 +5,8 @@ import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { BrowserApi } from "../data/api";
 import type { Action } from "../../../src/attention/types";
 import { agentInfo, markAgent, runnerAgent } from "../../../src/view-model/agents";
-import { backIn, clock, elapsed, meterText } from "../../../src/view-model/format";
+import { backIn, clock, elapsed } from "../../../src/view-model/time";
+import { meterText } from "../../../src/view-model/format";
 import { attentionStatus, executorStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
 import { plannerMeter } from "../../../src/view-model/selectors";
 import { AgentMark } from "../ds/AgentMark";
@@ -78,7 +79,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const pauseLabel = snapshot?.pause ? "Resume delegation" : "Pause delegation for 1 hour";
   const next = model?.queued[0];
   const nextExecutor = next?.executor ? agentInfo(runnerAgent(next.executor)).name : "executor";
-  const timeOnly = (at: number) => new Date(at * 1000).toLocaleTimeString("en-GB", { hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
+  const timeOnly = (at: number) => clock(at, snapshot?.at ?? Date.now() / 1000);
   return <main className="tray" ref={root} aria-label="pacer tray" aria-busy={busy}>
     <header className="tray-planner">
       <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label tray-grow">planner</span><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div>
@@ -110,7 +111,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       {model.active.length > 0 && <section className="tray-section" aria-label="Running"><h2>Running</h2>
         {model.active.slice(0, 3).map(task => <a key={task.id} className="tray-running" href={appHref(`/sessions/${encodeURIComponent(task.id)}`)} onClick={navigate(`/sessions/${encodeURIComponent(task.id)}`)}>
           <AgentMark agent={runnerAgent(task.executor ?? "unknown")} size={16} labelled={false} /><span className="tray-grow tray-ellipsis" title={shortTitle(task)}>{shortTitle(task)}</span>
-          <span className="tray-repo tray-ellipsis">{task.repo?.label}</span><span className={`tray-phase pc-status--${taskStatus(task).tone}`}><StatusGlyph status={taskStatus(task)} />{taskStatus(task).label} {elapsed(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt))}</span>
+          <span className="tray-repo tray-ellipsis">{task.repo?.label}</span><span className={`tray-phase pc-status--${taskStatus(task).tone}`}><StatusGlyph status={taskStatus(task)} />{taskStatus(task).label} · running for {elapsed(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt))}</span>
         </a>)}
         {model.active.length > 3 && <a className="tray-more" href={appHref("/sessions")} onClick={navigate("/sessions")}>+{model.active.length - 3} more in the app</a>}
       </section>}
