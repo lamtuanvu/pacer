@@ -148,3 +148,5 @@ The Orca plugin uses only the API transport, with HTTP v2 or stdio.
 It waits up to 300 ms, then uses local budget data without counts. When the
 service is unavailable and the stored snapshot is over 120 seconds old, it
 prints `pacer not running · pacer serve`.
+
+The **Delegate** dialog starts with the active repository filter, an unfinished draft’s repository, or the last repository successfully used in the dialog. It remembers the last used repository across app restarts. Choose an optional **Kind** to guide routing; the preview updates with the goal, repository and kind and shows the next executor. Submit with **Cmd+Enter** (or **Ctrl+Enter**).

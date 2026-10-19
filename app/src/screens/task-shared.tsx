@@ -55,14 +55,14 @@ export function useAction() {
   }
   return { busy, error, message, run };
 }
-export function useDraft<T extends { [K in keyof T]: string }>(key: string, defaults: T) {
+export function useDraft<T extends { [K in keyof T]: string }>(key: string, defaults: T, initialize: (saved: T) => T = saved => saved) {
   // Resolve sessionStorage lazily too: browsers may deny access to the property.
   const storage = draftStorage(key, defaults, {
     getItem: name => sessionStorage.getItem(name),
     setItem: (name, value) => sessionStorage.setItem(name, value),
     removeItem: name => sessionStorage.removeItem(name),
   });
-  const [draft, update] = useState<T>(() => storage.read());
+  const [draft, update] = useState<T>(() => initialize(storage.read()));
   const current = useRef(draft);
   const setDraft = (value: T | ((previous: T) => T)) => {
     const next = typeof value === "function" ? value(current.current) : value;
