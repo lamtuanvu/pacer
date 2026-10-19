@@ -30,15 +30,15 @@ test("the repo filter and scope come from the query and survive", () => {
 });
 
 test("old routes fall back to Overview and keep the repo filter and scope", () => {
-  for (const hash of ["#/tasks", "#/tasks/t1", "#/executors", "#/executors/add", "#/accounts", "#/strategy", "#/hosts", "#/setup"]) {
+  for (const hash of ["#/tasks", "#/tasks/t1", "#/executors", "#/executors/add", "#/accounts", "#/strategy", "#/hosts"]) {
     expect(resolveRoute(hash)).toEqual({ name: "overview", query: q });
     expect(resolveRoute(`${hash}?repo=k&scope=all`)).toEqual({ name: "overview", query: { repo: "k", scope: "all" } });
   }
 });
 
-test("incomplete setup redirects to Settings except within settings", () => {
-  for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing", "#/tasks/t1"]) expect(resolveRoute(hash, false)).toEqual({ redirect: "#/settings" });
-  expect(resolveRoute("#/review/one?repo=k&scope=all", false)).toEqual({ redirect: "#/settings?repo=k&scope=all" });
+test("incomplete setup redirects to Setup except within settings", () => {
+  for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing", "#/tasks/t1"]) expect(resolveRoute(hash, false)).toEqual({ redirect: "#/setup" });
+  expect(resolveRoute("#/review/one?repo=k&scope=all", false)).toEqual({ redirect: "#/setup?repo=k&scope=all" });
   expect(route("#/settings", false).name).toBe("settings");
   expect(route("#/settings/hosts", false).name).toBe("hosts");
   expect(route("#/settings/add-executor", false).name).toBe("add-executor");
@@ -56,4 +56,11 @@ test("setup is unknown until a setup check answers; a failed check keeps waiting
   expect(setupCompleteFrom("error")).toBeNull();
   expect(setupCompleteFrom({ complete: false })).toBe(false);
   expect(setupCompleteFrom({ complete: true })).toBe(true);
+});
+
+test("Setup is reachable after required completion and Settings remains available before it", () => {
+  expect(route("#/setup", false).name).toBe("setup");
+  expect(route("#/setup", true).name).toBe("setup");
+  expect(route("#/setup", null).name).toBe("loading");
+  expect(route("#/settings", false).name).toBe("settings");
 });
