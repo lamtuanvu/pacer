@@ -1,3 +1,4 @@
+import { readPluginReload } from "../attention/plugin-reload";
 import type { Ctx } from "../types";
 import { loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
@@ -15,13 +16,13 @@ async function raisedItems(ctx: Ctx) {
   let strategy;
   try { strategy=loadStrategy(ctx); } catch {
     const context=await readModelContext(ctx);
-    return deriveItems({now:ctx.now,tasks:snapshotTasks(ctx,listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t)),executors:[],accounts:[],planner:null,setup:buildSetup(context.setup),update:null,retryTarget:()=>null});
+    return deriveItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks:snapshotTasks(ctx,listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t)),executors:[],accounts:[],planner:null,setup:buildSetup(context.setup),update:null,retryTarget:()=>null});
   }
   const [status,context]=await Promise.all([computeStatus({...ctx,readOnly:true},strategy),readModelContext(ctx)]);
   const tasks=snapshotTasks(ctx,listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t));
   const executors=buildExecutors(status,strategy,tasks,ctx.now);
   const accounts=buildAccounts(status,strategy).map(a=>({...a,signedIn:context.accounts.find(row=>row.name===a.name)?.signedIn??null}));
-  return deriveItems({now:ctx.now,tasks,executors,accounts,planner:buildPlanner(status),setup:buildSetup(context.setup),update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)});
+  return deriveItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks,executors,accounts,planner:buildPlanner(status),setup:buildSetup(context.setup),update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)});
 }
 export async function dismiss(ctx: Ctx, id: string) {
   return dismissItem(ctx,id,await raisedItems(ctx),item=>{if(item.taskId)dismissTasks(ctx,[item.taskId]);});
