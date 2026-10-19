@@ -52,6 +52,9 @@ function registered(ctx: Ctx,path: string): Entry | undefined {
  const root=roots.find(root=>p===root || p.startsWith(root+sep));
  return root ? reg[aliases[root]??root] : undefined;
 }
+export function registeredRepo(ctx: Ctx, path: string): RepoRef | undefined {
+ return registered(ctx,path) ? repoFor(ctx,path) : undefined;
+}
 export function repoFor(ctx: Ctx,path: string): RepoRef {
  const e=registered(ctx,path);
  return e ? {key:e.key,path:e.path,label:labelsFor(Object.values(registry(ctx))).get(e.key)!} : fallback(cachedCanonical(path));

@@ -1,3 +1,5 @@
+import { projectSnapshot } from "./project-policy";
+import { projectPolicy } from "../engine/project-routing";
 import { classifierConfig } from "../config/classifier";
 import { decide } from "../classify/decide";
 import { buildAdapters } from "../classify/registry";
@@ -24,11 +26,12 @@ export async function route(ctx: Ctx, kind: string | null, s: Strategy = loadStr
     const value=result.answer.value;
     if(typeof value==="string" && (KINDS as readonly string[]).includes(value))kind=value;
   }
+  const selection = repo ? projectSnapshot(ctx, s, repo.key).selection : undefined;
   const st = await computeStatus(ctx, s);
   await Promise.all(st.providers.map(async p => {
     const reason = await remoteExclusion(ctx, s, p.id, repo ? {repo:repo.path,placement:"new"} : undefined);
     if (reason) p.unavailableReason = reason;
   }));
-  const r = rankExecutors(kind, s, Object.fromEntries(st.providers.map((p) => [p.id, p])));
-  return { kind, ranked: r.ranked, excluded: r.excluded };
+  const r = rankExecutors(kind, s, Object.fromEntries(st.providers.map((p) => [p.id, p])), selection && { executors: selection.executors, order: "configured" });
+  return { ...(selection ? { policy: projectPolicy(selection) } : {}), kind, ranked: r.ranked, excluded: r.excluded };
 }

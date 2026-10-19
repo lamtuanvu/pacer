@@ -243,7 +243,7 @@ async function retryTask(
   if (!isTaskId(id)) throw unknown(id);
   // Resolve repo identity before taking the synchronous task lock (it runs git).
   const before = readTask(ctx, id);
-  const repoRef = before ? before.repo ?? await resolveRepo(ctx, before.brief.repo) : undefined;
+  const repoRef = before ? await resolveRepo(ctx, before.brief.repo) : undefined;
   if (before) await requireRepoDirectory(before.brief.repo);
   let answerBase: string | undefined;
   if (o.answerText !== undefined && before?.state === "needs_input" && before.question && before.question.answer === undefined && !before.retriedBy) {
