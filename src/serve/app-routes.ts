@@ -22,6 +22,12 @@ a:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-
 input { display: block; width: 100%; margin-top: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-page); color: var(--ink); font-family: var(--font-mono); }
 `;
 const PAGE_CSP = APP_HEADERS["Content-Security-Policy"].replace("style-src 'self'", `style-src 'self' 'sha256-${createHash("sha256").update(PAGE_STYLE).digest("base64")}'`);
+// After sign-in, hop to the app from a same-origin page. A 303 straight to /app/ keeps the
+// navigation cross-site when it started outside this origin (the desktop shell's own page),
+// so the SameSite=Strict session cookie would be withheld and the app would read "Session ended".
+const HOP_SCRIPT = `location.replace("/app/" + location.hash);`;
+const HOP_CSP = APP_HEADERS["Content-Security-Policy"].replace("script-src 'self'", `script-src 'sha256-${createHash("sha256").update(HOP_SCRIPT).digest("base64")}'`);
+const HOP_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>pacer</title><noscript><meta http-equiv="refresh" content="0;url=/app/"></noscript></head><body><script>${HOP_SCRIPT}</script></body></html>`;
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '\"': "&quot;", "'": "&#39;" })[char]!);
 }
@@ -45,9 +51,8 @@ export function appRoute(req: Request, ctx: Ctx): Response {
   if (url.pathname === "/app/auth") {
     if (req.method !== "GET") return appPage("Method not allowed.", 405);
     if (!redeemCode(ctx, url.searchParams.get("code") ?? "")) return appPage("This link has expired. Run `pacer open` again.", 403);
-    // A redirect without a fragment inherits the original fragment in the browser.
-    return new Response(null, { status: 303, headers: {
-      ...APP_HEADERS, "Cache-Control": "no-store", Location: "/app/",
+    return new Response(HOP_PAGE, { status: 200, headers: {
+      ...APP_HEADERS, "Content-Security-Policy": HOP_CSP, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store",
       "Set-Cookie": sessionCookie(ctx),
     } });
   }

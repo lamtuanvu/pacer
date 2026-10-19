@@ -330,7 +330,8 @@ pub fn auth_url(raw: &str) -> Result<Url, String> {
         || !url.username().is_empty()
         || url.password().is_some()
         || url.path() != "/app/auth"
-        || url.fragment().is_some()
+        // `pacer open --print` appends the app route to open (e.g. `#/` or `#/sessions/<id>`).
+        || url.fragment().is_some_and(|f| !f.starts_with('/'))
         || codes.len() != 1
         || codes[0].0 != "code"
         || codes[0].1.is_empty()
@@ -827,6 +828,9 @@ mod tests {
     #[test]
     fn auth_is_loopback_only() {
         assert!(auth_url("http://127.0.0.1:7432/app/auth?code=abc").is_ok());
+        // What `pacer open --print` prints: the app route rides in the fragment.
+        assert!(auth_url("http://127.0.0.1:4317/app/auth?code=abc#/").is_ok());
+        assert!(auth_url("http://127.0.0.1:4317/app/auth?code=abc#/sessions/t-1").is_ok());
         for bad in [
             "http://localhost:7432/app/auth?code=x",
             "https://127.0.0.1/app/auth?code=x",
