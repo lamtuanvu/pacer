@@ -35,14 +35,25 @@ function ProjectStrategyEditor({ repo, initialData }: { repo: string; initialDat
   const [dirty, setDirty] = useState(false), [add, setAdd] = useState("");
   const action = useOperation();
   const reorderFocus = useRef<HTMLButtonElement>();
+  const editor = useRef<HTMLDivElement>(null), lastControl = useRef<HTMLButtonElement>();
+  const rememberControl = (event: FocusEvent) => { if (event.target instanceof HTMLButtonElement) lastControl.current=event.target; };
+  useLayoutEffect(() => {
+    const control=lastControl.current;
+    if (control && (!control.isConnected || control.disabled)) {
+      if (document.activeElement===document.body || document.activeElement===control) {
+        editor.current?.closest(".pc-project-strategies")?.querySelector<HTMLSelectElement>("select")?.focus();
+      }
+      lastControl.current=undefined;
+    }
+  });
   useLayoutEffect(() => { reorderFocus.current?.focus(); reorderFocus.current=undefined; }, [draft]);
   useEffect(() => { if (view && !dirty && (!draft || view.rev >= draft.rev)) setDraft(projectDraft(view)); }, [view, dirty]);
   const saved = (result: ProjectStrategyView) => { query.setData(result); setDraft(projectDraft(result)); setDirty(false); setAdd(""); };
   const edit = (executors: string[]) => { setDraft(previous => previous && { ...previous, executors }); setDirty(true); };
   const disabled = !state.connected || action.busy;
-  if (!view || !draft) return <><p role="status">{query.error ? "Project strategy could not be loaded." : "Loading project strategy…"}</p><ErrorMessage error={query.error}/>{query.error && <Button onClick={query.reload}>Try again</Button>}</>;
+  if (!view || !draft) return <div ref={editor} onFocusCapture={rememberControl}><p role="status">{query.error ? "Project strategy could not be loaded." : "Loading project strategy…"}</p><ErrorMessage error={query.error}/>{query.error && <Button onClick={query.reload}>Try again</Button>}</div>;
   const remaining = view.available.filter(runner => !draft.executors.includes(runner.reference));
-  return <div className="pc-project-editor">
+  return <div ref={editor} onFocusCapture={rememberControl} className="pc-project-editor">
     <p><strong>{view.executors ? "Project order" : "Using global strategy"}</strong>{dirty ? " · Unsaved changes" : " · Saved"}</p>
     {view.rev !== draft.rev && <p role="status">Another client changed this strategy. Your draft is preserved. Reload the saved order before saving again.</p>}
     <ErrorMessage error={query.error}/>
