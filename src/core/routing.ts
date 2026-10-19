@@ -5,7 +5,7 @@ import { decide } from "../classify/decide";
 import { buildAdapters } from "../classify/registry";
 import { QUESTIONS } from "../classify/state";
 import { KINDS } from "../config/strategy";
-import { resolveRepoInput } from "./repos";
+import { resolvePolicyRepoInput } from "./project-policy";
 import { type Strategy, loadStrategy } from "../config/strategy";
 import { rankExecutors } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
@@ -17,7 +17,7 @@ export function status(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<Statu
 }
 
 export async function route(ctx: Ctx, kind: string | null, s: Strategy = loadStrategy(ctx), o: {goal?:string;repo?:string} = {}) {
-  const repo=o.repo===undefined?undefined:await resolveRepoInput(ctx,o.repo);
+  const repo=o.repo===undefined?undefined:await resolvePolicyRepoInput(ctx,o.repo);
   if(kind===null && o.goal!==undefined) {
     const cfg=classifierConfig(s);
     const result=await decide(ctx,cfg,buildAdapters(ctx,cfg,cfg.timeoutMs),{

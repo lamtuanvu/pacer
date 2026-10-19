@@ -1,6 +1,6 @@
 import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { projectSnapshot, requireProjectExecutor } from "../core/project-policy";
-import { resolveRepo } from "../core/repos";
+import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy";
 import { projectPolicy, type ProjectSelection } from "../engine/project-routing";
 import { queueCapacity } from "./capacity";
 import { persistTaskDiff } from "./diff";
@@ -152,7 +152,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
         }
         s = deps.loadStrategy(ctx);
-        const repo = await resolveRepo(ctx, task.brief.repo);
+        const repo = task.repo && !task.repo.identityUnverified ? task.repo : await resolvePolicyRepo(ctx, task.brief.repo);
         if (task.repo?.key !== repo.key) task = updateTask(ctx, id, t => { t.repo = repo; });
         const snapshot = projectSnapshot(ctx, s, repo.key);
         selection = snapshot.selection;
@@ -193,6 +193,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const allowed = Array.isArray(f) ? rankedIds.filter(x => f.includes(x)) : rankedIds;
         let policyChanged = false;
         await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
+          requirePolicyIdentity(ctx, repo);
           if (projectRevision(readProjectStrategies(ctx), repo.key) !== snapshot.rev) { policyChanged = true; return; }
           if (stopped(ctx, id)) return;
           const use = slotUse(listTasksWhere(ctx, { states: ["running"] }).filter(t => t.id !== id));

@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
-import { fakeCtx, withLoginIndicators } from "./helpers";
+import { fakeCtx, gitRepo, realRun, withLoginIndicators } from "./helpers";
 
 function setup() {
-  const ctx = withLoginIndicators(fakeCtx()); ctx.env.PACER_API = "inprocess";
+  const ctx = withLoginIndicators(fakeCtx({home:gitRepo(),run:realRun})); ctx.env.PACER_API = "inprocess";
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n  cursor: {}\n");
   return ctx;

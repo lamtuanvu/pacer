@@ -23,8 +23,11 @@ export function QuickDelegate({ filterRepo }: { filterRepo: string | null }) {
   const action = useAction();
   const [error, setError] = useState<unknown>();
   const next = routing.data?.ranked[0];
+  const blocked=action.busy || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
   return <form className="pc-quick" onSubmit={event => {
-    event.preventDefault(); setError(undefined);
+    event.preventDefault();
+    if (blocked) return;
+    setError(undefined);
     try {
       const params = delegateParams({ goal, repo, base: "", acceptance: "", executor: "", kind: "" }, ops, requestId, repos.map(r => r.key));
       void action.run<TaskSummary>("task.delegate", params, task => { setGoal(""); location.hash = taskHref(task.task_id); });
@@ -34,9 +37,9 @@ export function QuickDelegate({ filterRepo }: { filterRepo: string | null }) {
     <div className="row">
       <Select className="pc-select" id="qd-repo" aria-label="Repository" value={repo} onChange={e => setRepo(e.currentTarget.value)}>{repos.map(r => <option key={r.key} value={r.key} selected={r.key === repo}>{r.label}</option>)}</Select>
       <span className="grow" />
-      <Button type="submit" size="sm" disabled={action.busy || !goal.trim() || (ops.has("project.strategy.get") && (routing.loading || !!routing.error))}>{action.busy ? "Delegating…" : "Delegate"}</Button>
+      <Button type="submit" size="sm" disabled={blocked || !goal.trim()}>{action.busy ? "Delegating…" : "Delegate"}</Button>
     </div>
-    <DelegateRoutingPreview routing={routing.data} executor="" loading={routing.loading}/>
+    <DelegateRoutingPreview routing={routing.data} executor="" loading={routing.loading} repoLabel={repos.find(r=>r.key===repo)?.label}/>
     <ErrorMessage error={error ?? action.error ?? routing.error} />
   </form>;
 }

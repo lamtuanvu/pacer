@@ -83,7 +83,7 @@ test("deleted linked worktrees retain the main repo identity on resolution and r
  expect(await resolveRepo(ctx,join(wt,"."))).toEqual(main);
  rmSync(wt,{recursive:true});
  const offline={...ctx,run:async()=>{throw Error("no git for deleted paths");}};
- expect(await resolveRepo(offline,wt)).toEqual(main);
+ expect(await resolveRepo(offline,wt)).toEqual({...main,identityUnverified:true});
  expect(repoFor(offline,join(wt,"src"))).toEqual(main);
  expect(listRepos(ctx)).toEqual([main]);
  expect(Object.keys(await Bun.file(join(ctx.pacerHome,"state","repos.json")).json())).toEqual([realpathSync(repo)]);
@@ -91,7 +91,7 @@ test("deleted linked worktrees retain the main repo identity on resolution and r
 
 test("missing unknown paths never create registry entries during resolution or backfill",async()=>{
  const ctx=fakeCtx({run:realRun}),folder=tmpDir();rmSync(folder,{recursive:true});
- expect(await resolveRepo(ctx,folder)).toEqual(repoFor(ctx,folder));
+ expect(await resolveRepo(ctx,folder)).toEqual({...repoFor(ctx,folder),identityUnverified:true});
  await backfillRepos(ctx,[folder]);
  expect(listRepos(ctx)).toEqual([]);
  expect(await Bun.file(join(ctx.pacerHome,"state","repos.json")).exists()).toBe(false);
@@ -107,7 +107,7 @@ test("unresolved paths fall back without recording or pruning the registry",asyn
   if(mode==="missing")rmSync(folder,{recursive:true});
   if(mode==="git-fails")ctx.run=async()=>{throw Error("git unavailable");};
   const ref=await resolveRepoInput(ctx,folder);
-  expect(ref).toEqual(repoFor(ctx,folder));
+  expect(ref).toEqual({...repoFor(ctx,folder),identityUnverified:true});
   expect(ref.key).toMatch(/^local:[0-9a-f]{12}$/);
   expect(await registryFile.text()).toBe(before);
  }

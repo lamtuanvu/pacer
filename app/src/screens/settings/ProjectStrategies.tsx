@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Field, Select } from "../../ds/Controls";
 import { Button } from "../../ds/Button";
 import { SectionHeading } from "../../ds/SectionHeading";
@@ -34,6 +34,8 @@ function ProjectStrategyEditor({ repo, initialData }: { repo: string; initialDat
   const [draft, setDraft] = useState(view ? projectDraft(view) : undefined);
   const [dirty, setDirty] = useState(false), [add, setAdd] = useState("");
   const action = useOperation();
+  const reorderFocus = useRef<HTMLButtonElement>();
+  useLayoutEffect(() => { reorderFocus.current?.focus(); reorderFocus.current=undefined; }, [draft]);
   useEffect(() => { if (view && !dirty && (!draft || view.rev >= draft.rev)) setDraft(projectDraft(view)); }, [view, dirty]);
   const saved = (result: ProjectStrategyView) => { query.setData(result); setDraft(projectDraft(result)); setDirty(false); setAdd(""); };
   const edit = (executors: string[]) => { setDraft(previous => previous && { ...previous, executors }); setDirty(true); };
@@ -51,8 +53,8 @@ function ProjectStrategyEditor({ repo, initialData }: { repo: string; initialDat
         return <li key={reference} className="pc-project-row">
           <div className="pc-project-label"><strong>{label}</strong><span className="u3-muted">{!runner ? "Unavailable in the active strategy · " : ""}{index === 0 ? "First choice" : `Fallback ${index}`}</span></div>
           <div className="u3-actions">
-            <Button size="sm" aria-label={`Move ${label} up`} aria-disabled={index === 0} disabled={disabled} onClick={() => { if (index > 0) edit(moveExecutor(draft.executors, index, -1)); }}>Move up</Button>
-            <Button size="sm" aria-label={`Move ${label} down`} aria-disabled={index === draft.executors.length - 1} disabled={disabled} onClick={() => { if (index < draft.executors.length - 1) edit(moveExecutor(draft.executors, index, 1)); }}>Move down</Button>
+            <Button size="sm" aria-label={`Move ${label} up`} aria-disabled={index === 0} disabled={disabled} onClick={event => { if (index > 0) { reorderFocus.current=event.currentTarget; edit(moveExecutor(draft.executors, index, -1)); } }}>Move up</Button>
+            <Button size="sm" aria-label={`Move ${label} down`} aria-disabled={index === draft.executors.length - 1} disabled={disabled} onClick={event => { if (index < draft.executors.length - 1) { reorderFocus.current=event.currentTarget; edit(moveExecutor(draft.executors, index, 1)); } }}>Move down</Button>
             <Button size="sm" aria-label={`Remove ${label}`} disabled={disabled} onClick={() => edit(draft.executors.filter(value => value !== reference))}>Remove</Button>
           </div>
         </li>;
@@ -65,7 +67,7 @@ function ProjectStrategyEditor({ repo, initialData }: { repo: string; initialDat
     <div className="u3-actions">
       <Button variant="primary" disabled={disabled || !dirty || !draft.executors.length} onClick={() => void action.run("project.strategy.set", {repo, executors:draft.executors, expect_rev:draft.rev}, saved)}>Save project strategy</Button>
       {view.executors && <Button disabled={disabled} onClick={() => void action.run("project.strategy.remove", {repo, expect_rev:draft.rev}, saved)}>Use global strategy</Button>}
-      {(dirty || action.error || query.error) && <Button disabled={action.busy} onClick={() => { setDirty(false); query.reload(); }}>Reload saved order</Button>}
+      {(dirty || action.error || query.error) && <Button disabled={action.busy} onClick={() => { setDirty(false); action.clear(); query.reload(); }}>Reload saved order</Button>}
     </div>
     {action.busy && <p role="status">Saving project strategy…</p>}
     <Feedback action={action}/>

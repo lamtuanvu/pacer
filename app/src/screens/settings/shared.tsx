@@ -66,7 +66,7 @@ export function useOperation(onDone?:()=>void) {
   },op,params);setResult(r);await done?.(r.data);if(!r.jobId)onDone?.();return r;}
   catch(e){setError(e);}finally{pending.current=false;setBusy(false);}
  }
- return {busy:busy||job?.state==='running',error,result,job,run};
+ return {busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};
 }
 export function JobProgress({job}:{job:Job}) {
  return <div className="u3-progress" role="status" aria-live="polite"><TextRow label="Check progress" value={jobKindCopy(job.kind)} meta={jobStateCopy(job.state)} /><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{jobStateCopy(step.state)}</span> {step.name}{step.detail&&<span className="u3-muted"> · {step.detail}</span>}</li>)}</ul>{job.error&&<><p>{job.error.message}</p>{job.error.hint&&<p>{job.error.hint}</p>}</>}</div>;

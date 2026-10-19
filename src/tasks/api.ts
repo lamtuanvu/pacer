@@ -1,3 +1,4 @@
+import { requirePolicyIdentity } from "../core/project-policy";
 import { readProjectStrategies } from "../config/project-strategies";
 import { resolveProjectSelection } from "../engine/project-routing";
 import { requireProjectExecutor } from "../core/project-policy";
@@ -134,6 +135,7 @@ export function delegate(
   const policies = readProjectStrategies(ctx);
   const repo = input.repoRef ?? registeredRepo(ctx, input.brief.repo);
   if (!repo && Object.values(policies.projects).some(p => p.executors)) throw new CoreError("invalid_input", "Resolve the repository before delegating with project policies");
+  if (repo) requirePolicyIdentity(ctx, repo);
   requireProjectExecutor(repo ? resolveProjectSelection(s, repo.key, policies.projects) : undefined, input.executor);
   const task = createTask(ctx, {
     title: input.title?.trim() ?? shortTitle(input.brief.goal),

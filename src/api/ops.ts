@@ -1,3 +1,4 @@
+import { resolvePolicyRepoInput } from "../core/project-policy";
 import * as projectStrategies from "../core/project-strategies";
 import { pruneTasks, restoreTask } from "../tasks/retention";
 import { parseRunnerId } from "../config/runner-id";
@@ -259,7 +260,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     params: z.object({ ...delegateSchema, repo: z.string().min(1) }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      const repoRef=await resolveRepoInput(ctx,p.repo);
+      const repoRef=await resolvePolicyRepoInput(ctx,p.repo);
       const input=parseDelegateBrief({...p,repo:isAbsolute(p.repo)?p.repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");

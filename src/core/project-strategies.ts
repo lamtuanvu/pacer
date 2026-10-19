@@ -3,7 +3,7 @@ import { isAbsolute } from "node:path";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { projectRevision, readProjectStrategies, writeProjectStrategy, type ProjectStrategyEntry } from "../config/project-strategies";
 import { projectReferences, runnerReference } from "../engine/project-routing";
-import { listRepos, resolveRepoInput } from "./repos";
+import { listRepos, resolveRepoInput, resolveRepo } from "./repos";
 import type { RepoRef } from "../api/read-model/types";
 import type { Ctx } from "../types";
 
@@ -36,7 +36,7 @@ export async function get(ctx: Ctx, value: string): Promise<ProjectStrategyView>
   return view(loadStrategy(ctx), repo, projectRevision(data, repo.key) ? data.projects[repo.key] : undefined);
 }
 export async function set(ctx: Ctx, value: string, executors: string[], expectRev: number): Promise<ProjectStrategyView> {
-  const repo = await resolve(ctx, value), strategy = loadStrategy(ctx);
+  const repo = isAbsolute(value) ? await resolveRepo(ctx, value, true) : await resolve(ctx, value), strategy = loadStrategy(ctx);
   const entry = await writeProjectStrategy(ctx, repo.key, projectReferences(strategy, executors), expectRev);
   return view(strategy, repo, entry);
 }

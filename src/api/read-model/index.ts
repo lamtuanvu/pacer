@@ -55,6 +55,7 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
 function waitingField(){const waiting=waitingIO();return waiting?{waiting}:{};}
 
 export function retryTargetFor(task:ApiTask,strategy:Strategy,executors:ExecutorRow[],policies?:ProjectStrategyFile):string|null {
+ if (task.repo.identityUnverified && policies && Object.values(policies.projects).some(p=>p.executors!==null)) return null;
  const selection=policies ? resolveProjectSelection(strategy,task.repo.key,policies.projects) : undefined;
  return (selection?.executors ?? executorsFor(task.kind,strategy)).find(id=>id!==task.executor && executors.some(e=>e.id===id && e.enabled && e.rank!=="planner" && e.state==="ready" && e.slots.used<e.slots.max))??null;
 }

@@ -1,6 +1,6 @@
 import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { projectSnapshot, requireProjectExecutor } from "../core/project-policy";
-import { resolveRepo } from "../core/repos";
+import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { resolveRunner } from "../config/runner-id";
 import { validateExecution } from "../config/execution";
@@ -40,8 +40,9 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
     for (let index = 0; index < waiting.length; index++) {
       const task = waiting[index], s = deps.loadStrategy(ctx);
       let snapshot: ReturnType<typeof projectSnapshot>;
+      let repo: import("../api/read-model/types").RepoRef;
       try {
-        const repo = await resolveRepo(ctx, task.brief.repo);
+        repo = task.repo && !task.repo.identityUnverified ? task.repo : await resolvePolicyRepo(ctx, task.brief.repo);
         snapshot = projectSnapshot(ctx, s, repo.key);
         requireProjectExecutor(snapshot.selection, task.requestedExecutor);
         if (task.repo?.key !== repo.key) updateTask(ctx, task.id, t => { t.repo = repo; });
@@ -92,6 +93,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
       let policyChanged = false;
       await withLock(ctx, "slots", async () => {
         const reserved = await withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
+        requirePolicyIdentity(ctx, repo);
         if (projectRevision(readProjectStrategies(ctx), snapshot.repoKey) !== snapshot.rev) { policyChanged = true; return; }
         const current = readTask(ctx, task.id);
         if (current?.state !== "queued" || !current.queue || readPause(ctx)) return;

@@ -1,6 +1,7 @@
+import { requirePolicyIdentity } from "./project-policy";
 import { remoteExclusion } from "../remote/eligibility";
 import { projectSnapshot } from "./project-policy";
-import { repoFor } from "./repos";
+import { repoFor, registeredRepo } from "./repos";
 import { repoFs, withTimeout } from "./path-probe";
 import { join, resolve } from "node:path";
 import { boundedGitRead } from "./git";
@@ -47,7 +48,9 @@ export interface TaskDetail extends ApiTask {
 async function optionsFor(ctx: Ctx, task: TaskRecord, cacheOnly = false): Promise<RetryOption[]> {
   let strategy;
   try { strategy = loadStrategy(ctx); } catch { return []; }
-  const selection = projectSnapshot(ctx, strategy, (task.repo ?? repoFor(ctx, task.brief.repo)).key).selection;
+  const repo = task.repo ?? registeredRepo(ctx, task.brief.repo) ?? {...repoFor(ctx,task.brief.repo),identityUnverified:true as const};
+  requirePolicyIdentity(ctx,repo);
+  const selection = projectSnapshot(ctx, strategy, repo.key).selection;
   // Reads use stored identity and never run Git or mutate the repository registry.
   const st = await computeStatus(ctx, strategy, cacheOnly ? {cacheOnly: true, profile: readJson<ActivityProfile>(join(ctx.pacerHome, "activity.json"))} : {});
   if (!cacheOnly) await Promise.all(st.providers.map(async provider => {

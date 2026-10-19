@@ -59,8 +59,8 @@ export function repoFor(ctx: Ctx,path: string): RepoRef {
  const e=registered(ctx,path);
  return e ? {key:e.key,path:e.path,label:labelsFor(Object.values(registry(ctx))).get(e.key)!} : fallback(cachedCanonical(path));
 }
-export async function resolveRepo(ctx: Ctx,path: string): Promise<RepoRef> {
- return registerRepo(ctx,path);
+export async function resolveRepo(ctx: Ctx,path: string, strict = false): Promise<RepoRef> {
+ return registerRepo(ctx,path,strict);
 }
 export async function requireRepoDirectory(path: string): Promise<void> {
  try {
@@ -81,13 +81,17 @@ async function canonicalAsync(path: string): Promise<string> {
  }
  rememberPath(p,result);return result;
 }
-async function registerRepo(ctx: Ctx,path: string): Promise<RepoRef> {
+async function registerRepo(ctx: Ctx,path: string, strict = false): Promise<RepoRef> {
+ const unresolved = () => {
+  if (strict) throw new CoreError("invalid_input", "Cannot establish repository identity for project routing", "Restore Git access and retry; project policy cannot safely fall back to global routing.");
+  return { ...repoFor(ctx,path), identityUnverified: true as const };
+ };
  const canon=canonicalAsync;
  const run=(args:string[],ms:number)=>boundedGitRead(ctx.run,args,Math.min(ms,2000));
  // Missing linked checkouts retain their saved aliases; unavailable folders fail fast.
- try { if (!(await withTimeout(()=>repoFs.stat(path))).isDirectory()) return repoFor(ctx,path); }
+ try { if (!(await withTimeout(()=>repoFs.stat(path))).isDirectory()) return unresolved(); }
  catch(error) {
-  if (["ENOENT","ENOTDIR"].includes((error as NodeJS.ErrnoException).code??"")) return repoFor(ctx,path);
+  if (["ENOENT","ENOTDIR"].includes((error as NodeJS.ErrnoException).code??"")) return unresolved();
   markPathUnreachable(path);
   throw new CoreError("invalid_input", `repo folder is not responding: ${path}`);
  }
@@ -96,13 +100,17 @@ async function registerRepo(ctx: Ctx,path: string): Promise<RepoRef> {
   // Identity does not depend on HEAD or status succeeding (e.g. an unborn branch).
   const info=await run(["git","-C",path,"rev-parse","--path-format=absolute","--show-toplevel","--git-common-dir"],2000);
   const [root,common]=info.stdout.trim().split("\n");
-  if(info.code!==0||!root||!common)return repoFor(ctx,path);
+  if(info.code!==0||!root||!common)return unresolved();
   top=await canon(root);main=await canon(dirname(resolve(path,common)));
   const origin=await run(["git","-C",main,"remote","get-url","origin"],2000);
   if(origin.code===0)key=repoKey(origin.stdout.trim());
+  else {
+   const remotes = await run(["git","-C",main,"remote"],2000);
+   if (remotes.code !== 0 || remotes.stdout.trim().split("\n").includes("origin")) return unresolved();
+  }
  } catch(error) {
   if (/timed out/.test(String(error))) { markPathUnreachable(path); throw new CoreError("invalid_input", `repo folder is not responding: ${path}`); }
-  return repoFor(ctx,path);
+  return unresolved();
  }
  const reg=registry(ctx);
  const entry={key:key??reg[main]?.key??fallback(main).key,path:main,lastUsed:ctx.now};

@@ -40,3 +40,25 @@ test("project edit conflicts preserve the service error and reload guidance", as
   const runner=createActionRunner({call:async()=>{throw new ApiError("conflict","Project strategy changed","Reload and review your draft");},waitFor:async()=>false,refetch:()=>{},navigate:()=>{}});
   expect(await runner.run("project",{label:"Save",op:"project.strategy.set",params:{}})).toEqual({status:"error",message:"Project strategy changed",hint:"Reload and review your draft"});
 });
+
+test("project preview names the repository without exposing its storage key", async () => {
+  const {DelegateRoutingPreview}=await import("../app/src/screens/Delegate");
+  const routing={ranked:[],excluded:[],policy:{source:"project" as const,repoKey:"local:deadbeef",rev:1,executors:[]}};
+  const html=renderToString(<DelegateRoutingPreview routing={routing} executor="" repoLabel="My project"/>);
+  expect(html).toContain("Project order for My project");
+  expect(html).not.toContain("deadbeef");
+});
+
+test("keyboard submission waits for the current repository routing check",async()=>{
+  const {handleDelegateKey}=await import("../app/src/screens/Delegate");
+  let submitted=0;
+  handleDelegateKey({key:"Enter",ctrlKey:true,metaKey:false,isComposing:false,repeat:false,preventDefault(){},stopPropagation(){}},()=>{submitted++;},true);
+  expect(submitted).toBe(0);
+});
+
+test("an unavailable project preview explains each excluded executor", async()=>{
+  const {DelegateRoutingPreview}=await import("../app/src/screens/Delegate");
+  const routing={ranked:[],excluded:[{id:"codex",reason:"signed out — run codex login"},{id:"cursor",reason:"at capacity"}],policy:{source:"project" as const,repoKey:"local:project",rev:1,executors:[]}};
+  const html=renderToString(<DelegateRoutingPreview routing={routing} executor="" repoLabel="Project"/>);
+  expect(html).toContain("Codex: signed out");expect(html).toContain("Cursor: at capacity");
+});

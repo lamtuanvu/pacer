@@ -20,13 +20,13 @@ export function handleDelegateKey(
   event.preventDefault(); event.stopPropagation();
   if (!busy && !event.repeat) submit();
 }
-export function DelegateRoutingPreview({ routing, executor, accounts = [], loading = false }: { routing?: Routing; executor: string; accounts?: Account[]; loading?: boolean }) {
+export function DelegateRoutingPreview({ routing, executor, accounts = [], loading = false, repoLabel }: { routing?: Routing; executor: string; accounts?: Account[]; loading?: boolean; repoLabel?: string }) {
   const next = routing?.ranked[0];
   return <p className="muted" aria-live="polite">{executor
     ? `Goes to ${executorLabel(executor, accounts)} · selected executor`
     : loading ? "Checking routing…"
     : next ? `Goes to ${executorLabel(next.id, accounts)} now · next in line`
-    : "No executor available now."}{routing?.policy && <> · Project order for {routing.policy.repoKey}</>}</p>;
+    : "No executor available now."}{routing?.policy && <> · Project order{repoLabel ? ` for ${repoLabel}` : " for this repository"}</>}{!executor && !loading && !next && routing?.policy && routing.excluded.length > 0 && <>. {routing.excluded.map(row=>`${executorLabel(row.id,accounts)}: ${row.reason}`).join("; ")}</>}</p>;
 }
 const lastRepoStorage = () => draftStorage("pacer.delegate.last-repo", { repo: "" }, {
   getItem: key => localStorage.getItem(key),
@@ -57,9 +57,12 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
   const action = useAction();
   const field = (key: keyof typeof draft, value: string) => setDraft(previous => ({ ...previous, [key]: value, ...(key === "repo" ? {executor:""} : {}) }));
   const next = routing.data?.ranked[0];
+  const blocked=action.busy || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
   const branches = choices.find(r => r.key === draft.repo)?.branches ?? [];
-  return <Dialog title="Delegate a task" close={close}><form className="pc-form" onKeyDown={event => handleDelegateKey(event, () => event.currentTarget.requestSubmit(), action.busy)} onSubmit={event => {
-    event.preventDefault(); setValidation(undefined);
+  return <Dialog title="Delegate a task" close={close}><form className="pc-form" onKeyDown={event => handleDelegateKey(event, () => event.currentTarget.requestSubmit(), blocked)} onSubmit={event => {
+    event.preventDefault();
+    if (blocked) return;
+    setValidation(undefined);
     try {
       const params = delegateParams(draft, ops, requestId, choices.map(r => r.key));
       void action.run<TaskSummary>("task.delegate", params, task => { lastRepoStorage().write({ repo: draft.repo }); clearDraft(); close(); location.hash = taskHref(task.task_id); });
@@ -80,9 +83,9 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
       <option value="">Automatic{next ? ` (${executorLabel(next.id, accounts.data ?? [])} next)` : ""}</option>
       {routing.data?.ranked.map(r => <option key={r.id} value={r.id}>{executorLabel(r.id, accounts.data ?? [])} · {routingStatus(r).label}</option>)}
     </Select></Field>
-    <DelegateRoutingPreview routing={routing.data} executor={draft.executor} accounts={accounts.data} loading={routing.loading} />
+    <DelegateRoutingPreview routing={routing.data} executor={draft.executor} accounts={accounts.data} loading={routing.loading} repoLabel={choices.find(r=>r.key===draft.repo)?.label} />
     <div aria-live="polite"><ErrorMessage error={validation ?? action.error ?? routing.error} /></div>
     <p className="muted">⌘Enter / Ctrl+Enter to delegate</p>
-    <div className="row"><Button type="submit" variant="primary" disabled={action.busy || (ops.has("project.strategy.get") && (routing.loading || !!routing.error))} aria-keyshortcuts="Meta+Enter Control+Enter">{action.busy ? "Delegating…" : "Delegate"}</Button><Button onClick={close}>Cancel</Button></div>
+    <div className="row"><Button type="submit" variant="primary" disabled={blocked} aria-keyshortcuts="Meta+Enter Control+Enter">{action.busy ? "Delegating…" : "Delegate"}</Button><Button onClick={close}>Cancel</Button></div>
   </form></Dialog>;
 }

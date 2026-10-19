@@ -1,10 +1,11 @@
+import { resolvePolicyRepo } from "./project-policy";
 import { taskDiff, cleanTaskRuns } from "../tasks/diff";
 import { repoFs, withTimeout } from "./path-probe";
 import { taskTitle } from "./short-title";
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
 import { createHash } from "node:crypto";
-import { repoFor, resolveRepo, requireRepoDirectory } from "./repos";
+import { repoFor, requireRepoDirectory } from "./repos";
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { appendActivity, type ActivityEntry } from "../activity/log";
@@ -243,7 +244,7 @@ async function retryTask(
   if (!isTaskId(id)) throw unknown(id);
   // Resolve repo identity before taking the synchronous task lock (it runs git).
   const before = readTask(ctx, id);
-  const repoRef = before ? await resolveRepo(ctx, before.brief.repo) : undefined;
+  const repoRef = before ? before.repo && !before.repo.identityUnverified ? before.repo : await resolvePolicyRepo(ctx, before.brief.repo) : undefined;
   if (before) await requireRepoDirectory(before.brief.repo);
   let answerBase: string | undefined;
   if (o.answerText !== undefined && before?.state === "needs_input" && before.question && before.question.answer === undefined && !before.retriedBy) {

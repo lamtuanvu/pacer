@@ -1,17 +1,17 @@
 import { expect, test } from "bun:test";
 import { writeProjectStrategy } from "../src/config/project-strategies";
 import { projectReferences } from "../src/engine/project-routing";
-import { repoFor, resolveRepo } from "../src/core/repos";
+import { repoFor, resolveRepo, removeRepo } from "../src/core/repos";
 import { defaultHooks } from "../src/classify/hooks";
 import { delegate } from "../src/tasks/api";
 import { runTask } from "../src/tasks/runner";
 import { drainQueue } from "../src/tasks/drain";
 import { listTasksWhere, updateTask } from "../src/tasks/store";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, gitRepo, realRun } from "./helpers";
 import { queueDeps, queueStrategy, queueTask } from "./queue-helpers";
 
 async function setup(ids = ["cursor"]) {
-  const ctx = fakeCtx(), s = queueStrategy(true), repo = await resolveRepo(ctx, ctx.home);
+  const ctx = fakeCtx({home:gitRepo(),run:realRun}), s = queueStrategy(true), repo = await resolveRepo(ctx, ctx.home);
   await writeProjectStrategy(ctx, repo.key, projectReferences(s, ids), 0);
   return { ctx, s, repo, deps: { ...queueDeps(s), hooks: defaultHooks } };
 }
@@ -77,14 +77,15 @@ test("exhausting the allowlist never falls back to a healthy global executor", a
   expect(result.state).toBe("limit");
 });
 test("unresolved low-level delegation cannot silently use global routing", async () => {
-  const { ctx, s } = await setup(); let spawned = false;
+  const { ctx, s, repo } = await setup(); let spawned = false;
+  await removeRepo(ctx,repo.key);
   expect(() => delegate(ctx, { brief: { goal: "work", repo: ctx.home } }, () => { spawned = true; return 1; }, s)).toThrow("Resolve the repository");
   expect(spawned).toBe(false);
 });
 
 test("four allowed runners still respect the three-attempt limit", async () => {
   const { validateStrategy } = await import("../src/config/strategy");
-  const ctx = fakeCtx(), s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {}, agy: {}, opencode: { via: "opencode", usage: "unmetered", model: "test/model" } }, pacing: { policy: "priority" } }, "test");
+  const ctx = fakeCtx({home:gitRepo(),run:realRun}), s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {}, agy: {}, opencode: { via: "opencode", usage: "unmetered", model: "test/model" } }, pacing: { policy: "priority" } }, "test");
   const repo = await resolveRepo(ctx, ctx.home);
   await writeProjectStrategy(ctx, repo.key, projectReferences(s, ["codex", "cursor", "agy", "opencode"]), 0);
   const deps = { ...queueDeps(s), hooks: defaultHooks }, run = deps.runAttempt!;
@@ -103,4 +104,70 @@ test("queued project work explains when all configured choices disappear", async
   expect(spawned).toBe(0); expect(result.state).toBe("limit");
   expect(result.result?.report).toContain("no project executor available");
   expect(result.result?.report).toContain("not configured");
+});
+
+for (const phase of ["runner", "drain", "retry"] as const) {
+  test(`${phase} retains saved identity after registry removal and failed Git probes`, async () => {
+    const {ctx,s,repo,deps} = await setup(), task = queueTask(ctx);
+    updateTask(ctx,task.id,t => { t.repo=repo; t.queue={reason:"paused",since:ctx.now,position:1}; });
+    await removeRepo(ctx,repo.key);
+    ctx.run=async () => ({code:128,stdout:"",stderr:"cannot read repository"});
+    if (phase === "runner") {
+      const result=await runTask(ctx,task.id,deps);
+      expect(result.repo?.key).toBe(repo.key);
+      expect(result.attempts.map(a=>a.executor)).toEqual(["cursor"]);
+    } else if (phase === "drain") {
+      await drainQueue(ctx,()=>123456789,deps);
+      expect(listTasksWhere(ctx,{})[0].executor).toBe("cursor");
+    } else {
+      const {retry}=await import("../src/core/tasks");
+      updateTask(ctx,task.id,t=>{t.state="failed";delete t.queue;});
+      await expect(retry(ctx,task.id,{executor:"codex"},{delegate:(c,input)=>delegate(c,input,()=>1,s)})).rejects.toMatchObject({code:"not_allowed"});
+      expect(listTasksWhere(ctx,{})).toHaveLength(1);
+    }
+  });
+}
+test("unknown legacy task fails closed when Git cannot establish policy identity", async () => {
+  const {ctx,deps,repo}=await setup(),task=queueTask(ctx);
+  await removeRepo(ctx,repo.key);
+  ctx.run=async()=>({code:128,stdout:"",stderr:"cannot read repository"});
+  const result=await runTask(ctx,task.id,deps);
+  expect(result.attempts).toHaveLength(0);
+  expect(result.result?.report).toContain("Cannot establish repository identity");
+});
+
+test("a project policy created during identity lookup cannot authorize global routing", async () => {
+  const {ctx,s,repo,deps}=await setup();
+  await writeProjectStrategy(ctx,repo.key,null,1);
+  await removeRepo(ctx,repo.key);
+  const task=queueTask(ctx); let added=false;
+  ctx.run=async()=>{if(!added){added=true;await writeProjectStrategy(ctx,repo.key,projectReferences(s,["cursor"]),2);}return {code:128,stdout:"",stderr:"cannot read Git"};};
+  const result=await runTask(ctx,task.id,deps);
+  expect(result.attempts).toHaveLength(0);
+  expect(result.result?.report).toContain("Cannot establish repository identity");
+});
+test("an unresolved global identity is rechecked when policy appears before reservation", async () => {
+  const {ctx,s,repo,deps}=await setup();
+  await writeProjectStrategy(ctx,repo.key,null,1);
+  await removeRepo(ctx,repo.key);
+  ctx.run=async()=>({code:128,stdout:"",stderr:"cannot read Git"});
+  const status=deps.computeStatus;
+  deps.computeStatus=async(...args)=>{await writeProjectStrategy(ctx,repo.key,projectReferences(s,["cursor"]),2);return status(...args);};
+  const result=await runTask(ctx,queueTask(ctx).id,deps);
+  expect(result.attempts).toHaveLength(0);
+  expect(result.result?.report).toContain("Cannot establish repository identity");
+});
+
+test("failed origin lookup stays unverified when policy is concurrently created",async()=>{
+  const ctx=fakeCtx({home:gitRepo(),run:realRun}),s=queueStrategy(true),deps={...queueDeps(s),hooks:defaultHooks};
+  await realRun(["git","-C",ctx.home,"remote","add","origin","git@github.com:example/origin-race.git"],10000);
+  const repo=await resolveRepo(ctx,ctx.home);await removeRepo(ctx,repo.key);
+  ctx.run=async(argv,ms,o)=>{
+    if(argv.includes("rev-parse"))return realRun(argv,ms,o);
+    if(argv.includes("get-url"))await writeProjectStrategy(ctx,repo.key,projectReferences(s,["cursor"]),0);
+    return {code:128,stdout:"",stderr:"cannot read origin"};
+  };
+  const result=await runTask(ctx,queueTask(ctx).id,deps);
+  expect(result.attempts).toHaveLength(0);
+  expect(result.result?.report).toContain("Cannot establish repository identity");
 });
