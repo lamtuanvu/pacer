@@ -135,12 +135,12 @@ test("retry of an unknown task is unknown_task", async () => {
 });
 
 test("shortTitle removes code, paths and URLs before selecting the first clause", () => {
-  expect(shortTitle("  Fix `task.run()` in src/core/tasks.ts at https://example.com/a. Then test. ")).toBe("Fix in at");
+  expect(shortTitle("  Fix `task.run()` in src/core/tasks.ts at https://example.com/a. Then test. ")).toBe("Fix");
   expect(shortTitle("Fix the queue; then update docs")).toBe("Fix the queue");
   expect(shortTitle("Fix /README.md. Then test")).toBe("Fix");
   expect(shortTitle("Fix src/core/tasks.ts. Then test")).toBe("Fix");
   expect(shortTitle("Repair queue, then document changes")).toBe("Repair queue");
-  expect(shortTitle("Fix /tmp/work/file.ts and C:\\work\\file.ts: then test")).toBe("Fix and");
+  expect(shortTitle("Fix /tmp/work/file.ts and C:\\work\\file.ts: then test")).toBe("Fix");
   expect(shortTitle("x".repeat(100))).toBe("X" + "x".repeat(58) + "…");
   const title=shortTitle("Repair " + "queue handling ".repeat(10));
   expect(title.length).toBeLessThanOrEqual(60);

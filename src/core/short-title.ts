@@ -12,6 +12,19 @@ function capitalize(text: string): string {
   return text.replace(/\p{L}/u, letter => letter.toUpperCase());
 }
 
+const URL_MARK = "\u0001url";
+// Words that would dangle after a title is cut before a path ("Update the config in").
+const danglingWords = /(?:\s+(?:in|on|at|to|for|from|of|and|or|with|into|under|via|by|the|a|an))+\s*$/i;
+/**
+ * Real paths only: rooted, home- or ./-relative, drive-letter, or slash-separated with a file or
+ * several segments. Bare file names (calc.py, .env) and words like and/or or TCP/IP are kept.
+ */
+function isPath(token: string): boolean {
+  return /^(?:\/|\.{1,2}\/|~|[A-Za-z]:[\\/])/.test(token)
+    || token.split("/").length >= 3
+    || (token.includes("/") && /\.[A-Za-z0-9]{1,10}$/.test(token));
+}
+
 /** A compact display label; never changes the goal used to execute a task. */
 export function shortTitle(goal: string): string {
   // Bound all parsing work, including regexes, even for very large briefs.
@@ -19,21 +32,22 @@ export function shortTitle(goal: string): string {
   let basename = "";
   const text = input
     .replace(/```[\s\S]*?(?:```|$)|`[^`]*(?:`|$)/g, " ")
-    .replace(/(?:https?:\/\/|www\.)[^\s<>]+/gi, match => " " + (match.match(/[.!?;:,]+$/)?.[0] ?? ""));
+    .replace(/(?:https?:\/\/|www\.)[^\s<>]+/gi, match => ` ${URL_MARK}${match.match(/[.!?;:,]+$/)?.[0] ?? ""}`);
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/^\s*#{1,6}\s*/, "").replace(/^\s*(?:goal|task|summary|context)\s*(?::\s*|$)/i, "");
-    // Match whole tokens first, then use anchored path checks. Never scan every
-    // suffix of a long slash-less token looking for a path prefix.
-    const cleaned = line.replace(/[^\s<>]+/g, token => {
+    let cleaned = "";
+    for (const token of line.split(/[\s<>]+/)) {
+      if (!token) continue;
       const candidate = token.replace(/^[([{"']+|[)\]}"',;:!?]+$/g, "").replace(/\.+$/, "");
-      const path = /^(?:\/|\.{1,2}\/|~\/|[A-Za-z]:[\\/])/.test(candidate)
-        || candidate.split("/").length >= 3
-        || /^[^:]+\.[A-Za-z0-9]{1,10}$/.test(candidate);
-      if (!path) return token;
-      const file = candidate.split(/[\\/]/).at(-1) ?? "";
-      basename ||= file.replace(/\.[^.]*$/, "").replace(leadingMarkers, "").trim();
-      return " " + (token.match(/[.!?;:,]+$/)?.[0] ?? "");
-    }).replace(/\s+/g, " ").trim();
+      const url = candidate === URL_MARK;
+      if (!url && !isPath(candidate)) { cleaned += " " + token; continue; }
+      const punctuation = token.match(/[.!?;:,]+$/)?.[0] ?? "";
+      if (!url) basename ||= (candidate.split(/[\\/]/).at(-1) ?? "").replace(/\.[^.]*$/, "").replace(leadingMarkers, "").trim();
+      // A path inside a sentence would leave a hole ("Fix X in so it works"): end the title before it.
+      if (cleaned.split(/[.!?;:,](?:\s|$)/).at(-1)!.replace(leadingMarkers, "").trim()) { cleaned = cleaned.replace(danglingWords, "") + punctuation; break; }
+      cleaned += " " + punctuation;
+    }
+    cleaned = cleaned.replace(/\s+/g, " ").trim();
     for (const part of cleaned.split(/[.!?;:,](?:\s|$)|\s[—–]\s/)) {
       const clause = part.replace(leadingMarkers, "").trim();
       if (clause) return clipTitle(capitalize(clause));
