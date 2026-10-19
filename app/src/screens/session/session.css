@@ -19,6 +19,7 @@
 @media(max-width:560px){.pc-session-header,.pc-session-main,.pc-sessions-list{padding:var(--space-3)}.pc-session-aside{max-width:none;flex-basis:100%;border-left:0;border-top:1px solid var(--line)}.pc-session-tabs button{padding:var(--space-2)}.pc-sessions-rows li{flex-wrap:wrap;gap:var(--space-2)}.pc-sessions-goal{flex-basis:70%}.pc-terminal-pane{height:360px}}
 .pc-session-follow-log{height:520px;overflow:auto}
 
+.pc-session-title{margin:0;font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
 .pc-session-run{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-3);margin-bottom:var(--space-3)}
 .pc-session-finished{padding:var(--space-3) var(--space-4);margin:0}
 .pc-sessions-rows li:has(.pc-session-replay){position:relative}

@@ -119,6 +119,17 @@ test('missing sessions do not advertise watch-elsewhere options', () => {
  expect(html).not.toContain('pacer attach');
 });
 
+
+test('session task title uses normal-case page typography and prefers the service title', async () => {
+ const html = renderToString(<Session data={{...data,title:'Fix add() in calc.py'}}/>);
+ expect(html).toContain('<h2 class="pc-session-title pc-ellipsis" title="Fix add() in calc.py">Fix add() in calc.py</h2>');
+ expect(html).not.toContain(data.goal);
+ expect(renderToString(<Session data={data}/>)).toContain(`<h2 class="pc-session-title pc-ellipsis" title="${data.goal}">${data.goal}</h2>`);
+ const css = await Bun.file(new URL('../app/src/screens/session/session.css', import.meta.url)).text();
+ expect(css).toMatch(/\.pc-session-title\s*\{[^}]*font-size:var\(--type-headline-size\)/);
+ expect(css.match(/\.pc-session-title\s*\{[^}]*\}/)?.[0]).not.toContain('uppercase');
+});
+
 test('ended headless sessions show their outcome and Review or Retry without live controls', () => {
  for (const state of ['done', 'partial', 'failed', 'stopped', 'limit']) {
   const ended: SessionData = {...data,state,changesSummary:undefined,session:{...data.session!,host:'none',live:true,driving:true,takeover:{available:true}}};
