@@ -1,3 +1,4 @@
+import { paceStatus } from "./words";
 import type { ExecutorRow } from "../api/read-model/types";
 import type { ClientSnapshot, ClientTask } from "./snapshot";
 
@@ -14,4 +15,11 @@ export function queueWait(task: ClientTask, snapshot: ClientSnapshot): string {
   const place = queue.limit === "machine" ? "this machine" : queue.limit === "host" ? task.host ?? "this host" : "this executor";
   const cap = queue.capacity ?? (queue.limit === "machine" ? snapshot.machine : undefined);
   return queue.limit && cap ? `Waiting: ${place} is running ${cap.used} of ${cap.max}` : "Waiting for parallel task capacity";
+}
+
+/** Read pace from its authoritative account/planner verdict, never executor readiness or a percentage threshold. */
+export function executorPace(executor: ExecutorRow, snapshot: ClientSnapshot) {
+  const planner = snapshot.planner;
+  const verdict = planner?.runner === executor.id ? planner.verdict : snapshot.accounts?.find(a => a.executors.includes(executor.id) || a.name === executor.account)?.verdict;
+  return paceStatus(verdict ?? "unknown");
 }
