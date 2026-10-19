@@ -135,6 +135,28 @@ Plugins > Development > Add folder. It waits up to five minutes for the live
 heartbeat; Enter or Ctrl-C skips with `Finish later with: pacer init`. Setup then
 prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
 
+## Remove pacer
+
+`pacer uninstall --all [--yes] [--binary] [--json]` prints a complete removal
+plan from the install manifest, including each connected agent and its account
+folder, the installed login service, Orca plugin registration, `PACER_HOME`,
+and the binary path. In a terminal it asks once: `Remove all of this? [y/N]`.
+Without a terminal, pass `--yes`; otherwise it prints the plan and exits 2.
+
+Removal runs in order: agent integrations (using their recorded undo operations
+and restoring backups), service, plugin, then all of `PACER_HOME`. Orca may still
+require removing the development plugin path in Settings; the command prints that
+instruction. It continues after individual failures, reports each step as `ok` or
+`failed`, and exits 1 if any step failed. Review the plan carefully: `PACER_HOME`
+contains configuration, history and account data. Paths resolving to your home
+directory or `/` are refused.
+
+The binary is left in place unless you pass `--binary`. Development runs refuse
+to delete the shared Bun/Node runtime; use an installed pacer binary for that
+option. If the binary is inside `PACER_HOME`, removal requires `--binary`.
+`--json` returns `{plan, results}`; prompts and errors use stderr.
+Existing `pacer uninstall <planner>` remains available for a single integration.
+
 ## pacer open
 
 `pacer open [--print] [--logout] [--browser] [<screen>]` opens the pacer app

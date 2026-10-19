@@ -179,3 +179,233 @@ test("failed Claude MCP registration is reported without a success claim", async
   expect(report.out).not.toContain("registered MCP server");
   expect(report.out).not.toContain("nothing changed");
 });
+
+import { symlinkSync, rmSync } from "node:fs";
+import { uninstallAll } from "../src/install/uninstall-all";
+import { readManifest, writeManifest } from "../src/install/manifest";
+import { PLUGIN_RECORD } from "../src/link/paths";
+import { MARKER, servicePath } from "../src/service";
+
+function allFixture() {
+  const ctx = fakeCtx();
+  const binary = join(ctx.home, "pacer");
+  writeFileSync(binary, "fake binary");
+  ctx.env.PACER_BIN = binary;
+  return { ctx, binary };
+}
+
+test("uninstall --all prints the full plan and refuses non-TTY without --yes", async () => {
+  const { ctx, binary } = allFixture();
+  expect((await main(["install", "codex"], ctx)).code).toBe(0);
+  const manifest = readManifest(ctx);
+  const folder = join(ctx.home, "work-account");
+  manifest.planners["codex#work"] = { ...manifest.planners.codex, account: "work", folder, files: [] };
+  manifest.planners.service = { ...manifest.planners.codex, files: [] };
+  manifest.planners[PLUGIN_RECORD] = { ...manifest.planners.codex, files: [] };
+  writeManifest(ctx, manifest);
+  const result = await uninstallAll(["--all"], ctx, { tty: false });
+  expect(result.code).toBe(2);
+  for (const text of ["codex#work", folder, "service", "plugin", ctx.pacerHome, binary, "left in place (use --binary to delete)"]) expect(result.out).toContain(text);
+  expect(result.err).toContain("rerun with --yes");
+  expect(readManifest(ctx).planners.codex).toBeDefined();
+  expect(existsSync(binary)).toBe(true);
+});
+
+test("uninstall --all restores agent backups before service, plugin, home and binary", async () => {
+  const { ctx, binary } = allFixture();
+  const config = join(ctx.home, ".codex/config.toml");
+  mkdirSync(join(ctx.home, ".codex"));
+  const original = '# original\nmodel = "example"\n';
+  writeFileSync(config, original);
+  expect((await main(["install", "codex", "--mcp"], ctx)).code).toBe(0);
+  const manifest = readManifest(ctx);
+  manifest.planners["codex#work"] = { ...manifest.planners.codex, files: [], folder: join(ctx.home, "account") };
+  manifest.planners[PLUGIN_RECORD] = { ...manifest.planners.codex, files: [] };
+  writeManifest(ctx, manifest);
+  const unit = servicePath(ctx, "linux");
+  mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
+  writeFileSync(unit, MARKER);
+  const order: string[] = [];
+  const result = await uninstallAll(["--all", "--yes", "--binary", "--json"], ctx, {
+    platform: "linux",
+    service: () => ({ async uninstall() {
+      expect(readFileSync(config, "utf8")).toBe(original);
+      expect(readManifest(ctx).planners["codex#work"]).toBeUndefined();
+      order.push("service");
+    } }),
+    plugin: async () => {
+      order.push("plugin");
+      return { planner: PLUGIN_RECORD, restored: [], removed: [], reverted: [], notes: [] };
+    },
+    removeHome: path => { order.push("home"); rmSync(path, { recursive: true }); },
+    removeBinary: path => { order.push("binary"); rmSync(path); },
+  });
+  expect(result.code).toBe(0);
+  expect(order).toEqual(["service", "plugin", "home", "binary"]);
+  const parsed = JSON.parse(result.out);
+  expect(parsed.results.map((step: { kind: string }) => step.kind)).toEqual(["agent", "agent", "service", "plugin", "home", "binary"]);
+  expect(parsed.results.every((step: { status: string }) => step.status === "ok")).toBe(true);
+  expect(existsSync(ctx.pacerHome)).toBe(false);
+  expect(existsSync(binary)).toBe(false);
+});
+
+test("uninstall --all continues through individual failures and reports exit 1", async () => {
+  const { ctx } = allFixture();
+  expect((await main(["install", "codex"], ctx)).code).toBe(0);
+  const manifest = readManifest(ctx);
+  manifest.planners.service = { ...manifest.planners.codex, files: [] };
+  manifest.planners[PLUGIN_RECORD] = { ...manifest.planners.codex, files: [] };
+  writeManifest(ctx, manifest);
+  const order: string[] = [];
+  const result = await uninstallAll(["--all", "--yes", "--binary", "--json"], ctx, {
+    agent: async () => { order.push("agent"); throw new Error("agent failure"); },
+    service: () => ({ async uninstall() { order.push("service"); throw new Error("service failure"); } }),
+    plugin: async () => { order.push("plugin"); throw new Error("plugin failure"); },
+    removeHome: () => { order.push("home"); throw new Error("home failure"); },
+    removeBinary: () => { order.push("binary"); },
+  });
+  expect(result.code).toBe(1);
+  // An agent restore failed, so PACER_HOME (its backups) is kept.
+  expect(order).toEqual(["agent", "service", "plugin", "binary"]);
+  expect(JSON.parse(result.out).results.map((step: { status: string }) => step.status)).toEqual(["failed", "failed", "failed", "failed", "ok"]);
+});
+
+test("uninstall --all recognizes failures returned as undo notes", async () => {
+  const { ctx } = allFixture();
+  expect((await main(["install", "codex"], ctx)).code).toBe(0);
+  const result = await uninstallAll(["--all", "--yes"], ctx, {
+    agent: async () => ({ planner: "codex", restored: [], removed: [], reverted: [], notes: ["cannot revert config: permission denied"] }),
+  });
+  expect(result.code).toBe(1);
+  expect(result.out).toContain("failed: agent codex");
+  expect(result.out).toContain("permission denied");
+  expect(existsSync(ctx.pacerHome)).toBe(true);
+});
+
+test("uninstall --all refuses root, HOME and symlinks resolving to HOME before any undo", async () => {
+  for (const kind of ["root", "home", "symlink"]) {
+    const { ctx, binary } = allFixture();
+    if (kind === "root") ctx.pacerHome = "/";
+    else if (kind === "home") ctx.pacerHome = ctx.home;
+    else symlinkSync(ctx.home, ctx.pacerHome);
+    let called = false;
+    const result = await uninstallAll(["--all", "--yes", "--binary"], ctx, {
+      removeHome: () => { called = true; }, removeBinary: () => { called = true; },
+    });
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("unsafe PACER_HOME");
+    expect(called).toBe(false);
+    expect(existsSync(binary)).toBe(true);
+  }
+});
+
+test("uninstall --all uses one TTY confirmation after printing the plan", async () => {
+  const { ctx } = allFixture();
+  const events: string[] = [];
+  const result = await uninstallAll(["--all"], ctx, {
+    tty: true, print: text => { events.push(text); },
+    confirm: async question => { events.push(question); return false; },
+    removeHome: () => { throw new Error("must not delete after declining"); },
+  });
+  expect(result.code).toBe(0);
+  expect(events.length).toBe(2);
+  expect(events[0]).toContain("Uninstall plan:");
+  expect(events[1]).toBe("Remove all of this? [y/N] ");
+  expect(result.err).toContain("cancelled");
+});
+
+test("uninstall --all CLI supports JSON, leaves the binary by default and validates flags", async () => {
+  const { ctx, binary } = allFixture();
+  mkdirSync(ctx.pacerHome);
+  const result = await main(["uninstall", "--all", "--yes", "--json"], ctx);
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.out).results).toEqual([expect.objectContaining({ kind: "home", status: "ok" })]);
+  expect(existsSync(ctx.pacerHome)).toBe(false);
+  expect(existsSync(binary)).toBe(true);
+  expect((await main(["uninstall", "--all", "codex"], ctx)).code).toBe(2);
+  expect((await main(["uninstall", "--binary"], ctx)).code).toBe(2);
+  expect((await main(["help"], ctx)).out).toContain("uninstall --all [--yes] [--binary] removes everything");
+});
+
+test("uninstall --all --binary never deletes the development Bun runtime", async () => {
+  const ctx = fakeCtx();
+  let removed = false;
+  const result = await uninstallAll(["--all", "--yes", "--binary", "--json"], ctx, {
+    removeBinary: () => { removed = true; }, removeHome: () => { removed = true; },
+  });
+  expect(result.code).toBe(1);
+  expect(result.err).toContain("Bun/Node runtime");
+  expect(removed).toBe(false);
+});
+
+test("uninstall --all --binary unlinks only the selected binary", async () => {
+  const { ctx, binary } = allFixture();
+  const sibling = join(ctx.home, "other-tool");
+  writeFileSync(sibling, "keep");
+  const result = await main(["uninstall", "--all", "--yes", "--binary"], ctx);
+  expect(result.code).toBe(0);
+  expect(existsSync(binary)).toBe(false);
+  expect(readFileSync(sibling, "utf8")).toBe("keep");
+});
+
+test("uninstall --all requires --binary when PACER_HOME contains the binary", async () => {
+  const { ctx } = allFixture();
+  mkdirSync(ctx.pacerHome);
+  const binary = join(ctx.pacerHome, "pacer");
+  writeFileSync(binary, "binary");
+  ctx.env.PACER_BIN = binary;
+  const refused = await main(["uninstall", "--all", "--yes"], ctx);
+  expect(refused.code).toBe(1);
+  expect(refused.err).toContain("rerun with --binary");
+  expect(existsSync(binary)).toBe(true);
+  const approved = await main(["uninstall", "--all", "--yes", "--binary"], ctx);
+  expect(approved.code).toBe(0);
+  expect(existsSync(binary)).toBe(false);
+});
+
+test("uninstall --all runs the existing login service and plugin uninstall paths", async () => {
+  const { ctx } = allFixture();
+  const { installPlugin } = await import("../src/plugin/install");
+  await installPlugin({ ctx, pacerArgv: [ctx.env.PACER_BIN!] });
+  const unit = servicePath(ctx, "linux");
+  mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
+  writeFileSync(unit, `# ${MARKER}\n`);
+  const commands: string[][] = [];
+  ctx.run = async argv => { commands.push(argv); return { code: 0, stdout: "", stderr: "" }; };
+  const result = await uninstallAll(["--all", "--yes", "--json"], ctx, { platform: "linux" });
+  expect(result.code).toBe(0);
+  expect(commands).toEqual([
+    ["systemctl", "--user", "disable", "--now", "pacer-serve.service"],
+    ["systemctl", "--user", "daemon-reload"],
+  ]);
+  expect(existsSync(unit)).toBe(false);
+  expect(existsSync(ctx.pacerHome)).toBe(false);
+  expect(JSON.parse(result.out).results.map((step: { kind: string }) => step.kind)).toEqual(["service", "plugin", "home"]);
+});
+
+test("uninstall --all reverts per-account folders recorded before strategy changes", async () => {
+  const { ctx } = allFixture();
+  mkdirSync(ctx.pacerHome);
+  const strategy = join(ctx.pacerHome, "strategy.yaml");
+  writeFileSync(strategy, "accounts:\n  work: {kind: codex, home: ~/.work-agent}\nplanner: codex#work\n");
+  expect((await main(["install", "codex#work"], ctx)).code).toBe(0);
+  const hooks = join(ctx.home, ".work-agent/hooks.json");
+  expect(existsSync(hooks)).toBe(true);
+  writeFileSync(strategy, "planner: codex\nproviders: {codex: {}}\n");
+  const result = await main(["uninstall", "--all", "--yes", "--json"], ctx);
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.out).plan[0]).toEqual(expect.objectContaining({ target: "codex#work", paths: expect.arrayContaining([join(ctx.home, ".work-agent")]) }));
+  expect(existsSync(hooks)).toBe(false);
+  expect(existsSync(ctx.pacerHome)).toBe(false);
+});
+
+test("uninstall --all keeps PACER_HOME when an agent restore fails", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "install-manifest.json"), JSON.stringify({ version: 1, planners: { "claude-code": { files: [] } } }));
+  let removed = false;
+  const r = await uninstallAll(["--all", "--yes"], ctx, { tty: false, agent: async () => { throw new Error("cannot restore settings.json"); }, removeHome: () => { removed = true; } });
+  expect(r.code).toBe(1);
+  expect(removed).toBe(false);
+  expect(r.out).toContain("failed: home");
+});

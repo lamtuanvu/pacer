@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
 import { resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
@@ -291,6 +292,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         return {code: 0, out: JSON.stringify(result), err: ""};
       } catch (e) { return {code: 2, out: "", err: explain(e)}; }
     }
+    case "uninstall":
+      return rest.includes("--all") ? uninstallAll(rest, ctx) : findCommand(cmd)!.run(rest, ctx);
     case "account": return accountCmd(rest, ctx);
     case "runner": return runnerCmd(rest, ctx);
     case "config": return configCmd(rest, ctx);
