@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { CoreError } from "../../core/errors";
 import { isVersion } from "../version";
 
@@ -80,6 +81,10 @@ const recordSchema = z.object({
     if (!record.transactionId || !record.requestId || !record.requestedBy || !record.requesterBootId ||
         !receipt || receipt.action !== "restart" || receipt.transactionId !== record.transactionId) {
       ctx.addIssue({ code: "custom", message: "missing restart authority" });
+    } else if (record.candidate && receipt.fingerprint !== requestFingerprint({
+      version: record.candidate.version, clientId: record.requestedBy,
+    })) {
+      ctx.addIssue({ code: "custom", message: "restart authority does not match candidate or requester" });
     }
   }
   const ids = new Set(record.requestHistory.map(receipt => receipt.requestId));
@@ -97,4 +102,10 @@ export function parseUpdateRecord(value: unknown): UpdateRecord {
     throw new CoreError("invalid_input", "Invalid desktop update state", "Keep the state for diagnosis; do not reset a pending update.");
   }
   return parsed.data;
+}
+
+/** Shared by request creation, replay and persisted intent validation. */
+export function requestFingerprint(parameters: Record<string, string | boolean>): string {
+  const canonical = Object.keys(parameters).sort().map(key => [key, parameters[key]]);
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }

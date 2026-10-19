@@ -273,3 +273,21 @@ test("terminal error and recovery records preserve diagnostics without requiring
     });
   }
 });
+
+for (const phase of ["waiting", "reserved", "installing", "verifying", "rolling-back"] as const) {
+  test(`${phase} rejects candidate version or requester substitution against the persisted receipt`, () => {
+    const ctx = fakeCtx();
+    const authorized = { ...requestRestart(ready(), restart(ready()), "boot-1"), phase };
+    writeUpdate(ctx, authorized, 0);
+    const persisted = readUpdate(ctx, installation.id);
+    for (const changed of [
+      { ...persisted, candidate: { ...persisted.candidate!, version: "1.2.0" } },
+      { ...persisted, requestedBy: "another-client" },
+    ]) {
+      writeFileSync(file(ctx.pacerHome), JSON.stringify(persisted));
+      expectCode(() => writeUpdate(ctx, changed, persisted.revision), "invalid_input");
+      writeFileSync(file(ctx.pacerHome), JSON.stringify(changed));
+      expectCode(() => readUpdate(ctx, installation.id), "invalid_input");
+    }
+  });
+}

@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { CoreError } from "../../core/errors";
 import { updateChecksEnabled, UPDATE_CACHE_S } from "../check";
 import {
-  assertIdentifier, type Installation, type RequestReceipt, type RestartRequest,
+  assertIdentifier, requestFingerprint, type Installation, type RequestReceipt, type RestartRequest,
   type UpdateAction, type UpdateRecord, type UpdateRequest, type UpdateStatus,
 } from "./types";
 
@@ -15,10 +15,6 @@ export function checkDue(checkedAt: number | null, now: number): boolean {
 }
 
 type RequestParameters = Record<string, string | boolean>;
-function fingerprint(parameters: RequestParameters): string {
-  const canonical = Object.keys(parameters).sort().map(key => [key, parameters[key]]);
-  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
-}
 
 /** Check replay BEFORE revision: a retried request normally carries its old revision. */
 export function replayRequest(
@@ -32,7 +28,7 @@ export function replayRequest(
   if (record.installationId !== request.installationId) throw new CoreError("conflict", "Desktop update conflict: installation changed");
   const receipt = record.requestHistory.find(item => item.requestId === request.requestId);
   if (receipt) {
-    if (receipt.action !== action || receipt.fingerprint !== fingerprint(parameters)) {
+    if (receipt.action !== action || receipt.fingerprint !== requestFingerprint(parameters)) {
       throw new CoreError("conflict", "Desktop update conflict: request ID was already used for different input");
     }
     return receipt;
@@ -49,7 +45,7 @@ export function rememberRequest(
   return {
     ...record,
     requestHistory: [...record.requestHistory, {
-      requestId: request.requestId, action, fingerprint: fingerprint(parameters), transactionId: record.transactionId,
+      requestId: request.requestId, action, fingerprint: requestFingerprint(parameters), transactionId: record.transactionId,
     }],
   };
 }
