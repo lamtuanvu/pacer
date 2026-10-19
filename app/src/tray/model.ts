@@ -28,6 +28,7 @@ export function executorValue(executor: ExecutorRow): string {
   // Same off states Overview's Capacity dims (e.g. BytePlus without an active coding plan is "down").
   if (!executor.enabled || OFF_STATES.has(executor.state) || /no (active )?(coding[- ])?plan|no subscription/i.test(`${executor.sub} ${executor.reason ?? ""}`)) return "off";
   if (executor.state === "exhausted") return "out";
+  if (executor.state === "checking" || (executor.usedPct === null && executor.paceReason !== "unmetered")) return "?";
   if (executor.slots.max > 0 && executor.slots.used >= executor.slots.max) return `${executor.slots.used}/${executor.slots.max}`;
   if (executor.usedPct !== null) return `${Math.round(executor.usedPct)}%`;
   return executor.slots.used > 0 ? `${executor.slots.used}/${executor.slots.max}` : "free";

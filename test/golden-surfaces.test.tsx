@@ -159,3 +159,24 @@ test("cross-surface Needs-you short titles preserve service order", () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   }
 });
+
+test("tray and Overview agree on unknown and unavailable capacity from the same rows", () => {
+  const unknown = snapshot.executors!.find(row => row.state === "ready" && row.usedPct === null)!;
+  expect(unknown.paceReason).toBe("no limit reported");
+  const overviewRow = app.split('<a class="pc-row pc-cap').find(row => row.includes(`aria-label="${unknown.slots.used} of ${unknown.slots.max} parallel tasks"`) && row.includes("Unknown · no limit reported"));
+  expect(overviewRow).toBeDefined();
+  const trayRow = tray.split('<a class="tray-executor').find(row => row.includes(` · ${unknown.sub}`));
+  expect(trayRow).toContain("tray-dot--unknown");
+  expect(trayRow).toContain(">?</span>");
+
+  const unavailable = { ...unknown, state: "down" as const, tone: "bad" as const, reason: "no active coding-plan subscription", sub: "Unavailable" };
+  const unavailableSnapshot = { ...snapshot, executors: [unavailable] };
+  const unavailableState = reduceStore(initialState(), { type: "snapshot", snapshot: unavailableSnapshot });
+  const overview = renderToString(<TaskContext.Provider value={{ state: unavailableState, api }}><ActionContext.Provider value={runner}><Overview query={{ repo: null, scope: null }} /></ActionContext.Provider></TaskContext.Provider>);
+  const popover = renderToString(<Tray snapshot={unavailableSnapshot} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
+  expect(overview).toContain('class="pc-row pc-cap pc-cap--off"');
+  expect(overview).toContain("no active coding-plan subscription");
+  expect(popover).toContain('class="tray-executor tray-executor--off"');
+  expect(popover).toContain(">off</span>");
+  expect(popover).not.toContain(">free</span>");
+});
