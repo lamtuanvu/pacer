@@ -2,7 +2,7 @@
 
 Tracking: lamtuanvu/pacer#188 (wave 3 of #130). It builds on [guided onboarding](2026-10-19-guided-onboarding-design.md) (wave 2) and resolves OD-5 and the open questions in [ADR clients-over-local-service](../decisions/2026-10-16-clients-over-local-service.md).
 
-Status: draft for review.
+Status: decisions accepted by @lamtuanvu on 2026-10-19 (OD-5, recorded in `.project/decisions.md`).
 
 ## Problem
 
@@ -42,7 +42,7 @@ Done means:
 | How agents find `pacer` | With consent, the app creates a symlink `~/.local/bin/pacer` → the bundled binary, and the service, hooks and status line are installed with `PACER_BIN=~/.local/bin/pacer`. | Hooks record an absolute command (`src/install/self.ts`). A stable link survives app updates. A path inside the bundle breaks when the app moves. |
 | Auth handoff | Keep the `pacer open --print` single-use code and cookie exchange. | Already implemented and reviewed (SEC-3). A token handed over at launch adds a second auth path. |
 | Version | The app version equals the package version. `release:prepare` bumps `desktop/src-tauri/Cargo.toml` and `tauri.conf.json` (REL-8 becomes Established). | The sidecar and app ship together, so one number describes both. |
-| Signing | A Developer ID certificate and notarization in `release.yml`. Unsigned builds stay possible for forks and are labeled as such. | Gatekeeper blocks unsigned downloads on first open, which defeats the goal. |
+| Signing | **Unsigned first.** Phase 1 publishes unsigned app bundles labeled `-unsigned`, and the release notes document the Gatekeeper workaround (Control-click › Open). Developer ID signing and notarization in `release.yml` follow in phase 2, once the maintainer has a Developer ID. | It lets the bundled flow ship and get tested now. Gatekeeper friction on first open is accepted until phase 2. |
 | Standalone tray helper | Not shipped. The tray lives in the app. | No demand yet; reconsider if headless users ask. |
 | Notification ownership | Unchanged: the service selects one notifier through the `client.register` lease. | Already prevents duplicates. |
 
@@ -71,7 +71,7 @@ open pacer.app
 ```
 
 - **Welcome** is one sentence about what pacer does and one button. It shows only when `PACER_HOME` has no `strategy.yaml` and no service is installed.
-- **Consent** lists exactly what changes and how to undo it, as the Connect preview does. The service row can't be unticked: without it the app has nothing to show, and the copy says so. If `~/.local/bin` is not on the login-shell PATH, the link row adds one line: "Add `~/.local/bin` to your PATH to use `pacer` in a terminal". The app never edits shell profiles.
+- **Consent** lists exactly what changes and how to undo it, as the Connect preview does. The service row can't be unticked: without it the app has nothing to show, and the copy says so. If `~/.local/bin` is not on the login-shell PATH, a third row appears: **"Add `~/.local/bin` to your PATH"**. It is an opt-in checkbox, unticked by default, that names the file it edits (the login shell's rc file: `~/.zshrc` for zsh, `~/.bashrc` for bash, otherwise it is not offered) and shows the exact line. When ticked, the app appends one block between `# >>> pacer >>>` and `# <<< pacer <<<` markers, written atomically, and never touches other lines. Uninstall removes only that block. When the row is left unticked, the screen shows the line with a Copy button instead.
 - **Existing install**: a `pacer` that is not the app's link is reported with its version and path. "Use the app's pacer" reinstalls the service and the connected integrations with the bundled binary. The app never removes the other copy; for a Homebrew install it suggests `brew uninstall pacer` so the terminal and the service run the same version. "Keep mine" keeps today's attach behavior.
 - The setup the shell performs is `pacer service install` through the bundled CLI with `PACER_BIN` set. Then it runs `pacer setup init --planner <detected>` only when exactly one planner is installed, otherwise the web Setup screen asks.
 - The web Setup screen shows the service as done and starts at the planner step. The tray, which today reads the v2 setup shape, must read the same checklist (see the 2026-10-19 live test findings in #188).
@@ -96,13 +96,13 @@ Each page gets one action, which the current ones lack.
 
 ## Uninstall
 
-Settings → "Uninstall pacer" (wave 2) gains the app's own items: the `~/.local/bin/pacer` link, the login item and the app itself. The shell runs the bundled `pacer uninstall --all --yes` after the confirmation, removes the link and login item, then shows "Move pacer to the Trash" with a button that does it (`NSWorkspace.recycle`). It never deletes another CLI it didn't create.
+Settings → "Uninstall pacer" (wave 2) gains the app's own items: the `~/.local/bin/pacer` link, the PATH block in the shell rc file (if the app added it), the login item and the app itself. The shell runs the bundled `pacer uninstall --all --yes` after the confirmation, removes the link and login item, then shows "Move pacer to the Trash" with a button that does it (`NSWorkspace.recycle`). It never deletes another CLI it didn't create.
 
 ## Release
 
 - `release.yml` gains a macOS desktop job that runs after the CLI build. It copies the CLI for each architecture to `desktop/src-tauri/binaries/pacer-<target-triple>`, builds with `--bundles app,dmg`, signs, notarizes and staples.
 - Artifacts: `pacer-<version>-darwin-arm64.dmg` and `-darwin-x64.dmg`, in `SHA256SUMS` and covered by build attestation like the CLI.
-- Required secrets: Apple Developer ID certificate and password, and a notarytool key. Without them the job builds unsigned artifacts marked `-unsigned` and the release notes say so.
+- Phase 1 ships unsigned artifacts marked `-unsigned`, with the Gatekeeper workaround in the release notes. Phase 2 needs these secrets: an Apple Developer ID certificate and password, and a notarytool key. The job switches to signed and notarized builds when they exist.
 - Linux: AppImage and deb carry the sidecar the same way and use the same link and consent. There is no notarization.
 - README leads with "Download pacer for Mac" and keeps `install.sh` under "Terminal and servers".
 
@@ -112,6 +112,7 @@ Settings → "Uninstall pacer" (wave 2) gains the app's own items: the `~/.local
 - The link is created only after consent, with `O_EXCL` semantics: an existing file that isn't a link to this app is never overwritten without the "Use the app's pacer" choice.
 - Desktop capabilities stay as SEC-8: the new consent screens are local `tauri://` pages that call Rust commands with no remote origin access.
 - The shell passes argument vectors to the sidecar (SEC-5).
+- The shell-profile edit happens only when its checkbox is ticked. It writes one marked block atomically (SEC-7 pattern: temp file, then rename, keeping the file's mode) and never rewrites or reorders other lines. If the file is a symlink or isn't writable, the app skips the edit and shows the line to copy.
 - The shell touches launchd/systemd only for the service that serves its own `PACER_HOME`. It compares the job's `ProgramArguments` and port with its own before `kickstart` or restart, and otherwise shows "Another pacer is running" instead of acting. This also makes the live harness's desktop surface safe without relying on the PATH shim.
 
 ## Testing
@@ -124,15 +125,21 @@ Settings → "Uninstall pacer" (wave 2) gains the app's own items: the `~/.local
   3. Replace the app with a newer build: the service restarts once on the new version and hooks still work.
   4. Uninstall from Settings: no link, login item, service, hooks or `PACER_HOME`; the app is in the Trash.
   5. Delete the sidecar from the bundle: the incomplete-copy page appears with its action.
+  6. PATH opt-in: unticked leaves the rc file byte-identical; ticked adds exactly one marked block, and a second run doesn't duplicate it; uninstall removes the block and nothing else.
 
 ## Phases
 
-1. **Bundle and consent (unsigned).** Sidecar, link, first-run screens, recovery actions, version sync. Testable from `desktop.yml` artifacts.
-2. **Signed release.** Signing, notarization, dmg artifacts, README front door.
+1. **Bundle and consent (unsigned).** Sidecar, link, opt-in PATH edit, first-run screens, recovery actions, version sync, unsigned per-architecture release artifacts, README front door with the unsigned note.
+2. **Signed release.** Developer ID signing and notarization, once the maintainer has a Developer ID.
 3. **App updates.** In-app update channel.
 
-## Open questions
+## Resolved questions
 
-- Universal binary or one per architecture? Proposal: one per architecture. A `bun build --compile` binary carries its payload after the Mach-O image, so `lipo` needs testing first.
-- Should the app offer to add `~/.local/bin` to PATH by editing the shell profile? Proposal: no. Show the line to add, and copy it on click.
-- Should "Keep mine" stop showing after one answer? Proposal: remember the choice per CLI path and version.
+Decided by @lamtuanvu on 2026-10-19:
+
+- **Bundled vs attached CLI:** bundled, as proposed.
+- **Universal binary or one per architecture:** one per architecture.
+- **Editing the shell profile:** allowed, as an opt-in checkbox with a marked block that uninstall removes (see First launch).
+- **"Keep mine":** remembered per CLI path and version.
+- **Version:** the app version equals the package version; REL-8 is Established.
+- **Signing:** unsigned first; Developer ID signing and notarization in phase 2.
