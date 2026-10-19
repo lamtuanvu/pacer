@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Local builds embed the package version and Git revision; update notices no longer offer equal or older releases to development builds.
 - Completed tasks retain their review diff and file statistics after their worktree is cleaned up (#121).
 
 - Task titles keep bare file names such as `calc.py`; a real path or URL in mid-sentence now ends the title instead of leaving a hole.
