@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 
+import { seedUi, validateSeed } from "./seed";
+
 export const checkout = resolve(import.meta.dir, "../..");
 export const liveRoot = join(checkout, ".work/live");
 export interface Session {
@@ -14,6 +16,7 @@ export interface Session {
   innerPort?: number;
   proxyPid?: number;
   createdAt: string;
+  seed?: "ui";
   stopped?: boolean;
   desktopPid?: number;
   orcaPid?: number;
@@ -79,6 +82,14 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
     PACER_BACKEND: "direct",
     PACER_NO_UPDATE_CHECK: "1",
     PACER_ORCA_USER_DATA: join(session.root, "orca-profile"),
+    ...(session.seed === "ui" ? {
+      HOME: join(session.root, "home"),
+      PATH: `${join(session.root, "home/bin")}:${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
+      CODEX_HOME: join(session.root, "home/accounts/team"),
+      CLAUDE_CONFIG_DIR: join(session.root, "home/.claude"),
+      XDG_CONFIG_HOME: join(session.root, "home/.config"),
+      XDG_DATA_HOME: join(session.root, "home/.local/share"),
+    } : {}),
   };
 }
 export function shellQuote(value: string): string {
@@ -86,7 +97,7 @@ export function shellQuote(value: string): string {
 }
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
-  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA"]
+  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.seed === "ui" ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
 async function reservePort(): Promise<number> {
@@ -165,14 +176,15 @@ export function launch(session: Session, argv: string[], logName: string, overri
     return child.pid;
   } finally { closeSync(log); }
 }
-export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot): Promise<Session> {
+export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string): Promise<Session> {
+  validateSeed(seed);
   const root = resolve(base, validId(id));
   const port = await freePort();
   let innerPort = await freePort();
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { id, root, port, innerPort, pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { id, root, port, innerPort, seed, pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (template) cpSync(resolve(template), join(root, "repo"), {
@@ -184,6 +196,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     for (const manager of ["launchctl", "systemctl"]) atomicWrite(join(root, "bin", manager), "#!/bin/sh\necho 'Live validation D3: service manager refused' >&2\nexit 3\n", 0o700);
     // Only sandbox-owned config is created; never copy the user's strategy or credentials.
     atomicWrite(join(root, "home/strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {usage: quota}\nrouting:\n  - default: [codex]\n");
+    if (seed === "ui") seedUi(root);
     saveSession(session);
     for (const args of [["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=Live validation", "-c", "user.email=live@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "Sandbox baseline"]]) {
       const result = await run(["git", ...args], session, false);
