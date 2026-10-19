@@ -10,6 +10,32 @@ export function prepareChangelog(text: string, version: string, date: string): s
   return text.replace(heading, `## [Unreleased]\n\n## [${version}] - ${date}`);
 }
 
+function prepareDesktopVersions(root: string, version: string): { path: string; text: string }[] {
+  const targets = [
+    {
+      file: "tauri.conf.json",
+      pattern: /(^[ \t]*"version"[ \t]*:[ \t]*")[^"\r\n]*(")/m,
+      field: "version line",
+    },
+    {
+      file: "Cargo.toml",
+      pattern: /(^\[package\][^\r\n]*\r?\n(?:(?![ \t]*\[)[^\n]*\n)*?[ \t]*version[ \t]*=[ \t]*")[^"\r\n]*(")/m,
+      field: "[package] version line",
+    },
+    {
+      file: "Cargo.lock",
+      pattern: /(^name[ \t]*=[ \t]*"pacer-desktop"[^\r\n]*\r?\n(?:(?![ \t]*\[)[^\n]*\n)*?[ \t]*version[ \t]*=[ \t]*")[^"\r\n]*(")/m,
+      field: "pacer-desktop version line",
+    },
+  ];
+  return targets.map(({ file, pattern, field }) => {
+    const path = join(root, "desktop", "src-tauri", file);
+    const text = readFileSync(path, "utf8");
+    if (!pattern.test(text)) throw new Error(`desktop/src-tauri/${file} has no ${field}`);
+    return { path, text: text.replace(pattern, (_, prefix, suffix) => `${prefix}${version}${suffix}`) };
+  });
+}
+
 export async function prepareRelease(root: string, version: string): Promise<void> {
   const packagePath = join(root, "package.json");
   const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
@@ -21,11 +47,13 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   const marketplace = JSON.parse(readFileSync(marketplacePath, "utf8"));
   const plugin = marketplace.plugins.find((p: { id: string }) => p.id === "lamtuanvu.pacer");
   if (!plugin) throw new Error("orca-marketplace.json has no lamtuanvu.pacer entry");
+  const desktopVersions = prepareDesktopVersions(root, version);
   plugin.source.ref = `orca-plugin-v${version}`;
   pkg.version = version;
   writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
   writeFileSync(changelogPath, changelog);
   writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`);
+  for (const { path, text } of desktopVersions) writeFileSync(path, text);
   const p = Bun.spawn([process.execPath, "run", "plugin:build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
   if (await p.exited !== 0) throw new Error("plugin:build failed; fix the build and rerun bun run plugin:build before committing");
   // The app embeds APP_VERSION, which the release build checks against package.json.
