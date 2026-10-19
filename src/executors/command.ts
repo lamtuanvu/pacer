@@ -1,5 +1,6 @@
+import { migrationLines } from "../config/migrate";
+import { loadStrategy, strategyPath } from "../config/strategy";
 import {set} from "../core/runners-config";
-import {loadStrategy} from "../config/strategy";
 import * as core from "../core";
 import type {RunnerRow} from "../core/runners";
 import type {Result} from "../commands/types";
@@ -26,7 +27,7 @@ export async function executorCommand(args:string[],ctx:Ctx):Promise<Result> {
     else if(key==='--max-tasks' || key==='--rank') options[key==='--rank'?'rank':'max_tasks']=Number(value);
     else throw Error(`unknown option ${key}`);
    }
-   const result=set(ctx,id,options);return {code:0,out:[`${result.id}: updated`,...result.warnings].join('\n'),err:''};
+   const result=set(ctx,id,options);return {code:0,out:[...(result.migrated ? migrationLines(strategyPath(ctx),result.migrated) : []),`${result.id}: updated`,...result.warnings].join('\n'),err:''};
   }
   if(!["block","unblock"].includes(cmd)||!id)throw new Error("usage: pacer executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list");
   let duration:string|undefined,reason:string|undefined;

@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Delegate defaults to the active repository filter or remembered repository, supports an optional task kind, previews routing and submits with Cmd+Enter (Ctrl+Enter on Linux).
+- Account, runner and endpoint edits automatically migrate legacy settings with a backup instead of asking you to run `pacer config migrate`.
 
 - `pacer delegate` accepts common kind aliases (`bugfix`/`fix`/`bug`, `test`, `doc`, `perf`) and suggests the closest kind for invalid input.
 - The macOS desktop app detects replacement of its running bundle every 30 seconds and relaunches the installed bundle while preserving window visibility and route and reconnecting the tray.

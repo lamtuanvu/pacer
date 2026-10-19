@@ -7,8 +7,10 @@ import { validateStrategy } from "./strategy";
 
 export interface MigrationResult { changed: boolean; backup?: string; summary: string[] }
 
-export function migrateStrategy(path: string): MigrationResult {
-  const before = readFileSync(path, "utf8"); const raw = Bun.YAML.parse(before);
+export function migrateStrategy(path: string, expected?: string): MigrationResult {
+  const before = readFileSync(path, "utf8");
+  if (expected !== undefined && before !== expected) throw Error("strategy changed during migration; retry");
+  const raw = Bun.YAML.parse(before);
   const strategy = validateStrategy(raw, path);
   if (!strategy.legacy) return { changed: false, summary: [] };
   const yaml = parseDocument(before);
