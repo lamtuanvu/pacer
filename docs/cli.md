@@ -129,7 +129,7 @@ claude-code and explains how to choose another later.
 Existing strategies are preserved; changing planner updates only the planner
 line. Completed steps print “✓ … (already done)”. Each unconnected detected agent
 shows a file preview and undo command before its own y/N consent prompt. `--yes`
-accepts all; `--agents` limits selection. No MCP servers are added. Undo an
+accepts these setup steps; `--agents` limits selection. No MCP servers are added. Undo an
 integration with `pacer uninstall <agent>`.
 
 Non-TTY runs set up strategy and service without prompts. Agents connect only
@@ -139,6 +139,26 @@ folder when Orca is installed, prints its path and guides you to Settings >
 Plugins > Development > Add folder. It waits up to five minutes for the live
 heartbeat; Enter or Ctrl-C skips with `Finish later with: pacer init`. Setup then
 prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
+
+Before opening the dashboard, interactive init offers a first delegation when
+an executor is ranked and no task has been reviewed or the exercise skipped:
+`Try a first delegation now? It runs a tiny docs task in a scratch repo. [Y/n]`.
+`--yes` still asks this question because the exercise spends executor budget;
+non-TTY and `--json` runs never ask or start it. Declining records the skip.
+
+Accepting calls the v3 `onboarding.try` operation with `{}`. It creates a fresh
+git repo with a committed README under `PACER_HOME/onboarding/try-<timestamp>/`
+and routes a 15-minute docs task: summarize README.md in three bullet points
+into SUMMARY.md, checked with `test -s SUMMARY.md`. It returns
+`{task_id, executor, repo}` and init prints the task's executor and review command.
+Review with `pacer review <id>` or `pacer open`; accepting or rejecting completes
+the first-delegation step. Failures use the normal retry flow.
+
+The dashboard offers `t try a first delegation` while that step is pending and
+an executor is ranked, alongside `s` service, `c` connect, `e` add executor and
+`k` skip. The task carries `source: "onboarding"`, stays in the task list and review
+queue, and is excluded from finished-today statistics. Scratch repos are removed
+with `pacer uninstall --all` as part of `PACER_HOME` cleanup.
 
 ## Remove pacer
 

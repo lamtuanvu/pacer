@@ -98,3 +98,36 @@ test("init ends with useful next actions and an honest service summary", async (
  expect(r.out).toContain("pacer doctor");
  expect(r.out).not.toContain("pacer install");
 });
+
+for (const answer of ["", "yes", "n"]) test(`init offers first delegation with answer ${JSON.stringify(answer)} after summary and before dashboard`, async () => {
+ const f=fixture(["claude"]),events:string[]=[];
+ const r=await setupCmd(["--yes"],f.ctx,{...f.deps,tty:true,stdoutTTY:true,
+  print:line=>events.push(line),question:async q=>{events.push(q);return answer;},
+  onboardingClient:async()=>({close(){events.push("closed");},call:async<T>(op:string)=>{
+   events.push(op);
+   return (op==="setup.check"?{items:[{id:"executor",status:"done"},{id:"first",status:"pending"}]}:{task_id:"t-first",executor:"codex",repo:"/tmp/scratch"}) as T;
+  }}),dashboard:async()=>{events.push("dashboard");return {code:0,out:"",err:""};}});
+ expect(r.code).toBe(0);
+ const offer="Try a first delegation now? It runs a tiny docs task in a scratch repo. [Y/n] ";
+ expect(events).toContain(offer);
+ expect(events.indexOf(offer)).toBeGreaterThan(events.findIndex(e=>e.startsWith("Setup:")));
+ expect(events.indexOf(offer)).toBeLessThan(events.indexOf("dashboard"));
+ expect(events).toContain(answer==="n"?"onboarding.skip":"onboarding.try");
+ if(answer!=="n")expect(events).toContain("Started t-first on codex. Review it with: pacer review t-first (or in pacer open)");
+ expect(events).toContain("closed");
+});
+
+for (const [tty,ranked,done] of [[false,true,false],[true,false,false],[true,true,true]]) test(`init skips first delegation offer tty=${tty} ranked=${ranked} reviewed=${done}`,async()=>{
+ const f=fixture(["claude"]),calls:string[]=[];
+ const r=await setupCmd(["--yes","--no-dashboard"],f.ctx,{...f.deps,tty,onboardingClient:async()=>({close(){},call:async<T>(op:string)=>{
+  calls.push(op);return {items:[{id:"executor",status:ranked?"done":"pending"},{id:"first",status:done?"done":"pending"}]} as T;
+ }})});
+ expect(r.code).toBe(0);expect(f.questions).toEqual([]);expect(calls).toEqual(tty?["setup.check"]:[]);
+});
+
+test("init still succeeds when the first-delegation offer cannot reach the service", async () => {
+ const f=fixture(["claude"]),lines:string[]=[];
+ const r=await setupCmd(["--yes","--no-dashboard"],f.ctx,{...f.deps,tty:true,print:line=>lines.push(line),onboardingClient:async()=>{throw new Error("pacer isn't running");}});
+ expect(r.code).toBe(0);
+ expect(lines.join("\n")).toContain("Try a first delegation later");
+});

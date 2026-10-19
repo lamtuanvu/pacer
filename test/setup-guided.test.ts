@@ -49,7 +49,9 @@ test("TUI hints and actions use advertised operations, hide try until it exists"
  expect(setupAction("c",s,ops)).toMatchObject({op:"agent.connect",params:{agent:"codex",consent:true}});
  expect(setupAction("k",s,ops)).toMatchObject({op:"onboarding.skip",params:{}});
  expect(setupAction("e",s,ops)).toBe("add-executor");expect(setupAction("t",s,ops)).toBeUndefined();
- expect(setupHints(s,[...ops,"onboarding.try"])).toContain("t try first delegation");
+ expect(setupHints(s,[...ops,"onboarding.try"])).not.toContain("t try");
+ const ranked=setupChecklist({...facts,reviewed:false,executors:{ranked:[{id:"cursor"}],excluded:[]}},1);
+ expect(setupHints(ranked,[...ops,"onboarding.try"])).toContain("t try a first delegation");
  expect(setupHints(setupChecklist(facts,1),ops)).toBe("");
 });
 test("v2 maps chosen signed-out planner to Strategy and removes new rows and fields",()=>{

@@ -1562,7 +1562,7 @@ var doneToday = (s, scope) => cached(s, `doneToday:${scope.repo}`, () => {
   const since = s.today?.since;
   if (since === undefined)
     return [];
-  return s.tasks.filter((t) => !active(t.state) && t.updatedAt >= since && inScope(scope, t.repo)).sort((a, b) => b.updatedAt - a.updatedAt);
+  return s.tasks.filter((t) => t.source !== "onboarding" && !active(t.state) && t.updatedAt >= since && inScope(scope, t.repo)).sort((a, b) => b.updatedAt - a.updatedAt);
 });
 var counts = (s) => s.counts ?? null;
 var repos = (s) => s.repos ?? [];

@@ -102,7 +102,7 @@ export interface RunRef {
 
 export interface TaskRecord {
   title?: string;
-  source?: "planner" | "ui" | "cli";
+  source?: "planner" | "ui" | "cli" | "onboarding";
   requestId?: string;
   repo?: RepoRef;
   client?: string;
