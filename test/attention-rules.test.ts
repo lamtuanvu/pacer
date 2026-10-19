@@ -62,7 +62,7 @@ test("condition rules raise and clear with required enabled data", () => {
  expect(deriveItems({...input(),accounts:[account],executors:[{...executor,state:"ready"}]})[0]?.kind).toBe("account_signin");
  expect(deriveItems({...input(),accounts:[{...account,signedIn:true}],executors:[{...executor,state:"ready"}]})).toEqual([]);
  expect(deriveItems({...input(),accounts:[account]})).toEqual([]);
- for(const [verdict,mode,raised] of [["ahead","strict",true],["ahead","emergency",true],["ahead","normal",false],["out","normal",true],["on_pace","strict",false]] as const) {
+ for(const [verdict,mode,raised] of [["ahead","strict",false],["ahead","emergency",false],["ahead","normal",false],["out","normal",true],["on_pace","strict",false]] as const) {
   const items=deriveItems({...input(),planner:{...model.planner!,verdict,mode}});
   expect(items.length).toBe(raised?1:0);if(raised)expect(items[0]?.actions.map(a=>a.op)).toEqual(["ui.open","mode.hold"]);
  }
@@ -112,5 +112,26 @@ test("dismissed or stopped retries restore the original attention",()=>{
   const hidden=retry==="missing"&&forward;
   expect(items.map(i=>i.taskId)).toEqual(hidden?[]:[original.id]);
   expect(buildCounts(tasks,[],input().setup,[],items)).toMatchObject({attention:hidden?0:1,review:state==="partial"?1:0});
+ }
+});
+
+test("ahead-of-pace advice stays on the planner without inflating attention counts", () => {
+ for (const mode of ["normal", "strict", "emergency"] as const) {
+  const {s,st}=capacityFixture();
+  st.mode=mode;
+  const provider=st.providers.find(p=>p.id===st.planner)!;
+  provider.verdict="AHEAD";
+  provider.binding={...provider.binding!,usedPct:90,pace:50,verdict:"AHEAD"};
+  const base={strategy:s,status:st,hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}};
+  const model=buildReadModel(ctx,{...base,tasks:[]});
+  expect(model.planner).toMatchObject({verdict:"ahead",mode,advice:"40 pts ahead of pace — delegate more."});
+  expect(model.attention).toEqual([]);
+  expect(model.counts).toMatchObject({attention:0,problems:0});
+
+  const failed=task("failed");
+  const actionable=buildReadModel(ctx,{...base,tasks:[failed]});
+  expect(actionable.attention.map(i=>i.kind)).toEqual(["failed"]);
+  expect(actionable.counts).toMatchObject({attention:1,problems:1});
+  expect(actionable.counts.byRepo[failed.repo.key]?.attention).toBe(1);
  }
 });
