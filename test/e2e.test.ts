@@ -1,12 +1,13 @@
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpDir } from "./helpers";
+import { fakeCtx, withLoginIndicators, tmpDir } from "./helpers";
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
 
 function setup(executors: Record<string, string>, strategy: string) {
   const home = tmpDir();
+  withLoginIndicators(fakeCtx({ home }));
   const pacerHome = join(home, ".pacer");
   mkdirSync(pacerHome, { recursive: true });
   writeFileSync(join(pacerHome, "strategy.yaml"), strategy);

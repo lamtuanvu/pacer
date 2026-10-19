@@ -1,3 +1,4 @@
+import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -28,7 +29,7 @@ const run: RunFn = async (argv) => argv[0] === "arkcli"
   : { code: 127, stdout: "", stderr: "missing" };
 
 test("assembles verdicts, planner mode and the default executor ranking", async () => {
-  const ctx = fakeCtx({ now, run });
+  const ctx = withLoginIndicators(fakeCtx({ now, run }));
   const claude = claudeCachePaths(ctx)[0];
   mkdirSync(dirname(claude), { recursive: true });
   await Bun.write(claude, JSON.stringify({
@@ -47,7 +48,7 @@ test("assembles verdicts, planner mode and the default executor ranking", async 
 });
 
 test("broken sources degrade to UNKNOWN and the status still renders", async () => {
-  const ctx = fakeCtx({ now, run: async () => ({ code: 127, stdout: "", stderr: "arkcli: not found" }) });
+  const ctx = withLoginIndicators(fakeCtx({ now, run: async () => ({ code: 127, stdout: "", stderr: "arkcli: not found" }) }));
   const st = await computeStatus(ctx, s, { profile: null });
   const by = Object.fromEntries(st.providers.map((p) => [p.id, p]));
   expect(by["claude-code"].verdict).toBe("UNKNOWN");
@@ -59,7 +60,7 @@ test("broken sources degrade to UNKNOWN and the status still renders", async () 
 });
 
 test("unreadable activity logs do not prevent status without a profile override", async () => {
-  const ctx = fakeCtx({ now, run });
+  const ctx = withLoginIndicators(fakeCtx({ now, run }));
   const path = join(ctx.home, ".claude", "projects", "-proj", "unreadable.jsonl");
   mkdirSync(dirname(path), { recursive: true });
   await Bun.write(path, JSON.stringify({ timestamp: new Date((now - 3600) * 1000).toISOString() }));
@@ -76,7 +77,7 @@ test("unreadable activity logs do not prevent status without a profile override"
 });
 
 test("PACER=off marks the status disabled; missing binaries are not installed", async () => {
-  const ctx = fakeCtx({ now, run, env: { PACER: "off" }, which: (b) => (b === "codex" ? null : "/bin/" + b) });
+  const ctx = withLoginIndicators(fakeCtx({ now, run, env: { PACER: "off" }, which: (b) => (b === "codex" ? null : "/bin/" + b) }));
   const st = await computeStatus(ctx, s, { profile: null });
   expect(st.disabled).toBe(true);
   expect(st.providers.find((p) => p.id === "codex")?.installed).toBe(false);

@@ -1,3 +1,4 @@
+import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ test("pacer limits check --json lists every account", async () => {
 });
 
 async function withStrategy(yaml: string) {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   mkdirSync(ctx.pacerHome, { recursive: true });
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), yaml);
   return ctx;
@@ -33,11 +34,11 @@ test("status --json prints the full status object", async () => {
 });
 
 test("missing strategy: status exits 2 with guidance; --line and --hook still exit 0", async () => {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   const r = await main(["status"], ctx);
   expect(r.code).toBe(2);
-  expect(r.err).toContain("no strategy found");
-  expect(r.err).toContain("examples/strategy.yaml");
+  expect(r.err).toContain("no strategy at");
+  expect(r.err).toContain("Run: pacer init");
   const line = await main(["status", "--line"], ctx);
   expect(line.code).toBe(0);
   expect(line.out).toMatch(/▬┃(\x1b\[0m)? pacer not running · pacer serve$/);

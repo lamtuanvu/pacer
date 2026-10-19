@@ -61,22 +61,17 @@ export function starterStrategy(d: Detection, planner?: string): string {
     if (d.clis.ollama && d.ollamaModel) providers.ollama = `{via: opencode, model: ${JSON.stringify(`ollama/${d.ollamaModel}`)}, usage: unmetered}`;
     if (d.clis.lms && d.lmstudioModel) providers.lmstudio = `{via: opencode, model: ${JSON.stringify(`lmstudio/${d.lmstudioModel}`)}, usage: unmetered}`;
   }
+  // A missing planner can still be configured for installation later.
+  if (selected !== "opencode") providers[selected] ??= selected === "cursor" ? "{usage: reactive}" : "{usage: quota}";
   const executors = ["codex", "cursor", "agy", "byteplus", "ollama", "lmstudio", "claude-code"].filter((p) => p !== selected && Object.hasOwn(providers, p));
-  // Keep a valid editable starter even before an executor is installed.
-  if (!executors.length) {
-    const fallback = selected === "codex" ? "claude-code" : "codex";
-    providers[fallback] = fallback === "codex" ? "{usage: quota, allow_paid: false}" : "{usage: quota}";
-    executors.push(fallback);
-  }
   return [
     `planner: ${selected}`,
-    "providers:",
+    Object.keys(providers).length ? "providers:" : "providers: {}",
     ...Object.entries(providers).map(([id, cfg]) => `  ${id}: ${cfg}`),
     "# To add opencode-go: use via: opencode, model: opencode-go/<model>,",
     "# usage: metered, and budget.weekly_tokens (e.g. budget: {weekly_tokens: 20M}).",
     "pacing: {policy: priority, planner_reserve: 15}",
-    "routing:",
-    `  - default: [${executors.join(", ")}]`,
+    ...(executors.length ? ["routing:", `  - default: [${executors.join(", ")}]`] : ["routing: []"]),
     "",
   ].join("\n");
 }

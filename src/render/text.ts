@@ -38,7 +38,11 @@ export function renderText(st: Status): string {
   })]);
   const planner = runnerLabel(st.providers.find(p=>p.id===st.planner) ?? {id:st.planner});
   if (st.paused) lines.push(pauseLine(st.paused));
-  lines.push(`Mode: ${st.mode.toUpperCase()} - ${modeGuidance(st.mode, planner)}`);
+  const provider = st.providers.find(p => p.id === st.planner);
+  const guidance = !provider || provider.verdict === "UNKNOWN"
+    ? `${planner} usage not measured yet${st.planner === "claude-code" || provider?.agent === "claude-code" ? " (waiting for the first status-line update)" : ""}.${st.executors.ranked.length ? " Delegate substantial execution work." : ""}`
+    : modeGuidance(st.mode, planner);
+  lines.push(`Mode: ${st.mode.toUpperCase()} - ${guidance}`);
   const ex = st.executors;
   const excluded = ex.excluded.filter((e) => e.reason !== "planner").map((e) => `${e.id}: ${e.reason}`);
   lines.push(ex.ranked.length

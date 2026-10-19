@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execProcess } from "../src/exec/process";
@@ -57,3 +57,13 @@ export const fakeSshEnv = (hostHome: string, log: string, down = "") => {
   chmodSync(join(bin, "ssh"), 0o755);
   return { PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
 };
+
+/** Fake login indicators for tests that route to installed native executors. */
+export function withLoginIndicators(ctx: Ctx): Ctx {
+  mkdirSync(join(ctx.home, ".codex"), { recursive: true });
+  writeFileSync(join(ctx.home, ".codex/auth.json"), "{}");
+  mkdirSync(join(ctx.home, ".cursor"), { recursive: true });
+  writeFileSync(join(ctx.home, ".cursor/cli-config.json"), '{"authInfo":{}}');
+  writeFileSync(join(ctx.home, ".claude.json"), '{"oauthAccount":{}}');
+  return ctx;
+}

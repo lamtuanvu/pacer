@@ -366,12 +366,6 @@
           "required": false
         },
         {
-          "id": "agent:agy",
-          "title": "Antigravity",
-          "status": "pending",
-          "required": false
-        },
-        {
           "id": "agent:opencode",
           "title": "OpenCode",
           "status": "pending",

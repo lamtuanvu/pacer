@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { main } from "../src/cli";
 import { isExecutorSession } from "../src/install/role";
 import { io } from "../src/install/stdin";
-import { fakeCtx } from "./helpers";
+import { claudeCachePaths } from "../src/usage/claude";
+import { fakeCtx, withLoginIndicators } from "./helpers";
 
 const commands = [
   ["guard", "--planner", "claude-code"],
@@ -17,6 +18,11 @@ for (const command of commands) {
       const ctx = fakeCtx({ env: condition === "role" ? { PACER_ROLE: "executor" } : {} });
       mkdirSync(ctx.pacerHome, { recursive: true });
       writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: ${condition === "different planner" ? "codex" : "claude-code"}\nproviders:\n  claude-code: {}\n  codex: { usage: reactive }\n`);
+      withLoginIndicators(ctx);
+      // Exercise a measured planner: cold-start guards intentionally allow subagents.
+      const cache = claudeCachePaths(ctx)[0];
+      mkdirSync(dirname(cache), { recursive: true });
+      writeFileSync(cache, JSON.stringify({ seven_day: { used_percentage: 50, resets_at: ctx.now + 3 * 86400 }, captured_at: ctx.now }));
       const worktree = join(ctx.home, "orca/workspaces/repo/pacer-t-20261011-140500-abcd-codex/src");
       const oldCwd = process.cwd();
       const original = io.readStdin;

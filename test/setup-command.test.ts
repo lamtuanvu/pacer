@@ -12,19 +12,19 @@ function fixture(bins = ["claude", "codex", "cursor-agent", "opencode"]) {
  const deps: SetupDeps = { tty: false, stdoutTTY: false, orcaInstalled: false, print: () => {}, question: async q => { questions.push(q); return ""; }, confirm: async p => { previews.push(p); return false; }, service: () => ({ status: async () => ({ installed }) as any, install: async () => { installed = true; installs++; return []; } }) };
  return { ctx, deps, questions, previews, get installs() { return installs; } };
 }
-test("non TTY ensures strategy/service but never edits agent config without consent", async () => {
+test("non TTY ensures strategy and skips service but never edits agent config without consent", async () => {
  const f = fixture(), r = await setupCmd(["--json"], f.ctx, f.deps);
  expect(r.code).toBe(0); expect(JSON.parse(r.out).agents.every((a:any) => !a.installed)).toBe(true);
- expect(f.installs).toBe(1); expect(existsSync(join(f.ctx.home, ".claude"))).toBe(false); expect(f.questions).toHaveLength(0);
+ expect(f.installs).toBe(0); expect(existsSync(join(f.ctx.home, ".claude"))).toBe(false); expect(f.questions).toHaveLength(0);
 });
 test("planner numbered question uses choice, current default and --planner skips", async () => {
  const f = fixture();
  expect((await setupCmd([], f.ctx, { ...f.deps, tty: true, question: async q => { f.questions.push(q); return "2"; } })).code).toBe(0);
  const path = join(f.ctx.pacerHome, "strategy.yaml"); expect(validateStrategy(Bun.YAML.parse(readFileSync(path,"utf8")),path).planner.agent).toBe("codex");
  expect(f.questions[0]).toContain("1. claude-code\n2. codex");
- await setupCmd([], f.ctx, {...f.deps,tty:true}); expect(f.questions.at(-1)).toContain("Planner [2]");
+ await setupCmd([], f.ctx, {...f.deps,tty:true}); expect(f.questions.some(q => q.includes("Planner [2]"))).toBe(true);
  f.questions.length=0; const before=readFileSync(path,"utf8");
- await setupCmd(["--planner","opencode"],f.ctx,{...f.deps,tty:true});expect(f.questions).toHaveLength(0);
+ await setupCmd(["--planner","opencode","--service"],f.ctx,{...f.deps,tty:true});expect(f.questions).toHaveLength(0);
  const after=readFileSync(path,"utf8");
  expect(validateStrategy(Bun.YAML.parse(after),path).planner.agent).toBe("opencode");
  expect(after.slice(after.indexOf("\n"))).toBe(before.slice(before.indexOf("\n")));
@@ -69,4 +69,32 @@ test("Orca init installs panel; TTY waits; non-TTY never waits/dashboard",async(
 test("CLI help exposes init and setup alias",async()=>{const f=fixture();const help=(await main(["help"],f.ctx)).out;expect(help).toContain("init [--planner");expect(help).toContain("setup [--planner");});
 test("non-TTY input never launches dashboard even if stdout is a TTY",async()=>{
  const f=fixture([]);let dashboards=0;const r=await setupCmd([],f.ctx,{...f.deps,stdoutTTY:true,dashboard:async()=>{dashboards++;return {code:0,out:"",err:""};}});expect(r.code).toBe(0);expect(dashboards).toBe(0);
+});
+
+test("login service requires consent in TTY and explicit opt-in without a TTY", async () => {
+ for (const args of [[], ["--service"], ["--yes"]]) {
+  const f = fixture(["claude"]);
+  const r = await setupCmd([...args, "--json"], f.ctx, f.deps);
+  expect(r.code).toBe(0);
+  expect(f.installs).toBe(args.length ? 1 : 0);
+  expect(JSON.parse(r.out).service).toBe(args.length > 0);
+ }
+ for (const answer of ["", "n"]) {
+  const f = fixture(["claude"]);
+  const r = await setupCmd(["--no-dashboard"], f.ctx, { ...f.deps, tty: true, question: async q => { f.questions.push(q); return answer; } });
+  expect(r.code).toBe(0);
+  expect(f.questions[0]).toBe("Run pacer in the background at login? It keeps budgets fresh and runs delegated tasks. [Y/n] ");
+  expect(f.installs).toBe(answer === "" ? 1 : 0);
+ }
+});
+
+test("init ends with useful next actions and an honest service summary", async () => {
+ const f = fixture(["claude"]);
+ const r = await setupCmd([], f.ctx, f.deps);
+ expect(r.out).toContain("login service skipped");
+ expect(r.out).toContain("Next:");
+ expect(r.out).toContain("Ask your planner for some work and it will delegate");
+ expect(r.out).toContain("pacer open");
+ expect(r.out).toContain("pacer doctor");
+ expect(r.out).not.toContain("pacer install");
 });

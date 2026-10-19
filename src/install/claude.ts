@@ -1,3 +1,4 @@
+import { isObj } from "../util";
 import type { Ctx } from "../types";
 import { installSkill } from "./skill";
 import { existsSync, readdirSync } from "node:fs";
@@ -103,6 +104,22 @@ export function editClaudeSettings(old: string | null, cmds: ClaudeCommands, hom
     ],
     scriptPath, needsPipe,
   };
+}
+
+/** Describe the actual settings/script edits before connecting Claude Code. */
+export function claudeConnectPreview(home: string, root = join(home, ".claude")): string {
+  const old = readText(join(root, "settings.json"));
+  let settings: Record<string, unknown>;
+  try { settings = old?.trim() ? parseJsonc(old) : {}; }
+  catch { return "settings.json: cannot preview malformed settings; repair it before connecting"; }
+  if (settings.statusLine === undefined) return "settings.json: SessionStart + PreToolUse hooks, and the status line (pacer statusline) because none is set";
+  const command = isObj(settings.statusLine) ? settings.statusLine.command : undefined;
+  if (typeof command === "string" && /(?:pacer|cli\.(?:ts|js))/.test(command) && /\sstatusline$/.test(command))
+    return "settings.json: SessionStart + PreToolUse hooks; refresh the existing pacer status line";
+  const path = typeof command === "string" ? resolveScript(command, home) : null;
+  if (path && editStatuslineScript(readText(path) ?? "", "pacer") !== null)
+    return "settings.json: SessionStart + PreToolUse hooks; existing status line will be left alone. Its script will also pipe the input JSON to pacer statusline.";
+  return "settings.json: SessionStart + PreToolUse hooks; existing status line will be left alone. Pipe its input JSON to pacer statusline to include pacer budgets.";
 }
 
 export async function installClaude(tx: Txn): Promise<void> {

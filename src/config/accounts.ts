@@ -137,7 +137,7 @@ export function validateRemoteRunner(reference: string, parsed: { agent: AgentId
 export function parseAccounts(raw: Record<string, unknown>, problems: string[], hosts: Record<string, HostCfg> = {}): AccountsModel {
   const accounts: Record<string, AccountCfg> = {};
   const runners: Record<string, RunnerCfg> = {};
-  if (!isObj(raw.accounts) || !Object.keys(raw.accounts).length) problems.push("accounts must be a non-empty mapping");
+  if (!isObj(raw.accounts) || (!Object.keys(raw.accounts).length && raw.planner !== "opencode")) problems.push("accounts must be a non-empty mapping");
   for (const [name, value] of Object.entries(isObj(raw.accounts) ? raw.accounts : {})) {
     const at = `accounts.${name}`;
     if (!isObj(value)) { problems.push(`${at} must be a mapping`); continue; }

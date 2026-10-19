@@ -1,3 +1,4 @@
+import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { createTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
 
 async function ctxWithStrategy() {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   mkdirSync(ctx.pacerHome, { recursive: true });
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
   return ctx;
@@ -91,7 +92,7 @@ test("attention snooze validates duration and returns its expiry",async()=>{
 });
 
 test("setup attention can be dismissed before a strategy is configured",async()=>{
- const ctx=fakeCtx();
+ const ctx=withLoginIndicators(fakeCtx());
  const {liveSnapshot}=await import("../src/api/events");
  const status=async()=>{throw new Error("not configured");};
  const before=await liveSnapshot(ctx,{status});
@@ -128,7 +129,7 @@ test('update.apply refuses source installs and exposes advancing job steps',asyn
  expect(result.job.state).toBe('passed');expect(result.job.steps.map((s:any)=>s.state)).toEqual(Array(5).fill('passed'));
 });
 test('runner mutations are exposed and validate input',async()=>{
- const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});await Bun.write(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - kinds: [docs]\n    executors: [codex]\n  - default: [codex]\n');
+ const ctx=withLoginIndicators(fakeCtx());mkdirSync(ctx.pacerHome,{recursive:true});await Bun.write(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - kinds: [docs]\n    executors: [codex]\n  - default: [codex]\n');
  expect(await callOp(ctx,'runner.set',{id:'codex',enabled:false})).toMatchObject({id:'codex',warnings:expect.any(Array)});
  expect(await codeOf(callOp(ctx,'runner.reorder',{ids:[]}))).toBe('invalid_input');
  expect(await codeOf(callOp(ctx,'runner.set',{id:'codex',max_tasks:0}))).toBe('invalid_input');
