@@ -1607,18 +1607,27 @@ function accountGroups(rows) {
   return groups;
 }
 
-// src/view-model/format.ts
-var displayName2 = (id) => parseRunnerId(id) || Object.hasOwn(names2, id) ? displayName(id) : id;
+// src/view-model/time.ts
 function clock(at, now, timeZone) {
   const date = new Date(at * 1000), opts = { timeZone, hourCycle: "h23" };
   const time = date.toLocaleTimeString("en-GB", { ...opts, hour: "2-digit", minute: "2-digit" });
-  const day = (t) => new Date(t * 1000).toLocaleDateString("en-CA", opts);
-  if (day(at) === day(now))
+  const day = (t) => {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date(t * 1000));
+    const part = (name) => Number(parts.find((p) => p.type === name).value);
+    return Date.UTC(part("year"), part("month") - 1, part("day")) / 86400000;
+  };
+  const days = day(now) - day(at);
+  if (days === 0)
     return time;
-  if (now - at < 6 * 86400 && at <= now)
+  if (days === 1)
+    return `Yesterday ${time}`;
+  if (days > 1 && days < 7)
     return `${date.toLocaleDateString("en-GB", { ...opts, weekday: "short" })} ${time}`;
-  return `${date.toLocaleDateString("en-GB", { ...opts, day: "numeric", month: "short" })} ${time}`;
+  return `${date.toLocaleDateString("en-GB", { ...opts, day: "numeric", month: "short", ...date.toLocaleDateString("en-GB", { timeZone, year: "numeric" }) !== new Date(now * 1000).toLocaleDateString("en-GB", { timeZone, year: "numeric" }) ? { year: "numeric" } : {} })} ${time}`;
 }
+
+// src/view-model/format.ts
+var displayName2 = (id) => parseRunnerId(id) || Object.hasOwn(names2, id) ? displayName(id) : id;
 
 // src/view-model/agents.ts
 var AGENT_IDS = ["claude-code", "codex", "cursor", "agy", "byteplus", "local", "opencode", "gemini"];

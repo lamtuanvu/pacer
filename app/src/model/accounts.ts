@@ -1,3 +1,4 @@
+import { clock as formatClock } from "../../../src/view-model/time";
 export interface Model { id: string; name?: string; context?: number; output?: number; tools?: boolean }
 export interface Account {
   name: string; kind: string; folder?: string; source?: string; signedIn?: boolean | null; signin_command?: string; runners?: string[];
@@ -6,7 +7,7 @@ export interface Account {
   usageReading?: { windows: { name: string; usedPct: number | null; resetsAt: number | null }[]; capturedAt?: number | null; stale?: boolean; source?: string };
 }
 export interface Limit { account: string; capturedAt?: number | null; stale?: boolean; source?: string | null; usedPct?: number | null; window?: string | null; resetsAt?: number | null; error?: string | null; hint?: string | null }
-export const clock = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+export const clock = (seconds: number) => formatClock(seconds, Date.now() / 1000);
 export function accountsModel(accounts: Account[], limits: Limit[]) {
   return accounts.map(account => {
     const limit = limits.find(l => l.account === account.name);

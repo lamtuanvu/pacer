@@ -49,7 +49,7 @@ test("busy board has four linked counts, three attention rows, two running rows 
   expect(attention).toContain(">Answer</span></button>");
   expect(attention).toContain(">Review</span></button>");
   expect(active.match(/class="tray-running"/g)).toHaveLength(2);
-  expect(active).toContain("Idle 15m");
+  expect(active).toContain("Idle · running for 15m");
   expect(active).toContain("pc-status--warn");
   expect(active).not.toContain("Queued");
   expect(html).toContain("14 waiting for parallel tasks on Codex · next: Review screen");

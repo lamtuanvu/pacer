@@ -39,7 +39,7 @@ test("other Review query errors stay useful and redact path-bearing errors and h
 });
 test("review item shows run line, facts, collapsed brief and all file counts", () => {
   const html = view();
-  for (const word of [task.goal, task.executor!, "50m", "pacer/review</code> → <code>main", task.repo.label, "Done when", "bun test", "✓ 38 passed · 41 s · run by pacer on devbox", "Why Codex · team on devbox", "Best available capacity", "other", "over budget", "Implemented and verified", "src/example.ts", "+3", "−1"]) expect(html).toContain(word);
+  for (const word of [task.goal, task.executor!, "50m", "pacer/review</code> → <code>main", task.repo.label, "Done when", "bun test", "✓ 38 passed · checks ran 41 s · run by pacer on devbox", "Why Codex · team on devbox", "Best available capacity", "other", "over budget", "Implemented and verified", "src/example.ts", "+3", "−1"]) expect(html).toContain(word);
   expect(html).toContain("Cost not recorded");
   expect(html).toContain('<details class="pc-disclosure">');
   expect(html).not.toContain("<details open");
@@ -88,7 +88,7 @@ test("review heading uses the service title and shared task state while Brief ke
 test("review keeps all three cards, the compact queue status and verdict learning note", () => {
   const html = view({ ...task, cost: { executor: { account: "team", deltaPct: 1.2, window: "week" }, planner: null } });
   expect(html).toMatch(/pc-review-cards[\s\S]*Done when[\s\S]*Why Codex[\s\S]*Cost/);
-  expect(html).toContain('+1.2% of week');
+  expect(html).toContain('used 1.2% of weekly quota');
   expect(html).toContain('Your verdicts teach routing which executor suits which kind.');
   expect(html).toMatch(/pc-pill--warn[^>]*>[\s\S]*?Waiting for review<\/span> · /);
   expect(html).toContain('j k next · a accept · r reject · t retry elsewhere');
@@ -110,4 +110,16 @@ test("review clips full titles with CSS and makes command scrollers keyboard rea
   expect(html).toContain(`class="pc-ellipsis" title="${fullTitle}"`);
   expect(html).toContain(`title="${fullTitle}" class="pc-section-heading pc-ellipsis grow"`);
   expect(html).toContain('<code class="pc-code-scroll" tabindex="0">bun run typecheck &amp;&amp; bun run test &amp;&amp; bun run app:build</code>');
+});
+
+test('review hides internal routing and cost strings in collapsed technical disclosures and avoids empty arrows', () => {
+  const html = view({...task, branch:null, base:null, routing:{...task.routing!,why:'ok, used 0%; codex busy',skipped:[]},cost:{executor:{account:'cursor',deltaPct:0,window:'limit'},planner:null}});
+  const visible = html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '');
+  expect(visible).toContain('Available capacity · 0% of quota used; Codex is busy');
+  expect(visible).toContain('Cursor · no measured quota increase');
+  expect(visible).toContain('ran 50m');
+  for (const raw of ['ok, used', '+0%', ' → ']) expect(visible).not.toContain(raw);
+  expect(html).toContain('<summary>Technical routing details</summary>');
+  expect(html).toContain('ok, used 0%; codex busy');
+  expect(html).not.toMatch(/<details[^>]*\bopen\b/);
 });

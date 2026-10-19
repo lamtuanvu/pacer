@@ -1,3 +1,4 @@
+import { kindCopy, kindSourceCopy, reasonCopy } from "../../../../src/view-model/copy";
 import { SectionHeading } from "../../ds/SectionHeading";
 import type { RefObject } from "preact";
 import type { TaskDetail } from "../../../../src/core/task-detail";
@@ -40,16 +41,16 @@ export function VerdictPanel({ task, note, kind, executor, noteFor, pending, onN
     <Button className="pc-review-reject" disabled={pending} onClick={() => onOpenNote("reject")}>Reject</Button></div>
     <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><select className="pc-select" id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
         <option value="">Choose an executor</option>
-        {task.retryOptions.map(option => <option key={option.id} value={option.id} disabled={option.state !== "ready"}>{executorLabel(option.id)} · {option.reason}</option>)}
+        {task.retryOptions.map(option => <option key={option.id} value={option.id} disabled={option.state !== "ready"}>{executorLabel(option.id)} · {reasonCopy(option.reason)}</option>)}
       </select>
     <Button disabled={pending || !executor} onClick={() => onSubmit("retry")}>Retry</Button></div></div>
-    <label className="field">Kind (corrects the classifier)
+    <label className="field">Work type
       <select className="pc-select" value={kind} disabled={pending} onChange={e => onKind(e.currentTarget.value)}>
         <option value="">Unspecified</option>
-        {task.kind && !kinds.includes(task.kind) && <option value={task.kind}>{task.kind}</option>}
-        {kinds.map(k => <option key={k} value={k}>{k}</option>)}
+        {task.kind && !kinds.includes(task.kind) && <option value={task.kind}>{kindCopy(task.kind)}</option>}
+        {kinds.map(k => <option key={k} value={k}>{kindCopy(k)}</option>)}
       </select>
-      <span className="muted">{task.routing?.kindSource ?? "No kind source"}</span>
+      <span className="muted">{kindSourceCopy(task.routing?.kindSource)}</span>
     </label>
     <label className="field"><SectionHeading as="span">Note</SectionHeading>
       <textarea ref={noteRef} rows={5} value={note} disabled={pending} onInput={e => onNote(e.currentTarget.value)} onKeyDown={e => {

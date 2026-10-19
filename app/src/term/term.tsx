@@ -1,3 +1,4 @@
+import { clock } from '../../../src/view-model/time';
 import { useDialogs } from '../ds/useDialogs';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -31,7 +32,7 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
    const screen=mount.current.querySelector<HTMLElement>('.xterm-screen');
    if(screen){mount.current.style.width=`${screen.offsetWidth}px`;mount.current.style.height=`${screen.offsetHeight}px`;const factor=Math.min(1,pane.current.clientWidth/Math.max(1,screen.offsetWidth),pane.current.clientHeight/Math.max(1,screen.offsetHeight));mount.current.style.transform=`scale(${factor})`;}
   };
-  const connection=new SessionClient({url:endpoint.href,label,cols,rows,control:control&&live,onSnapshot:s=>{term.reset();term.resize(s.cols,s.rows);term.write(s.scrollbackAnsi);term.write(s.screenAnsi,scale);},onOutput:bytes=>term.write(bytes),onState:s=>{setState(s);term.options.disableStdin=!s.you;if(term.cols!==s.cols||term.rows!==s.rows)term.resize(s.cols,s.rows);if(s.status==='exited')setExitAt(new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}});
+  const connection=new SessionClient({url:endpoint.href,label,cols,rows,control:control&&live,onSnapshot:s=>{term.reset();term.resize(s.cols,s.rows);term.write(s.scrollbackAnsi);term.write(s.screenAnsi,scale);},onOutput:bytes=>term.write(bytes),onState:s=>{setState(s);term.options.disableStdin=!s.you;if(term.cols!==s.cols||term.rows!==s.rows)term.resize(s.cols,s.rows);if(s.status==='exited')setExitAt(clock(Date.now()/1000,Date.now()/1000));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}});
   client.current=connection;
   term.attachCustomKeyEventHandler(event=>{if(connection.state.you&&event.ctrlKey&&event.code==='BracketRight'){if(event.type==='keydown')connection.release();event.preventDefault();event.stopPropagation();return false;}return true;});
   const input=term.onData(data=>connection.input(data));

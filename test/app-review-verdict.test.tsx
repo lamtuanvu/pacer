@@ -15,8 +15,9 @@ test("verdict panel has one primary, disables unavailable retry and explains acc
   expect(html).toContain("Accept and bring back");
   expect(html.match(/pc-btn--primary/g)?.length).toBe(1);
   expect(html).toContain("Accept records the verdict; you merge the branch.");
-  expect(html).toMatch(/<option value="other" disabled[^>]*>other · not signed in/);
-  expect(html).toContain("classifier");
+  expect(html).toMatch(/<option value="other" disabled[^>]*>other · Sign-in needed/);
+  expect(html).toContain("Suggested from the task description");
+  expect(html).not.toContain("classifier");
   expect(html).toContain(`pacer review ${task.id} --accept`);
 });
 test("CLI footer follows verdict, kind and safely quoted note", () => {
