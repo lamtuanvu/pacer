@@ -295,3 +295,9 @@ a.pc-row:hover{background:var(--surface-lane)}
 .pc-app--narrow .pc-sessions-goal{flex-basis:70%}
 
 .pc-cap__dot--warn{background:var(--warn-fill)}.pc-cap__dot--neutral{background:var(--ink-muted)}
+
+.pc-bulk-review{padding:var(--space-3) 0}
+.pc-bulk-review .row-actions{flex-wrap:wrap}
+.pc-bulk-result{white-space:pre-line}
+.pc-review-queue-row{display:flex;align-items:center;gap:var(--space-2)}
+.pc-review-queue-row button{min-width:0}

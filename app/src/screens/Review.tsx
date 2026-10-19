@@ -3,7 +3,6 @@ import { useEffect, useReducer, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../src/api/read-model/types";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
-import { reviewQueue } from "../../../src/view-model/selectors";
 import { clock, elapsed } from "../../../src/view-model/format";
 import { executorLabel, taskStatus } from "../../../src/view-model/words";
 import { ApiError } from "../data/api";
@@ -13,6 +12,8 @@ import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import type { KeyRegistry } from "../keys/registry";
 import { keys } from "../keys/instance";
+import { RepoFilter } from "./RepoFilter";
+import { BulkReview, ReviewCheckbox, scopedReviewQueue } from "./review/BulkReview";
 import { VerdictPanel } from "./review/VerdictPanel";
 import { useQuery, useTaskContext } from "./task-shared";
 import { Diff } from "./review/Diff";
@@ -27,9 +28,9 @@ export interface ReviewProps {
 }
 function Queue({ items, selected, onSelect, snapshot, now }: { items: AttentionItem[]; selected: string | null; onSelect?: (id: string) => void; snapshot: ClientSnapshot; now: number }) {
   return <nav className="pc-review-queue" aria-label="Review queue"><h2>Review queue · {items.length}</h2>
-    {items.map(item => <button type="button" key={item.id} aria-current={item.taskId === selected ? "true" : undefined} onClick={() => item.taskId && onSelect?.(item.taskId)}>
+    {items.map(item => <div key={item.id} className="pc-review-queue-row"><ReviewCheckbox item={item} /><button type="button" key={item.id} aria-current={item.taskId === selected ? "true" : undefined} onClick={() => item.taskId && onSelect?.(item.taskId)}>
       <strong>{item.title}</strong><span className={item.kind === "failed" ? "pc-bad-text" : "pc-good-text"}>{queueStatus(item)} · {clock(item.raisedAt, now)}</span>
-    </button>)}<p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}. Your verdicts teach routing which executor suits which kind.</p>
+    </button></div>)}<p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}. Your verdicts teach routing which executor suits which kind.</p>
   </nav>;
 }
 function queueStatus(item: AttentionItem): string {
@@ -162,20 +163,22 @@ function ReviewItem(props: {
         onSelect={id => props.dispatch({ type: "select", id })} announcement={props.announcement} />;
 }
 function ReviewController({ snapshot, route }: { snapshot: ClientSnapshot; route: Route & { id?: string } }) {
+  const runner = useActions();
+  const repo = route.query.repo || null;
   const [view, dispatch] = useReducer(reviewReducer, initialReview, v => {
-    const queued = reviewReducer(v, { type: "queue", items: reviewQueue(snapshot) });
+    const queued = reviewReducer(v, { type: "queue", items: scopedReviewQueue(snapshot, repo) });
     return route.id ? reviewReducer(queued, { type: "request", id: route.id }) : queued;
   });
   const [announcement, announce] = useState("");
   const current = useRef(view); current.current = view;
-  useEffect(() => { dispatch({ type: "queue", items: reviewQueue(snapshot) }); }, [snapshot]);
+  useEffect(() => { dispatch({ type: "queue", items: scopedReviewQueue(snapshot, repo) }); }, [snapshot, repo]);
   useEffect(() => { if (route.id) dispatch({ type: "request", id: route.id }); }, [route.id]);
   useEffect(() => {
     history.replaceState(null, "", withQuery(view.selectedId ? `#/review/${encodeURIComponent(view.selectedId)}` : "#/review", route.query));
-  }, [view.selectedId]);
-  return view.selectedId
+  }, [view.selectedId, repo]);
+  return <><RepoFilter snapshot={snapshot} query={route.query} /><BulkReview key={repo ?? "all"} snapshot={snapshot} repo={repo} runner={runner}>{view.selectedId
     ? <ReviewItem key={view.selectedId} id={view.selectedId} snapshot={snapshot} view={view} dispatch={dispatch} getView={() => current.current} announce={announce} announcement={announcement} />
-    : <ReviewView snapshot={snapshot} view={view} now={Date.now() / 1000} announcement={announcement} />;
+    : <ReviewView snapshot={snapshot} view={view} now={Date.now() / 1000} announcement={announcement} />}</BulkReview></>;
 }
 export function Review({ route }: { route: Route & { id?: string } }) {
   const { state } = useTaskContext();
