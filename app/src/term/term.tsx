@@ -1,3 +1,4 @@
+import { useDialogs } from '../ds/useDialogs';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Terminal } from '@xterm/xterm';
@@ -7,6 +8,7 @@ import { SessionClient, type SessionState } from './client';
 export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
 export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover}:TerminalViewProps){
+ const dialogs=useDialogs();
  const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionClient>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
  const [reader,setReader]=useState(false),[error,setError]=useState(''),[generation,setGeneration]=useState(0),[exitAt,setExitAt]=useState('');
@@ -38,14 +40,15 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();term.dispose();client.current=undefined;terminal.current=undefined;};
  },[id,url,label,control,resize,live,generation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
- useEffect(()=>{if(takeRequested&&!taken.current&&state.status==='live'){taken.current=true;void client.current?.take(message=>window.confirm(message)).then(()=>onTakeSent?.()).catch(e=>setError(String(e)));}},[takeRequested,state.status]);
+ useEffect(()=>{if(takeRequested&&!taken.current&&state.status==='live'){taken.current=true;void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).then(()=>onTakeSent?.()).catch(e=>setError(String(e)));}},[takeRequested,state.status]);
  const mode=state.status==='exited'?`Exited with code ${state.code ?? 'unknown'}${state.signal?` (${state.signal})`:''}${exitAt?` at ${exitAt}`:''}`:state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
  return <section className="pc-terminal-view" data-session-control={state.you?'true':'false'} onKeyDown={e=>{if(state.you)e.stopPropagation();}}>
+  {dialogs.dialog}
   <div className={`pc-terminal-frame${state.you?' pc-terminal-frame--control':''}`}><div className="pc-terminal-pane" ref={pane}><div ref={mount} className="pc-terminal-mount"/></div>
    <div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{state.you?'Keystrokes go to the agent. Ctrl-] to release.':'Nothing you type reaches the agent.'}</span><span>{state.cols}×{state.rows}</span><label><input type="checkbox" checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label></div>
   </div>
   {state.message&&<p role="status">{state.message}</p>}{error&&<p role="alert">{error}</p>}
-  <TerminalControls control={control} live={live} driving={driving} state={state} takeover={takeover} onControl={()=>{if(state.you)client.current?.release();else void client.current?.take(message=>window.confirm(message)).catch(e=>setError(String(e)));}} onReconnect={()=>setGeneration(n=>n+1)}/>
+  <TerminalControls control={control} live={live} driving={driving} state={state} takeover={takeover} onControl={()=>{if(state.you)client.current?.release();else void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).catch(e=>setError(String(e)));}} onReconnect={()=>setGeneration(n=>n+1)}/>
 
  </section>;
 }
