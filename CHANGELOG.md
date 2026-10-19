@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Service startup refreshes the managed Orca plugin only when bundled asset hashes differ, with one dismissible Needs you reload reminder per changed bundle (#124).
+
 - Desktop uses `/v3` for native authentication, snapshots, events and operations, and accepts protocol major 3 while retaining major 2 compatibility.
 
 - Local builds embed the package version and Git revision; update notices no longer offer equal or older releases to development builds.
@@ -25,6 +27,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - Parallel tasks controls for each executor and this machine, with shared-capacity and queue wait explanations in the app.
+- Overview and Review support accepting all tasks with passing checks, repository filtering, and multi-select accept/reject with task-list confirmation and per-task results. Verdicts do not merge branches.
 
 - Executor questions raise blocked Needs you items with Answer and Stop actions; `pacer answer`, `task.answer` and MCP `task_answer` retry on the same executor with cumulative question/answer brief context (protocol 2.7.0).
 - Protocol 2.6.0: client registry with a notifier lease, one delivery per notification with a built-in system-notification fallback, notify events, `task.retry_all`, console and TUI commands as v2 operations, status line running and needs-you counts.

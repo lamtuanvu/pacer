@@ -1,5 +1,6 @@
 import { validateExecution } from "../../config/execution";
 import { resolveRunner } from "../../config/runner-id";
+import { readPluginReload } from "../../attention/plugin-reload";
 import { cachedPath, schedulePathRefresh, waitingIO } from "../../core/path-probe";
 import { redactEndpointError } from "../../endpoints/state";
 import { readPause } from "../../core/pause";
@@ -32,7 +33,7 @@ export async function readModelContext(ctx:Ctx) {
 }
 export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;tasks:ApiTask[];setup:SetupChecklist;hosts:HostCfg[];signedIn?:{name:string;signedIn:boolean|null}[]}):ReadModelFields {
  const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now,ctx),accounts=buildAccounts(status,strategy,ctx).map(a=>({...a,signedIn:a.signedIn===false?false:input.signedIn?.find(row=>row.name===a.name)?.signedIn??a.signedIn})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks,ctx),setup=buildSetup(input.setup);
- const attention=applyStore(ctx,deriveTaskItems({now:ctx.now,tasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)}));
+ const attention=applyStore(ctx,deriveTaskItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)}));
  const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
  const safe=(text:string|null)=>text===null?null:redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
  const pause=paused?{...paused,reason:safe(paused.reason),by:safe(paused.by)}:null;
