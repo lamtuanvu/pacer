@@ -14,6 +14,12 @@ Artifact attestations require a public repository (or GitHub Enterprise); real r
 
 Verify where a binary came from with `gh attestation verify pacer-<os>-<arch> -R lamtuanvu/pacer`.
 
+`bun run build` embeds the version from `package.json` in `dist/pacer`. Local commits
+add build metadata from `git describe`, for example `0.2.3+12.gabc1234` (with
+`.dirty` for uncommitted changes). Clean tagged checkouts and source archives
+without Git use the package version. Update checks ignore build metadata and
+offer only releases newer than that package version.
+
 ## npm
 
 `bun run release:npm --release-dir dist/release/<version> --out dist/npm` builds five packages:

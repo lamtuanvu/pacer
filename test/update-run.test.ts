@@ -60,6 +60,21 @@ test("already on the latest release: nothing is downloaded", async () => {
   expect(readdirSync(dirname(exec))).toEqual(["pacer"]);
 });
 
+test("dev builds never download or offer equal or older releases", async () => {
+  const root = tmpDir();
+  const exec = installed();
+  for (const latest of ["0.2.2", "0.2.3"]) {
+    writeFileSync(join(root, "latest.json"), JSON.stringify({ version: latest }));
+    for (const check of [true, false]) {
+      const result = await runUpdate({ check }, deps(root, exec, { version: "0.2.3+12.gabc1234" }));
+      expect(result.code).toBe(0);
+      expect(result.out).toContain("is up to date");
+      expect(result.out).not.toContain("update available");
+      expect(readdirSync(dirname(exec))).toEqual(["pacer"]);
+    }
+  }
+});
+
 test("update replaces the binary, keeps a .bak and leaves no temp files", async () => {
   const root = tmpDir();
   release(root, "0.2.0");

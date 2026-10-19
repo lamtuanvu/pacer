@@ -16,9 +16,16 @@ test("currentVersion reads package.json when no build version is embedded", () =
   expect(isVersion(DEV_VERSION)).toBe(true);
 });
 
-test("isVersion accepts MAJOR.MINOR.PATCH with an optional prerelease only", () => {
-  for (const v of ["0.1.0", "10.20.30", "1.0.0-rc.1", "1.0.0-alpha-2"]) expect(isVersion(v)).toBe(true);
-  for (const v of ["1.0", "v1.0.0", "01.0.0", "1.0.0-", "../1.0.0", "1.0.0/x", ""]) expect(isVersion(v)).toBe(false);
+test("isVersion accepts optional prerelease and build metadata", () => {
+  for (const v of ["0.1.0", "10.20.30", "1.0.0-rc.1", "1.0.0-alpha-2", "0.2.3+12.gabc1234", "1.0.0-rc.1+gabc1234.dirty"]) expect(isVersion(v)).toBe(true);
+  for (const v of ["1.0", "v1.0.0", "01.0.0", "1.0.0-", "../1.0.0", "1.0.0/x", "", "1.0.0+", "1.0.0+a..b", "1.0.0+a/b"]) expect(isVersion(v)).toBe(false);
+});
+
+test("build metadata does not affect version precedence", () => {
+  expect(compareVersions("0.2.3+12.gabc1234", "0.2.3")).toBe(0);
+  expect(compareVersions("0.2.3+12.gabc1234", "0.2.3+20.gdef5678")).toBe(0);
+  expect(compareVersions("0.2.3+12.gabc1234", "0.2.4")).toBe(-1);
+  expect(compareVersions("0.2.3-rc.1+12.gabc1234", "0.2.3")).toBe(-1);
 });
 
 test("compareVersions orders by core numbers, then prerelease per semver", () => {
