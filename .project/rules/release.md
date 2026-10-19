@@ -14,7 +14,7 @@ Canonical sources: [CONTRIBUTING.md § Releasing](../../CONTRIBUTING.md), [docs/
 | REL-5 | Versions containing `-` are prereleases (npm dist-tag `next`). | Established | release.yml; docs/distribution.md | CI |
 | REL-6 | Only the latest 0.x minor line is supported. | Established | SECURITY.md | n/a |
 | REL-7 | Run the Orca e2e (docs/testing/orca-e2e.md) before a plugin release. | Established | docs/testing/orca-e2e.md | Manual report |
-| REL-8 | The desktop app version tracks the package version (`release:prepare` bumps `desktop/src-tauri/Cargo.toml` and `tauri.conf.json`). Signing and notarization follow the clients ADR D5 once implemented. | Proposed | Desktop is 0.1.0 while the package is 0.2.3 | Pending decision |
+| REL-8 | The desktop app version tracks the package version (`release:prepare` bumps `desktop/src-tauri/Cargo.toml` and `tauri.conf.json`). Desktop artifacts ship unsigned and labeled `-unsigned` until Developer ID signing and notarization are set up (clients ADR D5). | Established | OD-5 decision, 2026-10-19; [desktop-first onboarding](../../docs/specs/2026-10-19-desktop-first-onboarding-design.md). Today the desktop is 0.1.0 while the package is 0.2.3, so `release:prepare` must gain the bump (#188). | `release:prepare` diff; release review |
 
 Relevant reviewers: [release](../reviewers/release.md)
-Exceptions and open decisions: REL-8.
+Exceptions and open decisions: none. REL-8 was resolved by OD-5 on 2026-10-19; its `release:prepare` bump is tracked in #188.
