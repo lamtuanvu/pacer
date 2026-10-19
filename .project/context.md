@@ -71,15 +71,15 @@ There is no lint or format command; `.editorconfig` is the only style config.
 
 ## Reviewer index
 
-The human approver for every merge is @lamtuanvu. Amendment 0.3.0 proposes required UI/accessibility and QA evidence for UI-affecting changes; adoption occurs only when the maintainer merges that amendment. Recommendations and other reviewers remain advisory. Read the constitution for the evidence contract; reviewers cannot grant approval or exceptions.
+The human approver for every merge is @lamtuanvu. Amendment 0.4.0 proposes required UI/accessibility and QA evidence for UI-affecting changes; adoption occurs only when the maintainer merges that amendment. Recommendations and other reviewers remain advisory. Read the constitution for the evidence contract; reviewers cannot grant approval or exceptions.
 
 | Reviewer | Triggers | Definition | Role and gate |
 |----------|----------|------------|---------------|
 | Architecture | New surface or capability; changes across `src/api` ↔ core ↔ clients; new ADR | [reviewers/architecture.md](reviewers/architecture.md) | Advisory |
 | Protocol compatibility | `src/api/**`, `src/serve/**`, `docs/protocol*.md`, client API reads | [reviewers/protocol-compat.md](reviewers/protocol-compat.md) | Advisory |
 | Security | Paths in the security rule; new subprocess, network, file-permission or secret handling | [reviewers/security.md](reviewers/security.md) | Advisory |
-| QA & tests | Any behavior change in `src/`, `app/` or `orca-plugin/` | [reviewers/qa.md](reviewers/qa.md) | Advisory; UI-affecting changes require a report under amendment 0.3.0 |
-| UI & accessibility | `app/**`, TUI rendering, Orca panel HTML, desktop shell | [reviewers/ui-accessibility.md](reviewers/ui-accessibility.md) | Required UI evidence report under proposed amendment 0.3.0; human approves merge |
+| QA & tests | Any behavior change in `src/`, `app/` or `orca-plugin/` | [reviewers/qa.md](reviewers/qa.md) | Advisory; UI-affecting changes require a report under amendment 0.4.0 |
+| UI & accessibility | `app/**`, TUI rendering, Orca panel HTML, desktop shell | [reviewers/ui-accessibility.md](reviewers/ui-accessibility.md) | Required UI evidence report under proposed amendment 0.4.0; human approves merge |
 | Release | Version bumps, CHANGELOG, release scripts and workflows, distribution packages | [reviewers/release.md](reviewers/release.md) | Advisory |
 
 Docs-only changes need just the repository rule, plus the protocol reviewer when `docs/protocol*.md` changes.

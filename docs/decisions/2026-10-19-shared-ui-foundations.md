@@ -1,7 +1,7 @@
 # Shared UI foundations and Beautiful UI adaptation
 
 Date: 2026-10-19
-Status: Design approved by the maintainer in conversation; governance amendment 0.3.0 is proposed and adopted only when the maintainer merges its PR.
+Status: Design approved by the maintainer in conversation; governance amendment 0.4.0 is proposed and adopted only when the maintainer merges its PR.
 Tracking: #191; coordinates with #174 and #134.
 
 ## Context
@@ -22,7 +22,7 @@ TUI and the static, script-free Orca panel consume shared view-model labels, ton
 
 `scripts/ui-check.ts` checks all authored app TS/TSX/JS/JSX/CSS trees, including newly added directories, terminal and tray. It parses TSX/imports with the dev-only Babel parser and checks authored CSS/inline/DOM visual declarations, including shorthand and fallback values. Only exact generated token outputs and documented semantic/layout/data-geometry categories are excluded. Negative fixtures prove raw controls, reverse imports and visual literal bypasses fail; there is no grandfathered file baseline or suppression-comment mechanism.
 
-Amendment 0.3.0 proposes UI-19–UI-25 and required implementer compliance plus independent UI/accessibility and QA reports for UI-affecting changes. The CI check validates the PR body's report manifest, reviewed SHAs, concrete references and passing summaries; it does not certify the contents of external artifacts. Required screenshots, keyboard/focus/contrast and CT-11 live evidence still require actual inspection. Missing evidence is UNVERIFIED. The maintainer inspects reports, accepts scoped exceptions and decides merges. Reviewer output is evidence and findings, never approval authority. Adoption happens through the constitution's amendment process; no remote branch-protection changes are made.
+Amendment 0.4.0 proposes UI-19–UI-25 and required implementer compliance plus independent UI/accessibility and QA reports for UI-affecting changes. The CI check validates the PR body's report manifest, reviewed SHAs, concrete references and passing summaries; it does not certify the contents of external artifacts. Required screenshots, keyboard/focus/contrast and CT-11 live evidence still require actual inspection. Missing evidence is UNVERIFIED. The maintainer inspects reports, accepts scoped exceptions and decides merges. Reviewer output is evidence and findings, never approval authority. Adoption happens through the constitution's amendment process; no remote branch-protection changes are made.
 
 ## Alternatives
 
