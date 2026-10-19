@@ -109,6 +109,44 @@ describe("UI PR evidence manifest", () => {
     expect(events).toContain("ready_for_review");
     expect(events).toContain("converted_to_draft");
   });
+  test("source checks can run while evidence stays blocking, and the default still checks both", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pacer-ui-cli-"));
+    const event = join(directory, "event.json");
+    const root = new URL("..", import.meta.url).pathname;
+    const run = (args: string[], eventPath = event) => Bun.spawnSync([
+      process.execPath, "scripts/ui-check.ts", ...args,
+    ], { cwd: root, env: { ...process.env, GITHUB_EVENT_PATH: eventPath }, stdout: "pipe", stderr: "pipe" });
+    try {
+      writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: "invalid" }, head: { sha: head } } }));
+      const source = run(["--source-only"]);
+      expect(source.exitCode).toBe(0);
+      expect(source.stdout.toString()).toContain("UI source check: 0 violation(s).");
+      expect(source.stdout.toString()).not.toContain("UI PR evidence check:");
+      for (const args of [[], ["--evidence-only"]]) {
+        const result = run(args);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr.toString()).toContain("invalid base/head SHA");
+      }
+      expect(run(["--evidence-only"], "").exitCode).toBe(1);
+      expect(run(["--source-onyl"]).exitCode).not.toBe(0);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+  test("CI runs automated validation despite incomplete evidence and preserves required Test gates", () => {
+    const workflow = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"));
+    const tests = workflow.jobs.test;
+    const evidenceJob = workflow.jobs["ui-evidence"];
+    expect(evidenceJob?.steps.some((step: { run?: string }) => step.run === "bun run ui:check --evidence-only")).toBe(true);
+    expect(evidenceJob?.["continue-on-error"]).not.toBe(true);
+    expect(tests.name).toBe("Test (${{ matrix.os }})");
+    expect(tests.needs).toEqual(["ui-evidence"]);
+    expect(tests.if).toBe("${{ always() }}");
+    expect(tests.steps.some((step: { run?: string }) => step.run === "bun run ui:check --source-only")).toBe(true);
+    const gate = tests.steps.at(-1);
+    expect(gate.if).toBe("${{ always() }}");
+    expect(gate.env.UI_EVIDENCE_RESULT).toBe("${{ needs.ui-evidence.result }}");
+    expect(gate.run).toContain('test "$UI_EVIDENCE_RESULT" = success');
+    expect(gate["continue-on-error"]).not.toBe(true);
+  });
   test.each(["", ".work/reviews/ui.md", "review done", "https://example.com", "javascript:alert(1)", "file:///tmp/report", "artifact://"])("rejects inaccessible or nonspecific reference %s", reference => {
     const value = evidence(); value.ui.report = reference;
     expect(checkUiEvidence(["app/src/app.tsx"], body(value))).not.toEqual([]);

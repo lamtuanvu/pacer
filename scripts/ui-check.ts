@@ -350,11 +350,23 @@ export function checkUiTree(root: string): UiViolation[] {
 }
 
 if (import.meta.main) {
-  const violations = checkUiTree(process.cwd());
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && !["--source-only", "--evidence-only"].includes(args[0]!))) {
+    console.error("Usage: bun scripts/ui-check.ts [--source-only | --evidence-only]");
+    process.exit(1);
+  }
+  const sourceOnly = args[0] === "--source-only";
+  const evidenceOnly = args[0] === "--evidence-only";
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (evidenceOnly && !eventPath) {
+    console.error("UI PR evidence check requires GITHUB_EVENT_PATH.");
+    process.exit(1);
+  }
+  const violations = evidenceOnly ? [] : checkUiTree(process.cwd());
   for (const violation of violations) console.error(`${violation.path}:${violation.line} [${violation.rule}] ${violation.message}`);
-  console.log(`UI source check: ${violations.length} violation(s).`);
-  const evidenceViolations = process.env.GITHUB_EVENT_PATH ? checkUiPullRequest(process.env.GITHUB_EVENT_PATH) : [];
+  if (!evidenceOnly) console.log(`UI source check: ${violations.length} violation(s).`);
+  const evidenceViolations = !sourceOnly && eventPath ? checkUiPullRequest(eventPath) : [];
   for (const violation of evidenceViolations) console.error(`[${violation.rule}] ${violation.message}`);
-  if (process.env.GITHUB_EVENT_PATH) console.log(`UI PR evidence check: ${evidenceViolations.length} violation(s). Metadata requires human review of the linked reports.`);
+  if (!sourceOnly && eventPath) console.log(`UI PR evidence check: ${evidenceViolations.length} violation(s). Metadata requires human review of the linked reports.`);
   process.exitCode = violations.length || evidenceViolations.length ? 1 : 0;
 }
