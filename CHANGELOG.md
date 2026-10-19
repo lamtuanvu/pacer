@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Per-project executor allowlists with strict priority order, persistent policies, revision-checked API and CLI configuration, and a Routing settings editor (#190).
+
 ### Fixed
 
 - `release:prepare` now keeps the desktop app configuration, Cargo manifest and lockfile version in step with `package.json`; the desktop version is corrected to 0.3.0 (#188).

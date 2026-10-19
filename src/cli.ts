@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { projectStrategyCmd } from "./commands/project-strategy";
 import { dashboardClient as connectTaskClient } from "./dashboard/client";
 import type { PruneResult } from "./tasks/retention";
 import { superviseTasks } from "./tasks/api";
@@ -35,7 +36,6 @@ import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, strategyPa
 import { configCmd } from "./commands/config";
 import { accountCmd, runnerCmd } from "./commands/accounts";
 import { makeCtx } from "./ctx";
-import { rankExecutors } from "./engine/rank";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
 import { runStdio } from "./api/stdio";
@@ -58,7 +58,8 @@ const USAGE = `usage: pacer <command>
   status [--line | --json | --hook <planner>]   budget status (default: text report)
     --line [--width N] [--no-color] [--json]     compact local status; columns default to COLUMNS or 80
   pause <for> | resume                          pause or resume delegation
-  route [kind] [--json]                          executors pacer would use, in order
+  route [kind] [--repo <path-or-key>] [--json]                          executors pacer would use, in order
+  project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-reason <text>]
@@ -202,13 +203,16 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
 async function route(args: string[], ctx: Ctx): Promise<Result> {
   const { opts, pos } = parseFlags(args, ["json"]);
   try {
-    const s = loadStrategy(ctx);
-    const st = await computeStatus(ctx, s);
-    const r = rankExecutors(pos[0] ?? null, s, Object.fromEntries(st.providers.map((p) => [p.id, p])));
-    if (opts.json) return { code: 0, out: JSON.stringify({kind:pos[0]??null,...r}, null, 1), err: "" };
-    const rows=r.ranked.map((e,i)=>({...e,index:i,...(!s.legacy ? {agent:s.runners[e.id]?.agent} : {})}));
+    if (opts.repo === true) throw new Error("--repo requires a path or repository key");
+    const client = await connectTaskClient(ctx);
+    let r: Awaited<ReturnType<typeof core.routing.route>>;
+    try { r = await client.call("routing.route", { kind: pos[0], repo: str(opts.repo) }); }
+    finally { client.close(); }
+    if (opts.json) return { code: 0, out: JSON.stringify(r, null, 1), err: "" };
+    const rows = r.ranked.map((e, i) => ({ ...e, index: i }));
     const lines = renderRoute(rows);
-    if (!lines.length) lines.push(r.reason ?? "no executor available");
+    if (!lines.length) lines.push("no executor available");
+    if (r.policy) lines.unshift(`Project order · ${r.policy.repoKey} · revision ${r.policy.rev}`);
     if (r.excluded.length) lines.push(`excluded: ${r.excluded.map((e) => `${e.id} (${e.reason})`).join(", ")}`);
     return { code: 0, out: lines.join("\n"), err: "" };
   } catch (e) {
@@ -325,6 +329,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "account": return accountCmd(rest, ctx);
     case "runner": return runnerCmd(rest, ctx);
     case "config": return configCmd(rest, ctx);
+    case "project": return projectStrategyCmd(rest, ctx);
     case "dashboard": return runDashboard(rest, ctx);
     case "setup": return setupCmd(rest, ctx);
     case "answer": {
