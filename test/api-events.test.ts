@@ -77,15 +77,15 @@ test("snapshot reads drain queued tasks even without a daemon", async () => {
   expect(readTask(ctx, t.id)?.result?.report).toBe("removed was removed while the task waited");
 });
 
-test("task events expose short titles, including retained legacy events",async()=>{
+test("task events expose complete titles, including retained legacy events",async()=>{
  const {createTask,updateTask}=await import("../src/tasks/store");
  const {taskData}=await import("../src/link/pump");
  const ctx=fakeCtx(),t=createTask(ctx,{brief:{goal:"Fix queue. Then test",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
  await publish(ctx,[{type:"task",data:taskData(t)}]);
- expect(eventsSince(ctx,0).events[0]?.data).toMatchObject({title:"Fix queue"});
+ expect(eventsSince(ctx,0).events[0]?.data).toMatchObject({title:"Fix queue",fullTitle:t.brief.goal});
  const record=updateTask(ctx,t.id,t=>{t.title="Queue fix";});
  await publish(ctx,[{type:"task",data:taskData(record)}]);
- expect(eventsSince(ctx,1).events[0]?.data).toMatchObject({title:"Queue fix"});
+ expect(eventsSince(ctx,1).events[0]?.data).toMatchObject({title:"Queue fix",fullTitle:"Queue fix"});
  appendOutbox(ctx,[{seq:3,envelope:{type:"task",data:{...taskData(t),id:"deleted",title:undefined}}}]);
- expect(eventsSince(ctx,2).events[0]?.data).toMatchObject({title:"Fix queue"});
+ expect(eventsSince(ctx,2).events[0]?.data).toMatchObject({title:"Fix queue",fullTitle:t.brief.goal});
 });
