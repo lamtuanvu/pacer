@@ -1,3 +1,4 @@
+import { fullTaskTitle } from "../../core/short-title";
 import { repoFor, listRepos, labelsFor } from "../../core/repos";
 import { taskData } from "../../link/pump";
 import type { TaskData } from "../../link/envelope";
@@ -7,7 +8,7 @@ import type { ApiTask } from "./types";
 
 export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>): ApiTask {
  const repo=t.repo??repoFor(ctx,t.brief.repo),labels=repoLabels??labelsFor([...listRepos({...ctx,readOnly:true}),repo]);
- return {...taskData(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null};
+ return {...taskData(t),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null};
 }
 /** Batch labels once: apiTask alone reads task-backed repository labels. */
 export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
