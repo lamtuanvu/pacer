@@ -606,6 +606,7 @@ var package_default = {
   type: "module",
   private: true,
   devDependencies: {
+    "@babel/parser": "^8.0.7",
     "@types/bun": "^1.4.2",
     "playwright-core": "1.58.2",
     "preact-render-to-string": "^6.8.1",
@@ -618,6 +619,7 @@ var package_default = {
   scripts: {
     test: "TZ=Asia/Ho_Chi_Minh bun test",
     live: "bun scripts/live/cli.ts",
+    "ui:check": "bun scripts/ui-check.ts",
     typecheck: "tsc --noEmit && tsc -p app",
     build: "bun scripts/build.ts",
     release: "bun scripts/release/build.ts",
@@ -1767,6 +1769,20 @@ var paceStates = {
   EXPIRING_SOON: status("Expiring soon", "warn", "!"),
   unknown: status("Usage unknown", "neutral", "?")
 };
+function attentionStatus(item, tasks = []) {
+  const task = tasks.find((t) => t.id === item.taskId);
+  if (task)
+    return taskStatus(task);
+  return {
+    review: waitingReview,
+    question: taskStates.needs_input,
+    failed: taskStates.failed,
+    limit: taskStates.limit,
+    executor_down: executorStates.down,
+    host_down: executorStates.down,
+    stuck: sessionStates.idle
+  }[item.kind] ?? status("Needs attention", "warn", "!");
+}
 
 // src/view-model/panel.ts
 var providerLabel = (p) => p.agent ? runnerLabel(p) : displayName2(p.id);
@@ -1915,6 +1931,15 @@ var tokens_default = `/* Generated from tokens.json. */
   --info-fg: #1e40af;
   --info-bg: #dbeafe;
   --focus: #1d4ed8;
+  --backdrop: rgb(0 0 0 / .4);
+  --brand-tile: #18181b;
+  --brand-lane: #52525b;
+  --brand-ink: #ffffff;
+  --brand-tick: #a3e635;
+  --agent-claude-code: #D97757;
+  --agent-agy: #4285F4;
+  --agent-byteplus: #3C8CFF;
+  --agent-gemini: #8E75B2;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -1960,11 +1985,88 @@ var tokens_default = `/* Generated from tokens.json. */
   --space-5: 20px;
   --space-8: 32px;
   --space-12: 48px;
+  --space-2\\.5: 10px;
+  --space-half: 2px;
+  --space-6: 24px;
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 10px;
   --radius-xl: 14px;
   --radius-full: 999px;
+  --control-compact: 28px;
+  --control-normal: 44px;
+  --control-touch: 48px;
+  --textarea-min: 96px;
+  --switch-width: 40px;
+  --switch-height: 24px;
+  --switch-thumb: 18px;
+  --switch-travel: 16px;
+  --dialog-width: 640px;
+  --size-36: 36px;
+  --size-600: 600px;
+  --size-neg-100: -100px;
+  --size-44: 44px;
+  --size-200: 200px;
+  --size-360: 360px;
+  --size-60: 60px;
+  --size-32: 32px;
+  --size-230: 230px;
+  --size-176: 176px;
+  --size-24: 24px;
+  --size-1: 1px;
+  --size-40: 40px;
+  --size-16: 16px;
+  --size-2: 2px;
+  --size-8: 8px;
+  --size-7: 7px;
+  --size-560: 560px;
+  --size-30: 30px;
+  --size-120: 120px;
+  --size-12: 12px;
+  --size-18: 18px;
+  --size-38: 38px;
+  --size-20: 20px;
+  --size-28: 28px;
+  --size-240: 240px;
+  --size-280: 280px;
+  --size-48: 48px;
+  --size-56: 56px;
+  --size-neg-3: -3px;
+  --size-960: 960px;
+  --size-80: 80px;
+  --size-6: 6px;
+  --size-340: 340px;
+  --size-520: 520px;
+  --size-126: 126px;
+  --size-22: 22px;
+  --size-54: 54px;
+  --size-70: 70px;
+  --size-neg-2: -2px;
+  --size-26: 26px;
+  --size-540: 540px;
+  --size-64: 64px;
+  --size-680: 680px;
+  --size-100: 100px;
+  --size-320: 320px;
+  --stroke-focus: 2px;
+  --stroke-icon: 1.5px;
+  --offset-focus-inset: -2px;
+  --size-one-em: 1em;
+  --size-code-line: 1.6em;
+  --size-fact-label: 6rem;
+  --size-300: 300px;
+  --size-260: 260px;
+  --size-180: 180px;
+  --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
+  --shadow-status-outline: 0 0 0 1px var(--ink-muted);
+  --layer-base: 1;
+  --layer-sticky: 5;
+  --layer-overlay: 10;
+  --layer-tooltip: 20;
+  --motion-fast: 150ms;
+  --motion-meter: 300ms;
+  --motion-loading: 1200ms;
+  --motion-ease: ease-out;
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-color-scheme: dark) {
@@ -1995,6 +2097,15 @@ var tokens_default = `/* Generated from tokens.json. */
   --info-fg: #93c5fd;
   --info-bg: #172554;
   --focus: #93c5fd;
+  --backdrop: rgb(0 0 0 / .6);
+  --brand-tile: #18181b;
+  --brand-lane: #52525b;
+  --brand-ink: #ffffff;
+  --brand-tick: #a3e635;
+  --agent-claude-code: #D97757;
+  --agent-agy: #4285F4;
+  --agent-byteplus: #3C8CFF;
+  --agent-gemini: #8E75B2;
 }
 }
 :root[data-theme="dark"] {
@@ -2024,10 +2135,25 @@ var tokens_default = `/* Generated from tokens.json. */
   --info-fg: #93c5fd;
   --info-bg: #172554;
   --focus: #93c5fd;
+  --backdrop: rgb(0 0 0 / .6);
+  --brand-tile: #18181b;
+  --brand-lane: #52525b;
+  --brand-ink: #ffffff;
+  --brand-tick: #a3e635;
+  --agent-claude-code: #D97757;
+  --agent-agy: #4285F4;
+  --agent-byteplus: #3C8CFF;
+  --agent-gemini: #8E75B2;
 }
 `;
 
+// src/view-model/titles.ts
+function displayTitle(item) {
+  return item.fullTitle?.trim() || item.title?.trim() || item.goal?.trim() || "Task";
+}
+
 // orca-plugin/src/panel/board.ts
+var statusGlyph = (status) => `<span class="${status.tone}" title="${h(status.label)}" aria-label="${h(status.label)}">${h(status.glyph)}</span>`;
 var command = (line) => `<code>${h(line)}</code>`;
 var quote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 function sections(s, scope) {
@@ -2039,16 +2165,17 @@ function sections(s, scope) {
   const section = (name, count, body, extra = "") => `<section class="stack section" aria-label="${name}"><div class="row"><h2>${name}</h2><span class="pill">${count}</span><span class="grow"></span>${extra}</div>${body}</section>`;
   const repo = (r) => scope.repo === null && r ? ` · ${h(r.label)}` : "";
   return section("Needs you", needs.length, needs.map((n) => {
+    const status = attentionStatus(n, s.tasks), title = displayTitle(n);
     const actions = n.actions.map((a, index) => {
       const p = a.params, id = p.id ?? n.taskId;
       const line = a.op === "ui.open" ? `pacer open ${quote(`${p.view === "task" ? "sessions" : p.view === "session" ? "sessions" : p.view ?? "overview"}${p.view === "settings" && p.section ? `/${p.section}` : id ? `/${id}` : ""}`)}` : a.op === "host.check" ? `pacer host check ${quote(p.alias ?? n.host)}` : a.op === "task.retry" ? `pacer retry ${quote(id)}${p.executor ? ` --executor ${quote(p.executor)}` : ""}` : a.op === "task.review" ? `pacer review ${quote(id)} --${p.verdict === "accept" ? "accept" : "reject"}` : `pacer open ${quote(n.taskId ? `review/${n.taskId}` : n.host ? "settings/hosts" : "overview")}`;
       return { label: `<span class="action-block ${index === 0 ? "action-primary" : "action-secondary"}">${h(a.label)}</span>`, line: command(line) };
     });
     const executor = n.executor ?? s.tasks.find((t) => t.id === n.taskId)?.executor;
-    return `<article class="card stack ${n.severity === "blocked" ? "bad" : n.severity === "problem" ? "warn" : "info"}"><div class="row attention-heading">${executor ? icon(executor, 22, n.account) : ""}<div class="stack grow"><strong>${h(n.title)}</strong><small>${n.kind === "failed" ? '<span class="bad" aria-label="Failed">✗</span> ' : ""}${h(n.detail)}${repo(n.repo)}</small></div></div><div class="row actions">${actions.map((a) => a.label).join("")}</div><div class="stack action-commands">${actions.map((a) => a.line).join("")}</div></article>`;
-  }).join("") || "<small>Nothing needs you here.</small>", hidden ? `<a href="#all-repos">+${hidden} in other repos</a>` : "") + section("Running", runCount, runs.map((t) => `<article class="card stack"><div class="row">${t.executor ? icon(t.executor, 22) : ""}<strong class="grow">${h(t.goal.slice(0, 100))}</strong></div><small>${h(executorLabel(t.executor))} · ${h(t.progress ? phaseWords(t.progress.phase) : taskStatus(t).label)} · ${h(clock(t.attemptStartedAt ?? t.updatedAt, s.at))}${repo(t.repo)}</small>${command(`pacer open ${quote(`sessions/${t.id}`)}`)}</article>`).join("") || "<small>Nothing running here.</small>") + section("Capacity", executors.length, `<div class="card row capacity">${executors.map((e) => `<span class="executor ${toneFor(e.tone)}" title="${h(`${executorLabel(e.id)} · ${e.sub}`)}">${icon(e.agent, 24, e.account)}<span class="dot" aria-hidden="true"></span><span class="sr-only">${h(`${executorLabel(e.id)} · ${e.sub}`)}</span></span>`).join("")}<span class="grow"></span><small>${counts(s)?.ready ?? 0} ready${executors.some((e) => e.state === "down") ? ` · ${executors.filter((e) => e.state === "down").length} down` : ""}</small></div>`, next ? `<small>next: ${h(executorLabel(next.id))}</small>` : "") + section("Done today", doneCount, done.map((t) => {
+    return `<article class="card stack ${status.tone}"><div class="row attention-heading">${executor ? icon(executor, 22, n.account) : ""}<div class="stack grow"><strong class="task-title" title="${h(title)}">${h(title)}</strong><small>${statusGlyph(status)} ${h(n.detail)}${repo(n.repo)}</small></div></div><div class="row actions">${actions.map((a) => a.label).join("")}</div><div class="stack action-commands">${actions.map((a) => a.line).join("")}</div></article>`;
+  }).join("") || "<small>Nothing needs you here.</small>", hidden ? `<a href="#all-repos">+${hidden} in other repos</a>` : "") + section("Running", runCount, runs.map((t) => `<article class="card stack"><div class="row">${t.executor ? icon(t.executor, 22) : ""}<strong class="grow task-title" title="${h(displayTitle(t))}">${h(displayTitle(t))}</strong></div><small>${h(executorLabel(t.executor))} · ${h(t.progress ? phaseWords(t.progress.phase) : taskStatus(t).label)} · ${h(clock(t.attemptStartedAt ?? t.updatedAt, s.at))}${repo(t.repo)}</small>${command(`pacer open ${quote(`sessions/${t.id}`)}`)}</article>`).join("") || "<small>Nothing running here.</small>") + section("Capacity", executors.length, `<div class="card row capacity">${executors.map((e) => `<span class="executor ${toneFor(e.tone)}" title="${h(`${executorLabel(e.id)} · ${e.sub}`)}">${icon(e.agent, 24, e.account)}<span class="dot" aria-hidden="true"></span><span class="sr-only">${h(`${executorLabel(e.id)} · ${e.sub}`)}</span></span>`).join("")}<span class="grow"></span><small>${counts(s)?.ready ?? 0} ready${executors.some((e) => e.state === "down") ? ` · ${executors.filter((e) => e.state === "down").length} down` : ""}</small></div>`, next ? `<small>next: ${h(executorLabel(next.id))}</small>` : "") + section("Done today", doneCount, done.map((t) => {
     const status = taskStatus(t);
-    return `<div class="row done ${status.tone}"><span title="${h(status.label)}" aria-label="${h(status.label)}">${status.tone === "good" ? "✓" : status.tone === "bad" ? "✗" : "·"}</span><span class="grow">${h(t.goal)}${repo(t.repo)}</span>${t.executor ? icon(t.executor, 16) : ""}<small class="done-time">${h(clock(t.updatedAt, s.at))}</small></div>`;
+    return `<div class="row done ${status.tone}">${statusGlyph(status)}<span class="grow task-title" title="${h(displayTitle(t))}">${h(displayTitle(t))}${repo(t.repo)}</span>${t.executor ? icon(t.executor, 16) : ""}<small class="done-time">${h(clock(t.updatedAt, s.at))}</small></div>`;
   }).join("") || "<small>Nothing done here today.</small>");
 }
 function board(s, repo) {
@@ -2061,7 +2188,7 @@ body{background:var(--surface-page);color:var(--ink);font:13px/19px var(--font-s
 .content{gap:14px;padding:10px 16px}.stack{gap:6px}.scope-here,.scope-all{gap:14px}.scope-all{display:none}.scope-all:target{display:flex}.scope-all:target~.scope-here{display:none}
 a{color:var(--link)}a:hover{color:var(--ink)}a:focus-visible{outline:2px solid var(--focus);outline-offset:3px}a[aria-current]{font-weight:650}
 .scope-toggle{display:flex;align-items:stretch;gap:6px}.scope-toggle a{display:flex;align-items:center;justify-content:center;flex:1 1 0;min-width:0;min-height:32px;padding:5px 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface-page);color:var(--ink);font-size:12px;text-align:center;text-decoration:none}.scope-toggle a[aria-current]{background:var(--ink);border-color:var(--ink);color:var(--ink-on-ink)}
-.attention-heading{align-items:flex-start}.attention-heading .stack{gap:2px}.actions{align-items:stretch;gap:6px}.action-block{display:flex;align-items:center;justify-content:center;min-height:30px;padding:5px 10px;border:1px solid var(--line);border-radius:6px;color:var(--ink);background:var(--surface-page);font-size:12px;text-align:center}.action-primary{flex:1;background:var(--ink);color:var(--ink-on-ink);border-color:var(--ink);font-weight:600}.action-commands code{display:block}.footer-actions{display:flex;flex-direction:column;gap:8px}.footer-actions .action-block{flex-direction:column;align-items:stretch;gap:4px;padding:10px;text-align:left}.footer-actions code{color:inherit}.planner-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px}.planner-summary strong{font-weight:600}.planner-stats{text-align:right}.done-time{flex:none;text-align:right}.done .agent-mark{margin-left:auto}
+.task-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attention-heading .grow{min-width:0}.attention-heading{align-items:flex-start}.attention-heading .stack{gap:2px}.actions{align-items:stretch;gap:6px}.action-block{display:flex;align-items:center;justify-content:center;min-height:30px;padding:5px 10px;border:1px solid var(--line);border-radius:6px;color:var(--ink);background:var(--surface-page);font-size:12px;text-align:center}.action-primary{flex:1;background:var(--ink);color:var(--ink-on-ink);border-color:var(--ink);font-weight:600}.action-commands code{display:block}.footer-actions{display:flex;flex-direction:column;gap:8px}.footer-actions .action-block{flex-direction:column;align-items:stretch;gap:4px;padding:10px;text-align:left}.footer-actions code{color:inherit}.planner-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px}.planner-summary strong{font-weight:600}.planner-stats{text-align:right}.done-time{flex:none;text-align:right}.done .agent-mark{margin-left:auto}
 header{padding-bottom:10px;border-bottom:1px solid var(--line)}.brand-tick{fill:var(--track)}.pill{background:var(--surface-lane);border-radius:999px}h2{color:var(--ink);font-size:11px;font-weight:600}.live,small,footer{color:var(--ink-muted);font-size:12px}
 .card{border-color:var(--line);border-radius:10px;background:var(--surface-page);padding:8px 10px}.card.warn{border-color:var(--warn-line);background:var(--warn-tint)}.card.bad{border-color:var(--bad-line);background:var(--bad-tint)}.card strong{color:var(--ink)}
 .good{color:var(--good-fg)}.warn{color:var(--warn-fg)}.bad{color:var(--bad-fg)}.info{color:var(--info-fg)}.neutral{color:var(--ink-muted)}.meter{background:var(--surface-lane)}.pace{background:var(--ink)}
@@ -2128,8 +2255,8 @@ function renderStatusPage(s, view) {
         return `<div class="account card stack"><strong>${h(group.account ?? providerLabel(p))}</strong><span>${h(verdictWords(p.verdict))} · ${h(percent(p))}${p.stale ? ' · <span class="pill">stale</span>' : ""}</span>${meter(p, true)}<small>${h(p.window ?? "Window unknown")} · ${h(reset(p))}</small><small>Runners: ${h(runners.map(providerLabel).join(", "))}</small></div>`;
       });
     }).join("");
-    const running = s.tasks.filter((t) => t.state === "running" || t.state === "queued").map((t) => `<div class="card stack"><strong>${h(t.goal.slice(0, 100))}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor pending")} · ${h(t.state)} · started ${h(absolute(t.attemptStartedAt ?? t.updatedAt, nowS))}${t.progress ? ` · ${h(t.progress.phase)}` : ""}</small>${placementLine(t)}</div>`).join("");
-    const waiting = s.tasks.filter((t) => !t.review && !t.dismissed && (t.state === "partial" || t.state === "done" || t.state === "needs_input")).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10).map((t) => `<div class="card stack"><strong>${h(t.goal)}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor unknown")} · ${t.state === "needs_input" ? "Needs your answer" : "finished"} ${h(absolute(t.updatedAt, nowS))}</small><small>${h(t.worktree ?? "Worktree unknown")}</small></div>`).join("");
+    const running = s.tasks.filter((t) => t.state === "running" || t.state === "queued").map((t) => `<div class="card stack"><strong class="task-title" title="${h(displayTitle(t))}">${h(displayTitle(t))}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor pending")} · ${h(taskStatus(t).label)} · started ${h(absolute(t.attemptStartedAt ?? t.updatedAt, nowS))}</small>${placementLine(t)}</div>`).join("");
+    const waiting = s.tasks.filter((t) => !t.review && !t.dismissed && (t.state === "partial" || t.state === "done" || t.state === "needs_input")).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10).map((t) => `<div class="card stack"><strong class="task-title" title="${h(displayTitle(t))}">${h(displayTitle(t))}</strong><small>${h(t.executor ? displayName2(t.executor) : "Executor unknown")} · <span class="${taskStatus(t).tone}" aria-label="${h(taskStatus(t).label)}">${h(taskStatus(t).glyph)}</span> ${h(taskStatus(t).label)} ${h(absolute(t.updatedAt, nowS))}</small><small>${h(t.worktree ?? "Worktree unknown")}</small></div>`).join("");
     const alertRows = s.planner === undefined ? s.alerts : (s.attention ?? []).map((a) => ({ level: a.severity === "blocked" ? "error" : "warn", title: a.title, body: a.detail, at: a.raisedAt }));
     const alerts = alertRows.filter((a) => a.level === "warn" || a.level === "error").sort((a, b) => b.at - a.at).slice(0, 5).map((a) => `<div class="card stack"><strong>${h(a.title)}</strong><p>${h(a.body.slice(0, 200))}</p><small>${h(absolute(a.at, nowS))}</small></div>`).join("");
     const versions = `<p>pacer ${h((s.planner === undefined ? view.updates?.cli ?? s.console?.version : s.service?.version ?? view.updates?.cli) ?? "unknown")} · plugin ${h(view.updates?.plugin ?? "unknown")}</p>${view.updates?.available ? `<p>Update available: ${h(view.updates.latest ?? "unknown")} · <code>pacer update</code></p>` : ""}`;

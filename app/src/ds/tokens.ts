@@ -25,7 +25,16 @@ export type ColorToken =
   | "bad-tint"
   | "info-fg"
   | "info-bg"
-  | "focus";
+  | "focus"
+  | "backdrop"
+  | "brand-tile"
+  | "brand-lane"
+  | "brand-ink"
+  | "brand-tick"
+  | "agent-claude-code"
+  | "agent-agy"
+  | "agent-byteplus"
+  | "agent-gemini";
 export const colorTokens: Record<ColorToken, { light: string; dark: string }> = {
   "surface-page": { light: "#ffffff", dark: "#09090b" },
   "surface-card": { light: "#fafafa", dark: "#18181b" },
@@ -53,4 +62,13 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "info-fg": { light: "#1e40af", dark: "#93c5fd" },
   "info-bg": { light: "#dbeafe", dark: "#172554" },
   "focus": { light: "#1d4ed8", dark: "#93c5fd" },
+  "backdrop": { light: "rgb(0 0 0 / .4)", dark: "rgb(0 0 0 / .6)" },
+  "brand-tile": { light: "#18181b", dark: "#18181b" },
+  "brand-lane": { light: "#52525b", dark: "#52525b" },
+  "brand-ink": { light: "#ffffff", dark: "#ffffff" },
+  "brand-tick": { light: "#a3e635", dark: "#a3e635" },
+  "agent-claude-code": { light: "#D97757", dark: "#D97757" },
+  "agent-agy": { light: "#4285F4", dark: "#4285F4" },
+  "agent-byteplus": { light: "#3C8CFF", dark: "#3C8CFF" },
+  "agent-gemini": { light: "#8E75B2", dark: "#8E75B2" },
 };
