@@ -325,8 +325,15 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       if (request.clientId !== session.desktopClientId || !native.authorizeInstall || !native.verifyOutcome || !deps.adapter?.capabilities.has("install")) throw unavailable();
       const current = record(request.installationId), next = requestRestart(current, request, clock.bootId());
       if (next !== current) {
-        try { persist(next); } catch (error) { const fresh = record(request.installationId); if (requestRestart(fresh, request, clock.bootId()) !== fresh) throw error; }
-        waitingSessions.set(next.transactionId!, session.sessionId);
+        let saved: UpdateRecord;
+        try { saved = persist(next); }
+        catch (error) {
+          if (!(error instanceof CoreError) || error.code !== "conflict") throw error;
+          const fresh = record(request.installationId);
+          if (requestRestart(fresh, request, clock.bootId()) !== fresh) throw error;
+          saved = fresh;
+        }
+        waitingSessions.set(saved.transactionId!, session.sessionId);
       } else if (waitingSessions.get(next.transactionId!) !== session.sessionId) throw conflict();
       return runtime.status(request.installationId);
     },

@@ -232,3 +232,25 @@ test("a scheduled check losing CAS to configuration does not disable the runtime
   f.runtime.configure({...f.request("configure"),autoDownload:false});verification.resolve();await scheduled;
   expect(f.commands).toEqual([]);await f.runtime.tick();await f.runtime.settled();expect(f.commands.map(c=>c.command)).toEqual(["check"]);
 });
+
+test("a concurrent duplicate restart winning CAS binds its persisted transaction to the session",async()=>{
+  const f=fixture();await f.ready();
+  const request={...f.request("same-restart"),version:candidate.version,clientId:"native-desktop"};
+  let winningTransaction:string|null=null;
+  // Inject the peer's durable CAS between this runtime's state read and write.
+  // Accessors are test orchestration only; public API requests are plain JSON.
+  const racingRequest={...request,get version(){
+    if(winningTransaction===null){
+      const current=readUpdate(f.ctx,"desktop");
+      const winner=writeUpdate(f.ctx,requestRestart(current,request,"boot-1"),current.revision);
+      winningTransaction=winner.transactionId;
+    }
+    return request.version;
+  }};
+  const result=await f.runtime.restart(racingRequest);
+  expect(result).toMatchObject({phase:"waiting",transactionId:winningTransaction});
+  expect(readUpdate(f.ctx,"desktop").requestHistory.filter(r=>r.requestId===request.requestId)).toHaveLength(1);
+  await f.runtime.tick();await f.runtime.settled();
+  expect(f.commands.filter(c=>c.command==="install").map(c=>c.transactionId)).toEqual([winningTransaction!]);
+  expect(readUpdate(f.ctx,"desktop").phase).toBe("complete");
+});
