@@ -53,6 +53,10 @@ command under Sign out; run it in a terminal.
 | Hosts | Add, check and remove remote hosts. |
 | Settings | Change the planner, notifications and integrations; check and apply updates, inspect versions and find the sign-out command. |
 
+Headless runs in the Session view show “This run is headless — Take over to work
+in it live” with a prominent **Take over** button. Watch-elsewhere options and the
+attach command appear only for live or recorded terminal sessions.
+
 Account sign-in still happens in a terminal: the app shows the command to copy
 and refreshes the sign-in state. Service installation also uses a terminal
 command. Connecting an agent, or changing the planner with integrations, shows
