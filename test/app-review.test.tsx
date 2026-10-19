@@ -107,9 +107,9 @@ test("review clips full titles with CSS and makes command scrollers keyboard rea
   const detail = { ...task, fullTitle, title: "Repair the review queue…", acceptance: { ...task.acceptance, cmd: command } };
   const s = { ...snap, tasks: snap.tasks.map(t => ({ ...t, fullTitle })) };
   const html = view(detail, s);
-  expect(html).toContain(`class="pc-ellipsis" title="${fullTitle}"`);
+  expect(html).toContain(`title="${fullTitle}" class="pc-ellipsis"`);
   expect(html).toContain(`title="${fullTitle}" class="pc-section-heading pc-ellipsis grow"`);
-  expect(html).toContain('<code class="pc-code-scroll" tabindex="0">bun run typecheck &amp;&amp; bun run test &amp;&amp; bun run app:build</code>');
+  expect(html).toMatch(/<code(?=[^>]*class="pc-code-scroll")(?=[^>]*tabindex="0")[^>]*>bun run typecheck &amp;&amp; bun run test &amp;&amp; bun run app:build<\/code>/);
 });
 
 test('review hides internal routing and cost strings in collapsed technical disclosures and avoids empty arrows', () => {

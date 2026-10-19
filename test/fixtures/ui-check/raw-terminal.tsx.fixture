@@ -1,0 +1,3 @@
+export function TerminalOptions() {
+  return <label><input type="checkbox" />Screen reader</label>;
+}

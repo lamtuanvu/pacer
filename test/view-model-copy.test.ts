@@ -45,3 +45,14 @@ test('unknown values including object property names never bypass copy fallbacks
     expect(costCopy({account:'cursor',deltaPct:2,window:value})).toBe('Cursor · used 2% of quota');
   }
 });
+
+test('job progress labels describe checks and state without internal operation strings', async()=>{
+ const {jobKindCopy,jobStateCopy}=await import('../src/view-model/copy');
+ expect(jobKindCopy('runner.check')).toBe('Executor check');
+ expect(jobKindCopy('host.repo.setup')).toBe('Repository setup');
+ expect(jobStateCopy('running')).toBe('In progress');
+ expect(jobStateCopy('passed')).toBe('Passed');
+ expect(jobStateCopy('pending')).toBe('Waiting');
+ expect(jobKindCopy('new_future.operation')).toBe('New future operation');
+ expect(jobStateCopy('future_state')).toBe('Future state');
+});

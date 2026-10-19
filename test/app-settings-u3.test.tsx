@@ -21,7 +21,7 @@ test('executor and update checkboxes keep their labels inline', () => {
  const html = render(<SettingsGeneral initialData={settings}/>);
  const labels = [...html.matchAll(/<label class="pc-checkbox">([\s\S]*?)<\/label>/g)];
  expect(labels).toHaveLength(2);
- for (const [, body] of labels) expect(body).toContain('class="pc-checkbox__input" type="checkbox"');
+ for (const [, body] of labels) { expect(body).toMatch(/class="[^"]*pc-checkbox__input[^"]*"/); expect(body).toContain('type="checkbox"'); }
  expect(labels[0]![1]).toContain('Enabled');
  expect(labels[1]![1]).toContain('Check for updates');
 });
@@ -70,7 +70,7 @@ test('section failures show the service hint and a retry action',async()=>{
 test('standalone screens bundle for the browser with their CSP compatible styles',async()=>{
  const result=await Bun.build({entrypoints:['app/src/screens/settings/index.ts'],target:'browser',minify:true});
  expect(result.success).toBe(true);expect(result.outputs.length).toBe(1);
- const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-page');
+ const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
  expect(Bun.gzipSync(text).byteLength).toBeLessThan(30*1024);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
@@ -145,5 +145,5 @@ test('settings pages leave their page title to the shell and inline links are un
  }
  const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
  expect(render(<RemoteHosts/>, emptyState)).not.toContain('>Remote hosts</h2>');
- expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toContain('<a class="pc-inline-link" href="#/settings/hosts">Add a host.</a>');
+ expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toMatch(/<a(?=[^>]*class="pc-inline-link")(?=[^>]*href="#\/settings\/hosts")[^>]*>Add a host\.<\/a>/);
 });

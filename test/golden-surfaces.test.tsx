@@ -136,16 +136,16 @@ test("panel order is Needs you, Running, Capacity, Done today; the TUI follows t
 
 test("app reads Needs you, Running, Capacity, Done today; CSS places Capacity beside the work on desktop", () => {
   const [main, side] = app.split('class="pc-overview__main">')[1]!.split('class="pc-overview__side">');
-  expect(headings(main!)).toEqual(["Needs you", "Running", "Capacity", "Done today"]);
-  expect(headings(side!)).toEqual(["Quick delegate", "Activity"]);
+  expect(headings(main!.replace(/<section\b[^>]*class="pc-empty"[^>]*>[\s\S]*?<\/section>/g, ""))).toEqual(["Needs you", "Running", "Capacity", "Done today"]);
+  expect(headings(side!.replace(/<section\b[^>]*class="pc-empty"[^>]*>[\s\S]*?<\/section>/g, ""))).toEqual(["Quick delegate", "Activity"]);
 });
 
 test("tray orders Needs you, Running, executors with done today only in counts", () => {
   expect(headings(tray)).toEqual(["Needs you", "Running"]);
-  const positions = ['aria-label="Needs you"', 'aria-label="Running"', 'class="tray-executors" aria-label="Executors"'].map(marker => tray.indexOf(marker));
+  const positions = ['aria-label="Needs you"', 'aria-label="Running"', 'aria-label="Executors"'].map(marker => tray.indexOf(marker));
   expect(positions.every(at => at >= 0)).toBe(true);
   expect(positions).toEqual([...positions].sort((a, b) => a - b));
-  const counts = tray.split('aria-label="Task counts">')[1]!.split("</nav>")[0]!;
+  const counts = tray.split(/<nav(?=[^>]*aria-label="Task counts")[^>]*>/)[1]!.split("</nav>")[0]!;
   expect(strip(counts)).toContain(`${snapshot.today!.done} done today`);
   expect(strip(tray).match(/done today/g)).toHaveLength(1);
 });
@@ -160,12 +160,19 @@ test("cross-surface Needs-you short titles preserve service order", () => {
   }
 });
 
+function anchorRows(output: string, className: string): string[] {
+  return [...output.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/g)].map(match => match[0]).filter(row => {
+    const classes = row.match(/^<a\b[^>]*class="([^"]*)"/)?.[1]?.split(/\s+/) ?? [];
+    return classes.includes(className);
+  });
+}
+
 test("tray and Overview agree on unknown and unavailable capacity from the same rows", () => {
   const unknown = snapshot.executors!.find(row => row.state === "ready" && row.usedPct === null)!;
   expect(unknown.paceReason).toBe("no limit reported");
-  const overviewRow = app.split('<a class="pc-row pc-cap').find(row => row.includes(`aria-label="${unknown.slots.used} of ${unknown.slots.max} parallel tasks"`) && strip(row).includes("Usage unknown · no limit reported"));
+  const overviewRow = anchorRows(app, 'pc-cap').find(row => row.includes(`aria-label="${unknown.slots.used} of ${unknown.slots.max} parallel tasks"`) && strip(row).includes("Usage unknown · no limit reported"));
   expect(overviewRow).toBeDefined();
-  const trayRow = tray.split('<a class="tray-executor').map(row => row.split("</a>")[0]!).find(row => row.includes(` · ${unknown.slots.used}/${unknown.slots.max} parallel tasks`) && row.includes("Usage unknown"));
+  const trayRow = anchorRows(tray, 'tray-executor').find(row => row.includes(` · ${unknown.slots.used}/${unknown.slots.max} parallel tasks`) && row.includes("Usage unknown"));
   expect(trayRow).toContain("pc-glyph pc-status--neutral");
   expect(trayRow).toContain(">?</span>");
 
@@ -174,9 +181,9 @@ test("tray and Overview agree on unknown and unavailable capacity from the same 
   const unavailableState = reduceStore(initialState(), { type: "snapshot", snapshot: unavailableSnapshot });
   const overview = renderToString(<TaskContext.Provider value={{ state: unavailableState, api }}><ActionContext.Provider value={runner}><Overview query={{ repo: null, scope: null }} /></ActionContext.Provider></TaskContext.Provider>);
   const popover = renderToString(<Tray snapshot={unavailableSnapshot} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
-  expect(overview).toContain('class="pc-row pc-cap pc-cap--off"');
+  expect(anchorRows(overview, 'pc-cap--off')).toHaveLength(1);
   expect(overview).toContain("no active coding-plan subscription");
-  expect(popover).toContain('class="tray-executor tray-executor--off"');
+  expect(anchorRows(popover, 'tray-executor--off')).toHaveLength(1);
   expect(popover).toContain(">off</span>");
   expect(popover).not.toContain(">free</span>");
 });

@@ -1,3 +1,6 @@
+import { SelectableRow, ApprovalCard, LoadingState, EmptyState } from "../ds/Patterns";
+
+import { Disclosure } from "../ds/Controls";
 import { costCopy, reasonCopy } from "../../../src/view-model/copy";
 import { displayTitle } from "../../../src/view-model/titles";
 import { SectionHeading } from "../ds/SectionHeading";
@@ -20,7 +23,7 @@ import { BulkReview, ReviewCheckbox, scopedReviewQueue } from "./review/BulkRevi
 import { VerdictPanel } from "./review/VerdictPanel";
 import { useQuery, useTaskContext } from "./task-shared";
 import { Diff } from "./review/Diff";
-import { initialReview, reviewReducer, verdictParams, type Verdict, type ReviewAction, type ReviewView as ReviewState } from "./review/model";
+import { initialReview, reviewReducer, verdictParams, type ReviewView as ReviewState, type Verdict, type ReviewAction } from "./review/model";
 
 export interface ReviewDiff { base: string | null; worktree: string; files: TaskDetail["files"]; patch: string; diff: string; untracked: string[]; truncated: boolean; note?: string }
 export interface ReviewProps {
@@ -31,13 +34,13 @@ export interface ReviewProps {
 }
 function Queue({ items, selected, onSelect, snapshot, now }: { items: AttentionItem[]; selected: string | null; onSelect?: (id: string) => void; snapshot: ClientSnapshot; now: number }) {
   return <nav className="pc-review-queue" aria-label="Review queue"><SectionHeading>Review queue · {items.length}</SectionHeading>
-    {items.map(item => <div key={item.id} className="pc-review-queue-row"><ReviewCheckbox item={item} /><button type="button" key={item.id} aria-current={item.taskId === selected ? "true" : undefined} onClick={() => item.taskId && onSelect?.(item.taskId)}>
+    {items.map(item => <div key={item.id} className="pc-review-queue-row"><ReviewCheckbox item={item} /><SelectableRow key={item.id} aria-current={item.taskId === selected ? "true" : undefined} onClick={() => item.taskId && onSelect?.(item.taskId)}>
       <strong className="pc-ellipsis" title={snapshot.tasks.find(task => task.id === item.taskId)?.fullTitle ?? item.title}>{snapshot.tasks.find(task => task.id === item.taskId)?.fullTitle ?? item.title}</strong><span><StatusPill status={attentionStatus(item, snapshot.tasks)} /> · {clock(item.raisedAt, now)}</span>
-    </button></div>)}<p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}. Your verdicts teach routing which executor suits which kind.</p>
+    </SelectableRow></div>)}<p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}. Your verdicts teach routing which executor suits which kind.</p>
   </nav>;
 }
 function CostCard({ cost }: { cost: TaskDetail["cost"] }) {
-  return <section><SectionHeading>Cost</SectionHeading><p>{costCopy(cost.executor)}</p>{cost.executor && <details className="pc-disclosure"><summary>Technical cost details</summary><pre className="mono pc-code-scroll" tabIndex={0}>{JSON.stringify(cost, null, 2)}</pre></details>}</section>;
+  return <section><SectionHeading>Cost</SectionHeading><p>{costCopy(cost.executor)}</p>{cost.executor && <Disclosure className="pc-disclosure" summary={<>Technical cost details</>}><pre className="mono pc-code-scroll" tabIndex={0}>{JSON.stringify(cost, null, 2)}</pre></Disclosure>}</section>;
 }
 const REMOVED_WORKTREE = "Changes unavailable · the worktree was removed after the task finished";
 function reviewError(error: unknown): { removed: boolean; message?: string } {
@@ -53,30 +56,30 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
   const status = task && taskStatus(task), acceptance = task?.acceptance;
   const failure = reviewError(error);
   return <><div className="pc-review-hints muted">j k next · a accept · r reject · t retry elsewhere</div><div className="pc-review">
-    {!view.queue.length ? <section className="pc-review-empty"><SectionHeading>Review queue is clear</SectionHeading><p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}</p></section> : <>
+    {!view.queue.length ? <EmptyState title="Review queue is clear" description={<>Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}</>} /> : <>
       <Queue items={view.queue} selected={view.selectedId} onSelect={onSelect} snapshot={snapshot} now={now} />
       <article className="pc-review-item" aria-busy={loading}>{updating && <span className="muted pc-query-updating" role="status">Updating…</span>}{failure.message && <p className="muted" role="status">{failure.message}</p>}
         {view.missing ? <section className="pc-notice"><SectionHeading>Already reviewed</SectionHeading><p><code>{view.missing}</code> is no longer waiting for review. <a className="pc-inline-link" href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
-        : !task ? (error ? <SectionHeading>{view.queue.find(item => item.taskId === view.selectedId)?.title}</SectionHeading> : <p className="muted">Loading task…</p>) : <>
+        : !task ? (error ? <SectionHeading>{view.queue.find(item => item.taskId === view.selectedId)?.title}</SectionHeading> : <LoadingState label="Loading task…" />) : <>
           <div className="row"><SectionHeading className="pc-ellipsis grow" title={displayTitle(task)}>{displayTitle(task)}</SectionHeading><StatusPill status={status!} /></div>
           <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{executorLabel(task.executor)}</code>{task.startedAt !== null && task.endedAt !== null && <> · ran {elapsed(task.endedAt - task.startedAt)}</>}{task.branch && <> · <code>{task.branch}</code></>}{task.branch && task.base && <> → <code>{task.base}</code></>} · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
           <div className="pc-review-cards"><section><SectionHeading>Done when</SectionHeading>{acceptance?.state === "none" ? <p>No done-when command</p> : <>
             <code className="pc-code-scroll" tabIndex={0}>{acceptance?.cmd}</code><p>{acceptance?.state === "passed" ? "✓ " : ""}{acceptance?.summary ?? ({ passed: "Tests passed", failed: "Failed", pending: "Waiting for tests", running: "Testing", none: "No done-when command" }[acceptance?.state ?? "none"])}{acceptance?.durationS !== undefined && ` · checks ran ${acceptance.durationS} s`}{acceptance?.machine && ` · run by pacer on ${acceptance.machine}`}</p>
-            {acceptance?.tail && <details className="pc-disclosure"><summary>Acceptance output</summary><pre className="acceptance-output">{acceptance.tail}</pre></details>}
+            {acceptance?.tail && <Disclosure className="pc-disclosure" summary={<>Acceptance output</>}><pre className="acceptance-output">{acceptance.tail}</pre></Disclosure>}
           </>}</section>
-          <section><SectionHeading>Why {executorLabel(task.executor)}</SectionHeading><p>{reasonCopy(task.routing?.why)}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{executorLabel(s.executor)}</code> · {reasonCopy(s.reason)}</p>)}{task.routing && <details className="pc-disclosure"><summary>Technical routing details</summary><pre className="mono pc-code-scroll" tabIndex={0}>{JSON.stringify(task.routing, null, 2)}</pre></details>}</section>
+          <section><SectionHeading>Why {executorLabel(task.executor)}</SectionHeading><p>{reasonCopy(task.routing?.why)}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{executorLabel(s.executor)}</code> · {reasonCopy(s.reason)}</p>)}{task.routing && <Disclosure className="pc-disclosure" summary={<>Technical routing details</>}><pre className="mono pc-code-scroll" tabIndex={0}>{JSON.stringify(task.routing, null, 2)}</pre></Disclosure>}</section>
           <CostCard cost={task.cost} /></div>
-          <details className="pc-disclosure"><summary>Brief</summary><dl className="facts pc-review-brief">
+          <Disclosure className="pc-disclosure" summary={<>Brief</>}><dl className="facts pc-review-brief">
             {([["Goal", task.brief.goal], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{label === "Done when" || label === "Base" ? <code className="pc-code-scroll" tabIndex={0}>{value}</code> : value}</dd></div>)}
             {task.brief.qa?.map((entry, i) => <div key={i}><dt>{entry.q}</dt><dd>{entry.a}</dd></div>)}
-          </dl></details>
+          </dl></Disclosure>
           <section><SectionHeading>Executor summary</SectionHeading><p className="report">{task.summary ?? "No summary provided"}</p></section>
-          <section><SectionHeading>Changes</SectionHeading><div className="pc-review-files" role="group" aria-label="Changed files">{task.files.map(file => <button type="button" key={file.path} aria-pressed={(filePath ?? task.files[0]?.path) === file.path} onClick={() => onFile?.(file.path)}><code>{file.path}</code><span className="muted">{file.status}</span><span>+{file.added} −{file.removed}</span>{file.binary && <span>Binary file</span>}</button>)}</div>
+          <section><SectionHeading>Changes</SectionHeading><div className="pc-review-files" role="group" aria-label="Changed files">{task.files.map(file => <SelectableRow key={file.path} aria-pressed={(filePath ?? task.files[0]?.path) === file.path} onClick={() => onFile?.(file.path)}><code>{file.path}</code><span className="muted">{file.status}</span><span>+{file.added} −{file.removed}</span>{file.binary && <span>Binary file</span>}</SelectableRow>)}</div>
             {!failure.removed && diff && <Diff path={filePath ?? task.files[0]?.path ?? ""} patch={diff.patch} binary={task.files.find(f => f.path === filePath)?.binary} truncated={diff.truncated} note={diff.note} onOpen={onOpen} />}
           </section>
         </>}
       </article>
-      {!view.missing && <aside className="pc-review-verdict" aria-label="Verdict">{verdictPanel}</aside>}
+      {!view.missing && <aside className="pc-review-verdict" aria-label="Verdict"><ApprovalCard>{verdictPanel}</ApprovalCard></aside>}
     </>}
   </div><div role="status" aria-live="polite">{announcement}</div></>;
 }

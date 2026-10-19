@@ -26,11 +26,11 @@ RUNNING 2 · QUEUED 1
   Document the token s… queued      waiting  1m   —               —             
 
 DONE TODAY 7 · 6 accepted
-  ✗ Retry budget refresh on 429                            Antigravity — · 07:50
-  ✓ Add dark mode to the web header                             Cursor — · 07:45
-  ✓ Fix flaky retry test in the payments client                  Codex — · 07:30
-  ✓ Rename runner ids in docs                                    Codex — · 03:00
-  ✗ Bump yaml to 2.8.2                                     Local model — · 02:00
+  ✕ Retry budget refresh on 429                   Failed · Antigravity — · 07:50
+  ◐ Add dark mode to the web header        Waiting for review · Cursor — · 07:45
+  ◐ Fix flaky retry test in the payments…   Waiting for review · Codex — · 07:30
+  ✓ Rename runner ids in docs                         Accepted · Codex — · 03:00
+  ✕ Bump yaml to 2.8.2                          Rejected · Local model — · 02:00
 
 
 
@@ -79,9 +79,9 @@ RUNNING 2 · QUEUED 1
   Document the token sync                         queued        waiting     1m      —                  —                
 
 DONE TODAY 7 · 6 accepted
-  ✗ Retry budget refresh on 429       Antigravity — · 07:50    ✓ Add dark mode to the web header        Cursor — · 07:45
-  ✓ Fix flaky retry test in the payments…   Codex — · 07:30    ✓ Rename runner ids in docs               Codex — · 03:00
-  ✗ Bump yaml to 2.8.2                Local model — · 02:00
+  ✕ Retry budget refresh o…  Failed · Antigravity — · 07:50    ◐ Add dark mode t…  Waiting for review · Cursor — · 07:45
+  ◐ Fix flaky retry…   Waiting for review · Codex — · 07:30    ✓ Rename runner ids in docs    Accepted · Codex — · 03:00
+  ✕ Bump yaml to 2.8.2     Rejected · Local model — · 02:00
 
 
 

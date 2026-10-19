@@ -1,10 +1,10 @@
-import { useContext, useRef, useState } from 'preact/hooks';
+import { useContext, useRef, useState } from "preact/hooks";
 import type { SetupChecklist, SetupItem } from '../../../../src/setup/checklist';
-import { Button } from '../../ds/Button';
-import { withQuery, type RouteQuery } from '../../router';
-import { Dialog, ErrorMessage, useTaskContext } from '../task-shared';
-import { SetupContext } from './context';
-import { performSetupAction, primaryItem, type AgentPreview } from './model';
+import { Button, ButtonLink } from "../../ds/Button";
+import { withQuery, type RouteQuery } from "../../router";
+import { Dialog, ErrorMessage, useTaskContext } from "../task-shared";
+import { SetupContext } from "./context";
+import { performSetupAction, primaryItem, type AgentPreview } from "./model";
 
 function Command({ command, primary = false }: { command: string; primary?: boolean }) {
   const [copied, setCopied] = useState(false), [error, setError] = useState<unknown>();
@@ -49,7 +49,7 @@ function SetupRow({ item, primary, query, blocked = false }: { item: SetupItem; 
 export function SetupView({ checklist, query }: { checklist: SetupChecklist; query: RouteQuery }) {
   const primary = primaryItem(checklist);
   return <div className="pc-setup"><p>pacer works once the required steps are done. The rest makes it useful.</p>
-    {checklist.complete && <div className="pc-notice"><p role="status">Required setup done</p><a className="pc-btn pc-btn--primary pc-btn--touch" href={withQuery('#/', query)}>Go to Home</a></div>}
+    {checklist.complete && <div className="pc-notice"><p role="status">Required setup done</p><ButtonLink variant="primary" className="pc-btn--touch" href={withQuery('#/', query)}>Go to Home</ButtonLink></div>}
     {[true, false].map(required => <section className="pc-section" key={String(required)} aria-label={required ? 'Required' : 'Recommended'}>
       <div className="pc-section__head"><h2>{required ? 'Required' : 'Recommended'}</h2></div>
       {checklist.items.filter(i => i.required === required).map(item => <SetupRow key={item.id} item={item} primary={primary === item.id} query={query} blocked={item.id === 'first' && !checklist.complete} />)}

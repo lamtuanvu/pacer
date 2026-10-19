@@ -3,6 +3,7 @@
   "type": "module",
   "private": true,
   "devDependencies": {
+    "@babel/parser": "^8.0.7",
     "@types/bun": "^1.4.2",
     "playwright-core": "1.58.2",
     "preact-render-to-string": "^6.8.1",
@@ -15,6 +16,7 @@
   "scripts": {
     "test": "TZ=Asia/Ho_Chi_Minh bun test",
     "live": "bun scripts/live/cli.ts",
+    "ui:check": "bun scripts/ui-check.ts",
     "typecheck": "tsc --noEmit && tsc -p app",
     "build": "bun scripts/build.ts",
     "release": "bun scripts/release/build.ts",

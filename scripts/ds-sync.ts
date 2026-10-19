@@ -7,14 +7,14 @@ import { generateTokensCss, generateTokensTs, readTokens, tokenFileSchema, type 
 function values(tokens: TokenFile): Map<string, string> {
   return new Map([
     ...tokens.color.tokens.map(t => [t.name, JSON.stringify(t.value)] as const),
-    ...[...tokens.spacing.tokens, ...tokens.radius.tokens].map(t => [t.name, t.value] as const),
+    ...[...tokens.spacing.tokens, ...tokens.radius.tokens, ...tokens.size.tokens, ...tokens.shadow.tokens, ...tokens.layer.tokens, ...tokens.motion.tokens].map(t => [t.name, t.value] as const),
   ]);
 }
 
 const args = process.argv.slice(2);
 const outAt = args.indexOf("--out");
 const out = outAt >= 0 ? args[outAt + 1] : join(import.meta.dir, "../app/src/ds");
-const file = args.find((arg, i) => !arg.startsWith("--") && i !== outAt + 1);
+const file = args.find((arg, i) => !arg.startsWith("--") && (outAt < 0 || i !== outAt + 1));
 if (!file || !out) {
   console.error("Usage: bun scripts/ds-sync.ts <exported tokens.json> [--out <dir>]");
   process.exit(1);

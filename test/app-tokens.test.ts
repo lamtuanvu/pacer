@@ -74,3 +74,27 @@ test("app CSS only uses token variables that exist", () => {
   const used = new Set([...css.matchAll(/var\(--((?:space|radius|type|font)-[a-z0-9-]+(?:\\\.[0-9]+)?)[,)]/g)].map(m => m[1]));
   expect([...used].filter(name => !defined.has(name))).toEqual([]);
 });
+
+test('control, motion, shadow and layer tokens are generated from explicit groups', () => {
+ for(const group of ['size','motion','shadow','layer'] as const) expect(tokens[group]?.tokens.length).toBeGreaterThan(0);
+ expect(generateTokensCss(tokens)).toContain('--space-2\\.5: 10px;');
+});
+function luminance(hex:string) {const rgb=hex.match(/[0-9a-f]{2}/gi)!.map(value=>parseInt(value,16)/255).map(value=>value<=.04045?value/12.92:((value+.055)/1.055)**2.4);return rgb[0]!*.2126+rgb[1]!*.7152+rgb[2]!*.0722;}
+test('status badges use readable semantic foreground and background pairs in both themes',()=>{
+ const css=readFileSync(join(import.meta.dir,'../app/src/styles.css'),'utf8');
+ expect(css).toMatch(/\.pc-rail__badge--warn\{background:var\(--warn-bg\);color:var\(--warn-fg\)\}/);
+ for(const tone of ['good','warn','bad','info'])for(const theme of ['light','dark'] as const){const fg=luminance(tokens.color.tokens.find(t=>t.name===`${tone}-fg`)!.value[theme]);const bg=luminance(tokens.color.tokens.find(t=>t.name===`${tone}-bg`)!.value[theme]);expect((Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05)).toBeGreaterThanOrEqual(4.5);}
+});
+
+test('secondary text remains readable on tinted row surfaces',()=>{
+ for(const theme of ['light','dark'] as const){const fg=luminance(tokens.color.tokens.find(t=>t.name==='ink-secondary')!.value[theme]);const bg=luminance(tokens.color.tokens.find(t=>t.name==='surface-lane')!.value[theme]);expect((Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05)).toBeGreaterThanOrEqual(4.5);}
+ const css=readFileSync(join(import.meta.dir,'../app/src/styles.css'),'utf8');expect(css).toMatch(/\.pc-repo-chip\{[^}]*color:var\(--ink-secondary\)/);
+});
+
+test('button shortcuts inherit the action contrast pair without a conflicting badge surface',()=>{
+ const css=read('components.css');
+ expect(css).toMatch(/\.pc-btn \.pc-kbd\{[^}]*background:transparent[^}]*color:inherit/);
+ const tray=readFileSync(join(import.meta.dir,'../app/src/tray/tray.css'),'utf8');
+ expect(tray).not.toMatch(/\.tray-footer \.pc-kbd\{[^}]*opacity:/);
+ for(const theme of ['light','dark'] as const){const fg=luminance(tokens.color.tokens.find(t=>t.name==='ink-on-ink')!.value[theme]);const bg=luminance(tokens.color.tokens.find(t=>t.name==='ink')!.value[theme]);expect((Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05)).toBeGreaterThanOrEqual(4.5);}
+});

@@ -113,6 +113,27 @@ test("Orca worker overrides every host settings read with sandbox service coordi
   expect(source).toContain('method !== "settings.get"');
 });
 
+test("Orca worker restores sandbox environment before source module initialization", () => {
+  const session = fixture();
+  atomicWrite(join(session.root, "worker.mjs"), isolatedWorker(session));
+  atomicWrite(join(session.root, "worker-source.mjs"), `
+    console.log(JSON.stringify({ home: process.env.PACER_HOME, bin: process.env.PACER_BIN,
+      port: process.env.PACER_PORT, updates: process.env.PACER_NO_UPDATE_CHECK, path: process.env.PATH }));
+    export default function() {};
+    export function deactivate() {};
+  `);
+  const child = Bun.spawnSync([process.execPath, join(session.root, "worker.mjs")], {
+    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe",
+  });
+  expect(child.exitCode).toBe(0);
+  const env = JSON.parse(child.stdout.toString());
+  expect(env.home).toBe(join(session.root, "home"));
+  expect(env.bin).toBe(join(session.root, "bin/pacer"));
+  expect(env.port).toBe(String(session.port));
+  expect(env.updates).toBe("1");
+  expect(env.path.split(":")[0]).toBe(join(session.root, "bin"));
+});
+
 let canBind = true;
 try { await freePort(); }
 catch (error) {

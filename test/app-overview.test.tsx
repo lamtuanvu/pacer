@@ -159,14 +159,14 @@ test("today's repos can fill spare chips, while zero-work repos are only in the 
   expect(list('unknown')).toContain('No matching repositories.');
 });
 
-test("attention uses service title, inline repo, reason and time with only its first action filled", () => {
+test("attention uses service title, inline repo, reason and time with secondary actions in a shared row", () => {
   const item = { ...snap.attention![1]!, title: "Short service title", detail: "Failed twice on Antigravity · test timed out after 120 s" };
   const html = view(null, { ...snap, attention: [{ ...item, actions: item.actions.map(a => ({ ...a, style: "primary" as const })) }] });
   const card = html.slice(html.indexOf('data-attention-id='), html.indexOf('aria-labelledby="running"'));
-  expect(card).toContain('Short service title</span><code class="pc-repo-chip" title="acme/api">acme/api</code>');
+  expect(card).toMatch(/Short service title<\/span><code(?=[^>]*class="pc-repo-chip")(?=[^>]*title="acme\/api")[^>]*>acme\/api<\/code>/);
   expect(card).toContain(`${item.detail} · `);
-  expect(card.match(/pc-btn--strong/g)).toHaveLength(1);
-  expect(card.match(/pc-btn--primary/g)).toHaveLength(1);
+  expect(card).toContain("pc-list-row__actions");
+  expect(card).not.toContain("pc-btn--primary");
   expect(card).not.toContain('>Dismiss<');
   expect(card).toContain(`>${item.actions[0]!.label}<`);
   expect(card).toContain(`>${item.actions[1]!.label}<`);
@@ -175,7 +175,7 @@ test("attention uses service title, inline repo, reason and time with only its f
 test("legacy attention goals reuse the task's service short title", () => {
   const task = snap.tasks.find(t => t.id === snap.attention![1]!.taskId)!;
   const html = view(null, { ...snap, tasks: snap.tasks.map(t => t.id === task.id ? { ...t, title: 'Service short title' } : t), attention: [{ ...snap.attention![1]!, title: task.goal }] });
-  expect(html).toContain('Service short title</span><code class="pc-repo-chip"');
+  expect(html).toMatch(/Service short title<\/span><code[^>]*class="pc-repo-chip"/);
 });
 
 test("wide repo filter uses repo Done today totals and counts accepted rows only", () => {

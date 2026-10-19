@@ -16,7 +16,8 @@ import { style } from "./panel/style";
 import { board, boardStyle } from "./panel/board";
 import type { RepoRef } from "../../src/api/read-model/types";
 import { clock } from "../../src/view-model/format";
-import { modeWords } from "../../src/view-model/words";
+import { modeWords, taskStatus } from "../../src/view-model/words";
+import { displayTitle } from "../../src/view-model/titles";
 export { escapeHtml, jsonForScript } from "./panel/shared";
 export { panelRepo } from "./panel/repo";
 
@@ -60,8 +61,8 @@ export function renderStatusPage(s:ClientSnapshot, view:StatusView):string {
    return rows.map(runners=>{const row=runners[0],account=s.planner===undefined?undefined:s.accounts?.find(a=>a.name===group.account);
     const p=account?{...row,usedPct:account.usedPct,pacePct:account.pacePct,resetsAt:account.resetsAt,window:account.window,verdict:account.verdict}:row;return `<div class="account card stack"><strong>${h(group.account??providerLabel(p))}</strong><span>${h(verdictWords(p.verdict))} · ${h(percent(p))}${p.stale?' · <span class="pill">stale</span>':""}</span>${meter(p,true)}<small>${h(p.window??"Window unknown")} · ${h(reset(p))}</small><small>Runners: ${h(runners.map(providerLabel).join(", "))}</small></div>`;});
   }).join("");
-  const running=s.tasks.filter(t=>t.state==="running"||t.state==="queued").map(t=>`<div class="card stack"><strong>${h(t.goal.slice(0,100))}</strong><small>${h(t.executor?displayName(t.executor):"Executor pending")} · ${h(t.state)} · started ${h(absolute(t.attemptStartedAt??t.updatedAt,nowS))}${t.progress?` · ${h(t.progress.phase)}`:""}</small>${placementLine(t)}</div>`).join("");
-  const waiting=s.tasks.filter(t=>!t.review&&!t.dismissed&&(t.state==="partial"||t.state==="done"||t.state==="needs_input")).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,10).map(t=>`<div class="card stack"><strong>${h(t.goal)}</strong><small>${h(t.executor?displayName(t.executor):"Executor unknown")} · ${t.state==="needs_input"?"Needs your answer":"finished"} ${h(absolute(t.updatedAt,nowS))}</small><small>${h(t.worktree??"Worktree unknown")}</small></div>`).join("");
+  const running=s.tasks.filter(t=>t.state==="running"||t.state==="queued").map(t=>`<div class="card stack"><strong class="task-title" title="${h(displayTitle(t))}">${h(displayTitle(t))}</strong><small>${h(t.executor?displayName(t.executor):"Executor pending")} · ${h(taskStatus(t).label)} · started ${h(absolute(t.attemptStartedAt??t.updatedAt,nowS))}</small>${placementLine(t)}</div>`).join("");
+  const waiting=s.tasks.filter(t=>!t.review&&!t.dismissed&&(t.state==="partial"||t.state==="done"||t.state==="needs_input")).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,10).map(t=>`<div class="card stack"><strong class="task-title" title="${h(displayTitle(t))}">${h(displayTitle(t))}</strong><small>${h(t.executor?displayName(t.executor):"Executor unknown")} · <span class="${taskStatus(t).tone}" aria-label="${h(taskStatus(t).label)}">${h(taskStatus(t).glyph)}</span> ${h(taskStatus(t).label)} ${h(absolute(t.updatedAt,nowS))}</small><small>${h(t.worktree??"Worktree unknown")}</small></div>`).join("");
   const alertRows=s.planner===undefined?s.alerts:(s.attention??[]).map(a=>({level:a.severity==="blocked"?"error":"warn",title:a.title,body:a.detail,at:a.raisedAt}));
   const alerts=alertRows.filter(a=>a.level==="warn"||a.level==="error").sort((a,b)=>b.at-a.at).slice(0,5).map(a=>`<div class="card stack"><strong>${h(a.title)}</strong><p>${h(a.body.slice(0,200))}</p><small>${h(absolute(a.at,nowS))}</small></div>`).join("");
   const versions=`<p>pacer ${h((s.planner===undefined?view.updates?.cli??s.console?.version:s.service?.version??view.updates?.cli)??"unknown")} · plugin ${h(view.updates?.plugin??"unknown")}</p>${view.updates?.available?`<p>Update available: ${h(view.updates.latest??"unknown")} · <code>pacer update</code></p>`:""}`;

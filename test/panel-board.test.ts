@@ -133,7 +133,7 @@ test("executor marks reuse every app glyph, brand colour, alias and account iden
  for(const e of capacity(s)) expect(html).toContain(icon(e.agent,24,e.account));
  expect(html).not.toContain('>Cx<');
 });
-test("done rows show success or failure, executor mark and right-aligned time",()=>{
+test("done rows show canonical review or outcome glyphs, executor mark and right-aligned time",()=>{
  const s=snapshot(), base=s.tasks.find(t=>t.state==="done")!;
  s.tasks=[
   {...base,id:"done",goal:"Finished task",state:"done",review:undefined,updatedAt:s.at},
@@ -144,10 +144,10 @@ test("done rows show success or failure, executor mark and right-aligned time",(
  const html=scopeHtml(render(s,populated),true);
  expect(doneToday(s,{repo:null})).toHaveLength(4);
  for(const t of doneToday(s,{repo:null})) {
-  const status=taskStatus(t), row=[...html.matchAll(/<div class="row done [^"]+">(.*?)<\/div>/g)].map(m=>m[1]!).find(part=>part.startsWith(`<span title="${status.label}"`) && part.includes(t.goal));
+  const status=taskStatus(t), row=[...html.matchAll(/<div class="row done [^"]+">(.*?)<\/div>/g)].map(m=>m[1]!).find(part=>part.startsWith(`<span class="${status.tone}" title="${status.label}"`) && part.includes(t.goal));
   expect(row).toBeDefined();
   const content=row!.split('</div>')[0]!;
-  expect(content).toContain(`aria-label="${status.label}">${status.tone==="good"?"✓":status.tone==="bad"?"✗":"·"}</span>`);
+  expect(content).toContain(`aria-label="${status.label}">${status.glyph}</span>`);
   expect(content).toContain(icon(t.executor!,16));
   expect(content).toEndWith(`<small class="done-time">${clock(t.updatedAt,s.at)}</small>`);
  }
@@ -157,7 +157,7 @@ test("done rows show success or failure, executor mark and right-aligned time",(
 });
 test("actions, planner and footer have labelled blocks and separate selectable commands",()=>{
  const html=render(snapshot(),populated);
- expect(html).toContain('<span class="bad" aria-label="Failed">✗</span>');
+ expect(html).toContain('<span class="bad" title="Failed" aria-label="Failed">✕</span>');
  expect(html).toMatch(/<div class="row actions"><span class="action-block action-primary">[^<]+<\/span><span class="action-block action-secondary">[^<]+<\/span><\/div><div class="stack action-commands"><code>/);
  expect(html).toContain('63% · pace 77 · resets Mon</span>');
  expect(html).toContain('<div class="action-block action-primary"><strong>Delegate from this worktree</strong><code>pacer delegate --repo');

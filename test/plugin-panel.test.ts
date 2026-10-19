@@ -19,7 +19,7 @@ function readOnly(html:string) {
 test("panel is read-only",()=>readOnly(renderPanel(snapshot(),view)));
 test("status page shows every section",()=>{
  const html=renderPanel(snapshot(),view);
- for(const text of ["Normal","Live · updated 12:00","Planner","Claude Code (personal)","30%","Resets Fri 12:00","You&#39;re on pace for the week.","Accounts","personal","team","local","Available","60%","weekly","stale","Runners:","Codex (team)","Running","running goal","queued goal","started 11:59","testing","Waiting for review","partial goal","done goal","finished 11:59","feature-branch","pacer review &lt;id&gt;","Alerts","Quota warning","Executor stopped","Versions","pacer 1.0.0","plugin 1.0.1","Update available: 1.1.0","pacer update","Setup","Login service","pacer init","pacer open","open the pacer app"]) expect(html).toContain(text);
+ for(const text of ["Normal","Live · updated 12:00","Planner","Claude Code (personal)","30%","Resets Fri 12:00","You&#39;re on pace for the week.","Accounts","personal","team","local","Available","60%","weekly","stale","Runners:","Codex (team)","Running","running goal","queued goal","started 11:59","Testing","Waiting for review","partial goal","done goal","Waiting for review 11:59","feature-branch","pacer review &lt;id&gt;","Alerts","Quota warning","Executor stopped","Versions","pacer 1.0.0","plugin 1.0.1","Update available: 1.1.0","pacer update","Setup","Login service","pacer init","pacer open","open the pacer app"]) expect(html).toContain(text);
  expect(html).not.toContain("reviewed goal");expect(html).not.toContain("dismissed goal");expect(html).not.toContain("Hidden info");
  expect(html.indexOf("done goal")).toBeLessThan(html.indexOf("partial goal"));
  const sections=[...html.matchAll(/<h2>(.*?)<\/h2>/g)].map(m=>m[1]);
@@ -43,9 +43,9 @@ test("review and alert lists are bounded and newest first",()=>{
  s.alerts=Array.from({length:7},(_,i)=>({key:`alert${i}`,level:"warn",title:`Alert ${i}`,body:"x".repeat(201),at:nowS-i}));
  const html=renderPanel(s,view);expect(html).toContain("review9 goal");expect(html).not.toContain("review10 goal");expect(html).toContain("Alert 4");expect(html).not.toContain("Alert 5");expect(html).not.toContain("x".repeat(201));
 });
-test("status text is escaped and running goals are truncated",()=>{
+test("status text is escaped and full running goals remain reachable",()=>{
  const s=snapshot();s.tasks=[{...task("escape","running"),goal:'<img src=x onerror="bad">'+'x'.repeat(110)}];
- const html=renderPanel(s,view);readOnly(html);expect(html).toContain('&lt;img src=x onerror=&quot;bad&quot;&gt;');expect(html).not.toContain('<img');expect(html).not.toContain('x'.repeat(100));
+ const html=renderPanel(s,view);readOnly(html);expect(html).toContain('&lt;img src=x onerror=&quot;bad&quot;&gt;');expect(html).not.toContain('<img');expect(html).toContain('x'.repeat(110));
 });
 
 test("installed live snapshots show status even when the worker supplies bootstrap state",()=>{

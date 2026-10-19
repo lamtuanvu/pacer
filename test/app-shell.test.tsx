@@ -87,8 +87,8 @@ test("settings counts are neutral while executor and host status badges use thei
   const html = renderToString(<SettingsPanel route={at('#/settings')} counts={snap.counts!}
     snapshot={{ ...snap, accounts: Array.from({ length: 6 }, () => snap.accounts![0]!), executors: [{ ...snap.executors![0]!, state: 'down' }], hosts: [{ ...snap.hosts![0]!, state: 'needs_setup' }] }}
     badges={{ strategies: 6, routing: '1 rule' }} />);
-  expect(html).toMatch(/Accounts<span class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
-  expect(html).toMatch(/Strategies<span class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
+  expect(html).toMatch(/Accounts<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
+  expect(html).toMatch(/Strategies<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
   expect(html).toMatch(/pc-rail__badge--bad"[^>]*>1 down</);
   expect(html).toMatch(/pc-rail__badge--warn"[^>]*>1 needs setup</);
   expect(html).toContain('>1 rule</span>');

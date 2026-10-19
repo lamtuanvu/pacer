@@ -8,9 +8,9 @@ export function AgentMark({ agent, size = 20, labelled = true }: AgentMarkProps)
   const glyph = info.glyph ? AGENT_GLYPHS[info.glyph] : null, inner = Math.round(size * 0.66);
   const className = ["pc-agent-mark", key ? `pc-agent-mark--${key}` : "pc-agent-mark--unknown", info.tile === "page-hairline" && "pc-agent-mark--hairline"].filter(Boolean).join(" ");
   const a11y = labelled ? { role: "img" as const, "aria-label": info.name } : { "aria-hidden": "true" as const };
-  return <span className={className} style={{ width: `${size}px`, height: `${size}px`, borderRadius: `${size * 0.28}px` }} {...a11y}>
+  return <span className={className} style={{ "--agent-size": `${size}px` }} {...a11y}>
     {glyph
       ? <svg width={inner} height={inner} viewBox={glyph.viewBox} aria-hidden="true" focusable="false"><path d={glyph.path} fill="currentColor" fill-rule={glyph.evenOdd ? "evenodd" : undefined} /></svg>
-      : <span className="pc-agent-mark__mono" style={{ fontSize: `${Math.round(size * 0.42)}px` }}>{info.monogram}</span>}
+      : <span className="pc-agent-mark__mono">{info.monogram}</span>}
   </span>;
 }

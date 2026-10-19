@@ -2,10 +2,10 @@ import { useContext } from "preact/hooks";
 import { Setup } from "./setup/Setup";
 import { SetupContext } from "./setup/context";
 import type { Route } from '../router';
-import { Overview } from './Overview';
-import { Review } from './Review';
-import { SettingsGeneral, RemoteHosts, HostDetail, AddExecutor } from './settings/index';
-import { Sessions, SessionRoute } from './session/controller';
+import { Overview } from "./Overview";
+import { Review } from "./Review";
+import { SettingsGeneral, RemoteHosts, HostDetail, AddExecutor } from "./settings/index";
+import { Sessions, SessionRoute } from "./session/controller";
 /** Route mounting lives separately from browser bootstrap so every destination can be verified. */
 export function Screen({route}:{route:Route}) {
  const { running } = useContext(SetupContext);

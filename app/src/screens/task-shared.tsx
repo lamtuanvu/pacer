@@ -1,3 +1,4 @@
+import { TextAction } from "../ds/Button";
 import { useActions } from "../data/action-context";
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -73,4 +74,4 @@ export function useDraft<T extends { [K in keyof T]: string }>(key: string, defa
   return [draft, setDraft, clearDraft] as const;
 }
 export { Dialog } from "../ds/Dialog";
-export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <a className="pc-text-action" href={taskHref(id)}>{children}</a>; }
+export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <TextAction className="pc-text-action" href={taskHref(id)}>{children}</TextAction>; }

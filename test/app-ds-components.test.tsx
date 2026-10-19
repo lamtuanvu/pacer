@@ -57,7 +57,7 @@ test("fill width is a custom property, not a colour", () => {
 });
 
 test("glyphs are hidden from assistive tech", () => {
-  expect(renderToString(<StatusGlyph status={taskStatus({state:"failed"})} />)).toBe('<span class="pc-glyph pc-status--bad" aria-hidden="true">✕</span>');
+  const failed = renderToString(<StatusGlyph status={taskStatus({state:"failed"})} />); expect(failed).toContain('class="pc-glyph pc-status--bad"'); expect(failed).toContain('aria-hidden="true"'); expect(failed).toContain('>✕</span>');
   expect(renderToString(<StatusGlyph status={taskStatus({state:"done"})} />)).toContain("◐");
   expect(renderToString(<StatusGlyph status={taskStatus({state:"done",review:{accepted:true}})} />)).toContain("✓");
 });
@@ -94,5 +94,5 @@ test('small usage retains fractional width and every size shares contained track
   const css = await Bun.file(new URL('../app/src/ds/components.css',import.meta.url)).text();
   expect(css).toMatch(/\.pc-meter\{[^}]*overflow:hidden/);
   expect(css).toMatch(/\.pc-meter__fill\{[^}]*border-radius:0/);
-  expect(css).toMatch(/\.pc-meter__pace\{[^}]*top:0;bottom:0;left:clamp\(0px,[^}]*calc\(100% - 2px\)\)/);
+  expect(css).toMatch(/\.pc-meter__pace\{[^}]*top:0;bottom:0;left:clamp\(0px,[^}]*calc\(100% - var\(--size-2\)\)\)/);
 });

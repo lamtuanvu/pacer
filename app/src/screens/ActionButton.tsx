@@ -15,9 +15,8 @@ export function ActionButton({ runner, id, action, confirmDone, strong = false }
     if (ask && !await dialogs.confirm(ask, action.label, action.label)) return;
     void runner.run(id, action, confirmDone);
   };
-  const tone = strong ? "pc-btn--strong" : action.style === "danger" ? "pc-btn--danger" : "";
   return <span className="pc-action">
-    <Button size="sm" variant={strong ? "primary" : "secondary"} className={tone} disabled={state.status === "pending"} onClick={click}>{state.status === "pending" ? `${action.label}…` : action.label}</Button>
+    <Button size="sm" variant={action.style === "danger" ? "danger" : strong ? "primary" : "secondary"} busy={state.status === "pending"} onClick={click}>{state.status === "pending" ? `${action.label}…` : action.label}</Button>
     {dialogs.dialog}
     {state.status === "error" && <span className="op-error" role="status">{state.message}{state.hint ? ` · ${state.hint}` : ""}</span>}
     {state.status === "handled" && <span className="muted" role="status">{state.message}</span>}

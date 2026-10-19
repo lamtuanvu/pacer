@@ -1,3 +1,5 @@
+import { Field, TextArea, Select, Disclosure } from "../../ds/Controls";
+
 import { kindCopy, kindSourceCopy, reasonCopy } from "../../../../src/view-model/copy";
 import { SectionHeading } from "../../ds/SectionHeading";
 import type { RefObject } from "preact";
@@ -38,26 +40,24 @@ export function VerdictPanel({ task, note, kind, executor, noteFor, pending, onN
     <Button variant="primary" disabled={pending} onClick={() => onSubmit("accept")}>Accept and bring back</Button>
     <p className="muted">Accept records the verdict; you merge the branch.</p>
     <div className="pc-verdict-pair"><Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>
-    <Button className="pc-review-reject" disabled={pending} onClick={() => onOpenNote("reject")}>Reject</Button></div>
-    <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><select className="pc-select" id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
+    <Button variant="danger" disabled={pending} onClick={() => onOpenNote("reject")}>Reject</Button></div>
+    <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><Select className="pc-select" id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
         <option value="">Choose an executor</option>
         {task.retryOptions.map(option => <option key={option.id} value={option.id} disabled={option.state !== "ready"}>{executorLabel(option.id)} · {reasonCopy(option.reason)}</option>)}
-      </select>
+      </Select>
     <Button disabled={pending || !executor} onClick={() => onSubmit("retry")}>Retry</Button></div></div>
-    <label className="field">Work type
-      <select className="pc-select" value={kind} disabled={pending} onChange={e => onKind(e.currentTarget.value)}>
+    <Field label={<> Work type </>}><Select className="pc-select" value={kind} disabled={pending} onChange={e => onKind(e.currentTarget.value)}>
         <option value="">Unspecified</option>
         {task.kind && !kinds.includes(task.kind) && <option value={task.kind}>{kindCopy(task.kind)}</option>}
         {kinds.map(k => <option key={k} value={k}>{kindCopy(k)}</option>)}
-      </select>
+      </Select>
       <span className="muted">{kindSourceCopy(task.routing?.kindSource)}</span>
-    </label>
-    <label className="field"><SectionHeading as="span">Note</SectionHeading>
-      <textarea ref={noteRef} rows={5} value={note} disabled={pending} onInput={e => onNote(e.currentTarget.value)} onKeyDown={e => {
+    </Field>
+    <Field label={<> <SectionHeading as="span">Note</SectionHeading> </>}><TextArea ref={noteRef} rows={5} value={note} disabled={pending} onInput={e => onNote(e.currentTarget.value)} onKeyDown={e => {
         if (noteFor) handleNoteKey(e, () => onSubmit(noteFor), onCancel);
       }} />
-    </label>
+    </Field>
     {noteFor && <div className="row-actions"><Button disabled={pending} onClick={() => onSubmit(noteFor)}>{noteFor === "reject" ? "Confirm rejection" : "Confirm send back"}</Button><Button disabled={pending} onClick={onCancel}>Cancel</Button><span className="muted">Enter to confirm · Shift-Enter for a new line · Escape to cancel</span></div>}
-    <footer><details className="pc-disclosure"><summary>Use the CLI</summary><code className="pc-review-command">{verdictCommand(task.id, { verdict, ...(kind ? { kind } : {}), ...(note ? { note } : {}), ...(verdict === "retry" && executor ? { executor } : {}) })}</code></details></footer>
+    <footer><Disclosure className="pc-disclosure" summary={<>Use the CLI</>}><code className="pc-review-command">{verdictCommand(task.id, { verdict, ...(kind ? { kind } : {}), ...(note ? { note } : {}), ...(verdict === "retry" && executor ? { executor } : {}) })}</code></Disclosure></footer>
   </>;
 }

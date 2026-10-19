@@ -13,6 +13,11 @@ export const tokenFileSchema = z.looseObject({
   type: z.looseObject({ families: z.record(z.string(), z.string()), groups: z.array(z.looseObject({ name: z.string(), styles: z.array(typeStyle) })) }),
   spacing: z.looseObject({ tokens: z.array(valueToken) }),
   radius: z.looseObject({ tokens: z.array(valueToken) }),
+  size: z.looseObject({ tokens: z.array(valueToken) }),
+  shadow: z.looseObject({ tokens: z.array(valueToken) }),
+  layer: z.looseObject({ tokens: z.array(valueToken) }),
+  motion: z.looseObject({ tokens: z.array(valueToken) }),
+
 });
 export type TokenFile = z.infer<typeof tokenFileSchema>;
 type Provisional = { provisional: string };
@@ -20,8 +25,13 @@ export interface LocalTokenFile {
   color?: { tokens: (z.infer<typeof colorToken> & Provisional)[] };
   spacing?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
   radius?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
+  size?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
+  shadow?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
+  layer?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
+  motion?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
+
 }
-const GROUPS = ["color", "spacing", "radius"] as const;
+const GROUPS = ["color", "spacing", "radius", "size", "shadow", "layer", "motion"] as const;
 
 /** Provisional entries are for tokens the design system lacks; one it now has must be removed here. */
 export function mergeTokens(base: TokenFile, local: LocalTokenFile): TokenFile {
@@ -48,7 +58,7 @@ export function generateTokensCss(tokens: TokenFile): string {
   ]));
   return `/* Generated from tokens.json. */\n:root {\n  color-scheme: light dark;\n${colors("light")}\n${[
     ...Object.entries(tokens.type.families).map(([name, value]) => variable(`font-${name}`, value)), ...type,
-    ...tokens.spacing.tokens.map(t => variable(t.name, t.value)), ...tokens.radius.tokens.map(t => variable(t.name, t.value)),
+    ...GROUPS.filter(group => group !== "color").flatMap(group => tokens[group].tokens.map(t => variable(t.name, t.value))),
   ].join("\n")}\n  font-variant-numeric: tabular-nums;\n}\n@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {\n${colors("dark")}\n}\n}\n:root[data-theme="dark"] {\n${colors("dark")}\n}\n`;
 }
 export function generateTokensTs(tokens: TokenFile): string {
