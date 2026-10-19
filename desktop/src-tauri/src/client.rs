@@ -140,7 +140,7 @@ impl Session {
         drop(token);
         let response = session
             .client
-            .post(format!("{}/v2/session/exchange", session.origin))
+            .post(format!("{}/v3/session/exchange", session.origin))
             .header(reqwest::header::AUTHORIZATION, authorization)
             .timeout(Duration::from_secs(15))
             .send()
@@ -149,7 +149,7 @@ impl Session {
         if response.status() != reqwest::StatusCode::NO_CONTENT {
             return Err("Session exchange failed".into());
         }
-        logic::check_hello(&session.json("/v2/hello").await?).map_err(str::to_owned)?;
+        logic::check_hello(&session.json("/v3/hello").await?).map_err(str::to_owned)?;
         Ok(session)
     }
     pub async fn op(&self, op: &str, params: &Value) -> Result<Value, String> {
@@ -159,7 +159,7 @@ impl Session {
             return Err("Invalid operation".into());
         }
         self.client
-            .post(format!("{}/v2/ops/{op}", self.origin))
+            .post(format!("{}/v3/ops/{op}", self.origin))
             .header("Origin", &self.origin)
             // Cookie writes must say exactly "app" (the service's CSRF check); reads keep the desktop label.
             .header("X-Pacer-Client", "app")
@@ -193,7 +193,7 @@ impl Session {
 async fn wait_for_snapshot(app: &AppHandle, session: &Session) -> Result<Value, String> {
     let mut paused = false;
     loop {
-        let snapshot = session.json("/v2/snapshot").await?;
+        let snapshot = session.json("/v3/snapshot").await?;
         let waiting = logic::volume_waiting(&snapshot);
         *app.state::<Shell>().waiting.lock().unwrap() = waiting.clone();
         if waiting.is_some() || privacy_prompt() {
@@ -277,7 +277,7 @@ async fn listen(
             Duration::from_secs(15),
             session
                 .client
-                .get(format!("{}/v2/events?since={seq}", session.origin))
+                .get(format!("{}/v3/events?since={seq}", session.origin))
                 .header("Accept", "text/event-stream")
                 .send(),
         )
@@ -333,7 +333,7 @@ async fn listen(
         }
         {
             // Recheck version and session on reconnect, including service upgrades.
-            logic::check_hello(&session.json("/v2/hello").await?).map_err(str::to_owned)?;
+            logic::check_hello(&session.json("/v3/hello").await?).map_err(str::to_owned)?;
             // Check whether the cookie session is still valid before reconnecting.
             let snapshot = wait_for_snapshot(app, session).await?;
             crate::update_tray(app, TrayModel::from_snapshot(&snapshot));
@@ -445,7 +445,7 @@ mod tests {
         let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = server.local_addr().unwrap();
         let worker = std::thread::spawn(move || {
-            for n in 0..3 {
+            for n in 0..4 {
                 let (mut connection, _) = server.accept().unwrap();
                 connection
                     .set_read_timeout(Some(Duration::from_secs(5)))
@@ -460,7 +460,7 @@ mod tests {
                     }
                 }
                 let request = String::from_utf8(request).unwrap().to_lowercase();
-                if request.starts_with("post /v2/ops/") {
+                if request.starts_with("post /v3/ops/") {
                     assert!(request.contains("x-pacer-client: app\r\n"));
                 } else {
                     assert!(request.contains(concat!(
@@ -470,7 +470,7 @@ mod tests {
                 }
                 assert!(request.contains(&format!("host: {address}")));
                 let response = if n == 0 {
-                    assert!(request.starts_with("post /v2/session/exchange "));
+                    assert!(request.starts_with("post /v3/session/exchange "));
                     assert!(request.contains("authorization: bearer test-token"));
                     assert!(!request.contains("cookie:"));
                     "HTTP/1.1 204 No Content\r\nSet-Cookie: pacer_session=test-session; HttpOnly; SameSite=Strict; Path=/\r\nConnection: close\r\n\r\n".to_owned()
@@ -478,15 +478,19 @@ mod tests {
                     assert!(!request.contains("authorization:"));
                     assert!(request.contains("cookie: pacer_session=test-session"));
                     if n == 1 {
-                        assert!(request.starts_with("get /v2/hello "));
-                    } else {
-                        assert!(request.starts_with("post /v2/ops/client.register "));
+                        assert!(request.starts_with("get /v3/hello "));
+                    } else if n == 2 {
+                        assert!(request.starts_with("post /v3/ops/client.register "));
                         assert!(request.contains(&format!("origin: http://{address}")));
+                    } else {
+                        assert!(request.starts_with("get /v3/snapshot "));
                     }
                     let body = if n == 1 {
-                        r#"{"protocol":"2.8.0"}"#
-                    } else {
+                        r#"{"protocol":"3.0.0"}"#
+                    } else if n == 2 {
                         r#"{"result":{"client_id":"test-client"}}"#
+                    } else {
+                        r#"{"protocol":"3.0.0","seq":1000000000003,"snapshot":{"service":{"waiting":{"kind":"folder","path":"/tmp/repo","since":1}}}}"#
                     };
                     format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
                 };
@@ -497,6 +501,12 @@ mod tests {
             logic::auth_url(&format!("http://{address}/app/auth?code=webview-only")).unwrap();
         let session = Session::exchange(&auth, "test-token".into()).await.unwrap();
         session.op("client.register", &serde_json::json!({"kind":"desktop","notifier":true,"version":env!("CARGO_PKG_VERSION")})).await.unwrap();
+        let snapshot = session.json("/v3/snapshot").await.unwrap();
+        assert_eq!(snapshot["seq"], 1000000000003_u64);
+        assert_eq!(
+            logic::volume_waiting(&snapshot).as_deref(),
+            Some("/tmp/repo")
+        );
         worker.join().unwrap();
     }
 }
