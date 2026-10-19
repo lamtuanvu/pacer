@@ -80,9 +80,9 @@ test("the diff's button says what it does", () => {
 
 test("review heading uses the service title and inline test state while Brief keeps the full goal", () => {
   const html = view({ ...task, title: "Short service title", goal: "A longer goal with detailed requirements", brief: { ...task.brief, goal: "A longer goal with detailed requirements" } });
-  expect(html).toMatch(/<h1[^>]*>Short service title<\/h1><span[^>]*>Tests passed<\/span>/);
+  expect(html).toMatch(/<h2[^>]*>Short service title<\/h2><span[^>]*>Tests passed<\/span>/);
   expect(html).toMatch(/<summary>Brief<\/summary>[\s\S]*A longer goal with detailed requirements/);
-  expect(view({ ...task, title: "Failed task", state: "failed", acceptance: { ...task.acceptance, state: "failed" } })).toMatch(/<h1[^>]*>Failed task<\/h1><span[^>]*>Failed<\/span>/);
+  expect(view({ ...task, title: "Failed task", state: "failed", acceptance: { ...task.acceptance, state: "failed" } })).toMatch(/<h2[^>]*>Failed task<\/h2><span[^>]*>Failed<\/span>/);
 });
 
 test("review keeps all three cards, the compact queue status and verdict learning note", () => {

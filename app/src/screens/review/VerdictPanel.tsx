@@ -1,3 +1,4 @@
+import { SectionHeading } from "../../ds/SectionHeading";
 import type { RefObject } from "preact";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import { executorLabel } from "../../../../src/view-model/words";
@@ -32,12 +33,12 @@ export interface VerdictPanelProps {
 export function VerdictPanel({ task, note, kind, executor, noteFor, pending, onNote, onKind, onExecutor, onOpenNote, onCancel, onSubmit, noteRef, retryRef }: VerdictPanelProps) {
   const verdict = noteFor ?? (executor ? "retry" : "accept");
   return <>
-    <h2>Your verdict</h2>
+    <SectionHeading>Your verdict</SectionHeading>
     <Button variant="primary" disabled={pending} onClick={() => onSubmit("accept")}>Accept and bring back</Button>
     <p className="muted">Accept records the verdict; you merge the branch.</p>
     <div className="pc-verdict-pair"><Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>
     <Button className="pc-review-reject" disabled={pending} onClick={() => onOpenNote("reject")}>Reject</Button></div>
-    <div className="pc-retry"><label htmlFor="review-retry">Or retry on</label><div className="row"><select className="pc-select" id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
+    <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><select className="pc-select" id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
         <option value="">Choose an executor</option>
         {task.retryOptions.map(option => <option key={option.id} value={option.id} disabled={option.state !== "ready"}>{executorLabel(option.id)} · {option.reason}</option>)}
       </select>
@@ -50,7 +51,7 @@ export function VerdictPanel({ task, note, kind, executor, noteFor, pending, onN
       </select>
       <span className="muted">{task.routing?.kindSource ?? "No kind source"}</span>
     </label>
-    <label className="field">Note
+    <label className="field"><SectionHeading as="span">Note</SectionHeading>
       <textarea ref={noteRef} rows={5} value={note} disabled={pending} onInput={e => onNote(e.currentTarget.value)} onKeyDown={e => {
         if (noteFor) handleNoteKey(e, () => onSubmit(noteFor), onCancel);
       }} />
