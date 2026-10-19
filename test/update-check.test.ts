@@ -7,6 +7,16 @@ import { compareVersions } from "../src/update/version";
 import { main } from "../src/cli";
 import { fakeCtx, tmpDir } from "./helpers";
 const response = (version: string) => new Response(JSON.stringify({version}));
+test("dev builds only offer releases newer than their package version, including cached checks", async () => {
+  const ctx = fakeCtx();
+  const current = "0.2.3+12.gabc1234";
+  for (const latest of ["0.2.2", "0.2.3", "0.2.3+other"]) {
+    expect(updateLine(await checkForUpdate(ctx, { current, force: true, fetch: async () => response(latest) }))).toBe("");
+  }
+  await checkForUpdate(ctx, { current: "0.2.2", force: true, fetch: async () => response("0.2.3") });
+  expect(updateLine(await checkForUpdate(ctx, { current, fetch: async () => { throw Error("must use cache"); } }))).toBe("");
+  expect(updateLine(await checkForUpdate(ctx, { current, force: true, fetch: async () => response("0.2.4") }))).toContain("Update available: pacer 0.2.4");
+});
 test("semver releases, prereleases and numeric components", () => {
  for (const [a,b] of [["1.10.0","1.2.0"],["1.0.0","1.0.0-rc.2"],["1.0.0-rc.10","1.0.0-rc.2"],["1.0.0-beta","1.0.0-1"]]) { expect(compareVersions(a,b)).toBe(1); expect(compareVersions(b,a)).toBe(-1); }
  expect(compareVersions("1.0.0","1.0.0")).toBe(0);

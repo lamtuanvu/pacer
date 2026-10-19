@@ -18,6 +18,7 @@ import { keys } from "../keys/instance";
 import { activeRepo, NarrowContext, useNarrow } from "../shell/narrow";
 import { withQuery, type RouteQuery } from "../router";
 import { ActionButton } from "./ActionButton";
+import { BulkReview, ReviewCheckbox } from "./review/BulkReview";
 import { QuickDelegate } from "./QuickDelegate";
 import { repoChoices, RepoFilter } from "./RepoFilter";
 import { useQuery, useTaskContext } from "./task-shared";
@@ -37,12 +38,15 @@ function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: C
   const otherRepos = others > 0 ? <a href={withQuery("#/", { ...query, repo: "" })}>+{others} in other repos</a> : null;
   const reviewQueue = <a href={withQuery("#/review", { ...query, repo: scope.repo ?? query.repo })}>Open review queue</a>;
   return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><h2 id="needs-you">Needs you</h2>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{narrow && otherRepos ? otherRepos : reviewQueue}</div>
+    <BulkReview key={scope.repo ?? "all"} snapshot={snapshot} repo={scope.repo} runner={runner}>
     {items.map(item => <div key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
+      <ReviewCheckbox item={item} />
       <StatusGlyph kind={BAD_KINDS.has(item.kind) ? "failed" : "waiting"} />
       {item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}
       <div className="grow"><div className="pc-attn__title">{attentionTitle(item, snapshot)}{item.repo && <code className="pc-repo-chip">{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></div>
       <div className="row-actions">{item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} strong={i === 0} />)}</div>
     </div>)}
+    </BulkReview>
     {!items.length && <p className="muted">Nothing needs you.</p>}
     {narrow && otherRepos ? reviewQueue : otherRepos}
   </section>;

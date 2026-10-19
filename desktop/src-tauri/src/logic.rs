@@ -281,7 +281,8 @@ pub fn auth_url(raw: &str) -> Result<Url, String> {
         || !url.username().is_empty()
         || url.password().is_some()
         || url.path() != "/app/auth"
-        || url.fragment().is_some()
+        // `pacer open --print` appends the app route to open (e.g. `#/` or `#/sessions/<id>`).
+        || url.fragment().is_some_and(|f| !f.starts_with('/'))
         || codes.len() != 1
         || codes[0].0 != "code"
         || codes[0].1.is_empty()
@@ -348,7 +349,7 @@ pub fn check_hello(hello: &Value) -> Result<(), &'static str> {
         return Err("protocol");
     }
     match major {
-        2 => Ok(()),
+        2 | 3 => Ok(()),
         0 | 1 => Err("oldService"),
         _ => Err("oldApp"),
     }
@@ -778,6 +779,9 @@ mod tests {
     #[test]
     fn auth_is_loopback_only() {
         assert!(auth_url("http://127.0.0.1:7432/app/auth?code=abc").is_ok());
+        // What `pacer open --print` prints: the app route rides in the fragment.
+        assert!(auth_url("http://127.0.0.1:4317/app/auth?code=abc#/").is_ok());
+        assert!(auth_url("http://127.0.0.1:4317/app/auth?code=abc#/sessions/t-1").is_ok());
         for bad in [
             "http://localhost:7432/app/auth?code=x",
             "https://127.0.0.1/app/auth?code=x",
@@ -789,10 +793,29 @@ mod tests {
         }
     }
     #[test]
+    fn v3_snapshot_waiting_and_sequence() {
+        for kind in ["volume", "folder"] {
+            let snapshot = json!({
+                "protocol": "3.0.0",
+                "seq": 1000000000003_u64,
+                "snapshot": {
+                    "service": {"waiting": {"kind": kind, "path": "/tmp/repo", "since": 1}},
+                    "future": true
+                }
+            });
+            assert_eq!(volume_waiting(&snapshot).as_deref(), Some("/tmp/repo"));
+            assert_eq!(snapshot_seq(900, &snapshot, true), 1000000000003);
+            assert_eq!(snapshot_seq(1000000000002, &snapshot, false), 1000000000002);
+        }
+        assert!(volume_waiting(&json!({"protocol":"3.0.0","snapshot":{"service":{}}})).is_none());
+    }
+    #[test]
     fn protocol_major_only() {
         assert!(check_hello(&json!({"protocol":"2.9.1"})).is_ok());
         assert_eq!(check_hello(&json!({"protocol":"1.5.0"})), Err("oldService"));
-        assert_eq!(check_hello(&json!({"protocol":"3.0.0"})), Err("oldApp"));
+        assert!(check_hello(&json!({"protocol":"3.0.0"})).is_ok());
+        assert!(check_hello(&json!({"protocol":"3.9.1","future":true})).is_ok());
+        assert_eq!(check_hello(&json!({"protocol":"4.0.0"})), Err("oldApp"));
         assert_eq!(check_hello(&json!({"protocol":"oops"})), Err("protocol"));
     }
     #[test]

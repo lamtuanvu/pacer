@@ -64,7 +64,7 @@ There is no lint or format command; `.editorconfig` is the only style config.
 | API & protocol compatibility | `src/api/**`, `src/serve/**`, `src/mcp/**`, `docs/protocol*.md`, any client reading the API | [rules/api-protocol.md](rules/api-protocol.md) | Established |
 | Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, `orca-plugin/**`, CI workflows | [rules/security.md](rules/security.md) | Established |
 | TypeScript & testing | `src/**`, `app/**`, `orca-plugin/**`, `test/**`, `scripts/**` | [rules/code-and-testing.md](rules/code-and-testing.md) | Established, plus proposals |
-| UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `orca-plugin/` panel, `desktop/**` | [rules/ui.md](rules/ui.md) | Established (spec), plus proposals |
+| UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `orca-plugin/` panel, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft: UI-8 to UI-18) | Established (spec), plus proposals |
 | Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
 | Repository hygiene & docs | all tracked files, commits, PRs, `docs/**` | [rules/repository.md](rules/repository.md) | Established, plus proposals |
 
