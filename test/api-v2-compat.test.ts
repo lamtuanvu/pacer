@@ -5,9 +5,17 @@ test('v2 preserves pre-upgrade goldens while allowing additive snapshot fields',
  for(const [name,value] of Object.entries(await capture())) {
   const golden = await Bun.file(`${import.meta.dir}/fixtures/protocol-v2/${name}.json`).json();
   if (name === 'snapshot') {
+   // service.version is the live pacer version; the golden records pre-upgrade output.
+   const live=(value as any).snapshot?.service?.version;
+   if (golden.snapshot?.service?.version) { expect(live).toMatch(/^\d+\.\d+\.\d+/); golden.snapshot.service.version=live; }
    expect(value).toMatchObject(golden);
    expect(value).toMatchObject({snapshot:{machine:{used:1,max:2}}});
-  } else expect(value).toEqual(golden);
+  } else {
+   // The live pacer version changes every release; the golden records pre-upgrade output.
+   const live=value as Record<string,unknown>;
+   if (typeof golden.pacer === 'string') expect(live.pacer).toMatch(/^\d+\.\d+\.\d+/);
+   expect(typeof golden.pacer === 'string' ? {...live,pacer:golden.pacer} : live).toEqual(golden);
+  }
  }
 });
 
