@@ -3,8 +3,8 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@types/bun": "^1.4.2",
-    "playwright-core": "1.58.2",
+    "@types/bun": "^1.4.3",
+    "playwright-core": "1.64.1",
     "preact-render-to-string": "^6.8.1",
     "typescript": "^7.0.2"
   },
@@ -35,8 +35,8 @@
     "@xterm/headless": "6.0.0",
     "@xterm/xterm": "6.0.0",
     "preact": "10.29.8",
-    "yaml": "2.8.2",
-    "zod": "4.6.5"
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
   },
   "license": "Apache-2.0",
   "description": "Subscription-budget-aware delegation for AI coding agents through a CLI, MCP server and Orca plugin.",
