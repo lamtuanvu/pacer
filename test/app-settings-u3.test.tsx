@@ -124,3 +124,9 @@ test('settings navigation pluralises rule counts',()=>{
   expect(html).toContain(`>${count} ${count===1?'rule':'rules'}</span>`);
  }
 });
+
+test('settings feedback explains automatic migration in plain language',async()=>{
+ const result=await performOperation(async()=>({id:'codex',migrated:{backup:'strategy.yaml.pre-accounts.bak'}}) as any,'runner.set',{id:'codex',max_tasks:2});
+ expect(result.message).toBe('Saved.');
+ expect(result.hint).toBe('Updated your settings file to the current format. A backup was saved.');
+});

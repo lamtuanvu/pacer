@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Account, runner and endpoint edits automatically migrate legacy settings with a backup instead of asking you to run `pacer config migrate`.
+
 - The macOS desktop app detects replacement of its running bundle every 30 seconds and relaunches the installed bundle while preserving window visibility and route and reconnecting the tray.
 
 - Informational planner pace notices stay on the planner strip and tray header without adding Needs you items, badge counts or a tray attention dot.
