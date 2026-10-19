@@ -51,3 +51,5 @@ h2{margin:0 0 4px;font-size:10.5px;line-height:14px;font-weight:650;letter-spaci
 .tray-action--primary .pc-kbd{background:transparent;border-color:currentColor;color:inherit;opacity:.8}
 .tray-footer{position:sticky;bottom:0;z-index:1;background:var(--surface-page)}
 .tray-action__label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.tray-dot--unknown{background:var(--surface-page);box-shadow:0 0 0 1px var(--ink-muted)}

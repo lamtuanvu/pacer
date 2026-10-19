@@ -100,7 +100,7 @@ test("executor marks use current capacity, values and detailed tooltips after en
   expect(executorValue({ ...executor, state: "exhausted" })).toBe("out");
   expect(executorValue({ ...executor, enabled: false })).toBe("off");
   expect(executorValue({ ...executor, sub: "No active plan" })).toBe("off");
-  expect(executorValue({ ...executor, usedPct: null, slots: { used: 0, max: 2 } })).toBe("free");
+  expect(executorValue({ ...executor, usedPct: null, slots: { used: 0, max: 2 } })).toBe("?");
   const state = reduceStore({ ...initialState(), snapshot, needsSnapshot: false, features: { readModel: true, ops: new Set() } }, { type: "event", event: { type: "executor", seq: 1, at: 1001, data: { ...executor, usedPct: 47, state: "full", tone: "warn", slots: { used: 2, max: 2 } } } });
   expect(draw(state.snapshot!)).toContain("47% used · pace 58%");
   expect(draw(state.snapshot!)).toContain(">2/2</span>");
@@ -248,9 +248,9 @@ test("long settings actions shorten to Settings and labels ellipsize instead of 
 });
 
 test("opencode executors use their account's mark and an unavailable account reads off", () => {
-  const row = (id: string, account: string, extra: Partial<ExecutorRow> = {}): ExecutorRow => ({ id, agent: "opencode", account, host: null, model: null, rank: 2, enabled: true, state: "idle", tone: "neutral", sub: "", usedPct: null, pacePct: null, slots: { used: 0, max: 1 }, lastCheck: null, recentFailures: 0, next: false, ...extra } as ExecutorRow);
+  const row = (id: string, account: string, extra: Partial<ExecutorRow> = {}): ExecutorRow => ({ id, agent: "opencode", account, host: null, model: null, rank: 2, enabled: true, state: "ready", tone: "good", sub: "", usedPct: null, pacePct: null, slots: { used: 0, max: 1 }, lastCheck: null, recentFailures: 0, next: false, ...extra });
   const byteplus = row("opencode#byteplus", "byteplus", { state: "down", tone: "bad", sub: "Unavailable", reason: "no active coding-plan subscription" });
-  const local = row("opencode#local", "local");
+  const local = row("opencode#local", "local", { state: "ready", tone: "good", paceReason: "unmetered" });
   expect(executorValue(byteplus)).toBe("off");
   expect(executorValue(local)).toBe("free");
   const html = draw({ ...fixture(), executors: [byteplus, local] });
@@ -258,4 +258,31 @@ test("opencode executors use their account's mark and an unavailable account rea
   expect(html).toContain("agent-mark--local");
   expect(html).not.toContain("agent-mark--opencode");
   expect(html).toMatch(/class="tray-executor tray-executor--off"[^>]*>.*?agent-mark--byteplus/);
+});
+
+test("unknown capacity never reads free or shows a ready glyph; unavailable capacity stays dimmed", () => {
+  const base = fixture().executors![0]!;
+  const unknown: ExecutorRow = { ...base, id: "opencode#byteplus", agent: "opencode", account: "byteplus", state: "ready", tone: "good", sub: "Usage unknown", usedPct: null, pacePct: null, paceReason: "no limit reported", slots: { used: 0, max: 1 } };
+  for (const slots of [{ used: 0, max: 1 }, { used: 1, max: 1 }]) {
+    const row = { ...unknown, slots };
+    expect(executorValue(row)).toBe("?");
+    const html = draw({ ...fixture(), executors: [row] });
+    expect(html).toContain(">?</span>");
+    expect(html).toContain("pc-glyph pc-status--neutral");
+    expect(html.split('aria-label="Executors">')[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
+    expect(html).not.toContain(">free</span>");
+  }
+  for (const row of [
+    { ...unknown, state: "down" as const, tone: "bad" as const, reason: "no active coding-plan subscription" },
+    { ...unknown, reason: "no subscription" },
+    { ...unknown, enabled: false },
+  ]) {
+    expect(executorValue(row)).toBe("off");
+    const html = draw({ ...fixture(), executors: [row] });
+    expect(html).toContain('class="tray-executor tray-executor--off"');
+    expect(html).toContain(">off</span>");
+    expect(html.split('aria-label="Executors">')[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
+  }
+  expect(executorValue({ ...unknown, paceReason: "unmetered" })).toBe("free");
+  expect(executorValue({ ...unknown, state: "checking", paceReason: "unmetered" })).toBe("?");
 });
