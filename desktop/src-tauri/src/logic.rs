@@ -2,6 +2,53 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+pub fn recovery_for(bundle_app: bool, bundled_cli: bool, external_cli: bool) -> Option<&'static str> {
+    if bundled_cli || external_cli {
+        None
+    } else if bundle_app {
+        Some("incomplete")
+    } else {
+        Some("install")
+    }
+}
+
+pub fn relink_needed(consented: bool, keep: bool, bundled: bool, missing: bool) -> bool {
+    consented && !keep && bundled && missing
+}
+
+pub fn dismiss_relink(url: &Url, current: Option<&Url>) -> bool {
+    url.as_str() == "tauri://localhost/index.html?state=starting" && bundled_shell(current)
+}
+
+#[derive(Default)]
+pub struct VersionRecovery {
+    attempted: bool,
+}
+impl VersionRecovery {
+    // Consume the attempt before spawning, including a failed restart or canceled connection.
+    pub fn restart(
+        &mut self,
+        cli: Option<&str>,
+        service: Option<&str>,
+        consented: bool,
+        owned: bool,
+    ) -> bool {
+        let versions_differ = match (cli, service) {
+            (Some(cli), Some(service)) => {
+                let cli = cli.trim();
+                let cli = cli.strip_prefix("pacer ").unwrap_or(cli).trim();
+                !cli.is_empty() && !service.trim().is_empty() && cli != service.trim()
+            }
+            _ => false,
+        };
+        if self.attempted || !consented || !owned || !versions_differ {
+            return false;
+        }
+        self.attempted = true;
+        true
+    }
+}
+
 // Selection is kept pure so consent and explicit overrides can be tested together.
 pub fn cli_choice(
     pacer_bin: Option<&Path>,
@@ -755,6 +802,66 @@ impl Sse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recovery_truth_table() {
+        for app in [false, true] {
+            for bundled in [false, true] {
+                for external in [false, true] {
+                    let expected = if bundled || external { None }
+                        else if app { Some("incomplete") } else { Some("install") };
+                    assert_eq!(recovery_for(app, bundled, external), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn relink_requires_consent_and_a_missing_app_link() {
+        for consent in [false, true] {
+            for keep in [false, true] {
+                for bundled in [false, true] {
+                    for missing in [false, true] {
+                        assert_eq!(relink_needed(consent, keep, bundled, missing),
+                            consent && !keep && bundled && missing);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn relink_dismissal_is_only_from_the_local_shell() {
+        let target = Url::parse("tauri://localhost/index.html?state=starting").unwrap();
+        let shell = Url::parse("tauri://localhost/index.html?state=relink").unwrap();
+        let remote = Url::parse("http://127.0.0.1:4317/app/").unwrap();
+        assert!(dismiss_relink(&target, Some(&shell)));
+        assert!(!dismiss_relink(&target, Some(&remote)));
+        assert!(!dismiss_relink(&target, None));
+        assert!(!dismiss_relink(&shell, Some(&shell)));
+    }
+
+    #[test]
+    fn version_recovery_requires_known_different_versions_consent_and_ownership_once() {
+        for (cli, service, consent, owned, expected) in [
+            (Some("0.2.3"), Some("0.2.2"), true, true, true),
+            (Some("0.2.3\n"), Some("0.2.3"), true, true, false),
+            (Some("pacer 0.2.3\n"), Some("0.2.3"), true, true, false),
+            (Some("pacer 0.2.3\n"), Some("0.2.2"), true, true, true),
+            (Some("0.2.3"), Some("0.2.2"), false, true, false),
+            (Some("0.2.3"), Some("0.2.2"), true, false, false),
+            (None, Some("0.2.2"), true, true, false),
+            (Some("0.2.3"), None, true, true, false),
+            (Some(""), Some("0.2.2"), true, true, false),
+        ] {
+            let mut recovery = VersionRecovery::default();
+            assert_eq!(recovery.restart(cli, service, consent, owned), expected);
+            if expected { assert!(!recovery.restart(cli, service, consent, owned)); }
+        }
+        let mut recovery = VersionRecovery::default();
+        assert!(!recovery.restart(Some("2"), Some("1"), true, false));
+        assert!(recovery.restart(Some("2"), Some("1"), true, true));
+    }
+
     #[test]
     fn cli_choice_truth_table_preserves_explicit_overrides_and_consent() {
         let b = Some(Path::new("/app/pacer"));

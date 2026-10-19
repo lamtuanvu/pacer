@@ -43,6 +43,7 @@ struct Shell {
     waiting: Mutex<Option<String>>,
     diagnosis: Mutex<Option<logic::Diagnosis>>,
     retry: AtomicBool,
+    relink_dismissed: AtomicBool,
     shell_action: Mutex<Option<logic::ShellAction>>,
     onboarding_page: Mutex<Option<logic::Onboarding>>,
     session: Mutex<Option<client::Session>>,
@@ -62,6 +63,7 @@ impl Default for Shell {
             waiting: Mutex::new(None),
             diagnosis: Mutex::new(None),
             retry: AtomicBool::new(false),
+            relink_dismissed: AtomicBool::new(false),
             shell_action: Mutex::new(None),
             onboarding_page: Mutex::new(None),
             session: Mutex::new(None),
@@ -299,6 +301,14 @@ fn shell_url(url: &Url) -> bool {
     url.scheme() == "tauri" && url.host_str() == Some("localhost")
 }
 fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>) -> bool {
+    if logic::dismiss_relink(url, current)
+        && app.state::<Shell>().diagnosis.lock().unwrap().as_ref()
+            .is_some_and(|d| d.page == "relink")
+    {
+        app.state::<Shell>().relink_dismissed.store(true, Ordering::SeqCst);
+        app.state::<Shell>().startup.lock().unwrap().ready();
+        return false; // Allow the requested local starting page to load.
+    }
     if logic::onboarding_back(url, current) {
         *app.state::<Shell>().onboarding_page.lock().unwrap() = Some(logic::Onboarding::Welcome);
         return true;
@@ -394,6 +404,7 @@ fn recovery(app: &AppHandle, state: &str) {
                     "consent" => "consent",
                     "existing" => "existing",
                     "incomplete" => "incomplete",
+                    "relink" => "relink",
                     "foreign" => "foreign",
                     "stuck" => "stuck",
                     _ => "starting",
@@ -422,6 +433,7 @@ fn recovery(app: &AppHandle, state: &str) {
         "existing" => "You already have pacer",
         "incomplete" => "This copy of pacer is incomplete",
         "foreign" => "Another pacer is running",
+        "relink" => "pacer's terminal command was removed",
         "protocol" => "Unable to connect to pacer",
         _ => "Starting pacer…",
     };

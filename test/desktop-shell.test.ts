@@ -8,12 +8,17 @@ function shell(search: string) {
   const elements = new Map<string, any>();
   const timers: (() => void)[] = [];
   let now = 0;
+  const append = (...children: any[]) => {
+    for (const child of children) if (child.id) elements.set(`#${child.id}`, child);
+  };
   const document = {
+    createElement() { return { hidden: false, textContent: "", append }; },
     querySelector(selector: string) {
       if (!elements.has(selector)) {
         const tag = selector.startsWith("#") ? html.match(new RegExp(`<[^>]+id="${selector.slice(1)}"[^>]*>`))?.[0] || "" : "";
         const listeners = new Map<string, () => void>();
         elements.set(selector, {
+          append,
           hidden: /\bhidden\b/.test(tag), checked: /\bchecked\b/.test(tag),
           href: tag.match(/href="([^"]*)"/)?.[1] || "", value: "", textContent: "",
           set innerHTML(_: string) { throw new Error("Shell details must use textContent"); },
@@ -186,4 +191,21 @@ test("first-run markup supplies steps, consent controls, back navigation and rec
   expect(html).toContain("brew uninstall pacer");
   const page = shell("?state=incomplete");
   expect(page.element("#message").textContent).toBe("The app runs pacer through a command-line tool that should come inside it, and it's missing. Download pacer again and replace this app. Your settings are kept.");
+});
+
+
+test("relink offers recreation and a dismissal for this launch", () => {
+  const page = shell("?state=relink");
+  expect(page.element("h1").textContent).toBe("pacer's terminal command was removed");
+  expect(page.element("#relink").hidden).toBe(false);
+  expect(page.element("#recreate-link").textContent).toBe("Recreate it");
+  expect(page.element("#recreate-link").href).toBe("tauri://localhost/action/relink");
+  expect(page.element("#skip-relink").textContent).toBe("Not now");
+  expect(page.element("#skip-relink").href).toBe("tauri://localhost/index.html?state=starting");
+  expect(page.element("#spinner").hidden).toBe(true);
+  page.render({ page: "permission" });
+  expect(page.element("#relink").hidden).toBe(true);
+  page.render({ page: "starting" });
+  expect(page.element("#relink").hidden).toBe(true);
+  expect(page.element("#spinner").hidden).toBe(false);
 });

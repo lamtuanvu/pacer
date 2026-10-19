@@ -55,6 +55,78 @@ fn install_binary(home: &Path, bundled: Option<&Path>, selected: &Path) -> Optio
     None
 }
 
+fn consent_choice(config: &Path) -> (bool, bool) {
+    let file = config.join("consent.json");
+    let keep = std::fs::read(&file)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .is_some_and(|record| record["keep"] == true);
+    (file.exists(), keep)
+}
+
+fn missing_link(home: &Path, bundled: Option<&Path>, config: &Path) -> bool {
+    let (consented, keep) = consent_choice(config);
+    logic::relink_needed(
+        consented,
+        keep,
+        bundled.is_some(),
+        bundled.is_some_and(|binary| link::state(home, binary) == link::LinkState::Missing),
+    )
+}
+
+fn recreate_link(home: &Path, bundled: &Path, config: &Path) -> Result<(), String> {
+    if !missing_link(home, Some(bundled), config) {
+        return Err("The terminal link cannot be recreated without the app's setup consent and a missing link".into());
+    }
+    link::create(home, bundled, false)
+}
+
+// Inspect the loaded job, not a plist that may have changed since launchd loaded it.
+#[cfg(any(target_os = "macos", test))]
+fn loaded_job_matches(text: &str, binary: &Path, home: &Path, port: u16, default_home: &Path) -> bool {
+    let (owner, owner_port) = logic::job_owner(
+        &logic::launchd_environment(text),
+        &default_home.to_string_lossy(),
+    );
+    if owner_port != port || !same_path(Path::new(&owner), home) {
+        return false;
+    }
+    let mut lines = text.lines().skip_while(|line| *line != "\targuments = {");
+    lines.next();
+    let Some(argument) = lines.next().map(str::trim).filter(|line| line.starts_with('/')) else {
+        return false;
+    };
+    // Never treat two unresolved paths as proof of ownership.
+    match (std::fs::canonicalize(argument), std::fs::canonicalize(binary)) {
+        (Ok(job), Ok(cli)) => job == cli,
+        _ => false,
+    }
+}
+
+async fn service_uses_cli(cli: &Cli) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let Ok(home) = required_home(std::env::var_os("HOME").as_deref()) else {
+            return false;
+        };
+        match manager_output("launchctl", &launchctl_args("print")).await {
+            Ok(output) if output.status.success() => loaded_job_matches(
+                &String::from_utf8_lossy(&output.stdout),
+                &cli.binary,
+                &cli.pacer_home,
+                service_port(),
+                &home.join(".pacer"),
+            ),
+            _ => false,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = cli;
+        false // No launchd ProgramArguments identity is available on this platform.
+    }
+}
+
 fn write_consent(config: &Path, path: bool, keep: bool) -> Result<(), String> {
     use std::fs::{self, DirBuilder, OpenOptions};
     use std::io::Write;
@@ -240,6 +312,7 @@ impl Cli {
 pub struct Session {
     pub client: Client,
     pub origin: String,
+    service_version: Option<String>,
 }
 impl Session {
     pub async fn connect(cli: &Cli, auth: &Url) -> Result<Self, String> {
@@ -269,7 +342,11 @@ impl Session {
             })
             .build()
             .map_err(|_| "Unable to create client")?;
-        let session = Self { client, origin };
+        let mut session = Self {
+            client,
+            origin,
+            service_version: None,
+        };
         if token.trim().is_empty() {
             return Err("Missing service token".into());
         }
@@ -301,7 +378,9 @@ impl Session {
                 response.status().as_u16()
             ));
         }
-        logic::check_hello(&session.json("/v3/hello").await?).map_err(str::to_owned)?;
+        let hello = session.json("/v3/hello").await?;
+        logic::check_hello(&hello).map_err(str::to_owned)?;
+        session.service_version = hello["pacer"].as_str().map(str::to_owned);
         Ok(session)
     }
     pub async fn op(&self, op: &str, params: &Value) -> Result<Value, String> {
@@ -367,11 +446,26 @@ async fn wait_for_snapshot(app: &AppHandle, session: &Session) -> Result<Value, 
     }
 }
 
-async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
+async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Result<(), String> {
     desktop_log!("pacer lifecycle: requesting desktop sign-in link");
     let web_auth = cli.auth().await?;
     desktop_log!("pacer lifecycle: exchanging local service session");
     let session = Session::connect(cli, &web_auth).await?;
+    first_run.signed_in = true;
+    let version = first_run.installed_version(cli).await;
+    let consented = app.path().app_config_dir().is_ok_and(|config| consent_choice(&config).0);
+    let waiting = app.state::<Shell>().waiting.lock().unwrap().is_some() || privacy_prompt();
+    if first_run.version_recovery.restart(
+        version.as_deref(),
+        session.service_version.as_deref(),
+        consented,
+        !waiting && service_uses_cli(cli).await,
+    ) {
+        // Let the lifecycle owner restart outside the health-monitor select: stopping
+        // the service must not cancel the CLI before it has started it again.
+        return Err("versionMismatch".into());
+    }
+
     let snapshot = wait_for_snapshot(app, &session).await?;
     if snapshot["service"]["starting"] == true
         || snapshot["snapshot"]["service"]["starting"] == true
@@ -393,7 +487,7 @@ async fn connected(app: &AppHandle, cli: &Cli) -> Result<(), String> {
     let shell = app.state::<Shell>();
     tokio::select! {
         result = listen(app, &session, &client_id, seq) => result,
-        result = heartbeat(&session, &client_id) => result,
+        result = heartbeat(app, &session, &client_id) => result,
         _ = shell.expired.notified() => Err("sessionExpired".into()),
     }
 }
@@ -408,11 +502,24 @@ async fn monitor_health(client: &Client) -> Result<(), String> {
         }
     }
 }
-async fn heartbeat(session: &Session, client_id: &str) -> Result<(), String> {
+async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Result<(), String> {
+    let mut missing_reported = false;
     let mut interval = tokio::time::interval(Duration::from_secs(30));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         interval.tick().await;
+        if !missing_reported {
+            if let (Ok(home), Ok(config)) = (
+                required_home(std::env::var_os("HOME").as_deref()),
+                app.path().app_config_dir(),
+            ) {
+                if missing_link(&home, bundled_binary().as_deref(), &config) {
+                    desktop_log!("pacer lifecycle: terminal command was removed; keeping the signed-in service connected");
+                    missing_reported = true;
+                }
+            }
+        }
+
         session
             .op(
                 "client.heartbeat",
@@ -545,6 +652,8 @@ struct FirstRun {
     decision: Option<logic::Onboarding>,
     version: Option<(PathBuf, Option<std::time::SystemTime>, Option<String>)>,
     reinstall: bool,
+    signed_in: bool,
+    version_recovery: logic::VersionRecovery,
 }
 
 enum OnboardingGate {
@@ -642,12 +751,7 @@ impl FirstRun {
                 return OnboardingGate::Wait;
             }
         };
-        let consent_file = config.join("consent.json");
-        let consented = consent_file.exists();
-        let keep = std::fs::read(&consent_file)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .is_some_and(|record| record["keep"] == true);
+        let (consented, keep) = consent_choice(&config);
         let external = external_binary(path, &home, bundled.as_deref());
         let mut installed = None;
         let mut remembered = false;
@@ -757,7 +861,7 @@ impl FirstRun {
                     if let Err(error) = bundled
                         .as_deref()
                         .ok_or("The bundled pacer command is missing".to_owned())
-                        .and_then(|bundled| link::create(&home, bundled, false))
+                        .and_then(|bundled| recreate_link(&home, bundled, &config))
                     {
                         self.fail(error);
                     }
@@ -770,6 +874,26 @@ impl FirstRun {
         }
         if let Some(detail) = &self.error {
             crate::diagnostic_recovery(app, detail);
+            return OnboardingGate::Wait;
+        }
+        let bundle_app = std::env::current_exe().ok().is_some_and(|exe| {
+            exe.to_string_lossy().contains(".app/Contents/MacOS/")
+        });
+        let explicit_cli = std::env::var_os("PACER_BIN")
+            .is_some_and(|binary| executable(Path::new(&binary)));
+        if let Some(page) = logic::recovery_for(
+            bundle_app,
+            bundled.is_some(),
+            external.is_some() || explicit_cli,
+        ) {
+            crate::diagnostic_recovery(app, &logic::diagnosis(page, None));
+            return OnboardingGate::Wait;
+        }
+        if missing_link(&home, bundled.as_deref(), &config)
+            && !self.signed_in
+            && !app.state::<Shell>().relink_dismissed.load(Ordering::SeqCst)
+        {
+            crate::diagnostic_recovery(app, &logic::diagnosis("relink", None));
             return OnboardingGate::Wait;
         }
         if healthy && !consented {
@@ -918,6 +1042,10 @@ pub async fn run(app: AppHandle) {
             logic::RecoveryAction::Install
             | logic::RecoveryAction::Start
             | logic::RecoveryAction::Restart => {
+                if !app.path().app_config_dir().is_ok_and(|config| consent_choice(&config).0) {
+                    desktop_log!("pacer lifecycle: waiting for setup consent before service changes");
+                    continue;
+                }
                 let mut action_job = job;
                 for name in logic::service_steps(action) {
                     if let Err(error) = service_action(cli.as_ref(), name, action_job).await {
@@ -938,10 +1066,18 @@ pub async fn run(app: AppHandle) {
             logic::RecoveryAction::Connect => {
                 if let Some(cli) = cli {
                     let result = tokio::select! {
-                        result = connected(&app, &cli) => result,
+                        result = connected(&app, &cli, &mut first_run) => result,
                         result = monitor_health(&probe_client) => result,
                     };
                     if let Err(error) = result {
+                        if error == "versionMismatch" {
+                            desktop_log!("pacer lifecycle: CLI/service version mismatch; restarting the matching service once this launch");
+                            if let Err(error) = cli.run(&["service", "restart"]).await {
+                                desktop_log!("pacer lifecycle: version mismatch restart failed: {error}");
+                            }
+                            crate::recovery(&app, "starting");
+                            continue;
+                        }
                         app.state::<Shell>()
                             .startup
                             .lock()
@@ -1002,6 +1138,40 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn version_recovery_matches_loaded_arguments_by_realpath_and_home_and_port() {
+        let dir = TempDir::new();
+        let binary = dir.0.join("pacer");
+        let linked = dir.0.join("terminal-pacer");
+        std::fs::write(&binary, "cli").unwrap();
+        std::os::unix::fs::symlink(&binary, &linked).unwrap();
+        let output = format!("job = {{\n\targuments = {{\n\t\t{}\n\t\tserve\n\t}}\n\tenvironment = {{\n\t\tPACER_HOME => {}\n\t\tPACER_PORT => 5321\n\t}}\n}}", linked.display(), dir.0.display());
+        assert!(loaded_job_matches(&output, &binary, &dir.0, 5321, &dir.0));
+        assert!(!loaded_job_matches(&output, &binary, &dir.0, 4317, &dir.0));
+        assert!(!loaded_job_matches(&output, &binary, &dir.0.join("other"), 5321, &dir.0));
+        let other = dir.0.join("other-cli");
+        std::fs::write(&other, "cli").unwrap();
+        assert!(!loaded_job_matches(&output, &other, &dir.0, 5321, &dir.0));
+        assert!(!loaded_job_matches("", &binary, &dir.0, 5321, &dir.0));
+        std::fs::remove_file(&binary).unwrap();
+        assert!(!loaded_job_matches(&output, &linked, &dir.0, 5321, &dir.0));
+    }
+
+    #[test]
+    fn relink_action_cannot_create_a_link_before_consent_or_after_keep_mine() {
+        let dir = TempDir::new();
+        let config = dir.0.join("config");
+        let bundled = dir.0.join("pacer");
+        std::fs::write(&bundled, "cli").unwrap();
+        assert!(recreate_link(&dir.0, &bundled, &config).is_err());
+        assert!(!link::link_path(&dir.0).exists());
+        write_consent(&config, false, true).unwrap();
+        assert!(recreate_link(&dir.0, &bundled, &config).is_err());
+        write_consent(&config, false, false).unwrap();
+        recreate_link(&dir.0, &bundled, &config).unwrap();
+        assert_eq!(std::fs::read_link(link::link_path(&dir.0)).unwrap(), bundled);
     }
 
     #[test]

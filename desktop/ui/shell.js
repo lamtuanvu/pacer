@@ -4,6 +4,7 @@ const pages = {
   welcome: ['Your planner plans. Your other agents do the work.', ''],
   consent: ["Here's what pacer will change", ''],
   existing: ['You already have pacer', ''],
+  relink: ["pacer's terminal command was removed", 'Recreate it so you and your agents can run pacer from the terminal.'],
   incomplete: ['This copy of pacer is incomplete', "The app runs pacer through a command-line tool that should come inside it, and it's missing. Download pacer again and replace this app. Your settings are kept."],
   stuck: ['pacer could not finish signing in', 'The desktop app could not connect and sign in to the local pacer service. Retrying automatically in the background.'],
   install: ['pacer needs its command-line tool', "The pacer app runs its background service through the pacer command-line tool, which isn't installed. Install it and this window continues on its own."],
@@ -12,6 +13,25 @@ const pages = {
   oldApp: ['Update the pacer app', 'This service uses a newer protocol. Install a newer desktop app.'],
   protocol: ['Unable to connect', 'The local service returned an incompatible response. Install a compatible version of pacer.'],
 };
+// Keep recovery markup local to this shell; no IPC capability is needed.
+const relink = document.createElement('section');
+relink.id = 'relink';
+relink.hidden = true;
+const relinkActions = document.createElement('div');
+relinkActions.className = 'actions';
+for (const [id, text, href, primary] of [
+  ['recreate-link', 'Recreate it', 'tauri://localhost/action/relink', true],
+  ['skip-relink', 'Not now', 'tauri://localhost/index.html?state=starting', false],
+]) {
+  const action = document.createElement('a');
+  action.id = id;
+  action.textContent = text;
+  action.href = href;
+  action.className = primary ? 'button primary' : 'button';
+  relinkActions.append(action);
+}
+relink.append(relinkActions);
+document.querySelector('main').append(relink);
 const pathChoice = document.querySelector('#path');
 const pathRow = document.querySelector('#path-row');
 let consentRc = null;
@@ -22,7 +42,7 @@ function updateConsentLink() {
 pathChoice.addEventListener('change', updateConsentLink);
 function renderShell(detail) {
   const permission = detail.page === 'permission' || detail.prompt;
-  for (const page of ['welcome', 'consent', 'existing', 'incomplete']) {
+  for (const page of ['welcome', 'consent', 'existing', 'incomplete', 'relink']) {
     document.querySelector(`#${page}`).hidden = permission || detail.page !== page;
   }
   const showPath = !permission && detail.page === 'consent' && detail.onPath === false && Boolean(detail.rc);
