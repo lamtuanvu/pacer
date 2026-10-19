@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-19
+
 ### Added
 
 - Shared UI foundation checks for canonical controls, token usage and import boundaries, plus required UI compliance and review evidence metadata for UI-changing pull requests (governance adoption by maintainer merge).
@@ -13,6 +15,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- The service no longer restart-loops when building a snapshot is slow: a listener thread answers `/health` (reporting `backendLagS` from a main-thread heartbeat, 503 when it is older than 45s), snapshot and status reads serve the last value while refreshing in the background, and the desktop app restarts the service only after repeated failed probes over at least 30 seconds.
+- Status and activity readers scan Claude and Codex session logs incrementally (per-file cursors, appended bytes only) instead of re-reading the whole 28-day history on every status refresh; `PACER_TRACE_STATUS=1` prints per-phase timings.
+- Running tasks are supervised by a 5-second service timer; task reads no longer respawn or fail runners, and resolution checks no longer rewrite unchanged tasks every minute.
+- `pacer serve --help` prints usage instead of starting a second server.
 - Task records use a private SQLite store with indexed active/recent queries, concurrent transactional updates, non-destructive legacy import and atomic JSON write-through for older binaries.
 
 - Delegate defaults to the active repository filter or remembered repository, supports an optional task kind, previews routing and submits with Cmd+Enter (Ctrl+Enter on Linux).
