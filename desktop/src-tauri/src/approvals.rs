@@ -19,7 +19,7 @@ pub fn launch_at_login(enabled: bool) -> Option<Result<(), String>> {
         } else {
             service.unregisterAndReturnError()
         };
-        eprintln!(
+        desktop_log!(
             "pacer approvals: login item enabled={enabled}, status={:?}",
             service.status()
         );
@@ -35,11 +35,11 @@ pub fn request_notifications() {
     use objc2_user_notifications::{UNAuthorizationOptions, UNUserNotificationCenter};
     // UNUserNotificationCenter raises an exception for an unbundled dev executable.
     if NSBundle::mainBundle().bundleIdentifier().is_none() {
-        eprintln!("pacer approvals: notification authorization requires an app bundle");
+        desktop_log!("pacer approvals: notification authorization requires an app bundle");
         return;
     }
     let complete = RcBlock::new(|granted: Bool, error: *mut NSError| {
-        eprintln!(
+        desktop_log!(
             "pacer approvals: notifications granted={}, error={}",
             granted.as_bool(),
             !error.is_null()

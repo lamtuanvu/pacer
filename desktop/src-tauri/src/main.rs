@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+macro_rules! desktop_log {
+    ($($arg:tt)*) => { crate::logging::write(format_args!($($arg)*)) };
+}
 mod actions;
 mod approvals;
 mod client;
+mod logging;
 mod logic;
 mod notifications;
 mod tray_model;
@@ -27,6 +31,7 @@ use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
 
 struct Shell {
+    startup: Mutex<logic::Startup>,
     origin: Mutex<Option<String>>,
     route: Mutex<String>,
     recovery: Mutex<String>,
@@ -41,6 +46,7 @@ struct Shell {
 impl Default for Shell {
     fn default() -> Self {
         Self {
+            startup: Mutex::new(logic::Startup::default()),
             origin: Mutex::new(None),
             route: Mutex::new("#/".into()),
             recovery: Mutex::new(String::new()),
@@ -91,9 +97,20 @@ fn session_expired(window: WebviewWindow, app: AppHandle) -> Result<(), String> 
     app.state::<Shell>().expired.notify_one();
     Ok(())
 }
+#[tauri::command]
+fn session_ready(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    authorized(&window, &app)?;
+    app.state::<Shell>().startup.lock().unwrap().ready();
+    desktop_log!("pacer lifecycle: desktop sign-in complete");
+    set_error_dot(&app, false);
+    if let Some(tray) = app.tray_by_id("pacer") {
+        let _ = tray.set_tooltip(Some("pacer"));
+    }
+    Ok(())
+}
 // Runs in the trusted service document, including script-free error pages. Also
 // recognizes pages from older services which do not yet carry the marker.
-const CHECK_SESSION_PAGE: &str = r#"if (document.querySelector('[data-pacer-session-ended]') || (!document.getElementById('app') && /Session ended|This link has expired/.test(document.body.textContent))) { window.__TAURI__?.core.invoke('session_expired').catch(() => {}); }"#;
+const CHECK_SESSION_PAGE: &str = r#"if (document.querySelector('[data-pacer-session-ended]') || (!document.getElementById('app') && /Session ended|This link has expired/.test(document.body.textContent))) { window.__TAURI__?.core.invoke('session_expired').catch(() => {}); } else if (document.getElementById('app')) { window.__TAURI__?.core.invoke('session_ready').catch(() => {}); }"#;
 
 #[tauri::command]
 fn tray_resize(window: WebviewWindow, app: AppHandle, height: f64) -> Result<(), String> {
@@ -178,7 +195,7 @@ fn position_tray(window: &WebviewWindow) -> tauri::Result<()> {
 fn toggle_tray(app: &AppHandle) {
     if app.state::<Shell>().session.lock().unwrap().is_none() {
         if let Err(error) = create_recovery_tray(app) {
-            eprintln!("Unable to show pacer status: {error}");
+            desktop_log!("Unable to show pacer status: {error}");
         }
     }
     if let Some(window) = app.get_webview_window("tray") {
@@ -292,12 +309,23 @@ fn shell_action(app: &AppHandle, label: &str, url: &Url) -> bool {
             let result = tokio::process::Command::new("/usr/bin/open")
                 .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")
                 .status().await;
-            eprintln!("pacer lifecycle: open Files and Folders settings: {result:?}");
+            desktop_log!("pacer lifecycle: open Files and Folders settings: {result:?}");
         });
     }
     true
 }
 fn diagnostic_recovery(app: &AppHandle, diagnosis: &logic::Diagnosis) {
+    let stuck = app
+        .state::<Shell>()
+        .startup
+        .lock()
+        .unwrap()
+        .diagnosis(std::time::Instant::now());
+    let diagnosis = if diagnosis.page == "starting" {
+        stuck.as_ref().unwrap_or(diagnosis)
+    } else {
+        diagnosis
+    };
     *app.state::<Shell>().diagnosis.lock().unwrap() = Some(diagnosis.clone());
     recovery(app, diagnosis.page);
 }
@@ -340,6 +368,7 @@ fn recovery(app: &AppHandle, state: &str) {
                     "protocol" => "protocol",
                     "permission" => "permission",
                     "install" => "install",
+                    "stuck" => "stuck",
                     _ => "starting",
                 },
                 None,
@@ -356,6 +385,7 @@ fn recovery(app: &AppHandle, state: &str) {
     }
     render_diagnosis(app);
     let title = match state {
+        "stuck" => "pacer could not finish signing in",
         "permission" => "macOS needs your permission",
         "oldApp" => "Update the pacer app",
         "oldService" => "Update pacer",
@@ -363,6 +393,7 @@ fn recovery(app: &AppHandle, state: &str) {
         "protocol" => "Unable to connect to pacer",
         _ => "Starting pacer…",
     };
+    set_error_dot(app, state == "stuck");
     if changed {
         if let Some(tray) = app.tray_by_id("pacer") {
             let _ = tray.set_tooltip(Some(title));
@@ -426,7 +457,8 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-setLaunchAtLogin")
                 .permission("allow-setTheme")
                 .permission("allow-notifyRoute")
-                .permission("allow-session-expired"),
+                .permission("allow-session-expired")
+                .permission("allow-session-ready"),
         )
         .map_err(|e| e.to_string())?;
         app.add_capability(
@@ -461,11 +493,34 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
     app.get_webview_window("main")
         .ok_or("Missing window")?
         .navigate(auth)
-        .map_err(|e| e.to_string())
+        .map_err(|_| "Unable to load the desktop sign-in page".into())
+}
+fn set_error_dot(app: &AppHandle, error: bool) {
+    if let Some(tray) = app.tray_by_id("pacer") {
+        if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) {
+            let (width, height) = (icon.width(), icon.height());
+            let mut rgba = icon.rgba().to_vec();
+            if error {
+                let radius = (width.min(height) / 5).max(2) as i32;
+                let cx = width as i32 - radius - 1;
+                let cy = height as i32 - radius - 1;
+                for y in 0..height as i32 {
+                    for x in 0..width as i32 {
+                        if (x - cx).pow(2) + (y - cy).pow(2) <= radius.pow(2) {
+                            let i = (y as usize * width as usize + x as usize) * 4;
+                            rgba[i..i + 4].copy_from_slice(&[220, 50, 50, 255]);
+                        }
+                    }
+                }
+            }
+            let _ = tray.set_icon(Some(tauri::image::Image::new_owned(rgba, width, height)));
+            let _ = tray.set_icon_as_template(!error);
+        }
+    }
 }
 fn update_tray(app: &AppHandle, model: TrayModel) {
     if let Err(e) = render_tray(app, model) {
-        eprintln!("Unable to update pacer tray: {e}");
+        desktop_log!("Unable to update pacer tray: {e}");
     }
 }
 fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
@@ -538,7 +593,7 @@ fn dispatch_action(app: &AppHandle, action: Value) {
                 )
                 .await;
             }
-            if let Ok(snapshot) = session.json("/v2/snapshot").await {
+            if let Ok(snapshot) = session.json("/v3/snapshot").await {
                 update_tray(&app, TrayModel::from_snapshot(&snapshot));
             }
         }
@@ -651,7 +706,7 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
             match logic::bundle_replaced(&executable, &started) {
                 Ok(false) => continue,
                 Err(error) => {
-                    eprintln!("Unable to check pacer bundle: {error}");
+                    desktop_log!("Unable to check pacer bundle: {error}");
                     continue;
                 }
                 Ok(true) => {}
@@ -685,13 +740,17 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
                     app.exit(0);
                     return;
                 }
-                Err(error) => eprintln!("Unable to schedule pacer relaunch: {error}"),
+                Err(error) => desktop_log!("Unable to schedule pacer relaunch: {error}"),
             }
         }
     });
 }
 
 fn main() {
+    desktop_log!(
+        "pacer lifecycle: desktop starting version {}",
+        env!("CARGO_PKG_VERSION")
+    );
     #[cfg(target_os = "macos")]
     let bundle_started = std::env::current_exe().ok().and_then(|executable| {
         let macos = executable.parent()?;
@@ -706,7 +765,7 @@ fn main() {
         match logic::bundle_identity(&executable) {
             Ok(identity) => Some((executable, identity)),
             Err(error) => {
-                eprintln!("Unable to read initial pacer bundle identity: {error}");
+                desktop_log!("Unable to read initial pacer bundle identity: {error}");
                 None
             }
         }
@@ -750,7 +809,8 @@ fn main() {
             tray_open,
             tray_hide,
             app_quit,
-            session_expired
+            session_expired,
+            session_ready
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -788,7 +848,7 @@ fn main() {
                                         == Some(&origin)
                                     {
                                         if let Err(e) = create_tray_window(&handle, &origin) {
-                                            eprintln!("Unable to create pacer tray window: {e}");
+                                            desktop_log!("Unable to create pacer tray window: {e}");
                                         }
                                     }
                                 });
@@ -928,6 +988,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             approvals::request_notifications();
             tauri::async_runtime::spawn(client::monitor_approvals(handle.clone()));
+            tauri::async_runtime::spawn(client::watch_startup(handle.clone()));
             #[cfg(target_os = "macos")]
             if let Some((executable, started)) = bundle_started {
                 watch_bundle(handle.clone(), executable, started);
