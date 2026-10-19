@@ -673,17 +673,42 @@ function pluginMode(pluginRoot, fs) {
 }
 
 // src/setup/checklist.ts
+function updateChecklist(s, f) {
+  const ranked = f.executors?.ranked ?? [], excluded = f.executors?.excluded ?? [];
+  const items = s.items.map((i) => {
+    if (i.id === "executor")
+      return {
+        ...i,
+        status: ranked.length ? "done" : "pending",
+        detail: ranked.length ? ranked.map((e) => e.id).join(", ") : excluded.length ? excluded.map((e) => `${e.id}: ${e.reason}`).join("; ") : "no executor configured",
+        command: ranked.length ? undefined : "pacer runner add",
+        action: ranked.length ? undefined : "nav:add-executor"
+      };
+    if (i.id === "usage")
+      return { ...i, status: f.verdict && f.verdict !== "UNKNOWN" ? "done" : "pending" };
+    if (i.id === "first" && (f.reviewed || f.skipped))
+      return { ...i, status: "done", action: undefined, ...f.skipped ? { detail: "Skipped" } : {} };
+    return i;
+  });
+  const complete = items.filter((i) => i.required).every((i) => i.status === "done");
+  return { ...s, items, complete, ready: complete && ["executor", "first"].every((id) => items.some((i) => i.id === id && i.status === "done")) };
+}
 function setupChecklist(f, checkedAt) {
-  const item = (id, title, done, detail) => ({ id, title, required: true, status: f.errors?.[id] ? "failed" : done ? "done" : "pending", detail: f.errors?.[id] ?? detail, ...!done || f.errors?.[id] ? { command: "pacer init" } : {} });
+  const item = (id, title, required, done, detail, command, action, error) => ({ id, title, required, status: error ? "failed" : done ? "done" : "pending", ...error || detail ? { detail: error ?? detail } : {}, ...!done || error ? { ...command ? { command } : {}, ...action ? { action } : {} } : {} });
+  const plannerAgent = f.planner?.split(/[#@]/)[0];
   const items = [
-    item("binary", "Binary", !!f.version, f.version ?? undefined),
-    item("strategy", "Strategy", !!f.planner, f.planner ? `Planner: ${f.planner}` : undefined),
-    item("service", "Login service", f.service.installed && f.service.running),
-    item("link", "Link", f.link),
-    { id: "live", title: "Live plugin", required: false, status: f.live ? "done" : "pending", ...!f.live ? { command: "pacer init" } : {} },
-    ...f.agents.map((a) => ({ id: `agent:${a.id}`, title: a.name, required: false, status: a.installed ? "done" : "pending", detail: a.installed ? "Connected" : "Optional · not connected", ...!a.installed ? { command: "pacer init" } : {} }))
+    item("binary", "pacer", true, !!f.version, f.version ?? undefined, "pacer init", undefined, f.errors?.binary),
+    item("planner", "Planner", true, !!f.planner && f.signedIn !== false, f.planner ? `${f.planner}${f.signedIn === false ? " · signed out" : ""}` : "Choose a planner", f.planner ? f.loginCommand : "pacer init", undefined, f.errors?.strategy),
+    item("service", "Background service", true, f.service.installed && f.service.running, undefined, "pacer service install", "service.install", f.errors?.service),
+    { ...item("connect", "Connect planner", true, !!f.planner && f.connected !== false, f.connected !== false ? "Connected" : "Integration missing or changed", "pacer init", "agent.connect", f.errors?.connect), ...plannerAgent ? { agent: plannerAgent, installed: f.agents.find((a) => a.id === plannerAgent)?.cliInstalled ?? false } : {} },
+    item("link", "Link", true, f.link, undefined, "pacer init", undefined, f.errors?.link),
+    item("executor", "Executor", false, false),
+    item("usage", "Budget data", false, !!f.verdict && f.verdict !== "UNKNOWN", `Start a session in ${f.planner ?? "your planner"} once`),
+    item("first", "First delegation", false, !!f.reviewed || !!f.skipped, f.skipped ? "Skipped" : undefined, undefined, "onboarding.try"),
+    ...f.orcaInstalled ? [item("live", "Orca panel", false, f.live, undefined, "pacer init")] : [],
+    ...f.agents.filter((a) => a.id !== plannerAgent).map((a) => ({ ...item(`agent:${a.id}`, a.name, false, a.installed, a.installed ? "Connected" : "Optional · not connected", "pacer init", "agent.connect"), agent: a.id, ...a.cliInstalled !== undefined ? { installed: a.cliInstalled } : {} }))
   ];
-  return { checkedAt, complete: items.filter((i) => i.required).every((i) => i.status === "done"), items };
+  return updateChecklist({ checkedAt, complete: false, ready: false, items }, f);
 }
 
 // orca-plugin/src/worktree.ts
@@ -1782,7 +1807,7 @@ var mark = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><
 // orca-plugin/src/panel/setup.ts
 function legacyChecklist(s, now, reachable, bootstrap) {
   if (s.planner !== undefined)
-    return { checkedAt: now, complete: s.setup?.complete ?? false, items: (s.setup?.items ?? []).map((i) => ({ ...i, status: i.status === "done" || i.status === "failed" ? i.status : "pending" })) };
+    return { checkedAt: now, ready: s.setup?.ready ?? false, complete: s.setup?.complete ?? false, items: (s.setup?.items ?? []).map((i) => ({ ...i, status: i.status === "done" || i.status === "failed" ? i.status : "pending" })) };
   return setupChecklist({ version: bootstrap?.install.status === "done" ? s.console?.version ?? "installed" : null, planner: s.budget?.planner ?? null, service: { installed: bootstrap?.start.status === "done" || !!s.serviceInstalled, running: reachable }, link: reachable, live: true, agents: bootstrap?.agents ?? [] }, now);
 }
 // orca-plugin/src/panel/overview.ts
@@ -2027,7 +2052,7 @@ function renderStatusPage(s, view) {
   const mode = s.mode?.mode ?? plannerMeter(s)?.mode ?? (s.planner === undefined ? s.budget?.mode : undefined) ?? "unknown";
   const header = `<header><span class="brand name">${mark}pacer</span><span class="pill">${h(modeWords(mode))}</span><span class="grow"></span><span class="live">${view.reachable ? "Live · updated" : "Not connected · last data"} ${h(s.planner === undefined ? absolute(s.at, nowS) : clock(s.at, s.at))}</span></header>`;
   let content;
-  const setup = s.planner === undefined ? view.setup : legacyChecklist(s, nowS, view.reachable, view.bootstrap);
+  const setup = s.planner === undefined ? view.setup : s.setup?.ready !== undefined ? legacyChecklist(s, nowS, view.reachable, view.bootstrap) : view.setup ?? legacyChecklist(s, nowS, view.reachable, view.bootstrap);
   if (view.bootstrap && !(s.planner === undefined ? s.budget : s.service) && !setup?.complete) {
     const steps = ["install", "start"].map((name) => {
       const step = view.bootstrap[name];
@@ -2054,7 +2079,9 @@ function renderStatusPage(s, view) {
   }
   if (!view.reachable && view.transport === null)
     content = section("Update the pacer plugin", "<p>Run <code>pacer update</code> in a terminal, then restart the plugin to connect to the pacer API.</p>") + content;
-  if (setup && !setup.complete)
+  if (setup?.ready)
+    content += section("Setup ✓", "");
+  else if (setup && (!setup.complete || setup.items.length > 0))
     content += section("Setup", `${checklist(setup)}<pre><code>pacer init</code></pre>`);
   const delegate = s.planner !== undefined && view.repo ? `<div class="action-block action-primary"><strong>Delegate from this worktree</strong><code>${h(`pacer delegate --repo '${view.repo.path.replace(/'/g, "'\\''")}' --goal '<goal>'`)}</code></div>` : "";
   const footer = `<footer><div class="footer-actions">${delegate}<div class="action-block action-secondary"><strong>Open pacer</strong><small>Run to open the pacer app (desktop first).</small><code>pacer open</code></div></div></footer>`;

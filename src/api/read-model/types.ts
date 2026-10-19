@@ -32,7 +32,7 @@ export interface Counts {
 }
 export interface Today { since: number; done: number; accepted: number; rejected: number; failed: number; byRepo: Record<string, number> }
 export interface HostSummary { alias: string; ssh: string; state: "unknown" | "paused" | "down" | "checking" | "needs_setup" | "ready"; running: number; maxTasks: number; executors: string[]; repos: number }
-export interface SetupSummary { complete: boolean; open: number; items: { id: string; title: string; status: string; required: boolean }[] }
+export interface SetupSummary { complete: boolean; ready?: boolean; open: number; items: import("../../setup/checklist").SetupItem[] }
 export interface ServiceInfo { version: string; protocol: string; pid: number; startedAt: number; starting?: true; waiting?: import("../../core/path-probe").Waiting; notifier: { client_id: string; kind: import("../../clients/registry").ClientEntry["kind"] } | null }
 export interface ReadModelFields {
  pause: PauseState | null; attention: AttentionItem[]; service: ServiceInfo; planner: PlannerMeter | null; counts: Counts; today: Today;

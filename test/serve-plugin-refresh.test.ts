@@ -25,7 +25,7 @@ async function fixture() {
 }
 function attention(ctx: ReturnType<typeof fakeCtx>) {
   const { s, st } = capacityFixture();
-  return buildReadModel(ctx, { strategy: s, status: st, tasks: [], hosts: [], setup: { complete: true, checkedAt: ctx.now, items: [] } }).attention;
+  return buildReadModel(ctx, { strategy: s, status: st, tasks: [], hosts: [], setup: { complete: true, checkedAt: ctx.now,ready:false,items: [] } }).attention;
 }
 const hint = `pacer: refreshed the Orca plugin to ${PLUGIN_VERSION}; see Needs you for reload instructions`;
 

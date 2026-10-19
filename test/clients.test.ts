@@ -91,7 +91,7 @@ test("snapshot service exposes only the live notifier identity", async()=>{
  const {buildReadModel}=await import("../src/api/read-model");
  const {capacityFixture}=await import("./read-model-helpers");
  const ctx=fakeCtx(),{s,st}=capacityFixture();
- const model=()=>buildReadModel(ctx,{status:st,strategy:s,tasks:[],setup:{checkedAt:ctx.now,complete:true,items:[]},hosts:[]});
+ const model=()=>buildReadModel(ctx,{status:st,strategy:s,tasks:[],setup:{checkedAt:ctx.now,complete:true,ready:false,items:[]},hosts:[]});
  expect(model().service).toHaveProperty("notifier",null);
  const a=register(ctx,{kind:"orca",version:"1",notifier:true});
  expect(model().service).toHaveProperty("notifier",{client_id:a.client_id,kind:"orca"});
