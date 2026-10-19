@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Draft. Imported rules are in force; proposed rows await the maintainer | Version: 0.1.0 | Updated: 2026-10-18
+Status: Draft. Imported rules are in force; proposed rows await the maintainer | Version: 0.2.0 | Updated: 2026-10-19
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope

@@ -18,6 +18,7 @@ Read [constitution.md](../constitution.md), [context.md](../context.md), and [ru
 - UI-4: the TUI honors `NO_COLOR` and `PACER_NO_ANIM`.
 - UI-5: the Orca panel stays static and script-free.
 - UI-6: surfaces render from the shared view model, and the golden fixture tests pass.
+- UI-8 to UI-18 (visual craft): open the changed screens, or the PR's before/after screenshots, and walk the implementer checklist in [rules/ui.md](../rules/ui.md). Name the screen, element and rule for each finding. Grep the diff for raw `<a`, `<details`, `<select`, `type="checkbox"`, px `font-size`, `.slice(` on display strings and new hex colors. A PR that changes `app/**` without UI-18 screenshots is reported as unverified, not passed.
 
 ## Findings contract
 
