@@ -1,10 +1,24 @@
 # Install pacer
 
-Install the Orca marketplace plugin; it bootstraps pacer in the background.
+Install and sign in to your planner and at least one executor CLI first; the
+[quickstart](../README.md#quickstart) has Claude Code and Codex commands. Then:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
+pacer init
+```
+
+Init detects your tools, writes the strategy and connects agents after asking.
+Ask your planner for work in your repository — it delegates through pacer.
+Use `pacer open` to watch and `pacer doctor` to check the installation.
+
+## Orca plugin (optional)
+
+The Orca marketplace plugin can also bootstrap pacer in the background.
 
 In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
 install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.1.24`.
+bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.2.3`.
 The worker installs a checksum-verified binary and keeps older binaries updated to
 its version. It never downgrades. Once per Orca launch it opens a terminal titled
 **pacer** in the focused worktree: `pacer init` if strategy or login service setup
@@ -51,14 +65,6 @@ folder. It accepts HTTPS, `file://`, or HTTP on `127.0.0.1`/`localhost`, with
 `pacer init` command and use bounded retries. Before a plugin release, run the
 [real-Orca harness](testing/orca-e2e.md).
 
-For a CLI-only installation or manual fallback:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
-pacer init
-```
-
-
 ## From source
 
 Use Bun >=1.4.2 and a source checkout. Install/authenticate your planner and executor CLIs separately.
@@ -82,7 +88,7 @@ Install from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases):
 curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
 ```
 
-This works once the repository is public and the first release exists. [install.sh](../install.sh) and `pacer update` default to GitHub: `releases/latest/download/latest.json` selects the version, and `releases/download/v<version>/<file>` serves its assets. Downloads follow at most five redirects, each to HTTPS.
+[install.sh](../install.sh) and `pacer update` default to GitHub: `releases/latest/download/latest.json` selects the version, and `releases/download/v<version>/<file>` serves its assets. Downloads follow at most five redirects, each to HTTPS.
 
 Verify a downloaded binary's build provenance before running it:
 
@@ -154,6 +160,26 @@ Checks only GET `latest.json`, time out after three seconds, and cache in
 `~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours. The static marketplace
 panel has no update buttons or host calls, and the worker never installs a newer
 release than the version shipped with its plugin.
+
+## Pause delegation
+
+Set `PACER=off` for a session (for example, `PACER=off claude`) to disable planner
+pacing enforcement. Run `pacer pause <duration>` (for example, `pacer pause 1h`)
+or choose **Pause 1h** in the tray menu to pause new delegation. Running tasks
+continue. Use `pacer resume` to end the pause early.
+
+## Uninstall
+
+```sh
+pacer uninstall --all
+```
+
+It lists everything it will remove (agent integrations, restoring their backups;
+the login service; the Orca plugin registration; `~/.pacer` or `PACER_HOME`), asks
+once, then removes it. Add `--binary` to delete the pacer binary too, and `--yes`
+to skip the question in scripts. Remove any pacer development-folder entry from
+Orca Settings > Plugins yourself. To disconnect a single agent, use
+`pacer uninstall <agent>`.
 
 ## Desktop app updates on macOS
 

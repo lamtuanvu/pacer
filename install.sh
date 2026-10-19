@@ -178,5 +178,4 @@ case ":${PATH:-}:" in
 esac
 say ""
 say "next steps:"
-say "  pacer init                 detect your AI tools and write ~/.pacer/strategy.yaml"
-say "  pacer install <planner>    connect pacer to claude-code, codex, cursor or opencode"
+say "  pacer init    detect tools, write ~/.pacer/strategy.yaml and connect agents after asking"
