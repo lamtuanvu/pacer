@@ -78,4 +78,4 @@ export function Dialog({ title, close, children }: { title: string; close: () =>
   useEffect(() => { const dialog = ref.current!; dialog.showModal(); return () => { dialog.close(); }; }, []);
   return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); close(); }}><div className="dialog-head"><h1>{title}</h1><Button onClick={close}>Close</Button></div>{children}</dialog>;
 }
-export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <a href={taskHref(id)}>{children}</a>; }
+export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <a className="pc-text-action" href={taskHref(id)}>{children}</a>; }

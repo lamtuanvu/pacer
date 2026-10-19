@@ -45,7 +45,7 @@ test("install and uninstall reject an unknown or missing planner with code 2", a
 test("help lists install, uninstall, init and doctor", async () => {
   const result = await main(["help"], fakeCtx());
   expect(result.code).toBe(0);
-  for (const usage of ["install <planner> [--mcp|--no-mcp]", "uninstall <planner>", "init [--planner <id>] [--yes] [--agents a,b] [--no-dashboard] [--json]", "doctor [--json]"]) {
+  for (const usage of ["install <planner> [--mcp|--no-mcp]", "uninstall <planner>", "init [--planner <id>] [--yes] [--service] [--agents a,b] [--no-dashboard] [--json]", "doctor [--json]"]) {
     expect(result.out).toContain(usage.padEnd(47));
   }
 });

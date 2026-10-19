@@ -66,3 +66,183 @@ a.pc-btn{text-decoration:none}
 .pc-agent-mark--agy { --agent-color: #4285F4; }
 .pc-agent-mark--byteplus { --agent-color: #3C8CFF; }
 .pc-agent-mark--gemini { --agent-color: #8E75B2; }
+
+/* Text actions also work on buttons;
+   native link semantics stay on anchors. */
+.pc-text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: inherit;
+  color: var(--ink-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.pc-text-action:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+}
+
+.pc-text-action[aria-current=page] {
+  color: var(--ink);
+  font-weight: var(--type-body-strong-weight);
+}
+
+.pc-text-action:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* Keep details/summary keyboard and expanded-state behavior in the browser. */
+.pc-disclosure>summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--space-1) 0;
+  list-style: none;
+  cursor: pointer;
+  color: var(--ink-secondary);
+  border-radius: var(--radius-sm);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+}
+
+.pc-disclosure>summary::-webkit-details-marker {
+  display: none;
+}
+
+.pc-disclosure>summary::marker {
+  content: "";
+}
+
+.pc-disclosure>summary::before {
+  content: "";
+  flex: none;
+  width: var(--space-1\.5);
+  height: var(--space-1\.5);
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  margin-inline: var(--space-1);
+}
+
+.pc-disclosure[open]>summary::before {
+  transform: rotate(45deg);
+}
+
+.pc-disclosure>summary:hover {
+  color: var(--ink);
+}
+
+/* Inline labels keep the entire label clickable, including at narrow widths. */
+.pc-checkbox {
+  display: inline-flex;
+  min-height: calc(var(--space-12) - var(--space-1));
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  max-width: 100%;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  cursor: pointer;
+}
+
+.pc-checkbox:has(:disabled) {
+  cursor: not-allowed;
+  color: var(--ink-secondary);
+}
+
+.pc-checkbox__input {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--ink-muted);
+  border-radius: var(--radius-sm);
+  background: var(--surface-page);
+  color: var(--ink-on-ink);
+  cursor: inherit;
+}
+
+.pc-checkbox__input::before {
+  content: "";
+  width: var(--space-1);
+  height: var(--space-2);
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+}
+
+.pc-checkbox__input:checked {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.pc-checkbox__input:checked::before {
+  transform: rotate(45deg) scale(1);
+}
+
+.pc-checkbox__input:disabled {
+  opacity: .5;
+}
+
+.pc-select {
+  appearance: none;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  min-height: calc(var(--space-12) - var(--space-1));
+  font: inherit;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  color: var(--ink);
+  background-color: var(--surface-page);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-8) var(--space-2) var(--space-3);
+  cursor: pointer;
+  /* Two token-colored strokes replace the platform arrow. */
+  background-image: linear-gradient(45deg,transparent 50%,var(--ink-secondary) 50%),linear-gradient(135deg,var(--ink-secondary) 50%,transparent 50%);
+  background-position: calc(100% - var(--space-4)) 50%,calc(100% - var(--space-3)) 50%;
+  background-size: var(--space-1) var(--space-1);
+  background-repeat: no-repeat;
+}
+
+.pc-select:hover:not(:disabled) {
+  border-color: var(--ink-muted);
+}
+
+.pc-select:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.pc-text-action:focus-visible,.pc-disclosure>summary:focus-visible,.pc-checkbox__input:focus-visible,.pc-select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .pc-checkbox__input, .pc-select {
+    appearance: auto;
+  }
+  .pc-checkbox__input::before {
+    display: none;
+  }
+  .pc-select {
+    background-image: none;
+  }
+}

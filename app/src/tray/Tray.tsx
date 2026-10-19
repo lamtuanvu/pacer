@@ -111,10 +111,10 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         </a>)}
         {model.active.length > 3 && <a className="tray-more" href={appHref("/sessions")} onClick={navigate("/sessions")}>+{model.active.length - 3} more in the app</a>}
       </section>}
-      {model.waiting > 0 && <a className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for a ${nextExecutor} slot · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></a>}
+      {model.waiting > 0 && <a className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></a>}
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
-        const label = `${agentInfo(executor.agent).name}: ${executor.state} · ${executor.sub}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} slots${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
+        const label = `${agentInfo(executor.agent).name}: ${executor.state} · ${executor.sub}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
         return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><span className={`tray-dot tray-dot--${!executor.enabled || executor.state === "disabled" ? "neutral" : toneFor(executor.tone)}`} /></span><span>{value}</span></a>;
       })}</section>
     </>}
@@ -133,7 +133,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         const active = typeof strategy !== "string" ? strategy.active : snapshot.budget?.strategy === name;
         return <button key={name} type="button" disabled={busy || sessionEnded} aria-pressed={active} onClick={() => act(async () => { await api.call("strategy.use", { name }); setStrategiesOpen(false); setMenuOpen(false); })}>{name}{active && <span aria-label="Active">✓</span>}</button>;
       }) : <span className="tray-notice">No strategies available</span>}</div>}
-      <a href={appHref("/settings/general")} onClick={navigate("/settings/general")}>Launch at login</a>
+      <a className="pc-text-action" href={appHref("/settings/general")} onClick={navigate("/settings/general")}>Launch at login</a>
       <button type="button" disabled={!ipc.desktop} onClick={() => act(ipc.quit)}>Quit<Kbd>⌘Q</Kbd></button>
     </nav>}
   </main>;
