@@ -14,7 +14,7 @@ use reqwest::Url;
 use serde_json::Value;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Mutex,
+    Arc, Mutex,
 };
 use tauri::{
     ipc::CapabilityBuilder,
@@ -31,6 +31,8 @@ use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
 
 struct Shell {
+    #[cfg(target_os = "macos")]
+    relaunch: Mutex<Option<std::process::Command>>,
     startup: Mutex<logic::Startup>,
     origin: Mutex<Option<String>>,
     route: Mutex<String>,
@@ -46,6 +48,8 @@ struct Shell {
 impl Default for Shell {
     fn default() -> Self {
         Self {
+            #[cfg(target_os = "macos")]
+            relaunch: Mutex::new(None),
             startup: Mutex::new(logic::Startup::default()),
             origin: Mutex::new(None),
             route: Mutex::new("#/".into()),
@@ -288,18 +292,14 @@ fn navigate(app: &AppHandle, raw: &str) {
 fn shell_url(url: &Url) -> bool {
     url.scheme() == "tauri" && url.host_str() == Some("localhost")
 }
-fn shell_action(app: &AppHandle, label: &str, url: &Url) -> bool {
+fn shell_action(url: &Url, current: Option<&Url>) -> bool {
     if url.as_str()
         != "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
     {
         return false;
     }
-    let bundled = app
-        .get_webview_window(label)
-        .and_then(|w| w.url().ok())
-        .is_some_and(|current| {
-            shell_url(&current) && matches!(current.path(), "/" | "/index.html")
-        });
+    let bundled = current
+        .is_some_and(|current| shell_url(current) && matches!(current.path(), "/" | "/index.html"));
     if !bundled {
         return false;
     }
@@ -411,7 +411,8 @@ fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
     if app.get_webview_window("tray").is_some() {
         return Ok(());
     }
-    let nav = app.clone();
+    let current = Arc::new(Mutex::new(None::<Url>));
+    let loaded = current.clone();
     let window = tauri::WebviewWindowBuilder::new(
         app,
         "tray",
@@ -425,13 +426,14 @@ fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
     .skip_taskbar(true)
     .visible(false)
     .focused(false)
-    .on_page_load(|window, payload| {
+    .on_page_load(move |window, payload| {
         if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            *loaded.lock().unwrap() = Some(payload.url().clone());
             render_diagnosis(window.app_handle());
         }
     })
     .on_navigation(move |url| {
-        if shell_action(&nav, "tray", url) {
+        if shell_action(url, current.lock().unwrap().as_ref()) {
             return false;
         }
         shell_url(url) && matches!(url.path(), "/" | "/index.html")
@@ -730,18 +732,15 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
             if hidden {
                 command.arg("--pacer-relaunch-hidden");
             }
-            match command
+            command
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-            {
-                Ok(_) => {
-                    app.exit(0);
-                    return;
-                }
-                Err(error) => desktop_log!("Unable to schedule pacer relaunch: {error}"),
-            }
+                .stderr(std::process::Stdio::null());
+            // Commit to relaunch only through Tauri's normal shutdown. The Exit
+            // event schedules the helper, which waits for this PID to disappear.
+            *app.state::<Shell>().relaunch.lock().unwrap() = Some(command);
+            app.exit(0);
+            return;
         }
     });
 }
@@ -821,16 +820,21 @@ fn main() {
                 *handle.state::<Shell>().route.lock().unwrap() = route;
             }
             let nav = handle.clone();
+            // WKWebView can have no URL during navigation policy callbacks. Cache
+            // completed page loads for source checks; never query the webview there.
+            let current = Arc::new(Mutex::new(None::<Url>));
+            let loaded = current.clone();
             let window =
                 tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .visible(!std::env::args().any(|arg| arg == "--pacer-relaunch-hidden"))
                     .title("pacer")
                     .inner_size(1120., 760.)
                     .min_inner_size(720., 520.)
-                    .on_page_load(|window, payload| {
+                    .on_page_load(move |window, payload| {
                         if payload.event() != tauri::webview::PageLoadEvent::Finished {
                             return;
                         }
+                        *loaded.lock().unwrap() = Some(payload.url().clone());
                         let _ = window.eval(CHECK_SESSION_PAGE);
                         if shell_url(payload.url()) {
                             render_diagnosis(window.app_handle());
@@ -856,31 +860,19 @@ fn main() {
                         }
                     })
                     .on_navigation(move |url| {
-                        let state = nav.state::<Shell>();
-                        let local = shell_url(url);
-                        if shell_action(&nav, "main", url) {
+                        let current = current.lock().unwrap().clone();
+                        if shell_action(url, current.as_ref()) {
                             return false;
                         }
-                        if url.as_str()
-                            == "https://github.com/lamtuanvu/pacer/blob/main/docs/install.md"
-                            && nav
-                                .get_webview_window("main")
-                                .and_then(|w| w.url().ok())
-                                .is_some_and(|u| u.scheme() == "tauri")
-                        {
-                            open_external(url);
-                            return false;
+                        let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
+                        match logic::main_navigation(url, current.as_ref(), origin.as_deref()) {
+                            logic::Navigation::Allow => true,
+                            logic::Navigation::OpenExternal => {
+                                open_external(url);
+                                false
+                            }
+                            logic::Navigation::Block => false,
                         }
-                        if local && matches!(url.path(), "/" | "/index.html") {
-                            return true;
-                        }
-                        let origin = state.origin.lock().unwrap().clone();
-                        let current = nav.get_webview_window("main").and_then(|w| w.url().ok());
-                        if logic::external_link(url, current.as_ref(), origin.as_deref()) {
-                            open_external(url);
-                            return false;
-                        }
-                        logic::service_navigation(url, origin.as_deref())
                     })
                     .build()?;
             if let Ok(path) = app.path().app_config_dir() {
@@ -1000,8 +992,16 @@ fn main() {
         .expect("start pacer desktop");
     app.run(|_app, _event| {
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Reopen { .. } = _event {
-            show(_app);
+        match _event {
+            tauri::RunEvent::Reopen { .. } => show(_app),
+            tauri::RunEvent::Exit => {
+                if let Some(mut command) = _app.state::<Shell>().relaunch.lock().unwrap().take() {
+                    if let Err(error) = command.spawn() {
+                        desktop_log!("Unable to schedule pacer relaunch: {error}");
+                    }
+                }
+            }
+            _ => {}
         }
     });
 }
