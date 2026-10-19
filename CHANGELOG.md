@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Local builds embed the package version and Git revision; update notices no longer offer equal or older releases to development builds.
 - Snapshots report `service.waiting { kind, path, since }` while a repository file-system call is stuck, e.g. behind the macOS removable-volume permission prompt; identical stuck calls are shared instead of piling up.
 - Serve avoids synchronous repository I/O and reports stalled repository folders as unreachable while retaining cached task identities.
 - Service snapshots, event replay and task resolution stay responsive when repository volumes stall; repo existence and canonical paths refresh asynchronously.
