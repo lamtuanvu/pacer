@@ -76,6 +76,14 @@ Planner-delegated work enters the review queue after ten minutes without a
 verdict; other work enters immediately. Older services retain client fallback
 behavior.
 
+Overview and Review offer a repository filter and checkboxes to select review tasks.
+Use **Accept selected** or **Reject selected** (with a required shared note), or
+**Accept all with passing checks** to check the visible queue’s stored acceptance
+results. The confirmation lists each eligible task before recording verdicts.
+Tasks without passing checks are excluded from accept-all; errors and concurrent
+reviews are reported per task. Accepting records a verdict only; merge branches
+yourself.
+
 The API supports four review verdicts: accept, reject, send back with feedback
 to the same executor, and retry on another executor. Send back requires a note;
 retry requires an executor. Both create a linked retry and record a rejected
