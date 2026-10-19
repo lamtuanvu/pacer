@@ -142,3 +142,11 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
  const planner=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
 });
+test('settings pages leave their page title to the shell and inline links are underlined', () => {
+ for (const child of [<SettingsGeneral initialData={settings}/>, <AddExecutor/>, <RemoteHosts/>, <HostDetail alias="devbox" initialData={host}/>]) {
+  expect(render(child)).not.toContain('<h1');
+ }
+ const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
+ expect(render(<RemoteHosts/>, emptyState)).not.toContain('>Remote hosts</h2>');
+ expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toContain('<a class="pc-inline-link" href="#/settings/hosts">Add a host.</a>');
+});

@@ -1,3 +1,4 @@
+import { SectionHeading } from "../ds/SectionHeading";
 import { useActions } from "../data/action-context";
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -55,14 +56,14 @@ export function useAction() {
   }
   return { busy, error, message, run };
 }
-export function useDraft<T extends { [K in keyof T]: string }>(key: string, defaults: T) {
+export function useDraft<T extends { [K in keyof T]: string }>(key: string, defaults: T, initialize: (saved: T) => T = saved => saved) {
   // Resolve sessionStorage lazily too: browsers may deny access to the property.
   const storage = draftStorage(key, defaults, {
     getItem: name => sessionStorage.getItem(name),
     setItem: (name, value) => sessionStorage.setItem(name, value),
     removeItem: name => sessionStorage.removeItem(name),
   });
-  const [draft, update] = useState<T>(() => storage.read());
+  const [draft, update] = useState<T>(() => initialize(storage.read()));
   const current = useRef(draft);
   const setDraft = (value: T | ((previous: T) => T)) => {
     const next = typeof value === "function" ? value(current.current) : value;
@@ -76,6 +77,6 @@ export function useDraft<T extends { [K in keyof T]: string }>(key: string, defa
 export function Dialog({ title, close, children }: { title: string; close: () => void; children: ComponentChildren }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const dialog = ref.current!; dialog.showModal(); return () => { dialog.close(); }; }, []);
-  return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); close(); }}><div className="dialog-head"><h1>{title}</h1><Button onClick={close}>Close</Button></div>{children}</dialog>;
+  return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); close(); }}><div className="dialog-head"><SectionHeading>{title}</SectionHeading><Button onClick={close}>Close</Button></div>{children}</dialog>;
 }
 export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <a className="pc-text-action" href={taskHref(id)}>{children}</a>; }

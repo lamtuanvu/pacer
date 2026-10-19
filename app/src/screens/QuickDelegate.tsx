@@ -23,7 +23,7 @@ export function QuickDelegate({ filterRepo }: { filterRepo: string | null }) {
   return <form className="pc-quick" onSubmit={event => {
     event.preventDefault(); setError(undefined);
     try {
-      const params = delegateParams({ goal, repo, base: "", acceptance: "", executor: "" }, ops, requestId, repos.map(r => r.key));
+      const params = delegateParams({ goal, repo, base: "", acceptance: "", executor: "", kind: "" }, ops, requestId, repos.map(r => r.key));
       void action.run<TaskSummary>("task.delegate", params, task => { setGoal(""); location.hash = taskHref(task.task_id); });
     } catch (e) { setError(e); }
   }}>

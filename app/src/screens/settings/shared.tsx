@@ -1,4 +1,5 @@
 import { settingsMigrationMessage } from "../../../../src/view-model/feedback";
+import { SectionHeading } from "../../ds/SectionHeading";
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { Job } from '../../../../src/api/read-model/types';
@@ -17,7 +18,7 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
  return polled??event;
 }
 export function Section({id,title,detail,actions,children}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren}) {
- return <section id={id} className="u3-section"><div className="u3-heading"><div><h2>{title}</h2>{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>{children}</section>;
+ return <section id={id} className="u3-section"><div className="u3-heading"><div><SectionHeading>{title}</SectionHeading>{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>{children}</section>;
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
