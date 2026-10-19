@@ -108,11 +108,11 @@ test("partial failures and conflicts remain visible while later tasks are still 
   expect(writes(h).map(call => call.params.id)).toEqual(["bulk-0", "bulk-1", "bulk-3"]);
 });
 
-test("unconfirmed events never count as successful verdicts", async () => {
+test("successful operation responses count even when the review snapshot has not caught up", async () => {
   const h = harness({ settled: false });
-  const result = await runBulkReview({ ...h, items: items.slice(0, 1), passingOnly: false, verdict: "accept" });
-  expect(result).toContain("Accepted 0 of 1");
-  expect(result).toContain("Waiting for the review queue to update");
+  const result = await runBulkReview({ ...h, items: [items[0]!, items[5]!], passingOnly: true, verdict: "accept" });
+  expect(result).toBe("Accepted 2 of 2 task(s).");
+  expect(writes(h)).toHaveLength(2);
 });
 
 test("Overview and Review show bulk controls and accessible checkboxes only for scoped review items", () => {
@@ -155,6 +155,47 @@ test("bulk scope excludes snoozed and non-review attention, and stale selections
   ] }, repoA.key);
   expect(scoped.map(item => item.taskId)).toEqual(["bulk-2"]);
   expect(selectedReviews(scoped, new Set(["bulk-0", "bulk-1"]))).toEqual([]);
+});
+
+
+test("bulk evidence reads start together and confirmation waits for all reads in queue order", async () => {
+  const reads: string[] = [];
+  const releases = new Map<string, () => void>();
+  const confirmations: string[] = [];
+  const runner = createActionRunner({
+    call: async <T,>(op: string, raw: unknown) => {
+      expect(op).toBe("task.get");
+      const id = (raw as { id: string }).id;
+      reads.push(id);
+      await new Promise<void>(resolve => releases.set(id, resolve));
+      return tasks.find(task => task.id === id) as T;
+    },
+    waitFor: async () => { throw new Error("No snapshot wait needed"); }, refetch() {}, navigate() {},
+  });
+  const pending = runBulkReview({ runner, items: [items[0]!, items[1]!, items[0]!], passingOnly: false, verdict: "accept",
+    confirm: async text => { confirmations.push(text); return false; }, prompt: () => null });
+  expect(reads).toEqual(["bulk-0", "bulk-1"]);
+  expect(confirmations).toEqual([]);
+  releases.get("bulk-1")!();
+  await Promise.resolve();
+  expect(confirmations).toEqual([]);
+  releases.get("bulk-0")!();
+  expect(await pending).toContain("Cancelled");
+  expect(confirmations).toHaveLength(1);
+  expect(confirmations[0]!.indexOf("Task 0")).toBeLessThan(confirmations[0]!.indexOf("Task 1"));
+});
+
+test("bulk review awaits the in-app confirmation before recording any verdict", async () => {
+  const h = harness();
+  let answer!: (value: boolean) => void;
+  let shown!: () => void;
+  const visible = new Promise<void>(resolve => { shown = resolve; });
+  const pending = runBulkReview({ ...h, items: [items[0]!], passingOnly: false, verdict: "accept",
+    confirm: () => { shown(); return new Promise<boolean>(resolve => { answer = resolve; }); } });
+  await visible;
+  expect(writes(h)).toEqual([]);
+  answer(true);
+  expect(await pending).toBe("Accepted 1 of 1 task(s).");
 });
 
 test('asynchronous in-app confirmation blocks all writes until the user confirms', async () => {

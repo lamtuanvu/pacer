@@ -257,6 +257,17 @@ test("opencode executors use their account's mark and an unavailable account rea
   expect(html).toMatch(/class="tray-executor tray-executor--off"[^>]*>.*?agent-mark--byteplus/);
 });
 
+
+test("Needs-you reasons show the shared status once and preserve distinct evidence", () => {
+  const snapshot = fixture();
+  const review = { ...snapshot.attention![2]!, detail: "Waiting for review" };
+  const html = section(draw({ ...snapshot, attention: [review] }), "Needs you");
+  expect(html).toContain("pacer · Waiting for review</span>");
+  expect(html).not.toContain("Waiting for review · Waiting for review");
+  expect(section(draw({ ...snapshot, attention: [{ ...review, detail: "Checks passed" }] }), "Needs you"))
+    .toContain("pacer · Waiting for review · Checks passed");
+});
+
 test("unknown capacity never reads free or shows a ready glyph; unavailable capacity stays dimmed", () => {
   const base = fixture().executors![0]!;
   const unknown: ExecutorRow = { ...base, id: "opencode#byteplus", agent: "opencode", account: "byteplus", state: "ready", tone: "good", sub: "Usage unknown", usedPct: null, pacePct: null, paceReason: "no limit reported", slots: { used: 0, max: 1 } };

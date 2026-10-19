@@ -23,16 +23,22 @@ interface BulkRequest {
 export async function runBulkReview({ items, passingOnly, verdict, runner, confirm, prompt }: BulkRequest): Promise<string> {
   const tasks: TaskDetail[] = [], messages: string[] = [];
   const seen = new Set<string>();
-  for (const item of items) {
-    if (!item.taskId || seen.has(item.taskId)) continue;
+  const unique = items.filter(item => {
+    if (!item.taskId || seen.has(item.taskId)) return false;
     seen.add(item.taskId);
+    return true;
+  });
+  // Read concurrently, then collect in queue order so the confirmation stays stable.
+  const evidence = await Promise.all(unique.map(async item => {
     const key = `bulk-read:${item.taskId}`;
     const result = await runner.run(key, { label: "Read review evidence", op: "task.get", params: { id: item.taskId } });
+    return { item, result, task: runner.result(key) as TaskDetail };
+  }));
+  for (const { item, result, task } of evidence) {
     if (result.status !== "done") {
       messages.push(`${item.title}: ${result.status === "error" || result.status === "handled" ? result.message : "Could not load evidence"}`);
       continue;
     }
-    const task = runner.result(key) as TaskDetail;
     if (task.review || task.resolved || task.dismissed || task.retriedBy || !["done", "partial"].includes(task.state)) {
       messages.push(`${item.title}: no longer waiting for review`);
       continue;
@@ -49,9 +55,9 @@ export async function runBulkReview({ items, passingOnly, verdict, runner, confi
   for (const task of tasks) {
     const result = await runner.run(`review:${task.id}`, {
       label: "Record verdict", op: "task.review", params: verdictParams(task, { verdict, ...(note ? { note } : {}) }),
-    }, state => !!state.snapshot && !state.snapshot.attention?.some(item => item.kind === "review" && item.taskId === task.id));
+    });
     if (result.status === "done") done++;
-    else messages.push(`${task.title ?? task.id}: ${result.status === "error" || result.status === "handled" ? result.message : "Waiting for the review queue to update"}`);
+    else messages.push(`${task.title ?? task.id}: ${result.status === "error" || result.status === "handled" ? result.message : "Could not record verdict"}`);
   }
   return [`${label === "Accept" ? "Accepted" : "Rejected"} ${done} of ${tasks.length} task(s).`, ...messages].join("\n");
 }
