@@ -20,4 +20,4 @@ Canonical sources: `tsconfig.json`, `app/tsconfig.json`, `package.json`, `bunfig
 | CT-10 | Real-Orca e2e (`scripts/e2e/orca-bootstrap.ts`) stays outside `bun test`. It runs before plugin releases. | Established | docs/testing/orca-e2e.md | Manual |
 
 Relevant reviewers: [qa](../reviewers/qa.md)
-Exceptions and open decisions: CT-7 (density) and CT-9. CT-11 states the done criterion. Whether a missing live report blocks merge is still OD-6.
+Exceptions and open decisions: CT-7 (density) and CT-9. CT-11 states the done criterion. The proposed constitution 0.3.0 amendment makes required UI/QA evidence, including applicable CT-11 reports, a pre-merge requirement for UI-affecting changes; other reviewer gates remain OD-6.

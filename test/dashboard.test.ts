@@ -105,7 +105,7 @@ test("board rows keep actions, columns, idle tone and responsive done layout",()
   expect(tasks).toHaveLength(3);
   expect(tasks[0]).toContain("6 files 2");expect(tasks[0]).toContain("8s ago");
   expect(tasks[1]).toContain("idle 6m");expect(tasks[2]).toContain("waiting");
-  const done=lines.slice(lines.indexOf("DONE TODAY 7 · 6 accepted")+1).filter(l=>/[✓✗]/.test(l));
+  const done=lines.slice(lines.indexOf("DONE TODAY 7 · 6 accepted")+1).filter(l=>/[✓✕◐]/.test(l));
   expect(done).toHaveLength(width===120?3:5);
   expect(done.join("\n")).toContain("Codex 22m · 07:30");
   expect(lines.at(-1)).toEndWith("v9.8.7 · up to date");
@@ -126,7 +126,7 @@ test("ellipsis clipping and both done columns preserve navigation within termina
  for(const width of [80,120]){
   const text=renderDashboard(s,width,18,s.at,{selected:firstDone+1,noColor:true});
   expect(text.split("\n")).toHaveLength(18);
-  expect(text).toContain("> ✓");
+  expect(text).toContain("> ◐");
   expect(text.split("\n").every(line=>cellWidth(line)<=width)).toBe(true);
  }
 });

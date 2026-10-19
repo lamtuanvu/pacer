@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Draft. Imported rules are in force; proposed rows await the maintainer | Version: 0.2.0 | Updated: 2026-10-19
+Status: Amendment 0.3.0 proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. | Version: 0.3.0 | Updated: 2026-10-19
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -50,6 +50,7 @@ The maintainer owns every path (`* @lamtuanvu`). The dependency direction is: cl
 
 Established checks, run in CI on every PR and on pushes to `main` ([.github/workflows/ci.yml](../.github/workflows/ci.yml)):
 - `bun run typecheck`, `bun run test` and `bun run build`, on ubuntu and macOS.
+- Amendment 0.3.0 adds `bun run ui:check` to the same CI job: every authored app TS/TSX/CSS subtree, including shell, terminal and tray, is checked without a violation baseline.
 - Gitleaks over the full history.
 - CodeQL for JS/TS.
 - The Conventional Commit PR title check.
@@ -59,7 +60,16 @@ Established before a release:
 - [docs/testing/orca-e2e.md](../docs/testing/orca-e2e.md) applies before a plugin release.
 - Live tests on remote hosts need separate maintainer approval (ADR remote-hosts-ssh).
 
-The maintainer's approval is the merge decision. Every reviewer under `.project/reviewers/` is **advisory**, and none of them is a merge gate unless this section is amended.
+The maintainer's approval is the merge decision. Reviewers identify violations and evidence; they cannot approve a merge, grant an exception or accept an amendment.
+
+**Amendment 0.3.0 — mandatory UI compliance and review evidence (proposed; adopted only by the maintainer merging this amendment PR):**
+
+- A UI-affecting change (web/tray, TUI/status rendering, Orca panel or desktop presentation) must include an implementer compliance report against UI-1–UI-25, with applicable rule IDs, component/catalog and provenance changes, command results and evidence locations. Mark non-applicable rules with a reason.
+- Independent UI/accessibility and QA reviewer reports are required evidence before the maintainer merges a UI-affecting change. They name the reviewed base/head and governance version, actual checks/evidence, unresolved findings with severity/remedy, and every **UNVERIFIED** surface or behavior. A checkbox or a statement that a review ran is not a report.
+- UI-18 screenshots and CT-11 live evidence remain required for their applicable scopes. Missing reports, unresolved required-rule violations, FAIL or UNVERIFIED required behavior block a claim of completion and must be resolved before merge, unless the maintainer records a scoped, expiring exception in decisions.md. Reviewer recommendations remain advisory; required evidence and established-rule compliance are mandatory.
+- CI enforces source/token/import checks and tests of negative fixtures. The PR's UI evidence contract is checked on pull requests with changed UI files; it requires compliance, UI and QA report references and reported verdicts. This checks the report manifest, not the truth of visual evidence: the maintainer examines the linked reports and actual artifacts before merging. CI cannot substitute for browser/native/live validation or human review.
+
+Other reviewers remain advisory. This amendment changes no remote branch protection and gives no bot approval authority.
 
 ## Workflow choice
 
@@ -78,5 +88,5 @@ See "Open decisions" in [decisions.md](decisions.md). In short:
 - Lint, format and Rust CI.
 - A target release for removing `/v2`.
 - Desktop versioning and signing.
-- Whether any reviewer becomes a gate.
+- Which additional review evidence, beyond the proposed mandatory UI/QA evidence, should become required (OD-6).
 - Cleanup of stale docs and ADRs.

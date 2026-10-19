@@ -1,4 +1,4 @@
-import { createElement, type ComponentChildren, type JSX } from "preact";
+import { createElement, type JSX, type ComponentChildren } from "preact";
 
 export interface SectionHeadingProps extends JSX.HTMLAttributes<HTMLElement> {
   as?: "h2" | "h3" | "label" | "span";

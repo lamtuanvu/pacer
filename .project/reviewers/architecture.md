@@ -17,6 +17,7 @@ Read [constitution.md](../constitution.md), [context.md](../context.md), and [ru
 - ARCH-4: no new import from `src/core` to `src/exec/orca` or to `orca-plugin/` outside `src/serve/panel.ts`. The core-boundaries test still covers the change.
 - ARCH-5: no hard-coded planner (Claude) or host (Orca) assumptions in the core.
 - ARCH-6/7/8: the Orca worker stays information-only; remote execution follows the SSH/bundle model; the CLI and TUI stay complete.
+- UI-20/22/23 (proposed amendment 0.3.0): DS imports point only toward Preact, DS and shared view vocabulary; density and primitive styles belong with DS. Check component boundaries, adaptation provenance and Preact/bundle tradeoffs. UI/QA reports required by that amendment are evidence; human merge authority remains unchanged.
 - ARCH-9: a durable design change has an ADR, or the PR explains why none is needed.
 
 ## Findings contract

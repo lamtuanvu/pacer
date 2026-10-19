@@ -62,7 +62,7 @@ test("narrow Overview uses Panel order, repo default, other-repo count and compa
   const sections = ['aria-label="Scope"', '>Needs you<', '>Running<', '>Capacity<', '>Done today<'].map(s => html.indexOf(s));
   expect(sections.every(at => at >= 0)).toBe(true);
   expect(sections).toEqual([...sections].sort((a, b) => a - b));
-  expect(html).toContain('aria-pressed="true">This repo · acme/api');
+  expect(html).toMatch(/aria-pressed="true"[^>]*>This repo · acme\/api/);
   expect(html).toContain('+1 in other repos');
   expect(html).not.toContain('Add dark mode to the web header');
   expect(html).toContain('LM Studio is not running');
@@ -78,12 +78,12 @@ test("narrow Overview uses Panel order, repo default, other-repo count and compa
 
 test("width-only narrow uses the repo filter, otherwise All; explicit All keeps repo scope", () => {
   const html = atWidth(400, () => overview({ repo, scope: null }));
-  expect(html).toContain('aria-pressed="true">This repo · acme/api');
+  expect(html).toMatch(/aria-pressed="true"[^>]*>This repo · acme\/api/);
   const all = atWidth(400, () => overview({ repo: null, scope: null }));
-  expect(all).toContain('aria-pressed="true">All repos');
+  expect(all).toMatch(/aria-pressed="true"[^>]*>All repos/);
   expect(all).not.toContain('in other repos');
   const scopedAll = atWidth(1200, () => overview({ repo: "", scope: `repo:${repo}` }));
-  expect(scopedAll).toContain('aria-pressed="true">All repos');
+  expect(scopedAll).toMatch(/aria-pressed="true"[^>]*>All repos/);
   expect(scopedAll).toContain('Add dark mode to the web header');
   expect(scopedAll).not.toContain('in other repos');
   expect(activeRepo({ repo: null, scope: `repo:${repo}` })).toBe(repo);
@@ -104,8 +104,8 @@ test("scope toggle has exactly two 44px controls", async () => {
   const html = renderToString(<RepoFilter snapshot={snapshot} query={{ repo: null, scope: `repo:${repo}` }} narrow />);
   expect(html.match(/<button/g)).toHaveLength(2);
   expect(html.match(/pc-btn--touch/g)).toHaveLength(2);
-  const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
-  expect(css).toContain('.pc-app--narrow button,.pc-app--narrow .pc-btn,.pc-btn--touch{min-height:44px}');
+  const css = await Bun.file(new URL('../app/src/ds/components.css', import.meta.url)).text();
+  expect(css).toMatch(/\.pc-btn--touch\{min-height:var\(--control-touch\)/);
 });
 
 test("narrow Overview stretches every section, including compact Capacity, across the column", async () => {
@@ -135,4 +135,23 @@ test("narrow Needs you puts other repos on the right of its header, once", () =>
   expect(header).toContain('+1 in other repos');
   expect(header.indexOf('class="grow"')).toBeLessThan(header.indexOf('+1 in other repos'));
   expect(section.match(/\+1 in other repos/g)).toHaveLength(1);
+});
+
+test('display-contents Overview sections constrain intrinsic long titles to the available width', async () => {
+  const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
+  expect(css).toMatch(/\.pc-overview__main>section,\.pc-overview__side>section\s*\{[^}]*min-width:0[^}]*max-width:100%/);
+});
+
+test('consumer styles never reduce canonical button and input hit targets', async () => {
+  const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
+  expect(css).not.toMatch(/\.pc-quick input\s*\{[^}]*min-height/);
+  expect(css).not.toMatch(/\.pc-setup-row \.pc-btn\s*\{[^}]*min-height/);
+  expect(css).not.toMatch(/(?:^|[{}])\s*\.pc-btn\s*\{[^}]*min-height/);
+  const ds = await Bun.file(new URL('../app/src/ds/components.css', import.meta.url)).text();
+  expect(ds).toMatch(/\.pc-btn\.pc-btn--touch\s*\{[^}]*min-height:var\(--control-touch\)/);
+});
+
+test('narrow Settings navigation contains its scrolling intrinsic width', async () => {
+  const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
+  expect(css).toMatch(/\.pc-app--narrow \.pc-panel\s*\{[^}]*width:100%[^}]*max-width:100%[^}]*align-self:stretch/);
 });

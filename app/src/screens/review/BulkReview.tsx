@@ -1,3 +1,4 @@
+import { Checkbox } from "../../ds/Controls";
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
@@ -67,7 +68,7 @@ const BulkSelection = createContext<Selection | null>(null);
 export function ReviewCheckbox({ item }: { item: AttentionItem }) {
   const selection = useContext(BulkSelection);
   if (!item.taskId || !selection?.ids.has(item.taskId)) return null;
-  return <input className="pc-checkbox__input" type="checkbox" aria-label={`Select ${item.title}`} checked={selection.selected.has(item.taskId)} disabled={selection.busy}
+  return <Checkbox className="pc-checkbox__input"  aria-label={`Select ${item.title}`} checked={selection.selected.has(item.taskId)} disabled={selection.busy}
     onChange={() => selection.toggle(item.taskId!)} />;
 }
 export function BulkReview({ snapshot, repo, runner, children }: { snapshot: ClientSnapshot; repo: string | null; runner: ActionRunner; children: ComponentChildren }) {
@@ -95,7 +96,7 @@ export function BulkReview({ snapshot, repo, runner, children }: { snapshot: Cli
     {items.length > 0 && <div className="pc-bulk-review" role="group" aria-label="Bulk review">
       <div className="row-actions">
         <Button size="sm" disabled={busy} onClick={() => { void run("accept", true); }}>Accept all with passing checks</Button>
-        <label className="pc-checkbox"><input className="pc-checkbox__input" type="checkbox" aria-label="Select all review tasks" disabled={busy} checked={selected.size === ids.size}
+        <label className="pc-checkbox"><Checkbox className="pc-checkbox__input"  aria-label="Select all review tasks" disabled={busy} checked={selected.size === ids.size} mixed={selected.size > 0 && selected.size < ids.size}
           onChange={() => setSelection(selected.size === ids.size ? new Set() : ids)} /> Select all</label>
         <span>{selected.size} selected</span>
         <Button size="sm" disabled={busy || !selected.size} onClick={() => { void run("accept"); }}>Accept selected</Button>

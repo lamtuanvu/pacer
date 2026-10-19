@@ -1,6 +1,6 @@
 # pacer context index
 
-Updated: 2026-10-18. The entry point for agents and contributors. Load this file and [constitution.md](constitution.md), then only the rules and reviewers that match the paths your change touches.
+Updated: 2026-10-19. The entry point for agents and contributors. Load this file and [constitution.md](constitution.md), then only the rules and reviewers that match the paths your change touches.
 
 ## Purpose
 
@@ -47,6 +47,7 @@ These come from the configuration listed in Source. None were run while this ind
 | Install | `bun install --frozen-lockfile` | CONTRIBUTING.md, ci.yml |
 | Typecheck | `bun run typecheck` (`tsc --noEmit && tsc -p app`) | package.json |
 | Test | `bun run test` (pins `TZ=Asia/Ho_Chi_Minh`; plain `bun test` gives unreliable date results) | package.json, CONTRIBUTING.md |
+| UI policy and PR evidence | `bun run ui:check` | scripts/ui-check.ts; ci.yml |
 | Build binary | `bun run build` | package.json |
 | Rebuild generated assets | `bun run plugin:build`, `bun run app:build`, `bun run protocol:doc` | package.json, CONTRIBUTING.md |
 | Release | `bun run release:prepare <x.y.z>` → PR `chore: release x.y.z` → dry-run dispatch → tag `v<x.y.z>` | CONTRIBUTING.md |
@@ -64,21 +65,21 @@ There is no lint or format command; `.editorconfig` is the only style config.
 | API & protocol compatibility | `src/api/**`, `src/serve/**`, `src/mcp/**`, `docs/protocol*.md`, any client reading the API | [rules/api-protocol.md](rules/api-protocol.md) | Established |
 | Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, `orca-plugin/**`, CI workflows | [rules/security.md](rules/security.md) | Established |
 | TypeScript & testing | `src/**`, `app/**`, `orca-plugin/**`, `test/**`, `scripts/**` | [rules/code-and-testing.md](rules/code-and-testing.md) | Established, plus proposals |
-| UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `orca-plugin/` panel, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft: UI-8 to UI-18) | Established (spec), plus proposals |
+| UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `orca-plugin/` panel, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25) | Established (spec), plus proposals |
 | Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
 | Repository hygiene & docs | all tracked files, commits, PRs, `docs/**` | [rules/repository.md](rules/repository.md) | Established, plus proposals |
 
 ## Reviewer index
 
-All reviewers are advisory (constitution, "Validation and review agreements"). The human approver for every merge is @lamtuanvu.
+The human approver for every merge is @lamtuanvu. Amendment 0.3.0 proposes required UI/accessibility and QA evidence for UI-affecting changes; adoption occurs only when the maintainer merges that amendment. Recommendations and other reviewers remain advisory. Read the constitution for the evidence contract; reviewers cannot grant approval or exceptions.
 
 | Reviewer | Triggers | Definition | Role and gate |
 |----------|----------|------------|---------------|
 | Architecture | New surface or capability; changes across `src/api` ↔ core ↔ clients; new ADR | [reviewers/architecture.md](reviewers/architecture.md) | Advisory |
 | Protocol compatibility | `src/api/**`, `src/serve/**`, `docs/protocol*.md`, client API reads | [reviewers/protocol-compat.md](reviewers/protocol-compat.md) | Advisory |
 | Security | Paths in the security rule; new subprocess, network, file-permission or secret handling | [reviewers/security.md](reviewers/security.md) | Advisory |
-| QA & tests | Any behavior change in `src/`, `app/` or `orca-plugin/` | [reviewers/qa.md](reviewers/qa.md) | Advisory |
-| UI & accessibility | `app/**`, TUI rendering, Orca panel HTML, desktop shell | [reviewers/ui-accessibility.md](reviewers/ui-accessibility.md) | Advisory |
+| QA & tests | Any behavior change in `src/`, `app/` or `orca-plugin/` | [reviewers/qa.md](reviewers/qa.md) | Advisory; UI-affecting changes require a report under amendment 0.3.0 |
+| UI & accessibility | `app/**`, TUI rendering, Orca panel HTML, desktop shell | [reviewers/ui-accessibility.md](reviewers/ui-accessibility.md) | Required UI evidence report under proposed amendment 0.3.0; human approves merge |
 | Release | Version bumps, CHANGELOG, release scripts and workflows, distribution packages | [reviewers/release.md](reviewers/release.md) | Advisory |
 
 Docs-only changes need just the repository rule, plus the protocol reviewer when `docs/protocol*.md` changes.

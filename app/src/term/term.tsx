@@ -1,11 +1,12 @@
-import { clock } from '../../../src/view-model/time';
-import { useDialogs } from '../ds/useDialogs';
+import { Checkbox } from "../ds/Controls";
+import { clock } from "../../../src/view-model/time";
+import { useDialogs } from "../ds/useDialogs";
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { Button } from '../ds/Button';
-import { SessionClient, type SessionState } from './client';
+import { useEffect, useRef, useState } from "preact/hooks";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { Button } from "../ds/Button";
+import { SessionClient, type SessionState } from "./client";
 export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
 export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover}:TerminalViewProps){
@@ -46,7 +47,7 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
  return <section className="pc-terminal-view" data-session-control={state.you?'true':'false'} onKeyDown={e=>{if(state.you)e.stopPropagation();}}>
   {dialogs.dialog}
   <div className={`pc-terminal-frame${state.you?' pc-terminal-frame--control':''}`}><div className="pc-terminal-pane" ref={pane}><div ref={mount} className="pc-terminal-mount"/></div>
-   <div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{state.you?'Keystrokes go to the agent. Ctrl-] to release.':'Nothing you type reaches the agent.'}</span><span>{state.cols}×{state.rows}</span><label><input type="checkbox" checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label></div>
+   <div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{state.you?'Keystrokes go to the agent. Ctrl-] to release.':'Nothing you type reaches the agent.'}</span><span>{state.cols}×{state.rows}</span><label><Checkbox  checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label></div>
   </div>
   {state.message&&<p role="status">{state.message}</p>}{error&&<p role="alert">{error}</p>}
   <TerminalControls control={control} live={live} driving={driving} state={state} takeover={takeover} onControl={()=>{if(state.you)client.current?.release();else void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).catch(e=>setError(String(e)));}} onReconnect={()=>setGeneration(n=>n+1)}/>

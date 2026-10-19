@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
-import { Button } from './Button';
-import { Dialog } from './Dialog';
+import { Field, TextArea } from "./Controls";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { Button } from "./Button";
+import { Dialog } from "./Dialog";
 
 export interface DialogRequest { message: string; title: string; label: string; text?: boolean }
 /** Shared content keeps confirmation and required text entry inside the app. */
@@ -15,7 +16,7 @@ export function DialogForm({ request, value, change, finish }: {
       finish(request.text ? value.trim() : true);
     }}>
       <p className="pc-dialog-message">{request.message}</p>
-      {request.text && <label className="field">Rejection note<textarea required autoFocus value={value} onInput={event => change(event.currentTarget.value)} /></label>}
+      {request.text && <Field label="Rejection note"><TextArea required autoFocus value={value} onInput={event => change(event.currentTarget.value)} /></Field>}
       <div className="row-actions">
         <Button autoFocus={!request.text} onClick={cancel}>Cancel</Button>
         <Button type="submit" variant="primary" disabled={request.text && !value.trim()}>{request.label}</Button>

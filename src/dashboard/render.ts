@@ -3,7 +3,7 @@ import { setupText, type SetupChecklist } from "../setup/checklist";
 import type { ClientSnapshot } from "../view-model/snapshot";
 import { dashboardModel } from "./model";
 import { ago, clock, elapsed, meterText } from "../view-model/format";
-import { executorLabel, modeWords, phaseWords, verdictWords } from "../view-model/words";
+import { attentionStatus, executorLabel, modeWords, phaseWords, taskStatus, verdictWords, type StatusTone } from "../view-model/words";
 import { displayName } from "../render/accounts";
 import { parseRunnerId } from "../config/runner-id";
 import { cards } from "./model";
@@ -29,7 +29,8 @@ export function clip(text: string, width: number): string {
  for(const char of text){const size=charWidth(char);if(cells+size>width-1)break;result+=char;cells+=size;}
  return result.trimEnd()+"…";
 }
-type Tone = "muted"|"amber"|"good"|"bad";
+type Tone = "muted"|"amber"|"good"|"bad"|"info";
+const terminalTone = (tone: StatusTone): Tone => tone === "warn" ? "amber" : tone === "neutral" ? "muted" : tone;
 type Part = {text:string;tone?:Tone};
 type Row = {parts:Part[];selected?:boolean;dim?:boolean};
 const part=(text:string,tone?:Tone):Part=>({text:safeText(text),tone});
@@ -119,11 +120,12 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
   } else if(group.title==="NEEDS YOU") {
    for(const card of group.cards) {
     const item=model.needsYou.find(a=>a.id===card.id)!;
+    const status=attentionStatus(item,s.tasks);
     const hints=card.actions?.map((a,i)=>`[${i===0?"⏎":i+1} ${a.label.toLowerCase()}]`).join(" ")??"";
     const reason=[item.executor?shortExecutor(item.executor):item.host,card.detail].filter(Boolean).join(" · ");
     const room=Math.max(0,width-6-cellWidth(hints));
     const titleWidth=Math.floor(room*(width>=120?0.52:0.5));
-    body.push(selectedRow([part(item.kind==="review"?"◐ ":"✕ "),field(card.text,titleWidth),part(" "),field(reason,Math.max(0,room-titleWidth-1),"muted"),part(" "+hints)],card));
+    body.push(selectedRow([part(`${status.glyph} `,terminalTone(status.tone)),field(card.text,titleWidth),part(" "),field(reason,Math.max(0,room-titleWidth-1),"muted"),part(" "+hints)],card));
    }
   } else if(group.title==="RUNNING") {
    const wide=width>=120;
@@ -142,10 +144,10 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
     const parts:Part[]=[];let selected=false;
     for(let j=0;j<cols&&i+j<group.cards.length;j++){
      const card=group.cards[i+j]!,t=model.doneToday.find(t=>`done:${t.id}`===card.id)!;
-     const good=t.review?.accepted??t.state==="done";
+     const status=taskStatus(t);
      const duration=t.attemptStartedAt==null?"—":elapsed(t.updatedAt-t.attemptStartedAt);
-     const tail=`${shortExecutor(t.executor)} ${duration} · ${clock(t.updatedAt,now,"UTC")}`;
-     const r=selectedRow([part(good?"✓ ":"✗ ",good?"good":"bad"),field(card.text,Math.max(0,cell-5-cellWidth(tail))),part(" "),part(tail,"muted")],card);
+     const tail=`${status.label} · ${shortExecutor(t.executor)} ${duration} · ${clock(t.updatedAt,now,"UTC")}`;
+     const r=selectedRow([part(`${status.glyph} `,terminalTone(status.tone)),field(card.text,Math.max(0,cell-5-cellWidth(tail))),part(" "),part(tail,"muted")],card);
      if(j)parts.push(part("  "));parts.push(...r.parts);selected ||= !!r.selected;
     }
     body.push({parts,selected});
@@ -173,7 +175,7 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
   lines[height-2]=row(clip(short,width));
   lines.push(row(ends(setupKeys?", settings  r refresh  ? help":"s strategy  , settings  r refresh  ? help",status,width)));
  }else lines.push(row(ends(legend,status,width)));
- const codes={muted:2,amber:33,good:32,bad:31};
+ const codes={muted:2,amber:33,good:32,bad:31,info:36};
  return lines.slice(0,height).map(line=>{
   let remaining=width;
   const text=line.parts.map(p=>{

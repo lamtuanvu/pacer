@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Shared UI foundation checks for canonical controls, token usage and import boundaries, plus required UI compliance and review evidence metadata for UI-changing pull requests (governance adoption by maintainer merge).
+
 - Live validation supports `up --seed ui` for isolated setup-complete UI sample data without starting executors.
 
 ### Fixed
