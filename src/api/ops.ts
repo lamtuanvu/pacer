@@ -1,3 +1,5 @@
+import { desktopUpdateOps } from "./ops-desktop-update";
+import type { DesktopUpdateRuntime } from "../update/desktop/service";
 import { parseRunnerId } from "../config/runner-id";
 import { pacerArgv } from "../install/self";
 import * as attention from "../core/attention";
@@ -45,6 +47,7 @@ import type { Ctx } from "../types";
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
+  desktopUpdates?: DesktopUpdateRuntime;
   onboardingRoute?: import("../onboarding/try").TryDeps["route"];
   snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
@@ -142,6 +145,7 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
 }
 
 export const OPS: Record<string, OpDef> = { ...sessionOps,
+  ...desktopUpdateOps,
   "activity.list": op({
     description: "Activity log, newest first, with optional repo, kind and task filters.",
     params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),

@@ -17,7 +17,7 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['task.takeover','service.install','onboarding.skip','onboarding.try']);
+export const V3_ONLY_OPS = new Set(['desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','service.install','onboarding.skip','onboarding.try']);
 
 export function v2Hello() {
  const {previous:_,...hello}=helloBody();
@@ -32,6 +32,7 @@ function budget(s: SnapshotV3): BudgetData | null {
 }
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
+ const {desktopUpdates: _desktopUpdates, ...compatible}=s;
  const attention=sortItems(s.attention.flatMap(a=>{
   if(a.id==="setup:connect")return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
@@ -41,10 +42,11 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
   return [{...a,id,title:item.title,actions:a.actions.map(action=>action.op==="ui.open"?{...action,params:{...action.params,section:item.id}}:action)}];
  }));
  const counts={...s.counts,attention:attention.length,problems:attention.filter(a=>a.severity!=="decide").length,setupOpen:setup.open};
- return {...s,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ return {...compatible,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
+ if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
  if(e.type==='planner')return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};

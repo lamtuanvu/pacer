@@ -1,3 +1,4 @@
+import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
@@ -46,6 +47,8 @@ export function startServer(
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx);
+  const desktopUpdates = opts.opDeps?.desktopUpdates ?? createDesktopUpdateRuntime(getCtx);
+  const unbindDesktopUpdates = bindDesktopUpdateRuntime(initialCtx, desktopUpdates);
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;
   let snapshot = currentSnapshot(initialCtx);
@@ -108,7 +111,8 @@ export function startServer(
     try{watchers.push(watch(dir,()=>{invalidateConsoleCache(initialCtx);scheduleSnapshot();}));}catch{}
   }
   refreshStatus();
-  const server = Bun.serve<SessionWS>({
+  let server: ReturnType<typeof Bun.serve<SessionWS>>;
+  try { server = Bun.serve<SessionWS>({
     websocket: sessionWebSocket,
     hostname: "127.0.0.1",
     port: opts.port ?? DEFAULT_PORT,
@@ -148,7 +152,12 @@ export function startServer(
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });
       return new Response("not found\n", { status: 404 });
     },
-  });
+  }); } catch (error) {
+    stopped = true; unbindDesktopUpdates(); clearTimeout(scheduled);
+    for (const watcher of watchers) watcher.close();
+    throw error;
+  }
+  void desktopUpdates.start().catch(() => { console.error("pacer: desktop update startup requires recovery"); });
   const unregisterJobs = registerJobDaemon(initialCtx);
   refreshPanel();
   void refreshManagedPlugin(initialCtx, opts.pluginRefreshDeps).finally(refreshSnapshot);
@@ -175,5 +184,5 @@ export function startServer(
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: server.port!, token, stop: () => { unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
+  return { port: server.port!, token, stop: () => { desktopUpdates.stop(); unbindDesktopUpdates(); unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
 }
