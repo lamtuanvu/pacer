@@ -88,7 +88,7 @@ test("running rows show phase words, idle warning and queue reason", () => {
   expect(html).toContain(">Editing<");
   expect(html).toMatch(/pc-warn-text[^>]*>idle 6m</);
   expect(html).toContain("6 files · 2 commits");
-  expect(html).toContain("waiting for a slot");
+  expect(html).toContain("Waiting: this executor is running 1 of 1");
   expect(html).toContain('href="#/sessions/t-0420"');
   expect(html).toContain(">Stop<");
 });

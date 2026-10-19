@@ -50,3 +50,16 @@ test("configured executor slots and shared machine and host limits",()=>{
  const remote=[1,2,3].map(i=>({id:String(i),executor:"codex@devbox",state:"running",host:"devbox"}) as ApiTask);
  expect(buildExecutors(st,s,remote,st.generatedAt).find(e=>e.host==="devbox")).toMatchObject({state:"full",reason:"devbox busy (3/3)",slots:{used:3,max:4}});
 });
+
+test("executor shared-cap notes appear only below the configured executor limit", () => {
+ const {s,st}=capacityFixture();
+ s.runners.codex!.maxTasks=4;
+ s.runners['codex@devbox']!.maxTasks=4;
+ let rows=buildExecutors(st,s,[],st.generatedAt);
+ expect(rows.find(e=>e.id==='codex')).toMatchObject({limitedBy:'machine',slots:{max:4}});
+ expect(rows.find(e=>e.id==='codex@devbox')).toMatchObject({limitedBy:'host',slots:{max:4}});
+ s.execution.local_max_tasks=4;s.hosts.devbox!.maxTasks=4;
+ rows=buildExecutors(st,s,[],st.generatedAt);
+ expect(rows.find(e=>e.id==='codex')?.limitedBy).toBeUndefined();
+ expect(rows.find(e=>e.id==='codex@devbox')?.limitedBy).toBeUndefined();
+});

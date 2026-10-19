@@ -52,7 +52,7 @@ test("busy board has four linked counts, three attention rows, two running rows 
   expect(active).toContain("idle 15m");
   expect(active).toContain("tray-idle");
   expect(active).not.toContain("Queued");
-  expect(html).toContain("14 waiting for a Codex slot · next: Review screen");
+  expect(html).toContain("14 waiting for parallel tasks on Codex · next: Review screen");
   const counts = html.split('aria-label="Task counts">')[1]!.split("</nav>")[0]!;
   for (const [n, label, route] of [[5, "needs you", "/"], [2, "running", "/sessions"], [14, "waiting", "/sessions?filter=waiting"], [3, "done today", "/sessions?filter=done"]]) {
     expect(counts).toContain(`href="/app/#${route}"`);

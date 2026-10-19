@@ -42,3 +42,11 @@ test("task snapshots clip stored emoji titles without splitting code points",()=
  const ctx=fakeCtx(),title="🚀".repeat(61);
  expect(apiTask(ctx,record("done",ctx.now,{title})).title).toBe("🚀".repeat(59)+"…");
 });
+
+test("snapshots preserve the scheduling limit and capacity on queued tasks",()=>{
+ const ctx=fakeCtx();
+ for(const limit of ['executor','machine','host'] as const) {
+  const queue={reason:'no_slot' as const,since:ctx.now,position:1,limit,capacity:{used:2,max:2}};
+  expect(snapshotTasks(ctx,[record('queued',ctx.now,{queue})])[0]!.queue).toEqual(queue);
+ }
+});

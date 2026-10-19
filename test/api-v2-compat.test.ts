@@ -1,9 +1,13 @@
 import {expect,test} from 'bun:test';
 import {capture} from './fixtures/protocol-v2/capture';
 
-test('v2 HTTP snapshot, hello, ops and SSE exactly match pre-upgrade goldens',async()=>{
+test('v2 preserves pre-upgrade goldens while allowing additive snapshot fields',async()=>{
  for(const [name,value] of Object.entries(await capture())) {
-  expect(value).toEqual(await Bun.file(`${import.meta.dir}/fixtures/protocol-v2/${name}.json`).json());
+  const golden = await Bun.file(`${import.meta.dir}/fixtures/protocol-v2/${name}.json`).json();
+  if (name === 'snapshot') {
+   expect(value).toMatchObject(golden);
+   expect(value).toMatchObject({snapshot:{machine:{used:1,max:2}}});
+  } else expect(value).toEqual(golden);
  }
 });
 

@@ -8,7 +8,7 @@ test('v3 exposes only the read model and advertises the previous protocol',async
  expect(hello).toMatchObject({protocol:'3.0.0',previous:'2.8.0'});
  expect(hello.events).not.toContain('budget');expect(hello.events).not.toContain('alert');expect(hello.events).toContain('planner');
  const r=await (await handleV2(new Request('http://localhost/v3/snapshot'),deps)).json();
- expect(Object.keys(r.snapshot).sort()).toEqual(['seq','at','service','planner','mode','counts','attention','executors','accounts','hosts','repos','tasks','today','setup','pause','strategies'].sort());
+ expect(Object.keys(r.snapshot).sort()).toEqual(['seq','at','service','planner','mode','counts','attention','executors','machine','accounts','hosts','repos','tasks','today','setup','pause','strategies'].sort());
 });
 
 test('v3 ops always paginate, require verdict and return only patch',async()=>{

@@ -141,3 +141,10 @@ test("service attention uses short titles and counts only the latest retry",()=>
   expect(model.counts).toMatchObject({attention:nextState==="done"?1:0,review:nextState==="done"?1:0});
  }
 });
+
+test("machine snapshot capacity counts local runs across executors and excludes remote runs", () => {
+ const ctx=fakeCtx(),{st,s}=capacityFixture();s.execution.local_max_tasks=5;
+ const tasks=[record('running',1,{executor:'codex'}),record('running',2,{executor:'cursor'}),record('running',3,{executor:'codex@devbox'}),record('queued',4)].map(t=>apiTask(ctx,t));
+ const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,items:[]}});
+ expect(model.machine).toEqual({used:2,max:5});
+});

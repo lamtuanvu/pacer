@@ -14,11 +14,12 @@ test("snapshot and events reduce without mutating previous state or regressing s
   expect(reduceStore(next, { type: "event", event })).toBe(next);
 });
 
-test("reset and reconnect require a snapshot; errors retain content; config invalidates only its area", () => {
+test("reset and reconnect require a snapshot; errors retain content; config invalidates its area and refreshes snapshot capacity", () => {
   const start = reduceStore(initialState(), { type: "snapshot", snapshot });
   const config = reduceStore(start, { type: "event", event: { seq: 6, at: 1, type: "config", data: { area: "accounts", at: 1 } } });
   expect(config.invalidations).toEqual({ accounts: 1 });
   expect(config.snapshot?.seq).toBe(6);
+  expect(config.needsSnapshot).toBe(true);
   const offline = reduceStore(config, { type: "disconnected" });
   expect(offline.snapshot).toBe(config.snapshot);
   expect(offline.connected).toBe(false);
