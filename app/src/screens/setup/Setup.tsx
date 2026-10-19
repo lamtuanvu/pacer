@@ -6,6 +6,7 @@ import type { Status as RoutingStatus } from '../../../../src/engine/status';
 import type { TaskDetail } from '../../../../src/core/task-detail';
 import { runnerAgent } from '../../../../src/view-model/agents';
 import { Button } from '../../ds/Button';
+import { Disclosure } from '../../ds/Controls';
 import { AgentMark } from '../../ds/AgentMark';
 import { StatusGlyph } from '../../ds/StatusGlyph';
 import type { Account } from '../../model/accounts';
@@ -21,15 +22,15 @@ const titles = ['Planner', 'Background service', 'Connect your planner', 'Who do
 
 function SetupError({ error }: { error: unknown }) {
   if (!error) return null;
-  return <div role="status"><p>This step could not finish. Try again.</p><details className="pc-disclosure"><summary>Error details</summary><ErrorMessage error={error} /></details></div>;
+  return <div role="status"><p>This step could not finish. Try again.</p><Disclosure summary="Error details"><ErrorMessage error={error} /></Disclosure></div>;
 }
 
 function Command({ command }: { command: string }) {
   const [copied, setCopied] = useState(false), [error, setError] = useState<unknown>();
-  return <details className="pc-disclosure"><summary>Sign-in command</summary><div className="pc-setup-command"><pre><code>{command}</code></pre><Button onClick={async () => {
+  return <Disclosure summary="Sign-in command"><div className="pc-setup-command"><pre><code>{command}</code></pre><Button onClick={async () => {
     try { await navigator.clipboard.writeText(command); setCopied(true); setError(undefined); }
     catch (error) { setError(error); }
-  }}>{copied ? 'Copied' : 'Copy command'}</Button><SetupError error={error} /></div></details>;
+  }}>{copied ? 'Copied' : 'Copy command'}</Button><SetupError error={error} /></div></Disclosure>;
 }
 
 function FirstRun({ id, run }: { id: string; run: (work: () => Promise<unknown>, advance?: boolean) => Promise<void> }) {

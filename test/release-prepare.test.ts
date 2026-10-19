@@ -5,11 +5,31 @@ import { prepareChangelog, prepareRelease } from "../scripts/release/prepare";
 import { tmpDir } from "./helpers";
 
 const changelog = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- A feature.\n\n## [0.1.0] - 2026-10-01\n\n- Old.\n";
-const desktopFiles = {
-  "tauri.conf.json": '{\n  "productName": "pacer",\n  "version" : "0.1.0",\n  "bundle": { "active": true }\n}\n',
-  "Cargo.toml": '# Keep this comment.\n[package]\nname = "pacer-desktop"\nversion  = "0.1.0" # app version\n\n[dependencies.example]\nversion = "9.8.7"\n',
-  "Cargo.lock": '# Generated lockfile.\nversion = 4\n\n[[package]]\nname = "before"\nversion = "9.8.7"\n\n[[package]]\nname = "pacer-desktop"\nversion = "0.1.0"\ndependencies = ["before"]\n\n[[package]]\nname = "after"\nversion = "9.8.7"\n',
-};
+const cargo = `[package]
+name = "pacer-desktop"
+version = "0.1.0"
+
+[dependencies]
+other = { version = "0.1.0" }
+`;
+const lock = `# Generated lockfile
+version = 4
+
+[[package]]
+name = "other"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "keep-me"
+
+[[package]]
+name = "pacer-desktop"
+version = "0.1.0"
+dependencies = ["other"]
+
+[[package]]
+name = "pacer-desktop-helper"
+version = "0.1.0"
+`;
 
 test("prepareChangelog keeps history and moves all Unreleased content into the dated release", () => {
   expect(prepareChangelog(changelog, "0.2.0", "2026-10-13")).toBe(changelog.replace("## [Unreleased]", "## [Unreleased]\n\n## [0.2.0] - 2026-10-13"));
@@ -21,10 +41,11 @@ test("prepareChangelog keeps history and moves all Unreleased content into the d
 function fixture(): string {
   const root = tmpDir();
   mkdirSync(join(root, "scripts"));
-  mkdirSync(join(root, "desktop", "src-tauri"), { recursive: true });
-  for (const [file, text] of Object.entries(desktopFiles)) {
-    writeFileSync(join(root, "desktop", "src-tauri", file), text);
-  }
+  const desktop = join(root, "desktop", "src-tauri");
+  mkdirSync(desktop, { recursive: true });
+  writeFileSync(join(desktop, "Cargo.toml"), cargo);
+  writeFileSync(join(desktop, "Cargo.lock"), lock);
+  writeFileSync(join(desktop, "tauri.conf.json"), JSON.stringify({ productName: "pacer", version: "0.1.0" }));
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "0.1.0", scripts: { "plugin:build": "bun scripts/plugin.ts", "app:build": "bun scripts/app.ts" } }));
   writeFileSync(join(root, "scripts", "plugin.ts"), 'await Bun.write("built-version", (await Bun.file("package.json").json()).version);');
   writeFileSync(join(root, "scripts", "app.ts"), 'await Bun.write("app-built-version", (await Bun.file("package.json").json()).version);');
@@ -33,41 +54,19 @@ function fixture(): string {
   return root;
 }
 
-test("prepareRelease updates the package and changelog before rebuilding plugin and app assets", async () => {
+test("prepareRelease updates package, desktop and changelog before rebuilding plugin and app assets", async () => {
   const root = fixture();
   await prepareRelease(root, "0.2.0");
   expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version).toBe("0.2.0");
+  const desktop = join(root, "desktop", "src-tauri");
+  expect(JSON.parse(readFileSync(join(desktop, "tauri.conf.json"), "utf8"))).toEqual({ productName: "pacer", version: "0.2.0" });
+  expect(readFileSync(join(desktop, "Cargo.toml"), "utf8")).toBe(cargo.replace('version = "0.1.0"', 'version = "0.2.0"'));
+  expect(readFileSync(join(desktop, "Cargo.lock"), "utf8")).toBe(lock.replace('name = "pacer-desktop"\nversion = "0.1.0"', 'name = "pacer-desktop"\nversion = "0.2.0"'));
   expect(JSON.parse(readFileSync(join(root, "orca-marketplace.json"), "utf8")).plugins[0].source.ref).toBe("orca-plugin-v0.2.0");
   expect(readFileSync(join(root, "built-version"), "utf8")).toBe("0.2.0");
   expect(readFileSync(join(root, "app-built-version"), "utf8")).toBe("0.2.0");
   expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toContain(`## [0.2.0] - ${new Date().toISOString().slice(0, 10)}`);
 });
-
-test("prepareRelease updates only the desktop version values, preserving other packages and formatting", async () => {
-  const root = fixture();
-  await prepareRelease(root, "0.2.0");
-  for (const [file, text] of Object.entries(desktopFiles)) {
-    expect(readFileSync(join(root, "desktop", "src-tauri", file), "utf8"))
-      .toBe(text.replace('"0.1.0"', '"0.2.0"'));
-  }
-});
-
-for (const [file, text] of Object.entries(desktopFiles)) {
-  test(`prepareRelease rejects a missing desktop version in ${file} before writing files`, async () => {
-    const root = fixture();
-    const path = join(root, "desktop", "src-tauri", file);
-    const missingVersion = text.replace(/^.*"0\.1\.0".*\n/m, "");
-    writeFileSync(path, missingVersion);
-    const originalPackage = readFileSync(join(root, "package.json"), "utf8");
-    await expect(prepareRelease(root, "0.2.0")).rejects.toThrow(`${file} has no`);
-    expect(readFileSync(join(root, "package.json"), "utf8")).toBe(originalPackage);
-    expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toBe(changelog);
-    for (const [desktopFile, original] of Object.entries(desktopFiles)) {
-      expect(readFileSync(join(root, "desktop", "src-tauri", desktopFile), "utf8"))
-        .toBe(desktopFile === file ? missingVersion : original);
-    }
-  });
-}
 
 test("prepareRelease rejects invalid, equal and older versions before writing files", async () => {
   const root = fixture();

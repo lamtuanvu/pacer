@@ -38,8 +38,8 @@ test('rejection modal has a labelled required text field, rejects whitespace and
   for (const value of ['', '   ', 'Needs fixes']) {
     const { node, content, results, changes } = form(value, true);
     const html = renderToString(node);
-    expect(html).toContain('Rejection note<textarea required autofocus');
-    const input = content.props.children[1].props.children[1];
+    expect(html).toContain('>Rejection note</label>'); expect(html).toMatch(/<textarea[^>]*required[^>]*autofocus/); expect(html).toContain('for="field-');
+    const input = content.props.children[1].props.children;
     input.props.onInput({ currentTarget: { value: 'Updated reason' } });
     expect(changes).toEqual(['Updated reason']);
     const submit = content.props.children[2].props.children[1];
@@ -47,4 +47,27 @@ test('rejection modal has a labelled required text field, rejects whitespace and
     content.props.onSubmit({ preventDefault() {} });
     expect(results).toEqual(value.trim() ? [value.trim()] : []);
   }
+});
+
+test('dialog Tab cycles visible enabled controls and keeps focus inside both boundaries', async () => {
+  const { cycleDialogFocus } = await import('../app/src/ds/Dialog');
+  const focused: string[] = [];
+  const element = (name: string) => ({ focus: () => focused.push(name), matches: () => false, closest: () => null, getClientRects: () => [1] }) as unknown as HTMLElement;
+  const first = element('first'), last = element('last');
+  const dialog = { querySelectorAll: () => [first, last], ownerDocument: { activeElement: last } } as unknown as HTMLDialogElement;
+  let prevented = 0;
+  cycleDialogFocus(dialog, { key: 'Tab', shiftKey: false, preventDefault: () => { prevented++; } });
+  expect(focused).toEqual(['first']);
+  (dialog.ownerDocument as any).activeElement = first;
+  cycleDialogFocus(dialog, { key: 'Tab', shiftKey: true, preventDefault: () => { prevented++; } });
+  expect(focused).toEqual(['first', 'last']);
+  expect(prevented).toBe(2);
+  cycleDialogFocus(dialog, { key: 'Enter', shiftKey: false, preventDefault: () => { prevented++; } });
+  expect(prevented).toBe(2);
+});
+
+test('dialog respects an inner control that already handled Tab', async () => {
+  const { cycleDialogFocus } = await import('../app/src/ds/Dialog');
+  const dialog = { querySelectorAll: () => { throw new Error('Handled Tab must not be intercepted'); } } as unknown as HTMLDialogElement;
+  expect(() => cycleDialogFocus(dialog, { key: 'Tab', shiftKey: false, defaultPrevented: true, preventDefault: () => {} })).not.toThrow();
 });

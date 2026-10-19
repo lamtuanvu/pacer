@@ -46,7 +46,7 @@ test("account metadata survives the link and appears in dashboard and panel",asy
  const board=boardSnapshot(st,validateStrategy(raw,"test"));
  expect(s.budget!.providers.find(p=>p.id==="codex#team")).toMatchObject({account:"team",agent:"codex",usedPct:34});
  expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true})).toMatch(/Codex\s+team\s+week.*34%/);
- expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true}).split("\n").map(line=>line.trimEnd()).join("\n")).toMatchSnapshot();
+ expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true,version:"0.2.3"}).split("\n").map(line=>line.trimEnd()).join("\n")).toMatchSnapshot();
  expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true}).split("\n")[1]).toContain("Claude");
  const html=overview(s,st.generatedAt,true,{},{});
  expect(html).toContain("Claude");

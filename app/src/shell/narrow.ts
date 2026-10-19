@@ -1,8 +1,7 @@
-import { createContext } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { RouteQuery } from "../router";
 
-export const NarrowContext = createContext(false);
+export { NarrowContext } from "../ds/Density";
 export const NARROW_MEDIA = "(width < 560px)";
 export function scopeRepo(query: RouteQuery): string | null {
   return query.scope?.startsWith("repo:") ? query.scope.slice(5) || null : null;

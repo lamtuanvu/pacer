@@ -1,0 +1,1 @@
+.tray { font: 13px/19px var(--font-sans); padding: var(--space-2, 9px); }

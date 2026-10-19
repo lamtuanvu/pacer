@@ -6,6 +6,7 @@ import { executorStatus, paceStatus, taskStatus } from '../../../../src/view-mod
 import { AgentMark } from '../../ds/AgentMark';
 import { Button } from '../../ds/Button';
 import { Pill } from '../../ds/Pill';
+import { Checkbox, Disclosure, Radio } from '../../ds/Controls';
 import { StatusGlyph } from '../../ds/StatusGlyph';
 import { SectionHeading } from '../../ds/SectionHeading';
 import { needsReview } from '../../model/tasks';
@@ -21,7 +22,7 @@ export function PlannerChoices({ options, selected, select, signedIn = [] }: {
 }) {
   return <fieldset className="pc-setup-choices"><legend className="sr-only">Planner</legend>
     {options.map(id => <label className="pc-setup-choice" key={id}>
-      <input type="radio" name="planner" value={id} checked={id === selected} onChange={() => select(id)} />
+      <Radio name="planner" value={id} checked={id === selected} onChange={() => select(id)} />
       <AgentMark agent={runnerAgent(id)} size={36} labelled={false} />
       <span><strong>{setupAgentName(id)}</strong><span className="muted">{signedIn.includes(id) ? 'Installed · signed in' : 'Installed'}</span></span>
     </label>)}
@@ -38,11 +39,11 @@ export function ConnectChanges({ planner, preview }: { planner: string; preview:
       <dt>Edits</dt><dd>{settings ? 'Settings: budget checks when sessions start and before work is delegated.' : 'Planner instructions: how to read budgets and delegate focused work.'}
         {typeof preview.detail === 'string' && preview.detail.includes('left alone') && ' Your status line stays as it is.'}</dd>
     </dl>
-    <details className="pc-disclosure"><summary>Show the files</summary>
+    <Disclosure summary="Show the files">
       <pre>{preview.files.join('\n')}</pre>
       {preview.detail && <pre>{typeof preview.detail === 'string' ? preview.detail : JSON.stringify(preview.detail, null, 2)}</pre>}
       <p>To undo</p><pre>{preview.undo}</pre>
-    </details>
+    </Disclosure>
   </section>;
 }
 export function budgetLine(provider?: ProviderStatus) {
@@ -66,7 +67,7 @@ export function ExecutorList({ runners, providers, busy, change, reorder }: {
       <span className="muted">{index + 1}</span><AgentMark agent={runnerAgent(row.id)} size={32} labelled={false} />
       <div className="pc-setup-executor-name"><strong>{name}</strong><span className="muted">{budgetLine(providers.find(p => p.id === row.id))}</span></div>
       <Pill tone={status.tone}><StatusGlyph status={status} /> {status.label}</Pill>
-      <label className="pc-checkbox"><input className="pc-checkbox__input" type="checkbox" aria-label={`Use ${name}`} checked={row.state !== 'blocked'} disabled={busy} onChange={e => change(row.id, e.currentTarget.checked)} />Use {name}</label>
+      <Checkbox label={<>Use {name}</>} aria-label={`Use ${name}`} checked={row.state !== 'blocked'} disabled={busy} onChange={e => change(row.id, e.currentTarget.checked)} />
       <div className="pc-setup-move">
         {index > 0 && <Button variant="ghost" aria-label={`Move ${name} up`} disabled={busy} onClick={() => move(index, -1)}>↑</Button>}
         {index < runners.length - 1 && <Button variant="ghost" aria-label={`Move ${name} down`} disabled={busy} onClick={() => move(index, 1)}>↓</Button>}

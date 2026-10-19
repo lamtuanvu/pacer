@@ -10,30 +10,20 @@ export function prepareChangelog(text: string, version: string, date: string): s
   return text.replace(heading, `## [Unreleased]\n\n## [${version}] - ${date}`);
 }
 
-function prepareDesktopVersions(root: string, version: string): { path: string; text: string }[] {
-  const targets = [
-    {
-      file: "tauri.conf.json",
-      pattern: /(^[ \t]*"version"[ \t]*:[ \t]*")[^"\r\n]*(")/m,
-      field: "version line",
-    },
-    {
-      file: "Cargo.toml",
-      pattern: /(^\[package\][^\r\n]*\r?\n(?:(?![ \t]*\[)[^\n]*\n)*?[ \t]*version[ \t]*=[ \t]*")[^"\r\n]*(")/m,
-      field: "[package] version line",
-    },
-    {
-      file: "Cargo.lock",
-      pattern: /(^name[ \t]*=[ \t]*"pacer-desktop"[^\r\n]*\r?\n(?:(?![ \t]*\[)[^\n]*\n)*?[ \t]*version[ \t]*=[ \t]*")[^"\r\n]*(")/m,
-      field: "pacer-desktop version line",
-    },
-  ];
-  return targets.map(({ file, pattern, field }) => {
-    const path = join(root, "desktop", "src-tauri", file);
-    const text = readFileSync(path, "utf8");
-    if (!pattern.test(text)) throw new Error(`desktop/src-tauri/${file} has no ${field}`);
-    return { path, text: text.replace(pattern, (_, prefix, suffix) => `${prefix}${version}${suffix}`) };
-  });
+function bumpCargoVersion(text: string, version: string, lockfile: boolean): string {
+  let matches = 0;
+  const result = text.split(/(?=^\[)/m).map(section => {
+    const isPackage = lockfile
+      ? section.startsWith("[[package]]\n") && /^name\s*=\s*"pacer-desktop"\s*$/m.test(section)
+      : section.startsWith("[package]\n");
+    if (!isPackage) return section;
+    return section.replace(/^(version\s*=\s*")[^"]+(".*)$/m, (_, prefix, suffix) => {
+      matches++;
+      return `${prefix}${version}${suffix}`;
+    });
+  }).join("");
+  if (matches !== 1) throw new Error(`${lockfile ? "Cargo.lock" : "Cargo.toml"} must contain one desktop package version`);
+  return result;
 }
 
 export async function prepareRelease(root: string, version: string): Promise<void> {
@@ -47,13 +37,22 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   const marketplace = JSON.parse(readFileSync(marketplacePath, "utf8"));
   const plugin = marketplace.plugins.find((p: { id: string }) => p.id === "lamtuanvu.pacer");
   if (!plugin) throw new Error("orca-marketplace.json has no lamtuanvu.pacer entry");
-  const desktopVersions = prepareDesktopVersions(root, version);
+  const desktopPath = join(root, "desktop", "src-tauri");
+  const tauriPath = join(desktopPath, "tauri.conf.json");
+  const tauri = JSON.parse(readFileSync(tauriPath, "utf8"));
+  tauri.version = version;
+  const cargoPath = join(desktopPath, "Cargo.toml");
+  const cargo = bumpCargoVersion(readFileSync(cargoPath, "utf8"), version, false);
+  const lockPath = join(desktopPath, "Cargo.lock");
+  const lock = bumpCargoVersion(readFileSync(lockPath, "utf8"), version, true);
   plugin.source.ref = `orca-plugin-v${version}`;
   pkg.version = version;
   writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
   writeFileSync(changelogPath, changelog);
   writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`);
-  for (const { path, text } of desktopVersions) writeFileSync(path, text);
+  writeFileSync(tauriPath, `${JSON.stringify(tauri, null, 2)}\n`);
+  writeFileSync(cargoPath, cargo);
+  writeFileSync(lockPath, lock);
   const p = Bun.spawn([process.execPath, "run", "plugin:build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
   if (await p.exited !== 0) throw new Error("plugin:build failed; fix the build and rerun bun run plugin:build before committing");
   // The app embeds APP_VERSION, which the release build checks against package.json.

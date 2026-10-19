@@ -39,7 +39,7 @@ test('read-only terminal exposes size, accessible status and screen reader toggl
 
 test('unavailable attach targets, retry states and resource empties use service words',()=>{
  const html=renderToString(<Session data={{...data,session:{...data.session!,targets:[]},retryOptions:[{...data.retryOptions![0]!,available:false,reason:'No free slot'}],timeline:{data:[]},doneWhen:{error:'Command unavailable'}}}/>);
- expect(html).toContain('Open in Orca terminal · unavailable');expect(html).toContain('Open in my terminal · unavailable');expect(html).toContain('No free slot');expect(html).toContain('No timeline events yet.');expect(html).toContain('Command unavailable');
+ expect(html).not.toContain('>Open in Orca terminal');expect(html).not.toContain('>Open in my terminal');expect(html).toContain('No free slot');expect(html).toContain('No timeline events yet.');expect(html).toContain('Command unavailable');
 });
 
 test('Sessions list uses short titles and ended outcomes or diffstats, reserving pending for running',()=>{
@@ -122,9 +122,9 @@ test('missing sessions do not advertise watch-elsewhere options', () => {
 
 test('session task title uses normal-case page typography and prefers the service title', async () => {
  const html = renderToString(<Session data={{...data,title:'Fix add() in calc.py'}}/>);
- expect(html).toContain('<h2 class="pc-session-title pc-ellipsis" title="Fix add() in calc.py">Fix add() in calc.py</h2>');
+ expect(html).toMatch(/<h2(?=[^>]*class="pc-session-title pc-ellipsis")(?=[^>]*title="Fix add\(\) in calc.py")[^>]*>Fix add\(\) in calc.py<\/h2>/);
  expect(html).not.toContain(data.goal);
- expect(renderToString(<Session data={data}/>)).toContain(`<h2 class="pc-session-title pc-ellipsis" title="${data.goal}">${data.goal}</h2>`);
+ expect(renderToString(<Session data={data}/>)).toContain(`title="${data.goal}"`);
  const css = await Bun.file(new URL('../app/src/screens/session/session.css', import.meta.url)).text();
  expect(css).toMatch(/\.pc-session-title\s*\{[^}]*font-size:var\(--type-headline-size\)/);
  expect(css.match(/\.pc-session-title\s*\{[^}]*\}/)?.[0]).not.toContain('uppercase');
@@ -159,19 +159,19 @@ test('reviewed and resolved sessions do not offer another review', () => {
 
 test('running headless takeover occupies its own area outside the explanatory sentence', () => {
  const html=renderToString(<Session data={{...data,session:{...data.session!,host:'none',takeover:{available:true}}}} onTakeover={()=>{}}/>);
- expect(html).toMatch(/<div class="pc-session-run"><p>This run is headless — Take over to work in it live<\/p><button/);
+ expect(html).toMatch(/<div class="pc-session-run"><p>This run is headless — Take over to work in it live<\/p><span class="pc-control-with-reason"><button/);
  expect(html).toContain('>Stop</button>');
  expect(html).toContain('Stop and retry on');
 });
 
 test('ended row Replay link covers its row and preserves route query and accessible title', async () => {
  const html=renderToString(<SessionsList recent={{data:[{...data,id:'ended task',state:'done',title:'Finished task'}]}} query="repo=project"/>);
- expect(html).toContain('pc-session-replay');
+ expect(html).toContain('pc-row-destination');
  expect(html).toContain('aria-label="Replay Finished task"');
  expect(html).toContain('href="#/sessions/ended%20task?repo=project"');
  expect(html).toContain('>Replay</a>');
- const css=await Bun.file(new URL('../app/src/screens/session/session.css',import.meta.url)).text();
- expect(css).toMatch(/\.pc-session-replay::after\s*\{[^}]*position:absolute;inset:0/);
+ const css=await Bun.file(new URL('../app/src/ds/components.css',import.meta.url)).text();
+ expect(css).toMatch(/\.pc-row-destination::after\s*\{[^}]*position:absolute;inset:0/);
 });
 
 test('session adapters preserve review outcome and suppression fields', async () => {

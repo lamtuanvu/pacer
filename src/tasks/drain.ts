@@ -14,7 +14,7 @@ import { remoteExclusion } from "../remote/eligibility";
 import { gitInfo } from "../core/git";
 import type { Ctx } from "../types";
 import { spawnRunner, type SpawnRunner } from "./api";
-import { listTasks, readTask, updateTask } from "./store";
+import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement } from "./types";
 
 interface DrainDeps {
@@ -28,7 +28,7 @@ const defaults: DrainDeps = {loadStrategy, computeStatus};
 export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, deps: DrainDeps = defaults): Promise<string[]> {
   if (ctx.readOnly) return [];
   return withLock(ctx, "drain", async () => {
-    const waiting = listTasks(ctx, Infinity).filter(t => t.state === "queued" && t.queue)
+    const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue)
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     if (!waiting.length) return [];
     const s = deps.loadStrategy(ctx), spawned: string[] = [], hooks = deps.hooks ?? activeHooks;
@@ -70,7 +70,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
       await withLock(ctx, "slots", async () => {
         const current = readTask(ctx, task.id);
         if (current?.state !== "queued" || !current.queue || readPause(ctx)) return;
-        const use = slotUse(listTasks(ctx, Infinity));
+        const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
         const executor = eligible.find(id => !slotBlock(s, id, use));
         if (!executor) return;
         // A running reservation is claimed by the spawned process before its first attempt.
@@ -86,19 +86,9 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
       });
     }
     // Positions are presentation metadata; preserve the age of each wait.
-    listTasks(ctx, Infinity).filter(t => t.state === "queued" && t.queue)
+    listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue)
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
       .forEach((t, i) => updateTask(ctx, t.id, x => {if (x.queue) x.queue.position = i + 1;}));
     return spawned;
   });
-}
-
-const lastReadDrain = new Map<string, number>();
-/** API reads share a per-home, per-process throttle. */
-export async function drainQueueOnRead(ctx: Ctx, spawn?: SpawnRunner): Promise<void> {
-  if (ctx.readOnly) return;
-  const now = Date.now(), last = lastReadDrain.get(ctx.pacerHome);
-  if (last !== undefined && now - last < 5000) return;
-  lastReadDrain.set(ctx.pacerHome, now);
-  await drainQueue(ctx, spawn).catch(() => {});
 }

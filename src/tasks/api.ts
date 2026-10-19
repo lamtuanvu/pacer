@@ -13,9 +13,9 @@ import { isAbsolute } from "node:path";
 import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
 import { killTree } from "../exec/process";
 import { RemoteRunIO } from "../remote/run-io";
-import { readRun } from "../supervisor/run";
+import { readRunLiveness } from "../supervisor/run";
 import type { Ctx } from "../types";
-import { createTask, listTasks, readTask, updateTask } from "./store";
+import { createTask, listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
 import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
 
 export const EXECUTOR_DELEGATE_ERROR = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
@@ -45,7 +45,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return { task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null, queue:t.queue??null,
+  return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null, queue:t.queue??null,
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
     result:t.result??null, review:t.review??null, resolved:t.resolved??null };
@@ -138,7 +138,7 @@ export function delegate(
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
   if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });
   if (paused) updateTask(ctx, task.id, t => {
-    t.queue = {reason: "paused", since: ctx.now, position: 1 + listTasks(ctx, Infinity).filter(x => x.id !== t.id && x.state === "queued" && x.queue).length};
+    t.queue = {reason: "paused", since: ctx.now, position: 1 + listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== t.id && x.queue).length};
   });
   else spawnFn(ctx, task.id);
   return readTask(ctx,task.id)!;
@@ -156,39 +156,70 @@ function alive(pid: number | undefined): boolean {
 
 const isTerminal = (t: TaskRecord) => TERMINAL_STATES.includes(t.state);
 
-/** Read a task; resume recoverable attempts before failing missing or dead runners. */
-export function taskStatus(ctx: Ctx, id: string, spawn: SpawnRunner = spawnRunner): TaskRecord | null {
+/** Read task state without supervising or spawning runners. */
+export function taskStatus(ctx: Ctx, id: string): TaskRecord | null {
+  return readTask(ctx, id);
+}
+
+/** Selected records are already current; reads never supervise them. */
+export function taskRecordStatus(_ctx: Ctx, t: TaskRecord): TaskRecord {
+  return t;
+}
+
+/** Explicit supervision shared by the service and CLI fallback paths. */
+export async function superviseTask(ctx: Ctx, id: string, spawn: SpawnRunner = spawnRunner): Promise<TaskRecord | null> {
   const t = readTask(ctx, id);
-  if (!t) return null;
+  return t ? superviseTaskRecord(ctx, t, spawn) : null;
+}
+
+async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, stopped: () => boolean = () => false): Promise<TaskRecord> {
+  if (!["queued", "running"].includes(t.state)) return t;
+  const id = t.id;
   const run = t.run, current = run && run.attempt > t.attempts.length;
-  if (t.state === "running" && current && !alive(t.runnerPid)) {
-    const r = run.host ? null : readRun(run.dir);
-    if (run.host || (r && (r.alive || r.exit !== null))) {
+  const deadRun = t.state === "running" && current && !alive(t.runnerPid);
+  const r = deadRun && !run.host ? await readRunLiveness(run.dir) : null;
+  if (stopped()) return t;
+  return withTaskLock(ctx, id, () => {
+    // Repository IO yields; an independent runner may have settled meanwhile.
+    const latest = readTask(ctx, id);
+    if (!latest || latest.rev !== t.rev) return latest ?? t;
+    if (deadRun && (run.host || (r && (r.alive || r.exit !== null)))) {
       if (!t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
         updateTask(ctx, id, x => { x.resumeSpawnedAt = ctx.now; });
-        try { spawn(ctx, id); } catch { /* the next status read tries again */ }
+        try { spawn(ctx, id); } catch { /* the next supervisor tick tries again */ }
       }
-      return readTask(ctx, id);
+      return readTask(ctx, id)!;
     }
+    const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
+    if (neverStarted || (t.state === "running" && (t.attempts.length > 0 || t.attemptStartedAt !== undefined || ctx.now - t.createdAt > 600) && !alive(t.runnerPid))) {
+      return updateTask(ctx, id, (x) => {
+        if (TERMINAL_STATES.includes(x.state)) return;
+        x.state = "failed";
+        x.result = {
+          status: "failed", executor: x.attempts.at(-1)?.executor ?? null, model: null, files: "",
+          report: neverStarted ? "the pacer runner never started" : "the pacer runner exited unexpectedly", backend: "direct",
+        };
+      });
+    }
+    return t;
+  });
+}
+
+/** Query only active tasks and yield between records so HTTP can keep serving. */
+export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner, stopped: () => boolean = () => false): Promise<void> {
+  for (const task of listTasksWhere(ctx, { states: ["queued", "running"] })) {
+    await Bun.sleep(0);
+    if (stopped()) return;
+    await superviseTaskRecord(ctx, task, spawn, stopped);
   }
-  const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
-  if (neverStarted || (t.state === "running" && (t.attempts.length > 0 || t.attemptStartedAt !== undefined || ctx.now - t.createdAt > 600) && !alive(t.runnerPid))) {
-    return updateTask(ctx, id, (x) => {
-      if (TERMINAL_STATES.includes(x.state)) return;
-      x.state = "failed";
-      x.result = {
-        status: "failed", executor: x.attempts.at(-1)?.executor ?? null, model: null, files: "",
-        report: neverStarted ? "the pacer runner never started" : "the pacer runner exited unexpectedly", backend: "direct",
-      };
-    });
-  }
-  return t;
 }
 
 export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 1000): Promise<TaskRecord | null> {
   const started = Date.now(), deadline = started + timeoutS * 1000;
   for (;;) {
-    const t = taskStatus({...ctx,now:ctx.now+(Date.now()-started)/1000}, id);
+    const currentCtx = {...ctx, now: ctx.now + (Date.now() - started) / 1000};
+    await (await import("./drain")).drainQueue(currentCtx);
+    const t = await superviseTask(currentCtx, id);
     if (!t || isTerminal(t) || Date.now() >= deadline) return t;
     await Bun.sleep(pollMs);
   }

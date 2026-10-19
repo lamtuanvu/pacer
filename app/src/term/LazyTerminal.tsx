@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useState } from "preact/hooks";
 import type { ComponentType } from 'preact';
 import type { TerminalViewProps } from './term';
-import { Button } from '../ds/Button';
+import { Button } from "../ds/Button";
 /** No xterm runtime is imported until the Session terminal panel mounts. */
 export function LazyTerminal(props:TerminalViewProps){
  const [View,setView]=useState<ComponentType<TerminalViewProps>|null>(null),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);

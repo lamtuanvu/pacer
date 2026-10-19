@@ -6,7 +6,7 @@ import { clean as hostClean } from "../src/remote/hosts";
 import { loadStrategy } from "../src/config/strategy";
 import { runTask, type RunnerDeps } from "../src/tasks/runner";
 import { readTask, updateTask } from "../src/tasks/store";
-import { taskStatus, taskStop } from "../src/tasks/api";
+import { superviseTask, taskStop } from "../src/tasks/api";
 import { RemoteRunIO } from "../src/remote/run-io";
 import { remoteLaunch } from "../src/exec/launch";
 import { runAttempt, runDir } from "../src/exec/direct";
@@ -82,7 +82,7 @@ test("a remote attempt resumes after the runner dies", async () => {
   writeFileSync(join(dir, "pid"), "2147483647");
   let resumed: ReturnType<typeof runTask> | undefined;
   try {
-    taskStatus(f.ctx, id, () => { resumed = runTask(f.ctx, id, f.deps); return process.pid; });
+    await superviseTask(f.ctx, id, () => { resumed = runTask(f.ctx, id, f.deps); return process.pid; });
     expect(resumed).toBeDefined();
   } finally { writeFileSync(join(f.hostHome, "release"), ""); }
   const t = await resumed!;

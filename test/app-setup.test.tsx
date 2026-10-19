@@ -184,7 +184,7 @@ function nodes(node: any): any[] {
 test('planner radio selection sends the chosen planner through setup.init', async () => {
   const h = harness(true); let chosen = 'claude-code';
   const tree = PlannerChoices({ options: ['claude-code', 'codex'], selected: chosen, select: id => { chosen = id; } });
-  nodes(tree).find(n => n.type === 'input' && n.props.value === 'codex').props.onChange();
+  nodes(tree).find(n => n.props?.name === 'planner' && n.props.value === 'codex').props.onChange();
   await performSetupAction({ ...planner(['claude-code', 'codex']), agent: chosen }, h.deps);
   expect(h.calls).toEqual([['setup.init', { planner: 'codex' }]]);
 });
@@ -207,8 +207,8 @@ test('executor controls block indefinitely, unblock and reorder through the API'
   const h = harness(true);
   const tree = ExecutorList({ runners, providers: [], busy: false, change: (id, enabled) => changeExecutor(h.deps.api, id, enabled), reorder: ids => h.deps.api.call('runner.reorder', { ids }) });
   const controls = nodes(tree);
-  await controls.find(n => n.type === 'input' && n.props['aria-label'] === 'Use Codex').props.onChange({ currentTarget: { checked: false } });
-  await controls.find(n => n.type === 'input' && n.props['aria-label'] === 'Use OpenCode with Ollama').props.onChange({ currentTarget: { checked: true } });
+  await controls.find(n => n.props?.['aria-label'] === 'Use Codex' && n.props.onChange).props.onChange({ currentTarget: { checked: false } });
+  await controls.find(n => n.props?.['aria-label'] === 'Use OpenCode with Ollama' && n.props.onChange).props.onChange({ currentTarget: { checked: true } });
   await controls.find(n => n.props?.['aria-label'] === 'Move Codex down').props.onClick();
   expect(h.calls).toEqual([['runner.block', { id: 'codex' }], ['runner.unblock', { id: 'opencode#ollama' }], ['runner.reorder', { ids: ['opencode#ollama', 'codex', 'agy'] }]]);
   const text = renderToString(tree).replace(/<[^>]*>/g, '');

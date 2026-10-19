@@ -14,7 +14,7 @@ async function ctxWithStrategy() {
 }
 const fakeStatus = (generatedAt: number) => async () => ({ generatedAt, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } }) as never;
 
-test("liveSnapshot refreshes capacity status while preserving fresh budgets and reports live task state", async () => {
+test("liveSnapshot refreshes capacity status while preserving fresh budgets and reads task state without supervision", async () => {
   // The read model also probes setup health; this unit test must not contact a local service.
   const health = spyOn(globalThis, "fetch").mockRejectedValue(new Error("no service in this fixture"));
   try {
@@ -32,7 +32,7 @@ test("liveSnapshot refreshes capacity status while preserving fresh budgets and 
     const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
     updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 2 ** 22 + 7; x.attemptStartedAt = ctx.now; x.attempts = []; });
     const b = await liveSnapshot({ ...ctx, now: ctx.now + 30 }, { status });
-    expect(b.snapshot.tasks.find((x) => x.id === t.id)?.state).toBe("failed");
+    expect(b.snapshot.tasks.find((x) => x.id === t.id)?.state).toBe("running");
   } finally { health.mockRestore(); }
 });
 

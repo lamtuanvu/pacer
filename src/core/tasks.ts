@@ -25,7 +25,7 @@ import {
   type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
-import { isTaskId, listTasks, readTask, updateTask, withTaskLock } from "../tasks/store";
+import { isTaskId, listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
 import { isExecutorSession } from "../install/role";
@@ -56,12 +56,16 @@ export function get(ctx: Ctx, id: string): TaskRecord {
 }
 
 export interface ListOptions {
-  limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
+  all?: boolean; limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
 }
 
 /** Newest first; filter before taking the page. */
 export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
-  return listTasks(ctx, Infinity).filter(t => o.before === undefined || t.id < o.before)
+  // Active tasks may transition during the status refresh, even when the caller
+  // requested settled states. Keep them in the SQL selection, then filter again.
+  const states: TaskState[] | undefined = o.states ? [...new Set<TaskState>([...o.states, "queued", "running"])] : undefined;
+  return listTasksWhere(ctx, { updatedSince: o.since, states, all: o.all })
+    .filter(t => o.before === undefined || t.id < o.before)
     .map(t => taskStatus(ctx, t.id) ?? t)
     .filter(t => (o.repo === undefined || (t.repo ?? repoFor(ctx,t.brief.repo)).key === o.repo)
       && (o.states === undefined || o.states.includes(t.state))
@@ -95,7 +99,7 @@ export async function ask(ctx: Ctx, id: string, text: string): Promise<TaskRecor
 export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): TaskRecord {
   const create = () => {
     if (input.requestId) {
-      const prior = listTasks(ctx, Infinity).find(t => t.requestId === input.requestId && ctx.now - t.createdAt >= 0 && ctx.now - t.createdAt <= 600);
+      const prior = listTasksWhere(ctx, { updatedSince: ctx.now - 600 }).find(t => t.requestId === input.requestId && ctx.now - t.createdAt >= 0 && ctx.now - t.createdAt <= 600);
       if (prior && (prior.brief.goal !== input.brief.goal || prior.brief.repo !== input.brief.repo)) {
         throw new CoreError("conflict", "request_id was already used for a different brief", "use a new request_id for a new task");
       }
@@ -302,7 +306,7 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
 /** Removes settled, reviewed/dismissed/resolved task worktrees. Local branches stay. */
 export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } = {}): Promise<{ removed: string[]; kept: { id: string; reason: string }[] }> {
   const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
-  for (const t of listTasks(ctx, Infinity)) {
+  for (const t of listTasksWhere(ctx, { states: TERMINAL_STATES })) {
     if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved) || t.run?.mode !== "new") continue;
     const top = await withTimeout(() => repoFs.realpath(t.brief.repo));
     const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;

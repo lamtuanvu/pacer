@@ -62,12 +62,14 @@ test("NOTICE credits Lobe Icons", () => {
   expect(notice).toContain("MIT");
 });
 
-test("brand colours in components.css match the agent table", () => {
+test("brand identity tokens match the agent table in both themes", () => {
+  const tokens = JSON.parse(readFileSync(join(import.meta.dir, "../app/src/ds/tokens.json"), "utf8"));
   const css = readFileSync(join(import.meta.dir, "../app/src/ds/components.css"), "utf8");
   for (const id of AGENT_IDS) {
     const color = agentInfo(id).color;
-    const rule = new RegExp(`\\.pc-agent-mark--${id} \\{ --agent-color: (#[0-9A-F]{6}); \\}`).exec(css);
-    expect(rule?.[1] ?? "ink").toBe(color);
+    if (color === "ink") continue;
+    expect(css).toContain(`--agent-color:var(--agent-${id})`);
+    expect(tokens.color.tokens.find((token: {name: string}) => token.name === `agent-${id}`).value).toEqual({light:color,dark:color});
   }
 });
 

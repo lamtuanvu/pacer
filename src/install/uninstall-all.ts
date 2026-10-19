@@ -136,7 +136,10 @@ export async function uninstallAll(args: string[], ctx: Ctx, deps: UninstallAllD
     plan.push({ kind: "home", target: resolve(ctx.pacerHome), paths: [], action: "remove PACER_HOME and all its contents" });
     const binary = binaryPath(ctx);
     plan.push({ kind: "binary", target: binary.path, paths: [], action: args.includes("--binary") ? "delete binary" : "left in place (use --binary to delete)" });
-    const activeTasks = listTasks(ctx, Infinity)
+    // Check the home before reading tasks: opening the task store creates it.
+    safeHome(ctx);
+    const hasTasks = existsSync(join(ctx.pacerHome, "state", "tasks.db")) || existsSync(join(ctx.pacerHome, "tasks"));
+    const activeTasks = (hasTasks ? listTasks(ctx, Infinity) : [])
       .filter(task => task.state === "running" || task.state === "queued")
       .map((task): BlockingTask => {
         const goal = [...task.brief.goal.replace(/\s+/g, " ").trim()];

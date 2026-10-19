@@ -1,3 +1,5 @@
+import { TextAction } from "../ds/Button";
+import { LoadingState } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
@@ -15,7 +17,7 @@ const NEEDS_READ_MODEL = new Set(["overview", "review"]);
 function Skeleton() {
   const [slow, setSlow] = useState(false);
   useEffect(() => { const t = setTimeout(() => setSlow(true), 1000); return () => clearTimeout(t); }, []);
-  if (slow) return <p className="muted">Connecting to pacer…</p>;
+  if (slow) return <LoadingState label="Connecting to pacer…"/>;
   return <div className="pc-skeleton" aria-hidden="true">{[0, 1, 2].map(i => <div key={i} className="pc-skeleton__section"><span /><span /><span /></div>)}</div>;
 }
 /** Rail, optional settings panel, top bar and main. Screens render inside main. */
@@ -27,7 +29,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}`}>
-    <a href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</a>
+    <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     <Rail route={route} counts={counts} narrow={narrow} />
     {SETTINGS.has(route.name) && <Panel route={route} counts={counts} snapshot={state.snapshot} />}
     <div className="pc-work">
