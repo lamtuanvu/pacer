@@ -7,8 +7,8 @@ export function reportSessionEnded(): void {
   const host = globalThis as typeof globalThis & { __TAURI__?: { core?: { invoke: (command: string) => Promise<unknown> } } };
   void host.__TAURI__?.core?.invoke("session_expired").catch(() => { /* shell may already be navigating to recovery */ });
 }
-/** Ops whose /v2 result is frozen to an older shape; the app needs the current one. */
-const V3_OPS = new Set(["setup.check"]);
+/** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
+const V3_OPS = new Set(["setup.check", "service.install", "onboarding.try", "onboarding.skip"]);
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   async function request<T>(path: string, params?: unknown): Promise<T> {

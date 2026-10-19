@@ -38,7 +38,7 @@ function SetupRow({ item, primary, query }: { item: SetupItem; primary: boolean;
       <ErrorMessage error={error} />
       {consent && <Dialog title={item.action === 'service.install' ? 'Install background service' : 'Connect agent'} close={() => finish(false)}>
         <p>{consent.message}</p>{consent.preview && <><div className="pc-section__head"><h2>Files to change</h2></div>{consent.preview.files.map(file => <pre key={file}><code>{file}</code></pre>)}
-          {consent.preview.detail && <pre>{typeof consent.preview.detail === 'string' ? consent.preview.detail : JSON.stringify(consent.preview.detail, null, 2)}</pre>}
+          {consent.preview.detail && <pre className="pc-setup-preview">{typeof consent.preview.detail === 'string' ? consent.preview.detail : JSON.stringify(consent.preview.detail, null, 2)}</pre>}
           <p>To undo</p><pre><code>{consent.preview.undo}</code></pre></>}
         <Button onClick={() => finish(false)}>Cancel</Button><Button variant="primary" onClick={() => finish(true)}>{item.action === 'service.install' ? 'Install service' : 'Connect'}</Button>
       </Dialog>}

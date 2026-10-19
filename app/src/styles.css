@@ -312,3 +312,4 @@ a.pc-row:hover{background:var(--surface-lane)}
 .pc-setup-command{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
 .pc-setup-command pre{min-width:0;flex:1}
 .pc-setup-banner{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
+.pc-setup-preview{white-space:pre-wrap;overflow-wrap:anywhere}
