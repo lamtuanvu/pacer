@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Setup walks through five steps with an inline connection preview, executor priority controls, and first-task progress and review.
+
 - Live validation supports `up --seed ui` for isolated setup-complete UI sample data without starting executors.
 
 ### Fixed

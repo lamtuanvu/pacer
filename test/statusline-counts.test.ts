@@ -20,7 +20,7 @@ test("status --line reads v2 counts with authentication and never recomputes usa
     return Response.json({ snapshot: snap() });
   }) as typeof fetch);
   try {
-    expect(await main(["status", "--line", "--no-color"], ctx)).toEqual({ code: 0, out: "▬┃ Claude 63%·77  ▸2  ⚑4", err: "" });
+    expect(await main(["status", "--line", "--no-color"], ctx)).toEqual({ code: 0, out: "▬┃ Claude Code 63%·77  ▸2  ⚑4", err: "" });
     for (const flags of [["--line", "--json"], ["--json", "--line"]]) {
       const r = await main(["status", ...flags], ctx);
       expect(r.code).toBe(0); expect(JSON.parse(r.out)).toEqual(lineFields(snap()));
@@ -31,9 +31,9 @@ test("fresh local snapshot keeps shared counts and honors COLUMNS, --width and N
   const ctx = fakeCtx(); ctx.env.PACER_PORT = "1"; ctx.env.COLUMNS = "20"; ctx.env.NO_COLOR = "1";
   local(ctx, { ...snap(), at: ctx.now });
   expect((await main(["status", "--line"], ctx)).out).toBe("▬┃63 ⚑4");
-  expect((await main(["status", "--line", "--width", "120"], ctx)).out).toBe("▬┃ Claude 63%·77  ▸2  ⚑4");
+  expect((await main(["status", "--line", "--width", "120"], ctx)).out).toBe("▬┃ Claude Code 63%·77  ▸2  ⚑4");
   ctx.env.COLUMNS = "invalid";
-  expect((await main(["status", "--line"], ctx)).out).toBe("▬┃ Claude 63%·77  ▸2  ⚑4");
+  expect((await main(["status", "--line"], ctx)).out).toBe("▬┃ Claude Code 63%·77  ▸2  ⚑4");
 });
 test("missing, stale, empty and malformed snapshots are offline, including JSON", async () => {
   const ctx = fakeCtx(); ctx.env.PACER_PORT = "1";

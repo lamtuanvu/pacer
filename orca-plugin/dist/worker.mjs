@@ -1633,7 +1633,7 @@ var displayName2 = (id) => parseRunnerId(id) || Object.hasOwn(names2, id) ? disp
 // src/view-model/agents.ts
 var AGENT_IDS = ["claude-code", "codex", "cursor", "agy", "byteplus", "local", "opencode", "gemini"];
 var AGENTS2 = {
-  "claude-code": { name: "Claude", glyph: "claude", color: "#D97757", tile: "tint" },
+  "claude-code": { name: "Claude Code", glyph: "claude", color: "#D97757", tile: "tint" },
   codex: { name: "Codex", glyph: "openai", color: "ink", tile: "page-hairline" },
   cursor: { name: "Cursor", glyph: "cursor", color: "ink", tile: "tint" },
   agy: { name: "Antigravity", glyph: "antigravity", color: "#4285F4", tile: "tint" },

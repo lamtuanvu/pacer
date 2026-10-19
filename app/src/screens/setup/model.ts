@@ -36,13 +36,49 @@ export async function performSetupAction(item: SetupItem, deps: {
         if (await deps.confirm('Connect this agent to pacer?', preview)) await deps.api.call('agent.connect', { agent: item.agent, consent: true });
         break;
       }
-      case 'nav:add-executor': deps.navigate('#/settings/add-executor'); break;
+      case 'nav:add-executor': await deps.api.call('runner.add', { interactive: 'runner-add' }); break;
       case 'onboarding.try': {
         const result = await deps.api.call<{ task_id: string; executor: string; repo: string }>('onboarding.try', {});
         deps.running(result.task_id, result.executor);
-        deps.navigate(`#/sessions/${encodeURIComponent(result.task_id)}`);
         break;
       }
     }
   } finally { deps.refresh(); }
 }
+
+export const SETUP_STEPS = ['planner', 'service', 'connect', 'executor', 'first'] as const;
+export type SetupStep = typeof SETUP_STEPS[number];
+/** Executor discovery is done on the server; the person still confirms its order once. */
+export function nextSetupStep(check: SetupChecklist, after?: string, visited: string[] = []): SetupStep {
+  const pending = SETUP_STEPS.filter(id => {
+    const item = check.items.find(i => i.id === id);
+    return item && !visited.includes(id) && (item.status !== 'done' || id === 'executor');
+  });
+  return pending.find(id => SETUP_STEPS.indexOf(id) > SETUP_STEPS.indexOf(after as SetupStep)) ?? pending[0] ?? 'first';
+}
+export const changeExecutor = (api: BrowserApi, id: string, enabled: boolean) => api.call(enabled ? 'runner.unblock' : 'runner.block', { id });
+export const reviewFirstTask = (api: BrowserApi, task: { id: string; rev: number; state: string }, verdict: 'accept' | 'reject') =>
+  api.call('task.review', { id: task.id, verdict, expect_rev: task.rev, expect_state: task.state });
+
+export function orderedRunners<T extends { id: string }>(runners: T[], order: string[]): T[] {
+  return [...runners].sort((a, b) => {
+    const rank = (id: string) => order.includes(id) ? order.indexOf(id) : order.length + runners.findIndex(r => r.id === id);
+    return rank(a.id) - rank(b.id);
+  });
+}
+export const completeRunnerOrder = (runners: { id: string }[], visible: string[]) => [...visible, ...runners.map(r => r.id).filter(id => !visible.includes(id))];
+
+export interface SetupConfig { planners?: string[]; keys: Record<string, { value: unknown }> }
+export function setupRunners<T extends { id: string }>(runners: T[], config?: SetupConfig): T[] {
+  const planner = config?.keys.planner?.value;
+  const order = config?.keys['pacing.order']?.value;
+  return orderedRunners(runners.filter(row => row.id !== planner), Array.isArray(order) ? order.filter((id): id is string => typeof id === 'string') : []);
+}
+
+export function plannerOptions(options: string[] | undefined, installed: string[], configured: string[]): string[] {
+  if (options) return options;
+  return [...configured, ...installed.filter(id => !configured.some(value => value.split('#')[0] === id))];
+}
+
+export const signedOutRunners = <T extends { id: string; installed: boolean; signedOutReason?: string }>(providers: T[], planner: string): T[] =>
+  providers.filter(p => p.installed && p.signedOutReason && p.id !== planner);
