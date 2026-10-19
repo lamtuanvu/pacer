@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { readJson } from "../fsutil";
-import { DEFAULT_PORT } from "../serve/http";
+import { DEFAULT_PORT } from "../serve/constants";
 import { pluginDataDir } from "./paths";
 import { publish } from "./publish";
 import { currentSnapshot } from "./store";

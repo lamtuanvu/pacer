@@ -230,6 +230,7 @@ if [ -s "$D/start.error" ]; then printf 'error=%s\\n' "$(cat "$D/start.error")";
 printf 'pid=%s\\n' "$(cat "$D/pid")"`,
   REPORT: `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+printf 'admission_complete=%s\\n' "$(cat "$D/admission.complete" 2>/dev/null)"
 printf 'session=%s\\n' "$(cat "$D/session.host" 2>/dev/null)"
 pid=$(cat "$D/pid" 2>/dev/null); alive=0
 if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then

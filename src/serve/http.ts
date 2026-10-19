@@ -1,3 +1,4 @@
+import { reconcileAdmissionSync } from "../update/desktop/admission";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
 import { createManagedPanelWriter, panelRepo } from "./panel";
@@ -20,7 +21,8 @@ import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 
 
-export const DEFAULT_PORT = 4317;
+import { DEFAULT_PORT } from "./constants";
+export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
 export const STATUS_WARMUP_WAIT_MS = 300;
 
@@ -42,6 +44,7 @@ export function startServer(
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
   const token = ensureToken(initialCtx);
+  reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx);
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;

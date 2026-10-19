@@ -35,7 +35,7 @@ test("durable compare-and-swap advances once and rejects stale revisions without
   expect(readUpdate(ctx, installation.id)).toEqual(written);
   expect(statSync(file(ctx.pacerHome)).mode & 0o777).toBe(0o600);
   expect(statSync(directory(ctx.pacerHome)).mode & 0o777).toBe(0o700);
-  expect(readdirSync(directory(ctx.pacerHome))).toEqual(["desktop-fixture.json"]);
+  expect(readdirSync(directory(ctx.pacerHome)).sort()).toEqual(["admission.sqlite", "desktop-fixture.json"]);
 });
 
 test("two actual processes competing at one revision have exactly one winner", async () => {

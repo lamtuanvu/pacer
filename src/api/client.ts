@@ -2,7 +2,7 @@ import { callV2Op, v2Hello } from "./v2-compat";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Status } from "../engine/status";
-import { DEFAULT_PORT } from "../serve/http";
+import { DEFAULT_PORT } from "../serve/constants";
 import type { LinkSnapshot } from "../link/envelope";
 import type { Ctx } from "../types";
 import { eventsSince, liveV2Snapshot } from "./events";

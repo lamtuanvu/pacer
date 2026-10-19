@@ -5,7 +5,7 @@ import { readText } from "../install/fsx";
 import { readManifest, writeManifest } from "../install/manifest";
 import { isDevArgv, pacerArgv } from "../install/self";
 import { runInstall } from "../install/txn";
-import { DEFAULT_PORT } from "../serve/http";
+import { DEFAULT_PORT } from "../serve/constants";
 
 export const LABEL = "com.pacer.serve";
 export const MARKER = "Managed by pacer service";

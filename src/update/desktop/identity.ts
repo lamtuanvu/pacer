@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { CoreError } from "../../core/errors";
 import { parseDesktopServiceRegistration, parsePlistDictionary, servicePath } from "../../service";
-import { DEFAULT_PORT } from "../../serve/http";
+import { DEFAULT_PORT } from "../../serve/constants";
 import type { Ctx } from "../../types";
 import { isVersion } from "../version";
 import type { Installation } from "./types";

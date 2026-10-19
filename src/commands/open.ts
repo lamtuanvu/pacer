@@ -1,7 +1,7 @@
 import type { Ctx } from "../types";
 import type { Command, Result } from "./types";
 import { clearSessions, createCode } from "../serve/app-auth";
-import { DEFAULT_PORT } from "../serve/http";
+import { DEFAULT_PORT } from "../serve/constants";
 
 export const OPEN_USAGE = "open [--print] [--logout] [--browser] [<screen>]  open the pacer app (requires pacer serve)";
 export type OpenDeps = { opener: (url: string) => Promise<void> };

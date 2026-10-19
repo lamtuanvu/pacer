@@ -1,3 +1,4 @@
+import { beginWorkSync, describeWorkSync, finishWorkSync, validatePendingWorkSync, markLaunchStartedSync } from "../update/desktop/admission";
 import { shortTitle, taskTitle } from "../core/short-title";
 import type { RepoRef } from "../api/read-model/types";
 import { readPause } from "../core/pause";
@@ -70,7 +71,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
+export interface DelegateInput { /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -79,7 +80,7 @@ export function selfCommand(argv: string[] = process.argv, execPath: string = pr
   return /\.(ts|js|mjs)$/.test(script) ? [execPath, script] : [execPath];
 }
 
-export const spawnRunner: SpawnRunner = (ctx, taskId) => {
+const spawnRunnerProcess: SpawnRunner = (ctx, taskId) => {
   const [cmd, ...pre] = selfCommand();
   const child = spawn(cmd, [...pre, "_run", taskId], {
     detached: true,
@@ -89,6 +90,18 @@ export const spawnRunner: SpawnRunner = (ctx, taskId) => {
   child.unref();
   return child.pid;
 };
+
+/** Persist admission before invoking even an injected launcher. Never clear an
+ * uncertain launch just because its parent returned or spawn threw. */
+export function launchTaskRunner(ctx: Ctx, taskId: string, spawn: SpawnRunner, admitted?: string): number | undefined {
+  const inherited = ctx.env.PACER_ADMISSION_TASK === taskId ? ctx.env.PACER_ADMISSION_LEASE : undefined;
+  const lease = admitted ?? inherited ?? beginWorkSync(ctx, { kind: "task", id: taskId, label: `Task ${taskId}` });
+  validatePendingWorkSync(ctx, lease);
+  describeWorkSync(ctx, lease, { kind: "task", id: taskId, label: `Task ${taskId}` });
+  markLaunchStartedSync(ctx, lease);
+  return spawn({ ...ctx, env: { ...ctx.env, PACER_ADMISSION_LEASE: lease, PACER_ADMISSION_TASK: taskId } }, taskId);
+}
+export const spawnRunner: SpawnRunner = (ctx, taskId) => launchTaskRunner(ctx, taskId, spawnRunnerProcess);
 
 export function validateInput(s: Strategy, input: DelegateInput): string[] {
   const p: string[] = [];
@@ -121,6 +134,9 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
 export function delegate(
   ctx: Ctx, input: DelegateInput, spawnFn: SpawnRunner = spawnRunner, s: Strategy = loadStrategy(ctx),
 ): TaskRecord {
+  const lease = input.admissionLease ?? beginWorkSync(ctx, { kind: "launch", id: "delegate", label: "Delegating task" });
+  let handed = false;
+  try {
   const paused = readPause(ctx);
   if (input.executor) input = {...input, executor: resolveRunner(s, input.executor)?.id ?? input.executor};
   const problems = validateInput(s, input);
@@ -140,8 +156,9 @@ export function delegate(
   if (paused) updateTask(ctx, task.id, t => {
     t.queue = {reason: "paused", since: ctx.now, position: 1 + listTasks(ctx, Infinity).filter(x => x.id !== t.id && x.state === "queued" && x.queue).length};
   });
-  else spawnFn(ctx, task.id);
+  else { handed = true; launchTaskRunner(ctx, task.id, spawnFn, lease); }
   return readTask(ctx,task.id)!;
+  } finally { if (!handed) finishWorkSync(ctx, lease); }
 }
 
 function alive(pid: number | undefined): boolean {
@@ -165,8 +182,11 @@ export function taskStatus(ctx: Ctx, id: string, spawn: SpawnRunner = spawnRunne
     const r = run.host ? null : readRun(run.dir);
     if (run.host || (r && (r.alive || r.exit !== null))) {
       if (!t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
+        let lease: string;
+        try { lease = beginWorkSync(ctx, { kind: "task", id, label: `Recovering task ${id}` }); }
+        catch { return t; } // Keep recovery intent while maintenance or coordination is unavailable.
         updateTask(ctx, id, x => { x.resumeSpawnedAt = ctx.now; });
-        try { spawn(ctx, id); } catch { /* the next status read tries again */ }
+        try { launchTaskRunner(ctx, id, spawn, lease); } catch { /* ambiguous launch remains a blocker */ }
       }
       return readTask(ctx, id);
     }

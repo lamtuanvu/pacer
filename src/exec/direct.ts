@@ -1,3 +1,4 @@
+import { withWork } from "../update/desktop/admission";
 import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
@@ -233,6 +234,9 @@ const launchArgv = (run: RunRef) => { try { return readFileSync(join(run.dir, "a
 
 /** One executor attempt through the executor's own CLI, under the file-backed supervisor. */
 export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
+  return withWork(ctx, { kind: "operation", id: task.id, label: "Executor attempt" }, () => runAttemptAdmitted(ctx, cfg, task, onSpawn));
+}
+async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const alias = parseRunnerId(cfg.id)?.host;
   if (alias) return runRemoteAttempt(ctx, cfg, task, loadStrategy(ctx).hosts[alias], onSpawn);
   const dir = tasksDir(ctx);
@@ -322,6 +326,9 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
 
 /** Re-attach to an attempt whose pacer runner died (Task 6). */
 export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
+  return withWork(ctx, { kind: "operation", id: task.id, label: "Executor attempt" }, () => resumeAttemptAdmitted(ctx, cfg, task));
+}
+async function resumeAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
   if (!task.run) throw new Error(`task ${task.id} has no run to resume`);
   const run = task.run;
   if (run.takeover && !existsSync(join(run.dir,"pid"))) {

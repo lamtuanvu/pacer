@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { beginWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
+import { randomBytes, createHash } from "node:crypto";
 import { readReport, type SessionReport } from "../session/reports";
 import type { RunIO } from "./io";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync, chmodSync } from "node:fs";
@@ -20,7 +21,11 @@ const num = (file: string): number | null => {
 
 /** Starts the wrapper detached (own session). The pid file is written here too, so readers never race the wrapper. */
 export function startRun(spec: RunSpec): { pid: number } | { error: string } {
+  const taskRun=basename(dirname(dirname(spec.dir)))==="runs";
+  const ctx=makeCtx({env:spec.env,...(taskRun?{pacerHome:dirname(dirname(dirname(spec.dir)))}:{})});
+  let lease: string | undefined, attempted = false;
   try {
+    lease = beginWorkSync(ctx, { kind: "session", id: createHash("sha256").update(spec.dir).digest("hex"), label: "Executor session" });
     mkdirSync(spec.dir, { recursive: true });
     // A reused directory must not hand a stale exit or output to the new run.
     for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.json", "session.activity", "session.input", "session.ended", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
@@ -28,8 +33,6 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     writeFileSync(script, WRAPPER_SH, { mode: 0o700 });
     if (spec.stdin !== undefined) writeFileSync(join(spec.dir, "stdin"), spec.stdin, { mode: 0o600 });
     let execution;
-    const taskRun=basename(dirname(dirname(spec.dir)))==="runs";
-    const ctx=makeCtx({env:spec.env,...(taskRun?{pacerHome:dirname(dirname(dirname(spec.dir)))}:{})});
     try { execution=validateExecution(loadStrategy(ctx).execution); } catch { /* absent strategy keeps pipe default */ }
     const interactive = spec.session === "interactive";
     const reportToken = interactive ? randomBytes(32).toString("hex") : undefined;
@@ -45,13 +48,19 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
         : [process.execPath,"_session",spec.dir];
       pruneSessions(ctx,execution?.sessionRetentionDays ?? 14);
     }
+    attachRunEvidenceSync(ctx, lease, spec.dir);
+    writeFileSync(join(spec.dir, "admission.json"), JSON.stringify({ lease }), { mode: 0o600 });
+    const launchEnv = { ...spec.env, PACER_HOME: ctx.pacerHome, PACER_ADMISSION_SESSION: lease, PACER_ADMISSION_DIR: spec.dir };
+    // Once spawn is attempted, a thrown error does not certify no child exists.
+    attempted = true;
     const proc = Bun.spawn(command, {
-      detached: true, cwd: spec.cwd, env: interactive ? {...spec.env, PACER_REPORT_TOKEN: reportToken} : spec.env, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+      detached: true, cwd: spec.cwd, env: interactive ? {...launchEnv, PACER_REPORT_TOKEN: reportToken} : launchEnv, stdin: "ignore", stdout: "ignore", stderr: "ignore",
     });
     proc.unref();
     writeFileSync(join(spec.dir, "pid"), String(proc.pid));
     return { pid: proc.pid };
   } catch (e) {
+    if (lease && !attempted) finishWorkSync(ctx, lease);
     return { error: String(e instanceof Error ? e.message : e) };
   }
 }

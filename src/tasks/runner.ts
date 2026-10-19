@@ -1,3 +1,4 @@
+import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { queueCapacity } from "./capacity";
 import { persistTaskDiff } from "./diff";
 import { slotBlock, slotUse } from "../engine/slots";
@@ -79,10 +80,16 @@ const stopped = (ctx: Ctx, id: string) => readTask(ctx, id)?.state === "stopped"
 
 /** Run a delegated task to completion: pick executors, fall back on limits, verify, record the result. */
 export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS): Promise<TaskRecord> {
+  const inherited = ctx.env.PACER_ADMISSION_TASK === id ? ctx.env.PACER_ADMISSION_LEASE : undefined;
+  const lease = inherited ?? beginWorkSync(ctx, { kind: "task", id, label: `Task ${id}` });
+  claimWorkSync(ctx, lease);
+  const env = { ...ctx.env }; delete env.PACER_ADMISSION_LEASE; delete env.PACER_ADMISSION_TASK;
+  ctx = { ...ctx, env };
   const startedAt = Date.now();
   try {
     return await runTaskOnce(ctx, id, deps);
   } finally {
+    finishWorkSync(ctx, lease);
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
         loadStrategy: deps.loadStrategy, computeStatus: deps.computeStatus, hooks: deps.hooks,

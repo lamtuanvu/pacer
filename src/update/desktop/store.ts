@@ -1,3 +1,4 @@
+import { withDesktopCoordinator } from "./coordinator";
 import {
   closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
   readFileSync, renameSync, unlinkSync, writeFileSync,
@@ -86,71 +87,42 @@ function syncDirectory(dir: string): void {
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 
-/**
- * CAS is serialized across processes by desktop-updates/<id>.lock, opened wx.
- * A crashed owner leaves the lock in place. Never steal it by age: reconciliation
- * must prove owner death and transaction safety before removing an orphan.
- */
+/** CAS shares the crash-safe kernel-backed coordinator with admission. Legacy
+ * orphan wx locks remain fail-closed; they are never stolen by age. */
 export function writeUpdate(ctx: Ctx, next: UpdateRecord, expectRevision: number): UpdateRecord {
   assertIdentifier(next.installationId);
   const valid = parseUpdateRecord(next);
   if (!Number.isSafeInteger(expectRevision) || expectRevision < 0) {
     throw new CoreError("invalid_input", "Invalid desktop update revision");
   }
-  if (ctx.readOnly) throw new CoreError("not_allowed", "Desktop update state is read-only");
-  let lockFd: number | undefined;
-  let lockPath: string | undefined;
-  let tempPath: string | undefined;
-  try {
-    const dir = stateDirectory(ctx, true);
-    lockPath = join(dir, `${valid.installationId}.lock`);
-    try { lockFd = openSync(lockPath, "wx", 0o600); }
-    catch (error) {
-      if (hasCode(error, "EEXIST")) {
-        throw new CoreError("conflict", "Desktop update conflict: installation is locked", "Retry after the owner finishes; an abandoned lock requires recovery.");
-      }
-      throw error;
-    }
-    writeFileSync(lockFd, JSON.stringify({ schema: 1, pid: process.pid, nonce: randomUUID() }) + "\n");
-    fsyncSync(lockFd);
-    syncDirectory(dir);
-    const current = readUpdate(ctx, valid.installationId);
-    if (current.revision !== expectRevision || valid.revision !== expectRevision || expectRevision === Number.MAX_SAFE_INTEGER) {
-      throw new CoreError("conflict", "Desktop update conflict: revision changed", "Read the current status and retry.");
-    }
-    for (const receipt of current.requestHistory) {
-      const retained = valid.requestHistory.find(item => item.requestId === receipt.requestId);
-      if (!retained || retained.action !== receipt.action || retained.fingerprint !== receipt.fingerprint || retained.transactionId !== receipt.transactionId) {
-        throw new CoreError("conflict", "Desktop update conflict: request history cannot be changed");
-      }
-    }
-    const written = { ...valid, revision: expectRevision + 1 };
-    const temporary = join(dir, `${valid.installationId}.${randomUUID()}.tmp`);
-    const fd = openSync(temporary, "wx", 0o600);
-    tempPath = temporary;
+  return withDesktopCoordinator(ctx, () => {
+    let tempPath: string | undefined;
     try {
-      writeFileSync(fd, JSON.stringify(written) + "\n");
-      fsyncSync(fd);
-    } finally { closeSync(fd); }
-    renameSync(tempPath, join(dir, `${valid.installationId}.json`));
-    tempPath = undefined;
-    syncDirectory(dir);
-    return written;
-  } catch (error) { throw boundaryError(error); }
-  finally {
-    // Never unlink another owner's lock, even if an external reconciler changed it.
-    if (lockFd !== undefined && lockPath) {
+      const dir = stateDirectory(ctx, true);
       try {
-        if (tempPath) unlinkSync(tempPath);
-        const owned = fstatSync(lockFd), actual = lstatSync(lockPath);
-        if (owned.dev === actual.dev && owned.ino === actual.ino) {
-          unlinkSync(lockPath);
-          syncDirectory(join(ctx.pacerHome, "desktop-updates"));
-        }
-      } catch (error) { throw boundaryError(error); }
-      finally {
-        try { closeSync(lockFd); } catch (error) { throw boundaryError(error); }
+        lstatSync(join(dir, `${valid.installationId}.lock`));
+        throw new CoreError("conflict", "Desktop update conflict: installation is locked", "Retain the legacy lock for recovery.");
+      } catch (error) { if (!hasCode(error, "ENOENT")) throw error; }
+      const current = readUpdate(ctx, valid.installationId);
+      if (current.revision !== expectRevision || valid.revision !== expectRevision || expectRevision === Number.MAX_SAFE_INTEGER) {
+        throw new CoreError("conflict", "Desktop update conflict: revision changed", "Read the current status and retry.");
       }
-    }
-  }
+      for (const receipt of current.requestHistory) {
+        const retained = valid.requestHistory.find(item => item.requestId === receipt.requestId);
+        if (!retained || retained.action !== receipt.action || retained.fingerprint !== receipt.fingerprint || retained.transactionId !== receipt.transactionId) {
+          throw new CoreError("conflict", "Desktop update conflict: request history cannot be changed");
+        }
+      }
+      const written = { ...valid, revision: expectRevision + 1 };
+      tempPath = join(dir, `${valid.installationId}.${randomUUID()}.tmp`);
+      const fd = openSync(tempPath, "wx", 0o600);
+      try { writeFileSync(fd, JSON.stringify(written) + "\n"); fsyncSync(fd); }
+      finally { closeSync(fd); }
+      renameSync(tempPath, join(dir, `${valid.installationId}.json`));
+      tempPath = undefined;
+      syncDirectory(dir);
+      return written;
+    } catch (error) { throw boundaryError(error); }
+    finally { if (tempPath) unlinkSync(tempPath); }
+  });
 }
