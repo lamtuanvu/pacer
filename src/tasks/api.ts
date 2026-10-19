@@ -15,7 +15,7 @@ import { killTree } from "../exec/process";
 import { RemoteRunIO } from "../remote/run-io";
 import { readRun } from "../supervisor/run";
 import type { Ctx } from "../types";
-import { createTask, listTasks, readTask, updateTask } from "./store";
+import { createTask, listTasksWhere, readTask, updateTask } from "./store";
 import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
 
 export const EXECUTOR_DELEGATE_ERROR = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
@@ -138,7 +138,7 @@ export function delegate(
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
   if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });
   if (paused) updateTask(ctx, task.id, t => {
-    t.queue = {reason: "paused", since: ctx.now, position: 1 + listTasks(ctx, Infinity).filter(x => x.id !== t.id && x.state === "queued" && x.queue).length};
+    t.queue = {reason: "paused", since: ctx.now, position: 1 + listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== t.id && x.queue).length};
   });
   else spawnFn(ctx, task.id);
   return readTask(ctx,task.id)!;
@@ -159,7 +159,12 @@ const isTerminal = (t: TaskRecord) => TERMINAL_STATES.includes(t.state);
 /** Read a task; resume recoverable attempts before failing missing or dead runners. */
 export function taskStatus(ctx: Ctx, id: string, spawn: SpawnRunner = spawnRunner): TaskRecord | null {
   const t = readTask(ctx, id);
-  if (!t) return null;
+  return t ? taskRecordStatus(ctx, t, spawn) : null;
+}
+
+/** Refresh a record already selected by the store without reading it again. */
+export function taskRecordStatus(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner = spawnRunner): TaskRecord {
+  const id = t.id;
   const run = t.run, current = run && run.attempt > t.attempts.length;
   if (t.state === "running" && current && !alive(t.runnerPid)) {
     const r = run.host ? null : readRun(run.dir);
@@ -168,7 +173,7 @@ export function taskStatus(ctx: Ctx, id: string, spawn: SpawnRunner = spawnRunne
         updateTask(ctx, id, x => { x.resumeSpawnedAt = ctx.now; });
         try { spawn(ctx, id); } catch { /* the next status read tries again */ }
       }
-      return readTask(ctx, id);
+      return readTask(ctx, id)!;
     }
   }
   const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
