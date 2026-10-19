@@ -82,3 +82,23 @@ test("stuck sign-in explains the failure, logs and background retries without a 
   expect(page.element("#message").hidden).toBe(true);
   expect(page.element("#spinner").hidden).toBe(false);
 });
+
+test("missing CLI page names the cause and links the install guide", () => {
+  const page = shell("?state=install");
+  expect(page.element("h1").textContent).toBe("pacer needs its command-line tool");
+  expect(page.element("#message").textContent).toBe("The pacer app runs its background service through the pacer command-line tool, which isn't installed. Install it and this window continues on its own.");
+  expect(page.element("#install-help").hidden).toBe(false);
+  expect(page.element("#spinner").hidden).toBe(true);
+  const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), "utf8");
+  expect(html).toContain('id="install-help" href="https://github.com/lamtuanvu/pacer/blob/main/docs/install.md"');
+  page.render({ page: "starting" });
+  expect(page.element("#install-help").hidden).toBe(true);
+});
+
+test("foreign service page names the other pacer folder", () => {
+  const page = shell("?state=foreign&path=~/other-pacer");
+  expect(page.element("h1").textContent).toBe("Another pacer is running");
+  expect(page.element("#message").textContent).toBe("The background service belongs to the pacer folder ~/other-pacer, and this app uses a different one. Stop the other service, or open the app with the same pacer folder.");
+  expect(page.element("#install-help").hidden).toBe(true);
+  expect(page.element("#spinner").hidden).toBe(true);
+});
