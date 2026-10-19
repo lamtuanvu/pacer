@@ -3,8 +3,10 @@ import { needsReview } from "../api/read-model/tasks";
 import { parseRunnerId } from "../config/runner-id";
 import { executorName } from "../link/notification";
 import type { Action, AttentionItem, AttentionKind } from "./types";
+import type { PluginReload } from "./plugin-reload";
 
 export interface RuleInput {
+  pluginReload?: PluginReload | null;
   now: number; tasks: ApiTask[]; executors: ExecutorRow[]; accounts: AccountSummary[];
   hosts?: HostSummary[]; planner: PlannerMeter | null; setup: SetupSummary;
   update: { latest: string; available: boolean } | null;
@@ -59,5 +61,12 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
   }
   for (const s of input.setup.items) if (s.required && s.status!=="done") add("setup",s.id,s.title,"Setup required",[open("Open settings",{view:"settings",section:s.id})]);
   if (input.update?.available) add("update",input.update.latest,`Update to ${input.update.latest}`,"An update is available",[{label:"Update",op:"update.apply",params:{}},{label:"Later",op:"attention.dismiss",params:{id:`update:${input.update.latest}`}}]);
+  if (input.pluginReload) {
+    const { hash, version, at } = input.pluginReload;
+    const id = `setup:plugin-reload-${hash}`;
+    add("setup", `plugin-reload-${hash}`, "Reload the Orca plugin", `Orca plugin ${version} was refreshed. Turn pacer off and on in Orca Settings > Plugins to load it.`, [
+      { label: "Done", op: "attention.dismiss", params: { id } },
+    ], { severity: "decide", since: at, raisedAt: at });
+  }
   return sortItems(items);
 }

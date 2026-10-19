@@ -148,7 +148,7 @@ export function startServer(
   });
   const unregisterJobs = registerJobDaemon(initialCtx);
   refreshPanel();
-  void refreshManagedPlugin(initialCtx, currentVersion(), opts.pluginRefreshDeps).finally(refreshSnapshot);
+  void refreshManagedPlugin(initialCtx, opts.pluginRefreshDeps).finally(refreshSnapshot);
   let busy = false;
   const tick = () => {
     if (busy || stopped) return;
