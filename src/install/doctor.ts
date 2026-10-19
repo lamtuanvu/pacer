@@ -9,7 +9,8 @@ import { readJson } from "../fsutil";
 import type { ActivityProfile } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
 import type { Ctx } from "../types";
-import { isObj } from "../util";
+import { loginIndicator } from "./login";
+import { executorsFor } from "../engine/rank";
 import { readText, sha256 } from "./fsx";
 import { piecesPresent, readManifest, type FileChange } from "./manifest";
 
@@ -32,6 +33,11 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
   }
 
   if (strategy) {
+    if (!executorsFor(null, strategy).some(id => {
+      const runner = strategy!.runners[id];
+      return runner && !(runner.agent === strategy!.planner.agent && runner.account === strategy!.planner.account);
+    })) checks.push({ name: "Executor", level: "warn", detail: "no executor configured",
+      fix: "install an executor CLI such as codex, then run pacer init" });
     const logins = new Set<string>();
     for (const cfg of Object.values(strategy.providers)) {
       const bin = binaryFor(cfg);
@@ -123,32 +129,9 @@ function errorText(e: unknown): string {
 }
 
 function loginCheck(ctx: Ctx, id: string): Check {
-  let loggedIn: boolean;
-  let fix: string;
-  switch (id) {
-    case "claude-code": {
-      const account = readJson<unknown>(join(ctx.home, ".claude.json"));
-      loggedIn = !!ctx.env.ANTHROPIC_API_KEY || (isObj(account) && Object.hasOwn(account, "oauthAccount"));
-      fix = "run claude and log in";
-      break;
-    }
-    case "codex":
-      loggedIn = existsSync(join(ctx.home, ".codex", "auth.json"));
-      fix = "codex login";
-      break;
-    case "cursor": {
-      const config = readJson<unknown>(join(ctx.home, ".cursor", "cli-config.json"));
-      loggedIn = isObj(config) && isObj(config.authInfo);
-      fix = "cursor-agent login";
-      break;
-    }
-    case "opencode":
-      loggedIn = existsSync(join(ctx.home, ".local", "share", "opencode", "auth.json"));
-      fix = "opencode auth login";
-      break;
-    default:
-      return { name: `Login ${id}`, level: "info", detail: "login not cheaply checkable" };
-  }
+  const indicator = loginIndicator(ctx, id);
+  if (!indicator) return { name: `Login ${id}`, level: "info", detail: "login not cheaply checkable" };
+  const { loggedIn, fix } = indicator;
   return { name: `Login ${id}`, level: loggedIn ? "ok" : "warn",
     detail: loggedIn ? "login indicator present" : "no login indicator", ...(!loggedIn ? { fix } : {}) };
 }
