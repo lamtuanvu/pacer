@@ -12,14 +12,18 @@ import { formatRunnerId, runnerDefaults } from "../config/runner-id";
 import { accountFolder } from "../install/role";
 import { readManifest, piecesPresent, type FileChange } from "../install/manifest";
 import { readText, sha256 } from "../install/fsx";
-import { listTasks } from "../tasks/store";
+import { listTasks, taskStoreVersion } from "../tasks/store";
 import { computeStatus, type Status } from "../engine/status";
 const statuses=new Map<string,{at:number;status:Status}>();
 // Reviewed is monotonic; remember it so polling does not rescan the task store.
 const reviewedHomes=new Set<string>();
+const reviewedVersions=new Map<string,string>();
 function anyReviewed(ctx:Ctx):boolean {
  if(reviewedHomes.has(ctx.pacerHome))return true;
+ const version=taskStoreVersion(ctx);
+ if(reviewedVersions.get(ctx.pacerHome)===version)return false;
  const r=listTasks(ctx,Infinity).some(t=>!!t.review);
+ reviewedVersions.set(ctx.pacerHome,version);
  if(r)reviewedHomes.add(ctx.pacerHome);
  return r;
 }

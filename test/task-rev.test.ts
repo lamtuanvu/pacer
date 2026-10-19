@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/protocol";
@@ -22,11 +22,11 @@ test("tasks start at revision 1 and every update increments the stored revision"
 });
 
 test("legacy tasks without rev read as revision 1 and update to revision 2", () => {
-  const { ctx, task } = fixture();
-  const file = join(ctx.pacerHome, "tasks", `${task.id}.json`);
-  const legacy = JSON.parse(readFileSync(file, "utf8"));
-  delete legacy.rev;
-  writeFileSync(file, JSON.stringify(legacy));
+  const ctx = fakeCtx();
+  const task = { id: "t-20261019-120000-abcd", createdAt: ctx.now, state: "queued", attempts: [],
+    brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 };
+  mkdirSync(join(ctx.pacerHome, "tasks"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "tasks", `${task.id}.json`), JSON.stringify(task));
   expect(readTask(ctx, task.id)?.rev).toBe(1);
   expect(updateTask(ctx, task.id, () => {}).rev).toBe(2);
 });

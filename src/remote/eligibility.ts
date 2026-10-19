@@ -5,7 +5,7 @@ import { type HostCfg, repoKey } from "../config/hosts";
 import { resolveRunner } from "../config/runner-id";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { readJson, writeJsonAtomic } from "../fsutil";
-import { listTasks } from "../tasks/store";
+import { listTasksWhere } from "../tasks/store";
 import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
@@ -72,7 +72,7 @@ export async function remoteExclusion(
   if (!key || !Object.hasOwn(host.repos, key)) return `repo not set up on ${alias} (add hosts.${alias}.repos.${key ?? "<key>"})`;
   if (task.placement === "current") return "remote runners need a new worktree";
   if (deps.skipSlots) return null;
-  const use = slotUse(listTasks(ctx, Infinity));
+  const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
   if (deps.running) use.byHost[alias] = deps.running(alias);
   return slotBlock(s, runnerId, use);
 }

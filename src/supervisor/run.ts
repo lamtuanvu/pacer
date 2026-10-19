@@ -46,7 +46,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
       pruneSessions(ctx,execution?.sessionRetentionDays ?? 14);
     }
     const proc = Bun.spawn(command, {
-      detached: true, cwd: spec.cwd, env: interactive ? {...spec.env, PACER_REPORT_TOKEN: reportToken} : spec.env, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+      detached: true, cwd: spec.cwd, env: {...spec.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome, ...(interactive ? { PACER_REPORT_TOKEN: reportToken } : {})}, stdin: "ignore", stdout: "ignore", stderr: "ignore",
     });
     proc.unref();
     writeFileSync(join(spec.dir, "pid"), String(proc.pid));

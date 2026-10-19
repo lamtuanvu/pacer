@@ -28,7 +28,7 @@ import { remoteExclusion } from "../remote/eligibility";
 import { resolveRunner } from "../config/runner-id";
 import { markAuthFailed } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
-import { listTasks, readTask, updateTask } from "./store";
+import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
@@ -106,7 +106,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       const dispatched = t.state === "running" && !t.attemptStartedAt && !t.run && (!t.runnerPid || t.runnerPid === process.pid || !pidAlive(t.runnerPid));
       if(t.state!=="queued" && !resumable && !dispatched)return;
       if(t.state === "queued" && t.runnerPid && pidAlive(t.runnerPid) && !t.queue)return;
-      if(!t.force && t.state==="queued")duplicate=listTasks(ctx,Infinity).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
+      if(!t.force && t.state==="queued")duplicate=listTasksWhere(ctx, { states: ["queued", "running"] }).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
       if(duplicate)return;
       started=true;t.runnerPid=process.pid;delete t.queue;
       if (dispatched) t.attemptStartedAt = Date.now()/1000;
@@ -157,7 +157,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         if (ranking.ranked.some(e => resolveRunner(s, e.id)?.host)) {
           const git = await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" }));
           const top = realpathSafe("error" in git ? task.brief.repo : git.top);
-          const busy = listTasks(ctx, Infinity).some(t => {
+          const busy = listTasksWhere(ctx, { states: ["running"] }).some(t => {
             const path = realpathSafe(t.worktree ?? t.result?.worktree ?? t.brief.repo);
             return t.id !== task.id && t.state === "running" && !!t.runnerPid && pidAlive(t.runnerPid)
               && t.placement?.mode === "current" && (path === top || path.startsWith(top + "/"));
@@ -181,7 +181,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const allowed = Array.isArray(f) ? rankedIds.filter(x => f.includes(x)) : rankedIds;
         await withLock(ctx, "slots", async () => {
           if (stopped(ctx, id)) return;
-          const use = slotUse(listTasks(ctx, Infinity).filter(t => t.id !== id));
+          const use = slotUse(listTasksWhere(ctx, { states: ["running"] }).filter(t => t.id !== id));
           const full = new Set<string>();
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;
@@ -198,7 +198,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
           if (paused || (req && !tried.has(req) && full.has(req)) || (!pick && [...full].some(e => !tried.has(e)))) {
             task = updateTask(ctx, id, t => {
-              const waiting = listTasks(ctx, Infinity).filter(x => x.id !== id && x.state === "queued" && x.queue && x.createdAt <= t.createdAt);
+              const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== id && x.queue && x.createdAt <= t.createdAt);
               t.state = "queued";
               const blockedExecutor = req && full.has(req) ? req : [...full].find(e => !tried.has(e));
               const capacity = !paused && blockedExecutor ? queueCapacity(s, blockedExecutor, use) : undefined;

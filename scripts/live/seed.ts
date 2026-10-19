@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createTask, updateTask } from "../../src/tasks/store";
+import type { Ctx } from "../../src/types";
 import type { TaskRecord } from "../../src/tasks/types";
 import { atomicWrite, checkout } from "./core";
 
@@ -58,7 +60,10 @@ export function seedUi(root: string): void {
   const states = ["done", "failed", "partial", "running", "done"] as const;
   const attention: Record<string, { since: number }> = {};
   states.forEach((state, index) => {
-    const id = `t-20261019-12000${index}-000${index}`;
+    const ctx: Ctx = { home, pacerHome: home, now: now - 300 + index, env: {},
+      run: async () => { throw Error("seed cannot run commands"); }, which: () => null };
+    const { id } = createTask(ctx, { brief: { goal: "fixture", repo: join(home, "repos/sample") },
+      kind: "feature", requestedExecutor: null, timeoutS: 0 });
     const source = state === "running" ? session : snapshot.tasks.find((task: { state: string }) => task.state === state) ?? detail;
     const repo = join(home, "repos/sample");
     const worktree = join(home, "worktrees", id);
@@ -86,7 +91,7 @@ export function seedUi(root: string): void {
       if (index === 4) task.review = { accepted: true, kind: "feature", note: "Sample accepted work", at: now - 30 };
       else attention[`${state === "failed" ? "failed" : "review"}:${id}`] = { since: now - 60 };
     }
-    json(`tasks/${id}.json`, task);
+    updateTask(ctx, id, record => { Object.assign(record, task); });
   });
   json("state/attention.json", attention);
 }

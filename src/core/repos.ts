@@ -1,6 +1,6 @@
 import { CoreError } from "./errors";
 import { withLock } from "./lock";
-import { listTasks } from "../tasks/store";
+import { listActiveAndRecentTasks } from "../tasks/store";
 import { createHash } from "node:crypto";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
@@ -28,7 +28,7 @@ export function labelsFor(entries: {key: string; path: string}[]): Map<string,st
 // Cleanup is throttled per registry; filtering still applies to every read.
 const lastPruned = new Map<string,number>();
 function taskRepos(ctx: Ctx): RepoRef[] {
- return listTasks(ctx,Infinity).filter(t=>{
+ return listActiveAndRecentTasks(ctx).filter(t=>{
   const last=t.attempts.at(-1),updatedAt=Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0);
   return ["queued","running"].includes(t.state)||(!t.dismissed&&updatedAt>=ctx.now-86400);
  }).map(t=>t.repo??repoFor(ctx,t.brief.repo));

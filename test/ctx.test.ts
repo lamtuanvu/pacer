@@ -1,4 +1,8 @@
 import { expect, test } from "bun:test";
+import { userInfo } from "node:os";
+import { join } from "node:path";
+import { createTask } from "../src/tasks/store";
+import { fakeCtx } from "./helpers";
 import { defaultRun, makeCtx } from "../src/ctx";
 
 test("makeCtx honours PACER_HOME and HOME from env", () => {
@@ -18,4 +22,19 @@ test("defaultRun captures output and reports a missing binary as code 127 instea
 test("defaultRun preserves timeout status for bounded diagnostics", async () => {
   const result = await defaultRun(["sleep", "2"], 20);
   expect(result.timedOut).toBe(true);
+});
+
+test("a reduced environment falls back to the isolated process HOME", () => {
+  const ctx = makeCtx({ env: { PATH: "/bin" } });
+  expect(ctx.home).toBe(process.env.HOME!);
+  expect(ctx.pacerHome).toBe(join(process.env.HOME!, ".pacer"));
+});
+
+test("test preload refuses the real user PACER_HOME before any store IO", () => {
+  const pacerHome = join(userInfo().homedir, ".pacer");
+  expect(() => makeCtx({ pacerHome })).toThrow("refuses real user PACER_HOME");
+  expect(() => makeCtx({ env: { HOME: userInfo().homedir } })).toThrow("refuses real user PACER_HOME");
+  expect(() => createTask(fakeCtx({ pacerHome }), {
+    brief: { goal: "must never write", repo: "/tmp" }, kind: null, requestedExecutor: null, timeoutS: 60,
+  })).toThrow("refuses real user PACER_HOME");
 });
