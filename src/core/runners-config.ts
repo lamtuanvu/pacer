@@ -3,7 +3,7 @@ import { allowedPair, type AgentId } from "../config/accounts";
 import { StrategyDoc } from "../config/edit";
 import { formatRunnerId, parseRunnerId, resolveRunner, runnerDefaults } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
-import { applyEdit, requireAccounts } from "./accounts";
+import { ensureAccounts } from "./accounts";
 import { CoreError, toCoreError } from "./errors";
 import type { Ctx } from "../types";
 
@@ -12,8 +12,7 @@ function docValue(doc: StrategyDoc, path: (string | number)[]): any {
 }
 function change(ctx: Ctx, verb: "add" | "rm", reference: string, options: AddOptions = {}) {
   try {
-    const s = loadStrategy(ctx);
-    requireAccounts(s);
+    const {strategy: s, migrated, edit} = ensureAccounts(ctx);
     const parsed=parseRunnerId(reference); if(!parsed) throw Error('invalid runner id');
     // Remote rules (agents, account homes) are enforced when the edited strategy is validated.
     if(parsed.host && !Object.hasOwn(s.hosts,parsed.host)) throw Error(`unknown host ${parsed.host} (hosts: ${Object.keys(s.hosts).join(', ') || 'none'})`);
@@ -23,7 +22,7 @@ function change(ctx: Ctx, verb: "add" | "rm", reference: string, options: AddOpt
     const id=formatRunnerId({...parsed,account:a.name},defaults);
     if(verb==='add') {
       if(s.runners[id]) throw Error(`runner ${id} already exists`);
-      const diff=applyEdit(ctx,doc=>{
+      const diff=edit(doc=>{
         const settings = {...(options.model ? {model:options.model} : {}), ...(options.max_tasks !== undefined ? {max_tasks:options.max_tasks}:{}), ...(options.test !== undefined ? {test:options.test}:{})};
         if(Object.keys(settings).length) doc.addMappingEntry('runners',id,settings);
         // Materialize the effective routing before adding a runner, preserving every rule.
@@ -45,13 +44,13 @@ function change(ctx: Ctx, verb: "add" | "rm", reference: string, options: AddOpt
         } else doc.setIn(['routing'],[...rules,{default:[id]}]);
         if(options.rank!==undefined) moveRank(doc,s,id,options.rank);
       });
-      return {id, diff};
+      return {id, diff, ...(migrated ? {migrated} : {})};
     }
     if(verb==='rm') {
       const r=resolveRunner(s,id); if(!r) throw Error('unknown runner');
       if(r.agent===s.planner.agent && r.account===s.planner.account) throw Error('planner runner is in use');
       if(Object.keys(s.runners).length<=1) throw Error('cannot remove the last runner');
-      const diff=applyEdit(ctx,doc=>{
+      const diff=edit(doc=>{
         const declarations=docValue(doc,['runners']) as Record<string,unknown>|undefined;
         for(const key of Object.keys(declarations ?? {})) if(resolveRunner(s,key)?.id===id) doc.removeMappingEntry('runners',key);
         const rules=docValue(doc,['routing']);
@@ -82,7 +81,7 @@ function change(ctx: Ctx, verb: "add" | "rm", reference: string, options: AddOpt
         const order=docValue(doc,['pacing','order']);
         if(Array.isArray(order)) doc.setList(['pacing','order'],order.filter(v=>resolveRunner(s,String(v))?.id!==id));
       });
-      return {id, removed: true as const, diff};
+      return {id, removed: true as const, diff, ...(migrated ? {migrated} : {})};
     }
     throw Error("unknown runner action");
   } catch (e) {
@@ -109,11 +108,11 @@ function moveRank(doc:StrategyDoc,s:ReturnType<typeof loadStrategy>,id:string,ra
   order.splice(Math.min(rank,order.length),0,id); doc.setList(['pacing','order'],order);
 }
 export function set(ctx:Ctx,reference:string,o:{enabled?:boolean;model?:string|null;max_tasks?:number;rank?:number}) {
-  const s=loadStrategy(ctx); requireAccounts(s);
+  const {strategy: s, migrated, edit}=ensureAccounts(ctx);
   const r=resolveRunner(s,reference); if(!r) throw new CoreError("invalid_input","unknown runner");
   if(r.agent===s.planner.agent && r.account===s.planner.account) throw new CoreError("not_allowed","cannot edit the planner runner");
   if(o.rank!==undefined) validRank(o.rank);
-  applyEdit(ctx,doc=>{
+  edit(doc=>{
     // Update the existing declaration even when it uses a transitional alias.
     const raw=docValue(doc,['runners']) ?? {};
     const key=Object.keys(raw).find(key=>resolveRunner(s,key)?.id===r.id) ?? r.id;
@@ -122,10 +121,10 @@ export function set(ctx:Ctx,reference:string,o:{enabled?:boolean;model?:string|n
   });
   const updated=loadStrategy(ctx);
   const warnings=o.enabled===false ? updated.routing.filter(rule=>rule.executors.some(id=>resolveRunner(updated,id)?.id===r.id) && !rule.executors.some(id=>{const candidate=resolveRunner(updated,id);return candidate && candidate.enabled!==false && !(candidate.agent===s.planner.agent && candidate.account===s.planner.account);})).map(rule=>`routing rule '${rule.kinds?.join(',') ?? 'default'}' has no enabled executor left`) : [];
-  return {id:r.id,warnings};
+  return {id:r.id,warnings,...(migrated ? {migrated} : {})};
 }
 export function reorder(ctx:Ctx,ids:string[]) {
-  const s=loadStrategy(ctx); requireAccounts(s); const expected=executorIds(s);
+  const {strategy: s, migrated, edit}=ensureAccounts(ctx); const expected=executorIds(s);
   if(ids.length!==expected.length || new Set(ids).size!==ids.length || ids.some(id=>!expected.includes(id))) throw new CoreError("invalid_input","ids must be a permutation of the non-planner runners");
-  applyEdit(ctx,doc=>doc.setList(['pacing','order'],ids)); return {order:ids};
+  edit(doc=>doc.setList(['pacing','order'],ids)); return {order:ids,...(migrated ? {migrated} : {})};
 }
