@@ -50,7 +50,7 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "uninstall",
-    usage: usage("uninstall <planner>", "undo pacer install (restores backups)"),
+    usage: usage("uninstall <planner>", "undo pacer install (restores backups); uninstall --all [--yes] [--binary] removes everything"),
     async run(args, ctx) {
       const [planner] = args;
       if (!isPlanner(planner)) return badPlanner(planner);
