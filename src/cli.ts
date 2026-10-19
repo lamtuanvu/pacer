@@ -15,6 +15,7 @@ import { resolveRunner } from "./config/runner-id";
 import { readUpdateCheck, updateLine } from "./update/check";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
+import { parseDelegateKind } from "./commands/delegate-kind";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync } from "node:fs";
@@ -241,6 +242,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
+    if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
     const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);

@@ -45,6 +45,11 @@ Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
 (max 200 characters). Executors cannot delegate onward.
 
+Delegate accepts kind aliases in `--kind` and brief files: `bugfix`, `fix`, and `bug`
+map to `debug`; `test` maps to `tests`; `doc` maps to `docs`; and `perf` maps to
+`performance`. Tasks store the canonical kind. Invalid kinds list the allowed
+values and suggest the closest kind.
+
 Choose current for uncommitted work, research/review, installed dependencies, or small
 follow-ups. Choose new for parallel tasks, concurrent user edits, or risky experiments;
 omit the choice for auto placement.
