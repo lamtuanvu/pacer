@@ -95,3 +95,15 @@ test("update-time signing skips non-Mach-O files and never fails the update", as
   expect(calls.length).toBeGreaterThan(0);
   expect(logs.join("\n")).toContain("could not sign the update");
 });
+
+test("the designated requirement is passed inline, not as a file path", () => {
+  const args = signArgs("/tmp/staged pacer", hash);
+  const requirement = args[args.indexOf("-r") + 1]!;
+  expect(requirement.startsWith("=designated => ")).toBe(true);
+});
+
+test("install.sh passes the designated requirement inline", () => {
+  const script = require("node:fs").readFileSync(require("node:path").join(import.meta.dir, "..", "install.sh"), "utf8") as string;
+  expect(script).toContain('-r "=designated => identifier');
+  expect(script).not.toContain('-r "designated =>');
+});

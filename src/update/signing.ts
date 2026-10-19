@@ -27,7 +27,8 @@ export function parseIdentity(output: string): string | null {
 export function signArgs(binary: string, hash: string): string[] {
   if (!/^[a-fA-F0-9]{40}$/.test(hash)) throw Error("invalid signing identity fingerprint");
   return ["/usr/bin/codesign", "-f", "-s", hash, "-i", SIGNING_IDENTIFIER, "--options", "0",
-    "-r", `designated => identifier "${SIGNING_IDENTIFIER}" and certificate leaf = H"${hash}"`, binary];
+    // A leading "=" makes codesign read the requirement inline; without it the text is taken as a file path.
+    "-r", `=designated => identifier "${SIGNING_IDENTIFIER}" and certificate leaf = H"${hash}"`, binary];
 }
 export async function findIdentity(run: RunFn = signingRun): Promise<string | null> {
   const result = await run(["/usr/bin/security", "find-identity", "-v", "-p", "codesigning"], 3000);

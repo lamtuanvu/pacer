@@ -160,7 +160,7 @@ if [ "$os" = darwin ]; then
   if [ -n "$signing_hash" ]; then
     say "Signing staged binary as dev.pacer.cli; unlock the login keychain if macOS requests authorization."
     /usr/bin/codesign -f -s "$signing_hash" -i dev.pacer.cli --options 0 \
-      -r "designated => identifier \"dev.pacer.cli\" and certificate leaf = H\"$signing_hash\"" "$stage" || die "cannot sign staged binary"
+      -r "=designated => identifier \"dev.pacer.cli\" and certificate leaf = H\"$signing_hash\"" "$stage" || die "cannot sign staged binary"
     /usr/bin/codesign --verify --strict "$stage" || die "staged signature verification failed"
   fi
 fi
