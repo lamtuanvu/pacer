@@ -455,7 +455,7 @@ pub async fn run(app: AppHandle) {
             desktop_log!("pacer lifecycle: {reason}");
             previous = reason;
         }
-        let page = logic::shell_page(permission, action, cli.is_some());
+        let page = logic::shell_page(permission, action, job, cli.is_some());
         let detail = match page {
             "permission" => waiting,
             "foreign" => owner.map(|owner| {

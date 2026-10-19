@@ -285,6 +285,7 @@ pub fn launchd_environment(text: &str) -> Vec<(String, String)> {
 }
 
 /// `Environment=` from `systemctl --user show`; assignments with spaces are double-quoted.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn systemd_environment(text: &str) -> Vec<(String, String)> {
     let Some(line) = text.lines().find_map(|line| line.strip_prefix("Environment=")) else {
         return Vec::new();
@@ -326,14 +327,16 @@ pub fn job_owner(env: &[(String, String)], default_home: &str) -> (String, u16) 
     (home, port)
 }
 
-/// The one page a lifecycle pass shows. Deciding it once keeps the window from
-/// flipping between pages, and names a missing CLI instead of a generic sign-in failure.
-pub fn shell_page(permission: bool, action: RecoveryAction, cli_found: bool) -> &'static str {
+/// The one page a lifecycle pass shows. It follows the state, not this pass's action, so the
+/// window doesn't fall back to "starting" on the `Wait` passes between gated actions.
+pub fn shell_page(permission: bool, action: RecoveryAction, job: JobState, cli_found: bool) -> &'static str {
     if permission {
         "permission"
     } else if action == RecoveryAction::Foreign {
         "foreign"
-    } else if !cli_found && matches!(action, RecoveryAction::Install | RecoveryAction::Connect) {
+    } else if !cli_found
+        && (job == JobState::NotLoaded || matches!(action, RecoveryAction::Install | RecoveryAction::Connect))
+    {
         "install"
     } else {
         "starting"
@@ -1236,14 +1239,25 @@ mod tests {
     #[test]
     fn one_page_per_pass_explains_a_missing_cli() {
         use RecoveryAction::*;
-        assert_eq!(shell_page(false, Install, false), "install");
-        assert_eq!(shell_page(false, Connect, false), "install");
-        assert_eq!(shell_page(false, Install, true), "starting");
-        assert_eq!(shell_page(false, Wait, false), "starting");
-        assert_eq!(shell_page(false, Start, false), "starting");
-        assert_eq!(shell_page(false, RecoveryAction::Foreign, true), "foreign");
-        assert_eq!(shell_page(true, Install, false), "permission");
-        assert_eq!(shell_page(true, RecoveryAction::Foreign, false), "permission");
+        let none = JobState::NotLoaded;
+        assert_eq!(shell_page(false, Install, none, false), "install");
+        // The Wait passes between gated installs keep the page.
+        assert_eq!(shell_page(false, Wait, none, false), "install");
+        assert_eq!(shell_page(false, Connect, JobState::Unknown, false), "install");
+        assert_eq!(shell_page(false, Install, none, true), "starting");
+        assert_eq!(shell_page(false, Wait, JobState::Running, false), "starting");
+        assert_eq!(shell_page(false, Start, JobState::Stopped, false), "starting");
+        assert_eq!(shell_page(false, RecoveryAction::Foreign, JobState::Foreign, true), "foreign");
+        assert_eq!(shell_page(true, Install, none, false), "permission");
+        assert_eq!(shell_page(true, RecoveryAction::Foreign, JobState::Foreign, false), "permission");
+    }
+    #[test]
+    fn missing_cli_page_holds_across_gated_install_passes() {
+        let mut state = Lifecycle::default();
+        for now in 0..70 {
+            let action = state.step(now, HealthProbe::Refused, JobState::NotLoaded, false);
+            assert_eq!(shell_page(false, action, JobState::NotLoaded, false), "install", "{now}");
+        }
     }
     #[test]
     fn display_home_abbreviates_only_the_home_prefix() {
