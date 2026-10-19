@@ -16,7 +16,7 @@ function concreteReference(value: unknown): boolean {
 }
 
 /** Validate a report manifest, not the truth of review or visual evidence. */
-export function checkUiEvidence(files: string[], body: string, base?: string, head?: string): UiEvidenceViolation[] {
+export function checkUiEvidence(files: string[], body: string, base?: string, head?: string, draft = false): UiEvidenceViolation[] {
   if (!files.some(path => uiPath.test(path))) return [];
   const fail = (message: string): UiEvidenceViolation => ({ rule: "UI-24", message });
   const manifests = [...body.matchAll(/<!--\s*pacer-ui-evidence\s*\n([\s\S]*?)-->/g)];
@@ -32,9 +32,17 @@ export function checkUiEvidence(files: string[], body: string, base?: string, he
   for (const key of ["compliance", "ui", "qa"]) {
     const report = value[key];
     if (!record(report)) { violations.push(fail(`Missing ${key} report with verdict, report reference and summary.`)); continue; }
-    if (report.verdict !== "PASS") violations.push(fail(`${key} verdict must be PASS before merge; FAIL/UNVERIFIED work remains outstanding.`));
+    if (draft ? !["PASS", "FAIL", "UNVERIFIED"].some(verdict => verdict === report.verdict) : report.verdict !== "PASS") {
+      violations.push(fail(draft
+        ? `${key} draft report must state PASS, FAIL or UNVERIFIED honestly.`
+        : `${key} verdict must be PASS before merge; FAIL/UNVERIFIED work remains outstanding.`));
+    }
     if (!concreteReference(report.report)) violations.push(fail(`${key} report needs an accessible HTTPS report/comment URL or artifact://artifact-name/report-path reference; local paths and checkboxes do not qualify.`));
-    if (typeof report.summary !== "string" || report.summary.trim().length < 12 || /\b(?:FAIL|UNVERIFIED|UNKNOWN)\b/i.test(report.summary)) violations.push(fail(`${key} summary must describe actual passing checks without outstanding FAIL/UNVERIFIED behavior.`));
+    if (typeof report.summary !== "string" || report.summary.trim().length < 12) {
+      violations.push(fail(`${key} summary must describe the actual checks and their results.`));
+    } else if ((!draft || report.verdict === "PASS") && /\b(?:FAIL|UNVERIFIED|UNKNOWN)\b/i.test(report.summary)) {
+      violations.push(fail(`${key} summary must describe actual passing checks without outstanding FAIL/UNVERIFIED behavior.`));
+    }
   }
   return violations;
 }
@@ -50,5 +58,7 @@ export function checkUiPullRequest(eventPath: string, root = process.cwd()): UiE
   const diff = Bun.spawnSync(["git", "diff", "--name-only", "-z", base, head, "--"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (diff.exitCode !== 0) return [{ rule: "UI-24", message: `Cannot inspect changed UI files; fetch the PR base/head history. git diff: ${diff.stderr.toString().trim()}` }];
   const files = diff.stdout.toString().split("\0").filter(Boolean);
-  return checkUiEvidence(files, typeof pr.body === "string" ? pr.body : "", base, head);
+  // Only GitHub's explicit draft boolean relaxes readiness, never report content.
+  // CI runs again on ready_for_review; absent/malformed metadata stays strict.
+  return checkUiEvidence(files, typeof pr.body === "string" ? pr.body : "", base, head, pr.draft === true);
 }

@@ -15,6 +15,8 @@ This log holds dated governance decisions, exceptions and superseded rules. Arch
 
 Design approved in conversation on 2026-10-19; governance adoption is **pending the maintainer merging this amendment PR**. Merge accepts this scoped amendment (not unrelated Proposed rows): UI-19–UI-25, mandatory implementer compliance plus independent UI/accessibility and QA reports for UI-affecting work, source/PR-manifest checks in CI, and resolution of required FAIL/UNVERIFIED evidence before merge. Reports are evidence, not bot approvals. @lamtuanvu retains merge and exception authority; no branch protection changes are made. The amendment follows the existing docs-title/version/log procedure. See [ADR](../docs/decisions/2026-10-19-shared-ui-foundations.md) and constitution 0.3.0.
 
+Draft-readiness clarification in the same proposed amendment: require current report metadata and honest verdicts on drafts, but enforce all-PASS review readiness after leaving draft. Rerun CI on both draft transitions. This lets draft code tests run without misrepresenting incomplete native/manual evidence; no completion criterion or pre-merge requirement is waived.
+
 ## Exceptions
 
 None recorded.

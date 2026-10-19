@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkUiPullRequest, checkUiEvidence } from "../scripts/ui-check-evidence";
+import { parse } from "yaml";
 
 const base = "a".repeat(40), head = "b".repeat(40);
 const report = (name: string) => ({ verdict: "PASS", report: `https://github.com/example/pacer/pull/191#issuecomment-${name}`, summary: "Checked applicable rules and attached actual evidence." });
@@ -48,11 +49,20 @@ describe("UI PR evidence manifest", () => {
       writeFileSync(join(root, "app/src/screens", filename), "export const X = () => <div />;");
       git("add", "--all"); git("commit", "-m", "test: fixture UI change");
       const reviewedHead = git("rev-parse", "HEAD"), event = join(root, "event.json");
-      const writeEvent = (prBody: string) => writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: reviewedBase }, head: { sha: reviewedHead }, body: prBody } }));
+      const writeEvent = (prBody: string, draft?: unknown, action = "edited") => writeFileSync(event, JSON.stringify({ action, pull_request: { draft, base: { sha: reviewedBase }, head: { sha: reviewedHead }, body: prBody } }));
       writeEvent("");
       expect(checkUiPullRequest(event, root).some(v => v.rule === "UI-24")).toBe(true);
       writeEvent(body({ ...evidence(), base: reviewedBase, head: reviewedHead }));
       expect(checkUiPullRequest(event, root)).toEqual([]);
+      const incomplete = { ...evidence(), base: reviewedBase, head: reviewedHead };
+      incomplete.ui.verdict = "UNVERIFIED";
+      incomplete.ui.summary = "Native desktop validation remains UNVERIFIED.";
+      writeEvent(body(incomplete), true);
+      expect(checkUiPullRequest(event, root)).toEqual([]);
+      for (const draft of [false, undefined, "true"]) {
+        writeEvent(body(incomplete), draft, "ready_for_review");
+        expect(checkUiPullRequest(event, root).length).toBeGreaterThan(0);
+      }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -74,6 +84,30 @@ describe("UI PR evidence manifest", () => {
   test("does not hide an unverified surface in a PASS summary", () => {
     const value = evidence(); value.qa.summary = "Desktop keyboard navigation UNVERIFIED";
     expect(checkUiEvidence(["app/src/app.tsx"], body(value))).not.toEqual([]);
+    expect(checkUiEvidence(["app/src/app.tsx"], body(value), base, head, true)).not.toEqual([]);
+  });
+  test.each(["FAIL", "UNVERIFIED"])("draft reports may honestly record %s without claiming readiness", verdict => {
+    const value = evidence(); value.ui.verdict = verdict;
+    value.ui.summary = `Native validation is ${verdict}; details are in the report.`;
+    expect(checkUiEvidence(["app/src/app.tsx"], body(value), base, head, true)).toEqual([]);
+    expect(checkUiEvidence(["app/src/app.tsx"], body(value), base, head, false)).not.toEqual([]);
+    value.ui.report = ".work/reviews/ui.md";
+    expect(checkUiEvidence(["app/src/app.tsx"], body(value), base, head, true)).not.toEqual([]);
+  });
+  test("draft status does not excuse missing, stale or invalid reports", () => {
+    expect(checkUiEvidence(["app/src/app.tsx"], "", base, head, true)).not.toEqual([]);
+    const value = evidence(); value.ui.verdict = "UNKNOWN";
+    expect(checkUiEvidence(["app/src/app.tsx"], body(value), base, head, true)).not.toEqual([]);
+    expect(checkUiEvidence(["app/src/app.tsx"], body({ ...value, ui: { ...value.ui, verdict: ["UNVERIFIED"] } }), base, head, true)).not.toEqual([]);
+    expect(checkUiEvidence(["app/src/app.tsx"], body(evidence()), base, "c".repeat(40), true)).not.toEqual([]);
+    value.ui.verdict = "UNVERIFIED"; value.ui.summary = "";
+    expect(checkUiEvidence(["app/src/app.tsx"], body(value), base, head, true)).not.toEqual([]);
+  });
+  test("CI rechecks readiness when the PR leaves draft and when it returns to draft", () => {
+    const workflow = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"));
+    const events = workflow.on.pull_request.types;
+    expect(events).toContain("ready_for_review");
+    expect(events).toContain("converted_to_draft");
   });
   test.each(["", ".work/reviews/ui.md", "review done", "https://example.com", "javascript:alert(1)", "file:///tmp/report", "artifact://"])("rejects inaccessible or nonspecific reference %s", reference => {
     const value = evidence(); value.ui.report = reference;
