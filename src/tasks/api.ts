@@ -45,7 +45,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return { task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null, queue:t.queue??null,
+  return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, placement:t.placement??null, queue:t.queue??null,
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
     result:t.result??null, review:t.review??null, resolved:t.resolved??null };

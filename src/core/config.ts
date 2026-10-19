@@ -19,17 +19,22 @@ import { validateExecution } from '../config/execution';
 
 const pendingEdits = new Set<string>();
 
-export const CONFIG_KEYS = ['execution.local_max_tasks','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
+export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
 }
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
-  return {'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
+  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.accounts':s.pacing.accounts,
     'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
 function parseValue(key:ConfigKey, value:string): unknown {
+  if (key === 'task_retention_days') {
+    const days = Number(value);
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(days) || days < 0) throw new CoreError('invalid_input', 'task_retention_days must be a non-negative integer');
+    return days;
+  }
   if(key==='terminal.app' && !['Terminal','iTerm','Ghostty'].includes(value)) throw Error('terminal.app must be Terminal, iTerm or Ghostty');
   if(key==='execution.local_max_tasks') {
     const n = Number(value);

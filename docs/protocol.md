@@ -115,6 +115,7 @@ A `question:<task>` item has blocked severity, important notifications, the ques
 
 ## Task and repository operations
 
+Task retention defaults to 14 days (`task_retention_days`, zero disables). Default lists and snapshots exclude archived records; `task.list { all: true }` includes them. `task.prune { dry_run?: boolean }` reports paths and bytes or archives eligible settled reviewed/dismissed tasks. `task.restore { id }` restores artifacts without overwriting existing files. Archived task summaries expose `archived` and `archive_path`; API task rows expose `archived` and `archivePath`. ID lookup still works.
 `task.get` returns full task detail: brief, attempts with logs, routing explanation, cost, acceptance timing and summary, timestamps, diffstat files, retryOptions and timeline. `task.retry_options { id }` lists alternate executors in routing order with state and reason. `task.diff { id, path? }` returns files, patch, base and worktree. Patches are capped at 1 MiB, or 4 MiB with a path. Running remote tasks return an empty patch and a note until changes reach the local review worktree.
 
 `task.review` accepts verdict `accept`, `reject`, `send_back` (requires note), or `retry` (requires executor), and returns `{ task, retry? }`. Legacy `accepted: true/false` maps to accept/reject. Send back creates a retry on the same executor with the note as review feedback. Queued or running tasks cannot be reviewed.
@@ -943,6 +944,7 @@ Params JSON Schema:
     "key": {
       "type": "string",
       "enum": [
+        "task_retention_days",
         "execution.local_max_tasks",
         "planner",
         "pacing.order",
@@ -2758,6 +2760,9 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "all": {
+      "type": "boolean"
+    },
     "limit": {
       "type": "integer",
       "minimum": 1,
@@ -2827,6 +2832,49 @@ Params JSON Schema:
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `task.prune`
+
+Archive old reviewed or dismissed settled tasks; dry_run reports files and bytes without moving them.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "dry_run": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `task.restore`
+
+Restore an archived task and its artifacts; conflicting files are never overwritten.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
     }
   },
   "required": [

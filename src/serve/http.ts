@@ -1,3 +1,4 @@
+import { retentionScheduler } from "../tasks/retention";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
@@ -194,9 +195,15 @@ export function startServer(
       });
     }).catch(() => []).finally(() => { busy = false; refreshSnapshot(); });
   };
+  const retention = retentionScheduler();
+  const prune = () => {
+    if (!stopped) void retention.tick(getCtx()).catch(error => console.warn(`pacer: task retention failed: ${String(error)}`));
+  };
+  const retentionStart = setTimeout(prune, 0);
+  const retentionTimer = setInterval(prune, 60_000);
   const snapshotTimer=setInterval(refreshSnapshot,2000);
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: publicPort, token, stop: () => { listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
+  return { port: publicPort, token, stop: () => { listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
 }

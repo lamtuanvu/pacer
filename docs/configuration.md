@@ -157,3 +157,27 @@ Automatic terminal opening tries Orca, the terminal app, then tmux. On a headles
 machine, operations return a copyable command with `opened: false`.
 Notifications are stored in `settings.json`, default to `important`, and support
 `off`, `important` and `all` without requiring the Orca plugin.
+
+## Task retention
+
+`task_retention_days` is a top-level strategy setting (default `14`; `0` disables
+retention). Set it with `pacer config set task_retention_days 30`. Once a day, the service archives terminal tasks that were reviewed or
+dismissed and settled before that window. A recent review restarts the window.
+Queued/running tasks, unreviewed tasks, and tasks with an existing local worktree
+or a recorded remote worktree stay untouched. Legacy tasks without a known
+settlement timestamp are kept conservatively.
+
+`pacer tasks prune --dry-run` lists the files and destination, compressed bytes
+saved, and bytes removed from the working set, without moving files. Omit
+`--dry-run` to archive now. Logs are streamed through gzip; logs, briefs, bundles
+and compatibility JSON move into
+`$PACER_HOME/archive/YYYY-MM/<task-id>/` (private directories and files).
+The month is the task's creation month in UTC.
+
+Default task lists and snapshots exclude archives. `pacer tasks --all` includes
+all archived and current records, and `pacer tasks <id>` still shows the
+record and archive location. `pacer tasks restore <id>` restores the artifacts,
+including decompressed logs, and returns the task to default lists. Conflicting
+files are never overwritten. Older binaries omit archived tasks because their
+JSON compatibility files move into the archive; restore before rolling back if
+those tasks must remain visible. Retention does not delete task history in SQLite.
