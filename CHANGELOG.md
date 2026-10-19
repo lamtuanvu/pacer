@@ -6,6 +6,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Account, runner and endpoint edits automatically migrate legacy settings with a backup instead of asking you to run `pacer config migrate`.
+
+- `pacer delegate` accepts common kind aliases (`bugfix`/`fix`/`bug`, `test`, `doc`, `perf`) and suggests the closest kind for invalid input.
 - The macOS desktop app detects replacement of its running bundle every 30 seconds and relaunches the installed bundle while preserving window visibility and route and reconnecting the tray.
 
 - Informational planner pace notices stay on the planner strip and tray header without adding Needs you items, badge counts or a tray attention dot.
@@ -29,6 +32,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Parallel tasks controls for each executor and this machine, with shared-capacity and queue wait explanations in the app.
 - Overview and Review support accepting all tasks with passing checks, repository filtering, and multi-select accept/reject with task-list confirmation and per-task results. Verdicts do not merge branches.
 
 - Executor questions raise blocked Needs you items with Answer and Stop actions; `pacer answer`, `task.answer` and MCP `task_answer` retry on the same executor with cumulative question/answer brief context (protocol 2.7.0).

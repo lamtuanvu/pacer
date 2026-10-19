@@ -17,6 +17,8 @@ routing:
   - default: [codex]
 ```
 
+Legacy `providers:` settings are automatically migrated to the current `accounts:` format the first time you edit an account, runner or endpoint. Pacer saves the original file beside it as `<strategy>.pre-accounts.bak` and then applies your edit. No separate migration command is needed.
+
 ## Providers
 
 Native IDs are `claude-code`, `codex`, `cursor` and `agy`. Other provider IDs need `via: opencode` and a `model` such as `provider/model`. See [executors](executors.md).
@@ -129,9 +131,14 @@ use `pacer dashboard` or `pacer open` to act.
 ## Capacity, pause and executor settings
 
 `execution.local_max_tasks` limits all local executors together (1–16, default 2).
+In the app, use **Settings → Executors → Parallel tasks** to set each executor’s limit,
+and **Settings → This machine → Parallel tasks on this machine** for the shared local limit.
+Remote host limits are under **Settings → Remote hosts**. The app explains when a machine
+or host limit reduces an executor’s capacity and which limit holds a queued task.
 `runners.<id>.max_tasks` limits one executor (1–16, default 1 locally or the
 host's `max_tasks` remotely). A full executor is skipped; tasks wait in the queue
-when their candidates are full. Queue rows report `reason`, `since` and `position`.
+when their candidates are full. Queue rows report `reason`, `since` and `position`; capacity waits also report
+`limit` (`executor`, `machine` or `host`) and the last checked `capacity` (`used`, `max`).
 The pump, runner exits and API reads drain eligible queued work.
 
 `runners.<id>.enabled: false` disables an executor without removing its settings.

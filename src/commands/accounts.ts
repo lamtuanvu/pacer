@@ -2,9 +2,10 @@ import { sep } from "node:path";
 import { Writable } from "node:stream";
 import { createInterface } from "node:readline/promises";
 import { parseRunnerId } from "../config/runner-id";
-import { loadStrategy } from "../config/strategy";
+import { migrationLines } from "../config/migrate";
+import { loadStrategy, strategyPath } from "../config/strategy";
 import * as accounts from "../core/accounts";
-import { requireAccounts } from "../core/accounts";
+import { ensureAccounts } from "../core/accounts";
 import * as runners from "../core/runners-config";
 import { parseSize, type EndpointModel, type KeySource } from "../config/accounts";
 import type { Ctx } from "../types";
@@ -72,12 +73,16 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
     }
     const [verb, ...rest] = args;
     const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
-    const s = loadStrategy(ctx);
+    let s = loadStrategy(ctx);
     if (verb === "list" && !pos.length) {
       const rows = await accounts.list(ctx);
       return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
     }
-    requireAccounts(s);
+    if (["add", "edit", "rm"].includes(verb) || (verb === "models" && flags.refresh)) {
+      const ensured=ensureAccounts(ctx);
+      s=ensured.strategy;
+      if (ensured.migrated) migrationLines(strategyPath(ctx),ensured.migrated).forEach(deps.print ?? console.log);
+    }
     if (verb === 'test' && pos.length===1) return ok(endpointMessage(pos[0],await endpoints.testEndpoint(ctx,pos[0],deps)));
     if (verb === 'models' && pos.length===1) {
       const a=s.accounts[pos[0]];
@@ -132,7 +137,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
   } catch(e) {return fail(e);}
 }
 
-export async function runnerCmd(args: string[], ctx: Ctx, deps: Pick<AccountDeps,"prompt"> = {}): Promise<Result> {
+export async function runnerCmd(args: string[], ctx: Ctx, deps: Pick<AccountDeps,"prompt"|"print"> = {}): Promise<Result> {
   try {
     if(args[0]==="add" && args.length===1) {
       const ask=deps.prompt ?? promptArgument,id=await ask("Runner (agent#account)");
@@ -143,7 +148,8 @@ export async function runnerCmd(args: string[], ctx: Ctx, deps: Pick<AccountDeps
     const {pos,flags}=commandArgs(rest,verb==='add'?['model']:[],verb==='list'?['json']:[]);
     const s=loadStrategy(ctx);
     if(verb==='list' && !pos.length) return ok(flags.json ? JSON.stringify(Object.values(s.runners),null,2) : table(['RUNNER','ACCOUNT','MODEL'],Object.values(s.runners).map(r=>[r.id,r.account,r.model ?? 'default model'])));
-    requireAccounts(s);
+    const migration=ensureAccounts(ctx).migrated;
+    if (migration) migrationLines(strategyPath(ctx),migration).forEach(deps.print ?? console.log);
     if(pos.length!==1) throw Error('a runner id is required');
     const parsed=parseRunnerId(pos[0]); if(!parsed) throw Error('invalid runner id');
     if(verb==='add') {
@@ -218,7 +224,7 @@ async function usagePrompts(ask: (q: string)=>Promise<string>, current?: string)
   return {usage,weekly_tokens,quota_source};
 }
 async function endpointWizard(ctx: Ctx, name: string, deps: AccountDeps, editing=false): Promise<Result> {
-  const s=loadStrategy(ctx), existing=s.accounts[name], readAnswer=deps.prompt ?? promptArgument, print=deps.print ?? console.log;
+  const existing=loadStrategy(ctx).accounts[name], readAnswer=deps.prompt ?? promptArgument, print=deps.print ?? console.log;
   const ask=async (question: string) => {
     const answer=await readAnswer(question);
     if (typeof answer!=='string') throw Error('endpoint setup cancelled: no input');
@@ -226,7 +232,8 @@ async function endpointWizard(ctx: Ctx, name: string, deps: AccountDeps, editing
   };
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw Error('invalid endpoint name');
   if (!editing && existing) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
-  requireAccounts(s);
+  const migration=ensureAccounts(ctx).migrated;
+  if (migration) migrationLines(strategyPath(ctx),migration).forEach(print);
   const adopting=editing && !existing?.connection;
   let external: ReturnType<typeof endpoints.externalEndpoint> | undefined;
   if (adopting) {
