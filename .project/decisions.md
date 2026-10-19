@@ -8,6 +8,7 @@ This log holds dated governance decisions, exceptions and superseded rules. Arch
 |------|----------|----------------|------------|--------|
 | 2026-10-18 | Governance initialized in `.project/` (constitution 0.1.0). It imports existing agreements from AGENTS.md, CONTRIBUTING.md, GOVERNANCE.md, SECURITY.md, docs/protocol.md, the ADRs and CI workflows as established. New rules are labeled Proposed. All reviewers are advisory. | all | Drafted for the maintainer's review; not yet accepted | Governance initialization |
 | 2026-10-18 | Live validation is part of done (CT-11). Agents run the live harness with real executors and record evidence before they report a behavior-changing task as complete. | CT-11, QA reviewer | @lamtuanvu | [harness spec](../docs/specs/2026-10-18-live-validation-harness-design.md) |
+| 2026-10-19 | Visual craft rules UI-8 to UI-18 and an implementer checklist added to the UI rule; the UI reviewer checks them. Constitution 0.2.0. Merging the PR accepts them. | UI-8–UI-18, UI reviewer | @lamtuanvu (by merging the PR) | #134 (UI review of every app screen, 2026-10-19) |
 | 2026-10-18 | 3.0 retired the Orca link transport. `/v2` is served through an adapter for one more minor release. | API-2, ARCH-10 | @lamtuanvu | #77; [ADR clients-over-local-service](../docs/decisions/2026-10-16-clients-over-local-service.md) addendum |
 
 ## Exceptions
