@@ -37,11 +37,11 @@ test("snapshots cache indexed selections, expire old records, and refresh on loc
   } finally { query.mockRestore(); health.mockRestore(); }
 });
 
-test("cached active records still detect runners that never started as time passes", async () => {
+test("cached active reads do not supervise runners as time passes", async () => {
   const ctx = { ...fakeCtx(), readOnly: true }, task = store.createTask(ctx, input);
   const health = spyOn(globalThis, "fetch").mockRejectedValue(Error("isolated"));
   try {
     expect((await liveSnapshot(ctx, { status })).snapshot.tasks.find(t => t.id === task.id)?.state).toBe("queued");
-    expect((await liveSnapshot({ ...ctx, now: ctx.now + 601 }, { status })).snapshot.tasks.find(t => t.id === task.id)?.state).toBe("failed");
+    expect((await liveSnapshot({ ...ctx, now: ctx.now + 601 }, { status })).snapshot.tasks.find(t => t.id === task.id)?.state).toBe("queued");
   } finally { health.mockRestore(); }
 });

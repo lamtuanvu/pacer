@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readReport, type SessionReport } from "../session/reports";
 import type { RunIO } from "./io";
@@ -133,4 +135,29 @@ export function readOutput(dir: string, maxBytes = 256 * 1024): { stdout: string
 /** File-backed access for a local attempt. */
 export function localRunIO(dir: string): RunIO {
   return { read: async () => readRun(dir), stop: (o) => stopRun(dir, o) };
+}
+
+/** The liveness subset of readRun, using asynchronous filesystem and ps probes. */
+export async function readRunLiveness(dir: string): Promise<{alive: boolean; exit: number | null}> {
+  const number = async (name: string): Promise<number | null> => {
+    try {
+      const text = (await readFile(join(dir, name), "utf8")).trim();
+      const value = Number(text);
+      return text && Number.isFinite(value) ? value : null;
+    } catch { return null; }
+  };
+  const [pid, exit] = await Promise.all([number("pid"), number("exit")]);
+  if (exit !== null || pid === null) return {alive: false, exit};
+  try { process.kill(pid, 0); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EPERM") return {alive: false, exit};
+  }
+  const alive = await new Promise<boolean>(resolve => {
+    try {
+      execFile("ps", ["-o", "command=", "-p", String(pid)], {timeout: 2000}, (error, stdout) => {
+        const command = stdout.trim();
+        resolve(!error && (command.includes(join(dir, "run.sh")) || command.endsWith(`_session ${dir}`)));
+      });
+    } catch { resolve(false); }
+  });
+  return {alive, exit};
 }

@@ -320,7 +320,7 @@ test("UI seed writes only sandbox home and supplies safe task fixtures and accou
   const running = tasks.find(task => task.state === "running")!;
   expect(running.childPid).toBeUndefined();
   expect(running.run).toBeUndefined();
-  expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, running.id, () => { throw Error("must not spawn"); })?.state).toBe("running");
+  expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, running.id)?.state).toBe("running");
 
   const status = await computeStatus(ctx, loadStrategy(ctx));
   expect(status.accounts).toHaveLength(2);

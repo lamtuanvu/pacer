@@ -8,7 +8,6 @@ import { requireRepoDirectory, resolveRepo, resolveRepoInput, listReposWithBranc
 import { apiTask } from "./read-model/tasks";
 import { appendActivity, readActivity } from "../activity/log";
 import { ACTIVITY_KINDS } from "../activity/types";
-import { drainQueueOnRead } from "../tasks/drain";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
@@ -361,6 +360,5 @@ export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDe
   const def = OPS[name];
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
-  if (["task.list", "task.get"].includes(name)) await drainQueueOnRead(ctx, deps.spawnRunner);
   return await def.handler(ctx, parsed.data, deps);
 }

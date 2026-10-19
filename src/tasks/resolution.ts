@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Ctx } from "../types";
 import { loadStrategy } from "../config/strategy";
 import { validateExecution } from "../config/execution";
-import { readTask, updateTask } from "./store";
+import { readTask, updateTask, withTaskLock } from "./store";
 import type { TaskRecord } from "./types";
 
 async function exists(path: string): Promise<boolean> {
@@ -62,19 +62,26 @@ async function compareWorktree(ctx: Ctx, t: TaskRecord): Promise<string | null> 
   }
   return `already on ${base}`;
 }
+const checkedAt = new Map<string, number>();
+
 export async function resolveTask(ctx: Ctx, t: TaskRecord): Promise<TaskRecord> {
-  if(t.resolved||!["partial","failed"].includes(t.state))return t;
-  if(!t.review && t.resolutionCheckedAt!==undefined && ctx.now-t.resolutionCheckedAt<60)return t;
-  const reason=await resolutionReason(ctx,t);
-  const current=readTask(ctx,t.id);
-  if(!current)return {...t,resolutionCheckedAt:ctx.now,...(reason?{resolved:reason}:{})};
-  const updated=updateTask(ctx,t.id,x=>{
-    x.resolutionCheckedAt=ctx.now;
-    if(x.review)x.resolved="reviewed";
-    else if(reason&&!x.resolved&&["partial","failed"].includes(x.state))x.resolved=reason;
+  if (t.resolved || !["partial", "failed"].includes(t.state)) return t;
+  const key = `${ctx.pacerHome}/${t.id}`, last = checkedAt.get(key);
+  if (!t.review && last !== undefined && ctx.now >= last && ctx.now - last < 60) return t;
+  checkedAt.set(key, ctx.now);
+  const reason = await resolutionReason(ctx, t);
+  return withTaskLock(ctx, t.id, () => {
+    const current = readTask(ctx, t.id);
+    if (!current) return {...t, ...(reason ? {resolved: reason} : {})};
+    const resolved = current.review ? "reviewed" : current.resolved ||
+      (["partial", "failed"].includes(current.state) ? reason : null);
+    const updated = resolved && resolved !== current.resolved
+      ? updateTask(ctx, t.id, x => {x.resolved = resolved;})
+      : current;
+    // Pump dependencies may supply newer presentation metadata. Preserve it
+    // unless a concurrent writer advanced the task while comparison awaited IO.
+    return current.rev > t.rev ? updated : {...t,
+      ...(updated.resolved ? {resolved: updated.resolved} : {}),
+      ...(updated.review ? {review: updated.review} : {})};
   });
-  // Pump dependencies can supply a newer in-memory snapshot. Only replace it if
-  // another writer actually advanced the persisted revision while we awaited IO.
-  return current.rev>t.rev ? updated : {...t,resolutionCheckedAt:ctx.now,
-    ...(updated.resolved?{resolved:updated.resolved}:{}),...(updated.review?{review:updated.review}:{})};
 }

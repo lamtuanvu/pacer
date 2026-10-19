@@ -1,4 +1,5 @@
 import { retentionScheduler } from "../tasks/retention";
+import { superviseTasks } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
@@ -201,9 +202,18 @@ export function startServer(
   };
   const retentionStart = setTimeout(prune, 0);
   const retentionTimer = setInterval(prune, 60_000);
+  let supervising = false;
+  const supervise = () => {
+    if (stopped || supervising) return;
+    supervising = true;
+    void superviseTasks(getCtx(), opts.opDeps?.spawnRunner, () => stopped)
+      .catch(error => { if (!stopped) console.error(`pacer: task supervision failed: ${String(error)}`); })
+      .finally(() => { supervising = false; });
+  };
+  const supervisorTimer = setInterval(supervise, 5000);
   const snapshotTimer=setInterval(refreshSnapshot,2000);
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: publicPort, token, stop: () => { listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
+  return { port: publicPort, token, stop: () => { listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(supervisorTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
 }

@@ -92,13 +92,3 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
     return spawned;
   });
 }
-
-const lastReadDrain = new Map<string, number>();
-/** API reads share a per-home, per-process throttle. */
-export async function drainQueueOnRead(ctx: Ctx, spawn?: SpawnRunner): Promise<void> {
-  if (ctx.readOnly) return;
-  const now = Date.now(), last = lastReadDrain.get(ctx.pacerHome);
-  if (last !== undefined && now - last < 5000) return;
-  lastReadDrain.set(ctx.pacerHome, now);
-  await drainQueue(ctx, spawn).catch(() => {});
-}
