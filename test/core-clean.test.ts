@@ -1,10 +1,11 @@
+import { persistTaskDiff } from "../src/tasks/diff";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
 import { createTaskWorktree } from "../src/supervisor/worktree";
-import { createTask, updateTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
 async function finished(o: { dirty?: boolean; reviewed?: boolean } = {}) {
@@ -22,11 +23,21 @@ async function finished(o: { dirty?: boolean; reviewed?: boolean } = {}) {
   return { ctx, t, w, repo };
 }
 
-test("clean removes reviewed task worktrees and run dirs, keeps the branch", async () => {
+test("clean removes reviewed task worktrees, keeps review evidence and the branch", async () => {
   const { ctx, t, w, repo } = await finished();
+  writeFileSync(join(w.path, "change.txt"), "review me\n");
+  expect(Bun.spawnSync(["git", "-C", w.path, "add", "."]).exitCode).toBe(0);
+  expect(Bun.spawnSync(["git", "-C", w.path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "change"]).exitCode).toBe(0);
+  updateTask(ctx, t.id, x => { x.baseBranch = "main"; });
+  await persistTaskDiff(ctx, readTask(ctx, t.id)!);
+  writeFileSync(join(ctx.pacerHome, "runs", t.id, "1", "stdout"), "disposable");
+  const before = await tasks.diff(ctx, t.id);
+  expect(before.patch).toContain("+review me");
   expect(await tasks.clean(ctx)).toEqual({ removed: [t.id], kept: [] });
   expect(existsSync(w.path)).toBe(false);
-  expect(existsSync(join(ctx.pacerHome, "runs", t.id))).toBe(false);
+  expect(existsSync(join(ctx.pacerHome, "runs", t.id, "1", "diff.json"))).toBe(true);
+  expect(await tasks.diff(ctx, t.id)).toEqual(before);
+  expect(existsSync(join(ctx.pacerHome, "runs", t.id, "1", "stdout"))).toBe(false);
   expect(Bun.spawnSync(["git", "-C", repo, "rev-parse", "--verify", `pacer/${t.id}`]).exitCode).toBe(0);
 });
 
