@@ -1,3 +1,4 @@
+import { displayTitle } from "../../../src/view-model/titles";
 import { SetupBanner } from "./setup/SetupBanner";
 import { executorPace, queueWait } from "../../../src/view-model/capacity";
 import { SectionHeading } from "../ds/SectionHeading";
@@ -32,7 +33,7 @@ const gone = (item: AttentionItem) => (s: { snapshot: ClientSnapshot | null }) =
 /** Older services put the full goal in attention.title; reuse their task title in that case. */
 function attentionTitle(item: AttentionItem, snapshot: ClientSnapshot): string {
   const task = snapshot.tasks.find(task => task.id === item.taskId);
-  return item.title === task?.goal ? task.title ?? item.title : item.title;
+  return task?.fullTitle ?? (item.title === task?.goal ? displayTitle(task) : item.title);
 }
 
 function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean }) {
@@ -45,7 +46,7 @@ function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: C
       <ReviewCheckbox item={item} />
       <span className={`pc-status--${status.tone}`}><StatusGlyph status={status} />{status.label}</span>
       {item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}
-      <div className="grow"><div className="pc-attn__title">{attentionTitle(item, snapshot)}{item.repo && <code className="pc-repo-chip">{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></div>
+      <div className="grow"><div className="pc-attn__title"><span className="pc-ellipsis grow" title={attentionTitle(item, snapshot)}>{attentionTitle(item, snapshot)}</span>{item.repo && <code className="pc-repo-chip" title={item.repo.label}>{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></div>
       <div className="row-actions">{item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} strong={i === 0} />)}</div>
     </div>; })}
     </BulkReview>
@@ -70,7 +71,7 @@ function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnap
   return <section className="pc-card-section" aria-labelledby="running"><div className="pc-card-section__head"><SectionHeading id="running">Running</SectionHeading><span className="muted">{runningCount(snapshot, scope, rows)}</span></div>
     {rows.map(t => <div key={t.id} className="pc-row">
       {t.executor ? <AgentMark agent={markAgent(t.executor)} size={20} labelled={false} /> : <span className="pc-row__gap" />}
-      <div className="grow pc-row__goal">{t.goal}</div>
+      <div className="grow pc-row__goal" title={displayTitle(t)}>{displayTitle(t)}</div>
       <span className="muted">{t.repo?.label}</span>
       <StatusPill status={taskStatus(t)} />
       {t.state === "queued"
@@ -105,7 +106,7 @@ function DoneToday({ snapshot, scope, now, query }: { snapshot: ClientSnapshot; 
   const accepted = scope.repo === null ? today?.accepted : rows.filter(t => t.review?.accepted).length;
   return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><SectionHeading id="done-today">Done today</SectionHeading>{today && <span className="muted">{done} · {accepted} accepted</span>}<span className="grow" /><a className="pc-text-action" href={withQuery("#/sessions", query)}>All tasks</a></div>
     {rows.map(t => { const status = taskStatus(t); return <div key={t.id} className="pc-row">
-      <span className="muted pc-num">{clock(t.updatedAt, now)}</span><div className="grow pc-row__goal">{t.goal}</div>
+      <span className="muted pc-num">{clock(t.updatedAt, now)}</span><div className="grow pc-row__goal" title={displayTitle(t)}>{displayTitle(t)}</div>
       <span className="muted">{t.repo?.label}</span><span className="muted">{executorLabel(t.executor)}</span><StatusPill status={status} />
     </div>; })}
     {!rows.length && <p className="muted">Nothing finished yet today.</p>}

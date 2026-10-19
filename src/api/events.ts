@@ -1,7 +1,7 @@
 import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, toV2Snapshot, toV2Event, type CompatEvent } from "./v2-compat";
 import type { SnapshotV3 } from "./read-model/types";
 import { buildPlanner } from "./read-model/capacity";
-import { shortTitle } from "../core/short-title";
+import { fullTaskTitle, shortTitle } from "../core/short-title";
 import { readHold } from "../core/mode-hold";
 import { drainQueueOnRead } from "../tasks/drain";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
@@ -71,9 +71,9 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
       let data:unknown=env.data;
       if(env.type==="entity")data=env.data.removed?{id:env.data.id,removed:true}:env.data.value;
       if(env.type==="task"){
-        data={...env.data,title:env.data.title || shortTitle(env.data.goal)};
+        data={...env.data,title:env.data.title || shortTitle(env.data.goal),fullTitle:fullTaskTitle({title:env.data.title,brief:{goal:env.data.goal}})};
         const task=enriched.get(env.data.id);
-        if(task){const {repo,kind,host,title}=task;data={...env.data,repo,kind,host,title};}
+        if(task){const {repo,kind,host,title,fullTitle}=task;data={...env.data,repo,kind,host,title,fullTitle};}
       }
       return {seq:e.seq,at:e.at??ctx.now,type:env.type==="entity"?env.data.kind:env.type,data};
     }),

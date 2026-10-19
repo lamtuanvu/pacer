@@ -31,8 +31,9 @@ is for owner testing; signing and notarization are separate work.
 
 Replace the installed `pacer.app` bundle with the new build at the same path.
 The running app checks every 30 seconds for a missing executable or a change to
-its executable modification time or `CFBundleVersion`. It schedules a short
-delayed `open -n <bundle>` launch and exits, so the new bundle starts automatically.
+its executable modification time or `CFBundleVersion`. It requests a graceful
+Tauri exit and schedules an `open -n <bundle>` helper from the exit event. The helper waits for the old process to exit before launching
+the replacement bundle.
 The main window keeps its visibility and route; the tray reconnects to the
 service and restores its current status. The CLI is updated separately.
 
@@ -98,6 +99,8 @@ notifier lease every 30 seconds, including during snapshot reads and stream
 reconnection. Failure returns to recovery, obtains fresh sessions, and registers
 again. The lease lapses after exit, allowing the service to resume its fallback
 notifications. A 401 from either webview reports `session_expired` through origin-scoped IPC.
+Navigation decisions use the target URL and cached completed page loads; they
+never query the webview URL during navigation, when WebKit may have no current URL.
 Page-load checks also catch expired sign-in links and cookie-less session-ended
 pages (including older service pages). The single connection task signs in again
 with `POST /v3/session/exchange` and a fresh webview code, reloads the saved main

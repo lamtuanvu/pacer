@@ -197,3 +197,33 @@ test("bulk review awaits the in-app confirmation before recording any verdict", 
   answer(true);
   expect(await pending).toBe("Accepted 1 of 1 task(s).");
 });
+
+test('asynchronous in-app confirmation blocks all writes until the user confirms', async () => {
+  const h = harness();
+  let answer: ((confirmed: boolean) => void) | undefined;
+  let shown!: () => void;
+  const visible = new Promise<void>(resolve => { shown = resolve; });
+  const result = runBulkReview({ ...h, items: items.slice(0, 1), passingOnly: true, verdict: 'accept',
+    confirm: message => {
+      expect(message).toContain('Task 0 (bulk-0) · Repo A');
+      shown();
+      return new Promise<boolean>(resolve => { answer = resolve; });
+    },
+  });
+  await visible;
+  expect(writes(h)).toEqual([]);
+  answer!(true);
+  expect(await result).toContain('Accepted 1 of 1');
+  expect(writes(h)).toHaveLength(1);
+});
+
+test('asynchronous rejection reason and confirmation cancellations never record verdicts', async () => {
+  for (const note of [null, 'Needs fixes']) {
+    const h = harness();
+    const result = await runBulkReview({ ...h, items: items.slice(0, 1), passingOnly: false, verdict: 'reject',
+      prompt: async () => note, confirm: async () => false,
+    });
+    expect(result).toContain('Cancelled');
+    expect(writes(h)).toEqual([]);
+  }
+});

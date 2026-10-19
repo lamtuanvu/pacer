@@ -1,4 +1,3 @@
-import { SectionHeading } from "../ds/SectionHeading";
 import { useActions } from "../data/action-context";
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -6,7 +5,6 @@ import type { StoreState } from "../data/store";
 import { ApiError, type BrowserApi } from "../data/api";
 import { createQuery, type QueryState } from "../data/query";
 import { draftStorage } from "../model/draft";
-import { Button } from "../ds/Button";
 import { taskHref } from "../model/tasks";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
 export const useTaskContext = () => useContext(TaskContext);
@@ -74,9 +72,5 @@ export function useDraft<T extends { [K in keyof T]: string }>(key: string, defa
   const clearDraft = () => { current.current = defaults; storage.clear(); update(defaults); };
   return [draft, setDraft, clearDraft] as const;
 }
-export function Dialog({ title, close, children }: { title: string; close: () => void; children: ComponentChildren }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { const dialog = ref.current!; dialog.showModal(); return () => { dialog.close(); }; }, []);
-  return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); close(); }}><div className="dialog-head"><SectionHeading>{title}</SectionHeading><Button onClick={close}>Close</Button></div>{children}</dialog>;
-}
+export { Dialog } from "../ds/Dialog";
 export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <a className="pc-text-action" href={taskHref(id)}>{children}</a>; }

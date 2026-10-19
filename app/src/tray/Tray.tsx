@@ -101,7 +101,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           const detail = item.detail?.trim();
           return <div className={`tray-attention tray-attention--${item.kind}`} key={item.id}>
             <span title={status.label}><StatusGlyph status={status} /></span>
-            <span className="tray-grow"><strong className="tray-ellipsis">{shortTitle({ title: item.title, goal: task?.goal })}</strong><span className="tray-reason tray-ellipsis">{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></span>
+            <span className="tray-grow"><strong className="tray-ellipsis" title={shortTitle({ ...item, fullTitle: task?.fullTitle })}>{shortTitle({ ...item, fullTitle: task?.fullTitle })}</strong><span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></span>
             {action && <button className={`tray-action${action.style === "primary" ? " tray-action--primary" : ""}`} type="button" disabled={busy || sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}><span className="tray-action__label">{rowLabel(action.label)}</span></button>}
           </div>;
         })}
@@ -109,17 +109,18 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check" aria-hidden="true">✓</span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}
       {model.active.length > 0 && <section className="tray-section" aria-label="Running"><h2>Running</h2>
         {model.active.slice(0, 3).map(task => <a key={task.id} className="tray-running" href={appHref(`/sessions/${encodeURIComponent(task.id)}`)} onClick={navigate(`/sessions/${encodeURIComponent(task.id)}`)}>
-          <AgentMark agent={runnerAgent(task.executor ?? "unknown")} size={16} labelled={false} /><span className="tray-grow tray-ellipsis">{shortTitle(task)}</span>
+          <AgentMark agent={runnerAgent(task.executor ?? "unknown")} size={16} labelled={false} /><span className="tray-grow tray-ellipsis" title={shortTitle(task)}>{shortTitle(task)}</span>
           <span className="tray-repo tray-ellipsis">{task.repo?.label}</span><span className={`tray-phase pc-status--${taskStatus(task).tone}`}><StatusGlyph status={taskStatus(task)} />{taskStatus(task).label} {elapsed(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt))}</span>
         </a>)}
         {model.active.length > 3 && <a className="tray-more" href={appHref("/sessions")} onClick={navigate("/sessions")}>+{model.active.length - 3} more in the app</a>}
       </section>}
-      {model.waiting > 0 && <a className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></a>}
+      {model.waiting > 0 && <a title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></a>}
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
-        const valueStatus = value.endsWith("%") ? executorPace(executor, snapshot) : executorStatus(executor.state);
-        const label = `${agentInfo(executor.agent).name}: ${executorStatus(executor.state).label} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
-        return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><StatusGlyph status={executorStatus(executor.state)} /></span><span className={`pc-status--${valueStatus.tone}`}>{value}</span></a>;
+        const readiness = executorStatus(!executor.enabled ? "disabled" : value === "off" && executor.state === "ready" ? "blocked" : executor.state);
+        const valueStatus = value === "?" ? paceStatus("unknown") : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
+        const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
+        return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><StatusGlyph status={value === "?" ? valueStatus : readiness} /></span><span className={`pc-status--${valueStatus.tone}`}>{value}</span></a>;
       })}</section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}

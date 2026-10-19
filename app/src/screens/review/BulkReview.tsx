@@ -1,12 +1,12 @@
 import { createContext, type ComponentChildren } from "preact";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { reviewQueue } from "../../../../src/view-model/selectors";
 import type { ActionRunner } from "../../data/actions";
+import { useDialogs } from "../../ds/useDialogs";
 import { Button } from "../../ds/Button";
-import { Dialog } from "../task-shared";
 import { verdictParams } from "./model";
 
 export function scopedReviewQueue(snapshot: ClientSnapshot, repo: string | null): AttentionItem[] {
@@ -71,18 +71,11 @@ export function ReviewCheckbox({ item }: { item: AttentionItem }) {
     onChange={() => selection.toggle(item.taskId!)} />;
 }
 export function BulkReview({ snapshot, repo, runner, children }: { snapshot: ClientSnapshot; repo: string | null; runner: ActionRunner; children: ComponentChildren }) {
+  const dialogs = useDialogs();
   const items = scopedReviewQueue(snapshot, repo);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const inFlight = useRef(false);
-  const [dialog, setDialog] = useState<{ message: string; note: boolean } | null>(null);
-  const [note, setNote] = useState("");
-  const reply = useRef<((value: string | null) => void) | null>(null);
-  const ask = (message: string, note: boolean) => new Promise<string | null>(resolve => {
-    reply.current = resolve; setNote(""); setDialog({ message, note });
-  });
-  const answer = (value: string | null) => { reply.current?.(value); reply.current = null; setDialog(null); };
-  useEffect(() => () => { reply.current?.(null); }, []);
   const ids = new Set(items.map(item => item.taskId!));
   const selected = new Set(selectedReviews(items, selection).map(item => item.taskId!));
   const run = async (verdict: "accept" | "reject", passingOnly = false) => {
@@ -90,7 +83,7 @@ export function BulkReview({ snapshot, repo, runner, children }: { snapshot: Cli
     inFlight.current = true; setBusy(true); setMessage("");
     try {
       setMessage(await runBulkReview({ items: passingOnly ? items : selectedReviews(items, selected), passingOnly, verdict, runner,
-        confirm: async text => (await ask(text, false)) !== null, prompt: text => ask(text, true) }));
+        confirm: text => dialogs.confirm(text, verdict === "accept" ? "Accept tasks" : "Reject tasks", verdict === "accept" ? "Accept tasks" : "Reject tasks"), prompt: dialogs.prompt }));
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { inFlight.current = false; setBusy(false); }
   };
@@ -110,14 +103,8 @@ export function BulkReview({ snapshot, repo, runner, children }: { snapshot: Cli
       </div>
       {busy && <p role="status">Checking evidence / recording verdicts…</p>}
     </div>}
-    {dialog && <Dialog title={dialog.note ? "Rejection note" : "Confirm bulk review"} close={() => answer(null)}>
-      <form className="pc-form" onSubmit={event => { event.preventDefault(); answer(dialog.note ? note : "confirmed"); }}>
-        <p className="pc-bulk-confirmation">{dialog.message}</p>
-        {dialog.note && <label>Note<textarea value={note} required onInput={event => setNote(event.currentTarget.value)} /></label>}
-        <div className="row-actions"><Button type="submit" variant="primary">Continue</Button><Button onClick={() => answer(null)}>Cancel</Button></div>
-      </form>
-    </Dialog>}
     {message && <p className="pc-bulk-result" role="status" aria-live="polite">{message}</p>}
+    {dialogs.dialog}
     {children}
   </BulkSelection.Provider>;
 }

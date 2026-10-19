@@ -1,4 +1,4 @@
-/** Clip display titles by code point, leaving room for an ellipsis. */
+/** Compact fallback for surfaces without CSS layout (status lines and notifications). */
 export function clipTitle(title: string): string {
   const points = Array.from(title);
   if (points.length <= 60) return title;
@@ -72,5 +72,13 @@ export function taskTitle(task: { id?: string; title?: string; brief: { goal: st
     if (legacyTitles.size >= legacyTitleLimit) legacyTitles.delete(legacyTitles.keys().next().value!);
     legacyTitles.set(task.id, {goal, title});
   }
+  return title;
+}
+
+/** Complete display text for layout-aware clients, including records with generated short titles. */
+export function fullTaskTitle(task: { title?: string; brief: { goal: string } }): string {
+  const title = task.title?.trim();
+  const goal = task.brief.goal.trim();
+  if (!title || title === clipTitle(goal) || title === shortTitle(goal)) return goal || title || "Task";
   return title;
 }

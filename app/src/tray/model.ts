@@ -5,15 +5,7 @@ import type { ActivityEntry } from "../../../src/activity/log";
 import type { ExecutorRow } from "../../../src/api/read-model/types";
 import { capacity, needsYou, running } from "../../../src/view-model/selectors";
 
-/** Older services send only goals, which can include local paths and long prose. */
-export function shortTitle(item: { title?: string; goal?: string }): string {
-  const text = (item.title?.trim() || item.goal || "Task")
-    .replace(/(?:[A-Za-z]:[\\/]|~?\/|\.{1,2}\/)[^\s]+|\b[\w.-]+(?:[\\/][\w.@-]+)+/g, "")
-    .replace(/\s+/g, " ").trim() || "Task";
-  if (text.length <= 60) return text;
-  const head = text.slice(0, 59), boundary = head.lastIndexOf(" ");
-  return `${head.slice(0, boundary > 0 ? boundary : 59).trimEnd()}…`;
-}
+export { displayTitle as shortTitle } from "../../../src/view-model/titles";
 export function actionRoute(action: Action): string {
   const { route, view, id, section } = action.params;
   if (typeof route === "string" && /^#?\//.test(route)) return route.replace(/^#/, "");
@@ -28,6 +20,7 @@ export function executorValue(executor: ExecutorRow): string {
   // Same off states Overview's Capacity dims (e.g. BytePlus without an active coding plan is "down").
   if (!executor.enabled || OFF_STATES.has(executor.state) || /no (active )?(coding[- ])?plan|no subscription/i.test(`${executor.sub} ${executor.reason ?? ""}`)) return "off";
   if (executor.state === "exhausted") return "out";
+  if (executor.state === "checking" || (executor.usedPct === null && executor.paceReason !== "unmetered")) return "?";
   if (executor.slots.max > 0 && executor.slots.used >= executor.slots.max) return `${executor.slots.used}/${executor.slots.max}`;
   if (executor.usedPct !== null) return `${Math.round(executor.usedPct)}%`;
   return executor.slots.used > 0 ? `${executor.slots.used}/${executor.slots.max}` : "free";

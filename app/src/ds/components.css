@@ -273,3 +273,31 @@ a.pc-btn{text-decoration:none}
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+.pc-dialog-message{white-space:pre-line;overflow-wrap:anywhere}
+
+/* Layout-aware text keeps the source intact for tooltips and assistive technology. */
+.pc-ellipsis {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pc-code-scroll {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  user-select: text;
+}
+
+.pc-code-scroll:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

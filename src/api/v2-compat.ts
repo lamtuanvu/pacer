@@ -64,9 +64,11 @@ export function toV2OpResult(name:string,result:any):unknown {
  if(name==='setup.check')return legacyCheck(result);
  if(name==='version.get')return {...result,protocol:V2_PROTOCOL};
  if(name==='task.diff')return {...result,diff:result.patch};
- if(name==='task.list'&&result?.[LEGACY_TASK_LIST])return result[LEGACY_TASK_LIST];
- // `derived` (availability of slow detail fields) is a 3.x addition; 2.x responses stay byte-identical.
- if(name==='task.get'&&result&&typeof result==='object'&&'derived' in result){const {derived:_,...rest}=result;return rest;}
+ // `fullTitle` and `derived` are 3.x additions; 2.x responses stay byte-identical.
+ const legacyTask=(task:any)=>{if(!task||typeof task!=='object')return task;const {fullTitle:_,...rest}=task;return rest;};
+ if(name==='task.list'){const list=result?.[LEGACY_TASK_LIST]??result;if(Array.isArray(list))return list.map(legacyTask);return list&&Array.isArray(list.tasks)?{...list,tasks:list.tasks.map(legacyTask)}:list;}
+ if(name==='task.get'&&result&&typeof result==='object'){const {derived:_,...rest}=legacyTask(result);return rest;}
+ if(name==='task.review'&&result&&typeof result==='object'&&!Array.isArray(result))return 'task' in result?{...result,task:legacyTask(result.task)}:legacyTask(result);
  return result;
 }
 export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):Promise<unknown> {
