@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { chmodSync, copyFileSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, copyFileSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parsePlistDictionary } from "../../src/service";
 import { assetFile, parseManifest, parseSha256Sums, sha256Hex } from "../../src/update/manifest";
@@ -10,8 +10,14 @@ type Run = (argv: string[]) => Promise<string>;
 
 /** Require thin, native Mach-O executables. Universal packages have a separate release contract. */
 export function verifyDesktopExecutable(bytes: Buffer, arch: Arch): void {
+  verifyMachO(bytes, arch, 2);
+}
+export function verifyNativeLibrary(bytes: Buffer, arch: Arch): void {
+  verifyMachO(bytes, arch, 6);
+}
+function verifyMachO(bytes: Buffer, arch: Arch, kind: number): void {
   const cpu = arch === "aarch64" ? 0x0100000c : 0x01000007;
-  if (bytes.length < 32 || bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== cpu || bytes.readUInt32LE(12) !== 2) {
+  if (bytes.length < 32 || bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== cpu || bytes.readUInt32LE(12) !== kind) {
     throw new Error("Desktop executable architecture/type does not match the release");
   }
 }
@@ -38,6 +44,16 @@ const runBinary: Run = async argv => {
     return stdout;
   } finally { clearTimeout(timer); }
 };
+
+/** Build only the repository's fixed transport shim, never code supplied by a release feed. */
+export async function buildNativeShim(root: string, output: string, arch: Arch, run: Run = runBinary): Promise<void> {
+  if (arch !== "aarch64" && arch !== "x86_64") throw new Error("Unsupported desktop architecture");
+  const source = join(root, "src/update/desktop/native-socket.c"), stat = lstatSync(source);
+  if (!stat.isFile() || stat.isSymbolicLink() || existsSync(output)) throw new Error("Invalid native shim build input/output");
+  await run(["/usr/bin/xcrun", "clang", "-target", `${arch === "aarch64" ? "arm64" : "x86_64"}-apple-macos11`,
+    "-dynamiclib", "-O2", "-Wall", "-Wextra", "-Werror", "-Wl,-install_name,@rpath/libpacer-native.dylib", source, "-o", output]);
+  verifyNativeLibrary(regular(output), arch);
+}
 
 /**
  * Inputs: verified CLI release directory plus unsigned pacer.app and pacer-update-helper.
@@ -83,7 +99,11 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
     copyFileSync(helper, join(resources, "pacer-update-helper"));
     chmodSync(join(resources, "pacer"), 0o755);
     chmodSync(join(resources, "pacer-update-helper"), 0o755);
-    writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ schema: 1, bundleId: "dev.pacer.desktop", version, arch, protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true }, null, 2) + "\n");
+    const frameworks = join(target, "Contents/Frameworks");
+    mkdirSync(frameworks, { recursive: true });
+    if (readdirSync(frameworks).length) throw new Error("Unsupported nested signing payload");
+    await buildNativeShim(root, join(frameworks, "libpacer-native.dylib"), arch, run);
+    writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ schema: 1, bundleId: "dev.pacer.desktop", version, arch, protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true }, null, 2) + "\n");
     return stage;
   } catch (error) { rmSync(stage, { recursive: true, force: true }); throw error; }
 }

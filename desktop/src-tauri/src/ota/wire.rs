@@ -106,6 +106,8 @@ pub enum StatusAction {
     Retry,
     Adopt,
     Configure,
+    #[serde(rename="adoptCancel")]
+    AdoptCancel,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -263,6 +265,16 @@ pub enum AdapterCommand {
         #[serde(flatten)]
         binding: Binding,
     },
+    Adopt {
+        #[serde(flatten)]
+        binding: Binding,
+        target: Installation,
+    },
+    #[serde(rename = "recover-adoption")]
+    RecoverAdoption {
+        #[serde(flatten)]
+        binding: Binding,
+    },
 }
 impl AdapterCommand {
     pub fn binding(&self) -> &Binding {
@@ -270,7 +282,9 @@ impl AdapterCommand {
             Self::Check { binding }
             | Self::Download { binding, .. }
             | Self::Install { binding, .. }
-            | Self::Recover { binding } => binding,
+            | Self::Recover { binding }
+            | Self::Adopt { binding, .. }
+            | Self::RecoverAdoption { binding } => binding,
         }
     }
 }
@@ -657,6 +671,17 @@ fn envelope_keys(value: &Value, additional: &[&str]) -> Result<()> {
 fn strict_candidate(value: &Value) -> Result<()> {
     only_keys(value, CANDIDATE_KEYS)
 }
+fn target_valid(binding: &Binding, target: &Installation) -> bool {
+    target.id == binding.installation_id
+        && target.bundle_id == BUNDLE_ID
+        && integer(target.owner_uid)
+        && target.port > 0
+        && absolute_path(&target.app_path)
+        && absolute_path(&target.pacer_home)
+        && !target.service_label.is_empty()
+        && text_len(&target.service_label) <= 128
+        && version(&target.version)
+}
 impl WireMessage for AdapterCommand {
     fn validate(&self) -> Result<()> {
         let binding = self.binding();
@@ -666,29 +691,24 @@ impl WireMessage for AdapterCommand {
             Self::Download { candidate, .. } => {
                 require(binding.transaction_id.is_none() && candidate_valid(candidate, true))
             }
-            Self::Recover { .. } => require(binding.transaction_id.is_some()),
+            Self::Recover { .. } | Self::RecoverAdoption { .. } => require(binding.transaction_id.is_some()),
+            Self::Adopt { target, .. } => require(binding.transaction_id.is_some()
+                && target.ownership == Ownership::Attached && target_valid(binding, target)),
             Self::Install {
                 candidate, target, ..
             } => require(
                 binding.transaction_id.is_some()
                     && candidate_valid(candidate, true)
                     && candidate.rollback_compatible
-                    && target.id == binding.installation_id
                     && target.arch == candidate.arch
-                    && target.bundle_id == BUNDLE_ID
-                    && integer(target.owner_uid)
-                    && target.port > 0
-                    && absolute_path(&target.app_path)
-                    && absolute_path(&target.pacer_home)
-                    && !target.service_label.is_empty()
-                    && text_len(&target.service_label) <= 128
-                    && version(&target.version),
+                    && target_valid(binding, target),
             ),
         }
     }
     fn validate_shape(value: &Value) -> Result<()> {
         let extra: &[&str] = match value.get("command").and_then(Value::as_str) {
-            Some("check" | "recover") => &["command"],
+            Some("check" | "recover" | "recover-adoption") => &["command"],
+            Some("adopt") => &["command", "target"],
             Some("download") => &["command", "candidate"],
             Some("install") => &["command", "candidate", "target"],
             _ => return Err(WireError::Invalid),
@@ -961,6 +981,30 @@ mod tests {
         let mut invalid_hint = state();
         invalid_hint["error"] = json!({"code":"permission", "message":"Try again", "hint":null});
         assert!(parse_record(&bytes(&invalid_hint)).is_err());
+    }
+
+    #[test]
+    fn service_adoption_has_separate_candidate_free_commands() {
+        let fixture = adapter();
+        let mut command = fixture["commands"].as_array().unwrap().iter().find(|c| c["command"] == "install").unwrap().clone();
+        command["command"] = json!("adopt");
+        command["target"]["ownership"] = json!("attached");
+        let candidate = command.as_object_mut().unwrap().remove("candidate").unwrap();
+        assert!(parse_command(&bytes(&command)).is_ok());
+        let mut bad = command.clone(); bad["candidate"] = candidate;
+        assert!(parse_command(&bytes(&bad)).is_err());
+        let mut bad = command.clone(); bad["target"]["ownership"] = json!("managed");
+        assert!(parse_command(&bytes(&bad)).is_err());
+        let mut bad = command.clone(); bad["transactionId"] = Value::Null;
+        assert!(parse_command(&bytes(&bad)).is_err());
+        let mut bad = command.clone(); bad["target"]["id"] = json!("another-installation");
+        assert!(parse_command(&bytes(&bad)).is_err());
+        command["command"] = json!("recover-adoption");
+        assert!(parse_command(&bytes(&command)).is_err());
+        command.as_object_mut().unwrap().remove("target");
+        assert!(parse_command(&bytes(&command)).is_ok());
+        command["transactionId"] = Value::Null;
+        assert!(parse_command(&bytes(&command)).is_err());
     }
 
     #[test]

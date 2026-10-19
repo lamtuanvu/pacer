@@ -1,3 +1,6 @@
+import {createAdoptionRuntime,type AdoptionNative} from "./adoption-service";
+import {readAdoption,listAdoptions} from "./adoption-store";
+import {adoptionPending} from "./adoption-state";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { CoreError } from "../../core/errors";
@@ -22,7 +25,7 @@ export interface VerifiedNativeSession {
   alive(): boolean;
   readonly closed: Promise<void>;
 }
-export interface NativeAuthorityProvider {
+export interface NativeAuthorityProvider extends AdoptionNative {
   sessions(): readonly VerifiedNativeSession[];
   subscribe(changed: () => void): () => void;
   /** Recheck static Installation plus signed native processes, service ownership/admission and attached compatibility. */
@@ -30,7 +33,7 @@ export interface NativeAuthorityProvider {
   /** Confirm durable journal and reservation, and persist authorization, before allowing the continuation. */
   authorizeInstall?(session: VerifiedNativeSession, prepared: PreparedFrame): Promise<boolean>;
   /** Positive authenticated readiness/rollback proof; a helper's outcome alone is insufficient. */
-  verifyOutcome?(session: VerifiedNativeSession, record: UpdateRecord, outcome: "committed" | "restored" | "recovery-failed"): Promise<Installation>;
+  verifyOutcome?(session: VerifiedNativeSession, record: UpdateRecord, outcome: "committed" | "restored" | "recovery-failed"): Promise<{ installation: Installation; attempted: boolean }>;
 }
 export interface DesktopUpdateDeps {
   native?: NativeAuthorityProvider;
@@ -49,6 +52,8 @@ export interface DesktopUpdateRuntime {
   download(request: UpdateRequest): Promise<UpdateStatus>;
   restart(request: RestartRequest): Promise<UpdateStatus>;
   cancel(request: UpdateRequest): Promise<UpdateStatus>;
+  adopt(request: UpdateRequest): Promise<UpdateStatus>;
+  adoptCancel(request: UpdateRequest): Promise<UpdateStatus>;
   configure(request: UpdateRequest & { autoDownload: boolean }): UpdateStatus;
   start(): Promise<void>;
   stop(): void;
@@ -96,7 +101,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     const current = liveSession(session.installation.id);
     return !!current && current.sessionId === session.sessionId && sameProcess(current.desktop, session.desktop) && sameProcess(current.service, session.service);
   };
-  const installation = (id: string) => { assertIdentifier(id); const value = known.get(id); if (!value) throw unavailable(); return value; };
+  const installation = (id: string) => { assertIdentifier(id); const value = known.get(id)??readAdoption(ctx(),id)?.authority.target; if (!value) throw unavailable(); return value; };
   const operational = () => { if (!started || stopped || runtimeError) throw unavailable(); };
   const requireSession = (id: string) => { operational(); installation(id); if (!initialized.has(id)) throw unavailable(); const session = liveSession(id); if (!session) throw unavailable(); return session; };
   const verified = async (id: string) => { const session = requireSession(id); try { await native.reverify(session); } catch { throw unavailable(); } if (stopped || !isCurrent(session)) throw unavailable(); return session; };
@@ -131,7 +136,10 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const revokeWaiting = (id: string) => {
     const value = record(id);
     if (value.phase === "waiting") { persist(cancelRestart(value)); if (value.transactionId) waitingSessions.delete(value.transactionId); }
-    active.get(id)?.controller.abort();
+    // Once native authorization is durable, the helper owns shutdown/recovery.
+    // Its planned desktop exit must not cancel that transaction's observation.
+    const operation = active.get(id);
+    if (operation?.phase !== "recovering" && ["checking", "downloading", "reserved"].includes(value.phase)) operation?.controller.abort();
   };
   const observe = () => {
     for (const session of native.sessions()) {
@@ -242,12 +250,14 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       const value = record(id);
       if (value.transactionId !== transactionId) throw conflict();
       if (result.outcome === "recovery-failed") { persist({ ...value, phase: "recovery-failed", error: { code: "recovery_failed", message: "Desktop recovery requires repair" } }); return; }
-      const confirmed = await native.verifyOutcome!(session, value, result.outcome);
+      const outcomeProof = await native.verifyOutcome!(session, value, result.outcome);
+      if (typeof outcomeProof.attempted !== "boolean" || (result.outcome === "committed" && !outcomeProof.attempted)) throw conflict();
+      const confirmed = outcomeProof.installation;
       const expected = { ...installation(id), version: result.outcome === "committed" ? value.candidate?.version : installation(id).version };
       if ((Object.keys(expected) as (keyof Installation)[]).some(key => confirmed[key] !== expected[key])) throw conflict();
       known.set(id, structuredClone(confirmed));
       persist({ ...record(id), phase: result.outcome === "committed" ? "complete" : "restored", error: null,
-        failedVersion: result.outcome === "restored" ? value.candidate?.version ?? null : value.failedVersion,
+        failedVersion: result.outcome === "restored" && outcomeProof.attempted ? value.candidate?.version ?? null : value.failedVersion,
         requestId: null, requestedBy: null, requesterBootId: null });
       await release(id, transactionId);
     } catch (error) {
@@ -292,7 +302,10 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     if (initialized.has(id)) return false;
     const session = liveSession(id);
     if (!session) return true;
-    try { await native.reverify(session); } catch { throw unavailable(); }
+    // Discovery can overlap the desktop's short-lived sign-in CLI or a native
+    // reconnect. Keep this installation unavailable and retry with fresh proof;
+    // an observation failure must not permanently poison the service runtime.
+    try { await native.reverify(session); } catch { return true; }
     if (stopped || !isCurrent(session)) return true;
     const value = record(id);
     if (value.phase === "waiting") {
@@ -309,15 +322,24 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     initialized.add(id);
     return true;
   };
+  const adoption=createAdoptionRuntime(ctx,{native,adapter:deps.adapter,admission:gate,bootId:clock.bootId,changed:value=>{if(known.has(value.installationId))emit(value.installationId);},completed:(_oldId,value)=>{known.set(value.id,structuredClone(value));}});
   const runtime: DesktopUpdateRuntime = {
     status(id) {
       const value = record(id), status = updateStatus(installation(id), value);
+      const adopted=readAdoption(ctx(),id),session=liveSession(id);
+      let currentAdoption: ReturnType<NonNullable<AdoptionNative["inspectAdoption"]>> | undefined;
+      if ((!adopted || !adoptionPending(adopted)) && session && adoption.capable() && session.installation.ownership === "attached") {
+        try { currentAdoption = native.inspectAdoption?.(session); } catch { /* Retain terminal audit data without granting a new action. */ }
+      }
+      const source = currentAdoption ?? adopted?.authority;
+      if(source) status.adoption={phase:adopted?.phase??"available",revision:adopted?.revision??value.revision,previousInstallationId:id,resultingInstallationId:adopted?.resultingInstallationId??null,currentServiceExecutable:source.oldServiceExecutable,replacementServiceExecutable:source.newServiceExecutable,serviceLabel:source.target.serviceLabel,port:source.target.port,blockers:adopted?.blockers??[],error:adopted?.error??null};
+      if(adopted&&adoptionPending(adopted))return{...status,actions:adopted.phase==="waiting"?["adoptCancel"]:[]};
       if (runtimeError) return { ...status, actions: [], error: { code: "coordination_failed", message: "Desktop update coordination requires reconnect or recovery" } };
       if (!initialized.has(id)) return { ...status, actions: [] };
       if (!liveSession(id)) return { ...status, actions: value.phase === "waiting" ? ["cancel"] : [] };
-      return { ...status, actions: status.actions.filter(action => action !== "adopt" && (action !== "check" || !!deps.adapter?.capabilities.has("check")) && (action !== "download" || !!deps.adapter?.capabilities.has("download")) && (action !== "restart" || !!native.authorizeInstall && !!native.verifyOutcome && !!deps.adapter?.capabilities.has("install"))) };
+      return { ...status, actions: status.actions.filter(action => (action !== "adopt" || !!currentAdoption) && (action !== "check" || !!deps.adapter?.capabilities.has("check")) && (action !== "download" || !!deps.adapter?.capabilities.has("download")) && (action !== "restart" || !!native.authorizeInstall && !!native.verifyOutcome && !!deps.adapter?.capabilities.has("install"))) };
     },
-    listStatuses: () => [...known.keys()].map(id => runtime.status(id)),
+    listStatuses: () => [...new Set([...known.keys(),...listAdoptions(ctx()).map(value=>value.installationId)])].map(id => runtime.status(id)),
     boundClientId: id => requireSession(id).desktopClientId,
     check: request => startNetwork(request, "check"), download: request => startNetwork(request, "download"),
     async restart(request) {
@@ -337,6 +359,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       } else if (waitingSessions.get(next.transactionId!) !== session.sessionId) throw conflict();
       return runtime.status(request.installationId);
     },
+    async adopt(request){operational();installation(request.installationId);await adoption.adopt(request);return runtime.status(request.installationId);},
+    async adoptCancel(request){operational();installation(request.installationId);await adoption.cancel(request);return runtime.status(request.installationId);},
     async cancel(request) {
       operational(); installation(request.installationId);
       const current = record(request.installationId);
@@ -361,6 +385,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       if (started) return; if (stopped) throw unavailable();
       started = true;
       try {
+        await adoption.start();
         observe();
         for (const id of known.keys()) await reconcile(id);
         unsubscribe = native.subscribe(() => { void runtime.tick().catch(() => { runtimeError = true; }); });
@@ -370,14 +395,16 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     stop() {
       if (stopped) return;
       for (const id of known.keys()) { try { revokeWaiting(id); } catch { runtimeError = true; } }
-      stopped = true; cancelTimer?.(); unsubscribe?.();
+      stopped = true; adoption.stop(); cancelTimer?.(); unsubscribe?.();
     },
     async tick() {
       if (!started || stopped || ticking || runtimeError) return;
       ticking = true; cancelTimer?.();
       try {
         observe();
+        await adoption.tick();
         for (const id of known.keys()) {
+          const adopted=readAdoption(ctx(),id);if(adopted&&adoptionPending(adopted))continue;
           if (await reconcile(id)) continue;
           const value = record(id);
           if (value.phase === "waiting") { await advanceWaiting(id); continue; }
@@ -390,7 +417,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         }
       } finally { ticking = false; if (!stopped) cancelTimer = schedule(() => { void runtime.tick().catch(() => { runtimeError = true; }); }, 1000); }
     },
-    async settled() { while (jobs.size) await Promise.all([...jobs]); await publications; },
+    async settled() { await adoption.settled(); while (jobs.size) await Promise.all([...jobs]); await publications; },
   };
   return runtime;
 }

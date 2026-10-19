@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- macOS desktop OTA support with complete app/service packages, explicit restart after download, work admission, verified recovery, and shared Settings, tray, TUI and CLI controls. Production publication remains gated on signed native validation.
+- Separate `desktop.update.*` operations on protocol v3 and `pacer desktop-update` commands; existing standalone CLI update operations retain their behavior.
 - Live validation supports `up --seed ui` for isolated setup-complete UI sample data without starting executors.
 
 ### Fixed

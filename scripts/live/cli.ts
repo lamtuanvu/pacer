@@ -2,6 +2,7 @@ import { copyFileSync, chmodSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, sessions, up } from "./core";
 import { cleanupOta, exerciseOta, prepareOta } from "./ota";
+import { buildOtaFixtures } from "./ota-build";
 import { desktop, orca, tui } from "./surfaces";
 
 const usage = `usage: bun run live <command> [--id <id>]
@@ -9,6 +10,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   start isolated service and disposable repo; ui seeds sample data
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
+  ota build                       compile isolated signed native fixtures (requires --id)
   ota exercise --scenario <name>  run a fixed native fixture scenario (requires --id)
   ota cleanup                    remove recorded OTA copies (requires --id)
   env                             print sandbox export lines
@@ -57,7 +59,7 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (command === "ota") {
-    if (!id || positionals.length !== 1 || forwarded.length || flags.size) throw Error("usage: live ota prepare|exercise|cleanup --id <id>");
+    if (!id || positionals.length !== 1 || forwarded.length || flags.size) throw Error("usage: live ota build|prepare|exercise|cleanup --id <id>");
     const action = positionals[0];
     const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : ["--id"];
     if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported OTA option");
@@ -67,7 +69,8 @@ export async function main(argv: string[]): Promise<number> {
     } else if (action === "exercise") {
       if (!options.has("--scenario")) throw Error("OTA exercise requires --scenario");
       await exerciseOta(id, options.get("--scenario")!);
-    } else if (action === "cleanup") await cleanupOta(id);
+    } else if (action === "build") await buildOtaFixtures(id);
+    else if (action === "cleanup") await cleanupOta(id);
     else throw Error("Unsupported OTA action");
     return 0;
   }

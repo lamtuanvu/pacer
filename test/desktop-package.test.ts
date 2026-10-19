@@ -20,8 +20,10 @@ function fixture() {
   const hash = createHash("sha256").update(binary).digest("hex");
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: "1.2.3", assets: [{ os: "darwin", arch: "arm64", file: "pacer-darwin-arm64", sha256: hash, size: binary.length }] }));
   writeFileSync(join(dir, "SHA256SUMS"), `${hash}  pacer-darwin-arm64\n`);
+  mkdirSync(join(root, "src/update/desktop"), { recursive: true });
+  writeFileSync(join(root, "src/update/desktop/native-socket.c"), "/* fixed test source */");
   const calls: string[][] = [];
-  const run = async (argv: string[]) => { calls.push(argv); return argv[0].endsWith("pacer-darwin-arm64") ? "pacer 1.2.3\n" : "1.2.3\n"; };
+  const run = async (argv: string[]) => { calls.push(argv); if (argv[0] === "/usr/bin/xcrun") { const library = Buffer.from(binary); library.writeUInt32LE(6, 12); writeFileSync(argv[argv.indexOf("-o") + 1], library, { mode: 0o755 }); return ""; } return argv[0].endsWith("pacer-darwin-arm64") ? "pacer 1.2.3\n" : "1.2.3\n"; };
   return { root, dir, app, run, calls };
 }
 
@@ -32,9 +34,10 @@ test("staging creates a separate complete app with matching release metadata and
   expect(app).not.toBe(f.app);
   expect(readFileSync(join(app, "Contents/Resources/pacer"))).toEqual(readFileSync(join(f.dir, "pacer-darwin-arm64")));
   expect(readFileSync(join(app, "Contents/Resources/pacer-update-helper"))).toEqual(readFileSync(join(f.dir, "pacer-update-helper")));
-  expect(JSON.parse(readFileSync(join(app, "Contents/Resources/pacer-release.json"), "utf8"))).toEqual({ schema: 1, bundleId: "dev.pacer.desktop", version: "1.2.3", arch: "aarch64", protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true });
-  expect(f.calls.length).toBe(3);
-  expect(f.calls.every(argv => argv.length === 2 && argv[1] === "--version")).toBe(true);
+  expect(JSON.parse(readFileSync(join(app, "Contents/Resources/pacer-release.json"), "utf8"))).toEqual({ schema: 1, bundleId: "dev.pacer.desktop", version: "1.2.3", arch: "aarch64", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true });
+  expect(f.calls.filter(argv => argv[1] === "--version")).toHaveLength(3);
+  expect(f.calls.find(argv => argv[0] === "/usr/bin/xcrun")).toContain("arm64-apple-macos11");
+  expect(readFileSync(join(app, "Contents/Frameworks/libpacer-native.dylib")).readUInt32LE(12)).toBe(6);
   expect(existsSync(join(f.app, "Contents/Resources/pacer-release.json"))).toBe(false);
 });
 
@@ -59,4 +62,19 @@ test("staging refuses redirected bundle content and never writes through it", as
   symlinkSync(outside, join(f.app, "Contents/Resources/redirect"));
   await expect(stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run })).rejects.toThrow("symlink");
   expect(existsSync(join(outside, "pacer-release.json"))).toBe(false);
+});
+
+
+test("staging rejects a compiler output with the wrong library architecture or Mach-O type", async () => {
+  for (const field of [4, 12]) {
+    const f = fixture();
+    await expect(stageDesktopPackage(f.root, f.dir, "aarch64", { run: async argv => {
+      const result = await f.run(argv);
+      if (argv[0] === "/usr/bin/xcrun") {
+        const path = argv[argv.indexOf("-o") + 1], bytes = readFileSync(path);
+        bytes.writeUInt32LE(field === 4 ? 0x01000007 : 2, field); writeFileSync(path, bytes);
+      }
+      return result;
+    } })).rejects.toThrow("architecture/type");
+  }
 });

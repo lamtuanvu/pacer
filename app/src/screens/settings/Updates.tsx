@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { UpdateStatus } from "../../../../src/update/desktop/types";
-import { desktopUpdateView, desktopUpdateFeedback, updateIntent, type DesktopAction } from "../../../../src/view-model/updates";
+import { desktopUpdateView, desktopUpdateFeedback, desktopAdoptionConfirmation, updateIntent, type DesktopAction } from "../../../../src/view-model/updates";
 import { useActions } from "../../data/action-context";
 import { Button } from "../../ds/Button";
 import { StatusPill } from "../../ds/StatusPill";
@@ -22,7 +22,7 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
     pending.current = true;
     try {
       if (action === "restart" && !await dialogs.confirm(`Restart pacer to install ${status.target}? Active work and sessions will be allowed to finish first.`, "Restart to update", "Restart to update")) return;
-      if (action === "adopt" && !await dialogs.confirm("Use the desktop-managed service for this installation? Your tasks, accounts and settings are preserved. The external service will no longer manage this desktop.", "Use the desktop service", "Use desktop service")) return;
+      if (action === "adopt" && !await dialogs.confirm(desktopAdoptionConfirmation(available), "Use the desktop service", "Use desktop service")) return;
       const request = intent(available, action, { autoDownload });
       setBusy(true); setError(undefined); setFeedback(undefined);
       const result = await runner.run(`desktop:${status.installationId}`, request);
@@ -38,6 +38,7 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
     <div className="u3-row"><strong>pacer desktop · {status.current}{status.target && status.target !== status.current && ` → ${status.target}`}</strong><StatusPill status={view}/></div>
     <div role="status" aria-live="polite"><p>{view.detail}</p>{busy && <p>Sending request…</p>}{message && <p>{message}</p>}</div>
     {showIdentity && <details className="pc-disclosure"><summary>Installation details</summary><code>{status.installationId}</code></details>}
+    {status.adoption && <div aria-label="Service change"><p>Current service · <code>{status.adoption.currentServiceExecutable}</code></p><p>Desktop service · <code>{status.adoption.replacementServiceExecutable}</code></p><p>{status.adoption.serviceLabel} · port {status.adoption.port}</p>{status.adoption.resultingInstallationId && <p>Installation · <code>{status.adoption.previousInstallationId}</code> → <code>{status.adoption.resultingInstallationId}</code></p>}{status.adoption.blockers.length > 0 && <ul aria-label="Work holding the service change">{status.adoption.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label}</li>)}</ul>}{status.adoption.error && <p>{status.adoption.error.message}</p>}</div>}
     {status.blockers.length > 0 && <ul aria-label="Work holding the update">{status.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label || ({ task: "Running task", session: "Interactive session", launch: "Starting work", operation: "Operation in progress" }[blocker.kind])}</li>)}</ul>}
     {status.error?.hint && <p>{status.error.hint}</p>}
     <p className="u3-muted">Last checked · {time(status.checkedAt)}</p>

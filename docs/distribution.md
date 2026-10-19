@@ -111,22 +111,33 @@ baseline release: losing the private key prevents signing updates for apps that
 pin its public key. Key rotation needs a separately reviewed migration.
 
 The signer creates a private temporary keychain, imports only the release
-certificate, signs the CLI and helper before the outer app, and restores the
+certificate, signs the fixed native transport library, CLI and helper before the
+outer app, and restores the
 original keychain search list during cleanup. An `always()` cleanup step can
 resume after cancellation from its private record. No login keychain import or
 unsigned fallback is supported. The Bun CLI receives only `allow-jit`; the Rust
-executables receive no runtime exceptions. Real Developer ID execution on both
+executables receive no runtime exceptions. After the final signatures, each native CI runner executes the CLI transport
+self-test with its verified library, private socket and kernel peer identity,
+and starts the helper's native runtime with its updater plugin.
+Failure blocks notarization and publication. Real Developer ID execution on both
 architectures remains a release prerequisite. The current package supports
-regular files/directories and three executables; additional nested frameworks
-or symlink payloads require a reviewed signing/extraction contract.
+regular files/directories, three executables and
+`Contents/Frameworks/libpacer-native.dylib`. Xcode clang builds the library from
+the tracked transport source for the package architecture and macOS 11 minimum.
+It has the identifier `dev.pacer.desktop.native-shim` and the same signing Team
+as the CLI. A compatible detached CLI uses only the library beside its own
+executable. Compiled native-enabled CLIs never fall back to runtime C compilation.
+Library validation stays enabled; additional nested code or symlink payloads
+require a reviewed signing/extraction contract.
 
 After Apple accepts the complete signed app, the pipeline staples the ticket,
 checks it with `stapler` and Gatekeeper, and archives exactly `pacer.app` with
 AppleDouble generation disabled. Tauri CLI **2.12.3** signs the final bytes with
 `--app-version`; its globally signed trusted comment binds the intended version.
 The generator validates that binding, the SHA-256, Apple Team ID and identifiers,
-all three thin executable architectures, and signed `pacer-release.json`
-compatibility metadata. Production metadata has `fixture:false`.
+all three thin executable architectures, the thin Mach-O library, and signed `pacer-release.json`
+compatibility metadata, including `nativeTransportAbi:1`. Missing or incompatible
+libraries reject the package before execution. Production metadata has `fixture:false`.
 
 Immutable GitHub release assets are:
 

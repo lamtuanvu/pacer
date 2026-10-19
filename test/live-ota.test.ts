@@ -4,7 +4,7 @@ import { join } from "node:path";
 import * as childProcess from "node:child_process";
 import { tmpDir } from "./helpers";
 import { atomicWrite, readEvidence, saveSession, type Session } from "../scripts/live/core";
-import { appDigest, cleanupOta, exerciseOta, prepareOta, readOtaRecord } from "../scripts/live/ota";
+import { appDigest, cleanupOta, exerciseOta, prepareOta, readOtaRecord, recordOtaRegistrationIntent, observeOtaRegistration } from "../scripts/live/ota";
 import { refusedOp } from "../scripts/live/proxy";
 import { refusal } from "../scripts/live/guard";
 
@@ -181,4 +181,198 @@ test("app fingerprints frame file contents so a file cannot impersonate another 
   writeFileSync(join(f.to, "Contents/MacOS/pacer"), "x");
   writeFileSync(join(f.to, "Contents/MacOS/z"), "y");
   expect(appDigest(f.from)).not.toBe(appDigest(f.to));
+});
+
+test("registration intent and loaded ownership survive uncertain inspection and block cleanup", async () => {
+  const f = fixture(); await prepareOta(f.session.id, f.from, f.to, f.options);
+  const state = readOtaRecord(f.session.id, f.options), label = state.serviceLabel;
+  const plist = `<plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array><string>${state.currentApp}/Contents/MacOS/pacer</string><string>30</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>${state.pacerHome}</string><key>PACER_HOME</key><string>${state.pacerHome}</string></dict><key>KeepAlive</key><true/><key>RunAtLoad</key><true/></dict></plist>`;
+  recordOtaRegistrationIntent(f.session.id, label, plist, f.options);
+  let current = readOtaRecord(f.session.id, f.options);
+  expect(current.registrations[0].state).toBe("intent");
+  expect(readFileSync(current.registrations[0].path, "utf8")).toBe(plist);
+  await expect(cleanupOta(f.session.id, f.options)).rejects.toThrow("active or uncertain");
+  const child = {pid: 123456, bootId: "boot", birth: "100:1"};
+  await observeOtaRegistration(f.session.id, label, "loaded", async expected => ({...expected, loaded:true, coverage:"complete", processes:[child], exited:[]}), f.options);
+  await expect(cleanupOta(f.session.id, f.options)).rejects.toThrow("active or uncertain");
+  await expect(observeOtaRegistration(f.session.id, label, "retired", async expected => ({...expected, loaded:false, coverage:"unknown", processes:[], exited:[child]}), f.options)).rejects.toThrow();
+  await expect(observeOtaRegistration(f.session.id, label, "retired", async expected => ({...expected, loaded:false, coverage:"complete", processes:[], exited:[]}), f.options)).rejects.toThrow();
+  expect(readOtaRecord(f.session.id, f.options).registrations[0].state).toBe("loaded");
+  await observeOtaRegistration(f.session.id, label, "retired", async expected => ({...expected, loaded:false, coverage:"complete", processes:[], exited:[child]}), f.options);
+  await cleanupOta(f.session.id, f.options);
+  expect(readOtaRecord(f.session.id, f.options).phase).toBe("cleaned");
+  expect(f.calls()).toBe(0);
+});
+
+test("registration ledger rejects changed plist, real labels and paths outside fixture", async () => {
+  const f = fixture(); await prepareOta(f.session.id, f.from, f.to, f.options);
+  const state = readOtaRecord(f.session.id, f.options), label = state.serviceLabel;
+  const make = (name:string, program:string) => `<plist><dict><key>Label</key><string>${name}</string><key>ProgramArguments</key><array><string>${program}</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>${state.pacerHome}</string></dict><key>KeepAlive</key><false/><key>RunAtLoad</key><true/></dict></plist>`;
+  expect(() => recordOtaRegistrationIntent(f.session.id, "com.pacer.serve", make("com.pacer.serve", `${state.currentApp}/Contents/MacOS/pacer`), f.options)).toThrow();
+  expect(() => recordOtaRegistrationIntent(f.session.id, label, make(label, "/bin/sleep"), f.options)).toThrow();
+  recordOtaRegistrationIntent(f.session.id, label, make(label, `${state.currentApp}/Contents/MacOS/pacer`), f.options);
+  expect(() => recordOtaRegistrationIntent(f.session.id, label, make(label, `${state.candidateApp}/Contents/MacOS/pacer`), f.options)).toThrow();
+  writeFileSync(state.registrations[0].path, "changed");
+  await expect(cleanupOta(f.session.id, f.options)).rejects.toThrow();
+  expect(existsSync(state.currentApp)).toBe(true);
+  expect(f.calls()).toBe(0);
+});
+
+import { reserveOtaBuild, finishOtaBuild, otaFixturePolicy } from "../scripts/live/ota";
+
+test("native build reserves exact immutable intent before compilation and finalizes once", async () => {
+  const f = fixture(), state = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options);
+  expect(state.phase).toBe("building");
+  expect(state.sources.map(s => s.sha256)).toEqual([null, null]);
+  expect(otaFixturePolicy(state).currentApp).toBe(state.currentApp);
+  expect(state.nativeFixture?.buildRoot).toBe(join(state.root, "build"));
+  expect(() => reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options)).toThrow();
+  await expect(exerciseOta(f.session.id, "upgrade", f.options)).rejects.toThrow();
+  for (const source of state.sources) {
+    mkdirSync(join(source.path, "Contents/MacOS"), { recursive: true });
+    writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
+  }
+  const archive = Buffer.from("fixture archive"), feed = Buffer.from("fixture feed");
+  finishOtaBuild(f.session.id, { archive, feed }, f.options);
+  const ready = readOtaRecord(f.session.id, f.options);
+  expect(ready.phase).toBe("prepared");
+  expect(ready.sources.every(source => source.sha256?.length === 64)).toBe(true);
+  expect(ready.artifacts).toHaveLength(2);
+  const feedPath = join(state.root, "feed/stable.json"), artifactPath = ready.artifacts.find(item => item.path.includes("/artifacts/"))!.path;
+  writeFileSync(feedPath, "changed");
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("changed");
+  writeFileSync(feedPath, feed);
+  rmSync(artifactPath);
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("missing");
+  writeFileSync(artifactPath, archive, { mode: 0o600 });
+  expect(() => finishOtaBuild(f.session.id, { archive, feed }, f.options)).toThrow();
+  expect(f.calls()).toBe(0);
+  await cleanupOta(f.session.id, f.options);
+  expect(existsSync(state.sources[0].path)).toBe(true);
+  expect(existsSync(join(state.root, "feed"))).toBe(false);
+});
+
+for (const mutation of ["source", "build-root", "hash-phase", "artifact", "symlink"]) test(`native build refuses changed ${mutation}`, async () => {
+  const f = fixture(), state = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options);
+  if (mutation === "source") state.sources[0].path = f.from;
+  if (mutation === "build-root") state.nativeFixture!.buildRoot = f.sourceRoot;
+  if (mutation === "hash-phase") state.phase = "prepared";
+  if (mutation === "artifact") writeFileSync(join(state.root, "unrecorded"), "foreign");
+  if (mutation === "symlink") { rmSync(state.nativeFixture!.buildRoot, { recursive: true }); symlinkSync(f.sourceRoot, state.nativeFixture!.buildRoot); }
+  atomicWrite(join(state.root, "record.json"), JSON.stringify(state));
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow();
+  expect(f.calls()).toBe(0);
+});
+
+test("native fixture accepts only stable private known lock files", async () => {
+  const f = fixture(); await prepareOta(f.session.id, f.from, f.to, f.options);
+  const state = readOtaRecord(f.session.id, f.options), locks = join(state.root, "locks");
+  mkdirSync(locks, { mode: 0o700 });
+  writeFileSync(join(locks, "ledger-lock"), "", { mode: 0o600 });
+  expect(readOtaRecord(f.session.id, f.options).phase).toBe("prepared");
+  writeFileSync(join(locks, "foreign"), "", { mode: 0o600 });
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow();
+});
+
+test("exercise markers cannot be attached to ordinary unsigned preparation", async () => {
+  const f = fixture(); await prepareOta(f.session.id, f.from, f.to, f.options);
+  const path = join(f.session.root, "ota/record.json"), state = JSON.parse(readFileSync(path, "utf8"));
+  state.exercise = { schema: 1, scenario: "upgrade", state: "armed", driver: { pid: 42, bootId: "boot", birth: "birth" }, installationId: "a".repeat(64), transactionId: null, faults: [] };
+  atomicWrite(path, JSON.stringify(state));
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow();
+  expect(f.calls()).toBe(0);
+});
+test("prepared records default to no runtime or exercise authority", async () => {
+  const f = fixture(); await prepareOta(f.session.id, f.from, f.to, f.options);
+  const state = readOtaRecord(f.session.id, f.options);
+  expect((state as any).exercise).toBeNull(); expect((state as any).runtime).toBeNull();
+});
+
+test("native runtime ownership retains cleanup even when registration rows are empty", async () => {
+  const f = fixture(); await prepareOta(f.session.id, f.from, f.to, f.options);
+  const path = join(f.session.root, "ota/record.json"), state = JSON.parse(readFileSync(path, "utf8"));
+  state.runtime = { schema: 1, driver: { pid: 42, bootId: "boot", birth: "birth" }, sourceService: { pid: 43, bootId: "boot", birth: "birth" }, desktop: null, state: "starting", request: null };
+  atomicWrite(path, JSON.stringify(state));
+  await expect(cleanupOta(f.session.id, f.options)).rejects.toThrow();
+  expect(existsSync(state.currentApp)).toBe(true); expect(f.calls()).toBe(0);
+});
+
+test.skipIf(process.platform !== "darwin")("changed fixture bundle refuses before executing a diagnostic", async () => {
+  const f = fixture(); await prepareOta(f.session.id, f.from, f.to, f.options);
+  const state = readOtaRecord(f.session.id, f.options);
+  state.nativeFixture = { schema: 1, kind: "native-build", buildRoot: join(state.root, "build"), baselineVersion: "0.2.3", candidateVersion: "0.2.4", arch: "aarch64", updaterKeySha256: "b".repeat(64) };
+  writeFileSync(join(state.currentApp, "Contents/MacOS/pacer"), "changed diagnostic");
+  let calls = 0;
+  const spy = spyOn(Bun, "spawn").mockImplementation(() => { calls++; throw Error("unexpected diagnostic execution"); });
+  restoreSpies.push(() => spy.mockRestore());
+  const { verifyFixtureBundle } = await import("../scripts/live/ota-native");
+  await expect(verifyFixtureBundle(state, "0.2.3")).rejects.toThrow();
+  expect(calls).toBe(0);
+});
+
+test("driver ledger CAS preserves native transaction consumption and rejects another incarnation", async () => {
+  const { updateOtaDriverRecord } = await import("../scripts/live/ota");
+  const { ownProcessIdentity } = await import("../src/update/desktop/process-identity");
+  const { newExercise } = await import("../scripts/live/ota-exercise-record");
+  const f = fixture(), build = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options);
+  for (const source of build.sources) {
+    mkdirSync(join(source.path, "Contents/MacOS"), { recursive: true });
+    writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
+  }
+  finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options);
+  const initial = readOtaRecord(f.session.id, f.options), driver = ownProcessIdentity()!;
+  const runtime = { schema: 1 as const, driver, sourceService: driver, desktop: null, state: "starting" as const, request: null };
+  expect(() => updateOtaDriverRecord(f.session.id, initial, { runtime: { ...runtime, driver: { ...driver, birth: "reused" } }, exercise: null }, f.options)).toThrow();
+  const started = updateOtaDriverRecord(f.session.id, initial, { runtime, exercise: null }, f.options);
+  expect(() => updateOtaDriverRecord(f.session.id, initial, { runtime, exercise: null }, f.options)).toThrow("changed");
+  const bound = updateOtaDriverRecord(f.session.id, started, { runtime, exercise: { ...newExercise("upgrade", driver, "b".repeat(64)), state: "running" } }, f.options);
+  expect(() => updateOtaDriverRecord(f.session.id, bound, { runtime, exercise: { ...bound.exercise!, transactionId: "invented" } }, f.options)).toThrow("immutable");
+  await expect(cleanupOta(f.session.id, f.options)).rejects.toThrow("Unresolved");
+  expect(f.calls()).toBe(0);
+});
+
+test("fixed cleanup diagnostic ledger binds files once without launching processes", async () => {
+  const { recordOtaDiagnostics, replaceOtaDiagnostics } = await import("../scripts/live/ota");
+  const { createHash } = await import("node:crypto");
+  const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+  const f = fixture(), build = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options);
+  for (const source of build.sources) {
+    mkdirSync(join(source.path, "Contents/MacOS"), { recursive: true });
+    writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
+  }
+  finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options);
+  const initial = readOtaRecord(f.session.id, f.options), path = join(initial.root, "record.json");
+  initial.runtime = { schema: 1, driver: { pid: 42, bootId: "boot", birth: "birth" }, sourceService: { pid: 43, bootId: "boot", birth: "birth" }, desktop: { pid: 44, bootId: "boot", birth: "birth" }, state: "starting", request: null };
+  atomicWrite(path, JSON.stringify(initial));
+  const stage = join(build.nativeFixture!.buildRoot, "diagnostics/stage");
+  mkdirSync(stage, { mode: 0o700, recursive: true });
+  const descriptor = { schema: 1 as const, policySha256: digest(JSON.stringify(otaFixturePolicy(initial))), cliSha256: digest("cli"), helperSha256: digest("helper") };
+  writeFileSync(join(stage, "build.json"), JSON.stringify(descriptor), { mode: 0o600 });
+  writeFileSync(join(stage, "pacer-startup-cleanup"), "cli", { mode: 0o700 });
+  writeFileSync(join(stage, "pacer-update-helper"), "helper", { mode: 0o700 });
+  recordOtaDiagnostics(f.session.id, descriptor, f.options);
+  expect(readOtaRecord(f.session.id, f.options).diagnostics).toEqual(descriptor);
+  expect(() => recordOtaDiagnostics(f.session.id, descriptor, f.options)).toThrow();
+  if (process.platform === "darwin") {
+    writeFileSync(join(build.nativeFixture!.buildRoot, "diagnostics/source-captured.json"), JSON.stringify({ sourceSha256: "f".repeat(64) }), { mode: 0o600 });
+    mkdirSync(stage, { mode: 0o700 });
+    const next = { ...descriptor, helperSha256: digest("new helper") };
+    writeFileSync(join(stage, "build.json"), JSON.stringify(next), { mode: 0o600 });
+    writeFileSync(join(stage, "pacer-startup-cleanup"), "cli", { mode: 0o700 });
+    writeFileSync(join(stage, "pacer-update-helper"), "new helper", { mode: 0o700 });
+    const recorded = readOtaRecord(f.session.id, f.options);
+    recorded.diagnosticProcesses = [(await import("../src/update/desktop/process-identity")).ownProcessIdentity()!];
+    atomicWrite(path, JSON.stringify(recorded));
+    await expect(replaceOtaDiagnostics(f.session.id, next, f.options)).rejects.toThrow("Diagnostic process exit");
+    expect(existsSync(join(initial.root, "diagnostics/pacer-update-helper"))).toBe(true);
+    recorded.diagnosticProcesses = []; atomicWrite(path, JSON.stringify(recorded));
+    await replaceOtaDiagnostics(f.session.id, next, f.options);
+    const replaced = readOtaRecord(f.session.id, f.options);
+    expect(replaced.diagnostics).toEqual(next);
+    expect(replaced.diagnosticsHistory[0]).toEqual({ ...descriptor, path: join(build.nativeFixture!.buildRoot, "diagnostics/attempt-1"), sourceSha256: "f".repeat(64) });
+    expect(readFileSync(join(build.nativeFixture!.buildRoot, "diagnostics/attempt-1/pacer-update-helper"), "utf8")).toBe("helper");
+  }
+  writeFileSync(join(initial.root, "diagnostics/pacer-startup-cleanup"), "changed");
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("changed");
+  expect(f.calls()).toBe(0);
 });

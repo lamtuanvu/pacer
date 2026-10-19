@@ -1,4 +1,4 @@
-import { desktopUpdateView, updateIntent, type DesktopAction } from "../view-model/updates";
+import { desktopUpdateView, desktopAdoptionConfirmation, updateIntent, type DesktopAction } from "../view-model/updates";
 import type { UpdateStatus } from "../update/desktop/types";
 import {readFileSync} from 'node:fs';
 import {accountCmd,runnerCmd,type AccountDeps} from '../commands/accounts';
@@ -24,7 +24,7 @@ export class DashboardSettings {
  private updateIntent=updateIntent();
  private async update(status:UpdateStatus,action:DesktopAction){
   if(action==='restart'&&!/^y(?:es)?$/i.test(await this.ask(`Restart to install ${status.target} after active work finishes? y/N`)))return;
-  if(action==='adopt'&&!/^y(?:es)?$/i.test(await this.ask('Use the desktop-managed service, preserving tasks and settings? y/N')))return;
+  if(action==='adopt'&&!/^y(?:es)?$/i.test(await this.ask(`${desktopAdoptionConfirmation(status)} y/N`)))return;
   await this.deps.command(this.updateIntent(status,action,{autoDownload:!status.autoDownload}));
  }
  updateShortcut(key:string):boolean{
@@ -81,6 +81,7 @@ export class DashboardSettings {
     const view=desktopUpdateView(available),prefix=`desktop-${status.installationId}-`;
     add('Updates',prefix+'status',`pacer ${status.current}${status.target&&status.target!==status.current?` → ${status.target}`:''} · ${view.label}`);
     add('Updates',prefix+'detail',view.detail);
+    if(status.adoption){const a=status.adoption;add('Updates',prefix+'service',`${a.currentServiceExecutable} → ${a.replacementServiceExecutable} · ${a.serviceLabel}:${a.port}`);if(a.resultingInstallationId)add('Updates',prefix+'identity',`${a.previousInstallationId} → ${a.resultingInstallationId}`);for(const blocker of a.blockers)add('Updates',prefix+'adoption-blocker-'+blocker.id,blocker.label);}
     for(const blocker of status.blockers)add('Updates',prefix+'blocker-'+blocker.id,blocker.label);
     if(view.action)add('Updates',prefix+'primary',view.primary!,()=>this.update(available,view.action!));
     if(available.actions.includes('check')&&view.action!=='check')add('Updates',prefix+'check','Check for updates',()=>this.update(available,'check'));

@@ -19,16 +19,17 @@ const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".re
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanups.splice(0)) fn(); });
 function deferred<T>() { let resolve!: (v:T) => void; const promise = new Promise<T>(r=>{resolve=r;}); return {promise,resolve}; }
-function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void> } = {}) {
+function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"; attempted?: boolean } = {}) {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome);
   const installation: Installation = { id: "desktop", appPath: "/tmp/private-desktop.app", bundleId:"dev.pacer.desktop", ownerUid:process.getuid?.()??0, arch:"aarch64", pacerHome:ctx.pacerHome, port:7433, serviceLabel:"com.pacer.serve", ownership:options.ownership??"managed", version:"1.0.0" };
   const closed=deferred<void>(); let visible=!options.late; let alive=true, boot="boot-1", now=100;
   const session: VerifiedNativeSession = { installation, desktopClientId:"native-desktop", sessionId:"native-session", bootId:boot,
     desktop:{pid:101,bootId:boot,birth:"desktop-birth"},service:{pid:102,bootId:boot,birth:"service-birth"}, alive:()=>alive, closed:closed.promise };
+  const reserveEntered=deferred<void>();
   const calls:string[]=[], commands:AdapterCommand[]=[], publications:unknown[]=[], scheduled:{delay:number;callback:()=>void}[]=[];
   const native: NativeAuthorityProvider = { sessions:()=>visible?[session]:[], subscribe:()=>()=>{}, reverify:async()=>{if(!alive)throw Error("gone");},
     authorizeInstall:async()=>options.authorize ? options.authorize : true,
-    verifyOutcome:async(_s,_r,outcome)=>({ ...installation, version:outcome==="committed"?candidate.version:installation.version }),
+    verifyOutcome:async(_s,_r,outcome)=>({ installation:{ ...installation, version:outcome==="committed"?candidate.version:installation.version }, attempted:options.attempted??true }),
   };
   const factory: VerifiedPipeFactory = { capabilities:new Set(["check","download","install","recover"]), async open() {
     let out!:ReadableStreamDefaultController<Uint8Array>, command:AdapterCommand, seq=0;
@@ -37,30 +38,48 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
     const finish=()=>{out.close();exited.resolve(0);};
     return {identity:{version:"1.0.0",bundleId:"dev.pacer.desktop",arch:"aarch64"},stdout:new ReadableStream({start(c){out=c;}}),exited:exited.promise,abort(){calls.push("abort");},stdin:new WritableStream({async write(bytes){
       for(const value of decoder.push(bytes)){
-        if((value as any).kind==="authorize-install") {if(options.lostAck){finish();continue;}emit({kind:"authorized",reservationId:command.transactionId,journalSha256:"b".repeat(64)});emit({kind:"outcome",outcome:"committed"});finish();continue;}
+        if((value as any).kind==="authorize-install") {if(options.lostAck){finish();continue;}emit({kind:"authorized",reservationId:command.transactionId,journalSha256:"b".repeat(64)});await options.afterAuthorized;emit({kind:"outcome",outcome:options.outcome??"committed"});finish();continue;}
         command=parseAdapterCommand(value);commands.push(command);emit({kind:"hello",version:"1.0.0",bundleId:"dev.pacer.desktop",arch:"aarch64"});
         await options.hold;
         if(command.command==="check"){emit({kind:"checked",candidate});finish();}
         if(command.command==="download"){emit({kind:"progress",downloadedBytes:5,totalBytes:10});emit({kind:"downloaded",candidate,downloadedBytes:10,totalBytes:10});finish();}
-        if(command.command==="recover"){emit({kind:"outcome",outcome:"committed"});finish();}
+        if(command.command==="recover"){emit({kind:"outcome",outcome:options.outcome??"committed"});finish();}
         if(command.command==="install")emit({kind:"prepared",reservationId:command.transactionId,journalSha256:"b".repeat(64)});
       }
     }})};
   }};
   const runtime=createDesktopUpdateRuntime(()=>ctx,{native,adapter:factory,clock:{nowS:()=>now,monotonicMs:()=>now*1000,bootId:()=>boot},random:()=>0,
     schedule:(callback,delay)=>{scheduled.push({callback,delay});return()=>{};},publish:async status=>{publications.push(status);},
-    admission:{reserveIdle:async()=>{calls.push("reserve");await options.reservation;return{reserved:true,blockers:[]};},releaseReservation:async()=>{calls.push("release");},reconcileAdmission:async()=>{}},
+    admission:{reserveIdle:async()=>{calls.push("reserve");reserveEntered.resolve();await options.reservation;return{reserved:true,blockers:[]};},releaseReservation:async()=>{calls.push("release");},reconcileAdmission:async()=>{}},
   });
   if(options.autoDownload===false){const record=readUpdate(ctx,installation.id);writeUpdate(ctx,{...record,autoDownload:false},record.revision);}
   const unbind=bindDesktopUpdateRuntime(ctx,runtime);cleanups.push(runtime.stop); cleanups.push(unbind);
-  return {ctx,runtime,session,native,factory,unbind,commands,calls,publications,scheduled,
+  return {ctx,runtime,session,native,factory,unbind,commands,calls,publications,scheduled,reserveEntered:reserveEntered.promise,
     register(){visible=true;},
-    seedPending(phase:"waiting"|"installing"){const value=readUpdate(ctx,"desktop");const ready=writeUpdate(ctx,{...value,phase:"ready",candidate,downloadedBytes:10,totalBytes:10,checkedAt:100},value.revision);const waiting=requestRestart(ready,{installationId:"desktop",requestId:"old-restart",expectRevision:ready.revision,version:candidate.version,clientId:"native-desktop"},boot);writeUpdate(ctx,{...waiting,phase},ready.revision);},
+    seedPending(phase:"waiting"|"reserved"|"installing"){const value=readUpdate(ctx,"desktop");const ready=writeUpdate(ctx,{...value,phase:"ready",candidate,downloadedBytes:10,totalBytes:10,checkedAt:100},value.revision);const waiting=requestRestart(ready,{installationId:"desktop",requestId:"old-restart",expectRevision:ready.revision,version:candidate.version,clientId:"native-desktop"},boot);writeUpdate(ctx,{...waiting,phase},ready.revision);},
     stopDesktop(){alive=false;closed.resolve();},setBoot(value:string){boot=value;},setNow(value:number){now=value;},
     request(id:string){return{installationId:"desktop",requestId:id,expectRevision:runtime.status("desktop").revision};},
     async ready(){await runtime.start();await runtime.check(this.request("check"));await runtime.settled();if(runtime.status("desktop").phase!=="ready"){await runtime.download(this.request("download"));await runtime.settled();}},
   };
 }
+
+test("late native discovery retries failed verification without enabling mutations", async()=>{
+  const f=fixture({late:true,autoDownload:false});
+  await f.runtime.start();
+  const verify=f.native.reverify;
+  f.native.reverify=async()=>{throw Error("native startup still settling");};
+  f.register();
+  await f.runtime.tick();
+  expect(f.runtime.status("desktop").actions).toEqual([]);
+  await expect(f.runtime.check(f.request("unverified"))).rejects.toMatchObject({code:"not_allowed"});
+  expect(f.commands).toEqual([]);
+  f.native.reverify=verify;
+  await f.runtime.tick();
+  expect(f.runtime.status("desktop").actions).toContain("check");
+  await f.runtime.check(f.request("verified"));
+  await f.runtime.settled();
+  expect(f.commands).toHaveLength(1);
+});
 
 test("new operations are v3 only; public desktop registration never establishes native authority", async()=>{
   const ctx=fakeCtx();
@@ -137,7 +156,7 @@ test("late native registration recovers the recorded transaction without replayi
 test("cancellation during reservation cannot dispatch install",async()=>{
   const reservation=deferred<void>(),f=fixture({reservation:reservation.promise});await f.ready();
   await f.runtime.restart({...f.request("restart"),version:candidate.version,clientId:"native-desktop"});
-  const tick=f.runtime.tick();await Promise.resolve();await f.runtime.cancel(f.request("cancel"));reservation.resolve();await tick;await f.runtime.settled();
+  const tick=f.runtime.tick();await f.reserveEntered;await f.runtime.cancel(f.request("cancel"));reservation.resolve();await tick;await f.runtime.settled();
   expect(f.commands.map(c=>c.command)).not.toContain("install");expect(readUpdate(f.ctx,"desktop").phase).toBe("ready");
   expect(f.calls).toEqual(["reserve","release"]);
 });
@@ -156,7 +175,7 @@ test("missing authorization acknowledgement preserves the reservation for recove
 
 test("outcome proof cannot change any immutable installation identity",async()=>{
   for(const changed of [{port:7434},{ownership:"attached" as const},{ownerUid:999},{arch:"x86_64" as const},{serviceLabel:"forged"},{bundleId:"forged"}]){
-    const f=fixture();f.native.verifyOutcome=async()=>({...f.session.installation,version:candidate.version,...changed});
+    const f=fixture();f.native.verifyOutcome=async()=>({installation:{...f.session.installation,version:candidate.version,...changed},attempted:true});
     await f.ready();await f.runtime.restart({...f.request("restart"),version:candidate.version,clientId:"native-desktop"});await f.runtime.tick();await f.runtime.settled();
     expect(readUpdate(f.ctx,"desktop").phase).toBe("recovery-failed");expect(f.calls).toEqual(["reserve"]);
   }
@@ -193,7 +212,7 @@ test("transient checks back off, while explicit checks bypass the retry timer",a
 
 test("failed startup stays unavailable and never arms automatic work",async()=>{
   const f=fixture();f.native.reverify=async()=>{throw Error("private identity failure");};
-  await expect(f.runtime.start()).rejects.toMatchObject({code:"not_allowed"});await f.runtime.tick();
+  await f.runtime.start();await f.runtime.tick();
   await expect(f.runtime.check({installationId:"desktop",requestId:"check",expectRevision:0})).rejects.toMatchObject({code:"not_allowed"});
   expect(f.commands).toEqual([]);expect(f.runtime.status("desktop").actions).toEqual([]);expect(JSON.stringify(f.runtime.status("desktop"))).not.toContain("private identity failure");
 });
@@ -253,4 +272,92 @@ test("a concurrent duplicate restart winning CAS binds its persisted transaction
   await f.runtime.tick();await f.runtime.settled();
   expect(f.commands.filter(c=>c.command==="install").map(c=>c.transactionId)).toEqual([winningTransaction!]);
   expect(readUpdate(f.ctx,"desktop").phase).toBe("complete");
+});
+
+
+test("grantless preparation abort does not quarantine an unattempted candidate",async()=>{
+ for(const attempted of [false,true]){
+  const f=fixture({outcome:"restored",attempted});f.seedPending("installing");await f.runtime.start();await f.runtime.settled();
+  expect(readUpdate(f.ctx,"desktop").phase).toBe("restored");
+  expect(readUpdate(f.ctx,"desktop").failedVersion).toBe(attempted?candidate.version:null);
+ }
+});
+
+test("adoption projects inspected ownership change and cancels with its separate revision",async()=>{
+ const f=fixture({ownership:"attached",autoDownload:false});
+ f.native.inspectAdoption=()=>({target:f.session.installation,nativeSessionId:f.session.sessionId,desktopClientId:f.session.desktopClientId,bootId:f.session.bootId,desktop:f.session.desktop,service:f.session.service,serviceVersion:"1.0.0",oldServiceExecutable:"/opt/pacer",newServiceExecutable:f.session.installation.appPath+"/Contents/Resources/pacer"});
+ f.native.authorizeAdoption=async()=>true;f.native.verifyAdoptionOutcome=async()=>({installation:f.session.installation,attempted:false});
+ (f.factory.capabilities as Set<string>).add("adopt");(f.factory.capabilities as Set<string>).add("recover-adoption");
+ await f.runtime.start();expect(f.runtime.status("desktop").actions).toContain("adopt");
+ expect(f.runtime.status("desktop").adoption).toMatchObject({phase:"available",currentServiceExecutable:"/opt/pacer",replacementServiceExecutable:"/tmp/private-desktop.app/Contents/Resources/pacer"});
+ const status=await callOp(f.ctx,"desktop.update.adopt",f.request("adoption")) as ReturnType<typeof f.runtime.status>;
+ expect(status.actions).toEqual(["adoptCancel"]);expect(status.adoption?.phase).toBe("waiting");
+ await expect(f.runtime.check(f.request("blocked"))).rejects.toMatchObject({code:"conflict"});
+ const cancelled=await callOp(f.ctx,"desktop.update.adoptCancel",{installationId:"desktop",requestId:"cancel-adoption",expectRevision:status.adoption!.revision}) as ReturnType<typeof f.runtime.status>;
+ expect(cancelled.adoption?.phase).toBe("cancelled");expect(v2Hello().ops).not.toContain("desktop.update.adopt");
+ expect(JSON.stringify(cancelled)).not.toContain("native-session");expect(JSON.stringify(cancelled)).not.toContain("desktop-birth");
+});
+
+test("old installation request replays its committed adoption after service restart without old native authority",async()=>{
+ const f=fixture({ownership:"attached",autoDownload:false});const {beginAdoption,transitionAdoption}=await import("../src/update/desktop/adoption-store");
+ const request={installationId:"desktop",requestId:"original-adopt",expectRevision:readUpdate(f.ctx,"desktop").revision};
+ const source={target:f.session.installation,nativeSessionId:f.session.sessionId,desktopClientId:f.session.desktopClientId,bootId:f.session.bootId,desktop:f.session.desktop,service:f.session.service,serviceVersion:"1.0.0",oldServiceExecutable:"/opt/pacer",newServiceExecutable:f.session.installation.appPath+"/Contents/Resources/pacer"};
+ let value=beginAdoption(f.ctx,request,source);value=transitionAdoption(f.ctx,"desktop",value.revision,"reserved");value=transitionAdoption(f.ctx,"desktop",value.revision,"verifying");transitionAdoption(f.ctx,"desktop",value.revision,"committed",{resultingInstallationId:"managed-installation"});f.unbind();
+ const runtime=createDesktopUpdateRuntime(()=>f.ctx,{native:{sessions:()=>[],subscribe:()=>()=>{},reverify:async()=>{throw Error("no old native authority");}},schedule:()=>()=>{},publish:async()=>{}});const unbind=bindDesktopUpdateRuntime(f.ctx,runtime);cleanups.push(unbind,runtime.stop);await runtime.start();
+ const result=await callOp(f.ctx,"desktop.update.adopt",request) as ReturnType<typeof runtime.status>;expect(result.adoption).toMatchObject({phase:"committed",previousInstallationId:"desktop",resultingInstallationId:"managed-installation"});expect(runtime.listStatuses()).toHaveLength(1);
+ await expect(callOp(f.ctx,"desktop.update.adopt",{...request,requestId:"new-permission"})).rejects.toMatchObject({code:"not_allowed"});
+});
+
+test("terminal adoption history cannot authorize retry without a fresh native inspection", async () => {
+ const f=fixture({ownership:"attached",autoDownload:false});
+ const source={target:f.session.installation,nativeSessionId:f.session.sessionId,desktopClientId:f.session.desktopClientId,bootId:f.session.bootId,desktop:f.session.desktop,service:f.session.service,serviceVersion:"1.0.0",oldServiceExecutable:"/opt/pacer",newServiceExecutable:f.session.installation.appPath+"/Contents/Resources/pacer"};
+ f.native.inspectAdoption=()=>source;
+ f.native.authorizeAdoption=async()=>true;f.native.verifyAdoptionOutcome=async()=>({installation:f.session.installation,attempted:false});
+ (f.factory.capabilities as Set<string>).add("adopt");(f.factory.capabilities as Set<string>).add("recover-adoption");
+ await f.runtime.start();
+ const waiting=await f.runtime.adopt(f.request("adopt-once"));
+ await f.runtime.adoptCancel({installationId:"desktop",requestId:"cancel-once",expectRevision:waiting.adoption!.revision});
+ let inspections=0;
+ f.native.inspectAdoption=()=>{inspections++;return {...source,oldServiceExecutable:"/opt/verified-current-pacer"};};
+ const retry=f.runtime.status("desktop");
+ expect(inspections).toBe(1);expect(retry.actions).toContain("adopt");
+ expect(retry.adoption?.currentServiceExecutable).toBe("/opt/verified-current-pacer");
+ f.native.inspectAdoption=()=>{throw Error("native registration changed");};
+ const unavailable=f.runtime.status("desktop");
+ expect(unavailable.actions).not.toContain("adopt");
+ expect(unavailable.adoption).toMatchObject({phase:"cancelled",currentServiceExecutable:"/opt/pacer"});
+ expect(JSON.stringify(unavailable)).not.toContain("native registration changed");
+});
+
+
+test("authorized native install survives its planned desktop shutdown", async () => {
+  const hold = deferred<void>(), f = fixture({ afterAuthorized: hold.promise });
+  await f.ready();
+  await f.runtime.restart({ ...f.request("planned-restart"), version: candidate.version, clientId: "native-desktop" });
+  await f.runtime.tick();
+  for (let i = 0; i < 100 && f.runtime.status("desktop").phase !== "installing"; i++) await Bun.sleep(1);
+  expect(f.runtime.status("desktop").phase).toBe("installing");
+  f.stopDesktop();
+  await Bun.sleep(10);
+  const phase = f.runtime.status("desktop").phase, aborted = f.calls.includes("abort");
+  hold.resolve();
+  await f.runtime.settled();
+  expect(phase).toBe("installing");
+  expect(aborted).toBe(false);
+  expect(f.runtime.status("desktop").phase).toBe("complete");
+});
+
+
+test("recovery owns a reserved transaction even if its discovered desktop exits", async () => {
+  const hold = deferred<void>(), f = fixture({ hold: hold.promise });
+  f.seedPending("reserved");
+  await f.runtime.start();
+  for (let i = 0; i < 100 && f.commands.length === 0; i++) await Bun.sleep(1);
+  expect(f.commands[0].command).toBe("recover");
+  f.stopDesktop();
+  await Bun.sleep(10);
+  const aborted = f.calls.includes("abort");
+  hold.resolve(); await f.runtime.settled();
+  expect(aborted).toBe(false);
+  expect(f.runtime.status("desktop").phase).toBe("complete");
 });

@@ -75,3 +75,12 @@ test('a completed update displays the installed version once',()=>{
  const html=render(desktopStatus({phase:'complete',current:'0.2.4',target:'0.2.4',actions:['check']}));
  expect(html).not.toContain('0.2.4 → 0.2.4');expect(html).toContain('pacer desktop · 0.2.4');
 });
+test('adoption details expose inspected service change and separate work blockers',async()=>{
+ const {adoptionStatus}=await import('./fixtures/desktop-update/status');
+ const adoption=adoptionStatus({phase:'waiting',revision:2,blockers:[{kind:'session',id:'s',label:'Live terminal'}]});
+ const html=render(desktopStatus({adoption,actions:['adoptCancel']}));
+ expect(html).toContain('Cancel service change');expect(html).toContain('Live terminal');
+ expect(html).toContain(adoption.currentServiceExecutable);expect(html).toContain(adoption.replacementServiceExecutable);
+ const committed=render(desktopStatus({adoption:adoptionStatus({phase:'committed',resultingInstallationId:'managed-installation'}),actions:[]}));
+ expect(committed).toContain('managed-installation');expect(committed).toContain('Desktop service is ready');
+});

@@ -15,5 +15,7 @@ export const desktopUpdateOps: Record<string, OpDef> = {
     return service.restart({ ...p, clientId: service.boundClientId(p.installationId) });
   } }),
   "desktop.update.cancel": op({ description: "Cancel a desktop check, download or waiting restart before reservation.", params: z.object(request).strict(), handler: (ctx, p, deps) => runtime(ctx, deps).cancel(p) }),
+  "desktop.update.adopt": op({description:"Explicitly transfer the inspected attached service registration to this desktop bundled CLI when idle.",params:z.object(request).strict(),handler:(ctx,p,deps)=>runtime(ctx,deps).adopt(p)}),
+  "desktop.update.adoptCancel": op({description:"Cancel a waiting service adoption using its adoption revision before reservation.",params:z.object(request).strict(),handler:(ctx,p,deps)=>runtime(ctx,deps).adoptCancel(p)}),
   "desktop.update.configure": op({ description: "Set automatic desktop downloads without granting restart permission.", params: z.object({ ...request, autoDownload: z.boolean() }).strict(), handler: (ctx, p, deps) => runtime(ctx, deps).configure(p) }),
 };

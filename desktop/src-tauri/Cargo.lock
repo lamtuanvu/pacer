@@ -2701,17 +2701,24 @@ dependencies = [
 name = "pacer-desktop"
 version = "0.2.3"
 dependencies = [
+ "base64 0.22.1",
  "block2",
+ "core-foundation",
+ "flate2",
  "futures-util",
+ "libc",
  "objc2",
  "objc2-foundation",
  "objc2-service-management",
  "objc2-user-notifications",
  "plist",
  "reqwest 0.12.28",
+ "security-framework",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -2721,6 +2728,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "tempfile",
  "tokio",
  "url",
 ]

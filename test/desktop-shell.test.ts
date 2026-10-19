@@ -118,3 +118,19 @@ test("OTA fallback pages distinguish installation, rollback, restored and failed
   expect(shell("?state=restored").element("#message").textContent).toBe("The update couldn't start. Your previous version has been restored.");
   expect(shell("?state=recoveryFailed").element("#message").textContent).not.toContain("has been restored");
 });
+
+test("fixture shell excludes the production global singleton socket before registering plugins",()=>{
+ const source=readFileSync(new URL("../desktop/src-tauri/src/main.rs",import.meta.url),"utf8");
+ expect(source).toMatch(/#\[cfg\(not\(feature\s*=\s*"ota-fixture"\)\)\]\s*let app = app\.plugin\(tauri_plugin_single_instance::init/);
+ expect(source).toContain('identity["fixtureIsolationProtocol"] = serde_json::json!(1)');
+});
+
+test("fixture shell isolates webview storage and excludes global OS integrations",()=>{
+ const source=readFileSync(new URL("../desktop/src-tauri/src/main.rs",import.meta.url),"utf8");
+ expect((source.match(/\.incognito\(cfg!\(feature\s*=\s*"ota-fixture"\)\)/g)??[])).toHaveLength(3);
+ expect(source).toMatch(/#\[cfg\(not\(feature\s*=\s*"ota-fixture"\)\)\]\s*let app = app\s*\.plugin\(tauri_plugin_deep_link/);
+ expect(source).toContain('fn launch_at_login(_app: &AppHandle, _enabled: bool)');
+ expect(source).toContain('Launch at login is unavailable in isolated fixtures');
+ expect(source).toMatch(/#\[cfg\(not\(feature\s*=\s*"ota-fixture"\)\)\]\s*\{\s*let links = handle.clone/);
+ expect(source).toContain('fn notify(_app: &AppHandle, _notification: notifications::Notification) {}');
+});

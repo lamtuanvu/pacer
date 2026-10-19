@@ -297,6 +297,9 @@ pipeline and both architecture validations.
 
 ## Production OTA packaging
 
+For update controls, ownership rules and recovery guidance, see
+[Desktop updates](../docs/desktop-updates.md).
+
 The pinned desktop CLI is Tauri 2.12.3. Production signing and publication live in
 `release.yml`, separately from the unsigned manual desktop workflow. See
 [the signed desktop release contract](../docs/distribution.md#signed-macos-desktop-updates)
@@ -306,7 +309,10 @@ signed native validation matrix is accepted.
 
 A production bundle compiles fixed trust with `ota-production`; its shell and
 helper must report `fixture:false`. The bundled CLI compiles the same Apple Team
-ID through the desktop-only build option. Complete staging precedes all signing;
+ID through the desktop-only build option. Complete staging builds `Contents/Frameworks/libpacer-native.dylib` for the target
+architecture with Xcode clang and records native transport ABI1. The library is
+signed with the same Team before the CLI, helper and app; library validation
+remains enabled. Complete staging precedes all signing;
 Apple notarization and stapling precede the final updater archive/signature.
 Unsigned development builds and explicit `ota-fixture` builds cannot qualify for
 the production feed. The release-only fixture driver exercises real Tauri artifact

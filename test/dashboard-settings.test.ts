@@ -90,3 +90,16 @@ test('desktop TUI configuration and cancellation require advertised actions; mul
  const configure=s.rows().find(r=>r.text==='Download updates automatically: on')!;await configure.run!();expect(calls.at(-1)).toMatchObject({op:'desktop.update.configure',params:{autoDownload:false}});
  a.actions=[];expect(s.rows().some(r=>r.text==='Cancel update')).toBe(false);
 });
+test('desktop TUI confirms inspected service paths and cancels the adoption revision',async()=>{
+ const {adoptionStatus}=await import('./fixtures/desktop-update/status');
+ const calls:any[]=[],status=desktopStatus({revision:9,adoption:adoptionStatus(),actions:['adopt']});
+ const s=new DashboardSettings(fixture(),{snapshot:()=>({...emptySnapshot(),desktopUpdates:[status]}),ops:()=>['desktop.update.adopt','desktop.update.adoptCancel'],changed(){},report(){},command:async c=>{calls.push(c);}});
+ await s.handle(',');await s.handle('u');await tick();
+ expect(s.prompt?.question).toContain(status.adoption!.currentServiceExecutable);expect(s.prompt?.question).toContain(status.adoption!.replacementServiceExecutable);
+ await answer(s,'n');await s.pending;expect(calls).toEqual([]);
+ await s.handle('u');await tick();await answer(s,'y');await s.pending;
+ expect(calls.at(-1)).toMatchObject({op:'desktop.update.adopt',params:{expectRevision:9}});
+ status.adoption=adoptionStatus({phase:'waiting',revision:2});status.actions=['adoptCancel'];
+ await s.rows().find(r=>r.text==='Cancel service change')!.run!();
+ expect(calls.at(-1)).toMatchObject({op:'desktop.update.adoptCancel',params:{expectRevision:2}});
+});

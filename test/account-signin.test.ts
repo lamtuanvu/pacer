@@ -62,7 +62,15 @@ test("signin opens Codex login with its quoted account home through the terminal
   const script = readFileSync(calls[0][3], "utf8");
   expect(script).toContain("CODEX_HOME=");
   expect(script).toContain("codex login");
-  expect(result.command).toBe(script.split("\n")[1]);
+  const bin = join(ctx.home, "fixture-bin"), receipt = join(ctx.home, "login-argv");
+  mkdirSync(bin, {mode: 0o700});
+  writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf '%s\\n' "$CODEX_HOME" "$@" > "$PACER_TEST_LOGIN"\n`, {mode: 0o700});
+  const child = Bun.spawn(["/bin/sh", calls[0][3]], {
+    env: {PATH: `${bin}:/usr/bin:/bin`, PACER_TEST_LOGIN: receipt}, stdout: "pipe", stderr: "pipe",
+  });
+  expect(await child.exited).toBe(0);
+  expect(readFileSync(receipt, "utf8").trim().split("\n")).toEqual([join(ctx.home, "codex team's home"), "login"]);
+  expect(result.command).toContain("codex login");
 });
 
 test("account.signin supports headless fallback, validates targets and refuses endpoint accounts", async () => {

@@ -51,6 +51,8 @@ const commandSchema = z.discriminatedUnion("command", [
   z.object({ ...binding, command: z.literal("download"), transactionId: z.null(), candidate }).strict(),
   z.object({ ...binding, command: z.literal("install"), transactionId: identifier, candidate, target: installation }).strict(),
   z.object({ ...binding, command: z.literal("recover"), transactionId: identifier }).strict(),
+  z.object({ ...binding, command: z.literal("adopt"), transactionId: identifier, target: installation.extend({ownership:z.literal("attached")}) }).strict(),
+  z.object({ ...binding, command: z.literal("recover-adoption"), transactionId: identifier }).strict(),
 ]);
 const preparation = { reservationId: identifier, journalSha256: hash };
 const response = { ...binding, sequence: integer };
@@ -70,7 +72,8 @@ export type AdapterRequest = { installationId: string; revision: number } & (
   | { command: "check"; transactionId: null }
   | { command: "download"; transactionId: null; candidate: Candidate }
   | { command: "install"; transactionId: string; candidate: Candidate; target: Installation }
-  | { command: "recover"; transactionId: string }
+  | { command: "recover" | "recover-adoption"; transactionId: string }
+  | { command: "adopt"; transactionId: string; target: Installation }
 );
 export type AdapterFrame = z.infer<typeof frameSchema>;
 export type InstallAuthorization = z.infer<typeof authorizationSchema>;
@@ -83,6 +86,7 @@ export function parseAdapterCommand(value: unknown): AdapterCommand {
   const command = parsed.data;
   if (command.command === "install" && (command.target.id !== command.installationId ||
       command.target.arch !== command.candidate.arch || !command.candidate.rollbackCompatible)) throw invalid();
+  if (command.command === "adopt" && command.target.id !== command.installationId) throw invalid();
   return command;
 }
 export function parseAdapterFrame(value: unknown): AdapterFrame {
@@ -173,7 +177,7 @@ export interface AdapterOptions {
 /** Returns private frames. Callers must project public status explicitly, never serialize this result wholesale. */
 export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined, request: AdapterRequest, options: AdapterOptions = {}): Promise<AdapterResult> {
   if (!factory || !factory.capabilities.has(request.command)) throw new AdapterError("unavailable");
-  if (request.command === "install" && !options.authorizeInstall) throw new AdapterError("unavailable");
+  if (["install", "adopt"].includes(request.command) && !options.authorizeInstall) throw new AdapterError("unavailable");
   if (options.signal?.aborted) throw new AdapterError("cancelled");
   const command = parseAdapterCommand({ ...request, schema: 1, commandId: randomUUID(), nonce: randomBytes(32).toString("hex") });
   const timeoutMs = options.timeoutMs ?? (command.command === "check" ? 30_000 : command.command === "download" ? 1_800_000 : 600_000);
@@ -255,15 +259,15 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
       terminal = frame; clearTimeout(stall); return;
     }
     if (frame.kind === "prepared") {
-      if (command.command !== "install" || phase !== "initial" || frame.reservationId !== command.transactionId) throw invalid();
+      if (!["install", "adopt"].includes(command.command) || phase !== "initial" || frame.reservationId !== command.transactionId) throw invalid();
       phase = "prepared"; prepared = frame; void authorize(frame); return;
     }
     if (frame.kind === "authorized") {
-      if (command.command !== "install" || phase !== "authorizing" || frame.reservationId !== prepared?.reservationId || frame.journalSha256 !== prepared?.journalSha256) throw invalid();
+      if (!["install", "adopt"].includes(command.command) || phase !== "authorizing" || frame.reservationId !== prepared?.reservationId || frame.journalSha256 !== prepared?.journalSha256) throw invalid();
       handoff = "acknowledged"; phase = "authorized"; options.onAuthorized?.(structuredClone(frame)); return;
     }
     if (frame.kind === "outcome") {
-      if (command.command !== "recover" && (command.command !== "install" || phase !== "authorized")) throw invalid();
+      if (!["recover", "recover-adoption"].includes(command.command) && (!["install", "adopt"].includes(command.command) || phase !== "authorized")) throw invalid();
       terminal = frame; return;
     }
     throw invalid();
@@ -294,7 +298,7 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
       void read();
       const bytes = encodeFrame(command);
       // Recovery is authorized only by the helper's private recorded journal; sending this command may resume mutation.
-      if (command.command === "recover") handoff = "uncertain";
+      if (["recover", "recover-adoption"].includes(command.command)) handoff = "uncertain";
       await writer.write(bytes);
       if (!stopped) progressDeadline();
     } catch { fail("closed"); }

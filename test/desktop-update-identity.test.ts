@@ -3,10 +3,10 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, s
 import { dirname, join } from "node:path";
 import { CoreError } from "../src/core/errors";
 import { plist, servicePath } from "../src/service";
-import { inspectInstallation, isBundledExecutable, parseBundleRelease, verifyInstallation, type BundleRelease } from "../src/update/desktop/identity";
+import { inspectInstallation, installationFingerprint, isBundledExecutable, parseBundleRelease, verifyInstallation, type BundleRelease } from "../src/update/desktop/identity";
 import { fakeCtx, tmpDir } from "./helpers";
 
-const release: BundleRelease = { schema: 1, bundleId: "dev.pacer.desktop", version: "1.2.3", arch: process.arch === "arm64" ? "aarch64" : "x86_64", protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true };
+const release: BundleRelease = { schema: 1, bundleId: "dev.pacer.desktop", version: "1.2.3", arch: process.arch === "arm64" ? "aarch64" : "x86_64", protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true, nativeTransportAbi: 1 };
 function fixture() {
   const ctx = fakeCtx({ env: { PACER_PORT: "54321" } });
   mkdirSync(ctx.pacerHome);
@@ -86,7 +86,7 @@ test("read-only destinations, symlinked payloads and missing metadata refuse eli
 
 test("bundle metadata fails closed on unsupported admission, architecture and schema", () => {
   expect(parseBundleRelease({ ...release, additive: true })).toEqual(release);
-  for (const patch of [{ schema: 2 }, { admissionProtocol: 0 }, { arch: "universal" }, { rollbackCompatible: false }, { version: "latest" }, { bundleId: "other.app" }, { protocolMajors: [] }]) {
+  for (const patch of [{ nativeTransportAbi: undefined }, { nativeTransportAbi: 2 }, { schema: 2 }, { admissionProtocol: 0 }, { arch: "universal" }, { rollbackCompatible: false }, { version: "latest" }, { bundleId: "other.app" }, { protocolMajors: [] }]) {
     expect(() => parseBundleRelease({ ...release, ...patch })).toThrow(CoreError);
   }
 });
@@ -110,4 +110,20 @@ test("bundle mismatches and missing bootstrap registration refuse before native 
     if (mode === "translocation") { const moved = join(f.ctx.home, "AppTranslocation/pacer.app"); mkdirSync(dirname(moved)); renameSync(f.app, moved); f.app = moved; }
     await expect(inspectInstallation(f.ctx, f.app)).rejects.toBeInstanceOf(CoreError);
   }
+});
+
+test("installation fingerprint uses canonical field ordering and binds executable plus registration",async()=>{
+ const f=fixture(),installation=await inspectInstallation(f.ctx,f.app);const {id,version,...identity}=installation;
+ const text=readFileSync(f.registration,"utf8"),binary=realpathSync(f.cli);
+ expect(installationFingerprint(identity,binary,text)).toBe(id);
+ expect(installationFingerprint({...identity,appPath:identity.appPath},binary,text)).toBe(id);
+ const reverse=Object.fromEntries(Object.entries(identity).reverse()) as typeof identity;
+ expect(installationFingerprint(reverse,binary,text)).toBe(id);
+ expect(installationFingerprint(identity,binary+"-other",text)).not.toBe(id);
+ expect(installationFingerprint(identity,binary,text+"\n")).not.toBe(id);
+});
+
+test("shared adoption identity fixture matches the native ordered serialization",()=>{
+ const fixture=JSON.parse(readFileSync(new URL("./fixtures/desktop-update/adoption-identity.json",import.meta.url),"utf8"));
+ expect(installationFingerprint(fixture.identity,fixture.binary,fixture.registrationText)).toBe(fixture.expected);
 });

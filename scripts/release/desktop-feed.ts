@@ -8,7 +8,7 @@ import { verifyProductionArchive } from "./desktop-verify";
 export const DESKTOP_FEED_URL = "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json";
 export const DESKTOP_ARCHES = ["aarch64", "x86_64"] as const;
 export type DesktopArch = typeof DESKTOP_ARCHES[number];
-export type BundleMetadata = { schema: number; version: string; arch: string; bundleId: string; protocolMajors: number[]; admissionProtocol: number; rollbackCompatible: boolean; fixture: boolean };
+export type BundleMetadata = { schema: number; version: string; arch: string; bundleId: string; protocolMajors: number[]; admissionProtocol: number; nativeTransportAbi: number; rollbackCompatible: boolean; fixture: boolean };
 export interface DesktopReleaseOptions {
   mode: "production" | "fixture";
   publicKey: string;
@@ -73,7 +73,7 @@ async function validate(releaseDir: string, version: string, options: DesktopRel
     verifyUpdateSignature(bytes, signature, options.publicKey, version);
     const metadata = options.mode === "fixture" ? await options.verifyArchive?.(bytes, arch) : await verifyProductionArchive(bytes, arch, options.teamId);
     if (!metadata || metadata.schema !== 1 || metadata.version !== version || metadata.arch !== arch || metadata.bundleId !== "dev.pacer.desktop" ||
-        metadata.protocolMajors.length !== 1 || metadata.protocolMajors[0] !== 3 || metadata.admissionProtocol !== 1 || !metadata.rollbackCompatible || metadata.fixture !== (options.mode === "fixture")) throw Error("Signed desktop metadata/identity mismatch");
+        metadata.protocolMajors.length !== 1 || metadata.protocolMajors[0] !== 3 || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || !metadata.rollbackCompatible || metadata.fixture !== (options.mode === "fixture")) throw Error("Signed desktop metadata/identity mismatch");
     platforms[`darwin-${arch}`] = { url: `https://github.com/lamtuanvu/pacer/releases/download/v${version}/${name}`, signature, sha256: digest(bytes), bundleId: metadata.bundleId, protocolMajors: metadata.protocolMajors, admissionProtocol: 1, rollbackCompatible: true };
     assets.set(name, bytes); assets.set(name + ".sig", signatureBytes);
   }

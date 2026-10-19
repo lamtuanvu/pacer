@@ -1,3 +1,4 @@
+import { assertNoPendingAdoption } from "./adoption-state";
 import { withDesktopCoordinator } from "./coordinator";
 import {
   closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
@@ -95,7 +96,8 @@ export function writeUpdate(ctx: Ctx, next: UpdateRecord, expectRevision: number
   if (!Number.isSafeInteger(expectRevision) || expectRevision < 0) {
     throw new CoreError("invalid_input", "Invalid desktop update revision");
   }
-  return withDesktopCoordinator(ctx, () => {
+  return withDesktopCoordinator(ctx, db => {
+    assertNoPendingAdoption(db);
     let tempPath: string | undefined;
     try {
       const dir = stateDirectory(ctx, true);

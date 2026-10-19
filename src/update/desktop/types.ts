@@ -32,11 +32,12 @@ export type UpdateRecord = {
   error: { code: string; message: string; hint?: string } | null;
   requestHistory: RequestReceipt[];
 };
+export type AdoptionStatus = { phase: "available" | "waiting" | "reserved" | "installing" | "verifying" | "committed" | "restored" | "recovery-failed" | "cancelled"; revision: number; previousInstallationId: string; resultingInstallationId: string | null; currentServiceExecutable: string; replacementServiceExecutable: string; serviceLabel: string; port: number; blockers: Blocker[]; error: {code:string;message:string} | null };
 export type UpdateStatus = Pick<UpdateRecord, "installationId" | "revision" | "phase" |
   "transactionId" | "autoDownload" | "checkedAt" | "blockers" | "downloadedBytes" |
   "totalBytes" | "error"> & {
     current: string; target: string | null; releaseNotes: string | null;
-    ownership: Ownership; actions: ("check" | "download" | "restart" | "cancel" | "retry" | "adopt" | "configure")[];
+    adoption?: AdoptionStatus; ownership: Ownership; actions: ("check" | "download" | "restart" | "cancel" | "retry" | "adopt" | "adoptCancel" | "configure")[];
   };
 export type UpdateRequest = { installationId: string; requestId: string; expectRevision: number };
 export type RestartRequest = UpdateRequest & { version: string; clientId: string };

@@ -1,6 +1,6 @@
 import { expect, test, spyOn } from "bun:test";
 import { emptySnapshot } from "../src/link/envelope";
-import { initialState, reduceStore, createStore } from "../app/src/data/store";
+import { initialState, reduceStore, createStore, type StoreState } from "../app/src/data/store";
 import { ApiError, createApi } from "../app/src/data/api";
 
 const snapshot = { ...emptySnapshot(), seq: 5 };
@@ -206,4 +206,14 @@ test("attention and count events refresh the service-owned snapshot", () => {
   for (const type of ["attention", "counts"] as const) {
     expect(reduceStore(start, { type: "event", event: { seq: 6, at: 123, type, data: {} } }).needsSnapshot).toBe(true);
   }
+});
+test('desktop adoption events advance independently without regressing either revision',async()=>{
+ const {desktopStatus,adoptionStatus}=await import('./fixtures/desktop-update/status');
+ const old=desktopStatus({revision:7,adoption:adoptionStatus({phase:'waiting',revision:2})});
+ let state: StoreState={...reduceStore(initialState(),{type:'snapshot',snapshot:{...snapshot,desktopUpdates:[old]}}),features:{readModel:true,ops:new Set<string>()}};
+ const apply=(seq:number,data:typeof old)=>{state=reduceStore(state,{type:'event',event:{type:'desktop.update',seq,at:seq,data}});};
+ apply(6,{...old,adoption:adoptionStatus({phase:'installing',revision:3})});
+ expect(state.snapshot?.desktopUpdates?.[0]?.adoption?.phase).toBe('installing');
+ apply(7,old);expect(state.snapshot?.desktopUpdates?.[0]?.adoption?.revision).toBe(3);
+ apply(8,{...old,revision:8});expect(state.snapshot?.desktopUpdates?.[0]?.adoption?.revision).toBe(3);expect(state.needsSnapshot).toBe(true);
 });

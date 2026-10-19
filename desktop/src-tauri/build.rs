@@ -1,4 +1,55 @@
+#[path = "src/ota/fixture_policy.rs"]
+#[allow(dead_code)]
+mod fixture_policy;
+#[path = "src/ota/trust_config.rs"]
+mod trust_config;
+
 fn main() {
+    println!("cargo:rerun-if-env-changed=PACER_OTA_PUBLIC_KEY");
+    println!("cargo:rerun-if-env-changed=PACER_APPLE_TEAM_ID");
+    println!("cargo:rerun-if-env-changed=PACER_OTA_FIXTURE_POLICY");
+    let production = std::env::var_os("CARGO_FEATURE_OTA_PRODUCTION").is_some();
+    let fixture = std::env::var_os("CARGO_FEATURE_OTA_FIXTURE").is_some();
+    assert!(
+        !(production && fixture),
+        "ota-production and ota-fixture are mutually exclusive"
+    );
+    if production {
+        assert_eq!(
+            std::env::var("CARGO_CFG_TARGET_OS").as_deref(),
+            Ok("macos"),
+            "Production OTA requires macOS"
+        );
+        let key = std::env::var("PACER_OTA_PUBLIC_KEY")
+            .expect("Production OTA requires PACER_OTA_PUBLIC_KEY");
+        let team = std::env::var("PACER_APPLE_TEAM_ID")
+            .expect("Production OTA requires PACER_APPLE_TEAM_ID");
+        trust_config::validate(&key, &team).expect("Invalid public OTA key or Apple Team ID");
+        println!("cargo:rustc-env=PACER_OTA_PUBLIC_KEY={key}");
+        println!("cargo:rustc-env=PACER_APPLE_TEAM_ID={team}");
+    }
+    if fixture {
+        assert_eq!(
+            std::env::var("CARGO_CFG_TARGET_OS").as_deref(),
+            Ok("macos"),
+            "Native OTA fixtures require macOS"
+        );
+        let key = std::env::var("PACER_OTA_PUBLIC_KEY")
+            .expect("Fixture OTA requires a disposable public key");
+        trust_config::validate(&key, "FIXTURE000").expect("Invalid fixture public key");
+        let policy = std::env::var("PACER_OTA_FIXTURE_POLICY")
+            .expect("Fixture OTA requires a compile-time harness lease");
+        assert!(
+            !policy.contains(['\r', '\n']),
+            "Fixture policy must be one JSON line"
+        );
+        fixture_policy::FixturePolicy::parse(&policy)
+            .expect("Invalid fixture lease")
+            .validate_build(&key)
+            .expect("Fixture lease is not a private build or prepared sandbox");
+        println!("cargo:rustc-env=PACER_OTA_PUBLIC_KEY={key}");
+        println!("cargo:rustc-env=PACER_OTA_FIXTURE_POLICY={policy}");
+    }
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "setLaunchAtLogin",

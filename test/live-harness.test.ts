@@ -128,6 +128,8 @@ test.skipIf(!canBind)("up/status/down uses a free port and leaves no service", a
     expect(session.innerPort).not.toBe(4317);
     expect(session.innerPort).not.toBe(session.port);
     expect(session.proxyPid).toBeGreaterThan(1);
+    expect(session.serviceIdentity?.pid).toBe(session.pid);
+    expect(session.serviceIdentity?.birth).toBeTruthy();
     expect(await healthy({ ...session, proxyPid: 1 })).toBe(false);
     expect(await healthy({ ...session, pid: 1 })).toBe(false);
     expect(await healthy(session)).toBe(true);

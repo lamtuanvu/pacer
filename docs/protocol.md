@@ -1041,6 +1041,74 @@ Params JSON Schema:
 }
 ```
 
+### `desktop.update.adopt`
+
+Explicitly transfer the inspected attached service registration to this desktop bundled CLI when idle.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.adoptCancel`
+
+Cancel a waiting service adoption using its adoption revision before reservation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `desktop.update.cancel`
 
 Cancel a desktop check, download or waiting restart before reservation.

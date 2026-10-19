@@ -171,7 +171,9 @@ impl Lifecycle {
                 Wait
             };
         }
-        if job == JobState::Foreign && matches!(health, HealthProbe::Refused | HealthProbe::NoAnswer) {
+        if job == JobState::Foreign
+            && matches!(health, HealthProbe::Refused | HealthProbe::NoAnswer)
+        {
             self.hung_since = None;
             return Foreign;
         }
@@ -298,7 +300,10 @@ pub fn launchd_environment(text: &str) -> Vec<(String, String)> {
 /// `Environment=` from `systemctl --user show`; assignments with spaces are double-quoted.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn systemd_environment(text: &str) -> Vec<(String, String)> {
-    let Some(line) = text.lines().find_map(|line| line.strip_prefix("Environment=")) else {
+    let Some(line) = text
+        .lines()
+        .find_map(|line| line.strip_prefix("Environment="))
+    else {
         return Vec::new();
     };
     let mut words = Vec::new();
@@ -334,19 +339,27 @@ pub fn systemd_environment(text: &str) -> Vec<(String, String)> {
 pub fn job_owner(env: &[(String, String)], default_home: &str) -> (String, u16) {
     let get = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
     let home = get("PACER_HOME").unwrap_or(default_home).to_owned();
-    let port = get("PACER_PORT").and_then(|p| p.parse().ok()).unwrap_or(4317);
+    let port = get("PACER_PORT")
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(4317);
     (home, port)
 }
 
 /// The one page a lifecycle pass shows. It follows the state, not this pass's action, so the
 /// window doesn't fall back to "starting" on the `Wait` passes between gated actions.
-pub fn shell_page(permission: bool, action: RecoveryAction, job: JobState, cli_found: bool) -> &'static str {
+pub fn shell_page(
+    permission: bool,
+    action: RecoveryAction,
+    job: JobState,
+    cli_found: bool,
+) -> &'static str {
     if permission {
         "permission"
     } else if action == RecoveryAction::Foreign {
         "foreign"
     } else if !cli_found
-        && (job == JobState::NotLoaded || matches!(action, RecoveryAction::Install | RecoveryAction::Connect))
+        && (job == JobState::NotLoaded
+            || matches!(action, RecoveryAction::Install | RecoveryAction::Connect))
     {
         "install"
     } else {
@@ -1223,12 +1236,18 @@ mod tests {
     #[test]
     fn job_owner_defaults_to_the_standard_home_and_port() {
         let env = vec![("HOME".to_owned(), "/Users/u".to_owned())];
-        assert_eq!(job_owner(&env, "/Users/u/.pacer"), ("/Users/u/.pacer".to_owned(), 4317));
+        assert_eq!(
+            job_owner(&env, "/Users/u/.pacer"),
+            ("/Users/u/.pacer".to_owned(), 4317)
+        );
         let env = vec![
             ("PACER_HOME".to_owned(), "/tmp/other".to_owned()),
             ("PACER_PORT".to_owned(), "5000".to_owned()),
         ];
-        assert_eq!(job_owner(&env, "/Users/u/.pacer"), ("/tmp/other".to_owned(), 5000));
+        assert_eq!(
+            job_owner(&env, "/Users/u/.pacer"),
+            ("/tmp/other".to_owned(), 5000)
+        );
         let env = vec![("PACER_PORT".to_owned(), "not-a-port".to_owned())];
         assert_eq!(job_owner(&env, "/Users/u/.pacer").1, 4317);
     }
@@ -1248,10 +1267,21 @@ mod tests {
         use HealthProbe::*;
         use RecoveryAction::*;
         let mut state = Lifecycle::default();
-        assert_eq!(state.step(0, Refused, JobState::Foreign, false), RecoveryAction::Foreign);
+        assert_eq!(
+            state.step(0, Refused, JobState::Foreign, false),
+            RecoveryAction::Foreign
+        );
         for now in [20, 40, 60, 80, 140, 220] {
-            assert_eq!(state.step(now, NoAnswer, JobState::Foreign, false), RecoveryAction::Foreign, "{now}");
-            assert_eq!(state.step(now, Refused, JobState::Foreign, false), RecoveryAction::Foreign, "{now}");
+            assert_eq!(
+                state.step(now, NoAnswer, JobState::Foreign, false),
+                RecoveryAction::Foreign,
+                "{now}"
+            );
+            assert_eq!(
+                state.step(now, Refused, JobState::Foreign, false),
+                RecoveryAction::Foreign,
+                "{now}"
+            );
         }
         // A healthy service on this shell's own port is still used.
         assert_eq!(state.step(300, Ready, JobState::Foreign, false), Connect);
@@ -1265,28 +1295,53 @@ mod tests {
         assert_eq!(shell_page(false, Install, none, false), "install");
         // The Wait passes between gated installs keep the page.
         assert_eq!(shell_page(false, Wait, none, false), "install");
-        assert_eq!(shell_page(false, Connect, JobState::Unknown, false), "install");
+        assert_eq!(
+            shell_page(false, Connect, JobState::Unknown, false),
+            "install"
+        );
         assert_eq!(shell_page(false, Install, none, true), "starting");
-        assert_eq!(shell_page(false, Connect, JobState::Unknown, true), "starting");
-        assert_eq!(shell_page(false, Wait, JobState::Running, false), "starting");
-        assert_eq!(shell_page(false, Start, JobState::Stopped, false), "starting");
-        assert_eq!(shell_page(false, RecoveryAction::Foreign, JobState::Foreign, true), "foreign");
+        assert_eq!(
+            shell_page(false, Connect, JobState::Unknown, true),
+            "starting"
+        );
+        assert_eq!(
+            shell_page(false, Wait, JobState::Running, false),
+            "starting"
+        );
+        assert_eq!(
+            shell_page(false, Start, JobState::Stopped, false),
+            "starting"
+        );
+        assert_eq!(
+            shell_page(false, RecoveryAction::Foreign, JobState::Foreign, true),
+            "foreign"
+        );
         assert_eq!(shell_page(true, Install, none, false), "permission");
-        assert_eq!(shell_page(true, RecoveryAction::Foreign, JobState::Foreign, false), "permission");
+        assert_eq!(
+            shell_page(true, RecoveryAction::Foreign, JobState::Foreign, false),
+            "permission"
+        );
     }
     #[test]
     fn missing_cli_page_holds_across_gated_install_passes() {
         let mut state = Lifecycle::default();
         for now in 0..70 {
             let action = state.step(now, HealthProbe::Refused, JobState::NotLoaded, false);
-            assert_eq!(shell_page(false, action, JobState::NotLoaded, false), "install", "{now}");
+            assert_eq!(
+                shell_page(false, action, JobState::NotLoaded, false),
+                "install",
+                "{now}"
+            );
         }
     }
     #[test]
     fn display_home_abbreviates_only_the_home_prefix() {
         assert_eq!(display_home("/Users/u/.pacer", "/Users/u"), "~/.pacer");
         assert_eq!(display_home("/Users/u", "/Users/u"), "~");
-        assert_eq!(display_home("/Users/user2/.pacer", "/Users/u"), "/Users/user2/.pacer");
+        assert_eq!(
+            display_home("/Users/user2/.pacer", "/Users/u"),
+            "/Users/user2/.pacer"
+        );
         assert_eq!(display_home("/tmp/x", ""), "/tmp/x");
     }
 }
@@ -1320,4 +1375,55 @@ mod startup_tests {
         assert!(!startup.stuck(now + Duration::from_secs(3644)));
         assert!(startup.stuck(now + Duration::from_secs(3645)));
     }
+}
+
+#[cfg(test)]
+mod fixture_tray_tests {
+    use super::*;
+    #[test]
+    fn isolated_tray_authenticates_its_own_store_through_only_the_exact_service() {
+        let origin = "http://127.0.0.1:54321";
+        for path in ["/app/auth?code=separate-once", "/app/", "/app/tray.html"] {
+            assert!(fixture_tray_navigation(
+                &Url::parse(&format!("{origin}{path}")).unwrap(),
+                origin
+            ));
+        }
+        for url in [
+            "http://127.0.0.1:54322/app/tray.html",
+            "https://example.com/app/auth?code=once",
+            "http://127.0.0.1:54321/v3/snapshot",
+            "http://127.0.0.1:54321/app/other.html",
+            "tauri://localhost/index.html",
+        ] {
+            assert!(!fixture_tray_navigation(&Url::parse(url).unwrap(), origin));
+        }
+        let auth = Url::parse(&format!("{origin}/app/auth?code=separate-once")).unwrap();
+        assert!(fixture_tray_auth(&auth, origin));
+        assert!(!fixture_tray_auth(&auth, "http://127.0.0.1:54322"));
+        assert!(!fixture_tray_auth(
+            &Url::parse(&format!("{origin}/app/tray.html")).unwrap(),
+            origin
+        ));
+        assert!(!fixture_tray_auth(
+            &Url::parse(&format!("{origin}/app/auth")).unwrap(),
+            origin
+        ));
+    }
+}
+
+// Fixture webviews deliberately have distinct nonpersistent stores. The tray
+// needs its own one-use sign-in and a same-origin hop before loading its page.
+#[cfg(any(test, feature = "ota-fixture"))]
+pub fn fixture_tray_auth(url: &Url, origin: &str) -> bool {
+    local_origin(url).as_deref() == Some(origin)
+        && url.path() == "/app/auth"
+        && url
+            .query_pairs()
+            .any(|(key, value)| key == "code" && !value.is_empty())
+}
+#[cfg(any(test, feature = "ota-fixture"))]
+pub fn fixture_tray_navigation(url: &Url, origin: &str) -> bool {
+    local_origin(url).as_deref() == Some(origin)
+        && matches!(url.path(), "/app/auth" | "/app/" | "/app/tray.html")
 }

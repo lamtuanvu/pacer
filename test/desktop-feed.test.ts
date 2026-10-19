@@ -26,7 +26,7 @@ function fixture() {
   }
   const options: DesktopReleaseOptions = {
     mode: "fixture", publicKey: signing.publicKey, teamId: "FIXTURE123",
-    verifyArchive: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true, fixture: true }),
+    verifyArchive: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true }),
   };
   let promotions = 0;
   const assets = new Map<string, Uint8Array>();

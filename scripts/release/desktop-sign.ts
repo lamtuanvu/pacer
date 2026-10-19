@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { join, resolve } from "node:path";
 import { command } from "./desktop-verify";
 import { desktopAssetName, stableVersion, digest, type DesktopArch } from "./desktop-feed";
-import { stageDesktopPackage } from "./desktop";
+import { stageDesktopPackage, verifyNativeLibrary } from "./desktop";
 
 interface SigningConfig { teamId: string; identity: string; keychain: string; notaryKey: string; notaryKeyId: string; notaryIssuer: string; signerKey: string; publicKey: string }
 export function signingConfig(env: NodeJS.ProcessEnv = process.env): SigningConfig {
@@ -22,10 +22,13 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
     const stat = lstatSync(path);
     if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)) throw Error("Signing inputs require private regular files");
   }
-  // Current bundle contains three executables and no embedded frameworks. Refuse new code until its signing order is defined.
-  for (const name of ["Frameworks", "PlugIns", "XPCServices", "Helpers"]) if (existsSync(join(app, "Contents", name)) && readdirSync(join(app, "Contents", name)).length) throw Error("Unsupported nested signing payload");
+  // The fixed transport dylib is the only nested library; its signature precedes the CLI/app.
+  for (const name of ["PlugIns", "XPCServices", "Helpers"]) if (existsSync(join(app, "Contents", name)) && readdirSync(join(app, "Contents", name)).length) throw Error("Unsupported nested signing payload");
+  const frameworks = join(app, "Contents/Frameworks"), shim = join(frameworks, "libpacer-native.dylib");
+  if (lstatSync(frameworks).isSymbolicLink() || readdirSync(frameworks).join() !== "libpacer-native.dylib" || !lstatSync(shim).isFile() || lstatSync(shim).isSymbolicLink()) throw Error("Unsupported nested signing payload");
+  verifyNativeLibrary(readFileSync(shim), o.arch);
   const metadataPath = join(resources, "pacer-release.json"), metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
-  if (metadata.schema !== 1 || metadata.version !== o.version || metadata.arch !== o.arch || metadata.bundleId !== "dev.pacer.desktop" || metadata.admissionProtocol !== 1 || metadata.rollbackCompatible !== true || JSON.stringify(metadata.protocolMajors) !== "[3]") throw Error("Desktop signing metadata mismatch");
+  if (metadata.schema !== 1 || metadata.version !== o.version || metadata.arch !== o.arch || metadata.bundleId !== "dev.pacer.desktop" || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || metadata.rollbackCompatible !== true || JSON.stringify(metadata.protocolMajors) !== "[3]") throw Error("Desktop signing metadata mismatch");
   for (const [binary, role] of [[join(app, "Contents/MacOS/pacer"), "desktop"], [join(resources, "pacer-update-helper"), "update-helper"], [join(resources, "pacer"), "cli"]]) {
     const identity = JSON.parse(await run([binary, "--pacer-identity"]));
     if (identity.fixture !== false || identity.role !== role || identity.version !== o.version || identity.arch !== o.arch || identity.bundleId !== (role === "cli" ? "dev.pacer.cli" : "dev.pacer.desktop")) throw Error("Production signing requires production component identity");
@@ -33,15 +36,20 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   }
   writeFileSync(metadataPath, JSON.stringify({ ...metadata, fixture: false }, null, 2) + "\n");
   const entitlements = join(o.stage, "cli-entitlements.plist");
-  // Bun JSC/FFI use MAP_JIT. The isolated arm64 hardened fixture passes with only allow-jit.
-  // Production Developer ID and Intel validation remain release prerequisites. Rust receives no exceptions.
+  // Bun JSC requires allow-jit. Native transport uses the signed same-Team dylib;
+  // runtime C compilation is forbidden. Library validation stays enabled.
   writeFileSync(entitlements, '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>\n', { mode: 0o600 });
-  for (const [path, identifier, extra] of [[join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlements]], [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []], [app, "dev.pacer.desktop", []]] as const) {
+  for (const [path, identifier, extra] of [[shim, "dev.pacer.desktop.native-shim", []], [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlements]], [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []], [app, "dev.pacer.desktop", []]] as const) {
     await run(["/usr/bin/codesign", "--force", "--sign", c.identity, "--keychain", c.keychain, "--identifier", identifier, "--options", "runtime", "--timestamp", ...extra, path], 120_000);
   }
   await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
   // Smoke only native runner executables, after their final signatures.
   for (const binary of [join(resources, "pacer"), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) await run([binary, "--version"]);
+  // Exercise the signed native transport under the final hardened signature on each native CI runner.
+  const transport = JSON.parse(await run([join(resources, "pacer"), "--pacer-native-transport-test"]));
+  if (transport.schema !== 1 || transport.role !== "cli" || transport.version !== o.version || transport.arch !== o.arch || transport.nativeTransportAbi !== 1 || transport.transport !== "unix-audit-token" || transport.verified !== true) throw Error("Signed native transport validation failed");
+  const helper = JSON.parse(await run([join(resources, "pacer-update-helper"), "--pacer-helper-runtime-test"]));
+  if (helper.schema !== 1 || helper.role !== "update-helper" || helper.version !== o.version || helper.arch !== o.arch || helper.runtime !== "tauri-updater" || helper.verified !== true) throw Error("Signed native helper runtime validation failed");
   const upload = join(o.stage, "notarization.zip");
   await run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, upload], 120_000);
   const receipt = JSON.parse(await run(["/usr/bin/xcrun", "notarytool", "submit", upload, "--key", c.notaryKey, "--key-id", c.notaryKeyId, "--issuer", c.notaryIssuer, "--wait", "--output-format", "json"], 1_800_000));

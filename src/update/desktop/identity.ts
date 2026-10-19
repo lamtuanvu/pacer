@@ -3,11 +3,17 @@ import { accessSync, constants, lstatSync, readFileSync, realpathSync, statSync 
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { CoreError } from "../../core/errors";
-import { parseDesktopServiceRegistration, parsePlistDictionary, servicePath } from "../../service";
+import { desktopServiceLabel, parseDesktopServiceRegistration, parsePlistDictionary, servicePath } from "../../service";
 import { DEFAULT_PORT } from "../../serve/constants";
 import type { Ctx } from "../../types";
 import { isVersion } from "../version";
 import type { Installation } from "./types";
+
+/** Stable identity fingerprint; callers must independently verify every input's provenance. */
+export function installationFingerprint(identity: Omit<Installation, "id" | "version">, binary: string, registrationText: string): string {
+  const {appPath,bundleId,ownerUid,arch,pacerHome,port,serviceLabel,ownership}=identity;
+  return createHash("sha256").update(JSON.stringify({appPath,bundleId,ownerUid,arch,pacerHome,port,serviceLabel,ownership,binary,registrationText})).digest("hex");
+}
 
 export const BUNDLE_ID = "dev.pacer.desktop";
 export const BUNDLE_RELEASE_PATH = "Contents/Resources/pacer-release.json";
@@ -17,7 +23,7 @@ const bundleReleaseSchema = z.object({
   schema: z.literal(1), bundleId: z.literal(BUNDLE_ID), version: z.string().refine(isVersion),
   arch: z.enum(["aarch64", "x86_64"]),
   protocolMajors: z.array(z.number().int().positive()).min(1),
-  admissionProtocol: z.literal(1), rollbackCompatible: z.literal(true),
+  admissionProtocol: z.literal(1), rollbackCompatible: z.literal(true), nativeTransportAbi: z.literal(1),
 });
 /** Packaging writes this before signing. Its declarations are trusted only after native signature verification. */
 export type BundleRelease = z.infer<typeof bundleReleaseSchema>;
@@ -90,9 +96,9 @@ export async function inspectInstallation(ctx: Ctx, appPath: string): Promise<In
     if (!/^\d+$/.test(portText) || port < 1 || port > 65535) throw refusal("Invalid installation port");
     const registrationPath = servicePath(ctx, "darwin");
     owned(registrationPath, uid, "file");
-    if (realpathSync(registrationPath) !== join(home, "Library/LaunchAgents/com.pacer.serve.plist")) throw refusal("Service registration path was redirected");
+    if (realpathSync(registrationPath) !== servicePath({ ...ctx, home }, "darwin")) throw refusal("Service registration path was redirected");
     const registrationText = readFileSync(registrationPath, "utf8");
-    const registration = parseDesktopServiceRegistration(registrationText);
+    const registration = parseDesktopServiceRegistration(registrationText,desktopServiceLabel(ctx));
     if (!isAbsolute(registration.home) || !isAbsolute(registration.pacerHome) ||
         realpathSync(registration.home) !== home || realpathSync(registration.pacerHome) !== pacerHome || registration.port !== port) {
       throw refusal("Registered service belongs to a different home or port");
@@ -106,7 +112,7 @@ export async function inspectInstallation(ctx: Ctx, appPath: string): Promise<In
       pacerHome, port, serviceLabel: registration.label, ownership: binary === cli ? "managed" as const : "attached" as const };
     // Bind the static registration and resolved executable as well as the public identity.
     // This detects an attached executable alias being redirected without changing its plist.
-    const id = createHash("sha256").update(JSON.stringify({ ...identity, binary, registrationText })).digest("hex");
+    const id = installationFingerprint(identity, binary, registrationText);
     return { id, ...identity, version: release.version };
   } catch (error) {
     if (error instanceof CoreError) throw error;

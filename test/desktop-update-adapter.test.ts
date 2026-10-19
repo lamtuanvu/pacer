@@ -261,3 +261,33 @@ test("malformed private URLs produce only sanitized protocol errors", () => {
   const fixture = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/desktop-update/adapter-wire.json"), "utf8"));
   expect(() => parseAdapterCommand({ ...fixture.commands[1], candidate: { ...candidate, url: "private-invalid-url-secret" } })).toThrow(AdapterError);
 });
+
+test("adoption command is candidate-free, attached-only and uses explicit separate recovery",()=>{
+ const binding={schema:1,commandId:"adopt-command",installationId:"fixture",transactionId:"tx-1",revision:2,nonce:"a".repeat(64)};
+ const command={...binding,command:"adopt",target:{...target,ownership:"attached"}};
+ expect(parseAdapterCommand(command).command).toBe("adopt");
+ expect(()=>parseAdapterCommand({...command,candidate})).toThrow();
+ expect(()=>parseAdapterCommand({...command,target})).toThrow();
+ expect(parseAdapterCommand({...binding,command:"recover-adoption"}).command).toBe("recover-adoption");
+});
+
+test("adoption waits for durable continuation and separate recovery preserves uncertain handoff",async()=>{
+ const h=harness();(h.factory.capabilities as Set<string>).add("adopt");
+ const result=runAdapterCommand(h.factory,{command:"adopt",installationId:"fixture",revision:2,transactionId:"tx-1",target:{...target,ownership:"attached"}},{authorizeInstall:async()=>true});
+ const command=await h.opened;hello(h,command);h.send(command,{kind:"prepared",...preparation},1);
+ for(let i=0;i<20&&h.writes.length<2;i++)await Bun.sleep(1);
+ expect(h.writes[1]).toMatchObject({kind:"authorize-install",commandId:command.commandId,...preparation});
+ h.send(command,{kind:"authorized",...preparation},2);h.send(command,{kind:"outcome",outcome:"committed"},3);h.end();
+ expect(await result).toMatchObject({kind:"outcome",outcome:"committed"});
+ const recover=harness();(recover.factory.capabilities as Set<string>).add("recover-adoption");
+ const pending=runAdapterCommand(recover.factory,{command:"recover-adoption",installationId:"fixture",revision:3,transactionId:"tx-1"});
+ const recoveryCommand=await recover.opened;hello(recover,recoveryCommand);recover.end();
+ await fails(pending,"closed","uncertain");expect(recover.aborts()).toBe(0);
+});
+
+test("adoption recovery accepts a journal-verified terminal outcome without reauthorization",async()=>{
+ const h=harness();(h.factory.capabilities as Set<string>).add("recover-adoption");
+ const result=runAdapterCommand(h.factory,{command:"recover-adoption",installationId:"fixture",revision:3,transactionId:"tx-1"});
+ const command=await h.opened;hello(h,command);h.send(command,{kind:"outcome",outcome:"restored"},1);h.end();
+ expect(await result).toMatchObject({kind:"outcome",outcome:"restored"});expect(h.writes).toHaveLength(1);
+});

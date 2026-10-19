@@ -1,3 +1,4 @@
+import { compiledNativeFixture, verifyNativeFixture } from "../update/desktop/native-fixture";
 import { mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Ctx } from "../types";
@@ -22,8 +23,17 @@ export interface ServiceDeps {
   platform?: string; uid?: number; argv?: string[]; port?: number;
   fetch?: (url: string, init?: RequestInit) => Promise<Response>; waitMs?: number; healthTimeoutMs?: number;
 }
+/** Fixture labels are compile-time sandbox capabilities, never runtime environment choices. */
+export function desktopServiceLabel(ctx: Ctx): string {
+  const fixture=compiledNativeFixture();if(!fixture)return LABEL;
+  verifyNativeFixture(fixture);
+  if(realpathSync(ctx.home)!==fixture.home||realpathSync(ctx.pacerHome)!==fixture.home)throw Error("Native fixture home mismatch");
+  return fixture.serviceLabel;
+}
 export function servicePath(ctx: Ctx, platform: string): string {
-  return platform === "darwin" ? join(ctx.home, "Library/LaunchAgents", `${LABEL}.plist`)
+  const fixture=compiledNativeFixture();
+  if(platform==="darwin"&&fixture)return join(fixture.root,"registrations",`${desktopServiceLabel(ctx)}.plist`);
+  return platform === "darwin" ? join(ctx.home, "Library/LaunchAgents", `${desktopServiceLabel(ctx)}.plist`)
     : join(ctx.home, ".config/systemd/user/pacer-serve.service");
 }
 const installedCache = new Map<string, { at: number; installed: boolean }>();
@@ -273,12 +283,12 @@ export function parsePlistDictionary(text: string): { [key: string]: PlistValue 
 
 export type DesktopServiceRegistration = { label: string; argv: string[]; home: string; pacerHome: string; port: number };
 /** Static provenance only: loaded launchd state and running process identity need native verification. */
-export function parseDesktopServiceRegistration(text: string): DesktopServiceRegistration {
+export function parseDesktopServiceRegistration(text: string, expectedLabel: string = LABEL): DesktopServiceRegistration {
   const data = parsePlistDictionary(text);
   const allowed = new Set(["Label", "ProgramArguments", "EnvironmentVariables", "RunAtLoad", "KeepAlive", "ThrottleInterval", "ProcessType", "StandardOutPath", "StandardErrorPath"]);
   if (Object.keys(data).some(key => !allowed.has(key))) throw new Error("unsupported service launch configuration");
   const argv = data.ProgramArguments, env = data.EnvironmentVariables;
-  if (data.Label !== LABEL || !Array.isArray(argv) || !argv.every(arg => typeof arg === "string") ||
+  if (data.Label !== expectedLabel || !Array.isArray(argv) || !argv.every(arg => typeof arg === "string") ||
       !env || typeof env !== "object" || Array.isArray(env)) throw new Error("unrecognized service registration");
   if (Object.keys(env).some(key => !["HOME", "PATH", "PACER_HOME", "PACER_PORT"].includes(key)) ||
       typeof env.HOME !== "string" || typeof env.PACER_HOME !== "string") throw new Error("ambiguous service environment");
@@ -290,5 +300,5 @@ export function parseDesktopServiceRegistration(text: string): DesktopServiceReg
   if (argv.length === 4 && argv[3] !== configuredPort) throw new Error("conflicting service ports");
   const port = Number(configuredPort);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("invalid service port");
-  return { label: LABEL, argv: argv as string[], home: env.HOME, pacerHome: env.PACER_HOME, port };
+  return { label: expectedLabel, argv: argv as string[], home: env.HOME, pacerHome: env.PACER_HOME, port };
 }

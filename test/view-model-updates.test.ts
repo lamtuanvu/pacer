@@ -58,3 +58,47 @@ test('failed recovery preserves evidence and directs the user to an actual issue
  const detail=desktopUpdateView(desktopStatus({phase:'recovery-failed',actions:[]})).detail;
  expect(detail).toContain('Keep your data and update recovery files in place.');expect(detail).toContain('github.com/lamtuanvu/pacer/issues');expect(detail).not.toContain('Reinstall');
 });
+test('adoption cancellation uses its separate revision and intent identity', async () => {
+ const {adoptionStatus}=await import('./fixtures/desktop-update/status');
+ const status=desktopStatus({revision:7,actions:['adoptCancel'],adoption:adoptionStatus({phase:'waiting',revision:3})});
+ expect(desktopUpdateView(status)).toMatchObject({label:'Waiting to switch services',primary:'Cancel service change',cancellable:true});
+ expect(desktopUpdateAction(status,'adoptCancel','request').params.expectRevision).toBe(3);
+ let n=0;const intent=updateIntent(()=>`request-${++n}`);
+ expect(intent(status,'adoptCancel').params.requestId).toBe('request-1');
+ expect(intent({...status,adoption:{...status.adoption!,revision:4}},'adoptCancel').params.requestId).toBe('request-2');
+ expect(desktopUpdateIndicator([status])?.label).toBe('Waiting to switch services');
+});
+test('adoption confirmation names both inspected executables and ownership transfer',async()=>{
+ const {adoptionStatus}=await import('./fixtures/desktop-update/status');
+ const {desktopAdoptionConfirmation}=await import('../src/view-model/updates');
+ const status=desktopStatus({actions:['adopt'],adoption:adoptionStatus()});
+ const confirmation=desktopAdoptionConfirmation(status);
+ expect(confirmation).toContain(status.adoption!.currentServiceExecutable);
+ expect(confirmation).toContain(status.adoption!.replacementServiceExecutable);
+ expect(confirmation).toContain('com.pacer.serve');expect(confirmation).toContain('7433');expect(confirmation).toContain('manage');
+ expect(()=>desktopAdoptionConfirmation(desktopStatus())).toThrow();
+ expect(desktopUpdateView({...status,adoption:adoptionStatus({phase:'recovery-failed'}),actions:[]}).tone).toBe('bad');
+});
+
+test('available service adoption explains why desktop updates need a service change', async () => {
+ const {adoptionStatus}=await import('./fixtures/desktop-update/status');
+ const view=desktopUpdateView(desktopStatus({phase:'idle',ownership:'attached',actions:['adopt'],adoption:adoptionStatus()}));
+ expect(view.label).toBe('Externally managed service');
+ expect(view.detail).toContain('enable desktop updates');
+ expect(view.detail).not.toContain('Check for a newer version');
+});
+
+test('an advertised adoption retry remains confirmable after cancellation or restoration', async () => {
+ const {adoptionStatus}=await import('./fixtures/desktop-update/status');
+ const {desktopAdoptionConfirmation}=await import('../src/view-model/updates');
+ for (const phase of ['cancelled','restored'] as const) {
+  const status=desktopStatus({phase:'idle',ownership:'attached',actions:['adopt'],adoption:adoptionStatus({phase})});
+  expect(desktopAdoptionConfirmation(status)).toContain(status.adoption!.currentServiceExecutable);
+  expect(desktopUpdateAction(status,'adopt','retry').params.expectRevision).toBe(status.revision);
+ }
+});
+test('a completed service change does not hide a later downloaded update',async()=>{
+ const {adoptionStatus}=await import('./fixtures/desktop-update/status');
+ const view=desktopUpdateView(desktopStatus({phase:'ready',target:'0.2.4',actions:['restart'],adoption:adoptionStatus({phase:'committed',resultingInstallationId:'new-id'})}));
+ expect(view.label).toBe('Update ready');expect(view.primary).toBe('Restart to update');
+});

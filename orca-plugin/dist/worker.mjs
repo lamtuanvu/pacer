@@ -47,13 +47,13 @@ class HttpClient {
     return await response.json();
   }
   hello() {
-    return this.request("/v2/hello");
+    return this.request(`/v${this.o.protocol ?? 2}/hello`);
   }
   snapshot() {
-    return this.request("/v2/snapshot");
+    return this.request(`/v${this.o.protocol ?? 2}/snapshot`);
   }
   async call(op, params) {
-    const body = await this.request(`/v2/ops/${encodeURIComponent(op)}`, params ?? {});
+    const body = await this.request(`/v${this.o.protocol ?? 2}/ops/${encodeURIComponent(op)}`, params ?? {});
     return body.result;
   }
   subscribe(since, onEvent) {
@@ -72,7 +72,7 @@ class HttpClient {
       controller = new AbortController;
       let reader;
       try {
-        const response = await fetch(`${this.base}/v2/events?since=${last}`, {
+        const response = await fetch(`${this.base}/v${this.o.protocol ?? 2}/events?since=${last}`, {
           headers: { authorization: `Bearer ${this.token}`, "Last-Event-ID": String(last) },
           signal: controller.signal
         });
@@ -1223,7 +1223,7 @@ function parseOutboxEvent(raw) {
   switch (raw.type) {
     case "entity": {
       const d = raw.data;
-      if (!isObj(d) || !["planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
+      if (!isObj(d) || !["desktop.update", "planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"].includes(String(d.kind)) || typeof d.id !== "string" || !d.id.length || d.id.length > (d.kind === "notify" ? 512 : 128))
         return null;
       return { type: "entity", data: { kind: d.kind, id: d.id, ...d.removed === true ? { removed: true } : { value: d.value } } };
     }

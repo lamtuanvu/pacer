@@ -23,7 +23,7 @@ export async function fixtureFeedDryRun(root: string) {
     const publicKey = readFileSync(key + ".pub", "utf8").trim();
     writeFileSync(join(release, `desktop-release-${version}.json`), JSON.stringify({ schema: 1, version, notes: "Explicit local release fixture; not an installable app", pub_date: "2026-10-19T00:00:00Z" }));
     for (const arch of DESKTOP_ARCHES) {
-      const metadata = { schema: 1, version, arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true, fixture: true };
+      const metadata = { schema: 1, version, arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true };
       const artifact = join(release, desktopAssetName(version, arch));
       // Build an explicit data fixture archive. No native manager or executable is represented as exercised.
       const archive = new Bun.Archive({ "pacer.app/Contents/Resources/pacer-release.json": JSON.stringify(metadata), "FIXTURE-ONLY.txt": "Data-only release fixture; never install" }, { compress: "gzip" });

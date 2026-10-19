@@ -5,6 +5,7 @@ import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 
 import { seedUi, validateSeed } from "./seed";
+import { processIdentity, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 
 export const checkout = resolve(import.meta.dir, "../..");
 export const liveRoot = join(checkout, ".work/live");
@@ -15,6 +16,7 @@ export interface Session {
   pid: number;
   innerPort?: number;
   proxyPid?: number;
+  serviceIdentity?: ProcessIdentity;
   createdAt: string;
   seed?: "ui";
   stopped?: boolean;
@@ -70,6 +72,7 @@ export function loadSession(id?: string, base = liveRoot): Session {
   }
   if ((session.innerPort !== undefined && (!Number.isInteger(session.innerPort) || session.innerPort < 1 || session.innerPort > 65535 || session.innerPort === 4317 || session.innerPort === session.port)) ||
       (session.proxyPid !== undefined && (!Number.isInteger(session.proxyPid) || session.proxyPid < 1))) throw Error("Invalid live proxy metadata");
+  if (session.serviceIdentity && (session.serviceIdentity.pid !== session.pid || !session.serviceIdentity.bootId || !session.serviceIdentity.birth)) throw Error("Invalid live source process identity");
   return session;
 }
 export function sandboxEnv(session: Session, inherited = process.env): NodeJS.ProcessEnv {
@@ -204,6 +207,9 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     }
     atomicWrite(join(root, "env.sh"), environmentScript(session));
     session.pid = launch(session, [process.execPath, join(checkout, "src/cli.ts"), "serve", "--port", String(session.innerPort)], "serve.log");
+    const serviceIdentity = processIdentity(session.pid);
+    if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
+    session.serviceIdentity = serviceIdentity;
     saveSession(session);
     session.proxyPid = launch(session, [process.execPath, join(checkout, "scripts/live/proxy.ts"), join(root, "session.json")], "proxy.log");
     saveSession(session);
