@@ -1,7 +1,7 @@
 # macOS desktop OTA updates
 
 Date: 2026-10-19
-Status: Approved by the maintainer in conversation on 2026-10-19. Implementation has not started.
+Status: Approved by the maintainer in conversation on 2026-10-19. Implementation is in progress.
 
 ## Intent and agreed scope
 
@@ -36,7 +36,7 @@ A native update adapter uses Tauri's updater facilities for release discovery, a
 
 This is an adapter responsibility under the service-owned operation, not a second task engine in the desktop. CLI/API users can inspect and request the same operations for a registered desktop installation. Headless installations retain the existing CLI update path. The Orca panel remains information-only.
 
-Tauri supports separate download/install steps and signature verification; pacer must supply task coordination and post-install recovery. The exact helper integration with the pinned Rust updater API needs an early implementation feasibility check. If it cannot satisfy the transaction contract, revise this design before shipping; do not silently drop recovery or replace Tauri with an unreviewed installer.
+Tauri supports separate download/install steps and signature verification; pacer must supply task coordination and post-install recovery. The external-helper feasibility probe passed with Tauri 2.12.4 and updater 2.14.0. Pacer carries a pinned updater patch with a required `no-elevation` build feature: macOS permission failures return through existing cleanup and backup preservation instead of requesting administrator access. A real filesystem-denial regression and a signed disposable replacement validate this boundary. The patch preserves upstream signature verification and installation mechanics; it must be revalidated on dependency upgrades. If it cannot satisfy the transaction contract, revise this design before shipping; do not silently drop recovery or replace Tauri with an unreviewed installer.
 
 ## Installation identity and migration
 
