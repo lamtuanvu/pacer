@@ -1,3 +1,4 @@
+import { statusTimer } from "./trace";
 import type { AccountCfg, RunnerCfg } from "../config/accounts";
 import type { ProviderCfg } from "../config/strategy";
 import type { Ctx, UsageReading } from "../types";
@@ -36,6 +37,7 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
   const entry:{at:number;value?:UsageReading;pending?:Promise<UsageReading>}={at:ctx.now};
   sources.set(key,entry);
   entry.pending=(async()=>{
+    const trace = statusTimer(ctx);
     let timer:ReturnType<typeof setTimeout>|undefined;
     try {
       const value=await Promise.race([base(ctx,cfg,account),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]);
@@ -47,7 +49,7 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
       entry.value = value;
       return value;
     }
-    finally{clearTimeout(timer);entry.pending=undefined;}
+    finally{trace(`usage.${cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id}`);clearTimeout(timer);entry.pending=undefined;}
   })();
   return entry.pending;
 }
