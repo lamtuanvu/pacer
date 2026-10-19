@@ -136,6 +136,13 @@ pacer status --json
 
 For local Orca development, run `pacer plugin install` and add the printed managed directory in Settings > Plugins; see the [plugin guide](../orca-plugin/README.md). `pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
 
+On standalone `pacer serve` startup, managed plugin assets are compared with the
+bundled assets by content hash. Unchanged assets need no refresh, even when the
+service and plugin versions differ. When assets change, the service repairs them
+and adds one reload reminder in Needs you. Turn pacer off and on in Orca Settings
+> Plugins, then dismiss the reminder with Done. Dismissal survives service restarts.
+Orca currently exposes no plugin reload API or CLI command.
+
 Update availability is checked on plugin startup and every six hours, with one
 notification per new version. Marketplace: Orca Settings > Plugins > Refresh,
 then Update plugin. Development folder: use the live panel's Updates card or

@@ -83,14 +83,15 @@ It passes `PACER_HOME` (default `$HOME/.pacer`) to the discovered CLI and uses
 that same directory's `token` file for native sign-in. `PACER_PORT` is inherited;
 `pacer open --print` supplies the loopback service address and the one-time code
 used only by the webview. The native client uses the bearer token exclusively
-for `POST /v2/session/exchange`, then drops it and uses an in-memory cookie jar.
+for `POST /v3/session/exchange`, then drops it and uses an in-memory cookie jar.
 Tokens are never persisted or logged. Redirects and HTTP proxies are disabled.
 Native reads and exchange include `X-Pacer-Client: desktop/<package version>`;
 cookie-authenticated writes use `X-Pacer-Client: app` with the service Origin.
-The authenticated `/v2/hello` gates protocol major 2; newer minors and unknown
-event kinds are supported by refetching the snapshot.
+The authenticated `/v3/hello` accepts protocol majors 3 and 2 during the
+compatibility window; newer minors and unknown event kinds are supported by
+refetching the snapshot.
 
-One Rust task owns the native `/v2/events` stream, including while the window
+One Rust task owns the native `/v3/events` stream, including while the window
 is hidden. It parses incremental SSE, resumes by sequence, refreshes snapshots,
 and reconnects with delay. A concurrent heartbeat renews the `client.register`
 notifier lease every 30 seconds, including during snapshot reads and stream
@@ -99,7 +100,7 @@ again. The lease lapses after exit, allowing the service to resume its fallback
 notifications. A 401 from either webview reports `session_expired` through origin-scoped IPC.
 Page-load checks also catch expired sign-in links and cookie-less session-ended
 pages (including older service pages). The single connection task signs in again
-with `POST /v2/session/exchange` and a fresh webview code, reloads the saved main
+with `POST /v3/session/exchange` and a fresh webview code, reloads the saved main
 route and recreates the tray after sign-in. Failed connections return to a small
 Starting pacer… page and recover automatically.
 One task owns retries, with at least one second between attempts.
@@ -130,7 +131,7 @@ External links use `xdg-open` (install `xdg-utils` if unavailable).
 Native notifications consume service-selected `notify` events addressed to this
 client, preserving the service's attention flags, notification preference, and
 delivery ledger. On macOS, up to two supplied actions become buttons: operations POST to
-`/v2/ops/<op>`, and `ui.open` navigates the window. Confirmation and answer text
+`/v3/ops/<op>`, and `ui.open` navigates the window. Confirmation and answer text
 are collected with native macOS dialogs before dispatch. Notification body clicks
 and `pacer://review/<id>` / session links open the matching hash route.
 

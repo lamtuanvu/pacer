@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { BrowserApi } from "../data/api";
 import type { Action } from "../../../src/attention/types";
-import { agentInfo, runnerAgent } from "../../../src/view-model/agents";
+import { agentInfo, markAgent, runnerAgent } from "../../../src/view-model/agents";
 import { backIn, clock, elapsed, meterText } from "../../../src/view-model/format";
 import { phaseWords, toneFor, verdictWords } from "../../../src/view-model/words";
 import { plannerMeter } from "../../../src/view-model/selectors";
@@ -18,6 +18,8 @@ import { actionRoute, executorValue, primaryAction, shortTitle, trayModel } from
 export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[] }
 /** One short verb per row, as on the board; the full label stays in the tooltip. */
 export function rowLabel(label: string): string {
+  // "Open planner settings" and the like: the row title already says what; the button says where.
+  if (/^open\b.*\bsettings$/i.test(label)) return "Settings";
   return label.replace(/ on .+$/, "");
 }
 
@@ -97,7 +99,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           return <div className={`tray-attention tray-attention--${item.kind}`} key={item.id}>
             <span className="tray-glyph" aria-hidden="true">{glyph}</span>
             <span className="tray-grow"><strong className="tray-ellipsis">{shortTitle({ title: item.title, goal: task?.goal })}</strong><span className="tray-reason tray-ellipsis">{[item.repo?.label ?? task?.repo?.label, item.detail].filter(Boolean).join(" · ")}</span></span>
-            {action && <button className={`tray-action${action.style === "primary" ? " tray-action--primary" : ""}`} type="button" disabled={busy || sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}>{rowLabel(action.label)}</button>}
+            {action && <button className={`tray-action${action.style === "primary" ? " tray-action--primary" : ""}`} type="button" disabled={busy || sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}><span className="tray-action__label">{rowLabel(action.label)}</span></button>}
           </div>;
         })}
         {model.needsCount > 3 && <a className="tray-more" href={appHref("/")} onClick={navigate("/")}>+{model.needsCount - 3} more in the app</a>}
@@ -113,7 +115,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
         const label = `${agentInfo(executor.agent).name}: ${executor.state} · ${executor.sub}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} slots${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
-        return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={executor.agent} size={16} labelled={false} /><span className={`tray-dot tray-dot--${value === "off" ? "neutral" : toneFor(executor.tone)}`} /></span><span>{value}</span></a>;
+        return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><span className={`tray-dot tray-dot--${!executor.enabled || executor.state === "disabled" ? "neutral" : toneFor(executor.tone)}`} /></span><span>{value}</span></a>;
       })}</section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}
@@ -131,7 +133,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         const active = typeof strategy !== "string" ? strategy.active : snapshot.budget?.strategy === name;
         return <button key={name} type="button" disabled={busy || sessionEnded} aria-pressed={active} onClick={() => act(async () => { await api.call("strategy.use", { name }); setStrategiesOpen(false); setMenuOpen(false); })}>{name}{active && <span aria-label="Active">✓</span>}</button>;
       }) : <span className="tray-notice">No strategies available</span>}</div>}
-      <a href={appHref("/settings/general")} onClick={navigate("/settings/general")}>Launch at login</a>
+      <a className="pc-text-action" href={appHref("/settings/general")} onClick={navigate("/settings/general")}>Launch at login</a>
       <button type="button" disabled={!ipc.desktop} onClick={() => act(ipc.quit)}>Quit<Kbd>⌘Q</Kbd></button>
     </nav>}
   </main>;
