@@ -100,7 +100,7 @@ function help(): string {
 
 function explain(e: unknown): string {
   if (e instanceof MissingStrategyError) {
-    return `pacer: ${e.message}\nCopy examples/strategy.yaml from the pacer repo to ${e.path} and edit it.`;
+    return `pacer: no strategy at ${e.path}. Run: pacer init`;
   }
   if (e instanceof StrategyError || e instanceof DelegateError || e instanceof CoreError) return `pacer: ${e.message}`;
   return `pacer: ${(e as Error).message ?? String(e)}`;
@@ -200,7 +200,7 @@ async function route(args: string[], ctx: Ctx): Promise<Result> {
     if (opts.json) return { code: 0, out: JSON.stringify({kind:pos[0]??null,...r}, null, 1), err: "" };
     const rows=r.ranked.map((e,i)=>({...e,index:i,...(!s.legacy ? {agent:s.runners[e.id]?.agent} : {})}));
     const lines = renderRoute(rows);
-    if (!lines.length) lines.push("no executor available");
+    if (!lines.length) lines.push(r.reason ?? "no executor available");
     if (r.excluded.length) lines.push(`excluded: ${r.excluded.map((e) => `${e.id} (${e.reason})`).join(", ")}`);
     return { code: 0, out: lines.join("\n"), err: "" };
   } catch (e) {

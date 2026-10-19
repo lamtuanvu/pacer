@@ -1,3 +1,4 @@
+import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ import type { Attempt } from "../src/tasks/types";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
 async function fixture() {
-  const repo = gitRepo(), ctx = fakeCtx({ run: realRun });
+  const repo = gitRepo(), ctx = withLoginIndicators(fakeCtx({ run: realRun }));
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), 'planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n  cursor: {}\nrouting:\n  - kinds: [tests]\n    executors: [codex, cursor]\n');
   const task = createTask(ctx, { brief: { goal: "Add tests", repo, acceptance: "bun test" }, kind: "tests", requestedExecutor: null, timeoutS: 60 });
   const attempt: Attempt = { executor: "codex", model: null, startedAt: ctx.now - 20, endedAt: ctx.now - 10, exitCode: 0, timedOut: false, limitHit: false, log: "executor output", routing: { kind: "tests", kindSource: "brief", rule: "tests", chosen: "codex", why: "on pace", skipped: [] }, usageAtStart: { account: "team", usedPct: 3, window: "week", at: ctx.now - 20 }, usageAtEnd: { account: "team", usedPct: 4.2, window: "week", at: ctx.now - 10 } };
