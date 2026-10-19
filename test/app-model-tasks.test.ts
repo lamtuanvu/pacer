@@ -41,7 +41,7 @@ test("service review attention controls review and history membership", () => {
   expect(homeModel({ ...live, counts }, []).attentionCount).toBe(9);
 });
 
-const draft = { goal: " Add SSH keepalive ", repo: "github.com/acme/api", base: "main", acceptance: " bun test ", executor: "" };
+const draft = { goal: " Add SSH keepalive ", repo: "github.com/acme/api", base: "main", acceptance: " bun test ", executor: "", kind: "" };
 const known = ["github.com/acme/api"];
 test("quick delegate sends a repo key, base, source and an idempotency id to a 2.1+ service", () => {
   expect(delegateParams(draft, new Set(["repo.list"]), "req-1", known)).toEqual({ goal: "Add SSH keepalive", repo: "github.com/acme/api", base: "main", acceptance: "bun test", source: "ui", request_id: "req-1" });
@@ -56,9 +56,9 @@ test("quick delegate refuses an empty goal or an unknown repository", () => {
   expect(() => delegateParams({ ...draft, repo: "acme" }, new Set(["repo.list"]), "r", known)).toThrow("Choose a repository.");
   expect(() => delegateParams({ ...draft, repo: "" }, new Set(["repo.list"]), "r", known)).toThrow("Choose a repository.");
 });
-test("the dialog starts on the filtered repo unless a draft already chose one", async () => {
+test("the dialog prefers the active repo filter over a saved repo", async () => {
   const { initialDelegateDraft, blankDelegate } = await import("../app/src/model/tasks");
   expect(initialDelegateDraft(blankDelegate, "github.com/acme/web").repo).toBe("github.com/acme/web");
-  expect(initialDelegateDraft({ ...blankDelegate, repo: "/tmp/x" }, "github.com/acme/web").repo).toBe("/tmp/x");
+  expect(initialDelegateDraft({ ...blankDelegate, repo: "/tmp/x" }, "github.com/acme/web").repo).toBe("github.com/acme/web");
   expect(initialDelegateDraft(blankDelegate, null).repo).toBe("");
 });

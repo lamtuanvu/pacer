@@ -30,10 +30,20 @@ export function tasksModel(tasks: TaskSummary[], liveOrSnapshot: TaskData[] | Li
   }).filter(task => !task.dismissed && (tab === "running" ? activeTask(task.state) : tab === "review" ? inReview(task) : !activeTask(task.state) && !inReview(task)));
 }
 export function nextTaskLimit(limit: number): number | null { return limit >= 200 ? null : Math.min(200, limit + 20); }
-export interface DelegateDraft { goal: string; repo: string; base: string; acceptance: string; executor: string }
-export const blankDelegate: DelegateDraft = { goal: "", repo: "", base: "", acceptance: "", executor: "" };
-/** A saved draft wins; otherwise the dialog starts on the repo the screen is filtered to. */
-export const initialDelegateDraft = (saved: DelegateDraft, filterRepo: string | null): DelegateDraft => saved.repo || !filterRepo ? saved : { ...saved, repo: filterRepo };
+export interface DelegateDraft { goal: string; repo: string; base: string; acceptance: string; executor: string; kind: string }
+export const blankDelegate: DelegateDraft = { goal: "", repo: "", base: "", acceptance: "", executor: "", kind: "" };
+/** Resolve defaults once on open so the user can still change the repository. */
+export const initialDelegateDraft = (saved: DelegateDraft, filterRepo: string | null, lastRepo = ""): DelegateDraft => {
+  const repo = filterRepo || saved.repo || lastRepo;
+  return { ...saved, repo, base: repo === saved.repo ? saved.base : "" };
+};
+export function delegateRoutingParams(draft: DelegateDraft, current: boolean, goal: string) {
+  return {
+    ...(draft.kind ? { kind: draft.kind } : {}),
+    ...(current && goal ? { goal } : {}),
+    ...(current && draft.repo ? { repo: draft.repo } : {}),
+  };
+}
 /**
  * Quick delegate from the UI. A 2.1+ service (it lists repo.list) takes a repo key, a base branch, the source and an
  * idempotency id, so a double click or two windows never delegate twice; an older one needs an absolute path.
@@ -47,6 +57,7 @@ export function delegateParams(draft: DelegateDraft, ops: ReadonlySet<string>, r
     ...(current && draft.base.trim() ? { base: draft.base.trim() } : {}),
     ...(draft.acceptance.trim() ? { acceptance: draft.acceptance.trim() } : {}),
     ...(draft.executor ? { executor: draft.executor } : {}),
+    ...(draft.kind ? { kind: draft.kind } : {}),
     ...(current ? { source: "ui" as const, request_id: requestId } : {}),
   };
 }
