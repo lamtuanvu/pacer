@@ -74,6 +74,7 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `runner.add` | interactiveTerminal opens a real terminal (whole op refused conservatively) |
 | `task.attach` | openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively) |
 | `host.clean` | hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively) |
+| `desktop.update.*` | all desktop update operations except status require a verified OTA fixture |
 | `service.*` | all service operations except service.status can change the real login service |
 <!-- /D8 policy -->
 
@@ -199,3 +200,22 @@ bun run live down --id my-change --keep
 ```
 
 `down` stops the sandbox proxy, inner service and tmux session. `--keep` preserves the sandbox and evidence for review; without it, the entire sandbox is removed. A retained sandbox can be removed later with `down` without `--keep`. The service PID is checked against inner `/health` and the proxy PID against public `/__live/health` before signaling each; a live but unverified PID causes teardown to refuse rather than kill an unrelated process. If startup fails, inspect the retained logs and process state before deleting its directory.
+
+## Disposable desktop OTA fixtures
+
+OTA preparation is an explicit harness mode. Use two disposable build bundles inside this checkout, such as builds copied under `.work/fixtures/`; never pass an installed app. The harness refuses sources outside the checkout or inside the destination sandbox, equal/overlapping sources, escaping symlinks, default service ports, and unowned or symlinked sandbox resources. Relative framework links whose targets stay inside their bundle are preserved.
+
+```sh
+bun run live up --id ota-check
+bun run live ota prepare --id ota-check --from-app .work/fixtures/old.app --to-app .work/fixtures/new.app
+bun run live ota exercise --id ota-check --scenario upgrade
+bun run live ota cleanup --id ota-check
+bun run live report --id ota-check
+bun run live down --id ota-check --keep
+```
+
+`prepare` records a private resource ledger under `ota/record.json` before copying either app. It allocates separate current/candidate copies, a sandbox installation ID, and unique reserved service/recovery labels. It fingerprints both sources and the existing real service registration bytes without copying the registration into the fixture. Preparation and cleanup neither invoke a service manager nor launch a native application. Cleanup validates the ledger and canonical ownership again, removes only the recorded copies, and verifies that the sources and real registration bytes are unchanged. Unexpected resources, changed sources/registration, or unknown registration ownership preserve the sandbox for diagnosis. Generic `down` runs this validation before tearing down an OTA sandbox; `--keep` preserves the ledger and evidence.
+
+The fixed scenario names are `upgrade`, `startup-failure`, `helper-crash`, `interrupted-install`, `restore-failure`, `adopt`, `adopt-failure`, `attached`, `wrong-service`, `watcher-race`, `active-work`, `invalid-signature`, `corrupt-archive`, `wrong-architecture`, `incompatible`, and `offline`. Commands, feed URLs, signing keys, and arbitrary service targets are not accepted as scenario options.
+
+**Native fixture execution is currently unavailable.** Each recognized scenario records UNVERIFIED and refuses before any update or service-manager call. D3 blocks mutating `desktop-update` commands, and D8 blocks `desktop.update.*` except `desktop.update.status`, including future operations. A copied app and private ledger do not authorize these operations. The later native integration must use a separately compiled test-only fixture identity and signing/feed implementation, bind every resource to this sandbox, and use the public guarded API. Production builds must not accept runtime test keys, feeds, or fixture authority. Developer test signatures cannot establish production signing/notarization or delivery evidence.

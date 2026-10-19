@@ -1,11 +1,16 @@
 import { copyFileSync, chmodSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, sessions, up } from "./core";
+import { cleanupOta, exerciseOta, prepareOta } from "./ota";
 import { desktop, orca, tui } from "./surfaces";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui]
                                   start isolated service and disposable repo; ui seeds sample data
+  ota prepare --from-app <path> --to-app <path>
+                                  copy disposable OTA bundles (requires --id)
+  ota exercise --scenario <name>  run a fixed native fixture scenario (requires --id)
+  ota cleanup                    remove recorded OTA copies (requires --id)
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -29,7 +34,7 @@ export async function main(argv: string[]): Promise<number> {
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps"]);
+  const valueOptions = new Set(["--id", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
@@ -40,6 +45,7 @@ export async function main(argv: string[]): Promise<number> {
     else positionals.push(arg);
   }
   const id = options.get("--id");
+  if (command !== "ota" && ["--from-app", "--to-app", "--scenario"].some(key => options.has(key))) throw Error("OTA options require the ota command");
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (command === "up") {
     console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed")), null, 2));
@@ -48,6 +54,21 @@ export async function main(argv: string[]): Promise<number> {
   if (command === "status") {
     const rows = id ? [loadSession(id)] : sessions();
     console.log(JSON.stringify(await Promise.all(rows.map(async session => ({ ...session, running: await healthy(session) }))), null, 2));
+    return 0;
+  }
+  if (command === "ota") {
+    if (!id || positionals.length !== 1 || forwarded.length || flags.size) throw Error("usage: live ota prepare|exercise|cleanup --id <id>");
+    const action = positionals[0];
+    const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : ["--id"];
+    if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported OTA option");
+    if (action === "prepare") {
+      if (!options.has("--from-app") || !options.has("--to-app")) throw Error("OTA prepare requires --from-app and --to-app");
+      await prepareOta(id, options.get("--from-app")!, options.get("--to-app")!);
+    } else if (action === "exercise") {
+      if (!options.has("--scenario")) throw Error("OTA exercise requires --scenario");
+      await exerciseOta(id, options.get("--scenario")!);
+    } else if (action === "cleanup") await cleanupOta(id);
+    else throw Error("Unsupported OTA action");
     return 0;
   }
   const session = loadSession(id);

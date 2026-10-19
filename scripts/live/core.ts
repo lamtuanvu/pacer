@@ -1,5 +1,5 @@
 import { appendFileSync, cpSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve, basename } from "node:path";
+import { join, resolve, basename, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
@@ -227,6 +227,11 @@ export function stopProcess(pid: number): void {
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
 }
 export async function down(session: Session, keep = false): Promise<void> {
+  // OTA owns its own resource ledger; never remove it through generic sandbox teardown.
+  if (existsSync(join(session.root, "ota"))) {
+    const { cleanupOta } = await import("./ota");
+    await cleanupOta(session.id, { base: dirname(session.root) });
+  }
   // Verify each identity independently so teardown works if either process died.
   const processes = [
     { pid: session.proxyPid, port: session.port, proxy: true },

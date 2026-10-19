@@ -381,3 +381,18 @@ test.skipIf(!canBind)("seeded service exposes setup-complete snapshots and task 
     }
   } finally { await down(session); }
 }, 15000);
+
+test("OTA CLI requires explicit scoped options and never accepts arbitrary commands", async () => {
+  for (const args of [
+    ["ota", "prepare"], ["ota", "prepare", "--id", "missing"],
+    ["ota", "exercise", "--id", "missing"], ["ota", "cleanup", "--id", "missing", "--app", "/outside"],
+    ["ota", "exercise", "--id", "missing", "--scenario", "install", "--", "rm", "-rf", "/outside"],
+    ["ota", "cleanup", "--id", "missing", "--feed", "https://example.invalid"],
+    ["env", "--from-app", "/outside"],
+  ]) await expect(main(args)).rejects.toThrow();
+});
+
+
+test("OTA-only options are rejected before up can create a sandbox", async () => {
+  await expect(main(["up", "--id", "../escape", "--from-app", "/outside"])).rejects.toThrow("OTA options");
+});

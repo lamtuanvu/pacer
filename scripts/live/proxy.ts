@@ -23,6 +23,7 @@ export const BLOCKED_OPS: Readonly<Record<string, string>> = {
   "runner.add": "interactiveTerminal opens a real terminal (whole op refused conservatively)",
   "task.attach": "openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively)",
   "host.clean": "hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively)",
+  "desktop.update.*": "all desktop update operations except status require a verified OTA fixture",
   "service.*": "all service operations except service.status can change the real login service",
 };
 
@@ -31,7 +32,7 @@ export function refusedOp(method: string, pathname: string): string | undefined 
   const match = pathname.match(/^\/v[23]\/ops\/(.*)$/);
   if (!match) return;
   const op = match[1];
-  if (Object.hasOwn(BLOCKED_OPS, op) || (op.startsWith("service.") && op !== "service.status")) return op;
+  if (Object.hasOwn(BLOCKED_OPS, op) || (op.startsWith("service.") && op !== "service.status") || (op.startsWith("desktop.update.") && op !== "desktop.update.status")) return op;
 }
 
 export function upstreamHeaders(input: Headers, publicPort: number, innerPort: number): Headers {
