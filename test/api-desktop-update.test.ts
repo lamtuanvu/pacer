@@ -19,7 +19,7 @@ const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".re
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanups.splice(0)) fn(); });
 function deferred<T>() { let resolve!: (v:T) => void; const promise = new Promise<T>(r=>{resolve=r;}); return {promise,resolve}; }
-function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"; attempted?: boolean } = {}) {
+function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"|"recovery-failed"; attempted?: boolean } = {}) {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome);
   const installation: Installation = { id: "desktop", appPath: "/tmp/private-desktop.app", bundleId:"dev.pacer.desktop", ownerUid:process.getuid?.()??0, arch:"aarch64", pacerHome:ctx.pacerHome, port:7433, serviceLabel:"com.pacer.serve", ownership:options.ownership??"managed", version:"1.0.0" };
   const closed=deferred<void>(); let visible=!options.late; let alive=true, boot="boot-1", now=100;
@@ -242,6 +242,54 @@ test("recovery acquisition failure retains an already-authorized reservation",as
   await f.runtime.start();f.register();await f.runtime.tick();await f.runtime.settled();
   expect(readUpdate(f.ctx,"desktop")).toMatchObject({phase:"recovery-failed",error:{code:"handoff_uncertain"}});
   expect(f.calls).toEqual([]);
+});
+
+test("transient recovery connection failure is retried with fresh proof and backoff", async () => {
+  const f = fixture({ late: true, outcome: "restored" });
+  f.seedPending("installing");
+  const open = f.factory.open;
+  let attempts = 0;
+  f.factory.open = async (...args) => {
+    if (++attempts === 1) throw Error("native recovery still settling");
+    return open(...args);
+  };
+  await f.runtime.start(); f.register();
+  await f.runtime.tick(); await f.runtime.settled();
+  expect(f.runtime.status("desktop").phase).toBe("recovery-failed");
+  expect(f.calls).toEqual([]);
+  await f.runtime.tick(); await f.runtime.settled();
+  expect(attempts).toBe(1);
+  f.setNow(102);
+  await f.runtime.tick(); await f.runtime.settled();
+  expect(attempts).toBe(2);
+  expect(f.runtime.status("desktop").phase).toBe("restored");
+  expect(f.commands.map(command => command.command)).toEqual(["recover"]);
+  expect(f.calls).toEqual(["release"]);
+});
+
+test("persistent recovery connection failures keep admission held and bound retries", async () => {
+  const f = fixture({ late: true }); f.seedPending("installing");
+  let attempts = 0;
+  f.factory.open = async () => { attempts++; throw Error("unavailable"); };
+  await f.runtime.start(); f.register();
+  for (let i = 0; i < 10; i++) {
+    f.setNow(100 + i * 60);
+    await f.runtime.tick(); await f.runtime.settled();
+  }
+  expect(attempts).toBe(5);
+  expect(f.calls).toEqual([]);
+  expect(f.runtime.status("desktop")).toMatchObject({ phase: "recovery-failed", actions: [] });
+});
+
+test("confirmed native recovery failure is not retried as a connection error", async () => {
+  const f = fixture({ late: true, outcome: "recovery-failed" }); f.seedPending("installing");
+  await f.runtime.start(); f.register();
+  await f.runtime.tick(); await f.runtime.settled();
+  f.setNow(1000);
+  await f.runtime.tick(); await f.runtime.settled();
+  expect(f.commands.map(command => command.command)).toEqual(["recover"]);
+  expect(f.calls).toEqual([]);
+  expect(f.runtime.status("desktop")).toMatchObject({ phase: "recovery-failed", error: { code: "recovery_failed" }, actions: [] });
 });
 
 test("a scheduled check losing CAS to configuration does not disable the runtime",async()=>{

@@ -84,6 +84,25 @@ mod tests {
     }
     #[cfg(target_os = "macos")]
     #[test]
+    fn helper_accepts_launchd_owned_process_group() {
+        // Only async-signal-safe calls run in the forked child. launchd gives
+        // jobs their own process group without making them session leaders.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0);
+        if child == 0 {
+            if unsafe { libc::setpgid(0, 0) } != 0 {
+                unsafe { libc::_exit(90) };
+            }
+            let accepted = detach_helper().is_ok();
+            unsafe { libc::_exit(if accepted { 0 } else { 91 }) };
+        }
+        let mut status = 0;
+        assert_eq!(unsafe { libc::waitpid(child, &mut status, 0) }, child);
+        assert!(libc::WIFEXITED(status));
+        assert_eq!(libc::WEXITSTATUS(status), 0);
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
     fn helper_initializes_updater_with_compiled_trust_configuration() {
         use tauri::test::{mock_builder, mock_context, noop_assets};
         let mut context = mock_context(noop_assets());
@@ -157,16 +176,25 @@ fn configure_helper(config: &mut tauri::Config, public_key: &str) {
 }
 
 #[cfg(target_os = "macos")]
+fn detach_helper() -> Result<(), pacer_desktop::ota::OtaError> {
+    // Pipe children leave their service's process group. launchd already gives
+    // its jobs a separate group, so setsid returns EPERM for that group leader;
+    // it does not need another session to survive the desktop/service exits.
+    if unsafe { libc::setsid() } < 0 && unsafe { libc::getpgrp() } != unsafe { libc::getpid() } {
+        return Err(pacer_desktop::ota::OtaError::Io);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn run_native() -> Result<(), pacer_desktop::ota::OtaError> {
     use pacer_desktop::ota::{helper, trust::ReleaseTrust, OtaError};
     let trust = ReleaseTrust::configured().ok_or(OtaError::Unavailable)?;
     let arguments: Vec<_> = std::env::args().skip(1).collect();
     let mode = native_mode(&arguments)?;
-    // Own process session and event loop survive the desktop and service exits.
+    // Independent process group and event loop survive desktop and service exits.
     // No shell, elevation, autostart or single-instance plugin runs in the helper.
-    if unsafe { libc::setsid() } < 0 && unsafe { libc::getsid(0) } != unsafe { libc::getpid() } {
-        return Err(OtaError::Io);
-    }
+    detach_helper()?;
     let mut context = tauri::generate_context!();
     configure_helper(context.config_mut(), trust.public_key());
     let mut app = tauri::Builder::<tauri::Wry>::default()

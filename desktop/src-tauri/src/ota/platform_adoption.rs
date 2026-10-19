@@ -1138,7 +1138,9 @@ impl NativeAdoptionPlatform {
         self.assets
             .write_new(&format!("launch-{id}"), b"started\n")?;
         let boot = self.awake_now()?.boot_id;
+        use std::os::unix::process::CommandExt;
         let child = std::process::Command::new(&executable)
+            .process_group(0)
             .env_clear()
             .env("HOME", user_home(&self.trust)?)
             .env("PACER_HOME", &m.source.target.pacer_home)

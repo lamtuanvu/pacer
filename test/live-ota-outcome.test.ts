@@ -20,3 +20,17 @@ test("only deliberate restoration failure may use offline terminal evidence", ()
   expect(() => verifyExerciseOutcome("restore-failure", id, tx, undefined, manifest, journal("restoring"))).toThrow();
   expect(() => verifyExerciseOutcome("restore-failure", id, tx, "complete", manifest, journal("recovery-failed"))).toThrow();
 });
+
+test("terminal recovery must leave the proved desktop and service alive after recovery job retirement", async () => {
+  const { verifyExerciseSurvivors } = await import("../scripts/live/ota-outcome");
+  const value = {...journal("restored"),steps:[{action:{kind:"release-reservation"},evidence:{kind:"complete"}},{action:{kind:"retire-recovery"},evidence:{kind:"complete"}}]};
+  const report = {desktops:[value.restorationProof.desktop],jobs:[{label:"service",loaded:true,process:value.restorationProof.service},{label:"recovery",loaded:false,process:null}]};
+  expect(() => verifyExerciseSurvivors(value, report, "service", "recovery")).not.toThrow();
+  for(const changed of [
+    {...report,desktops:[]},
+    {...report,desktops:[{...value.restorationProof.desktop,birth:"reused"}]},
+    {...report,jobs:[{...report.jobs[0],process:{...value.restorationProof.service,birth:"reused"}},report.jobs[1]]},
+    {...report,jobs:[report.jobs[0],{...report.jobs[1],loaded:true}]},
+  ]) expect(() => verifyExerciseSurvivors(value,changed,"service","recovery")).toThrow();
+  expect(() => verifyExerciseSurvivors({...value,steps:value.steps.slice(0,1)},report,"service","recovery")).toThrow();
+});

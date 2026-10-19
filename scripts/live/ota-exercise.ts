@@ -10,7 +10,7 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { healthy, loadSession, record } from "./core";
 import { readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { MANAGED_SCENARIOS, newExercise, resumableStartup } from "./ota-exercise-record";
-import { verifyExerciseOutcome } from "./ota-outcome";
+import { verifyExerciseOutcome, verifyExerciseSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
 import { fixtureEnvironment, fixtureInstallation, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
 import { makeCtx } from "../../src/ctx";
@@ -181,7 +181,21 @@ export async function runManagedExercise(id: string, scenario: string, options: 
     if (expected !== "recovery-failed") {
       const version = expected === "complete" ? "0.2.4" : "0.2.3";
       await verifyFixtureBundle(state, version);
-      if (outcome?.current !== version || fixtureInstallation(state, await inspectFixtureJobs(state), version).id !== installationId) throw Error("Final managed installation differs from verified outcome");
+      const retirementDeadline = Date.now() + 30000;
+      let survived = false;
+      while (Date.now() < retirementDeadline) {
+        try {
+          const terminal = JSON.parse(privateFixtureBytes(join(directory, "journal.json"), 1048576).toString("utf8"));
+          if (!terminal.steps.some((step: any) => step.action.kind === "retire-recovery" && step.evidence?.kind === "complete")) { await Bun.sleep(250); continue; }
+          verifyExerciseOutcome(scenario, installationId, tx, outcome?.phase, prepared, terminal);
+          const jobs = await inspectFixtureJobs(readOtaRecord(id, options));
+          verifyExerciseSurvivors(terminal, jobs, state.serviceLabel, state.recoveryLabel);
+          if (outcome?.current !== version || fixtureInstallation(state, jobs, version).id !== installationId) throw Error("Final managed installation differs from verified outcome");
+          survived = true; break;
+        } catch { /* Cleanup may still hold the native lock; never turn missing participants into success. */ }
+        await Bun.sleep(250);
+      }
+      if (!survived) throw Error("Final desktop/service survival after native retirement was not established");
     }
     state = readOtaRecord(id, options);
     updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, request: null }, exercise: { ...state.exercise!, state: expected === "recovery-failed" ? "failed" : "complete" } }, options);

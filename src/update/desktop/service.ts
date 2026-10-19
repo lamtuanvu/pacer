@@ -91,6 +91,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const known = new Map<string, Installation>(), watched = new Map<string, string>(), active = new Map<string, Active>();
   const waitingSessions = new Map<string, string>(), nextCheck = new Map<string, number>(), failures = new Map<string, number>();
   const jobs = new Set<Promise<void>>(), initialized = new Set<string>();
+  const recoveryAttempts = new Map<string, { transactionId: string; count: number; retryAt: number | null }>();
   let publications = Promise.resolve(), started = false, stopped = false, ticking = false;
   let unsubscribe: (() => void) | undefined, cancelTimer: (() => void) | undefined;
   let runtimeError = false;
@@ -227,6 +228,10 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const install = async (id: string, session: VerifiedNativeSession, recovery = false) => {
     const previous = record(id), transactionId = previous.transactionId;
     if (!transactionId || active.has(id)) return;
+    if (recovery) {
+      const previousAttempt = recoveryAttempts.get(id);
+      recoveryAttempts.set(id, { transactionId, count: (previousAttempt?.transactionId === transactionId ? previousAttempt.count : 0) + 1, retryAt: null });
+    }
     const operation: Active = { controller: new AbortController(), previous, phase: recovery ? "recovering" : "reserved", transactionId };
     active.set(id, operation);
     try {
@@ -249,7 +254,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       if (result.kind !== "outcome") throw conflict();
       const value = record(id);
       if (value.transactionId !== transactionId) throw conflict();
-      if (result.outcome === "recovery-failed") { persist({ ...value, phase: "recovery-failed", error: { code: "recovery_failed", message: "Desktop recovery requires repair" } }); return; }
+      if (result.outcome === "recovery-failed") { recoveryAttempts.delete(id); persist({ ...value, phase: "recovery-failed", error: { code: "recovery_failed", message: "Desktop recovery requires repair" } }); return; }
       const outcomeProof = await native.verifyOutcome!(session, value, result.outcome);
       if (typeof outcomeProof.attempted !== "boolean" || (result.outcome === "committed" && !outcomeProof.attempted)) throw conflict();
       const confirmed = outcomeProof.installation;
@@ -260,6 +265,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         failedVersion: result.outcome === "restored" && outcomeProof.attempted ? value.candidate?.version ?? null : value.failedVersion,
         requestId: null, requestedBy: null, requesterBootId: null });
       await release(id, transactionId);
+      recoveryAttempts.delete(id);
     } catch (error) {
       const value = record(id);
       if (value.transactionId !== transactionId) { runtimeError = true; return; }
@@ -271,6 +277,12 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         await release(id, transactionId);
       } else {
         persist({ ...value, phase: "recovery-failed", error: { code: "handoff_uncertain", message: "Desktop update requires transaction recovery" } });
+        // An independent recovery helper can finish after this connection fails.
+        // Retry only recovery, with fresh native authority and the same durable
+        // transaction. Never release admission or repeat candidate installation.
+        const previousAttempt = recoveryAttempts.get(id);
+        const count = previousAttempt?.transactionId === transactionId ? previousAttempt.count : 0;
+        if (!stopped && count < 5) recoveryAttempts.set(id, { transactionId, count, retryAt: clock.monotonicMs() + 1000 * 2 ** count });
       }
     } finally { if (active.get(id) === operation) active.delete(id); }
   };
@@ -405,6 +417,11 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         await adoption.tick();
         for (const id of known.keys()) {
           const adopted=readAdoption(ctx(),id);if(adopted&&adoptionPending(adopted))continue;
+          const retry = recoveryAttempts.get(id), pending = record(id);
+          if (!active.has(id) && retry?.retryAt != null && clock.monotonicMs() >= retry.retryAt && retry.transactionId === pending.transactionId && pending.phase === "recovery-failed" && pending.error?.code === "handoff_uncertain") {
+            initialized.delete(id);
+            retry.retryAt = null;
+          }
           if (await reconcile(id)) continue;
           const value = record(id);
           if (value.phase === "waiting") { await advanceWaiting(id); continue; }

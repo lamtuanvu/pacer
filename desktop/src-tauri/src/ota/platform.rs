@@ -47,6 +47,9 @@ pub(crate) struct OwnedJob {
 #[cfg(target_os = "macos")]
 fn inherit_launch_socket(command: &mut std::process::Command, fd: std::os::fd::RawFd) {
     use std::os::unix::process::CommandExt;
+    // launchd retires the recovery job by signaling its process group. The
+    // recovered Desktop must keep running after that helper is retired.
+    command.process_group(0);
     unsafe {
         command.pre_exec(move || {
             if libc::dup2(fd, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 {
@@ -815,12 +818,18 @@ mod tests {
             .stderr(Stdio::piped());
         inherit_launch_socket(&mut command, reader.as_raw_fd());
         let child = command.spawn().unwrap();
+        let child_pid = child.id() as libc::pid_t;
+        let child_group = unsafe { libc::getpgid(child_pid) };
         drop(reader);
         writer.write_all(b"private launch capability").unwrap();
         writer.shutdown(std::net::Shutdown::Write).unwrap();
         let output = child.wait_with_output().unwrap();
         assert!(output.status.success(), "{:?}", output.stderr);
         assert_eq!(output.stdout, b"private launch capability");
+        assert_eq!(
+            child_group, child_pid,
+            "desktop must survive recovery job process-group retirement"
+        );
     }
 
     #[tokio::test]

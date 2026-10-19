@@ -603,23 +603,6 @@ async fn restore_inner(
         )
         .await?;
     }
-    if let Some(process) = recovery_service {
-        require(manifest.managed())?;
-        // This incarnation came from a fresh authenticated maintenance context,
-        // never a substituted old PID. Persist its own exact stop intent.
-        run_action(
-            store,
-            journal,
-            manifest,
-            PlatformAction::Stop {
-                role: ProcessRole::Service,
-                process,
-            },
-            platform,
-            authority,
-        )
-        .await?;
-    }
     // Recovery may begin before the original stop effects. Quiesce only these
     // already-authorized incarnations; completed intents remain idempotent.
     run_action(
@@ -643,6 +626,23 @@ async fn restore_inner(
         authority,
     )
     .await?;
+    if let Some(process) = recovery_service {
+        require(manifest.managed())?;
+        // The fresh maintenance peer may still be the original service. Its
+        // relay must survive until the original desktop shutdown is complete.
+        run_action(
+            store,
+            journal,
+            manifest,
+            PlatformAction::Stop {
+                role: ProcessRole::Service,
+                process,
+            },
+            platform,
+            authority,
+        )
+        .await?;
+    }
     if manifest.managed() {
         run_action(
             store,
@@ -1530,6 +1530,10 @@ mod tests {
     async fn recovery_before_first_stop_quiesces_original_processes_before_relaunch() {
         let fake = Fake::new(false);
         let (_temp, store) = authorized(&fake).await;
+        // Native recovery discovers the still-running original service as a
+        // fresh maintenance peer when the helper dies before either stop.
+        let original_service = fake.0.borrow().manifest.old_service.clone();
+        fake.0.borrow_mut().recovery_service = Some(original_service);
         assert_eq!(
             recover_transaction(&store, &fake).await.unwrap(),
             RecoveryOutcome::Restored
@@ -1537,6 +1541,15 @@ mod tests {
         let world = fake.0.borrow();
         assert!(world.effects.iter().any(|(action,_)|matches!(action,PlatformAction::Stop{role:ProcessRole::Desktop,process} if process==&world.manifest.old_desktop)));
         assert!(world.effects.iter().any(|(action,_)|matches!(action,PlatformAction::Stop{role:ProcessRole::Service,process} if process==&world.manifest.old_service)));
+        let stops: Vec<_> = world
+            .effects
+            .iter()
+            .filter_map(|(action, _)| match action {
+                PlatformAction::Stop { role, .. } => Some(*role),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(stops, vec![ProcessRole::Desktop, ProcessRole::Service]);
     }
     #[tokio::test]
     async fn failed_restore_keeps_reservation_backup_and_recovery_job() {
