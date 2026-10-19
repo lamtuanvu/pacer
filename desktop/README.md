@@ -1,9 +1,33 @@
 # pacer desktop (U2)
 
 An unsigned macOS and Linux Tauri v2 shell with the pacer CLI bundled as a sidecar. The window
-loads the existing web UI from the local service; only recovery screens are
+loads the existing web UI from the local service; first-run and recovery screens are
 bundled here. Closing the window keeps the native tray client running. Quit
 from the tray to exit; the Dock icon or Open pacer restores the window.
+
+## Download and set up
+
+[Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
+Choose `pacer-<version>-darwin-arm64-unsigned.dmg` for Apple silicon or
+`pacer-<version>-darwin-x64-unsigned.dmg` for Intel and drag pacer into Applications.
+
+The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+
+**Welcome** opens one consent screen for the background service and the terminal
+link at `~/.local/bin/pacer`. If the directory is missing from PATH, an optional
+checkbox adds `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` or `~/.bashrc`,
+depending on your login shell. It is off by default. Continue to the web app's
+step-by-step **Setup** to choose a planner, connect agents, choose an executor and
+try a task. An existing CLI offers **Use the app's pacer** or **Keep mine**.
+
+The same release includes `pacer-<version>-linux-<x64|arm64>-unsigned.AppImage`
+and `pacer-<version>-linux-<x64|arm64>-unsigned.deb`, with the CLI bundled and the
+same consent flow. For terminal and servers, use the
+[standalone installer](../docs/install.md#terminal-and-servers).
+
+Run `pacer uninstall --all` to remove everything setup added, including the
+terminal link and the marked PATH block. Move the app to the Trash afterward;
+remove any development-folder plugin entry in Orca Settings yourself.
 
 ## Build
 
@@ -20,14 +44,18 @@ cd src-tauri
 cargo build --offline
 cargo test --offline
 cd ..
-CARGO_NET_OFFLINE=true bunx tauri build --bundles app --no-sign
+CARGO_NET_OFFLINE=true bunx --no-install tauri build --bundles dmg --no-sign
 ```
 
 Offline builds require the locked crates and Bun packages to be cached first.
-The app is at `src-tauri/target/release/bundle/macos/pacer.app`. The manual
+The app is at `src-tauri/target/release/bundle/macos/pacer.app` and the disk image
+is under `src-tauri/target/release/bundle/dmg/`. The release workflow stages the
+matching CLI artifact with `TAURI_TARGET_TRIPLE=<triple> ./scripts/stage-cli.sh <cli>`,
+builds with `--target <triple> --bundles dmg --no-sign`, and publishes a versioned
+`-unsigned.dmg` for each architecture with checksums and provenance. The manual
 `desktop.yml` workflow fetches the locked dependencies, tests and builds offline,
 then uploads a zipped unsigned app. It does not publish a release. This build
-is for owner testing; signing and notarization are separate work.
+is also available for owner testing; signing and notarization are separate work.
 
 Stage the CLI before either Cargo tests or a Tauri build. With no argument,
 `./scripts/stage-cli.sh` runs `bun run build` at the repository root. To reuse
@@ -74,23 +102,28 @@ cd src-tauri
 cargo check --offline
 cargo test --offline
 cd ..
-CARGO_NET_OFFLINE=true bunx tauri build --bundles appimage,deb --no-sign
+CARGO_NET_OFFLINE=true bunx --no-install tauri build --bundles appimage,deb --no-sign
 ```
 
 Fetch locked crates with `cargo fetch --locked` in `src-tauri` before the offline
 steps if they are not cached. Linux targets are configured in
 `src-tauri/tauri.linux.conf.json`. Outputs are under
 `src-tauri/target/release/bundle/appimage/` and `bundle/deb/`.
-Run the AppImage with `chmod +x pacer_*.AppImage` then `./pacer_*.AppImage`
+For a downloaded release, run `chmod +x pacer-*-unsigned.AppImage` then launch
+the matching `./pacer-<version>-linux-<arch>-unsigned.AppImage`
 (FUSE 2 may be required; `--appimage-extract-and-run` avoids FUSE), or install
-the matching `.deb` with `sudo apt install ./pacer_*.deb` and run `pacer-desktop`.
+the matching `.deb` with `sudo apt install ./pacer-*-unsigned.deb` and run `pacer-desktop`.
 For development, run `bunx tauri dev` from this folder.
 The bundled pacer CLI lets the app manage its local service.
 
 The manual `desktop.yml` workflow also builds unsigned AppImage and `.deb`
 artifacts on native Ubuntu x86_64 and arm64 runners. The arm64 job requires
 `ubuntu-24.04-arm` runner availability. Each architecture uploads its own
-artifact; no release or signing is performed.
+artifact; no release or signing is performed by that manual workflow.
+The release workflow uses the same native Linux runners, stages the matching CLI
+artifact, builds with `--target <triple> --bundles appimage,deb --no-sign`, and
+publishes versioned `-unsigned.AppImage` and `-unsigned.deb` downloads with
+checksums and provenance.
 
 Icons are generated from `design/assets/pacer-mark.svg` with `bunx tauri icon`.
 `ui/tray.svg` uses the same geometry in monochrome for the macOS template icon.
@@ -194,8 +227,9 @@ links open `/app/#<route>` and resizing is skipped.
 
 ## Manual smoke checks
 
-- With no located or bundled CLI: the window shows "pacer needs its command-line tool" with an install link and makes no service-manager changes; installing pacer to `~/.local/bin` continues automatically.
-- With a located/bundled CLI and missing job: service installation and start happen automatically.
+- With no bundled CLI: the window shows "This copy of pacer is incomplete" with a download action and makes no service-manager changes.
+- On a clean account: Welcome → one consent screen → Starting → web Setup. Verify both PATH opt-in choices; no service or terminal-link installation happens before consent.
+- With another CLI installed: test both Use the app's pacer and Keep mine.
 - With a `com.pacer.serve` job that serves another `PACER_HOME` or port: the window shows "Another pacer is running" and the app never starts or restarts that job, even if its own port accepts connections without answering.
 - Stop a loaded service: the app starts it automatically.
 - Block on a volume permission: the main window and tray show the approval message;
@@ -235,8 +269,8 @@ on subsequent requests.
 ## Automatic lifecycle and previews
 
 The app owns the local service lifecycle. It probes loopback TCP and `/health`
-with two-second deadlines. Missing jobs are installed through the located or
-bundled CLI's service installer and then started. Stopped or refused services
+with two-second deadlines. After consent, missing jobs are installed through the
+selected CLI's service installer and then started. Stopped or refused services
 are started with `launchctl kickstart gui/<uid>/com.pacer.serve` on macOS or
 `systemctl --user start pacer-serve.service` on Linux. Linux without a working
 user manager retains the direct CLI fallback. No terminal or recovery button is shown.

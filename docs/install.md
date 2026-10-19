@@ -1,5 +1,33 @@
 # Install pacer
 
+[Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
+Choose `pacer-<version>-darwin-arm64-unsigned.dmg` for Apple silicon or
+`pacer-<version>-darwin-x64-unsigned.dmg` for Intel. Open the disk image and
+drag pacer into Applications.
+
+The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+
+The app includes the matching CLI. **Welcome** leads to one consent screen
+listing the background service and the terminal link at `~/.local/bin/pacer`.
+When `~/.local/bin` is missing from PATH, you can opt in to adding
+`export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` for zsh or `~/.bashrc` for
+bash. This checkbox is off by default; other shells get no automatic edit.
+Continue to the step-by-step **Setup**: choose a planner, connect agents,
+choose an executor and try a task. Install and sign in to the agents separately;
+pacer does not handle their credentials.
+
+If another pacer CLI is found, choose **Use the app's pacer** or **Keep mine**.
+The app does not silently overwrite an existing terminal command.
+
+Linux downloads are `pacer-<version>-linux-<x64|arm64>-unsigned.AppImage` and
+`pacer-<version>-linux-<x64|arm64>-unsigned.deb` on the same release page.
+Choose the matching architecture. Make the AppImage executable and launch it,
+or install the `.deb` with `sudo apt install ./<downloaded-file>.deb` and run
+`pacer-desktop`. Linux uses the same consent and Setup flow. See the
+[desktop guide](../desktop/README.md#linux) for runtime dependencies.
+
+## Terminal and servers
+
 Install and sign in to your planner and at least one executor CLI first; the
 [quickstart](../README.md#quickstart) has Claude Code and Codex commands. Then:
 
@@ -85,6 +113,22 @@ pacer --version
 ```
 
 Without compiling, run `bun src/cli.ts --help` or replace `pacer` in examples with `bun src/cli.ts`. The compiled binary runs without Bun; development and the current source entry point require Bun.
+
+To build the desktop app with that CLI, install the platform dependencies in
+the [desktop guide](../desktop/README.md#build), then run from the repository root:
+
+```sh
+cd desktop
+bun install --frozen-lockfile
+./scripts/stage-cli.sh ../dist/pacer
+CARGO_NET_OFFLINE=true bunx --no-install tauri build --bundles dmg --no-sign
+# On Linux, use --bundles appimage,deb instead.
+```
+
+Offline builds require cached locked Rust dependencies. For a cross build,
+stage a CLI compiled for the target with
+`TAURI_TARGET_TRIPLE=<triple> ./scripts/stage-cli.sh <cli>` and pass the same
+`--target <triple>` to the Tauri build.
 
 ## Binary installer
 
@@ -182,8 +226,10 @@ pacer uninstall --all
 
 It lists everything it will remove (agent integrations, restoring their backups;
 the login service; the Orca plugin registration; `~/.pacer` or `PACER_HOME`), asks
-once, then removes it. Add `--binary` to delete the pacer binary too, and `--yes`
-to skip the question in scripts. Remove any pacer development-folder entry from
+once, then removes it. For an app install it also removes the app's terminal
+link and only the marked PATH block it added, preserving other shell settings.
+Move the app to the Trash afterward. Add `--binary` to delete a standalone pacer
+binary too, and `--yes` to skip the question in scripts. Remove any pacer development-folder entry from
 Orca Settings > Plugins yourself. To disconnect a single agent, use
 `pacer uninstall <agent>`.
 
@@ -193,7 +239,9 @@ Replace the installed `pacer.app` bundle with the new version at the same path.
 The running app checks its executable and bundle version every 30 seconds and
 restarts itself from the replacement bundle after a short delay. It keeps the
 main window's visibility and route, and the tray reconnects to the service to
-restore its status. Update the pacer CLI separately. See
+restore its status. Replacing the app also updates its bundled CLI;
+`pacer update` directs app installs to download the new app instead. If you chose
+**Keep mine**, update that separate CLI through its original install method. See
 [desktop build instructions](../desktop/README.md) for building the bundle.
 
 ## macOS: removable volumes

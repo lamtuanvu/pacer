@@ -89,8 +89,104 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  publish:
+  desktop:
     needs: [verify, build]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      PLATFORM: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            platform: darwin-arm64
+            cli_artifact: binaries-macos-latest
+            bundles: dmg
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            platform: darwin-x64
+            cli_artifact: binaries-macos-latest
+            bundles: dmg
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+            cli_artifact: binaries-ubuntu-latest
+            bundles: appimage,deb
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-arm64
+            cli_artifact: binaries-ubuntu-latest
+            bundles: appimage,deb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Install pinned Rust toolchain and target
+        working-directory: desktop/src-tauri
+        run: |
+          rustup show active-toolchain
+          echo "RUSTUP_TOOLCHAIN=$(rustup show active-toolchain | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+          rustup target add "$TARGET"
+      - name: Install desktop CLI
+        working-directory: desktop
+        run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ matrix.cli_artifact }}
+          path: dist/release
+      - name: Stage release CLI
+        env:
+          TAURI_TARGET_TRIPLE: ${{ matrix.target }}
+        run: |
+          cli="dist/release/$VERSION/pacer-$PLATFORM"
+          chmod +x "$cli"
+          desktop/scripts/stage-cli.sh "$cli"
+      - name: Fetch locked Rust dependencies
+        working-directory: desktop/src-tauri
+        run: cargo fetch --locked --target "$TARGET"
+      - name: Build unsigned desktop bundles
+        working-directory: desktop
+        env:
+          CARGO_NET_OFFLINE: 'true'
+          BUNDLES: ${{ matrix.bundles }}
+        run: bunx --no-install tauri build --target "$TARGET" --bundles "$BUNDLES" --no-sign
+      - name: Collect unsigned desktop bundles
+        run: |
+          bundle="desktop/src-tauri/target/$TARGET/release/bundle"
+          mkdir -p dist/desktop
+          case "$PLATFORM" in
+            darwin-*)
+              cp "$bundle"/dmg/*.dmg "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.dmg"
+              ;;
+            linux-*)
+              cp "$bundle"/appimage/*.AppImage "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.AppImage"
+              cp "$bundle"/deb/*.deb "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.deb"
+              ;;
+            *) exit 1 ;;
+          esac
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-${{ matrix.platform }}-unsigned
+          path: dist/desktop/pacer-*
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: [verify, build, desktop]
     env:
       VERSION: ${{ needs.verify.outputs.version }}
       TAG: v${{ needs.verify.outputs.version }}
@@ -113,6 +209,15 @@ jobs:
           merge-multiple: true
       - name: Write checksums and metadata
         run: bun scripts/release/build.ts --write-only
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: desktop-*
+          path: dist/release/${{ env.VERSION }}
+          merge-multiple: true
+      - name: Add desktop checksums
+        run: |
+          cd "dist/release/$VERSION"
+          sha256sum pacer-*-unsigned.dmg pacer-*-unsigned.AppImage pacer-*-unsigned.deb >> SHA256SUMS
       - name: Extract release notes
         run: |
           awk -v heading="## [$VERSION]" '
@@ -120,6 +225,7 @@ jobs:
             found { print }
             END { if (!found) exit 1 }
           ' CHANGELOG.md > release-notes.md
+          printf '\nThe app is not yet signed. On first open, Control-click pacer in Applications and choose Open.\n' >> release-notes.md
       - name: Preview release assets and notes
         if: env.DRY_RUN == 'true'
         run: |

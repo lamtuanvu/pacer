@@ -39,7 +39,26 @@ Rendered from the current plugin with sample data. [Roadmap](ROADMAP.md) · [Orc
 
 ## Install
 
-Install the latest binary from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases):
+[Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
+Choose the `darwin-arm64-unsigned.dmg` for Apple silicon or
+`darwin-x64-unsigned.dmg` for Intel, then drag pacer into Applications.
+
+The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+
+Welcome leads to one consent screen for the background service and the terminal
+link at `~/.local/bin/pacer`. If needed, an optional checkbox adds
+`export PATH="$HOME/.local/bin:$PATH"` to your `~/.zshrc` or `~/.bashrc`; it is
+off by default. Continue to the step-by-step **Setup** to choose your planner,
+connect agents, choose an executor and try a task. The app includes its CLI.
+
+`pacer uninstall --all` removes everything setup added, including the terminal
+link and the optional PATH block. Move the app to the Trash afterward. See
+[installation](docs/install.md) for Linux AppImage and `.deb` downloads, updates
+and uninstall details.
+
+### Terminal and servers
+
+Install the standalone CLI:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
@@ -78,7 +97,8 @@ codex login
 See the [Claude Code install guide](https://code.claude.com/docs/en/setup),
 [Claude Code login reference](https://code.claude.com/docs/en/cli-reference) and
 [Codex CLI guide](https://developers.openai.com/codex/cli) for prerequisites.
-Then install pacer and run setup:
+In the desktop app, follow **Setup** to connect these tools. For terminal and
+server installs, install pacer and run setup:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
