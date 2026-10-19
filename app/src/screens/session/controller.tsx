@@ -14,7 +14,7 @@ import { takeoverSession, type TakeoverState } from './takeover';
 import { SessionsList } from './SessionsList';
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
- return {id:task.id,title:task.title,goal:task.goal,state:task.state,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
+ return {id:task.id,title:task.title,goal:task.goal,state:task.state,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
  phase:task.progress?.phase,elapsed:task.attemptStartedAt?elapsed(Date.now()/1000-task.attemptStartedAt):undefined,
  changesSummary:task.progress?`${task.progress.files} files · ${task.progress.commits} commits`:undefined};
 }
@@ -70,9 +70,10 @@ export function SessionRoute({id}:{id:string}) {
   task.reload();session.reload();
  };
  const actions=state.snapshot?.attention?.filter(a=>a.taskId===id).flatMap(a=>a.actions)??[];
- const stop=actions.find(a=>a.op==='task.stop')??(task.data&&['running','queued'].includes(task.data.state)?{label:'Stop',op:'task.stop',params:{id,expect_rev:task.data.rev},style:'danger' as const,confirm:'Stop this session and its executor?'}:undefined);
+ const active=!!task.data&&['running','queued'].includes(task.data.state);
+ const stop=active?(actions.find(a=>a.op==='task.stop')??(task.data?{label:'Stop',op:'task.stop',params:{id,expect_rev:task.data.rev},style:'danger' as const,confirm:'Stop this session and its executor?'}:undefined)):undefined;
  const data=task.data?{...sessionDetail(task.data),session:session.data,sessionLoading:session.loading,sessionError:message(session.error),stop,
- retryOptions:task.data.retryOptions.map(option=>({id:option.id,agent:markAgent(option.id),label:option.id,available:option.state==='ready',reason:option.reason,action:actions.find(a=>a.op==='task.retry'&&a.params.executor===option.id)??{label:'Stop and retry',op:'task.retry',params:{id,executor:option.id,expect_rev:task.data!.rev},confirm:`Stop and retry on ${option.id}?`}})),
+ retryOptions:task.data.retryOptions.map(option=>({id:option.id,agent:markAgent(option.id),label:option.id,available:option.state==='ready',reason:option.reason,action:actions.find(a=>a.op==='task.retry'&&a.params.executor===option.id)??{label:active?'Stop and retry':'Retry',op:'task.retry',params:{id,executor:option.id,expect_rev:task.data!.rev},confirm:active?`Stop and retry on ${option.id}?`:undefined}})),
  changes:{data:diff.data?`${diff.data.diff}${diff.data.untracked.length?'\nUntracked files:\n'+diff.data.untracked.join('\n'):''}${diff.data.truncated?'\nDiff truncated.':''}`:undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}),[]);

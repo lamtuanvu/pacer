@@ -6,6 +6,7 @@ export interface RetryOption { id:string; agent:string; label:string; reason?:st
 /** Presentation data supplied by task.get/task.session and the shell's action runner. */
 export interface SessionData {
  id:string; title?:string; goal:string; state:string; executor:string|null; agent:string; repo:string; branch?:string|null; machine?:string|null; started?:string; phase?:string; changesSummary?:string; elapsed?:string;
+ review?:{accepted:boolean}|null; resolved?:string; dismissed?:boolean; retriedBy?:string;
  session?:SessionInfo|null; sessionLoading?:boolean; sessionError?:string;
  brief?:Resource<string>; doneWhen?:Resource<string>; changes?:Resource<string>; log?:Resource<string>;
  timeline?:Resource<{at:string;text:string}[]>;
