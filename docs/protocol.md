@@ -1565,6 +1565,21 @@ Params JSON Schema:
 }
 ```
 
+### `onboarding.skip`
+
+Skip the first delegation and record the onboarding choice.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `plugin.install`
 
 Install the Orca plugin under PACER_HOME without editing Orca settings.
@@ -2042,6 +2057,29 @@ Params JSON Schema:
   },
   "required": [
     "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `service.install`
+
+Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "consent": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "consent"
   ],
   "additionalProperties": false
 }

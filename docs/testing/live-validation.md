@@ -45,6 +45,7 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | Operation | Handler audit and reason for refusal |
 | --- | --- |
 | `agent.connect` | setup.agentConnect installs integrations in real agent homes |
+| `service.install` | setup.serviceInstall registers a real launchd/systemd login service |
 | `agent.disconnect` | setup.agentDisconnect reverts integrations in real agent homes |
 | `account.signin` | accounts.signin / interactiveTerminal opens real terminals and login flows |
 | `account.add` | accounts.add creates account homes; endpoints.addEndpoint may write Keychain keys |

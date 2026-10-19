@@ -66,7 +66,7 @@ test("setup and update changes rewrite without a snapshot change", () => {
   const writer = createManagedPanelWriter(ctx, { nowMs: () => now });
   writer.refresh(emptySnapshot(), view);
   now = 2000;
-  writer.refresh(emptySnapshot(), { ...view, setup: { checkedAt: 1, complete: false, items: [{ id: "binary", title: "Install binary", required: true, status: "pending" }] } });
+  writer.refresh(emptySnapshot(), { ...view, setup: { checkedAt: 1, complete: false,ready:false,items: [{ id: "binary", title: "Install binary", required: true, status: "pending" }] } });
   expect(readFileSync(path, "utf8")).toContain("Install binary");
   now = 4000;
   writer.refresh(emptySnapshot(), { ...view, updates: { cli: "0.2.2", plugin: "0.2.2", latest: "0.3.0", available: true } });
