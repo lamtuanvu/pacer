@@ -98,8 +98,8 @@ test("verified binary install is atomic and worker only opens init",async()=>{
 test("live checklist probes binary version, active planner, running service and link without installing",async()=>{
  const h=harness({mode:"live",exec:async(_bin,args)=>args[0]==="--version"?"pacer 0.1.22":JSON.stringify({installed:true,running:false})});
  h.put(".local/bin/pacer");h.put(".pacer/strategy.yaml","planner: codex\n");h.put("bin/codex");
- let state=await h.b.checkSetup(true);expect(state.complete).toBe(false);expect(state.items.find(i=>i.id==="service")?.status).toBe("pending");expect(state.items.find(i=>i.id==="binary")?.detail).toBe("0.1.22");expect(state.items.find(i=>i.id==="strategy")?.detail).toBe("Planner: codex");
+ let state=await h.b.checkSetup(true);expect(state.complete).toBe(false);expect(state.items.find(i=>i.id==="service")?.status).toBe("pending");expect(state.items.find(i=>i.id==="binary")?.detail).toBe("0.1.22");expect(state.items.find(i=>i.id==="planner")?.detail).toBe("codex");
  h.put(".pacer/active","economy\n");h.put(".pacer/strategies/economy.yaml","planner: 'claude-code' # selected\n");state=await h.b.checkSetup(false);
- expect(state.items.find(i=>i.id==="strategy")?.detail).toBe("Planner: claude-code");expect(state.items.find(i=>i.id==="link")?.status).toBe("pending");expect(state.items.find(i=>i.id==="agent:codex")?.status).toBe("pending");
+ expect(state.items.find(i=>i.id==="planner")?.detail).toBe("claude-code");expect(state.items.find(i=>i.id==="link")?.status).toBe("pending");expect(state.items.find(i=>i.id==="agent:codex")?.status).toBe("pending");
  const failed=createBootstrap({...h.d,mode:"live",exec:async()=>{throw Error("unavailable");}});state=await failed.checkSetup(false);expect(state.items.find(i=>i.id==="binary")?.status).toBe("failed");expect(state.items.find(i=>i.id==="service")?.status).toBe("failed");
 });

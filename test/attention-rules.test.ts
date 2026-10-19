@@ -27,7 +27,7 @@ test("review raises for unreviewed done and partial tasks and clears on verdict"
 test("planner reviews wait 600 seconds for every planner", () => {
  for (const runner of ["claude-code", "codex", "cursor", "opencode"]) {
   const {s,st} = capacityFixture(runner);
-  const planner = buildReadModel(ctx,{strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}}).planner;
+  const planner = buildReadModel(ctx,{strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}}).planner;
   const t = {...task("done",ctx.now-599),source:"planner" as const};
   expect(deriveItems({...input(),planner,tasks:[t]})).toEqual([]);
   expect(deriveItems({...input(),planner,now:ctx.now+1,tasks:[t]})[0]?.id).toBe(`review:${t.id}`);
@@ -52,7 +52,7 @@ test("idle tasks are blocked and sort before failures then reviews, oldest first
 });
 test("condition rules raise and clear with required enabled data", () => {
  const {s,st}=capacityFixture();
- const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}});
+ const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
  const executor={...model.executors.find(e=>e.rank!=="planner")!,state:"down" as const};
  expect(deriveItems({...input(),executors:[executor]})[0]?.kind).toBe("executor_down");
  expect(deriveItems({...input(),executors:[{...executor,enabled:false}]})).toEqual([]);
@@ -66,7 +66,7 @@ test("condition rules raise and clear with required enabled data", () => {
   const items=deriveItems({...input(),planner:{...model.planner!,verdict,mode}});
   expect(items.length).toBe(raised?1:0);if(raised)expect(items[0]?.actions.map(a=>a.op)).toEqual(["ui.open","mode.hold"]);
  }
- const setup={complete:false,open:1,items:[{id:"service",title:"Service",status:"pending",required:true},{id:"optional",title:"Optional",status:"pending",required:false}]};
+ const setup={complete:false,open:1,items:[{id:"service",title:"Service",status:"pending" as const,required:true},{id:"optional",title:"Optional",status:"pending" as const,required:false}]};
  expect(deriveItems({...input(),setup})[0]).toMatchObject({id:"setup:service",notify:"all"});
  expect(deriveItems({...input(),setup:{...setup,items:setup.items.map(i=>({...i,status:"done"}))}})).toEqual([]);
  expect(deriveItems({...input(),update:{latest:"9.0",available:true}})[0]).toMatchObject({id:"update:9.0",notify:"all"});
@@ -75,7 +75,7 @@ test("condition rules raise and clear with required enabled data", () => {
 
 test("quota hold clears attention and sign-in actions name their concrete targets",()=>{
  const {s,st}=capacityFixture();
- const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}});
+ const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
  const planner={...model.planner!,verdict:"out" as const,modeHeldUntil:ctx.now+60};
  expect(deriveItems({...input(),planner})).toEqual([]);
  expect(deriveItems({...input(),planner:{...planner,modeHeldUntil:ctx.now}})[0]?.actions[1]).toEqual({label:"Keep normal",op:"mode.hold",params:{mode:"normal"}});
@@ -122,7 +122,7 @@ test("ahead-of-pace advice stays on the planner without inflating attention coun
   const provider=st.providers.find(p=>p.id===st.planner)!;
   provider.verdict="AHEAD";
   provider.binding={...provider.binding!,usedPct:90,pace:50,verdict:"AHEAD"};
-  const base={strategy:s,status:st,hosts:[],setup:{complete:true,checkedAt:ctx.now,items:[]}};
+  const base={strategy:s,status:st,hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}};
   const model=buildReadModel(ctx,{...base,tasks:[]});
   expect(model.planner).toMatchObject({verdict:"ahead",mode,advice:"40 pts ahead of pace — delegate more."});
   expect(model.attention).toEqual([]);
