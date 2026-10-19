@@ -1,7 +1,7 @@
 # macOS desktop OTA updates
 
 Date: 2026-10-19
-Status: Draft for written-spec review. Conversational design approved; implementation has not started.
+Status: Approved by the maintainer in conversation on 2026-10-19. Implementation has not started.
 
 ## Intent and agreed scope
 
@@ -137,7 +137,7 @@ Implementation must update distribution/desktop documentation and CHANGELOG, gen
 
 OD-5 (desktop bundling/versioning/signing) is resolved by this proposal only after maintainer acceptance and the appropriate decision record. Do not silently amend REL-8 or the constitution in this docs-only change. Follow the constitution's amendment process for any rule changes. For a new ADR, follow the supplied numbered naming convention unless OD-2 is separately settled. Other open governance decisions are outside this feature.
 
-This spec records design requirements, not verification results. No runtime code, credentials, service registration, or release feed has been changed by writing it. Written-spec approval is the next step before an implementation plan.
+This spec records design requirements, not verification results. No runtime code, credentials, service registration, or release feed has been changed by writing it. The maintainer approved the written spec; implementation follows review of the separate implementation plan and selection of its execution method.
 
 ## References
 
