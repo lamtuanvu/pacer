@@ -78,11 +78,11 @@ test("the diff's button says what it does", () => {
   expect(html).not.toContain("Open in editor");
 });
 
-test("review heading uses the service title and inline test state while Brief keeps the full goal", () => {
+test("review heading uses the service title and shared task state while Brief keeps the full goal", () => {
   const html = view({ ...task, title: "Short service title", goal: "A longer goal with detailed requirements", brief: { ...task.brief, goal: "A longer goal with detailed requirements" } });
-  expect(html).toMatch(/<h2[^>]*>Short service title<\/h2><span[^>]*>Tests passed<\/span>/);
+  expect(html).toMatch(/<h2[^>]*>Short service title<\/h2><span[^>]*>[\s\S]*?Waiting for review<\/span>/);
   expect(html).toMatch(/<summary>Brief<\/summary>[\s\S]*A longer goal with detailed requirements/);
-  expect(view({ ...task, title: "Failed task", state: "failed", acceptance: { ...task.acceptance, state: "failed" } })).toMatch(/<h2[^>]*>Failed task<\/h2><span[^>]*>Failed<\/span>/);
+  expect(view({ ...task, title: "Failed task", state: "failed", acceptance: { ...task.acceptance, state: "failed" } })).toMatch(/<h2[^>]*>Failed task<\/h2><span[^>]*>[\s\S]*?Failed<\/span>/);
 });
 
 test("review keeps all three cards, the compact queue status and verdict learning note", () => {
@@ -90,7 +90,7 @@ test("review keeps all three cards, the compact queue status and verdict learnin
   expect(html).toMatch(/pc-review-cards[\s\S]*Done when[\s\S]*Why Codex[\s\S]*Cost/);
   expect(html).toContain('+1.2% of week');
   expect(html).toContain('Your verdicts teach routing which executor suits which kind.');
-  expect(html).toMatch(/pc-good-text[^>]*>tests passed · /);
+  expect(html).toMatch(/pc-pill--warn[^>]*>[\s\S]*?Waiting for review<\/span> · /);
   expect(html).toContain('j k next · a accept · r reject · t retry elsewhere');
 });
 

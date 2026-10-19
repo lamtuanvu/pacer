@@ -5,9 +5,9 @@ import type { AttentionItem } from "../../../src/api/read-model/types";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import { clock, elapsed } from "../../../src/view-model/format";
-import { executorLabel, taskStatus } from "../../../src/view-model/words";
+import { attentionStatus, executorLabel, taskStatus } from "../../../src/view-model/words";
 import { ApiError } from "../data/api";
-import { Pill } from "../ds/Pill";
+import { StatusPill } from "../ds/StatusPill";
 import { withQuery, type Route } from "../router";
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
@@ -30,13 +30,9 @@ export interface ReviewProps {
 function Queue({ items, selected, onSelect, snapshot, now }: { items: AttentionItem[]; selected: string | null; onSelect?: (id: string) => void; snapshot: ClientSnapshot; now: number }) {
   return <nav className="pc-review-queue" aria-label="Review queue"><SectionHeading>Review queue · {items.length}</SectionHeading>
     {items.map(item => <div key={item.id} className="pc-review-queue-row"><ReviewCheckbox item={item} /><button type="button" key={item.id} aria-current={item.taskId === selected ? "true" : undefined} onClick={() => item.taskId && onSelect?.(item.taskId)}>
-      <strong>{item.title}</strong><span className={item.kind === "failed" ? "pc-bad-text" : "pc-good-text"}>{queueStatus(item)} · {clock(item.raisedAt, now)}</span>
+      <strong>{item.title}</strong><span><StatusPill status={attentionStatus(item, snapshot.tasks)} /> · {clock(item.raisedAt, now)}</span>
     </button></div>)}<p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}. Your verdicts teach routing which executor suits which kind.</p>
   </nav>;
-}
-function queueStatus(item: AttentionItem): string {
-  const parts = item.detail.split(" · ");
-  return (parts.find(part => /tests? passed|failed|out of quota/i.test(part)) ?? parts[0] ?? "Waiting for review").replace(/ on .+$/, "").toLowerCase();
 }
 function CostCard({ cost }: { cost: TaskDetail["cost"] }) {
   const planner = (cost as { planner: { deltaPct?: number | null; window?: string | null } | null }).planner;
@@ -61,7 +57,7 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
       <article className="pc-review-item" aria-busy={loading}>{updating && <span className="muted pc-query-updating" role="status">Updating…</span>}{failure.message && <p className="muted" role="status">{failure.message}</p>}
         {view.missing ? <section className="pc-notice"><SectionHeading>Already reviewed</SectionHeading><p><code>{view.missing}</code> is no longer waiting for review. <a className="pc-inline-link" href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
         : !task ? (error ? <SectionHeading>{view.queue.find(item => item.taskId === view.selectedId)?.title}</SectionHeading> : <p className="muted">Loading task…</p>) : <>
-          <div className="row"><SectionHeading>{task.title ?? view.queue.find(item => item.taskId === task.id)?.title ?? task.goal.slice(0, 60)}</SectionHeading><Pill tone={acceptance?.state === "passed" ? "good" : acceptance?.state === "failed" ? "bad" : status!.tone}>{acceptance?.state === "passed" ? "Tests passed" : acceptance?.state === "failed" ? "Failed" : status!.label}</Pill></div>
+          <div className="row"><SectionHeading>{task.title ?? view.queue.find(item => item.taskId === task.id)?.title ?? task.goal.slice(0, 60)}</SectionHeading><StatusPill status={status!} /></div>
           <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{task.executor}</code>{task.startedAt !== null && task.endedAt !== null && <> · {elapsed(task.endedAt - task.startedAt)}</>} · {task.branch} → {task.base} · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
           <div className="pc-review-cards"><section><SectionHeading>Done when</SectionHeading>{acceptance?.state === "none" ? <p>No done-when command</p> : <>
             <code>{acceptance?.cmd}</code><p>{acceptance?.state === "passed" ? "✓ " : ""}{acceptance?.summary ?? ({ passed: "Tests passed", failed: "Failed", pending: "Waiting for tests", running: "Testing", none: "No done-when command" }[acceptance?.state ?? "none"])}{acceptance?.durationS !== undefined && ` · ${acceptance.durationS} s`}{acceptance?.machine && ` · run by pacer on ${acceptance.machine}`}</p>
