@@ -107,7 +107,7 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
     const tasks = running(snapshot, { repo: name === "panel this repo" ? snapshot.repos![0]!.key : null });
     for (const task of tasks.filter(task => task.state === "running" && task.progress)) {
       const phase = phaseWords(task.progress!.phase);
-      expect(text).toContain(name === "tray" ? phase.toLowerCase() : phase);
+      expect(text).toContain(phase);
     }
     expect(text).toContain("Tests passed");
     expect(text).not.toMatch(/\b(?:ON_PACE|BEHIND|AHEAD|EXHAUSTED|NEAR_LIMIT|EXPIRING_SOON|UNMETERED|needs_input|on_pace|host_down|executor_down|no_slot|working|testing|lost-contact)\b/);
@@ -163,10 +163,10 @@ test("cross-surface Needs-you short titles preserve service order", () => {
 test("tray and Overview agree on unknown and unavailable capacity from the same rows", () => {
   const unknown = snapshot.executors!.find(row => row.state === "ready" && row.usedPct === null)!;
   expect(unknown.paceReason).toBe("no limit reported");
-  const overviewRow = app.split('<a class="pc-row pc-cap').find(row => row.includes(`aria-label="${unknown.slots.used} of ${unknown.slots.max} parallel tasks"`) && row.includes("Unknown · no limit reported"));
+  const overviewRow = app.split('<a class="pc-row pc-cap').find(row => row.includes(`aria-label="${unknown.slots.used} of ${unknown.slots.max} parallel tasks"`) && strip(row).includes("Usage unknown · no limit reported"));
   expect(overviewRow).toBeDefined();
-  const trayRow = tray.split('<a class="tray-executor').find(row => row.includes(` · ${unknown.sub}`));
-  expect(trayRow).toContain("tray-dot--unknown");
+  const trayRow = tray.split('<a class="tray-executor').map(row => row.split("</a>")[0]!).find(row => row.includes(` · ${unknown.slots.used}/${unknown.slots.max} parallel tasks`) && row.includes("Usage unknown"));
+  expect(trayRow).toContain("pc-glyph pc-status--neutral");
   expect(trayRow).toContain(">?</span>");
 
   const unavailable = { ...unknown, state: "down" as const, tone: "bad" as const, reason: "no active coding-plan subscription", sub: "Unavailable" };

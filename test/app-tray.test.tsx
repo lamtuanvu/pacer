@@ -39,9 +39,9 @@ test("busy board has four linked counts, three attention rows, two running rows 
   expect(attention.match(/class="tray-attention /g)).toHaveLength(3);
   expect(attention).toContain('href="/app/#/">+2 more in the app');
   expect(attention).not.toContain("Attention 3");
-  expect(attention).toContain("pacer · Failed twice 0");
-  expect(attention).toContain('aria-hidden="true">✕');
-  expect(attention).toContain('aria-hidden="true">?');
+  expect(attention).toContain("pacer · Testing · Failed twice 0");
+  expect(attention).toContain('aria-hidden="true">▶');
+  expect(attention).toContain('aria-hidden="true">…');
   expect(attention).toContain('aria-hidden="true">◐');
   expect(attention.match(/<button/g)).toHaveLength(3);
   expect(attention).toContain('class="tray-action tray-action--primary"');
@@ -49,8 +49,8 @@ test("busy board has four linked counts, three attention rows, two running rows 
   expect(attention).toContain(">Answer</span></button>");
   expect(attention).toContain(">Review</span></button>");
   expect(active.match(/class="tray-running"/g)).toHaveLength(2);
-  expect(active).toContain("idle 15m");
-  expect(active).toContain("tray-idle");
+  expect(active).toContain("Idle 15m");
+  expect(active).toContain("pc-status--warn");
   expect(active).not.toContain("Queued");
   expect(html).toContain("14 waiting for parallel tasks on Codex · next: Review screen");
   const counts = html.split('aria-label="Task counts">')[1]!.split("</nav>")[0]!;
@@ -92,7 +92,7 @@ test("executor marks use current capacity, values and detailed tooltips after en
   const snapshot = fixture(), html = draw(snapshot);
   expect(html).toContain("41% used · pace 58%");
   expect(html).toContain("92% used");
-  expect(html).toContain("tray-dot--bad");
+  expect(html).toContain("pc-status--bad");
   expect(html).not.toContain("99% used");
   const executor = snapshot.executors![0]!;
   expect(executorValue(executor)).toBe("41%");
@@ -260,7 +260,7 @@ test("opencode executors use their account's mark and an unavailable account rea
   expect(html).toMatch(/class="tray-executor tray-executor--off"[^>]*>.*?agent-mark--byteplus/);
 });
 
-test("unknown capacity never reads free or shows a ready dot; unavailable capacity stays dimmed", () => {
+test("unknown capacity never reads free or shows a ready glyph; unavailable capacity stays dimmed", () => {
   const base = fixture().executors![0]!;
   const unknown: ExecutorRow = { ...base, id: "opencode#byteplus", agent: "opencode", account: "byteplus", state: "ready", tone: "good", sub: "Usage unknown", usedPct: null, pacePct: null, paceReason: "no limit reported", slots: { used: 0, max: 1 } };
   for (const slots of [{ used: 0, max: 1 }, { used: 1, max: 1 }]) {
@@ -268,8 +268,8 @@ test("unknown capacity never reads free or shows a ready dot; unavailable capaci
     expect(executorValue(row)).toBe("?");
     const html = draw({ ...fixture(), executors: [row] });
     expect(html).toContain(">?</span>");
-    expect(html).toContain("tray-dot--unknown");
-    expect(html).not.toContain("tray-dot--good");
+    expect(html).toContain("pc-glyph pc-status--neutral");
+    expect(html.split('aria-label="Executors">')[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
     expect(html).not.toContain(">free</span>");
   }
   for (const row of [
@@ -281,7 +281,7 @@ test("unknown capacity never reads free or shows a ready dot; unavailable capaci
     const html = draw({ ...fixture(), executors: [row] });
     expect(html).toContain('class="tray-executor tray-executor--off"');
     expect(html).toContain(">off</span>");
-    expect(html).not.toContain("tray-dot--good");
+    expect(html.split('aria-label="Executors">')[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
   }
   expect(executorValue({ ...unknown, paceReason: "unmetered" })).toBe("free");
   expect(executorValue({ ...unknown, state: "checking", paceReason: "unmetered" })).toBe("?");

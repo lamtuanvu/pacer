@@ -24,8 +24,8 @@ test("phases and modes read as words", () => {
 });
 
 test("moved task words keep their behaviour", () => {
-  expect(taskStatus({ state: "running" })).toEqual({ label: "Working", tone: "info" });
-  expect(taskStatus({ state: "done", review: { accepted: false } })).toEqual({ label: "Rejected", tone: "bad" });
+  expect(taskStatus({ state: "running" })).toEqual({ label: "Working", tone: "info", glyph: "▶" });
+  expect(taskStatus({ state: "done", review: { accepted: false } })).toEqual({ label: "Rejected", tone: "bad", glyph: "✕" });
   expect(executorLabel("codex#team@devbox", [{ name: "team" }])).toBe("Codex · team on devbox");
   expect(executorLabel(null)).toBe("Automatic");
 });
@@ -77,4 +77,30 @@ test("executor labels use proper names for known agents and accounts", () => {
   expect(executorLabel("byteplus")).toBe("BytePlus");
   expect(executorLabel("opencode#byteplus")).toBe("BytePlus");
   expect(executorLabel("gemini")).toBe("Gemini");
+});
+
+test("every task, session, executor and pace state has a complete descriptor", async () => {
+  const { sessionStatus, executorStatus, paceStatus, attentionStatus } = await import('../src/view-model/words');
+  const groups = [
+    ['needs_input', 'running', 'queued', 'done', 'partial', 'failed', 'limit', 'stopped'].map(state => taskStatus({state})),
+    ['driving', 'starting', 'working', 'testing', 'idle', 'lost-contact', 'queued'].map(sessionStatus),
+    ['ready', 'busy', 'full', 'failing', 'down', 'blocked', 'exhausted', 'disabled', 'checking'].map(executorStatus),
+    ['behind', 'on_pace', 'ahead', 'out', 'unknown', 'UNMETERED', 'EXPIRING', 'EXPIRING_SOON'].map(paceStatus),
+  ];
+  for (const descriptor of groups.flat()) {
+    expect(descriptor.label).not.toBe('Unknown');
+    expect(['good', 'warn', 'bad', 'info', 'neutral']).toContain(descriptor.tone);
+    expect(descriptor.glyph.length).toBeGreaterThan(0);
+  }
+  for (const [old, current] of [['BEHIND','behind'], ['OK','on_pace'], ['ON_PACE','on_pace'], ['AHEAD','ahead'], ['NEAR_LIMIT','ahead'], ['EXHAUSTED','out']]) {
+    expect(paceStatus(old!)).toEqual(paceStatus(current!));
+  }
+  const task = {id:'finished', state:'done', progress:{phase:'testing'}};
+  expect(attentionStatus({kind:'review',taskId:task.id}, [task])).toEqual(taskStatus(task));
+  expect(taskStatus(task)).toEqual({label:'Waiting for review',tone:'warn',glyph:'◐'});
+  expect(paceStatus('unknown').glyph).not.toBe(taskStatus(task).glyph);
+  expect(taskStatus({...task,review:{accepted:true}})).toEqual({label:'Accepted',tone:'good',glyph:'✓'});
+  expect(taskStatus({...task,dismissed:true}).label).toBe('Done');
+  expect(taskStatus({state:'running',progress:{phase:'idle'}})).toEqual(sessionStatus('idle'));
+  for (const getter of [sessionStatus, executorStatus, paceStatus]) expect(getter('future_state').tone).toBe('neutral');
 });

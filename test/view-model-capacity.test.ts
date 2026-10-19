@@ -34,3 +34,16 @@ test("queue copy uses the last scheduling check ahead of an older client snapsho
  const task={queue:{reason:'no_slot',since:1,position:1,limit:'machine',capacity:{used:3,max:3}}} as ClientTask;
  expect(queueWait(task,{...snapshot,machine:{used:0,max:2}})).toBe('Waiting: this machine is running 3 of 3');
 });
+
+test('executor usage follows the account/planner verdict independently of readiness', async () => {
+  const { executorPace } = await import('../src/view-model/capacity');
+  const { paceStatus } = await import('../src/view-model/words');
+  const fixture = (await import('./fixtures/ui/snapshot.json')).default;
+  const snapshot = structuredClone(fixture) as unknown as import('../src/view-model/snapshot').ClientSnapshot;
+  snapshot.planner = {...snapshot.planner!,usedPct:37,pacePct:20,verdict:'ahead'};
+  const executor = {...snapshot.executors![0]!,id:snapshot.planner.runner,state:'ready' as const,tone:'good' as const,usedPct:37};
+  expect(executorPace(executor,snapshot)).toEqual(paceStatus('ahead'));
+  snapshot.accounts = [{name:executor.account,agent:executor.agent,source:'default',usedPct:37,pacePct:20,window:'week',resetsAt:null,verdict:'AHEAD',signedIn:true,executors:['other']}];
+  expect(executorPace({...executor,id:'other'},snapshot)).toEqual(paceStatus('ahead'));
+  expect(executorPace({...executor,id:'unknown',account:'missing'},snapshot)).toEqual(paceStatus('unknown'));
+});

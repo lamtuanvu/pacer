@@ -6,11 +6,13 @@ import type { BrowserApi } from "../data/api";
 import type { Action } from "../../../src/attention/types";
 import { agentInfo, markAgent, runnerAgent } from "../../../src/view-model/agents";
 import { backIn, clock, elapsed, meterText } from "../../../src/view-model/format";
-import { phaseWords, toneFor, verdictWords } from "../../../src/view-model/words";
+import { attentionStatus, executorStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
 import { plannerMeter } from "../../../src/view-model/selectors";
 import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
-import { Pill } from "../ds/Pill";
+import { StatusPill } from "../ds/StatusPill";
+import { StatusGlyph } from "../ds/StatusGlyph";
+import { executorPace } from "../../../src/view-model/capacity";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
 import { actionRoute, executorValue, primaryAction, shortTitle, trayModel } from "./model";
@@ -70,7 +72,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     return () => document.removeEventListener("keydown", onKeyDown);
   });
   const planner = snapshot && plannerMeter(snapshot);
-  const tone = planner ? ({ behind: "good", on_pace: "good", ahead: "warn", out: "bad", unknown: "neutral" } as const)[planner.verdict] : "neutral";
+  const tone = paceStatus(planner?.verdict ?? "unknown").tone;
   const model = snapshot && trayModel(snapshot, activity);
   const mode = snapshot?.pause ? "Paused" : ({ normal: "Normal", relaxed: "Relaxed", strict: "Strict" } as Record<string, string>)[planner?.mode ?? snapshot?.mode?.mode ?? snapshot?.budget?.mode ?? "normal"] ?? "Normal";
   const pauseLabel = snapshot?.pause ? "Resume delegation" : "Pause delegation for 1 hour";
@@ -79,7 +81,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const timeOnly = (at: number) => new Date(at * 1000).toLocaleTimeString("en-GB", { hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
   return <main className="tray" ref={root} aria-label="pacer tray" aria-busy={busy}>
     <header className="tray-planner">
-      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label tray-grow">planner</span><Pill tone={tone}>{planner ? verdictWords(planner.verdict) : "Usage unknown"}</Pill><span className="tray-mode">{mode}</span></div>
+      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label tray-grow">planner</span><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div>
       <UsageMeter used={planner?.usedPct ?? null} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.stale} />
       <div className="tray-caption"><span>{meterText(planner?.usedPct ?? null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${clock(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}{snapshot?.pause?.until != null && ` · paused until ${timeOnly(snapshot.pause.until)}`}</span></div>
     </header>
@@ -95,10 +97,10 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         {model.attention.slice(0, 3).map(item => {
           const action = primaryAction(item.actions);
           const task = snapshot?.tasks.find(t => t.id === item.taskId);
-          const glyph = item.kind === "failed" ? "✕" : item.kind === "question" ? "?" : item.kind === "review" ? "◐" : "!";
+          const status = attentionStatus(item, snapshot.tasks);
           return <div className={`tray-attention tray-attention--${item.kind}`} key={item.id}>
-            <span className="tray-glyph" aria-hidden="true">{glyph}</span>
-            <span className="tray-grow"><strong className="tray-ellipsis">{shortTitle({ title: item.title, goal: task?.goal })}</strong><span className="tray-reason tray-ellipsis">{[item.repo?.label ?? task?.repo?.label, item.detail].filter(Boolean).join(" · ")}</span></span>
+            <span title={status.label}><StatusGlyph status={status} /></span>
+            <span className="tray-grow"><strong className="tray-ellipsis">{shortTitle({ title: item.title, goal: task?.goal })}</strong><span className="tray-reason tray-ellipsis">{[item.repo?.label ?? task?.repo?.label, status.label, item.detail].filter(Boolean).join(" · ")}</span></span>
             {action && <button className={`tray-action${action.style === "primary" ? " tray-action--primary" : ""}`} type="button" disabled={busy || sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}><span className="tray-action__label">{rowLabel(action.label)}</span></button>}
           </div>;
         })}
@@ -107,16 +109,17 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       {model.active.length > 0 && <section className="tray-section" aria-label="Running"><h2>Running</h2>
         {model.active.slice(0, 3).map(task => <a key={task.id} className="tray-running" href={appHref(`/sessions/${encodeURIComponent(task.id)}`)} onClick={navigate(`/sessions/${encodeURIComponent(task.id)}`)}>
           <AgentMark agent={runnerAgent(task.executor ?? "unknown")} size={16} labelled={false} /><span className="tray-grow tray-ellipsis">{shortTitle(task)}</span>
-          <span className="tray-repo tray-ellipsis">{task.repo?.label}</span><span className={`tray-phase ${task.progress?.phase === "idle" ? "tray-idle" : "tray-secondary"}`}>{phaseWords(task.progress?.phase ?? "starting").toLowerCase()} {elapsed(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt))}</span>
+          <span className="tray-repo tray-ellipsis">{task.repo?.label}</span><span className={`tray-phase pc-status--${taskStatus(task).tone}`}><StatusGlyph status={taskStatus(task)} />{taskStatus(task).label} {elapsed(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt))}</span>
         </a>)}
         {model.active.length > 3 && <a className="tray-more" href={appHref("/sessions")} onClick={navigate("/sessions")}>+{model.active.length - 3} more in the app</a>}
       </section>}
       {model.waiting > 0 && <a className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></a>}
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
-        const dot = value === "?" ? "unknown" : !executor.enabled || executor.state === "disabled" || (value === "off" && executor.tone === "good") ? "neutral" : toneFor(executor.tone);
-        const label = `${agentInfo(executor.agent).name}: ${executor.state} · ${executor.sub}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
-        return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><span className={`tray-dot tray-dot--${dot}`} /></span><span>{value}</span></a>;
+        const readiness = executorStatus(!executor.enabled ? "disabled" : value === "off" && executor.state === "ready" ? "blocked" : executor.state);
+        const valueStatus = value === "?" ? paceStatus("unknown") : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
+        const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
+        return <a className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><StatusGlyph status={value === "?" ? valueStatus : readiness} /></span><span className={`pc-status--${valueStatus.tone}`}>{value}</span></a>;
       })}</section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}
