@@ -100,7 +100,7 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   else if (!input.repoValidated && (!existsSync(b.repo) || !statSync(b.repo).isDirectory())) p.push(`repo does not exist: ${b.repo}`);
   if (b.base !== undefined && !validBase(b.base)) p.push("base must be a branch name or a 7–40 hex SHA");
   if (input.requestId !== undefined && (!input.requestId.length || input.requestId.length > 128)) p.push("request_id must be 1–128 characters");
-  if (input.source !== undefined && !["planner", "ui", "cli"].includes(input.source)) p.push("invalid source");
+  if (input.source !== undefined && !["planner", "ui", "cli", "onboarding"].includes(input.source)) p.push("invalid source");
   if (input.kind && !(KINDS as readonly string[]).includes(input.kind)) {
     p.push(`unknown kind "${input.kind}" (allowed: ${KINDS.join(", ")})`);
   }

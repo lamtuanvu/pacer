@@ -1580,6 +1580,21 @@ Params JSON Schema:
 }
 ```
 
+### `onboarding.try`
+
+Start a tiny docs delegation in a scratch git repository; returns task_id, executor and repo.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `plugin.install`
 
 Install the Orca plugin under PACER_HOME without editing Orca settings.

@@ -15,6 +15,10 @@ import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceBackend } from "../service";
 import { installPlugin, pluginDir, MANAGED_MARKER } from "../plugin/install";
 import { readLiveHeartbeat } from "../plugin/live";
+import { dashboardClient } from "../dashboard/client";
+import type { ApiClient } from "../api/client-types";
+import type { SetupChecklist } from "../setup/checklist";
+import type { TryResult } from "../onboarding/try";
 import { runDashboard } from "../dashboard/cli";
 import type { Ctx } from "../types";
 import type { Result } from "./types";
@@ -22,6 +26,7 @@ export const INIT_USAGE = "init [--planner <id>] [--yes] [--service] [--agents a
 export const SETUP_USAGE = INIT_USAGE.replace(/^init/, "setup");
 export interface SetupDeps {
   tty?: boolean; stdoutTTY?: boolean;
+  onboardingClient?: (ctx: Ctx) => Promise<Pick<ApiClient, "call" | "close">>;
   confirm?: (plan: string) => Promise<boolean>; question?: (question: string) => Promise<string>;
   print?: (line: string) => void; service?: (ctx: Ctx) => Pick<ServiceBackend, "status" | "install">;
   orcaInstalled?: boolean; plugin?: typeof installPlugin; dashboard?: typeof runDashboard;
@@ -169,6 +174,21 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     migration.forEach(print);
     print(`Setup: planner ${planner}; strategy ready; login service ${serviceInstalled ? "installed" : "skipped"}; ${results.filter(a => a.installed).length} agents connected; live panel ${live ? "connected" : "pending"}.`);
     print("Next:\n  Ask your planner for some work and it will delegate.\n  pacer open — watch work and budgets\n  pacer doctor — check your setup");
+    if (tty) {
+      // Best effort: the offer needs the service, which the user may have just declined.
+      let client: Pick<ApiClient, "call" | "close"> | undefined;
+      try { client = await (deps.onboardingClient ?? dashboardClient)(ctx); } catch { print("Try a first delegation later: pacer open, or press t in pacer dashboard."); }
+      if (client) try {
+        const checklist = await client.call<SetupChecklist>("setup.check", {});
+        if (checklist.items.some(i => i.id === "executor" && i.status === "done") && checklist.items.some(i => i.id === "first" && i.status !== "done")) {
+          const answer = (await question("Try a first delegation now? It runs a tiny docs task in a scratch repo. [Y/n] ")).trim();
+          if (/^(?:y(?:es)?)?$/i.test(answer)) {
+            const task = await client.call<TryResult>("onboarding.try", {});
+            print(`Started ${task.task_id} on ${task.executor}. Review it with: pacer review ${task.task_id} (or in pacer open)`);
+          } else await client.call("onboarding.skip", {});
+        }
+      } catch (e) { print(`First delegation not started: ${(e as Error).message}`); } finally { client.close(); }
+    }
     if (tty && (deps.stdoutTTY ?? !!process.stdout.isTTY) && !noDashboard) {
       // Flush the setup summary before dashboard owns stdout.
       if (!tty) (deps.print ?? console.log)(lines.join("\n"));
