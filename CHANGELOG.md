@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Completed tasks retain their review diff and file statistics after their worktree is cleaned up (#121).
+
 - Snapshots report `service.waiting { kind, path, since }` while a repository file-system call is stuck, e.g. behind the macOS removable-volume permission prompt; identical stuck calls are shared instead of piling up.
 - Serve avoids synchronous repository I/O and reports stalled repository folders as unreachable while retaining cached task identities.
 - Service snapshots, event replay and task resolution stay responsive when repository volumes stall; repo existence and canonical paths refresh asynchronously.
