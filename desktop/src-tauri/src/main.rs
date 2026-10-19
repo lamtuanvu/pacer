@@ -5,6 +5,9 @@ macro_rules! desktop_log {
 mod actions;
 mod approvals;
 mod client;
+// Task 8 wires the terminal link and remembered choice into onboarding.
+#[allow(dead_code)]
+mod link;
 mod logging;
 mod logic;
 mod notifications;
