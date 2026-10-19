@@ -72,7 +72,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         ...(broken[p.id] ? {brokenReason: broken[p.id].reason} : {}),
       }]));
       const kind = await Promise.resolve().then(() => hooks.taskKind(ctx, task)).catch(() => task.kind);
-      let candidates = rankExecutors(kind, s, statuses, selection && { executors: selection.executors, order: "configured" }).ranked.map(e => e.id);
+      const ranking = rankExecutors(kind, s, statuses, selection && { executors: selection.executors, order: "configured" });
+      let candidates = ranking.ranked.map(e => e.id);
       if (req) candidates = candidates.filter(id => id === req);
       else {
         const filtered = await Promise.resolve().then(() => hooks.filterExecutors(ctx, task, candidates, s)).catch(() => candidates);
@@ -83,7 +84,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         if (resolveRunner(s, id)?.host) {
           const git = await gitInfo(ctx.run, task.brief.repo).catch(() => null);
           const placement = task.placement?.mode ?? resolvePlacement(task, validateExecution(s.execution).worktree, false, !!git && !("error" in git) && git.dirty).mode;
-          if (await remoteExclusion(ctx, s, id, {repo: task.brief.repo, placement}, {skipSlots: true})) continue;
+          const reason = await remoteExclusion(ctx, s, id, {repo: task.brief.repo, placement}, {skipSlots: true});
+          if (reason) { ranking.excluded.push({id, reason}); continue; }
         }
         eligible.push(id);
       }
@@ -93,6 +95,14 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         if (projectRevision(readProjectStrategies(ctx), snapshot.repoKey) !== snapshot.rev) { policyChanged = true; return; }
         const current = readTask(ctx, task.id);
         if (current?.state !== "queued" || !current.queue || readPause(ctx)) return;
+        if (selection && !eligible.length) {
+          updateTask(ctx, task.id, t => {
+            t.state = "limit"; delete t.queue;
+            const reasons = ranking.excluded.map(e => `${e.id}: ${e.reason}`).join(", ") || "no choices passed the routing filter";
+            t.result = {status:"limit",executor:null,model:null,files:"",report:`no project executor available (${reasons})`,backend:"direct"};
+          });
+          return;
+        }
         const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
         const executor = eligible.find(id => !slotBlock(s, id, use));
         if (!executor) return;

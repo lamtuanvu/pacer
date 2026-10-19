@@ -206,7 +206,10 @@ async function route(args: string[], ctx: Ctx): Promise<Result> {
     if (opts.repo === true) throw new Error("--repo requires a path or repository key");
     const client = await connectTaskClient(ctx);
     let r: Awaited<ReturnType<typeof core.routing.route>>;
-    try { r = await client.call("routing.route", { kind: pos[0], repo: str(opts.repo) }); }
+    try {
+      const params = { kind: pos[0], repo: str(opts.repo) };
+      r = client.kind === "inprocess" ? await callOp(ctx, "routing.route", params) as typeof r : await client.call("routing.route", params);
+    }
     finally { client.close(); }
     if (opts.json) return { code: 0, out: JSON.stringify(r, null, 1), err: "" };
     const rows = r.ranked.map((e, i) => ({ ...e, index: i }));

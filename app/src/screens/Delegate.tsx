@@ -1,3 +1,4 @@
+import { reconcileExecutor } from "../model/project-strategies";
 import { Field, TextInput, TextArea, Select } from "../ds/Controls";
 
 import { useEffect, useMemo, useState } from "preact/hooks";
@@ -25,7 +26,7 @@ export function DelegateRoutingPreview({ routing, executor, accounts = [], loadi
     ? `Goes to ${executorLabel(executor, accounts)} · selected executor`
     : loading ? "Checking routing…"
     : next ? `Goes to ${executorLabel(next.id, accounts)} now · next in line`
-    : "No executor available now."}</p>;
+    : "No executor available now."}{routing?.policy && <> · Project order for {routing.policy.repoKey}</>}</p>;
 }
 const lastRepoStorage = () => draftStorage("pacer.delegate.last-repo", { repo: "" }, {
   getItem: key => localStorage.getItem(key),
@@ -46,9 +47,15 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
   const repos = useQuery<RepoChoice[]>(current ? "repo.list" : "version.get", {});
   const choices: RepoChoice[] = current && Array.isArray(repos.data) ? repos.data : [];
   const routing = useQuery<Routing>("routing.route", delegateRoutingParams(draft, current, goal));
+  useEffect(() => {
+    if (!routing.loading && routing.data) setDraft(previous => {
+      const executor = reconcileExecutor(previous.executor, routing.data);
+      return executor === previous.executor ? previous : { ...previous, executor };
+    });
+  }, [routing.data, routing.loading]);
   const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
   const action = useAction();
-  const field = (key: keyof typeof draft, value: string) => setDraft(previous => ({ ...previous, [key]: value }));
+  const field = (key: keyof typeof draft, value: string) => setDraft(previous => ({ ...previous, [key]: value, ...(key === "repo" ? {executor:""} : {}) }));
   const next = routing.data?.ranked[0];
   const branches = choices.find(r => r.key === draft.repo)?.branches ?? [];
   return <Dialog title="Delegate a task" close={close}><form className="pc-form" onKeyDown={event => handleDelegateKey(event, () => event.currentTarget.requestSubmit(), action.busy)} onSubmit={event => {
@@ -76,6 +83,6 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
     <DelegateRoutingPreview routing={routing.data} executor={draft.executor} accounts={accounts.data} loading={routing.loading} />
     <div aria-live="polite"><ErrorMessage error={validation ?? action.error ?? routing.error} /></div>
     <p className="muted">⌘Enter / Ctrl+Enter to delegate</p>
-    <div className="row"><Button type="submit" variant="primary" disabled={action.busy} aria-keyshortcuts="Meta+Enter Control+Enter">{action.busy ? "Delegating…" : "Delegate"}</Button><Button onClick={close}>Cancel</Button></div>
+    <div className="row"><Button type="submit" variant="primary" disabled={action.busy || (ops.has("project.strategy.get") && (routing.loading || !!routing.error))} aria-keyshortcuts="Meta+Enter Control+Enter">{action.busy ? "Delegating…" : "Delegate"}</Button><Button onClick={close}>Cancel</Button></div>
   </form></Dialog>;
 }

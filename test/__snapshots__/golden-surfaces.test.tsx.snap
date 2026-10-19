@@ -621,3 +621,8 @@ exports[`golden --line --json fields use the fixture through the local link 1`] 
   "verdict": "behind",
 }
 `;
+"running": 2,
+  "usedPct": 63,
+  "verdict": "behind",
+}
+`;

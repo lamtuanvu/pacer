@@ -93,3 +93,14 @@ test("four allowed runners still respect the three-attempt limit", async () => {
   expect(result.attempts.map(a => a.executor)).toEqual(["codex", "cursor", "agy"]);
   expect(result.result?.report).toContain("attempt limit reached (3)");
 });
+
+test("queued project work explains when all configured choices disappear", async () => {
+  const {ctx,s,deps}=await setup(),task=queueTask(ctx);
+  updateTask(ctx,task.id,t=>{t.queue={reason:"no_slot",since:ctx.now,position:1};});
+  delete s.runners.cursor; delete s.providers.cursor;
+  let spawned=0; await drainQueue(ctx,()=>{spawned++;return 1;},deps);
+  const result=listTasksWhere(ctx,{})[0];
+  expect(spawned).toBe(0); expect(result.state).toBe("limit");
+  expect(result.result?.report).toContain("no project executor available");
+  expect(result.result?.report).toContain("not configured");
+});

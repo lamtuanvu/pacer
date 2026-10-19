@@ -1,3 +1,4 @@
+import { executorLabel } from "../view-model/words";
 import { isAbsolute } from "node:path";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { projectRevision, readProjectStrategies, writeProjectStrategy, type ProjectStrategyEntry } from "../config/project-strategies";
@@ -16,7 +17,7 @@ function view(strategy: Strategy, repo: ProjectStrategyView["repo"], entry?: Pro
   return { repo, rev: entry?.rev ?? 0, executors: entry?.executors ?? null,
     available: Object.values(strategy.runners)
       .filter(r => r.agent !== strategy.planner.agent || r.account !== strategy.planner.account)
-      .map(r => ({ id: r.id, reference: runnerReference(r), label: `${r.agent} · ${r.account} · ${r.host ?? "local"}` })) };
+      .map(r => ({ id: r.id, reference: runnerReference(r), label: `${executorLabel(r.agent)} · ${r.account} · ${r.host ?? "This machine"}` })) };
 }
 async function resolve(ctx: Ctx, value: string): Promise<ProjectStrategyView["repo"]> {
   const policies = readProjectStrategies(ctx);
