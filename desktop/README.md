@@ -294,3 +294,21 @@ removes the incomplete app's signature envelope. It does not sign, notarize,
 install, or publish the output. The manual macOS workflow archives this complete
 unsigned copy. A distributable OTA artifact requires the separate signed release
 pipeline and both architecture validations.
+
+## Production OTA packaging
+
+The pinned desktop CLI is Tauri 2.12.3. Production signing and publication live in
+`release.yml`, separately from the unsigned manual desktop workflow. See
+[the signed desktop release contract](../docs/distribution.md#signed-macos-desktop-updates)
+for required credentials, native architecture jobs, immutable assets and atomic
+feed promotion. Publishing stays disabled until explicitly configured after the
+signed native validation matrix is accepted.
+
+A production bundle compiles fixed trust with `ota-production`; its shell and
+helper must report `fixture:false`. The bundled CLI compiles the same Apple Team
+ID through the desktop-only build option. Complete staging precedes all signing;
+Apple notarization and stapling precede the final updater archive/signature.
+Unsigned development builds and explicit `ota-fixture` builds cannot qualify for
+the production feed. The release-only fixture driver exercises real Tauri artifact
+signatures and local Git promotion using data-only packages; it does not exercise
+native installation or notarization.

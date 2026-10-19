@@ -8,9 +8,9 @@ import {
 import { signLocal } from "../../src/update/signing";
 import { compareVersions, isVersion } from "../../src/update/version";
 
-export const BUILD_USAGE = "usage: bun run release [--host | --targets <os-arch,...>] [--write-only] [--out <dir>] [--version <x.y.z>]";
+export const BUILD_USAGE = "usage: bun run release [--host | --targets <os-arch,...>] [--write-only] [--desktop-production] [--out <dir>] [--version <x.y.z>]";
 
-export interface BuildArgs { host: boolean; out?: string; version?: string; targets?: Target[]; writeOnly?: boolean }
+export interface BuildArgs { host: boolean; out?: string; version?: string; targets?: Target[]; writeOnly?: boolean; desktopProduction?: boolean }
 
 export interface BuildOptions {
   root: string;
@@ -18,6 +18,7 @@ export interface BuildOptions {
   version?: string;
   targets?: Target[];
   bunExe?: string;
+  desktopTrust?: { appleTeamId: string };
   log?: (line: string) => void;
 }
 
@@ -27,6 +28,8 @@ export function parseBuildArgs(argv: string[]): BuildArgs | string {
     const x = argv[i];
     if (x === "--host") {
       a.host = true;
+    } else if (x === "--desktop-production") {
+      a.desktopProduction = true;
     } else if (x === "--write-only") {
       a.writeOnly = true;
     } else if (x === "--out" || x === "--version" || x === "--targets") {
@@ -50,24 +53,36 @@ export function parseBuildArgs(argv: string[]): BuildArgs | string {
 }
 
 /** One `bun build --compile` for one target. The host target reuses the running bun, so it needs no download. */
-export async function compileTarget(o: { root: string; target: Target; version: string; outfile: string; bunExe?: string }): Promise<void> {
+type CompileOptions = { root: string; target: Target; version: string; outfile: string; bunExe?: string; desktopTrust?: { appleTeamId: string } };
+function validateDesktopTrust(trust?: { appleTeamId: string }): void {
+  if (trust && !/^[A-Z0-9]{10}$/.test(trust.appleTeamId)) throw Error("Invalid desktop Apple Team ID");
+}
+export function compileCommand(o: CompileOptions): string[] {
+  validateDesktopTrust(o.desktopTrust);
+  if (o.desktopTrust && o.target.os !== "darwin") throw Error("Desktop trust requires a macOS target");
   const bun = o.bunExe ?? process.execPath;
   const host = hostPlatform();
   const isHost = host !== null && host.os === o.target.os && host.arch === o.target.arch;
-  const argv = [
+  return [
     bun, "build", "--compile",
     `--target=${o.target.bunTarget}`,
     "--define", `PACER_BUILD_VERSION=${JSON.stringify(o.version)}`,
+    ...(o.desktopTrust ? ["--define", `PACER_BUILD_APPLE_TEAM_ID=${JSON.stringify(o.desktopTrust.appleTeamId)}`] : []),
     "--no-compile-autoload-dotenv",
     "--no-compile-autoload-bunfig",
     ...(isHost ? [`--compile-executable-path=${bun}`] : []),
     join(o.root, "src", "cli.ts"),
     "--outfile", o.outfile,
   ];
+}
+export async function compileTarget(o: CompileOptions): Promise<void> {
+  const argv = compileCommand(o);
+  const host = hostPlatform();
+  const isHost = host !== null && host.os === o.target.os && host.arch === o.target.arch;
   const p = Bun.spawn(argv, { cwd: o.root, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   if (code !== 0) throw new Error(`bun build failed for ${o.target.bunTarget} (exit ${code}):\n${(err || out).trim()}`);
-  if (o.target.os === "darwin") await signLocal(o.outfile, { smoke: isHost });
+  if (o.target.os === "darwin" && !o.desktopTrust) await signLocal(o.outfile, { smoke: isHost });
 }
 
 function readLatestVersion(path: string): string | null {
@@ -101,6 +116,8 @@ function readPackageVersion(root: string): string {
 }
 
 export async function buildRelease(o: BuildOptions): Promise<{ dir: string; manifest: Manifest }> {
+  validateDesktopTrust(o.desktopTrust);
+  if (o.desktopTrust && (o.targets ?? TARGETS).some(t => t.os !== "darwin")) throw Error("Desktop trust requires macOS targets");
   const version = o.version ?? readPackageVersion(o.root);
   if (!isVersion(version)) throw new Error(`invalid version "${version}" (expected MAJOR.MINOR.PATCH[-PRERELEASE])`);
   const assets = join(o.root, "src", "plugin", "assets.generated.ts");
@@ -119,7 +136,7 @@ export async function buildRelease(o: BuildOptions): Promise<{ dir: string; mani
   mkdirSync(dir, { recursive: true });
   for (const t of targets) {
     log(`building ${assetFile(t)} (${t.bunTarget})`);
-    await compileTarget({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)), bunExe: o.bunExe });
+    await compileTarget({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)), bunExe: o.bunExe, desktopTrust: o.desktopTrust });
   }
   return { dir, manifest: writeRelease(outRoot, version, targets) };
 }
@@ -143,7 +160,7 @@ if (import.meta.main) {
     const targets = a.targets ?? (a.host && host ? [host] : TARGETS);
     const { dir, manifest } = a.writeOnly
       ? { dir: join(outRoot, version), manifest: writeRelease(outRoot, version, targets) }
-      : await buildRelease({ root, outRoot, version: a.version, targets, log: line => console.log(line) });
+      : await buildRelease({ root, outRoot, version: a.version, targets, desktopTrust: a.desktopProduction ? { appleTeamId: process.env.PACER_APPLE_TEAM_ID ?? "" } : undefined, log: line => console.log(line) });
     console.log(`release ${manifest.version}: ${dir}`);
     for (const x of manifest.assets) console.log(`  ${x.file}  ${x.size} bytes  sha256 ${x.sha256}`);
   } catch (e) {
