@@ -1,3 +1,4 @@
+import { SectionHeading } from "../ds/SectionHeading";
 import { Fragment } from "preact";
 import { Kbd } from "../ds/Kbd";
 import type { KeyRegistry } from "../keys/registry";
@@ -10,7 +11,7 @@ export function CommandHelp({ registry, close }: { registry: KeyRegistry; close:
   const seen = new Set<string>();
   for (const s of registry.list()) { if (seen.has(`${s.keys}|${s.label}`)) continue; seen.add(`${s.keys}|${s.label}`); groups.set(s.scope, [...(groups.get(s.scope) ?? []), s]); }
   return <Dialog title="Keyboard shortcuts" close={close}>
-    {[...groups].map(([scope, items]) => <section key={scope} className="pc-keys"><h2>{SCOPES[scope] ?? scope}</h2>
+    {[...groups].map(([scope, items]) => <section key={scope} className="pc-keys"><SectionHeading>{SCOPES[scope] ?? scope}</SectionHeading>
       <dl>{items.map(s => <Fragment key={`${s.keys}|${s.label}`}><dt><Kbd>{s.keys}</Kbd></dt><dd>{s.label}</dd></Fragment>)}</dl></section>)}
   </Dialog>;
 }

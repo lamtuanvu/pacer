@@ -1,7 +1,4 @@
 .u3-settings{font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);color:var(--ink);font-variant-numeric:tabular-nums;padding:var(--space-5) var(--space-8);min-width:0}
-.u3-settings h1{font-size:var(--type-display-size);line-height:var(--type-display-line);margin:0 0 var(--space-2)}
-.u3-settings h2{font-size:var(--type-headline-size);line-height:var(--type-headline-line);margin:0}
-.u3-settings h3{font-size:var(--type-body-size);margin:0}
 .u3-settings p{margin:var(--space-1) 0 var(--space-3)}
 .u3-settings code,.u3-settings pre{font-family:var(--font-mono);font-size:var(--type-code-size);overflow-wrap:anywhere;white-space:pre-wrap}
 .u3-muted,.u3-heading p,.u3-field small{color:var(--ink-secondary);font-size:var(--type-caption-size)}
@@ -35,14 +32,12 @@
 /* General keeps the board's dense label/control columns inside the shell. */
 .u3-general-sections .u3-section{margin-top:var(--space-4);padding-top:var(--space-3)}
 .u3-general-sections .u3-setting{grid-template-columns:200px minmax(0,1fr);gap:var(--space-4);align-items:center;padding:var(--space-2) var(--space-3)}
-.u3-general-sections .u3-section h2{font-size:var(--type-label-size);letter-spacing:var(--type-label-tracking);text-transform:uppercase}
 .u3-general-sections .u3-setting{border:1px solid var(--line);border-bottom:0}
 .u3-general-sections .u3-setting:last-of-type{border-bottom:1px solid var(--line)}
 @media(max-width:700px){.u3-general-sections .u3-setting{grid-template-columns:minmax(0,1fr)}}
-.u3-nav-badge{margin-left:6px;font-size:11px;color:var(--ink-muted)}.u3-steps li>div{font-weight:400;margin-top:4px}.u3-settings input[type=range]{padding:0;accent-color:var(--ink)}
+.u3-nav-badge{margin-left:6px;font-size:var(--type-label-size);color:var(--ink-muted)}.u3-steps li>div{font-weight:400;margin-top:4px}.u3-settings input[type=range]{padding:0;accent-color:var(--ink)}
 @media(max-width:700px){.u3-table-wrap{overflow:visible}.u3-table-wrap table{min-width:0;table-layout:fixed}.u3-table-wrap thead{display:none}.u3-table-wrap tbody,.u3-table-wrap tr{display:block}.u3-table-wrap tr{padding:8px;border-bottom:1px solid var(--line)}.u3-table-wrap td{display:block;border:0;overflow-wrap:anywhere}.u3-table-wrap td:first-child{font-weight:600}.u3-agent{flex-wrap:wrap}.u3-choice{min-width:0;overflow-wrap:anywhere}.u3-choices{grid-template-columns:minmax(0,1fr)}.u3-settings .u3-card{padding:12px}}
-.u3-reserve,.u3-fill{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.u3-reserve input{flex:1;min-width:80px}.u3-reserve output{font-weight:600}.u3-fill{font-size:12px}.u3-fill input{width:64px}
-@media(max-width:700px){.u3-table-wrap td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:11px;font-weight:400;margin-bottom:4px}.u3-table-wrap td[data-label=Actions]::before{display:none}}
-
+.u3-reserve,.u3-fill{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.u3-reserve input{flex:1;min-width:80px}.u3-reserve output{font-weight:600}.u3-fill{font-size:var(--type-caption-size)}.u3-fill input{width:64px}
+@media(max-width:700px){.u3-table-wrap td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);font-weight:400;margin-bottom:4px}.u3-table-wrap td[data-label=Actions]::before{display:none}}
 .u3-nav-badge--bad{color:var(--bad-fg)}.u3-nav-badge--warn{color:var(--warn-fg)}
 .u3-accounts-mode{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.u3-fill:has(input:disabled){color:var(--ink-muted)}

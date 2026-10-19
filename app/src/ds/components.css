@@ -1,17 +1,17 @@
 /* pacer components: every value comes from tokens.css */
-.pc-btn{font:inherit;font-family:var(--font-sans);font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:var(--radius-md);border:1px solid var(--line);background:var(--surface-page);color:var(--ink);cursor:pointer;white-space:nowrap}
+.pc-btn{font:inherit;font-family:var(--font-sans);font-size:var(--type-body-size);line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:var(--radius-md);border:1px solid var(--line);background:var(--surface-page);color:var(--ink);cursor:pointer;white-space:nowrap}
 a.pc-btn{text-decoration:none}
 .pc-btn:hover{background:var(--surface-lane)}
 .pc-btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .pc-btn:disabled{opacity:.5;cursor:not-allowed}
 .pc-btn--md{min-height:44px;padding:0 var(--space-4);border-radius:var(--radius-lg)}
-.pc-btn--sm{min-height:32px;padding:0 var(--space-3);font-size:12px}
+.pc-btn--sm{min-height:32px;padding:0 var(--space-3);font-size:var(--type-caption-size)}
 .pc-btn--primary{background:var(--ink);border-color:var(--ink);color:var(--ink-on-ink);font-weight:600}
 .pc-btn--primary:hover{background:var(--ink);opacity:.88}
 .pc-btn--ghost{border-color:transparent;background:transparent}
 .pc-btn--ghost:hover{background:var(--surface-lane)}
 
-.pc-pill{display:inline-flex;align-self:flex-start;width:fit-content;max-width:100%;align-items:center;gap:4px;font-family:var(--font-sans);font-size:11px;line-height:14px;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);white-space:nowrap}
+.pc-pill{display:inline-flex;align-self:flex-start;width:fit-content;max-width:100%;align-items:center;gap:4px;font-family:var(--font-sans);font-size:var(--type-pill-size);line-height:var(--type-pill-line);font-weight:600;padding:2px 8px;border-radius:var(--radius-full);white-space:nowrap}
 .pc-pill--neutral{background:var(--surface-lane);color:var(--ink-secondary)}
 .pc-pill--good{background:var(--good-bg);color:var(--good-fg)}
 .pc-pill--warn{background:var(--warn-bg);color:var(--warn-fg)}
@@ -43,7 +43,7 @@ a.pc-btn{text-decoration:none}
 .pc-tooltip__bubble{position:absolute;left:calc(100% + var(--space-2));top:50%;transform:translateY(-50%);z-index:20;white-space:nowrap;padding:var(--space-1) var(--space-2);border-radius:var(--radius-sm);background:var(--ink);color:var(--ink-on-ink);font-size:var(--type-caption-size);pointer-events:none}
 .pc-tooltip__bubble[hidden]{display:none}
 
-.pc-card{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4);border-radius:var(--radius-lg);border:1px solid var(--line);background:var(--surface-page);color:var(--ink);font-family:var(--font-sans);font-size:13px;line-height:1.45}
+.pc-card{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4);border-radius:var(--radius-lg);border:1px solid var(--line);background:var(--surface-page);color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:1.45}
 .pc-card--sunken{background:var(--surface-card)}
 .pc-card--bad{border-color:var(--bad-line);background:var(--bad-tint);padding:var(--space-3)}
 .pc-card--warn{border-color:var(--warn-line);background:var(--warn-tint);padding:var(--space-3)}
@@ -245,4 +245,29 @@ a.pc-btn{text-decoration:none}
   .pc-select {
     background-image: none;
   }
+}
+
+/* Shared by section headings and section labels on every app screen. */
+.pc-section-heading {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* Links within a sentence stay visibly distinguishable without hover. */
+.pc-inline-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: .18em;
+}
+.pc-inline-link:hover { color: var(--ink-secondary); }
+.pc-inline-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }

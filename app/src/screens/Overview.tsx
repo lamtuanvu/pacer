@@ -1,4 +1,5 @@
 import { queueWait } from "../../../src/view-model/capacity";
+import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { ActivityEntry, AttentionItem } from "../../../src/api/read-model/types";
@@ -38,7 +39,7 @@ function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: C
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);
   const otherRepos = others > 0 ? <a className="pc-text-action" href={withQuery("#/", { ...query, repo: "" })}>+{others} in other repos</a> : null;
   const reviewQueue = <a className="pc-text-action" href={withQuery("#/review", { ...query, repo: scope.repo ?? query.repo })}>Open review queue</a>;
-  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><h2 id="needs-you">Needs you</h2>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{narrow && otherRepos ? otherRepos : reviewQueue}</div>
+  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><SectionHeading id="needs-you">Needs you</SectionHeading>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{narrow && otherRepos ? otherRepos : reviewQueue}</div>
     <BulkReview key={scope.repo ?? "all"} snapshot={snapshot} repo={scope.repo} runner={runner}>
     {items.map(item => <div key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${BAD_KINDS.has(item.kind) ? " pc-attn--bad" : ""}`}>
       <ReviewCheckbox item={item} />
@@ -66,7 +67,7 @@ function runningCount(snapshot: ClientSnapshot, scope: Scope, rows: ClientTask[]
 }
 function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner; query: RouteQuery }) {
   const rows = running(snapshot, scope);
-  return <section className="pc-card-section" aria-labelledby="running"><div className="pc-card-section__head"><h2 id="running">Running</h2><span className="muted">{runningCount(snapshot, scope, rows)}</span></div>
+  return <section className="pc-card-section" aria-labelledby="running"><div className="pc-card-section__head"><SectionHeading id="running">Running</SectionHeading><span className="muted">{runningCount(snapshot, scope, rows)}</span></div>
     {rows.map(t => <div key={t.id} className="pc-row">
       {t.executor ? <AgentMark agent={markAgent(t.executor)} size={20} labelled={false} /> : <span className="pc-row__gap" />}
       <div className="grow pc-row__goal">{t.goal}</div>
@@ -85,7 +86,7 @@ function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnap
 function Capacity({ snapshot, narrow, query }: { snapshot: ClientSnapshot; narrow: boolean; query: RouteQuery }) {
   const rows = capacity(snapshot), c = counts(snapshot);
   const next = rows.find(e => e.next), down = rows.filter(e => e.state === "down" || e.state === "failing").length;
-  return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><h2 id="capacity">Capacity</h2>{!narrow && c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" />{narrow && next ? <span className="muted">next: <b>{executorLabel(next.id)}</b></span> : <a className="pc-text-action" href={withQuery("#/settings/executors", query)}>Details</a>}</div>
+  return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><SectionHeading id="capacity">Capacity</SectionHeading>{!narrow && c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" />{narrow && next ? <span className="muted">next: <b>{executorLabel(next.id)}</b></span> : <a className="pc-text-action" href={withQuery("#/settings/executors", query)}>Details</a>}</div>
     <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{rows.map(e => <a key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${e.state}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
       <AgentMark agent={markAgent(e.id, e.account)} size={20} labelled={false} />
       {narrow && <span className={`pc-cap__dot pc-cap__dot--${e.state === "down" ? "bad" : e.state === "busy" ? "info" : toneFor(e.tone)}`} />}
@@ -102,7 +103,7 @@ function DoneToday({ snapshot, scope, now, query }: { snapshot: ClientSnapshot; 
   const rows = doneToday(snapshot, scope), today = snapshot.today;
   const done = scope.repo === null ? today?.done : today?.byRepo[scope.repo] ?? rows.length;
   const accepted = scope.repo === null ? today?.accepted : rows.filter(t => t.review?.accepted).length;
-  return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><h2 id="done-today">Done today</h2>{today && <span className="muted">{done} · {accepted} accepted</span>}<span className="grow" /><a className="pc-text-action" href={withQuery("#/sessions", query)}>All tasks</a></div>
+  return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><SectionHeading id="done-today">Done today</SectionHeading>{today && <span className="muted">{done} · {accepted} accepted</span>}<span className="grow" /><a className="pc-text-action" href={withQuery("#/sessions", query)}>All tasks</a></div>
     {rows.map(t => { const status = taskStatus(t); return <div key={t.id} className="pc-row">
       <span className="muted pc-num">{clock(t.updatedAt, now)}</span><div className="grow pc-row__goal">{t.goal}</div>
       <span className="muted">{t.repo?.label}</span><span className="muted">{executorLabel(t.executor)}</span><Pill tone={status.tone}>{status.label}</Pill>
@@ -112,7 +113,7 @@ function DoneToday({ snapshot, scope, now, query }: { snapshot: ClientSnapshot; 
 }
 
 function Activity({ entries, now }: { entries: ActivityEntry[]; now: number }) {
-  return <section className="pc-card-section" aria-labelledby="activity"><div className="pc-card-section__head"><h2 id="activity">Activity</h2></div>
+  return <section className="pc-card-section" aria-labelledby="activity"><div className="pc-card-section__head"><SectionHeading id="activity">Activity</SectionHeading></div>
     {entries.slice(0, 20).map(e => <div key={e.id} className="pc-row pc-activity"><span className="muted pc-num">{clock(e.at, now)}</span><span className={`pc-dot pc-dot--${e.level}`} aria-label={e.level} /><span className="grow">{e.text}</span></div>)}
     {!entries.length && <p className="muted">No activity yet.</p>}
   </section>;
@@ -127,7 +128,7 @@ function PlannerStrip({ snapshot, now }: { snapshot: ClientSnapshot; now: number
   return <section className="pc-planner-strip" aria-label="Planner">
     <AgentMark agent={p.agent} size={28} labelled={false} />
     <div className="pc-planner-strip__body">
-      <div className="row"><span className="pc-label">Planner · {name}</span><span className="pc-planner-strip__advice">{p.advice}</span></div>
+      <div className="row"><SectionHeading as="span">Planner · {name}</SectionHeading><span className="pc-planner-strip__advice">{p.advice}</span></div>
       {p.usedPct !== null && <div className="row"><div className="grow"><UsageMeter used={p.usedPct} pace={p.pacePct} tone={toneFor(p.verdict)} verdict={p.verdict} size="bar" text="none" label={`${name} planner usage`} stale={p.stale} staleAt={snapshot.at} now={now} /></div><span className="muted">{meterText(p.usedPct, p.pacePct, "full")}{extra ? ` · ${extra}` : ""}</span></div>}
     </div>
     <div className="pc-stats">{stat(c?.attention, "need you", true)}{stat(c?.running, "running")}{stat(snapshot.today?.done, "done today")}{stat(`${c?.ready ?? 0}/${c?.executors ?? 0}`, "executors ready")}</div>
@@ -153,7 +154,7 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
         <DoneToday snapshot={snapshot} scope={scope} now={now} query={query} />
       </div>
       <div className="pc-overview__side" hidden={narrow}>
-        {!narrow && <section className="pc-card-section" aria-labelledby="quick-delegate"><div className="pc-card-section__head"><h2 id="quick-delegate">Quick delegate</h2></div><div className="pc-card-section__body">{quickDelegate}</div></section>}
+        {!narrow && <section className="pc-card-section" aria-labelledby="quick-delegate"><div className="pc-card-section__head"><SectionHeading id="quick-delegate">Quick delegate</SectionHeading></div><div className="pc-card-section__body">{quickDelegate}</div></section>}
         {!narrow && <Activity entries={activity} now={now} />}
       </div>
     </div>

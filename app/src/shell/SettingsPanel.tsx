@@ -12,7 +12,6 @@ export function SettingsPanel({ route, counts, snapshot, badges = {} }: { route:
   const item = (href: string, label: string, on: boolean, badge: string | number = "", tone = "neutral") =>
     <a className={`pc-panel__item${on ? " on" : ""}`} href={withQuery(href, route.query)} aria-current={on ? "page" : undefined}>{label}{badge !== "" && <span className={`pc-rail__badge pc-rail__badge--${tone}`} aria-label={String(badge)}>{badge}</span>}</a>;
   return <aside className="pc-panel" aria-label="Settings">
-    <h2>Settings</h2>
     {item("#/settings", "General", route.name === "settings" && !route.section)}
     {([['planner','Planner & pacing'],['accounts','Accounts'],['executors','Executors'],['hosts','Remote hosts'],['routing','Routing'],['strategies','Strategies'],['updates','Updates & plugin'],['notifications','Notifications'],['appearance','Appearance']] as const).map(([section,label])=>item(`#/settings/${section}`,label,section==='hosts'?route.name==='hosts':route.name==='settings'&&route.section===section,section==='hosts'?(hosts ? `${hosts} needs setup` : ''):badges[section] ?? '',section==='hosts'?'warn':section==='executors'?'bad':'neutral'))}
     {item("#/settings/add-executor", "Add executor", route.name === "add-executor")}

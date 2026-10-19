@@ -38,3 +38,15 @@ test('new control styles only reference generated design tokens', () => {
   const tokens = readFileSync('app/src/ds/tokens.css', 'utf8');
   for (const [, token] of css.matchAll(/var\((--[^)]+)\)/g)) expect(tokens).toContain(`${token}:`);
 });
+
+test('section typography is shared and component sizes come from tokens', async () => {
+  const { SectionHeading } = await import('../app/src/ds/SectionHeading');
+  expect(renderToString(<SectionHeading id="running">Running</SectionHeading>)).toBe('<h2 id="running" class="pc-section-heading">Running</h2>');
+  expect(renderToString(<SectionHeading as="label" htmlFor="retry">Or retry on</SectionHeading>)).toBe('<label for="retry" class="pc-section-heading">Or retry on</label>');
+  for (const path of ['app/src/styles.css', 'app/src/ds/components.css', 'app/src/screens/settings/settings.css', 'app/src/screens/session/session.css']) {
+    expect(readFileSync(path, 'utf8')).not.toMatch(/font-size:\s*[\d.]+px/);
+  }
+  const css = readFileSync('app/src/ds/components.css', 'utf8');
+  expect(css).toMatch(/\.pc-inline-link\s*\{[^}]*text-decoration:\s*underline/);
+  expect(css).toContain('.pc-inline-link:focus-visible');
+});
