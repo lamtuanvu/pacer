@@ -79,13 +79,14 @@ Subscription notifications use `{ jsonrpc: "2.0", method: "event", params: { seq
 
 ## Snapshot
 
-The snapshot contains only `seq`, `at`, `service`, `planner`, `mode`, `counts`, `attention`, `executors`, `accounts`, `hosts`, `repos`, `tasks`, `today`, `setup`, `pause` and `strategies`. Removed: `v`, `budget`, `alerts`, `console`, `consoles`, `serviceInstalled`. Use `planner`/`accounts`/`executors`, `attention` and `setup` instead. Read-model fields:
+The snapshot contains only `seq`, `at`, `service`, `planner`, `mode`, `counts`, `attention`, `executors`, `machine`, `accounts`, `hosts`, `repos`, `tasks`, `today`, `setup`, `pause` and `strategies`. Removed: `v`, `budget`, `alerts`, `console`, `consoles`, `serviceInstalled`. Use `planner`/`accounts`/`executors`, `attention` and `setup` instead. Read-model fields:
 
 | Field | Contents |
 |---|---|
 | `service` | Pacer version, protocol, process id and service start time; `starting: true` while the service is still computing its first status after a restart (planner, accounts and executors fill in by event); `waiting: { kind, path, since }` while a repository file-system call has been outstanding for at least a second, e.g. behind a macOS removable-volume permission prompt. `kind` is `volume` with the volume root (`/Volumes/<name>`) as `path`, or `folder` with the path itself; `since` is Unix seconds. It is absent once the call returns |
 | `planner` | Planner runner and agent, used/pace percentages, delta, verdict, active hours left, reset, window, stale flag, mode and advice; null without a planner |
-| `executors` | Planner first, then default routing order: identity, account, host, model, rank, state, tone, usage, slots, recent failures and next flag |
+| `machine` | Shared local parallel-task capacity `{ used, max }`, across all local executors |
+| `executors` | Planner first, then default routing order: identity, account, host, model, rank, state, tone, usage, slots `{used,max}` (configured executor limit), optional limitedBy (`machine` or `host`) when a shared cap is lower, recent failures and next flag |
 | `accounts` | Name, agent, source, usage, window, reset, verdict, sign-in state and executor ids; no credentials or emails |
 | `counts` | Review, running, queued, ready executors, total executors, required setup items open, hosts with problems, attention items, problems (problem or blocked severity), and review/running/attention counts by repo key |
 | `attention` | Service-owned Needs you items in display order; an empty array means no attention is needed |
@@ -94,7 +95,7 @@ The snapshot contains only `seq`, `at`, `service`, `planner`, `mode`, `counts`, 
 | `repos` | Known repositories ordered by last use: `{ key, label, path }`, with canonical host/owner/repo or local hash key and main-checkout path |
 | `setup` | Complete flag, count of required items open, and items with id, title, status and required flag |
 
-Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Slots use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with a shared execution.local_max_tasks limit (default 2). Tasks wait with queue { reason, since, position } when capacity is full or delegation is paused. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
+Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Parallel tasks use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with a shared execution.local_max_tasks limit (default 2). Tasks wait with queue { reason, since, position, limit?, capacity? }; no_slot waits add limit (`executor`, `machine` or `host`) and capacity `{used,max}` at the last scheduling check. Paused waits omit these capacity fields. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
 
 Repository identity and existence reads use an in-memory cache. New paths can initially use their absolute unresolved identity until an async probe completes. Registry probes refresh at most once a minute; timeouts retain the last known value, and only confirmed missing repos without active or recent tasks are hidden. Task resolution uses bounded async filesystem and git reads, so stalled volumes do not block snapshots or event replay.
 
@@ -942,6 +943,7 @@ Params JSON Schema:
     "key": {
       "type": "string",
       "enum": [
+        "execution.local_max_tasks",
         "planner",
         "pacing.order",
         "pacing.policy",

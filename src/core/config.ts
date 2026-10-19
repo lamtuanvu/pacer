@@ -15,18 +15,27 @@ import { CoreError, toCoreError } from "./errors";
 import { PLANNERS } from "../config/strategy";
 import { plannerAccounts } from "../install/init";
 
-export const CONFIG_KEYS = ['planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
+import { validateExecution } from '../config/execution';
+
+const pendingEdits = new Set<string>();
+
+export const CONFIG_KEYS = ['execution.local_max_tasks','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
 }
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
-  return {'terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
+  return {'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.accounts':s.pacing.accounts,
     'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
 function parseValue(key:ConfigKey, value:string): unknown {
   if(key==='terminal.app' && !['Terminal','iTerm','Ghostty'].includes(value)) throw Error('terminal.app must be Terminal, iTerm or Ghostty');
+  if(key==='execution.local_max_tasks') {
+    const n = Number(value);
+    if(!/^\d+$/.test(value) || !Number.isInteger(n) || n < 1 || n > 16) throw new CoreError('invalid_input', 'execution.local_max_tasks must be an integer from 1 to 16');
+    return n;
+  }
   if(key==='pacing.order') {
     if(value==='') return [];
     const ids=value.split(',').map(v=>v.trim()); if(ids.some(v=>!v)) throw Error('pacing.order requires comma-separated runner ids');
@@ -57,11 +66,15 @@ export function get(ctx: Ctx) {
 
 /** Validate before writing; integration failure rolls back our strategy edit. */
 export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {integrations?: "install" | "skip"; terminalPresetsOnly?: boolean} = {}) {
+  const editKey = `${strategyPath(ctx)}:${keyInput}`;
+  if (pendingEdits.has(editKey)) throw new CoreError('conflict', 'This setting is already being changed', 'Refresh and retry.');
+  pendingEdits.add(editKey);
   try {
     const path=strategyPath(ctx), s=loadStrategy(ctx), before=readFileSync(path,'utf8'), doc=new StrategyDoc(before), values=effective(s,doc);
     const applyEdit = (change: Parameters<typeof editStrategy>[1]) => {
+      if (readFileSync(path, 'utf8') !== before) throw new CoreError('conflict', 'Strategy changed during edit', 'Refresh and retry.');
       const result = editStrategy(path, change);
-      if (!result.ok) throw Error(result.error);
+      if (!result.ok) throw new CoreError(result.error.includes("strategy changed during edit") ? "conflict" : "invalid_input", result.error);
       return result.diff;
     };
     const k = keyInput;
@@ -111,5 +124,5 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
     } else diff=applyEdit(d=>Array.isArray(value)?d.setList(key.split('.'),value):setValue(d));
     await publishConfigChange(ctx, "config");
     return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes};
-  } catch (e) { throw toCoreError(e); }
+  } catch (e) { throw toCoreError(e); } finally { pendingEdits.delete(editKey); }
 }

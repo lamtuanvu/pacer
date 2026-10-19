@@ -127,7 +127,7 @@ export interface TaskRecord {
   timeoutS: number;
   brief: Brief;
   state: TaskState;
-  queue?: { reason: "no_slot" | "paused" | "host_down" | "waiting_retry"; since: number; position: number };
+  queue?: { reason: "no_slot" | "paused" | "host_down" | "waiting_retry"; since: number; position: number; limit?: "executor" | "machine" | "host"; capacity?: {used: number; max: number} };
   runnerPid?: number;
   executor?: string;
   backend?: string;
