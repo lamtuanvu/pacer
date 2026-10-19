@@ -271,3 +271,5 @@ a.pc-btn{text-decoration:none}
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+.pc-dialog-message{white-space:pre-line;overflow-wrap:anywhere}
