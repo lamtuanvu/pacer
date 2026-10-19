@@ -2,6 +2,111 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+// Selection is kept pure so consent and explicit overrides can be tested together.
+pub fn cli_choice(
+    pacer_bin: Option<&Path>,
+    bundled: Option<&Path>,
+    external: Option<&Path>,
+    consented: bool,
+    keep: bool,
+    remembered: bool,
+) -> (Option<PathBuf>, Option<PathBuf>) {
+    let selected = pacer_bin.or_else(|| {
+        if keep || remembered {
+            external
+        } else if consented {
+            bundled.or(external)
+        } else {
+            external
+        }
+    });
+    let install = selected.filter(|selected| Some(*selected) == bundled);
+    (
+        selected.map(Path::to_path_buf),
+        install.map(Path::to_path_buf),
+    )
+}
+
+pub fn bundled_shell(current: Option<&Url>) -> bool {
+    current.is_some_and(|url| {
+        url.scheme() == "tauri"
+            && url.host_str() == Some("localhost")
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port().is_none()
+            && matches!(url.path(), "/" | "/index.html")
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Onboarding {
+    Welcome,
+    Consent,
+    Existing,
+    Ready,
+}
+
+pub fn onboarding(
+    consented: bool,
+    external_cli: Option<&str>,
+    keep_remembered: bool,
+    bundled: bool,
+) -> Onboarding {
+    if bundled && !consented {
+        match external_cli {
+            None => Onboarding::Welcome,
+            Some(_) if !keep_remembered => Onboarding::Existing,
+            _ => Onboarding::Ready,
+        }
+    } else {
+        Onboarding::Ready
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellAction {
+    Begin,
+    Consent { path: bool },
+    UseApp,
+    KeepMine,
+    Relink,
+    Download,
+}
+
+pub fn onboarding_back(url: &Url, current: Option<&Url>) -> bool {
+    url.as_str() == "tauri://localhost/index.html?state=welcome" && bundled_shell(current)
+}
+
+pub fn shell_action_url(url: &Url) -> Option<ShellAction> {
+    if url.scheme() != "tauri"
+        || url.host_str() != Some("localhost")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    if url.path() == "/action/consent" {
+        return match url.query() {
+            Some("path=0") => Some(ShellAction::Consent { path: false }),
+            Some("path=1") => Some(ShellAction::Consent { path: true }),
+            _ => None,
+        };
+    }
+    if url.query().is_some() {
+        return None;
+    }
+    match url.path() {
+        "/action/begin" => Some(ShellAction::Begin),
+        "/action/use-app" => Some(ShellAction::UseApp),
+        "/action/keep-mine" => Some(ShellAction::KeepMine),
+        "/action/relink" => Some(ShellAction::Relink),
+        "/action/download" => Some(ShellAction::Download),
+        _ => None,
+    }
+}
+
 /// Identity read from disk once at startup, then compared without using NSBundle's cache.
 #[cfg(any(target_os = "macos", test))]
 #[derive(Debug, PartialEq)]
@@ -64,12 +169,21 @@ pub struct Diagnosis {
     pub page: &'static str,
     pub path: Option<String>,
     pub error: Option<String>,
+    pub rc: Option<String>,
+    #[serde(rename = "onPath")]
+    pub on_path: Option<bool>,
+    pub installed: Option<String>,
+    pub version: Option<String>,
 }
 pub fn diagnosis(page: &'static str, path: Option<String>) -> Diagnosis {
     Diagnosis {
         page,
         path,
         error: None,
+        rc: None,
+        on_path: None,
+        installed: None,
+        version: None,
     }
 }
 /// Track an unavailable interval independently of individual retry attempts.
@@ -101,8 +215,8 @@ impl Startup {
     pub fn diagnosis(&self, now: std::time::Instant) -> Option<Diagnosis> {
         self.stuck(now).then(|| Diagnosis {
             page: "stuck",
-            path: None,
             error: Some(self.error.clone()),
+            ..diagnosis("stuck", None)
         })
     }
 }
@@ -641,6 +755,138 @@ impl Sse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cli_choice_truth_table_preserves_explicit_overrides_and_consent() {
+        let b = Some(Path::new("/app/pacer"));
+        let e = Some(Path::new("/external/pacer"));
+        let p = Some(Path::new("/override/pacer"));
+        for (explicit, bundle, external, consent, keep, remembered, cli, env) in [
+            (p, b, e, true, false, false, p, None),
+            (p, b, e, false, false, false, p, None),
+            (p, b, e, true, true, true, p, None),
+            (b, b, e, true, false, false, b, b),
+            (None, b, e, false, false, false, e, None),
+            (None, b, None, false, false, false, None, None),
+            (None, b, e, true, false, false, b, b),
+            (None, b, None, true, false, false, b, b),
+            (None, b, e, true, false, true, e, None),
+            (None, b, e, false, false, true, e, None),
+            (None, b, e, true, true, true, e, None),
+            (None, b, e, true, true, false, e, None),
+            (None, b, None, true, true, false, None, None),
+            (None, None, e, false, false, false, e, None),
+            (None, None, e, true, false, false, e, None),
+            (None, None, None, false, false, false, None, None),
+        ] {
+            assert_eq!(
+                cli_choice(explicit, bundle, external, consent, keep, remembered),
+                (cli.map(Path::to_path_buf), env.map(Path::to_path_buf)),
+                "explicit={explicit:?} consent={consent} keep={keep} remembered={remembered}"
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_shell_rejects_remote_pages_and_other_authorities() {
+        assert!(!bundled_shell(None));
+        for raw in [
+            "tauri://localhost/",
+            "tauri://localhost/index.html?state=consent",
+        ] {
+            assert!(bundled_shell(Some(&Url::parse(raw).unwrap())));
+        }
+        for raw in [
+            "http://127.0.0.1:4317/app/",
+            "tauri://other/",
+            "tauri://localhost/action/begin",
+            "tauri://user@localhost/",
+            "tauri://localhost:123/index.html",
+        ] {
+            assert!(!bundled_shell(Some(&Url::parse(raw).unwrap())), "{raw}");
+        }
+    }
+
+    #[test]
+    fn onboarding_back_requires_a_bundled_source_and_exact_welcome_target() {
+        let target = Url::parse("tauri://localhost/index.html?state=welcome").unwrap();
+        let shell = Url::parse("tauri://localhost/index.html?state=consent").unwrap();
+        assert!(onboarding_back(&target, Some(&shell)));
+        assert!(!onboarding_back(&target, None));
+        assert!(!onboarding_back(
+            &target,
+            Some(&Url::parse("http://127.0.0.1:4317/app/").unwrap())
+        ));
+        assert!(!onboarding_back(
+            &Url::parse("tauri://localhost/index.html?state=consent").unwrap(),
+            Some(&shell)
+        ));
+    }
+
+    #[test]
+    fn onboarding_requires_consent_only_for_a_new_bundled_install() {
+        use Onboarding::*;
+        for (consented, external, remembered, bundled, expected) in [
+            (false, None, false, false, Ready),
+            (false, None, true, false, Ready),
+            (false, Some("/other/pacer"), false, false, Ready),
+            (false, Some("/other/pacer"), true, false, Ready),
+            (true, None, false, false, Ready),
+            (true, None, true, false, Ready),
+            (true, Some("/other/pacer"), false, false, Ready),
+            (true, Some("/other/pacer"), true, false, Ready),
+            (false, None, false, true, Welcome),
+            (false, None, true, true, Welcome),
+            (false, Some("/other/pacer"), false, true, Existing),
+            (false, Some("/other/pacer"), true, true, Ready),
+            (true, None, false, true, Ready),
+            (true, None, true, true, Ready),
+            (true, Some("/other/pacer"), false, true, Ready),
+            (true, Some("/other/pacer"), true, true, Ready),
+        ] {
+            assert_eq!(
+                onboarding(consented, external, remembered, bundled),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn shell_actions_accept_only_exact_local_sentinels() {
+        use ShellAction::*;
+        for (suffix, expected) in [
+            ("begin", Begin),
+            ("consent?path=0", Consent { path: false }),
+            ("consent?path=1", Consent { path: true }),
+            ("use-app", UseApp),
+            ("keep-mine", KeepMine),
+            ("relink", Relink),
+            ("download", Download),
+        ] {
+            assert_eq!(
+                shell_action_url(
+                    &Url::parse(&format!("tauri://localhost/action/{suffix}")).unwrap()
+                ),
+                Some(expected)
+            );
+        }
+        for url in [
+            "https://localhost/action/begin",
+            "tauri://other/action/begin",
+            "tauri://localhost/action/consent?path=2",
+            "tauri://localhost/action/consent",
+            "tauri://localhost/action/consent?path=1&path=0",
+            "tauri://localhost/action/consent?path=1&extra=1",
+            "tauri://localhost/action/unknown",
+            "tauri://localhost/action/begin?extra=1",
+            "tauri://localhost/action/begin#fragment",
+            "tauri://user@localhost/action/begin",
+            "tauri://localhost:123/action/begin",
+            "tauri://localhost/action/begin/",
+        ] {
+            assert_eq!(shell_action_url(&Url::parse(url).unwrap()), None, "{url}");
+        }
+    }
+
     use super::*;
     use serde_json::json;
     #[test]
