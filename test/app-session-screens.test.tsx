@@ -22,7 +22,7 @@ function textContent(html: string): string {
 
 const data=fixture as SessionData;
 test('Session board preserves layout, copy, service actions and metadata',()=>{const html=renderToString(<Session data={data}/>);
- for(const word of [data.goal,'codex#team','pacer/t-0415','this Mac','started 11:49','Testing · 14m','Changes so far','Brief','Watch it elsewhere','Done when','Timeline','Stop and retry on','pacer attach t-0415'])expect(html).toContain(word);
+ for(const word of [data.goal,'codex#team','pacer/t-0415','this Mac','started 11:49','Testing','Changes so far','Brief','Watch it elsewhere','Done when','Timeline','Stop and retry on','pacer attach t-0415'])expect(html).toContain(word);
  expect(html.indexOf('Watch it elsewhere')).toBeLessThan(html.indexOf('Done when'));expect(html).toContain('aria-label="Codex"');expect(html).not.toContain('pc-btn--primary');});
 test('Orca host offers Open in Orca and no terminal control',()=>{const html=renderToString(<Session data={{...data,session:{...data.session!,host:'orca'}}}/>);expect(html).toContain('This session runs in Orca');expect(html).toContain('Open in Orca');expect(html).not.toContain('Take control');});
 test('none host renders escaped plain log; tabs render their resources',()=>{expect(renderToString(<Session data={{...data,session:{...data.session!,host:'none'},log:{data:'<script>bad</script>'}}}/>)).toContain('&lt;script>');expect(renderToString(<Session data={data} initialTab="brief"/>)).toContain('Split the store;');expect(renderToString(<Session data={data} initialTab="changes"/>)).toContain('diff --git');});
@@ -55,7 +55,7 @@ test('takeover stays visible with the service refusal reason',()=>{
 });
 test('driving header and terminal explain hand back',async()=>{
  const html=renderToString(<Session data={{...data,phase:'driving',session:{...data.session!,driving:true}}}/>);
- expect(html).toContain('>Driving<');expect(html).toContain("You're driving · keystrokes go to the agent");expect(html).not.toContain('Take over');
+ expect(html).toContain(">You're driving<");expect(html).toContain("You're driving · keystrokes go to the agent");expect(html).not.toContain('Take over');
  const {TerminalView}=await import('../app/src/term/term');
  const {TerminalControls}=await import('../app/src/term/term');
  const terminal=renderToString(<TerminalControls control live driving state={{status:'live',you:true,controller:'app',cols:120,rows:40,viewers:1}} onControl={()=>{}}/>);
@@ -67,19 +67,19 @@ test('takeover startup and timeout keep progress and retry visible',()=>{
  expect(html).toContain('role="alert"');expect(html).toContain('Try again');
  const builtin=renderToString(<Session data={{...data,session:{...data.session!,takeover:{available:false,reason:'Already interactive'}}}}/>);
  expect(builtin).toContain('title="Already interactive"');
- expect(renderToString(<Session data={{...data,phase:'driving'}}/>)).toContain('>Driving<');
- expect(renderToString(<Session data={{...data,phase:undefined,session:{...data.session!,driving:true}}}/>)).toContain('>Driving<');
+ expect(renderToString(<Session data={{...data,phase:'driving'}}/>)).toContain(">You're driving<");
+ expect(renderToString(<Session data={{...data,phase:undefined,session:{...data.session!,driving:true}}}/>)).toContain(">You're driving<");
 });
 
 test('ended Sessions rows show their state once and retain a known diffstat at either width', () => {
  for (const narrow of [false, true]) {
   const ended = { ...data, state: 'done', phase: undefined, changesSummary: undefined };
   const html = renderToString(<div className={narrow ? 'pc-app--narrow' : 'pc-app'}><SessionsList recent={{data:[ended]}}/></div>);
-  expect(html.match(/>Done</g)).toHaveLength(1);
+  expect(html.match(/>Waiting for review</g)).toHaveLength(1);
   expect(html).not.toContain('Changes and output pending');
   const withDiff = renderToString(<SessionsList recent={{data:[{...ended,changesSummary:'3 files · +12 −4'}]}}/>);
   expect(withDiff).toContain('3 files · +12 −4');
-  expect(withDiff.match(/>Done</g)).toHaveLength(1);
+  expect(withDiff.match(/>Waiting for review</g)).toHaveLength(1);
  }
 });
 
@@ -128,7 +128,7 @@ test('ended headless sessions show their outcome and Review or Retry without liv
   expect(html).toContain('>Retry</button>');
   for (const text of ['Take over','Stop and retry','>Stop<','Changes and output pending','Testing · 14m',">Driving<",'Starting interactive session','Stale takeover error']) expect(html).not.toContain(text);
   if (['done','partial'].includes(state)) {
-   expect(html).toContain('waiting for review');
+   expect(html).toContain('Waiting for review');
    expect(html).toContain('href="#/review/t-0415"');
   } else {
    expect(html).not.toContain('>Review</a>');
@@ -139,7 +139,7 @@ test('ended headless sessions show their outcome and Review or Retry without liv
 test('reviewed and resolved sessions do not offer another review', () => {
  for (const extra of [{review:{accepted:true}}, {review:{accepted:false}}, {resolved:'handled'}, {dismissed:true}, {retriedBy:'next'}]) {
   const html=renderToString(<Session data={{...data,state:'done',changesSummary:undefined,...extra}}/>);
-  expect(html).not.toContain('waiting for review');
+  expect(html).not.toContain('Waiting for review');
   expect(html).not.toContain('>Review</a>');
   expect(html).not.toContain('Changes and output pending');
   if (extra.review) expect(html).toContain(extra.review.accepted?'Accepted':'Rejected');
