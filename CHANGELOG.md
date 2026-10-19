@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Desktop uses `/v3` for native authentication, snapshots, events and operations, and accepts protocol major 3 while retaining major 2 compatibility.
+
 - Local builds embed the package version and Git revision; update notices no longer offer equal or older releases to development builds.
 - Completed tasks retain their review diff and file statistics after their worktree is cleaned up (#121).
 
