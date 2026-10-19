@@ -24,6 +24,8 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
  const rows:ExecutorRow[]=order.map((id,index)=>{
   const r=resolveRunner(s,id),p=st.providers.find(p=>p.id===id),account=r?.account??p?.account??parseRunnerId(id)?.account??"";
   const host=r?.host??null,used=tasks.filter(t=>t.state==="running"&&t.executor===id).length,max=slotLimit(s,id).executor;
+  const limits=slotLimit(s,id), shared=limits.host ?? limits.local;
+  const limitedBy=shared !== null && max > shared ? (host ? "host" as const : "machine" as const) : undefined;
   const enabled=r?.enabled!==false,lastCheck=ctx?readRunnerCheck(ctx,id):null,block=slotBlock(s,id,use);
   const recentFailures=tasks.filter(t=>t.executor===id&&t.state==="failed"&&t.updatedAt>=now-86400).length;
   let state:ExecutorRow["state"]="ready",reason:string|undefined;
@@ -39,7 +41,7 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
   if(reason)reason=redactEndpointError(reason).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
   const places=[...new Set(Object.values(s.runners).filter(other=>other.account===account).map(other=>other.host??"this Mac"))].sort((a,b)=>a==="this Mac"?-1:b==="this Mac"?1:a.localeCompare(b)).join(" + ")||"this Mac";
   const tones:Record<ExecutorRow["state"],ExecutorRow["tone"]>={ready:"good",busy:"info",full:"info",failing:"warn",down:"bad",exhausted:"bad",blocked:"muted",disabled:"muted",checking:"info"};
-  return {id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:tones[state],sub:reason??`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`,...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
+  return {id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:tones[state],sub:reason??`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`,...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
  });
  const next=st.executors.ranked.find(e=>rows.some(r=>r.id===e.id&&["ready","busy"].includes(r.state)));
  if(next)rows.find(r=>r.id===next.id)!.next=true;
