@@ -18,7 +18,7 @@ export function buildCounts(tasks:ApiTask[],executors:ExecutorRow[],setup:SetupS
 }
 export function buildToday(ctx:Ctx,tasks:ApiTask[]):Today {
  const d=new Date(ctx.now*1000);d.setHours(0,0,0,0);
- const since=d.getTime()/1000,rows=tasks.filter(t=>!["running","queued"].includes(t.state)&&t.updatedAt>=since);
+ const since=d.getTime()/1000,rows=tasks.filter(t=>t.source!=="onboarding"&&!["running","queued"].includes(t.state)&&t.updatedAt>=since);
  const byRepo:Today["byRepo"]={};for(const t of rows)byRepo[t.repo.key]=(byRepo[t.repo.key]??0)+1;
  return {since,done:rows.length,accepted:rows.filter(t=>t.review?.accepted===true).length,rejected:rows.filter(t=>t.review?.accepted===false).length,failed:rows.filter(t=>["failed","limit"].includes(t.state)).length,byRepo};
 }

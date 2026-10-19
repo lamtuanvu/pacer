@@ -38,8 +38,8 @@ export async function runCommand(
       await open(screen);return;
     }
     try {
-      const result=await client.call<{job?:{id:string}}|null>(data.op, data.params);
-      report(result?.job?`${data.label}: job ${result.job.id}`:`${data.label}: done`);
+      const result=await client.call<{job?:{id:string};task_id?:string;executor?:string}|null>(data.op, data.params);
+      report(data.op==="onboarding.try"&&result?.task_id?`Started ${result.task_id} on ${result.executor}. Review it with: pacer review ${result.task_id} (or in pacer open)`:result?.job?`${data.label}: job ${result.job.id}`:`${data.label}: done`);
     } catch (error) { reportApiError(error, report); }
     return;
   }
