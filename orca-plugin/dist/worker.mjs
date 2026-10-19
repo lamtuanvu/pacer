@@ -607,6 +607,7 @@ var package_default = {
   private: true,
   devDependencies: {
     "@types/bun": "^1.4.2",
+    "playwright-core": "1.58.2",
     "preact-render-to-string": "^6.8.1",
     typescript: "^7.0.2"
   },
@@ -627,7 +628,8 @@ var package_default = {
     "release:npm": "bun scripts/release/npm.ts",
     "release:homebrew": "bun scripts/release/homebrew.ts",
     "brand:render": "bun scripts/brand/render.ts",
-    "app:build": "bun app/build.ts"
+    "app:build": "bun app/build.ts",
+    "test:e2e": "PACER_E2E=1 TZ=Asia/Ho_Chi_Minh bun test test/install-signin-delegation.test.ts"
   },
   dependencies: {
     "@modelcontextprotocol/sdk": "1.32.1",

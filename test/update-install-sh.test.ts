@@ -84,6 +84,25 @@ test("PACER_INSTALL_VERSION picks a version, accepts a leading v and rejects jun
   expect(bad.err).toContain("invalid version: ../0.1.0");
 });
 
+for (const version of ["0.2.3+g135e83f", "0.2.3-rc.1", "0.2.3-rc.1+g135e83f.dirty"]) {
+  for (const explicit of [false, true]) {
+    test(`installs SemVer ${version} from ${explicit ? "PACER_INSTALL_VERSION" : "latest.json"}`, async () => {
+      const root = tmpDir();
+      release(root, version);
+      const dir = join(tmpDir(), "bin");
+      const r = await runInstall({
+        PACER_RELEASE_BASE: `file://${root}`,
+        PACER_INSTALL_DIR: dir,
+        ...(explicit ? { PACER_INSTALL_VERSION: `v${version}` } : {}),
+      });
+      expect(r.err).toBe("");
+      expect(r.code).toBe(0);
+      expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body(version, MAC));
+      expect(r.out).toContain(`installed: pacer ${version} (${dir}/pacer)`);
+    });
+  }
+}
+
 test("checksum mismatch installs nothing and leaves an existing pacer alone", async () => {
   const root = tmpDir();
   release(root, "0.2.0");
