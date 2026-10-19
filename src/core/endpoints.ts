@@ -1,9 +1,11 @@
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {isNode} from "yaml";
-import {StrategyDoc, editStrategy} from "../config/edit";
+import {StrategyDoc} from "../config/edit";
 import {loadStrategy, strategyPath, validateStrategy} from "../config/strategy";
 import type {EndpointConnection, EndpointModel, KeySource} from "../config/accounts";
+import { ensureAccounts } from "./accounts";
+import { CoreError } from "./errors";
 import type {Ctx} from "../types";
 import {readKey, writeKey} from "../endpoints/keys";
 import {discoverModels, type DiscoveryResult} from "../endpoints/models";
@@ -30,9 +32,7 @@ export interface EndpointInput {
 }
 export type EndpointEdit = Pick<EndpointInput,"name"> & Partial<Omit<EndpointInput,"name">>;
 function strategy(ctx: Ctx) {
-  const s=loadStrategy(ctx);
-  if (s.legacy) throw Error("Run pacer config migrate before editing accounts or runners.");
-  return s;
+  return loadStrategy(ctx);
 }
 function account(ctx: Ctx, name: string) {
   const a=strategy(ctx).accounts[name];
@@ -49,7 +49,7 @@ function value(doc: StrategyDoc, path: string[]): any {
 }
 /** Account, runner and routing validate together before the key or strategy is written. */
 async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: EndpointDeps) {
-  const s=strategy(ctx), name=input.name;
+  const {strategy: s, migrated, edit}=ensureAccounts(ctx), name=input.name;
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw Error("invalid endpoint name");
   if (!editing && s.accounts[name]) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
   if (editing) account(ctx,name);
@@ -98,15 +98,16 @@ async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: Endp
     if (input.key && preview.toString().includes(input.key)) throw Error("endpoint metadata contains credentials");
     validateStrategy(Bun.YAML.parse(preview.toString()),strategyPath(ctx));
     if (input.key && (keySource==='file' || keySource==='keychain')) await writeKey(ctx,name,keySource,input.key);
-    const result=editStrategy(strategyPath(ctx),change);
-    if (!result.ok) throw Error(result.error);
-    writeOpencodeConfig(ctx);
+    edit(change);
     writeEndpointState(ctx,name,{state:'not_tested'});
     if (input.test!==false) await runTest(ctx,name,deps);
     const updated=loadStrategy(ctx);
     const row=await endpointRow(ctx,updated.accounts[name]);
-    return {account:{...updated.accounts[name],...row},runner:updated.runners[`opencode#${name}`],...readEndpointState(ctx,name),...(row.state==='key_missing'?{state:'key_missing' as const}:{})};
-  } catch(e) {throw Error(redactEndpointError(e instanceof Error?e.message:String(e),[input.key ?? '']));}
+    return {...(migrated ? {migrated} : {}),account:{...updated.accounts[name],...row},runner:updated.runners[`opencode#${name}`],...readEndpointState(ctx,name),...(row.state==='key_missing'?{state:'key_missing' as const}:{})};
+  } catch(e) {
+    const message=redactEndpointError(e instanceof Error?e.message:String(e),[input.key ?? '']);
+    throw new CoreError(e instanceof CoreError ? e.code : "invalid_input", message);
+  }
 }
 export async function addEndpoint(ctx: Ctx, input: EndpointInput, deps: EndpointDeps = {}) {
   return save(ctx,input,false,deps);
