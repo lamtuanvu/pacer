@@ -16,6 +16,10 @@ test("prepareChangelog keeps history and moves all Unreleased content into the d
 function fixture(): string {
   const root = tmpDir();
   mkdirSync(join(root, "scripts"));
+  mkdirSync(join(root, "desktop/src-tauri"), { recursive: true });
+  writeFileSync(join(root, "desktop/src-tauri/Cargo.toml"), '[package]\nname = "pacer-desktop"\nversion = "0.1.0"\n[dependencies]\nserde = "1"\n');
+  writeFileSync(join(root, "desktop/src-tauri/Cargo.lock"), 'version = 4\n\n[[package]]\nname = "pacer-desktop"\nversion = "0.1.0"\n\n[[package]]\nname = "other"\nversion = "0.1.0"\n');
+  writeFileSync(join(root, "desktop/src-tauri/tauri.conf.json"), JSON.stringify({ version: "0.1.0" }));
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "0.1.0", scripts: { "plugin:build": "bun scripts/plugin.ts", "app:build": "bun scripts/app.ts" } }));
   writeFileSync(join(root, "scripts", "plugin.ts"), 'await Bun.write("built-version", (await Bun.file("package.json").json()).version);');
   writeFileSync(join(root, "scripts", "app.ts"), 'await Bun.write("app-built-version", (await Bun.file("package.json").json()).version);');
@@ -42,4 +46,22 @@ test("prepareRelease rejects invalid, equal and older versions before writing fi
     expect(readFileSync(join(root, "package.json"), "utf8")).toBe(original);
     expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toBe(changelog);
   }
+});
+
+// Missing desktop metadata must fail before partially changing the release version.
+test("release preparation synchronizes native app, helper and lockfile package versions", async () => {
+  const root = fixture();
+  await prepareRelease(root, "0.2.0");
+  const native = join(root, "desktop/src-tauri");
+  expect(readFileSync(join(native, "Cargo.toml"), "utf8")).toContain('version = "0.2.0"');
+  expect(readFileSync(join(native, "Cargo.lock"), "utf8")).toContain('name = "pacer-desktop"\nversion = "0.2.0"');
+  expect(readFileSync(join(native, "Cargo.lock"), "utf8")).toContain('name = "other"\nversion = "0.1.0"');
+  expect(JSON.parse(readFileSync(join(native, "tauri.conf.json"), "utf8")).version).toBe("0.2.0");
+});
+
+test("release preparation refuses malformed desktop metadata before modifying package", async () => {
+  const root = fixture(), before = readFileSync(join(root, "package.json"), "utf8");
+  writeFileSync(join(root, "desktop/src-tauri/Cargo.lock"), 'version = 4\n');
+  await expect(prepareRelease(root, "0.2.0")).rejects.toThrow("pacer-desktop");
+  expect(readFileSync(join(root, "package.json"), "utf8")).toBe(before);
 });

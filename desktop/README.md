@@ -1,6 +1,6 @@
 # pacer desktop (U2)
 
-An unsigned macOS and Linux Tauri v2 shell. Install the pacer CLI separately. The window
+An unsigned macOS and Linux Tauri v2 shell. macOS packages bundle the CLI; Linux installations use a separate CLI. The window
 loads the existing web UI from the local service; only recovery screens are
 bundled here. Closing the window keeps the native tray client running. Quit
 from the tray to exit; the Dock icon or Open pacer restores the window.
@@ -35,7 +35,7 @@ its executable modification time or `CFBundleVersion`. It requests a graceful
 Tauri exit and schedules an `open -n <bundle>` helper from the exit event. The helper waits for the old process to exit before launching
 the replacement bundle.
 The main window keeps its visibility and route; the tray reconnects to the
-service and restores its current status. The CLI is updated separately.
+service and restores its current status. Complete macOS packages carry the matching CLI.
 
 ### Linux
 
@@ -74,7 +74,7 @@ Icons are generated from `design/assets/pacer-mark.svg` with `bunx tauri icon`.
 
 ## Local service and authentication
 
-The shell searches the login shell's PATH, then `$HOME/.local/bin`,
+Development launches and Linux installations search the login shell's PATH, then `$HOME/.local/bin`,
 `/opt/homebrew/bin` and `/usr/local/bin` on macOS. Linux searches PATH,
 `$HOME/.local/bin/pacer`, `/usr/local/bin/pacer` and `/usr/bin/pacer`, in that
 order (duplicates removed). Only executable files qualify.
@@ -263,3 +263,34 @@ For screenshots, open `desktop/ui/index.html` or serve `desktop/ui/` statically:
 
 Previews never run commands. The shell CSS embeds the shared design tokens;
 `test/desktop-shell.test.ts` verifies those tokens and the page behavior.
+
+## Complete macOS package staging
+
+A macOS package includes its CLI/service, UI assets and `pacer-update-helper`.
+The desktop uses only `Contents/Resources/pacer` when launched from an app
+bundle. Missing or incompatible bundled metadata is an installation error;
+`PACER_BIN` and PATH are development discovery options only. Linux keeps its
+separate CLI discovery.
+
+`release:prepare` synchronizes the package, Cargo, Cargo lockfile and Tauri
+versions. To stage an unsigned test package, run from the repository root after
+building the native app:
+
+```sh
+bun run release --host
+cargo build --offline --locked --release --manifest-path desktop/src-tauri/Cargo.toml --bin pacer-update-helper
+# Replace VERSION with the package version and ARCH with aarch64 or x86_64.
+cp -R desktop/src-tauri/target/release/bundle/macos/pacer.app dist/release/VERSION/pacer.app
+cp desktop/src-tauri/target/release/pacer-update-helper dist/release/VERSION/pacer-update-helper
+bun scripts/release/desktop.ts dist/release/VERSION ARCH
+```
+
+The last command prints a fresh staging directory containing `pacer.app`.
+It checks the CLI manifest/checksums, all three native executable architectures
+and version smoke tests, and app identity. It adds the resources and release
+metadata before signing. Use this complete copy for validation; the intermediate
+Tauri bundle has no bundled CLI and cannot discover one elsewhere. Staging
+removes the incomplete app's signature envelope. It does not sign, notarize,
+install, or publish the output. The manual macOS workflow archives this complete
+unsigned copy. A distributable OTA artifact requires the separate signed release
+pipeline and both architecture validations.

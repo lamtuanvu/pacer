@@ -748,6 +748,15 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
 }
 
 fn main() {
+    // Build smoke checks run before GUI initialization or service discovery.
+    match std::env::args().nth(1).as_deref() {
+        Some("--version") => { println!("{}", env!("CARGO_PKG_VERSION")); return; }
+        Some("--pacer-identity") => {
+            println!("{}", serde_json::json!({ "schema": 1, "role": "desktop", "bundleId": "dev.pacer.desktop", "version": env!("CARGO_PKG_VERSION"), "arch": std::env::consts::ARCH }));
+            return;
+        }
+        _ => {}
+    }
     desktop_log!(
         "pacer lifecycle: desktop starting version {}",
         env!("CARGO_PKG_VERSION")

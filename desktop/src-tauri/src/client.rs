@@ -56,23 +56,25 @@ impl Cli {
     }
     pub fn find(path: &str) -> Option<Self> {
         let home = PathBuf::from(std::env::var_os("HOME")?);
-        let mut candidates = Vec::new();
-        if let Some(binary) = std::env::var_os("PACER_BIN") {
-            candidates.push(PathBuf::from(binary));
-        }
-        // A packaged CLI sits beside the shell executable (or in bundle Resources).
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                candidates.push(dir.join("pacer"));
-                candidates.push(dir.join("../Resources/pacer"));
+        let executable = std::env::current_exe().ok()?;
+        let packaged = match pacer_desktop::packaging::packaged_cli(&executable) {
+            Ok(packaged) => packaged,
+            Err(error) => { desktop_log!("{error}"); return None; }
+        };
+        let binary = if let Some(binary) = packaged {
+            binary
+        } else {
+            let mut candidates = Vec::new();
+            if let Some(binary) = std::env::var_os("PACER_BIN") {
+                candidates.push(PathBuf::from(binary));
             }
-        }
-        candidates.extend(logic::candidates(path, &home));
-        let binary = candidates.into_iter().find(|p| {
-            use std::os::unix::fs::PermissionsExt;
-            p.metadata()
-                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        })?;
+            candidates.extend(logic::candidates(path, &home));
+            candidates.into_iter().find(|p| {
+                use std::os::unix::fs::PermissionsExt;
+                !same_path(p, &executable) && p.metadata()
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })?
+        };
         // GUI launches lack a useful PATH; keep the discovered CLI's directory available too.
         let system_path = if cfg!(target_os = "macos") {
             "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"

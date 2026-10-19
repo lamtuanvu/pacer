@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "pacer",
-  "version": "0.1.0",
+  "mainBinaryName": "pacer",
+  "version": "0.2.3",
   "identifier": "dev.pacer.desktop",
   "build": { "frontendDist": "../ui" },
   "app": {
