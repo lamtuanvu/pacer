@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
 import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
+import { seedUi } from "../scripts/live/seed";
+import { makeCtx } from "../src/ctx";
+import { loadStrategy } from "../src/config/strategy";
+import { listTasks } from "../src/tasks/store";
+import { taskStatus, taskStop } from "../src/tasks/api";
+import { checkSetup } from "../src/setup/check";
+import { handleV2 } from "../src/api/http";
+import { computeStatus } from "../src/engine/status";
 import { refusal } from "../scripts/live/guard";
 import { isolatedWorker } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
@@ -287,3 +295,89 @@ test.skipIf(!canBind)("real proxy forwards assets, ops, cookies, streaming SSE a
     expect(renderReport(session)).toContain("D8 blocked agent.connect");
   } finally { proxy.stop(true); upstream.stop(true); }
 }, 10000);
+
+
+test("UI seed writes only sandbox home and supplies safe task fixtures and account usage", async () => {
+  const session = fixture();
+  const outside = readdirSync(session.root).filter(name => name !== "home");
+  seedUi(session.root);
+  expect(readdirSync(session.root).filter(name => name !== "home")).toEqual(outside);
+  for (const name of outside) expect(readdirSync(join(session.root, name))).toEqual([]);
+  session.seed = "ui";
+  const env = sandboxEnv(session);
+  expect(env.HOME).toBe(join(session.root, "home"));
+  const ctx = makeCtx({ env, which: bin => Bun.which(bin, { PATH: env.PATH }), run: async argv => {
+    const child = Bun.spawnSync(argv, { env });
+    return { code: child.exitCode, stdout: child.stdout.toString(), stderr: child.stderr.toString() };
+  } });
+  const tasks = listTasks(ctx, Infinity);
+  expect(tasks).toHaveLength(5);
+  expect(new Set(tasks.map(task => task.state))).toEqual(new Set(["done", "failed", "partial", "running"]));
+  expect(tasks.filter(task => task.state === "done" && !task.review)).toHaveLength(1);
+  expect(tasks.filter(task => task.review?.accepted)).toHaveLength(1);
+  const failed = tasks.find(task => task.state === "failed")!;
+  expect(existsSync(failed.worktree!)).toBe(false);
+  const running = tasks.find(task => task.state === "running")!;
+  expect(running.childPid).toBeUndefined();
+  expect(running.run).toBeUndefined();
+  expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, running.id, () => { throw Error("must not spawn"); })?.state).toBe("running");
+
+  const status = await computeStatus(ctx, loadStrategy(ctx));
+  expect(status.accounts).toHaveLength(2);
+  expect(status.accounts!.every(account => account.usedPct !== null)).toBe(true);
+  const setup = await checkSetup(ctx, { snapshotProbe: false, status });
+  expect(setup.complete).toBe(true);
+  expect(setup.ready).toBe(true);
+  const response = await handleV2(new Request("http://127.0.0.1/v3/snapshot"), { getCtx: () => ctx });
+  expect(response.status).toBe(200);
+  const { snapshot } = await response.json();
+  expect(snapshot.setup.complete).toBe(true);
+  expect(snapshot.setup.ready).toBe(true);
+  expect(snapshot.tasks).toHaveLength(5);
+  expect(snapshot.attention.some((item: {kind: string}) => item.kind === "review")).toBe(true);
+  for (const task of tasks) {
+    const detail = await handleV2(new Request("http://127.0.0.1/v3/ops/task.get", { method: "POST", body: JSON.stringify({ id: task.id }) }), { getCtx: () => ctx });
+    expect(detail.status).toBe(200);
+    expect((await detail.json()).result.id).toBe(task.id);
+  }
+  expect(taskStop(ctx, running.id)?.state).toBe("stopped");
+  for (const argv of [["launchctl", "bootstrap", "gui/0"], ["systemctl", "--user", "restart", "pacer-serve.service"], ["codex", "exec", "sample"]]) {
+    const child = Bun.spawnSync(argv, { env });
+    expect(child.exitCode).toBe(3);
+    expect(child.stderr.toString()).toContain("D3");
+  }
+  expect(JSON.parse(readFileSync(join(ctx.pacerHome, "state/attention.json"), "utf8"))[`failed:${failed.id}`]).toHaveProperty("since");
+});
+
+test("unknown seeds fail before creating a sandbox", async () => {
+  const base = tmpDir();
+  await expect(up("invalid-seed", undefined, base, "unknown")).rejects.toThrow("Unknown seed");
+  expect(readdirSync(base)).toEqual([]);
+  await expect(main(["up", "--seed", "unknown"])).rejects.toThrow("Unknown seed");
+  await expect(main(["up", "--seed"])).rejects.toThrow("requires a value");
+  await expect(main(["status", "--seed", "ui"])).rejects.toThrow("only valid for up");
+});
+
+
+test.skipIf(!canBind)("seeded service exposes setup-complete snapshots and task details", async () => {
+  const session = await up("ui-cycle", undefined, tmpDir(), "ui");
+  try {
+    const token = readFileSync(join(session.root, "home/token"), "utf8").trim();
+    const base = `http://127.0.0.1:${session.port}`;
+    const headers = { Authorization: `Bearer ${token}` };
+    const response = await fetch(`${base}/v3/snapshot`, { headers });
+    expect(response.status).toBe(200);
+    const { snapshot } = await response.json();
+    expect(snapshot.setup.complete).toBe(true);
+    expect(snapshot.setup.ready).toBe(true);
+    expect(snapshot.tasks).toHaveLength(5);
+    expect(snapshot.tasks.some((task: {state: string}) => task.state === "running")).toBe(true);
+    expect(snapshot.accounts).toHaveLength(2);
+    expect(snapshot.attention.length).toBeGreaterThan(0);
+    for (const task of snapshot.tasks) {
+      const detail = await fetch(`${base}/v3/ops/task.get`, { method: "POST", headers, body: JSON.stringify({ id: task.id }) });
+      expect(detail.status).toBe(200);
+      expect((await detail.json()).result.id).toBe(task.id);
+    }
+  } finally { await down(session); }
+}, 15000);

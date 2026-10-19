@@ -4,7 +4,8 @@ import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidenc
 import { desktop, orca, tui } from "./surfaces";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>]       start isolated service and disposable repo
+  up [--repo-template <dir>] [--seed ui]
+                                  start isolated service and disposable repo; ui seeds sample data
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -28,7 +29,7 @@ export async function main(argv: string[]): Promise<number> {
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps"]);
+  const valueOptions = new Set(["--id", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
@@ -39,8 +40,9 @@ export async function main(argv: string[]): Promise<number> {
     else positionals.push(arg);
   }
   const id = options.get("--id");
+  if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (command === "up") {
-    console.log(JSON.stringify(await up(id, options.get("--repo-template")), null, 2));
+    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed")), null, 2));
     return 0;
   }
   if (command === "status") {
