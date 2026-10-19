@@ -259,3 +259,14 @@ test("opencode executors use their account's mark and an unavailable account rea
   expect(html).not.toContain("agent-mark--opencode");
   expect(html).toMatch(/class="tray-executor tray-executor--off"[^>]*>.*?agent-mark--byteplus/);
 });
+
+
+test("Needs-you reasons show the shared status once and preserve distinct evidence", () => {
+  const snapshot = fixture();
+  const review = { ...snapshot.attention![2]!, detail: "Waiting for review" };
+  const html = section(draw({ ...snapshot, attention: [review] }), "Needs you");
+  expect(html).toContain("pacer · Waiting for review</span>");
+  expect(html).not.toContain("Waiting for review · Waiting for review");
+  expect(section(draw({ ...snapshot, attention: [{ ...review, detail: "Checks passed" }] }), "Needs you"))
+    .toContain("pacer · Waiting for review · Checks passed");
+});

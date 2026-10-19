@@ -1,11 +1,12 @@
 import { createContext, type ComponentChildren } from "preact";
-import { useContext, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { reviewQueue } from "../../../../src/view-model/selectors";
 import type { ActionRunner } from "../../data/actions";
 import { Button } from "../../ds/Button";
+import { Dialog } from "../task-shared";
 import { verdictParams } from "./model";
 
 export function scopedReviewQueue(snapshot: ClientSnapshot, repo: string | null): AttentionItem[] {
@@ -16,22 +17,28 @@ export function selectedReviews(items: AttentionItem[], selected: ReadonlySet<st
 }
 interface BulkRequest {
   items: AttentionItem[]; passingOnly: boolean; verdict: "accept" | "reject"; runner: ActionRunner;
-  confirm: (message: string) => boolean; prompt: (message: string) => string | null;
+  confirm: (message: string) => boolean | Promise<boolean>; prompt: (message: string) => string | null | Promise<string | null>;
 }
 /** Freeze the checked evidence at confirmation and submit each existing verdict op with its revision. */
 export async function runBulkReview({ items, passingOnly, verdict, runner, confirm, prompt }: BulkRequest): Promise<string> {
   const tasks: TaskDetail[] = [], messages: string[] = [];
   const seen = new Set<string>();
-  for (const item of items) {
-    if (!item.taskId || seen.has(item.taskId)) continue;
+  const unique = items.filter(item => {
+    if (!item.taskId || seen.has(item.taskId)) return false;
     seen.add(item.taskId);
+    return true;
+  });
+  // Read concurrently, then collect in queue order so the confirmation stays stable.
+  const evidence = await Promise.all(unique.map(async item => {
     const key = `bulk-read:${item.taskId}`;
     const result = await runner.run(key, { label: "Read review evidence", op: "task.get", params: { id: item.taskId } });
+    return { item, result, task: runner.result(key) as TaskDetail };
+  }));
+  for (const { item, result, task } of evidence) {
     if (result.status !== "done") {
       messages.push(`${item.title}: ${result.status === "error" || result.status === "handled" ? result.message : "Could not load evidence"}`);
       continue;
     }
-    const task = runner.result(key) as TaskDetail;
     if (task.review || task.resolved || task.dismissed || task.retriedBy || !["done", "partial"].includes(task.state)) {
       messages.push(`${item.title}: no longer waiting for review`);
       continue;
@@ -39,18 +46,18 @@ export async function runBulkReview({ items, passingOnly, verdict, runner, confi
     if (!passingOnly || task.acceptance?.state === "passed") tasks.push(task);
   }
   if (!tasks.length) return ["No eligible tasks.", ...messages].join("\n");
-  const note = verdict === "reject" ? prompt("Rejection note for all selected tasks:") : undefined;
+  const note = verdict === "reject" ? await prompt("Rejection note for all selected tasks:") : undefined;
   if (verdict === "reject" && !note?.trim()) return "Cancelled. Rejection requires a note.";
   const label = verdict === "accept" ? "Accept" : "Reject";
   const list = tasks.map(task => `• ${task.title ?? task.goal} (${task.id}) · ${task.repo.label}`).join("\n");
-  if (!confirm(`${label} ${tasks.length} task(s)?\n\n${list}\n\n${note ? `Note: ${note}\n\n` : ""}This records verdicts only. You merge branches.${messages.length ? `\n\nSkipped:\n${messages.join("\n")}` : ""}`)) return "Cancelled. No verdicts recorded.";
+  if (!await confirm(`${label} ${tasks.length} task(s)?\n\n${list}\n\n${note ? `Note: ${note}\n\n` : ""}This records verdicts only. You merge branches.${messages.length ? `\n\nSkipped:\n${messages.join("\n")}` : ""}`)) return "Cancelled. No verdicts recorded.";
   let done = 0;
   for (const task of tasks) {
     const result = await runner.run(`review:${task.id}`, {
       label: "Record verdict", op: "task.review", params: verdictParams(task, { verdict, ...(note ? { note } : {}) }),
-    }, state => !!state.snapshot && !state.snapshot.attention?.some(item => item.kind === "review" && item.taskId === task.id));
+    });
     if (result.status === "done") done++;
-    else messages.push(`${task.title ?? task.id}: ${result.status === "error" || result.status === "handled" ? result.message : "Waiting for the review queue to update"}`);
+    else messages.push(`${task.title ?? task.id}: ${result.status === "error" || result.status === "handled" ? result.message : "Could not record verdict"}`);
   }
   return [`${label === "Accept" ? "Accepted" : "Rejected"} ${done} of ${tasks.length} task(s).`, ...messages].join("\n");
 }
@@ -68,6 +75,14 @@ export function BulkReview({ snapshot, repo, runner, children }: { snapshot: Cli
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const inFlight = useRef(false);
+  const [dialog, setDialog] = useState<{ message: string; note: boolean } | null>(null);
+  const [note, setNote] = useState("");
+  const reply = useRef<((value: string | null) => void) | null>(null);
+  const ask = (message: string, note: boolean) => new Promise<string | null>(resolve => {
+    reply.current = resolve; setNote(""); setDialog({ message, note });
+  });
+  const answer = (value: string | null) => { reply.current?.(value); reply.current = null; setDialog(null); };
+  useEffect(() => () => { reply.current?.(null); }, []);
   const ids = new Set(items.map(item => item.taskId!));
   const selected = new Set(selectedReviews(items, selection).map(item => item.taskId!));
   const run = async (verdict: "accept" | "reject", passingOnly = false) => {
@@ -75,7 +90,7 @@ export function BulkReview({ snapshot, repo, runner, children }: { snapshot: Cli
     inFlight.current = true; setBusy(true); setMessage("");
     try {
       setMessage(await runBulkReview({ items: passingOnly ? items : selectedReviews(items, selected), passingOnly, verdict, runner,
-        confirm: text => window.confirm(text), prompt: text => window.prompt(text) }));
+        confirm: async text => (await ask(text, false)) !== null, prompt: text => ask(text, true) }));
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { inFlight.current = false; setBusy(false); }
   };
@@ -95,6 +110,13 @@ export function BulkReview({ snapshot, repo, runner, children }: { snapshot: Cli
       </div>
       {busy && <p role="status">Checking evidence / recording verdicts…</p>}
     </div>}
+    {dialog && <Dialog title={dialog.note ? "Rejection note" : "Confirm bulk review"} close={() => answer(null)}>
+      <form className="pc-form" onSubmit={event => { event.preventDefault(); answer(dialog.note ? note : "confirmed"); }}>
+        <p className="pc-bulk-confirmation">{dialog.message}</p>
+        {dialog.note && <label>Note<textarea value={note} required onInput={event => setNote(event.currentTarget.value)} /></label>}
+        <div className="row-actions"><Button type="submit" variant="primary">Continue</Button><Button onClick={() => answer(null)}>Cancel</Button></div>
+      </form>
+    </Dialog>}
     {message && <p className="pc-bulk-result" role="status" aria-live="polite">{message}</p>}
     {children}
   </BulkSelection.Provider>;

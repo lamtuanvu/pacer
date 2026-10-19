@@ -299,3 +299,5 @@ a.pc-row:hover{background:var(--surface-lane)}
 .pc-setup-command pre{min-width:0;flex:1}
 .pc-setup-banner{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
 .pc-setup-preview{white-space:pre-wrap;overflow-wrap:anywhere}
+
+.pc-bulk-confirmation{white-space:pre-wrap}

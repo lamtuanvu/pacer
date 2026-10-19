@@ -98,9 +98,10 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           const action = primaryAction(item.actions);
           const task = snapshot?.tasks.find(t => t.id === item.taskId);
           const status = attentionStatus(item, snapshot.tasks);
+          const detail = item.detail?.trim();
           return <div className={`tray-attention tray-attention--${item.kind}`} key={item.id}>
             <span title={status.label}><StatusGlyph status={status} /></span>
-            <span className="tray-grow"><strong className="tray-ellipsis">{shortTitle({ title: item.title, goal: task?.goal })}</strong><span className="tray-reason tray-ellipsis">{[item.repo?.label ?? task?.repo?.label, status.label, item.detail].filter(Boolean).join(" · ")}</span></span>
+            <span className="tray-grow"><strong className="tray-ellipsis">{shortTitle({ title: item.title, goal: task?.goal })}</strong><span className="tray-reason tray-ellipsis">{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></span>
             {action && <button className={`tray-action${action.style === "primary" ? " tray-action--primary" : ""}`} type="button" disabled={busy || sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}><span className="tray-action__label">{rowLabel(action.label)}</span></button>}
           </div>;
         })}
