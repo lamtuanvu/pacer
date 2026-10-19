@@ -145,7 +145,10 @@ The pump, runner exits and API reads drain eligible queued work.
 Use `runner.set` to edit enabled, model, max_tasks or rank; `runner.reorder` takes
 a permutation of all non-planner executor ids. The planner cannot be disabled.
 
-`pacer pause 1h` pauses new delegation; `pacer resume` resumes it. Durations use
+`PACER=off` disables planner pacing enforcement for a session (for example,
+`PACER=off claude`). `pacer pause <duration>` (for example, `pacer pause 1h`) or
+the tray menu's **Pause 1h** pauses new delegation; running tasks continue.
+`pacer resume` ends the pause early. Durations use
 whole minutes, hours or days, up to seven days. `mode.hold` can keep a mode until
 the planner window resets, or an explicit future timestamp; `mode.release` ends it.
 

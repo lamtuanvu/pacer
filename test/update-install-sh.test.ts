@@ -57,7 +57,8 @@ test("installs the latest release from a file:// base into PACER_INSTALL_DIR", a
   expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body("0.2.0", MAC));
   expect(r.out).toContain(`installed: pacer 0.2.0 (${dir}/pacer)`);
   expect(r.out).toContain("pacer init");
-  expect(r.out).toContain("pacer install <planner>");
+  expect(r.out).toContain("connect agents after asking");
+  expect(r.out).not.toContain("pacer install <planner>");
   expect(readdirSync(dir)).toEqual(["pacer"]);
 });
 
