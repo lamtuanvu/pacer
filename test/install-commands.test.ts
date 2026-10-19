@@ -185,6 +185,7 @@ import { uninstallAll } from "../src/install/uninstall-all";
 import { readManifest, writeManifest } from "../src/install/manifest";
 import { PLUGIN_RECORD } from "../src/link/paths";
 import { MARKER, servicePath } from "../src/service";
+import { createTask, updateTask } from "../src/tasks/store";
 
 function allFixture() {
   const ctx = fakeCtx();
@@ -195,6 +196,86 @@ function allFixture() {
 }
 
 const appPathBlock = '# >>> pacer >>>\nexport PATH="$HOME/.local/bin:$PATH"\n# <<< pacer <<<\n';
+
+test.each(["running", "queued"] as const)("uninstall --all refuses a %s task before confirmation or changes", async state => {
+  const { ctx, binary } = allFixture();
+  const goal = "Preserve delegated work while uninstall is requested from another session";
+  const task = createTask(ctx, { brief: { goal, repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = state; if (state === "running") t.runnerPid = process.pid; });
+  const unit = servicePath(ctx, "linux");
+  mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
+  writeFileSync(unit, `# ${MARKER}\n`);
+  const rc = join(ctx.home, ".zshrc");
+  writeFileSync(rc, appPathBlock);
+  const before = readFileSync(join(ctx.pacerHome, "tasks", `${task.id}.json`), "utf8");
+  const effects: string[] = [];
+  const result = await uninstallAll(["--all", "--binary"], ctx, {
+    tty: true, platform: "linux", print: () => {},
+    confirm: async () => { effects.push("confirm"); return true; },
+    service: () => ({ uninstall: async () => { effects.push("service"); } }),
+  });
+  expect(result.code).toBe(2);
+  expect(result.err).toContain(task.id);
+  expect(result.err).toContain(state);
+  expect(result.err).toContain(goal.slice(0, 59) + "…");
+  expect(result.err).not.toContain(goal);
+  expect(result.err).toContain("Stop them first (pacer stop <id>), wait for them, or rerun with --force.");
+  expect(effects).toEqual([]);
+  expect(readFileSync(join(ctx.pacerHome, "tasks", `${task.id}.json`), "utf8")).toBe(before);
+  expect(readFileSync(rc, "utf8")).toBe(appPathBlock);
+  expect(existsSync(unit)).toBe(true);
+  expect(existsSync(binary)).toBe(true);
+});
+
+test("uninstall --all JSON lists all blocking tasks and checks recorded supervisor liveness", async () => {
+  const { ctx } = allFixture();
+  const active = createTask(ctx, { brief: { goal: "Still writing", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, active.id, t => { t.state = "running"; t.runnerPid = process.pid; });
+  const stale = createTask(ctx, { brief: { goal: "Recoverable task", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, stale.id, t => { t.state = "running"; t.runnerPid = 2147483647; });
+  for (let i = 1; i <= 21; i++) {
+    const done = createTask({ ...ctx, now: ctx.now + i }, { brief: { goal: "Finished", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    updateTask(ctx, done.id, t => { t.state = "done"; });
+  }
+  const result = await main(["uninstall", "--all", "--yes", "--json"], ctx);
+  expect(result.code).toBe(2);
+  const output = JSON.parse(result.out);
+  expect(output.blocked_by_tasks).toHaveLength(2);
+  expect(output.blocked_by_tasks).toEqual(expect.arrayContaining([
+    { id: active.id, state: "running", goal: "Still writing", runner_pid: process.pid, runner_alive: true },
+    { id: stale.id, state: "running", goal: "Recoverable task", runner_pid: 2147483647, runner_alive: false },
+  ]));
+  expect(output.results).toEqual([]);
+  expect(existsSync(ctx.pacerHome)).toBe(true);
+});
+
+test.each([false, true])("uninstall --all --force proceeds with a task warning (json=%s)", async json => {
+  const { ctx } = allFixture();
+  const task = createTask(ctx, { brief: { goal: "Delegated work", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.runnerPid = process.pid; });
+  const result = await main(["uninstall", "--all", "--yes", "--force", ...(json ? ["--json"] : [])], ctx);
+  expect(result.code).toBe(0);
+  expect(existsSync(ctx.pacerHome)).toBe(false);
+  const warning = json ? JSON.parse(result.out).warning : result.out;
+  expect(warning).toContain(task.id);
+  expect(warning).toContain("running");
+  expect(warning).toContain("Delegated work");
+  if (!json) expect(warning).toContain("warning:");
+});
+
+test("uninstall --all proceeds when tasks are only done, failed or accepted", async () => {
+  const { ctx } = allFixture();
+  for (const state of ["done", "failed", "accepted"] as const) {
+    const task = createTask(ctx, { brief: { goal: state, repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    updateTask(ctx, task.id, t => {
+      t.state = state === "accepted" ? "done" : state;
+      if (state === "accepted") t.review = { accepted: true, kind: null, note: null, at: ctx.now };
+    });
+  }
+  const result = await main(["uninstall", "--all", "--yes"], ctx);
+  expect(result.code).toBe(0);
+  expect(existsSync(ctx.pacerHome)).toBe(false);
+});
 
 test("uninstall --all lists app cleanup in confirmation and JSON without changing files", async () => {
   const { ctx } = allFixture();

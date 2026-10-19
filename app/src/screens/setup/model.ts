@@ -1,7 +1,7 @@
 import type { SetupChecklist, SetupItem } from '../../../../src/setup/checklist';
 import type { BrowserApi } from '../../data/api';
 export interface AgentPreview { files: string[]; detail?: unknown; undo: string }
-export const SERVICE_CONSENT = 'Run pacer in the background at login? It keeps budgets fresh and runs delegated tasks.';
+export const SERVICE_CONSENT = 'pacer runs in the background at login. It keeps budgets fresh and runs delegated tasks.';
 export const primaryItem = (check: SetupChecklist) => check.complete ? undefined : check.items.find(i => i.required && i.status !== 'done')?.id;
 export const nextOptional = (check?: SetupChecklist) => check?.complete && !check.ready ? check.items.find(i => !i.required && i.status === 'pending') : undefined;
 export const bannerKey = (check?: SetupChecklist) => nextOptional(check) ? JSON.stringify(check!.items.filter(i => !i.required && i.status === 'pending').map(i => i.id)) : null;

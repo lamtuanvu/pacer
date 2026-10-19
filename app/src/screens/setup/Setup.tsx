@@ -132,7 +132,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
           <div><span>{id === 'connect' && planner ? `Connect ${plannerName}` : titles[index]}</span>
             <div className="pc-setup-value muted">{done ? id === 'planner' ? <><AgentMark agent={runnerAgent(planner)} size={16} labelled={false} />{plannerName} · <Button variant="ghost" onClick={() => visit('planner')}>Change</Button></>
               : id === 'service' ? 'Running at login' : id === 'connect' ? 'Connected'
-              : id === 'executor' ? <>{railExecutors.map(id => <AgentMark key={id} agent={runnerAgent(id)} size={16} />)}{railExecutors.length} agents</>
+              : id === 'executor' ? <>{railExecutors.map(id => <AgentMark key={id} agent={runnerAgent(id)} size={16} />)}{railExecutors.length} {railExecutors.length === 1 ? 'agent' : 'agents'}</>
               : 'Finished' : id === 'first' ? 'Optional' : visited.includes(id) ? <Button variant="ghost" onClick={() => visit(id)}>Skipped · return</Button> : 'Needs you'}</div>
           </div>
         </li>;
@@ -144,7 +144,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
             : item?.command && item.action !== 'setup.init' ? <Command command={item.command} /> : <p>Install Claude Code, Codex, Cursor or OpenCode to plan your work.</p>}
           {item?.status !== 'done' && item?.command && item.action !== 'setup.init' && options.length > 0 && <Command command={item.command} />}
         </>}
-        {current === 'service' && <><p className="muted">Your confirmation below installs the login service.</p><Button variant="primary" disabled={busy} onClick={() => void run(() => api.call('service.install', { consent: true }), true)}>Install service</Button></>}
+        {current === 'service' && <Button variant="primary" disabled={busy} onClick={() => void run(() => api.call('service.install', { consent: true }), true)}>Install service</Button>}
         {current === 'connect' && <>
           {preview ? <ConnectChanges planner={planner} preview={preview} /> : <p role="status">{previewError ? 'Could not load the changes.' : 'Checking what will change…'}</p>}
           <div className="pc-setup-actions"><Button variant="primary" disabled={busy || !preview} onClick={() => void run(() => api.call('agent.connect', { agent: runnerAgent(planner), consent: true }), true)}>Connect {plannerName}</Button><Button variant="ghost" disabled={busy} onClick={() => void run(async () => {}, true, true)}>Skip for now</Button></div>
