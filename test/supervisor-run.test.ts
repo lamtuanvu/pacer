@@ -91,3 +91,11 @@ test("starting again in the same directory never reports the previous run's reco
   expect(readRun(dir).exit).toBe(2);
   expect(readOutput(dir).stdout).toBe("second\n");
 });
+
+test("a reduced run environment preserves the isolated HOME and PACER_HOME", async () => {
+  const dir = tmpDir();
+  const run = startRun({ dir, argv: ["sh", "-c", 'printf "%s|%s" "$HOME" "$PACER_HOME"'], cwd: dir, env });
+  expect("pid" in run).toBe(true);
+  await until(() => readRun(dir).exit !== null);
+  expect(readOutput(dir).stdout).toBe(`${process.env.HOME}|${join(process.env.HOME!, ".pacer")}`);
+});
