@@ -6,8 +6,11 @@ Production publishing remains disabled until the signed native validation matrix
 is accepted; an unsigned development build does not enable production OTA.
 
 The disposable Apple Silicon harness has verified a complete upgrade and recovery
-from failed candidate startup, including fresh desktop/service sign-in and data
-preservation. This is development evidence using disposable signatures. Developer
+from failed candidate startup, helper crash, and interruption after installation.
+Recovery checks include fresh desktop/service sign-in, data preservation, and
+continued app/service operation after the recovery job retires. Deliberate
+restoration failure also preserved recovery evidence and kept admission closed.
+This is development evidence using disposable signatures. Developer
 ID signing, notarization, Intel execution and reboot recovery still require release
 validation. The native adapter does not yet advertise service adoption; its API
 and interface remain capability-gated until native adoption validation passes.

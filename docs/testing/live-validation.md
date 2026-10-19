@@ -224,6 +224,11 @@ Managed native scenarios require `ota build` and a fresh harness service with re
 
 `upgrade`, `startup-failure`, `helper-crash`, `interrupted-install` and `restore-failure` have fixed compiled fixture checkpoints. No command, environment variable or API parameter selects a fault. A marker is consumed durably once before the fixed effect; `interrupted-install` occurs before commit and must restore the original version. Other scenarios remain unavailable until their constrained driver is implemented. This implementation is not evidence that a native scenario passed: use the actual evidence report. Production builds compile out fixture authority and fault hooks.
 
+Successful upgrade and restoration checks also require completed reservation
+release and recovery-job retirement, followed by independent observation of the
+exact Desktop and service incarnations in the readiness proof. A terminal journal
+written before those processes disappear is insufficient evidence of success.
+
 The deliberate `restore-failure` case leaves the service unavailable. Its driver
 therefore requires an authorized terminal native journal, both consumed fault
 receipts, the retained admission reservation and independently observed absence
