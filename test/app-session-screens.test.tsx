@@ -72,3 +72,32 @@ test('Sessions pills override their default top alignment for running and ended 
  const css = await Bun.file(new URL('../app/src/screens/session/session.css', import.meta.url)).text();
  expect(css).toMatch(/\.pc-sessions-rows \.pc-pill\s*\{[^}]*align-self:center/);
 });
+
+test('headless sessions explain the run and offer one prominent takeover action without watch options', () => {
+ const headless: SessionData = {...data,session:{...data.session!,host:'none',live:false,targets:[],takeover:{available:true}},log:{data:'<script>plain output</script>'}};
+ const html = renderToString(<Session data={headless} onTakeover={()=>{}}/>);
+ expect(html.replace(/<[^>]*>/g, '')).toContain('This run is headless — Take over to work in it live');
+ expect(html).toMatch(/class="[^"]*pc-btn--primary[^"]*">Take over<\/button>/);
+ expect(html.match(/>Take over<\/button>/g)).toHaveLength(1);
+ expect(html).toContain('&lt;script>plain output&lt;/script>');
+ for (const text of ['Watch it elsewhere','Open in Orca terminal','Open in my terminal','pacer attach','no terminal recording',' · unavailable']) expect(html).not.toContain(text);
+});
+
+test('live and recorded sessions retain watch options without the headless explanation', () => {
+ for (const live of [true, false]) {
+  const html = renderToString(<Session data={{...data,session:{...data.session!,live}}} onAttach={async()=>({opened:true})}/>);
+  expect(html).toContain('Watch it elsewhere');
+  expect(html).toContain('>Open in Orca terminal</button>');
+  expect(html).toContain('>Open in my terminal</button>');
+  expect(html).toContain('pacer attach t-0415');
+  expect(html).not.toContain('This run is headless');
+ }
+});
+
+
+test('missing sessions do not advertise watch-elsewhere options', () => {
+ const html = renderToString(<Session data={{...data,session:undefined}}/>);
+ expect(html).toContain('Session unavailable.');
+ expect(html).not.toContain('Watch it elsewhere');
+ expect(html).not.toContain('pacer attach');
+});
