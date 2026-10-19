@@ -513,6 +513,7 @@ pub async fn run(app: AppHandle) {
                     desktop_log!(
                         "pacer lifecycle: CLI unavailable for authentication; searching again"
                     );
+                    // Guard only: shell_page already shows "install" and skips this pass when no CLI is found.
                     crate::recovery(&app, "install");
                 }
             }
@@ -725,9 +726,11 @@ async fn service_action(
         return cli.run(&["service", "install"]).await.map(|_| ());
     }
     #[cfg(target_os = "macos")]
-    let output = manager_output("launchctl", &launchctl_args(action)).await?;
+    if !logic::may_manage_job(job, true) {
+        return Err("Unable to confirm the pacer service".to_owned());
+    }
     #[cfg(target_os = "macos")]
-    let _ = job;
+    let output = manager_output("launchctl", &launchctl_args(action)).await?;
     #[cfg(not(target_os = "macos"))]
     let output = {
         let job = if job == logic::JobState::Unknown {
@@ -735,6 +738,9 @@ async fn service_action(
         } else {
             job
         };
+        if !logic::may_manage_job(job, false) {
+            return Err("The pacer service belongs to another pacer folder".to_owned());
+        }
         if matches!(job, logic::JobState::NotLoaded | logic::JobState::Unknown) {
             if action == "restart" {
                 return cli

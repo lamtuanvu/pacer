@@ -264,6 +264,17 @@ pub fn launchctl_args(uid: u32, action: &str) -> Vec<String> {
     }
 }
 
+/// Whether the shell may start or restart the service manager's job. A job owned by another pacer is
+/// never touched; on macOS an unconfirmed job is not either. On Linux, an unknown job falls back to
+/// running `pacer serve` directly, which acts only on this shell's own home.
+pub fn may_manage_job(job: JobState, macos: bool) -> bool {
+    match job {
+        JobState::Foreign => false,
+        JobState::Unknown => !macos,
+        _ => true,
+    }
+}
+
 /// The job's own `environment = {` block from `launchctl print`. The inherited and
 /// default blocks describe launchd itself, not the job.
 pub fn launchd_environment(text: &str) -> Vec<(String, String)> {
@@ -1222,6 +1233,17 @@ mod tests {
         assert_eq!(job_owner(&env, "/Users/u/.pacer").1, 4317);
     }
     #[test]
+    fn unconfirmed_or_foreign_jobs_are_not_managed() {
+        assert!(!may_manage_job(JobState::Foreign, true));
+        assert!(!may_manage_job(JobState::Foreign, false));
+        assert!(!may_manage_job(JobState::Unknown, true));
+        assert!(may_manage_job(JobState::Unknown, false));
+        for job in [JobState::NotLoaded, JobState::Stopped, JobState::Running] {
+            assert!(may_manage_job(job, true));
+            assert!(may_manage_job(job, false));
+        }
+    }
+    #[test]
     fn foreign_job_is_never_started_or_restarted() {
         use HealthProbe::*;
         use RecoveryAction::*;
@@ -1245,6 +1267,7 @@ mod tests {
         assert_eq!(shell_page(false, Wait, none, false), "install");
         assert_eq!(shell_page(false, Connect, JobState::Unknown, false), "install");
         assert_eq!(shell_page(false, Install, none, true), "starting");
+        assert_eq!(shell_page(false, Connect, JobState::Unknown, true), "starting");
         assert_eq!(shell_page(false, Wait, JobState::Running, false), "starting");
         assert_eq!(shell_page(false, Start, JobState::Stopped, false), "starting");
         assert_eq!(shell_page(false, RecoveryAction::Foreign, JobState::Foreign, true), "foreign");

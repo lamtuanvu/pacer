@@ -27,6 +27,7 @@ test("recoverable states show only automatic starting status", () => {
     expect(page.element("h1").textContent).toBe("Starting pacer…");
     expect(page.element("#message").hidden).toBe(true);
     expect(page.element("#privacy").hidden).toBe(true);
+    expect(page.element("#install-help").hidden).toBe(true);
   }
   const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), "utf8");
   expect(html).not.toMatch(/Try again|Start pacer|Restart pacer|pacer service install|id="command"/);

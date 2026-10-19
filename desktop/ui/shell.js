@@ -16,7 +16,7 @@ function renderShell(detail) {
   const status = document.querySelector('#message');
   status.textContent = permission
     ? `macOS needs your permission for pacer to read ${target}. Click Allow in the macOS dialog.`
-    : message.replace('{path}', detail.path || 'another folder') + (detail.page === 'stuck' ? ` Last error: ${detail.error || 'Waiting for sign-in to complete'}. Logs: ~/Library/Logs/pacer/desktop.log (Linux: ~/.local/state/pacer/desktop.log).` : '');
+    : message.replace('{path}', () => detail.path || 'another folder') + (detail.page === 'stuck' ? ` Last error: ${detail.error || 'Waiting for sign-in to complete'}. Logs: ~/Library/Logs/pacer/desktop.log (Linux: ~/.local/state/pacer/desktop.log).` : '');
   status.hidden = !status.textContent;
   document.querySelector('#privacy').hidden = !permission;
   document.querySelector('#install-help').hidden = permission || detail.page !== 'install';
