@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
@@ -6,16 +6,19 @@ import { detect, initCmd, starterStrategy } from "../src/install/init";
 import * as fsx from "../src/install/fsx";
 import { fakeCtx } from "./helpers";
 
+let modelRequest: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | undefined;
+afterEach(() => { modelRequest?.mockRestore(); modelRequest = undefined; });
+
 function detectedCtx(bins: string[], models = true) {
+  modelRequest?.mockRestore();
+  modelRequest = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
+    models: models ? [{ name: "qwen:7b" }, { name: "other" }] : [],
+  }));
   return fakeCtx({
     which: (bin) => bins.includes(bin) ? `/fake/${bin}` : null,
     run: async (argv, timeout) => {
       expect(timeout).toBe(5000);
-      if (argv[0] === "ollama") {
-        expect(argv).toEqual(["ollama", "list"]);
-        return { code: 0, stdout: models ? 'NAME ID SIZE MODIFIED\nqwen:7b abc 4GB now\nother xyz 1GB now\n' : "NAME ID SIZE MODIFIED\n", stderr: "" };
-      }
-      expect(argv).toEqual(["lms", "ls", "--json"]);
+      expect(argv).toEqual(["lms", "ls", "--json", "--port", "41343"]);
       return { code: 0, stdout: JSON.stringify(models ? [
         { type: "embedding", modelKey: "embed", trainedForToolUse: true },
         { type: "llm", modelKey: "plain", trainedForToolUse: false },

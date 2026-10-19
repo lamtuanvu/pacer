@@ -9,6 +9,12 @@ pacer init
 ```
 
 Init detects your tools, writes the strategy and connects agents after asking.
+Discovery never runs IDE launchers such as `cursor` or `agy`; Cursor versions
+come from `cursor-agent` when available. Local model discovery does not start
+applications: Ollama and LM Studio must already be serving. LM Studio is queried
+at its published API port (or its standard internal port, 41343). Otherwise the
+tool is still detected by path, but its local model is left unset and can be
+configured later.
 Ask your planner for work in your repository — it delegates through pacer.
 Use `pacer open` to watch and `pacer doctor` to check the installation.
 

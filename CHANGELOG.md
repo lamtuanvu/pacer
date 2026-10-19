@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Setup discovery avoids IDE launchers and local-model app startup, so selecting a planner does not launch another app over the pacer window.
+
 - Delegate defaults to the active repository filter or remembered repository, supports an optional task kind, previews routing and submits with Cmd+Enter (Ctrl+Enter on Linux).
 - Headless Session views explain the run and highlight Take over instead of showing unavailable watch options.
 - Desktop sign-in loops show a diagnosis and last error after 45 seconds, keep retrying with a tray error dot, and write lifecycle logs to a rotating private desktop log.
