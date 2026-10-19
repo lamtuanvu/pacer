@@ -11,7 +11,7 @@ The intended front door is a download: get the app, open it, follow it. Today th
 - Releases publish only CLI binaries. The desktop app is built by the manual, unsigned `desktop.yml` workflow and is not published.
 - The app needs a CLI installed separately. The shell already looks for `Contents/Resources/pacer` (`desktop/src-tauri/src/client.rs`), but nothing puts one in the bundle.
 - Without a CLI on a fresh account, the app never reaches its install page. It retries `service install` every 20 seconds, then shows "pacer could not finish signing in… Waiting for the local service to start". The install page appears only when a service is already healthy (live test, 2026-10-19). Even that page has no action, and the "complete copy" it asks for doesn't exist.
-- The shell manages the fixed launchd label `com.pacer.serve` whatever `PACER_HOME` and `PACER_PORT` say. An app pointed at a second home can kickstart, and after its hung-service backoff restart, the user's main service.
+- The shell manages the fixed launchd label `com.pacer.serve` whatever `PACER_HOME` and `PACER_PORT` say, and never checks that the job serves its own home. An app pointed at a second home starts the user's main service when it is stopped. If anything on the app's port accepts connections without answering health checks, the hung-service path restarts the main service with `kickstart -k`, without consulting the job at all.
 - With a CLI it runs `service install` and `start` without asking. Wave 1 made service installation a consented step everywhere else.
 - The app reports 0.1.0 while the package is 0.2.3 (REL-8).
 
