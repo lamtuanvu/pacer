@@ -368,6 +368,7 @@ fn recovery(app: &AppHandle, state: &str) {
                     "protocol" => "protocol",
                     "permission" => "permission",
                     "install" => "install",
+                    "foreign" => "foreign",
                     "stuck" => "stuck",
                     _ => "starting",
                 },
@@ -389,7 +390,8 @@ fn recovery(app: &AppHandle, state: &str) {
         "permission" => "macOS needs your permission",
         "oldApp" => "Update the pacer app",
         "oldService" => "Update pacer",
-        "install" => "Install the pacer app",
+        "install" => "pacer needs its command-line tool",
+        "foreign" => "Another pacer is running",
         "protocol" => "Unable to connect to pacer",
         _ => "Starting pacer…",
     };
