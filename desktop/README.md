@@ -1,6 +1,6 @@
 # pacer desktop (U2)
 
-An unsigned macOS and Linux Tauri v2 shell. Install the pacer CLI separately. The window
+An unsigned macOS and Linux Tauri v2 shell with the pacer CLI bundled as a sidecar. The window
 loads the existing web UI from the local service; only recovery screens are
 bundled here. Closing the window keeps the native tray client running. Quit
 from the tray to exit; the Dock icon or Open pacer restores the window.
@@ -10,10 +10,12 @@ from the tray to exit; the Dock icon or Open pacer restores the window.
 ### macOS
 
 Requires macOS, Xcode Command Line Tools, Rust 1.99.0 (pinned in
-`src-tauri/rust-toolchain.toml`) and Bun. From this folder:
+`src-tauri/rust-toolchain.toml`) and Bun ≥ 1.4.2. From this folder:
 
 ```sh
 bun install --frozen-lockfile
+(cd .. && bun install --frozen-lockfile)
+./scripts/stage-cli.sh
 cd src-tauri
 cargo build --offline
 cargo test --offline
@@ -27,6 +29,25 @@ The app is at `src-tauri/target/release/bundle/macos/pacer.app`. The manual
 then uploads a zipped unsigned app. It does not publish a release. This build
 is for owner testing; signing and notarization are separate work.
 
+Stage the CLI before either Cargo tests or a Tauri build. With no argument,
+`./scripts/stage-cli.sh` runs `bun run build` at the repository root. To reuse
+an executable, run `./scripts/stage-cli.sh /path/to/pacer`. It copies the CLI
+with mode 0755 to `src-tauri/binaries/pacer-<Rust host triple>`; cross builds
+must supply a binary for their target and set `TAURI_TARGET_TRIPLE` accordingly.
+Tauri places it at `pacer.app/Contents/MacOS/pacer` without the triple suffix.
+Check the packaged CLI without opening the app:
+
+```sh
+src-tauri/target/release/bundle/macos/pacer.app/Contents/MacOS/pacer --version
+```
+
+If local Bun is older, use `npx -y bun@1.4.2` for Bun commands. The staging
+script accepts `BUN` as a single executable name or path (not a shell command):
+
+```sh
+BUN="$(npx -y bun@1.4.2 -p 'process.execPath')" ./scripts/stage-cli.sh
+```
+
 ### Updating the macOS app
 
 Replace the installed `pacer.app` bundle with the new build at the same path.
@@ -35,11 +56,11 @@ its executable modification time or `CFBundleVersion`. It requests a graceful
 Tauri exit and schedules an `open -n <bundle>` helper from the exit event. The helper waits for the old process to exit before launching
 the replacement bundle.
 The main window keeps its visibility and route; the tray reconnects to the
-service and restores its current status. The CLI is updated separately.
+service and restores its current status. Replacing the app also replaces its bundled CLI.
 
 ### Linux
 
-Requires Rust 1.99.0, Bun and a desktop session with WebKitGTK 4.1 and an
+Requires Rust 1.99.0, Bun ≥ 1.4.2 and a desktop session with WebKitGTK 4.1 and an
 AppIndicator-compatible tray (GNOME may need an AppIndicator extension).
 On Ubuntu 24.04, install the build dependencies:
 
@@ -47,6 +68,8 @@ On Ubuntu 24.04, install the build dependencies:
 sudo apt-get update
 sudo apt-get install -y build-essential curl wget file libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 bun install --frozen-lockfile
+(cd .. && bun install --frozen-lockfile)
+./scripts/stage-cli.sh
 cd src-tauri
 cargo check --offline
 cargo test --offline
@@ -62,7 +85,7 @@ Run the AppImage with `chmod +x pacer_*.AppImage` then `./pacer_*.AppImage`
 (FUSE 2 may be required; `--appimage-extract-and-run` avoids FUSE), or install
 the matching `.deb` with `sudo apt install ./pacer_*.deb` and run `pacer-desktop`.
 For development, run `bunx tauri dev` from this folder.
-Install the pacer CLI separately and let the app manage its local service.
+The bundled pacer CLI lets the app manage its local service.
 
 The manual `desktop.yml` workflow also builds unsigned AppImage and `.deb`
 artifacts on native Ubuntu x86_64 and arm64 runners. The arm64 job requires
