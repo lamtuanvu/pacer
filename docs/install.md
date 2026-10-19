@@ -148,6 +148,15 @@ Checks only GET `latest.json`, time out after three seconds, and cache in
 panel has no update buttons or host calls, and the worker never installs a newer
 release than the version shipped with its plugin.
 
+## Desktop app updates on macOS
+
+Replace the installed `pacer.app` bundle with the new version at the same path.
+The running app checks its executable and bundle version every 30 seconds and
+restarts itself from the replacement bundle after a short delay. It keeps the
+main window's visibility and route, and the tray reconnects to the service to
+restore its status. Update the pacer CLI separately. See
+[desktop build instructions](../desktop/README.md) for building the bundle.
+
 ## macOS: removable volumes
 
 When repositories live on an external or removable volume, macOS may ask whether
