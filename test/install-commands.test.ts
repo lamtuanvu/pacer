@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
 import { loadStrategy } from "../src/config/strategy";
@@ -193,6 +193,101 @@ function allFixture() {
   ctx.env.PACER_BIN = binary;
   return { ctx, binary };
 }
+
+const appPathBlock = '# >>> pacer >>>\nexport PATH="$HOME/.local/bin:$PATH"\n# <<< pacer <<<\n';
+
+test("uninstall --all lists app cleanup in confirmation and JSON without changing files", async () => {
+  const { ctx } = allFixture();
+  const rc = join(ctx.home, ".zshrc");
+  writeFileSync(rc, appPathBlock);
+  const link = join(ctx.home, ".local/bin/pacer");
+  mkdirSync(join(ctx.home, ".local/bin"), { recursive: true });
+  symlinkSync(join(ctx.home, "x.app/Contents/MacOS/pacer"), link);
+  for (const json of [false, true]) {
+    const result = await uninstallAll(["--all", ...(json ? ["--json"] : [])], ctx, { tty: false });
+    expect(result.code).toBe(2);
+    expect(result.out).toContain("Remove the pacer PATH line from ~/.zshrc");
+    expect(result.out).toContain("Remove the ~/.local/bin/pacer link to the pacer app");
+    if (json) expect(JSON.parse(result.out).plan.map((step: { kind: string }) => step.kind)).toEqual(["path-block", "app-link", "home", "binary"]);
+  }
+  expect(readFileSync(rc, "utf8")).toBe(appPathBlock);
+  expect(lstatSync(link).isSymbolicLink()).toBe(true);
+});
+
+test("uninstall --all atomically removes both PATH blocks and the app link after service", async () => {
+  const { ctx, binary } = allFixture();
+  const link = join(ctx.home, ".local/bin/pacer");
+  const bundled = join(ctx.home, "x.app/Contents/MacOS/pacer");
+  mkdirSync(join(ctx.home, "x.app/Contents/MacOS"), { recursive: true });
+  writeFileSync(bundled, "bundled binary");
+  mkdirSync(join(ctx.home, ".local/bin"), { recursive: true });
+  symlinkSync(bundled, link);
+  for (const name of [".zshrc", ".bashrc"]) {
+    const path = join(ctx.home, name);
+    writeFileSync(path, `before\n${appPathBlock}after\n`);
+    chmodSync(path, 0o640);
+    linkSync(path, path + ".original");
+  }
+  const unit = servicePath(ctx, "linux");
+  mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
+  writeFileSync(unit, MARKER);
+  const result = await uninstallAll(["--all", "--yes", "--json"], ctx, {
+    platform: "linux",
+    service: () => ({ async uninstall() {
+      expect(readFileSync(join(ctx.home, ".zshrc"), "utf8")).toContain(appPathBlock);
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    } }),
+    removeHome: () => {
+      expect(existsSync(link)).toBe(false);
+      expect(readFileSync(join(ctx.home, ".zshrc"), "utf8")).toBe("before\nafter\n");
+    },
+  });
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.out).results.map((step: { kind: string }) => step.kind)).toEqual(["service", "path-block", "path-block", "app-link", "home"]);
+  for (const name of [".zshrc", ".bashrc"]) {
+    expect(readFileSync(join(ctx.home, name), "utf8")).toBe("before\nafter\n");
+    expect(statSync(join(ctx.home, name)).mode & 0o777).toBe(0o640);
+    expect(readFileSync(join(ctx.home, name + ".original"), "utf8")).toBe(`before\n${appPathBlock}after\n`);
+  }
+  expect(readdirSync(ctx.home).filter(name => name.includes(".tmp"))).toEqual([]);
+  expect(existsSync(link)).toBe(false);
+  expect(readFileSync(bundled, "utf8")).toBe("bundled binary");
+  expect(existsSync(binary)).toBe(true);
+});
+
+test("uninstall --all skips symlinked and unwritable rc files and unrelated terminal binaries", async () => {
+  for (const kind of ["regular", "foreign-link"]) {
+    const { ctx, binary } = allFixture();
+    const original = join(ctx.home, "profile");
+    writeFileSync(original, appPathBlock);
+    symlinkSync(original, join(ctx.home, ".zshrc"));
+    writeFileSync(join(ctx.home, ".bashrc"), appPathBlock);
+    chmodSync(join(ctx.home, ".bashrc"), 0o444);
+    const link = join(ctx.home, ".local/bin/pacer");
+    mkdirSync(join(ctx.home, ".local/bin"), { recursive: true });
+    if (kind === "regular") writeFileSync(link, "keep");
+    else symlinkSync(binary, link);
+    const result = await uninstallAll(["--all", "--yes", "--json"], ctx);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.out).results.map((step: { kind: string }) => step.kind)).toEqual(["home"]);
+    expect(lstatSync(join(ctx.home, ".zshrc")).isSymbolicLink()).toBe(true);
+    expect(readFileSync(original, "utf8")).toBe(appPathBlock);
+    expect(readFileSync(join(ctx.home, ".bashrc"), "utf8")).toBe(appPathBlock);
+    expect(existsSync(link)).toBe(true);
+  }
+});
+
+test("uninstall --all --binary succeeds when the selected binary is the app link", async () => {
+  const { ctx } = allFixture();
+  const link = join(ctx.home, ".local/bin/pacer");
+  mkdirSync(join(ctx.home, ".local/bin"), { recursive: true });
+  symlinkSync(join(ctx.home, "x.app/Contents/MacOS/pacer"), link);
+  ctx.env.PACER_BIN = link;
+  const result = await uninstallAll(["--all", "--yes", "--binary", "--json"], ctx);
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.out).results.map((step: { kind: string }) => step.kind)).toEqual(["app-link", "home", "binary"]);
+  expect(() => lstatSync(link)).toThrow();
+});
 
 test("uninstall --all prints the full plan and refuses non-TTY without --yes", async () => {
   const { ctx, binary } = allFixture();
