@@ -2,6 +2,45 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+/// Identity read from disk once at startup, then compared without using NSBundle's cache.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, PartialEq)]
+pub struct BundleIdentity {
+    pub executable_mtime: std::time::SystemTime,
+    pub version: Option<String>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+pub fn bundle_identity(executable: &Path) -> std::io::Result<BundleIdentity> {
+    let executable_mtime = std::fs::metadata(executable)?.modified()?;
+    let contents = executable
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| std::io::Error::other("Missing bundle Contents directory"))?;
+    let info =
+        plist::Value::from_file(contents.join("Info.plist")).map_err(std::io::Error::other)?;
+    let version = info
+        .as_dictionary()
+        .and_then(|info| info.get("CFBundleVersion"))
+        .and_then(plist::Value::as_string)
+        .map(str::to_owned);
+    Ok(BundleIdentity {
+        executable_mtime,
+        version,
+    })
+}
+
+/// Missing executable means replacement too; other read failures should be retried.
+#[cfg(any(target_os = "macos", test))]
+pub fn bundle_replaced(executable: &Path, started: &BundleIdentity) -> std::io::Result<bool> {
+    match std::fs::metadata(executable) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(error) => Err(error),
+        Ok(metadata) if metadata.modified()? != started.executable_mtime => Ok(true),
+        Ok(_) => Ok(bundle_identity(executable)? != *started),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HealthProbe {
     Refused,
@@ -420,6 +459,47 @@ impl Sse {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn bundle_replacement_detects_removed_executable_mtime_and_version() {
+        use std::time::{Duration, SystemTime};
+        let root = std::env::temp_dir().join(format!(
+            "pacer-bundle-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let executable = root.join("pacer.app/Contents/MacOS/pacer");
+        std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        let info = root.join("pacer.app/Contents/Info.plist");
+        let write_version = |version: &str| {
+            std::fs::write(&info, format!(
+                "<plist version=\"1.0\"><dict><key>CFBundleVersion</key><string>{version}</string></dict></plist>"
+            )).unwrap();
+        };
+        write_version("1");
+        std::fs::write(&executable, "old executable").unwrap();
+        let started = bundle_identity(&executable).unwrap();
+        assert!(!bundle_replaced(&executable, &started).unwrap());
+        write_version("2");
+        assert!(bundle_replaced(&executable, &started).unwrap());
+        write_version("1");
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&executable)
+            .unwrap();
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_modified(started.executable_mtime + Duration::from_secs(10)),
+        )
+        .unwrap();
+        assert!(bundle_replaced(&executable, &started).unwrap());
+        std::fs::remove_file(&executable).unwrap();
+        assert!(bundle_replaced(&executable, &started).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn consent_detection_does_not_attribute_other_prompts_to_pacer() {
         assert!(consent_window(

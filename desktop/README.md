@@ -25,7 +25,16 @@ Offline builds require the locked crates and Bun packages to be cached first.
 The app is at `src-tauri/target/release/bundle/macos/pacer.app`. The manual
 `desktop.yml` workflow fetches the locked dependencies, tests and builds offline,
 then uploads a zipped unsigned app. It does not publish a release. This build
-is for owner testing; signing, notarization and updates are separate work.
+is for owner testing; signing and notarization are separate work.
+
+### Updating the macOS app
+
+Replace the installed `pacer.app` bundle with the new build at the same path.
+The running app checks every 30 seconds for a missing executable or a change to
+its executable modification time or `CFBundleVersion`. It schedules a short
+delayed `open -n <bundle>` launch and exits, so the new bundle starts automatically.
+The main window keeps its visibility and route; the tray reconnects to the
+service and restores its current status. The CLI is updated separately.
 
 ### Linux
 
