@@ -1,3 +1,4 @@
+import { SetupContext } from "./screens/setup/context";
 import { render } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { createApi } from "./data/api";
@@ -17,7 +18,7 @@ import { Delegate } from "./screens/Delegate";
 import { followSavedTheme } from "./theme";
 followSavedTheme();
 const store = createStore();
-const TITLES: Record<Route["name"], string> = { overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
+const TITLES: Record<Route["name"], string> = { overview: "Overview", setup: "Set up pacer", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 function App() {
   const [state, setState] = useState(store.getState);
@@ -35,6 +36,8 @@ function App() {
     window.addEventListener("hashchange", navigate);
     return () => { unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
   }, []);
+  const [setupRevision, reloadSetup] = useState(0);
+  const [runningSetup, setRunningSetup] = useState<{ id: string; executor: string }>();
   const [checklist, setChecklist] = useState<SetupChecklist | "error">();
   useEffect(() => {
     let active = true;
@@ -42,13 +45,13 @@ function App() {
     refresh();
     const timer = setInterval(refresh, 5000);
     return () => { active = false; clearInterval(timer); };
-  }, [api, state.invalidations.setup, state.connected]);
+  }, [api, state.invalidations.setup, state.connected, setupRevision]);
   // Unknown until the first setup check answers, so screens wait instead of flashing Setup.
   const setupComplete = setupCompleteFrom(checklist);
   const resolved = resolveRoute(hash, setupComplete);
   useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
   const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
-  if (!SETTINGS.has(route.name) && route.name !== "loading") lastWork.current = hash || "#/";
+  if (!SETTINGS.has(route.name) && route.name !== "loading" && route.name !== "setup") lastWork.current = hash || "#/";
   useEffect(() => {
     keys.setScope(route.name);
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
@@ -75,7 +78,13 @@ function App() {
     return () => document.removeEventListener("click", follow, true);
   }, []);
   return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}>
-    <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
+    <SetupContext.Provider value={{
+      checklist: checklist === "error" ? undefined : checklist,
+      refresh: () => reloadSetup(v => v + 1), running: runningSetup,
+      setRunning: (id, executor) => setRunningSetup({ id, executor }),
+    }}>
+      <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
+    </SetupContext.Provider>
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;

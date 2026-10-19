@@ -1,7 +1,7 @@
 /** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
-  | { name: "overview" | "loading" }
+  | { name: "overview" | "loading" | "setup" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions"; id?: string }
   | { name: "settings"; section?: string }
@@ -38,10 +38,11 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true)
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   if (!settingsArea && setupComplete === null) return { name: "loading", query };
-  if (!settingsArea && setupComplete === false) return { redirect: withQuery("#/settings", query) };
+  if (!settingsArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
   return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), query } as Route;
 }
 function match(path: string): RouteBase {
+  if (path === "/setup") return { name: "setup" };
   if (path === "/") return { name: "overview" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/settings/hosts") return { name: "hosts" };
