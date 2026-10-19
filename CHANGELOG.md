@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Delegate defaults to the active repository filter or remembered repository, supports an optional task kind, previews routing and submits with Cmd+Enter (Ctrl+Enter on Linux).
+- Desktop sign-in loops show a diagnosis and last error after 45 seconds, keep retrying with a tray error dot, and write lifecycle logs to a rotating private desktop log.
 - Account, runner and endpoint edits automatically migrate legacy settings with a backup instead of asking you to run `pacer config migrate`.
 
 - `pacer delegate` accepts common kind aliases (`bugfix`/`fix`/`bug`, `test`, `doc`, `perf`) and suggests the closest kind for invalid input.
