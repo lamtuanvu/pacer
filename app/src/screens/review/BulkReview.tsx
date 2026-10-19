@@ -5,6 +5,7 @@ import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { reviewQueue } from "../../../../src/view-model/selectors";
 import type { ActionRunner } from "../../data/actions";
+import { useDialogs } from "../../ds/useDialogs";
 import { Button } from "../../ds/Button";
 import { verdictParams } from "./model";
 
@@ -16,7 +17,7 @@ export function selectedReviews(items: AttentionItem[], selected: ReadonlySet<st
 }
 interface BulkRequest {
   items: AttentionItem[]; passingOnly: boolean; verdict: "accept" | "reject"; runner: ActionRunner;
-  confirm: (message: string) => boolean; prompt: (message: string) => string | null;
+  confirm: (message: string) => boolean | Promise<boolean>; prompt: (message: string) => string | null | Promise<string | null>;
 }
 /** Freeze the checked evidence at confirmation and submit each existing verdict op with its revision. */
 export async function runBulkReview({ items, passingOnly, verdict, runner, confirm, prompt }: BulkRequest): Promise<string> {
@@ -39,11 +40,11 @@ export async function runBulkReview({ items, passingOnly, verdict, runner, confi
     if (!passingOnly || task.acceptance?.state === "passed") tasks.push(task);
   }
   if (!tasks.length) return ["No eligible tasks.", ...messages].join("\n");
-  const note = verdict === "reject" ? prompt("Rejection note for all selected tasks:") : undefined;
+  const note = verdict === "reject" ? await prompt("Rejection note for all selected tasks:") : undefined;
   if (verdict === "reject" && !note?.trim()) return "Cancelled. Rejection requires a note.";
   const label = verdict === "accept" ? "Accept" : "Reject";
   const list = tasks.map(task => `• ${task.title ?? task.goal} (${task.id}) · ${task.repo.label}`).join("\n");
-  if (!confirm(`${label} ${tasks.length} task(s)?\n\n${list}\n\n${note ? `Note: ${note}\n\n` : ""}This records verdicts only. You merge branches.${messages.length ? `\n\nSkipped:\n${messages.join("\n")}` : ""}`)) return "Cancelled. No verdicts recorded.";
+  if (!await confirm(`${label} ${tasks.length} task(s)?\n\n${list}\n\n${note ? `Note: ${note}\n\n` : ""}This records verdicts only. You merge branches.${messages.length ? `\n\nSkipped:\n${messages.join("\n")}` : ""}`)) return "Cancelled. No verdicts recorded.";
   let done = 0;
   for (const task of tasks) {
     const result = await runner.run(`review:${task.id}`, {
@@ -64,6 +65,7 @@ export function ReviewCheckbox({ item }: { item: AttentionItem }) {
     onChange={() => selection.toggle(item.taskId!)} />;
 }
 export function BulkReview({ snapshot, repo, runner, children }: { snapshot: ClientSnapshot; repo: string | null; runner: ActionRunner; children: ComponentChildren }) {
+  const dialogs = useDialogs();
   const items = scopedReviewQueue(snapshot, repo);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
@@ -75,7 +77,7 @@ export function BulkReview({ snapshot, repo, runner, children }: { snapshot: Cli
     inFlight.current = true; setBusy(true); setMessage("");
     try {
       setMessage(await runBulkReview({ items: passingOnly ? items : selectedReviews(items, selected), passingOnly, verdict, runner,
-        confirm: text => window.confirm(text), prompt: text => window.prompt(text) }));
+        confirm: text => dialogs.confirm(text, verdict === "accept" ? "Accept tasks" : "Reject tasks", verdict === "accept" ? "Accept tasks" : "Reject tasks"), prompt: dialogs.prompt }));
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { inFlight.current = false; setBusy(false); }
   };
@@ -96,6 +98,7 @@ export function BulkReview({ snapshot, repo, runner, children }: { snapshot: Cli
       {busy && <p role="status">Checking evidence / recording verdicts…</p>}
     </div>}
     {message && <p className="pc-bulk-result" role="status" aria-live="polite">{message}</p>}
+    {dialogs.dialog}
     {children}
   </BulkSelection.Provider>;
 }

@@ -1,3 +1,4 @@
+import { useDialogs } from '../../ds/useDialogs';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { TaskDetail } from '../../../../src/core/task-detail';
 import type { ClientTask } from '../../../../src/view-model/snapshot';
@@ -30,6 +31,7 @@ export function sessionDetail(task:TaskDetail):SessionData {
 }
 export function SessionRoute({id}:{id:string}) {
  const {state,api}=useTaskContext(),runner=useActions();
+ const dialogs=useDialogs();
  const [shortcutError,setShortcutError]=useState('');
  const [takeoverBusy,setTakeoverBusy]=useState(false),[takeoverStarting,setTakeoverStarting]=useState(false),[takeoverError,setTakeoverError]=useState(''),[takeRequested,setTakeRequested]=useState(false);
  const takeoverState=useRef<TakeoverState>(),takeoverAbort=useRef<AbortController>();
@@ -55,7 +57,8 @@ export function SessionRoute({id}:{id:string}) {
   return ()=>{takeoverAbort.current?.abort();};
  },[id]);
  const invoke=async(action:Action)=>{
-  if(runner.needsConfirm(action)&&!window.confirm(runner.needsConfirm(action)!))return;
+  const confirmation=runner.needsConfirm(action);
+  if(confirmation&&!await dialogs.confirm(confirmation,action.label,action.label))return;
   let currentAction=action;
   if(action.op==='task.retry'&&task.data&&['running','queued'].includes(task.data.state)) {
    const stopped=await runner.run(`session:${id}:task.stop`,{label:'Stop',op:'task.stop',params:{id,expect_rev:task.data.rev}});
@@ -77,6 +80,6 @@ export function SessionRoute({id}:{id:string}) {
  changes:{data:diff.data?`${diff.data.diff}${diff.data.untracked.length?'\nUntracked files:\n'+diff.data.untracked.join('\n'):''}${diff.data.truncated?'\nDiff truncated.':''}`:undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}),[]);
- return <>{shortcutError&&<p role="status">{shortcutError}</p>}<Session onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
+ return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;
