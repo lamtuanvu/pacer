@@ -116,3 +116,16 @@ test('settings navigation pluralises rule counts',()=>{
   expect(html).toContain(`>${count} ${count===1?'rule':'rules'}</span>`);
  }
 });
+
+test('General exposes named parallel tasks controls and shared capacity notes',()=>{
+ const limited={...executor,rank:1,slots:{used:0,max:4},limitedBy:'machine'};
+ const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
+ expect(html).toContain('Parallel tasks for '+executor.id);
+ expect(html).toContain('Limited to 2 by this machine');
+ expect(html).toContain('Parallel tasks on this machine');
+ expect(html).toContain('Shared by all executors that run on this machine.');
+ expect(html).toContain('min="1" max="16" step="1"');
+ expect(html).not.toContain('>Slots<');
+ const planner=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
+ expect(planner).not.toContain('Parallel tasks for '+executor.id);
+});

@@ -1,3 +1,4 @@
+import { queueWait } from "../../../src/view-model/capacity";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { ActivityEntry, AttentionItem } from "../../../src/api/read-model/types";
@@ -68,7 +69,7 @@ function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnap
       <span className="muted">{t.repo?.label}</span>
       <Pill tone={t.state === "queued" ? "neutral" : "info"}>{phaseWords(t.state === "queued" ? "queued" : t.progress?.phase ?? t.state)}</Pill>
       {t.state === "queued"
-        ? <><span className="muted">{t.queue?.reason === "no_slot" ? "waiting for a slot" : "queued"}</span><ActionButton runner={runner} id={`${t.id}:stop`} action={{ label: "Stop", op: "task.stop", params: { id: t.id } }} confirmDone={s => !s.snapshot?.tasks.some(x => x.id === t.id && x.state === "queued")} /></>
+        ? <><span className="muted">{queueWait(t, snapshot)}</span><ActionButton runner={runner} id={`${t.id}:stop`} action={{ label: "Stop", op: "task.stop", params: { id: t.id } }} confirmDone={s => !s.snapshot?.tasks.some(x => x.id === t.id && x.state === "queued")} /></>
         : <>{t.attemptStartedAt && <span className="muted">{elapsed(now - t.attemptStartedAt)}</span>}
           {t.progress && <span className="muted">{t.progress.files} files · {t.progress.commits} commits</span>}
           {lastOutput(t, now)}<a className="pc-btn pc-btn--secondary pc-btn--sm" href={withQuery(`#/sessions/${encodeURIComponent(t.id)}`, query)}>Watch</a><ActionButton runner={runner} id={`${t.id}:takeover`} action={{label:"Take over",op:"task.takeover",params:{id:t.id}}}/></>}
@@ -87,7 +88,7 @@ function Capacity({ snapshot, narrow, query }: { snapshot: ClientSnapshot; narro
       <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><div className={OFF_STATES.has(e.state) ? "pc-bad-text" : "muted"}>{OFF_STATES.has(e.state) && e.reason ? e.reason : e.usedPct === null ? <><StatusGlyph kind="waiting" /> Unknown · {e.paceReason ?? e.reason ?? "no usage reported"}</> : e.sub}</div></div>
       <div><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={toneFor(e.tone)} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
       <span className="muted pc-num">{e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`}</span>
-      <span className="muted pc-num">{e.slots.used}/{e.slots.max}</span>
+      <span className="muted pc-num" aria-label={`${e.slots.used} of ${e.slots.max} parallel tasks`}>{e.slots.used}/{e.slots.max}</span>
     </a>)}{narrow && <span className="muted">{c?.ready ?? 0} ready · {down} down</span>}</div>
     {!rows.length && <p className="muted">No executors yet. <a href={withQuery("#/settings/add-executor", query)}>Add one.</a></p>}
   </section>;

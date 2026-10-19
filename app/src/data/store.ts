@@ -84,7 +84,7 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       const envelope = parseEnvelope({ v: 1, type: event.type, data: event.data });
       if (!envelope) return state;
       const snapshot = { ...state.snapshot, ...reduce(state.snapshot as LinkSnapshot, envelope, event.at), seq: event.seq } as SnapshotV2;
-      return { ...state, snapshot, invalidations: envelope.type === "config" ? { ...state.invalidations, [envelope.data.area]: (state.invalidations[envelope.data.area] ?? 0) + 1 } : state.invalidations };
+      return { ...state, snapshot, needsSnapshot: envelope.type === "config" || state.needsSnapshot, invalidations: envelope.type === "config" ? { ...state.invalidations, [envelope.data.area]: (state.invalidations[envelope.data.area] ?? 0) + 1 } : state.invalidations };
     }
   }
 }
