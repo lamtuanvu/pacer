@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- The macOS service is installed as a Standard launchd job instead of Background. Background jobs get throttled disk I/O, and under memory pressure that stalled the service and its health thread for 30–90 seconds, so the desktop app kept restarting it. Reinstalled on update.
+
 - `release:prepare` now keeps the desktop app configuration, Cargo manifest and lockfile version in step with `package.json`; the desktop version is corrected to 0.3.0 (#188).
 
 ## [0.3.0] - 2026-10-19
