@@ -55,6 +55,8 @@ pub enum JobState {
     NotLoaded,
     Stopped,
     Running,
+    /// Loaded, but it serves another pacer home or port; never started or restarted.
+    Foreign,
     Unknown,
 }
 #[derive(Clone, Debug, serde::Serialize)]
@@ -134,6 +136,7 @@ pub enum RecoveryAction {
     Connect,
     Wait,
     Protocol,
+    Foreign,
 }
 /// Ordered manager actions; a failed install must not run the following start.
 pub fn service_steps(action: RecoveryAction) -> &'static [&'static str] {
@@ -167,6 +170,10 @@ impl Lifecycle {
             } else {
                 Wait
             };
+        }
+        if job == JobState::Foreign && matches!(health, HealthProbe::Refused | HealthProbe::NoAnswer) {
+            self.hung_since = None;
+            return Foreign;
         }
         if health != HealthProbe::NoAnswer {
             self.hung_since = None;
@@ -254,6 +261,107 @@ pub fn launchctl_args(uid: u32, action: &str) -> Vec<String> {
         "print" => vec!["print".into(), target],
         "restart" => vec!["kickstart".into(), "-k".into(), target],
         _ => vec!["kickstart".into(), target],
+    }
+}
+
+/// Whether the shell may start or restart the service manager's job. A job owned by another pacer is
+/// never touched; on macOS an unconfirmed job is not either. On Linux, an unknown job falls back to
+/// running `pacer serve` directly, which acts only on this shell's own home.
+pub fn may_manage_job(job: JobState, macos: bool) -> bool {
+    match job {
+        JobState::Foreign => false,
+        JobState::Unknown => !macos,
+        _ => true,
+    }
+}
+
+/// The job's own `environment = {` block from `launchctl print`. The inherited and
+/// default blocks describe launchd itself, not the job.
+pub fn launchd_environment(text: &str) -> Vec<(String, String)> {
+    let mut vars = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if !inside {
+            inside = line == "\tenvironment = {";
+            continue;
+        }
+        if line.trim() == "}" {
+            break;
+        }
+        if let Some((key, value)) = line.trim().split_once(" => ") {
+            vars.push((key.to_owned(), value.to_owned()));
+        }
+    }
+    vars
+}
+
+/// `Environment=` from `systemctl --user show`; assignments with spaces are double-quoted.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub fn systemd_environment(text: &str) -> Vec<(String, String)> {
+    let Some(line) = text.lines().find_map(|line| line.strip_prefix("Environment=")) else {
+        return Vec::new();
+    };
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let (mut quoted, mut escaped) = (false, false);
+    for c in line.chars() {
+        match c {
+            _ if escaped => {
+                word.push(c);
+                escaped = false;
+            }
+            '\\' => escaped = true,
+            '"' => quoted = !quoted,
+            ' ' if !quoted => {
+                if !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                }
+            }
+            _ => word.push(c),
+        }
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    words
+        .into_iter()
+        .filter_map(|w| w.split_once('=').map(|(k, v)| (k.to_owned(), v.to_owned())))
+        .collect()
+}
+
+/// The pacer home and port a service job serves. `src/service/index.ts` always records
+/// PACER_HOME and records PACER_PORT only when it differs from the default.
+pub fn job_owner(env: &[(String, String)], default_home: &str) -> (String, u16) {
+    let get = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+    let home = get("PACER_HOME").unwrap_or(default_home).to_owned();
+    let port = get("PACER_PORT").and_then(|p| p.parse().ok()).unwrap_or(4317);
+    (home, port)
+}
+
+/// The one page a lifecycle pass shows. It follows the state, not this pass's action, so the
+/// window doesn't fall back to "starting" on the `Wait` passes between gated actions.
+pub fn shell_page(permission: bool, action: RecoveryAction, job: JobState, cli_found: bool) -> &'static str {
+    if permission {
+        "permission"
+    } else if action == RecoveryAction::Foreign {
+        "foreign"
+    } else if !cli_found
+        && (job == JobState::NotLoaded || matches!(action, RecoveryAction::Install | RecoveryAction::Connect))
+    {
+        "install"
+    } else {
+        "starting"
+    }
+}
+
+pub fn display_home(path: &str, home: &str) -> String {
+    if home.is_empty() {
+        return path.to_owned();
+    }
+    match path.strip_prefix(home) {
+        Some("") => "~".to_owned(),
+        Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+        _ => path.to_owned(),
     }
 }
 
@@ -1085,6 +1193,101 @@ mod tests {
         );
         assert_eq!(volume_waiting(&other), None);
         assert_eq!(volume_waiting(&serde_json::json!({"service":{}})), None);
+    }
+    #[test]
+    fn launchd_environment_reads_only_the_job_block() {
+        let text = "gui/501/com.pacer.serve = {\n\tinherited environment = {\n\t\tSSH_AUTH_SOCK => /tmp/x\n\t}\n\tdefault environment = {\n\t\tPATH => /usr/bin\n\t}\n\tenvironment = {\n\t\tPACER_HOME => /Users/u/.pacer\n\t\tPACER_PORT => 5000\n\t\tHOME => /Users/u\n\t}\n\tstate = running\n}\n";
+        assert_eq!(
+            launchd_environment(text),
+            vec![
+                ("PACER_HOME".to_owned(), "/Users/u/.pacer".to_owned()),
+                ("PACER_PORT".to_owned(), "5000".to_owned()),
+                ("HOME".to_owned(), "/Users/u".to_owned()),
+            ]
+        );
+        assert!(launchd_environment("state = running\n").is_empty());
+    }
+    #[test]
+    fn systemd_environment_handles_quoted_assignments() {
+        let text = "LoadState=loaded\nEnvironment=HOME=/home/u \"PATH=/a b:/usr/bin\" PACER_HOME=/home/u/.pacer\nActiveState=active\n";
+        assert_eq!(
+            systemd_environment(text),
+            vec![
+                ("HOME".to_owned(), "/home/u".to_owned()),
+                ("PATH".to_owned(), "/a b:/usr/bin".to_owned()),
+                ("PACER_HOME".to_owned(), "/home/u/.pacer".to_owned()),
+            ]
+        );
+        assert!(systemd_environment("LoadState=loaded\n").is_empty());
+    }
+    #[test]
+    fn job_owner_defaults_to_the_standard_home_and_port() {
+        let env = vec![("HOME".to_owned(), "/Users/u".to_owned())];
+        assert_eq!(job_owner(&env, "/Users/u/.pacer"), ("/Users/u/.pacer".to_owned(), 4317));
+        let env = vec![
+            ("PACER_HOME".to_owned(), "/tmp/other".to_owned()),
+            ("PACER_PORT".to_owned(), "5000".to_owned()),
+        ];
+        assert_eq!(job_owner(&env, "/Users/u/.pacer"), ("/tmp/other".to_owned(), 5000));
+        let env = vec![("PACER_PORT".to_owned(), "not-a-port".to_owned())];
+        assert_eq!(job_owner(&env, "/Users/u/.pacer").1, 4317);
+    }
+    #[test]
+    fn unconfirmed_or_foreign_jobs_are_not_managed() {
+        assert!(!may_manage_job(JobState::Foreign, true));
+        assert!(!may_manage_job(JobState::Foreign, false));
+        assert!(!may_manage_job(JobState::Unknown, true));
+        assert!(may_manage_job(JobState::Unknown, false));
+        for job in [JobState::NotLoaded, JobState::Stopped, JobState::Running] {
+            assert!(may_manage_job(job, true));
+            assert!(may_manage_job(job, false));
+        }
+    }
+    #[test]
+    fn foreign_job_is_never_started_or_restarted() {
+        use HealthProbe::*;
+        use RecoveryAction::*;
+        let mut state = Lifecycle::default();
+        assert_eq!(state.step(0, Refused, JobState::Foreign, false), RecoveryAction::Foreign);
+        for now in [20, 40, 60, 80, 140, 220] {
+            assert_eq!(state.step(now, NoAnswer, JobState::Foreign, false), RecoveryAction::Foreign, "{now}");
+            assert_eq!(state.step(now, Refused, JobState::Foreign, false), RecoveryAction::Foreign, "{now}");
+        }
+        // A healthy service on this shell's own port is still used.
+        assert_eq!(state.step(300, Ready, JobState::Foreign, false), Connect);
+        // Once the job is ours again, normal recovery resumes.
+        assert_eq!(state.step(301, Refused, JobState::Stopped, false), Start);
+    }
+    #[test]
+    fn one_page_per_pass_explains_a_missing_cli() {
+        use RecoveryAction::*;
+        let none = JobState::NotLoaded;
+        assert_eq!(shell_page(false, Install, none, false), "install");
+        // The Wait passes between gated installs keep the page.
+        assert_eq!(shell_page(false, Wait, none, false), "install");
+        assert_eq!(shell_page(false, Connect, JobState::Unknown, false), "install");
+        assert_eq!(shell_page(false, Install, none, true), "starting");
+        assert_eq!(shell_page(false, Connect, JobState::Unknown, true), "starting");
+        assert_eq!(shell_page(false, Wait, JobState::Running, false), "starting");
+        assert_eq!(shell_page(false, Start, JobState::Stopped, false), "starting");
+        assert_eq!(shell_page(false, RecoveryAction::Foreign, JobState::Foreign, true), "foreign");
+        assert_eq!(shell_page(true, Install, none, false), "permission");
+        assert_eq!(shell_page(true, RecoveryAction::Foreign, JobState::Foreign, false), "permission");
+    }
+    #[test]
+    fn missing_cli_page_holds_across_gated_install_passes() {
+        let mut state = Lifecycle::default();
+        for now in 0..70 {
+            let action = state.step(now, HealthProbe::Refused, JobState::NotLoaded, false);
+            assert_eq!(shell_page(false, action, JobState::NotLoaded, false), "install", "{now}");
+        }
+    }
+    #[test]
+    fn display_home_abbreviates_only_the_home_prefix() {
+        assert_eq!(display_home("/Users/u/.pacer", "/Users/u"), "~/.pacer");
+        assert_eq!(display_home("/Users/u", "/Users/u"), "~");
+        assert_eq!(display_home("/Users/user2/.pacer", "/Users/u"), "/Users/user2/.pacer");
+        assert_eq!(display_home("/tmp/x", ""), "/tmp/x");
     }
 }
 
