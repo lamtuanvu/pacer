@@ -501,6 +501,7 @@ pub async fn run(app: AppHandle) {
                     _ => "Waiting for the local service to start",
                 });
             }
+            logic::RecoveryAction::Foreign => {}
         }
     }
 }
