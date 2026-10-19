@@ -2,9 +2,24 @@ use crate::{logic, tray_model::TrayModel, Shell};
 use futures_util::StreamExt;
 use reqwest::{Client, Url};
 use serde_json::Value;
-use std::{path::PathBuf, sync::atomic::Ordering, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::Ordering,
+    time::Duration,
+};
 use tauri::{AppHandle, Manager};
 use tokio::process::Command;
+
+fn pacer_home() -> PathBuf {
+    std::env::var_os("PACER_HOME").map(PathBuf::from).unwrap_or_else(|| {
+        PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".pacer")
+    })
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    canonical(a) == canonical(b)
+}
 
 pub struct Cli {
     pub binary: PathBuf,
@@ -65,9 +80,7 @@ impl Cli {
             "/usr/local/bin:/usr/bin:/bin"
         };
         let path = format!("{}:{path}:{system_path}", binary.parent()?.display());
-        let pacer_home = std::env::var_os("PACER_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".pacer"));
+        let pacer_home = pacer_home();
         Some(Self {
             binary,
             path,
@@ -417,10 +430,11 @@ pub async fn run(app: AppHandle) {
         }
         let cli = Cli::find(&path);
         let probe = health(&probe_client).await;
-        let job = if probe == logic::HealthProbe::Refused {
-            job_state().await
+        // Restart is decided on NoAnswer, so ownership must be known there as well.
+        let (job, owner) = if matches!(probe, logic::HealthProbe::Refused | logic::HealthProbe::NoAnswer) {
+            job_state(&pacer_home(), service_port()).await
         } else {
-            logic::JobState::Unknown
+            (logic::JobState::Unknown, None)
         };
         let waiting = app.state::<Shell>().waiting.lock().unwrap().clone();
         let prompt = privacy_prompt();
@@ -441,10 +455,19 @@ pub async fn run(app: AppHandle) {
             desktop_log!("pacer lifecycle: {reason}");
             previous = reason;
         }
-        crate::diagnostic_recovery(
-            &app,
-            &logic::diagnosis(if permission { "permission" } else { "starting" }, waiting),
-        );
+        let page = logic::shell_page(permission, action, job, cli.is_some());
+        let detail = match page {
+            "permission" => waiting,
+            "foreign" => owner.map(|owner| {
+                logic::display_home(&owner, &std::env::var("HOME").unwrap_or_default())
+            }),
+            _ => None,
+        };
+        crate::diagnostic_recovery(&app, &logic::diagnosis(page, detail));
+        if matches!(page, "install" | "foreign") {
+            // Nothing this shell may do: no CLI to install with, or the job serves another pacer.
+            continue;
+        }
         match action {
             logic::RecoveryAction::Install
             | logic::RecoveryAction::Start
@@ -490,6 +513,7 @@ pub async fn run(app: AppHandle) {
                     desktop_log!(
                         "pacer lifecycle: CLI unavailable for authentication; searching again"
                     );
+                    // Guard only: shell_page already shows "install" and skips this pass when no CLI is found.
                     crate::recovery(&app, "install");
                 }
             }
@@ -501,6 +525,7 @@ pub async fn run(app: AppHandle) {
                     _ => "Waiting for the local service to start",
                 });
             }
+            logic::RecoveryAction::Foreign => {}
         }
     }
 }
@@ -632,23 +657,28 @@ fn launchctl_args(action: &str) -> Vec<String> {
     }
     logic::launchctl_args(unsafe { getuid() }, action)
 }
-async fn job_state() -> logic::JobState {
+async fn job_state(home: &Path, port: u16) -> (logic::JobState, Option<String>) {
     use logic::JobState;
+    let default_home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".pacer");
+    let owned = |env: &[(String, String)]| -> Option<String> {
+        let (owner, owner_port) = logic::job_owner(env, &default_home.to_string_lossy());
+        (!same_path(Path::new(&owner), home) || owner_port != port).then_some(owner)
+    };
     #[cfg(target_os = "macos")]
     {
         match manager_output("launchctl", &launchctl_args("print")).await {
             Ok(output) if output.status.success() => {
-                if String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .any(|line| line.trim() == "state = running")
-                {
-                    JobState::Running
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Some(owner) = owned(&logic::launchd_environment(&text)) {
+                    (JobState::Foreign, Some(owner))
+                } else if text.lines().any(|line| line.trim() == "state = running") {
+                    (JobState::Running, None)
                 } else {
-                    JobState::Stopped
+                    (JobState::Stopped, None)
                 }
             }
-            Ok(_) => JobState::NotLoaded,
-            Err(_) => JobState::Unknown,
+            Ok(_) => (JobState::NotLoaded, None),
+            Err(_) => (JobState::Unknown, None),
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -659,27 +689,30 @@ async fn job_state() -> logic::JobState {
             "pacer-serve.service",
             "--property=LoadState",
             "--property=ActiveState",
+            "--property=Environment",
         ]
         .map(String::from);
         match manager_output("systemctl", &args).await {
             Ok(output) => {
                 let text = String::from_utf8_lossy(&output.stdout);
                 if text.lines().any(|line| line == "LoadState=not-found") {
-                    JobState::NotLoaded
+                    (JobState::NotLoaded, None)
                 } else if !output.status.success() {
-                    JobState::Unknown
+                    (JobState::Unknown, None)
+                } else if let Some(owner) = owned(&logic::systemd_environment(&text)) {
+                    (JobState::Foreign, Some(owner))
                 } else if text
                     .lines()
                     .any(|line| line == "ActiveState=active" || line == "ActiveState=activating")
                 {
-                    JobState::Running
+                    (JobState::Running, None)
                 } else if text.lines().any(|line| line == "LoadState=loaded") {
-                    JobState::Stopped
+                    (JobState::Stopped, None)
                 } else {
-                    JobState::Unknown
+                    (JobState::Unknown, None)
                 }
             }
-            Err(_) => JobState::Unknown,
+            Err(_) => (JobState::Unknown, None),
         }
     }
 }
@@ -693,16 +726,21 @@ async fn service_action(
         return cli.run(&["service", "install"]).await.map(|_| ());
     }
     #[cfg(target_os = "macos")]
-    let output = manager_output("launchctl", &launchctl_args(action)).await?;
+    if !logic::may_manage_job(job, true) {
+        return Err("Unable to confirm the pacer service".to_owned());
+    }
     #[cfg(target_os = "macos")]
-    let _ = job;
+    let output = manager_output("launchctl", &launchctl_args(action)).await?;
     #[cfg(not(target_os = "macos"))]
     let output = {
         let job = if job == logic::JobState::Unknown {
-            job_state().await
+            job_state(&pacer_home(), service_port()).await.0
         } else {
             job
         };
+        if !logic::may_manage_job(job, false) {
+            return Err("The pacer service belongs to another pacer folder".to_owned());
+        }
         if matches!(job, logic::JobState::NotLoaded | logic::JobState::Unknown) {
             if action == "restart" {
                 return cli
