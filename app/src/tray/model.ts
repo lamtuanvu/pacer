@@ -23,8 +23,10 @@ export function actionRoute(action: Action): string {
 }
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
 /** Compact capacity values never invent an unknown usage percentage. */
+const OFF_STATES = new Set(["disabled", "down", "failing", "blocked"]);
 export function executorValue(executor: ExecutorRow): string {
-  if (!executor.enabled || executor.state === "disabled" || /no (active )?plan/i.test(`${executor.sub} ${executor.reason ?? ""}`)) return "off";
+  // Same off states Overview's Capacity dims (e.g. BytePlus without an active coding plan is "down").
+  if (!executor.enabled || OFF_STATES.has(executor.state) || /no (active )?(coding[- ])?plan|no subscription/i.test(`${executor.sub} ${executor.reason ?? ""}`)) return "off";
   if (executor.state === "exhausted") return "out";
   if (executor.slots.max > 0 && executor.slots.used >= executor.slots.max) return `${executor.slots.used}/${executor.slots.max}`;
   if (executor.usedPct !== null) return `${Math.round(executor.usedPct)}%`;
