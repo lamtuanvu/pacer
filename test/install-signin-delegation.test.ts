@@ -4,6 +4,9 @@ import { copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } fro
 import { join, resolve } from "node:path";
 import { chromium, webkit, type Page } from "playwright-core";
 import { tmpDir } from "./helpers";
+import { makeCtx } from "../src/ctx";
+import { loadStrategy } from "../src/config/strategy";
+import { computeStatus } from "../src/engine/status";
 
 // Opt in: these tests need the compiled CLI and installed Playwright browsers.
 // CI runs them separately from the unit suite; see docs/testing/ci-e2e.md.
@@ -20,12 +23,17 @@ test("fake agent completion mode writes the Codex summary and exits", () => {
   expect(readFileSync(join(cwd, "takeover-change.txt"), "utf8")).toBe("headless change\n");
 });
 
-async function sandbox() {
+function sandboxFiles() {
   const home = tmpDir();
   const pacerHome = join(home, ".pacer"), bin = join(home, "bin"), repo = join(home, "repo");
   for (const dir of [pacerHome, bin, repo]) mkdirSync(dir, { recursive: true });
   const env = { ...process.env };
-  for (const name of Object.keys(env)) if (name.startsWith("PACER_")) delete env[name];
+  for (const name of Object.keys(env)) {
+    if (name.startsWith("PACER_") || ["CODEX_HOME", "CODEX_API_KEY", "OPENAI_API_KEY"].includes(name)) delete env[name];
+  }
+  // Routing checks only for this file's existence. The fake CLI needs no credentials.
+  mkdirSync(join(home, ".codex"), { recursive: true });
+  writeFileSync(join(home, ".codex/auth.json"), "{}", { mode: 0o600 });
   Object.assign(env, {
     HOME: home, PACER_HOME: pacerHome, PACER_BACKEND: "direct", PACER_NO_UPDATE_CHECK: "1",
     PACER_FAKE_COMPLETE: "1", PATH: `${bin}:${process.env.PATH}`, TZ: "Asia/Ho_Chi_Minh",
@@ -35,6 +43,21 @@ async function sandbox() {
   for (const name of ["orca", "launchctl", "systemctl"]) writeFileSync(join(bin, name), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
   writeFileSync(join(pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {usage: reactive}}\nexecution: {backend: direct}\n");
 
+  return { home, pacerHome, bin, repo, env };
+}
+
+test("e2e sandbox routes to fake Codex without host credentials", async () => {
+  const { home, pacerHome, env } = sandboxFiles();
+  // Model the clean CI runner even when the developer has Codex configured.
+  for (const name of ["CODEX_HOME", "CODEX_API_KEY", "OPENAI_API_KEY"]) delete env[name];
+  const ctx = makeCtx({ home, pacerHome, env, which: name => Bun.which(name, { PATH: env.PATH }) });
+  const status = await computeStatus(ctx, loadStrategy(ctx));
+  expect(status.executors.ranked.map(executor => executor.id)).toContain("codex");
+  expect(status.executors.excluded.find(executor => executor.id === "codex")).toBeUndefined();
+});
+
+async function sandbox() {
+  const { home, pacerHome, bin, repo, env } = sandboxFiles();
   async function run(argv: string[]) {
     const proc = Bun.spawn(argv, { env, cwd: repo, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => proc.kill("SIGKILL"), 30_000);
@@ -94,13 +117,17 @@ async function sandbox() {
 e2e("installed open --print URL is accepted by the desktop auth contract", async () => {
   const s = await sandbox();
   try {
-    const url = new URL(await s.cli("open", "--print"));
-    expect(url.origin).toBe(s.base);
-    expect(url.pathname).toBe("/app/auth");
-    expect(url.searchParams.getAll("code")).toHaveLength(1);
-    expect(url.searchParams.get("code")).toBeTruthy();
-    // desktop/src-tauri/src/logic.rs::auth_url rejects any fragment.
-    expect(url.hash).toBe("");
+    for (const [screen, hash] of [[undefined, "#/"], ["sessions/t-example", "#/sessions/t-example"]] as const) {
+      const url = new URL(await s.cli("open", "--print", ...(screen ? [screen] : [])));
+      expect(url.origin).toBe(s.base);
+      expect(url.pathname).toBe("/app/auth");
+      expect(url.username).toBe("");
+      expect(url.password).toBe("");
+      expect([...url.searchParams.keys()]).toEqual(["code"]);
+      expect(url.searchParams.get("code")).toBeTruthy();
+      // desktop/src-tauri/src/logic.rs::auth_url accepts app route fragments.
+      expect(url.hash).toBe(hash);
+    }
   } finally { await s.close(); }
 }, 90_000);
 
@@ -136,7 +163,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       // A stored cookie alone is insufficient: Strict can be withheld on the
       // cross-site redirect chain. The first app document must authenticate.
       expect((await appResponse).status()).toBe(200);
-      await page.waitForURL(url => url.pathname === "/app/");
+      await page.waitForURL(url => url.pathname === "/app/" && url.hash === "#/");
       const cookie = (await context.cookies(s.base)).find(c => c.name === "pacer_session");
       expect(cookie).toBeDefined();
       expect(cookie!.httpOnly).toBe(true);
