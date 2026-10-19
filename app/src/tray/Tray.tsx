@@ -133,7 +133,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         const active = typeof strategy !== "string" ? strategy.active : snapshot.budget?.strategy === name;
         return <button key={name} type="button" disabled={busy || sessionEnded} aria-pressed={active} onClick={() => act(async () => { await api.call("strategy.use", { name }); setStrategiesOpen(false); setMenuOpen(false); })}>{name}{active && <span aria-label="Active">✓</span>}</button>;
       }) : <span className="tray-notice">No strategies available</span>}</div>}
-      <a href={appHref("/settings/general")} onClick={navigate("/settings/general")}>Launch at login</a>
+      <a className="pc-text-action" href={appHref("/settings/general")} onClick={navigate("/settings/general")}>Launch at login</a>
       <button type="button" disabled={!ipc.desktop} onClick={() => act(ipc.quit)}>Quit<Kbd>⌘Q</Kbd></button>
     </nav>}
   </main>;

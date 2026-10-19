@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Informational planner pace notices stay on the planner strip and tray header without adding Needs you items, badge counts or a tray attention dot.
 - Service startup refreshes the managed Orca plugin only when bundled asset hashes differ, with one dismissible Needs you reload reminder per changed bundle (#124).
 
 - Desktop uses `/v3` for native authentication, snapshots, events and operations, and accepts protocol major 3 while retaining major 2 compatibility.

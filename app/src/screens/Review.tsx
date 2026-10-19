@@ -58,17 +58,17 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
     {!view.queue.length ? <section className="pc-review-empty"><h1>Review queue is clear</h1><p className="muted">Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}</p></section> : <>
       <Queue items={view.queue} selected={view.selectedId} onSelect={onSelect} snapshot={snapshot} now={now} />
       <article className="pc-review-item" aria-busy={loading}>{updating && <span className="muted pc-query-updating" role="status">Updating…</span>}{failure.message && <p className="muted" role="status">{failure.message}</p>}
-        {view.missing ? <section className="pc-notice"><h2>Already reviewed</h2><p><code>{view.missing}</code> is no longer waiting for review. <a href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
+        {view.missing ? <section className="pc-notice"><h2>Already reviewed</h2><p><code>{view.missing}</code> is no longer waiting for review. <a className="pc-text-action" href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
         : !task ? (error ? <h1 className="headline">{view.queue.find(item => item.taskId === view.selectedId)?.title}</h1> : <p className="muted">Loading task…</p>) : <>
           <div className="row"><h1 className="headline">{task.title ?? view.queue.find(item => item.taskId === task.id)?.title ?? task.goal.slice(0, 60)}</h1><Pill tone={acceptance?.state === "passed" ? "good" : acceptance?.state === "failed" ? "bad" : status!.tone}>{acceptance?.state === "passed" ? "Tests passed" : acceptance?.state === "failed" ? "Failed" : status!.label}</Pill></div>
           <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{task.executor}</code>{task.startedAt !== null && task.endedAt !== null && <> · {elapsed(task.endedAt - task.startedAt)}</>} · {task.branch} → {task.base} · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
           <div className="pc-review-cards"><section><h2>Done when</h2>{acceptance?.state === "none" ? <p>No done-when command</p> : <>
             <code>{acceptance?.cmd}</code><p>{acceptance?.state === "passed" ? "✓ " : ""}{acceptance?.summary ?? ({ passed: "Tests passed", failed: "Failed", pending: "Waiting for tests", running: "Testing", none: "No done-when command" }[acceptance?.state ?? "none"])}{acceptance?.durationS !== undefined && ` · ${acceptance.durationS} s`}{acceptance?.machine && ` · run by pacer on ${acceptance.machine}`}</p>
-            {acceptance?.tail && <details><summary>Acceptance output</summary><pre className="acceptance-output">{acceptance.tail}</pre></details>}
+            {acceptance?.tail && <details className="pc-disclosure"><summary>Acceptance output</summary><pre className="acceptance-output">{acceptance.tail}</pre></details>}
           </>}</section>
           <section><h2>Why {executorLabel(task.executor)}</h2><p>{task.routing?.why ?? "No routing explanation"}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{s.executor}</code> · {s.reason}</p>)}</section>
           <CostCard cost={task.cost} /></div>
-          <details><summary>Brief</summary><dl className="facts pc-review-brief">
+          <details className="pc-disclosure"><summary>Brief</summary><dl className="facts pc-review-brief">
             {([["Goal", task.brief.goal], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
             {task.brief.qa?.map((entry, i) => <div key={i}><dt>{entry.q}</dt><dd>{entry.a}</dd></div>)}
           </dl></details>

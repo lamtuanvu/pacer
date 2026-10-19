@@ -13,7 +13,7 @@
 .u3-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--space-5);padding:var(--space-3) 0;border-bottom:1px solid var(--line)}
 .u3-setting:last-child{border-bottom:0}.u3-setting>div{min-width:0}
 .u3-field{display:flex;flex-direction:column;gap:var(--space-1);min-width:0;margin-bottom:var(--space-3)}
-.u3-settings input:not([type=checkbox]),.u3-settings select,.u3-settings textarea{box-sizing:border-box;max-width:100%;min-width:0;font:inherit;background:var(--surface-page);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-sm);padding:var(--space-2)}
+.u3-settings input:not([type=checkbox]),.u3-settings textarea{box-sizing:border-box;max-width:100%;min-width:0;font:inherit;background:var(--surface-page);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-sm);padding:var(--space-2)}
 .u3-settings input[type=number]{width:7em}.u3-settings textarea{width:100%;min-height:6em}
 .u3-segment{display:flex;flex-wrap:wrap;gap:var(--space-1)}.u3-segment [aria-pressed=true]{background:var(--surface-lane);border-color:var(--ink);color:var(--ink)}
 .u3-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:var(--radius-md)}
@@ -31,7 +31,7 @@
 .u3-settings a:focus-visible,.u3-settings button:focus-visible,.u3-settings input:focus-visible,.u3-settings select:focus-visible,.u3-settings textarea:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 @media(max-width:700px){.u3-settings{padding:var(--space-4)}.u3-wizard,.u3-settings-grid,.u3-setting{grid-template-columns:minmax(0,1fr);gap:var(--space-3)}.u3-steps{display:flex;flex-wrap:wrap;gap:var(--space-1)}.u3-steps li{padding:var(--space-2)}.u3-settings th,.u3-settings td{padding:var(--space-2)}.u3-table-wrap table{min-width:540px}.u3-heading{align-items:flex-start}}
 .u3-checks{list-style:none;padding:0;margin:0}.u3-checks li{padding:var(--space-2) 0;border-bottom:1px solid var(--line)}
-@media(max-width:560px){.u3-settings .pc-btn,.u3-settings .u3-choice,.u3-settings select,.u3-settings input:not([type=checkbox]){min-height:var(--space-12)}}
+@media(max-width:560px){.u3-settings .pc-btn,.u3-settings .u3-choice,.u3-settings input:not([type=checkbox]){min-height:var(--space-12)}}
 /* General keeps the board's dense label/control columns inside the shell. */
 .u3-general-sections .u3-section{margin-top:var(--space-4);padding-top:var(--space-3)}
 .u3-general-sections .u3-setting{grid-template-columns:200px minmax(0,1fr);gap:var(--space-4);align-items:center;padding:var(--space-2) var(--space-3)}
@@ -39,7 +39,7 @@
 .u3-general-sections .u3-setting{border:1px solid var(--line);border-bottom:0}
 .u3-general-sections .u3-setting:last-of-type{border-bottom:1px solid var(--line)}
 @media(max-width:700px){.u3-general-sections .u3-setting{grid-template-columns:minmax(0,1fr)}}
-.u3-nav-badge{margin-left:6px;font-size:11px;color:var(--ink-muted)}.u3-steps li>div{font-weight:400;margin-top:4px}.u3-settings summary{cursor:pointer;color:var(--link)}.u3-settings input[type=range]{padding:0;accent-color:var(--ink)}
+.u3-nav-badge{margin-left:6px;font-size:11px;color:var(--ink-muted)}.u3-steps li>div{font-weight:400;margin-top:4px}.u3-settings input[type=range]{padding:0;accent-color:var(--ink)}
 @media(max-width:700px){.u3-table-wrap{overflow:visible}.u3-table-wrap table{min-width:0;table-layout:fixed}.u3-table-wrap thead{display:none}.u3-table-wrap tbody,.u3-table-wrap tr{display:block}.u3-table-wrap tr{padding:8px;border-bottom:1px solid var(--line)}.u3-table-wrap td{display:block;border:0;overflow-wrap:anywhere}.u3-table-wrap td:first-child{font-weight:600}.u3-agent{flex-wrap:wrap}.u3-choice{min-width:0;overflow-wrap:anywhere}.u3-choices{grid-template-columns:minmax(0,1fr)}.u3-settings .u3-card{padding:12px}}
 .u3-reserve,.u3-fill{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.u3-reserve input{flex:1;min-width:80px}.u3-reserve output{font-weight:600}.u3-fill{font-size:12px}.u3-fill input{width:64px}
 @media(max-width:700px){.u3-table-wrap td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:11px;font-weight:400;margin-bottom:4px}.u3-table-wrap td[data-label=Actions]::before{display:none}}
