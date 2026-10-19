@@ -13,6 +13,7 @@ export interface ExecutorRow {
  state: "ready" | "busy" | "full" | "failing" | "down" | "blocked" | "exhausted" | "disabled" | "checking";
  tone: "good" | "info" | "warn" | "bad" | "muted";
  sub: string; reason?: string; usedPct: number | null; pacePct: number | null; paceReason?: string;
+ limitedBy?: "machine" | "host";
  slots: { used: number; max: number }; lastCheck: { at: number; passed: boolean; detail?: string } | null;
  recentFailures: number; next: boolean;
 }
@@ -36,6 +37,7 @@ export interface SetupSummary { complete: boolean; open: number; items: { id: st
 export interface ServiceInfo { version: string; protocol: string; pid: number; startedAt: number; starting?: true; waiting?: import("../../core/path-probe").Waiting; notifier: { client_id: string; kind: import("../../clients/registry").ClientEntry["kind"] } | null }
 export interface ReadModelFields {
  pause: PauseState | null; attention: AttentionItem[]; service: ServiceInfo; planner: PlannerMeter | null; counts: Counts; today: Today;
+ machine: {used: number; max: number};
  executors: ExecutorRow[]; accounts: AccountSummary[]; hosts: HostSummary[]; repos: RepoRef[]; setup: SetupSummary;
 }
 export type ReadModel = ReadModelFields;

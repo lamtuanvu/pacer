@@ -1,3 +1,5 @@
+import { queueCapacity } from "./capacity";
+import { persistTaskDiff } from "./diff";
 import { slotBlock, slotUse } from "../engine/slots";
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
@@ -198,7 +200,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
             task = updateTask(ctx, id, t => {
               const waiting = listTasks(ctx, Infinity).filter(x => x.id !== id && x.state === "queued" && x.queue && x.createdAt <= t.createdAt);
               t.state = "queued";
-              t.queue = {reason: paused ? "paused" : "no_slot", since: initial.queue?.since ?? now, position: waiting.length + 1};
+              const blockedExecutor = req && full.has(req) ? req : [...full].find(e => !tried.has(e));
+              const capacity = !paused && blockedExecutor ? queueCapacity(s, blockedExecutor, use) : undefined;
+              t.queue = {...capacity, reason: paused ? "paused" : "no_slot", since: initial.queue?.since ?? now, position: waiting.length + 1};
               delete t.runnerPid;
               delete t.executor;
               delete t.run;
@@ -299,6 +303,15 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         t.backend = attemptedBackend;
         delete t.childPid;
       });
+      try {
+        const result: TaskResult | undefined = out.worktree ? {
+          status: "done", executor: pick, model: cfg.model, files: "", report: "",
+          backend: attemptedBackend, worktree: out.worktree,
+        } : task.result;
+        await persistTaskDiff(ctx, { ...task, state: "done", result });
+      } catch (error) {
+        out.report += `\n\nCould not save review diff: ${error instanceof Error ? error.message : String(error)}`;
+      }
       if (task.state === "stopped") {
         return finish(ctx, id, { status: "stopped", executor: pick, model: cfg.model, files: "", report: out.report, backend: out.backend ?? "direct" });
       }

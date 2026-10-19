@@ -46,13 +46,13 @@ test("busy board has four linked counts, three attention rows, two running rows 
   expect(attention.match(/<button/g)).toHaveLength(3);
   expect(attention).toContain('class="tray-action tray-action--primary"');
   expect(attention).toContain('class="tray-action"');
-  expect(attention).toContain(">Answer</button>");
-  expect(attention).toContain(">Review</button>");
+  expect(attention).toContain(">Answer</span></button>");
+  expect(attention).toContain(">Review</span></button>");
   expect(active.match(/class="tray-running"/g)).toHaveLength(2);
   expect(active).toContain("idle 15m");
   expect(active).toContain("tray-idle");
   expect(active).not.toContain("Queued");
-  expect(html).toContain("14 waiting for a Codex slot · next: Review screen");
+  expect(html).toContain("14 waiting for parallel tasks on Codex · next: Review screen");
   const counts = html.split('aria-label="Task counts">')[1]!.split("</nav>")[0]!;
   for (const [n, label, route] of [[5, "needs you", "/"], [2, "running", "/sessions"], [14, "waiting", "/sessions?filter=waiting"], [3, "done today", "/sessions?filter=done"]]) {
     expect(counts).toContain(`href="/app/#${route}"`);
@@ -227,7 +227,7 @@ test("row actions show one short verb and keep the full label as a tooltip", asy
   const { rowLabel } = await import("../app/src/tray/Tray");
   expect(rowLabel("Retry on OpenCode")).toBe("Retry");
   expect(rowLabel("Review")).toBe("Review");
-  expect(rowLabel("Open settings")).toBe("Open settings");
+  expect(rowLabel("Open settings")).toBe("Settings");
 });
 
 test("tray action destinations use mounted screens and preserve settings sections", () => {
@@ -236,4 +236,26 @@ test("tray action destinations use mounted screens and preserve settings section
   expect(route({view:"review",id:"done 1"})).toBe("/review/done%201");
   expect(route({view:"settings",section:"executors"})).toBe("/settings/executors");
   for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/strategies",setup:"/",tasks:"/sessions"})) expect(route({view})).toBe(to);
+});
+
+test("long settings actions shorten to Settings and labels ellipsize instead of overflowing", async () => {
+  const { rowLabel } = await import("../app/src/tray/Tray");
+  expect(rowLabel("Open planner settings")).toBe("Settings");
+  expect(rowLabel("Open settings")).toBe("Settings");
+  expect(rowLabel("Retry on Codex")).toBe("Retry");
+  const css = (await buildApp()).find(f => f.path === "tray.css")!.text;
+  expect(css).toMatch(/\.tray-action__label\{[^}]*text-overflow:ellipsis/);
+});
+
+test("opencode executors use their account's mark and an unavailable account reads off", () => {
+  const row = (id: string, account: string, extra: Partial<ExecutorRow> = {}): ExecutorRow => ({ id, agent: "opencode", account, host: null, model: null, rank: 2, enabled: true, state: "idle", tone: "neutral", sub: "", usedPct: null, pacePct: null, slots: { used: 0, max: 1 }, lastCheck: null, recentFailures: 0, next: false, ...extra } as ExecutorRow);
+  const byteplus = row("opencode#byteplus", "byteplus", { state: "down", tone: "bad", sub: "Unavailable", reason: "no active coding-plan subscription" });
+  const local = row("opencode#local", "local");
+  expect(executorValue(byteplus)).toBe("off");
+  expect(executorValue(local)).toBe("free");
+  const html = draw({ ...fixture(), executors: [byteplus, local] });
+  expect(html).toContain("agent-mark--byteplus");
+  expect(html).toContain("agent-mark--local");
+  expect(html).not.toContain("agent-mark--opencode");
+  expect(html).toMatch(/class="tray-executor tray-executor--off"[^>]*>.*?agent-mark--byteplus/);
 });

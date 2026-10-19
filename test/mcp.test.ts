@@ -1,3 +1,4 @@
+import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +15,7 @@ import pkg from "../package.json";
 const STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: reactive }\n  cursor: {}\n";
 
 async function connect() {
-  const ctx = fakeCtx();
+  const ctx = withLoginIndicators(fakeCtx());
   mkdirSync(ctx.pacerHome, { recursive: true });
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), STRATEGY);
   const spawned: string[] = [];

@@ -18,7 +18,7 @@ async function serve() {
   const codeUrl = async () => (await main(["open", "--print"], ctx)).out;
   const login = async () => {
     const auth = await fetch(await codeUrl(), { redirect: "manual" });
-    expect(auth.status).toBe(303);
+    expect(auth.status).toBe(200);
     return auth.headers.get("set-cookie")!.split(";")[0]!;
   };
   return { ctx, s, url, codeUrl, login };
@@ -41,8 +41,7 @@ test("open prints a working single-use URL and serves the protected app and hell
   const link = await codeUrl();
   expect(new URL(link).pathname).toBe("/app/auth");
   const auth = await fetch(link, { redirect: "manual" });
-  expect(auth.status).toBe(303);
-  expect(auth.headers.get("location")).toBe("/app/");
+  expect(auth.status).toBe(200);
   const cookie = auth.headers.get("set-cookie")!;
   for (const attr of ["HttpOnly", "SameSite=Strict", "Path=/"]) expect(cookie).toContain(attr);
   const headers = { cookie: cookie.split(";")[0]! };
@@ -166,8 +165,16 @@ test("app routes exchange codes, set security headers, and serve only embedded a
   const ctx = fakeCtx();
   const link = `http://127.0.0.1:4317/app/auth?code=${createCode(ctx)}`;
   const res = appRoute(new Request(link), ctx);
-  expect(res.status).toBe(303);
-  expect(res.headers.get("location")).toBe("/app/");
+  // Sign-in hops to the app from a same-origin page so the Strict cookie is sent even when
+  // the navigation started cross-site (the desktop shell's own page).
+  expect(res.status).toBe(200);
+  expect(res.headers.get("location")).toBeNull();
+  const hop = await res.text();
+  expect(hop).toContain('location.replace("/app/" + location.hash)');
+  expect(hop).toContain('<meta http-equiv="refresh" content="0;url=/app/">');
+  const csp = res.headers.get("content-security-policy")!;
+  expect(csp).toMatch(/script-src 'sha256-[A-Za-z0-9+/=]+'/);
+  expect(csp).not.toContain("'unsafe-inline'");
   expect(res.headers.get("set-cookie")).toContain("HttpOnly; SameSite=Strict; Path=/");
   expect(appRoute(new Request(link), ctx).status).toBe(403);
   for (const path of ["/app/", "/app/tasks/one"]) {
@@ -213,7 +220,7 @@ test("HTTP browser access and open work through the server handler without a lis
   expect(appOptions.headers.get("content-security-policy")).toContain("script-src 'self'");
   const path = `/app/auth?code=${createCode(ctx)}`;
   const auth = await request(path);
-  expect(auth.status).toBe(303);
+  expect(auth.status).toBe(200);
   expect((await request(path)).status).toBe(403);
   const cookie = auth.headers.get("set-cookie")!.split(";")[0]!;
   expect((await request("/app/", { headers: { cookie } })).status).toBe(200);
@@ -238,7 +245,7 @@ test("HTTP browser access and open work through the server handler without a lis
     const printed = await main(["open", "--print", "tasks/one"], ctx);
     expect(printed.code).toBe(0);
     expect(new URL(printed.out).hash).toBe("#/sessions/one");
-    expect((await request(new URL(printed.out).pathname + new URL(printed.out).search)).status).toBe(303);
+    expect((await request(new URL(printed.out).pathname + new URL(printed.out).search)).status).toBe(200);
     const opened: string[] = [];
     expect((await openCmd([], ctx, { opener: async value => { opened.push(value); } })).code).toBe(0);
     expect(new URL(opened[0]!).pathname).toBe("/app/auth");

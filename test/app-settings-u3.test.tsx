@@ -16,6 +16,14 @@ test('General follows board order and uses the actual planner agent',()=>{
  expect(html).toContain('Link Orca account');expect(html).toContain('New from a brief');
  expect((html.match(/pc-btn--primary/g)||[]).length).toBeLessThanOrEqual(1);
 });
+test('executor and update checkboxes keep their labels inline', () => {
+ const html = render(<SettingsGeneral initialData={settings}/>);
+ const labels = [...html.matchAll(/<label class="pc-checkbox">([\s\S]*?)<\/label>/g)];
+ expect(labels).toHaveLength(2);
+ for (const [, body] of labels) expect(body).toContain('class="pc-checkbox__input" type="checkbox"');
+ expect(labels[0]![1]).toContain('Enabled');
+ expect(labels[1]![1]).toContain('Check for updates');
+});
 test('all General sections provide loading and empty states',()=>{
  expect(render(<SettingsGeneral/>)).toContain('Loading');
  const html=render(<SettingsGeneral initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,{...state,snapshot:{...state.snapshot,executors:[],hosts:[]}});
@@ -96,7 +104,7 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  expect(html).toContain('17% of week · resets Mon');expect(html).not.toContain('ON_PACE');
  expect(html).toMatch(/pc-pill[^>]*>Signed in<\/span>/);expect(html).toMatch(/pc-pill[^>]*>No subscription<\/span>/);expect(html).toMatch(/pc-pill[^>]*>Unknown<\/span>/);
  expect(html).toContain('<th>Used by</th>');expect(html).toContain(executor.id);
- expect(html).toMatch(/<details><summary>Fix sign-in<\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
+ expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
 });
 
 test('multiple accounts always shows the threshold beside Spread and Fill, disabled only for Spread',()=>{
@@ -115,4 +123,17 @@ test('settings navigation pluralises rule counts',()=>{
   const html=render(<SettingsGeneral initialData={{...settings,routing:{...settings.routing,rules}}}/>);
   expect(html).toContain(`>${count} ${count===1?'rule':'rules'}</span>`);
  }
+});
+
+test('General exposes named parallel tasks controls and shared capacity notes',()=>{
+ const limited={...executor,rank:1,slots:{used:0,max:4},limitedBy:'machine'};
+ const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
+ expect(html).toContain('Parallel tasks for '+executor.id);
+ expect(html).toContain('Limited to 2 by this machine');
+ expect(html).toContain('Parallel tasks on this machine');
+ expect(html).toContain('Shared by all executors that run on this machine.');
+ expect(html).toContain('min="1" max="16" step="1"');
+ expect(html).not.toContain('>Slots<');
+ const planner=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
+ expect(planner).not.toContain('Parallel tasks for '+executor.id);
 });

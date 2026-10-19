@@ -1,3 +1,4 @@
+import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,7 +21,9 @@ import { fakeCtx } from "./helpers";
 
 const raw = { accounts: { plan: {kind:"claude"}, team: {kind:"codex",home:"~/.codex-team"}, byteplus:{kind:"endpoint",usage:"unmetered",model:"api/code"} }, planner:"claude-code", routing:[{default:["opencode#byteplus","codex#team"]}] };
 async function status() {
- const ctx=fakeCtx();
+ const ctx=withLoginIndicators(fakeCtx());
+ mkdirSync(join(ctx.home, ".codex-team"), {recursive:true});
+ writeFileSync(join(ctx.home, ".codex-team/auth.json"), "{}");
  const reading={windows:[{name:"weekly",usedPct:34,resetsAt:ctx.now+3600,lengthS:604800,paced:true}],capturedAt:ctx.now,stale:false};
  return computeStatus(ctx,validateStrategy(raw,"test"),{profile:null,readings:new Map([["plan",reading],["team",reading]])});
 }
@@ -95,7 +98,7 @@ test("legacy strategies keep existing status and link presentation",async()=>{
  expect(toBudget(st).providers[0]).not.toHaveProperty("unavailableReason");
 });
 test("list commands use aligned labeled columns and JSON retains its shape",async()=>{
- const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,"strategy.yaml"),Bun.YAML.stringify(raw));
+ const ctx=withLoginIndicators(fakeCtx());mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,"strategy.yaml"),Bun.YAML.stringify(raw));
  const accounts=await main(["account","list"],ctx), runners=await main(["runner","list"],ctx);
  expect(accounts.code).toBe(0);expect(runners.code).toBe(0);
  expect(accounts.out.split("\n")[0].split(/\s{2,}/)).toEqual(["ACCOUNT","KIND","SOURCE","FOLDER","RUNNERS","USAGE"]);
@@ -112,7 +115,7 @@ test("list commands use aligned labeled columns and JSON retains its shape",asyn
 
 // Starter-shaped legacy strategies must retain main's human labels while ids stay canonical.
 test("starter text preserves provider names and main route format", async () => {
- const ctx=fakeCtx();
+ const ctx=withLoginIndicators(fakeCtx());
  const starter={planner:"claude-code",providers:{codex:{usage:"quota"},agy:{usage:"reactive"},byteplus:{via:"opencode",model:"api/code",usage:"unmetered"},local:{via:"opencode",model:"api/local",usage:"unmetered"}},routing:[{default:["codex","byteplus","local","agy"]}],pacing:{policy:"priority",order:["codex","byteplus","local","agy"]}};
  mkdirSync(ctx.pacerHome,{recursive:true});
  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),Bun.YAML.stringify(starter));

@@ -142,6 +142,13 @@ pacer status --json
 
 For local Orca development, run `pacer plugin install` and add the printed managed directory in Settings > Plugins; see the [plugin guide](../orca-plugin/README.md). `pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
 
+On standalone `pacer serve` startup, managed plugin assets are compared with the
+bundled assets by content hash. Unchanged assets need no refresh, even when the
+service and plugin versions differ. When assets change, the service repairs them
+and adds one reload reminder in Needs you. Turn pacer off and on in Orca Settings
+> Plugins, then dismiss the reminder with Done. Dismissal survives service restarts.
+Orca currently exposes no plugin reload API or CLI command.
+
 Update availability is checked on plugin startup and every six hours, with one
 notification per new version. Marketplace: Orca Settings > Plugins > Refresh,
 then Update plugin. Development folder: use the live panel's Updates card or
@@ -177,6 +184,15 @@ Remove the pacer plugin and any development-folder entry from Orca Settings >
 Plugins. Then remove the binary (`rm ~/.local/bin/pacer`, or your custom install
 location) and the state directory (`rm -rf ~/.pacer`, or the directory selected
 by `PACER_HOME`). Removing the state deletes strategies, task history and backups.
+
+## Desktop app updates on macOS
+
+Replace the installed `pacer.app` bundle with the new version at the same path.
+The running app checks its executable and bundle version every 30 seconds and
+restarts itself from the replacement bundle after a short delay. It keeps the
+main window's visibility and route, and the tray reconnects to the service to
+restore its status. Update the pacer CLI separately. See
+[desktop build instructions](../desktop/README.md) for building the bundle.
 
 ## macOS: removable volumes
 

@@ -7,7 +7,7 @@ import { validateStrategy } from "../src/config/strategy";
 import { computeStatus } from "../src/engine/status";
 import type { UsageReading } from "../src/types";
 import { markExhausted } from "../src/usage/reactive";
-import { fakeCtx, tmpDir } from "./helpers";
+import { fakeCtx, withLoginIndicators, tmpDir } from "./helpers";
 
 const strategy = (accountsMode = "spread", policy = "priority") => validateStrategy({
   accounts: { plan: { kind: "claude" }, a: { kind: "endpoint", usage: "metered", budget: { weekly_tokens: 1000 } }, b: { kind: "endpoint", usage: "metered", budget: { weekly_tokens: 1000 } } },
@@ -22,7 +22,7 @@ function reading(used: number, short = 0): UsageReading {
     { name: "session", usedPct: short, resetsAt: now + 3600, lengthS: 5 * 3600, paced: false },
   ], capturedAt: now, stale: false };
 }
-const status = (s = strategy(), a = 40, b = 30, short = 0) => computeStatus(fakeCtx({ now }), s, {
+const status = (s = strategy(), a = 40, b = 30, short = 0) => computeStatus(withLoginIndicators(fakeCtx({ now, env: { ANTHROPIC_API_KEY: "fixture" } })), s, {
   profile: null, readings: new Map([["plan", reading(45)], ["a", reading(a, short)], ["b", reading(b)]]),
 });
 
@@ -70,7 +70,7 @@ test("planner reserve and mode apply to its account even without a matching runn
     runners: { shared: { agent: "claude-code", account: "work" }, other: { agent: "claude-code", account: "personal" } },
     pacing: { planner_reserve: 20 },
   }, "strategy.yaml");
-  const result = await computeStatus(fakeCtx({ now }), s, { profile: null, readings: new Map([["work", reading(55)], ["personal", reading(55)]]) });
+  const result = await computeStatus(withLoginIndicators(fakeCtx({ now, env: { ANTHROPIC_API_KEY: "fixture" } })), s, { profile: null, readings: new Map([["work", reading(55)], ["personal", reading(55)]]) });
   expect(result.providers[0].binding?.pace).toBe(40);
   expect(result.providers[1].binding?.pace).toBe(50);
   expect(result.mode).toBe("strict");
@@ -93,7 +93,7 @@ routing:
   - default: [codex, cursor, agy, byteplus, local]
 `;
 test("starter route JSON retains its pre-accounts output, including after migration", async () => {
-  const ctx = fakeCtx({ now }); mkdirSync(ctx.pacerHome, { recursive: true });
+  const ctx = withLoginIndicators(fakeCtx({ now })); mkdirSync(ctx.pacerHome, { recursive: true });
   const path = join(ctx.pacerHome, "strategy.yaml"); writeFileSync(path, starter);
   const strip = (value: unknown): unknown => Array.isArray(value) ? value.map(strip) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "account").map(([k, v]) => [k, strip(v)])) : value;
   const before = JSON.parse((await main(["route", "--json"], ctx)).out);
