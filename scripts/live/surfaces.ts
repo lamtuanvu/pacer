@@ -100,7 +100,16 @@ export async function orca(session: Session, print: boolean): Promise<string> {
 
 /** Host settings otherwise default to the real ~/.pacer and port 4317. */
 export function isolatedWorker(session: Session): string {
-  return `import activate, { deactivate } from "./worker-source.mjs";
+  // Orca scrubs the worker process environment. Restore isolation before the
+  // source module captures paths for subprocesses, heartbeats and update checks.
+  const env = sandboxEnv(session);
+  const keys = ["PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA",
+    ...(session.seed === "ui" ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])];
+  const overrides = Object.fromEntries(keys.map(key => [key, env[key]]));
+  const guardPath = session.seed === "ui" ? `${join(session.root, "home/bin")}:${join(session.root, "bin")}` : join(session.root, "bin");
+  return `Object.assign(process.env, ${JSON.stringify(overrides)});
+process.env.PATH = ${JSON.stringify(guardPath)} + ":" + (process.env.PATH ?? "");
+const { default: activate, deactivate } = await import("./worker-source.mjs");
 export { deactivate };
 export default function(ctx) {
   const host = ctx.host;
