@@ -118,3 +118,53 @@ test('missing sessions do not advertise watch-elsewhere options', () => {
  expect(html).not.toContain('Watch it elsewhere');
  expect(html).not.toContain('pacer attach');
 });
+
+test('ended headless sessions show their outcome and Review or Retry without live controls', () => {
+ for (const state of ['done', 'partial', 'failed', 'stopped', 'limit']) {
+  const ended: SessionData = {...data,state,changesSummary:undefined,session:{...data.session!,host:'none',live:true,driving:true,takeover:{available:true}}};
+  const html = renderToString(<Session data={ended} onTakeover={()=>{}} takeoverStarting takeoverError="Stale takeover error"/>);
+  expect(html).toContain('This run has finished');
+  expect(html).toContain('Retry on');
+  expect(html).toContain('>Retry</button>');
+  for (const text of ['Take over','Stop and retry','>Stop<','Changes and output pending','Testing · 14m',">Driving<",'Starting interactive session','Stale takeover error']) expect(html).not.toContain(text);
+  if (['done','partial'].includes(state)) {
+   expect(html).toContain('Waiting for review');
+   expect(html).toContain('href="#/review/t-0415"');
+  } else {
+   expect(html).not.toContain('>Review</a>');
+  }
+ }
+});
+
+test('reviewed and resolved sessions do not offer another review', () => {
+ for (const extra of [{review:{accepted:true}}, {review:{accepted:false}}, {resolved:'handled'}, {dismissed:true}, {retriedBy:'next'}]) {
+  const html=renderToString(<Session data={{...data,state:'done',changesSummary:undefined,...extra}}/>);
+  expect(html).not.toContain('Waiting for review');
+  expect(html).not.toContain('>Review</a>');
+  expect(html).not.toContain('Changes and output pending');
+  if (extra.review) expect(html).toContain(extra.review.accepted?'Accepted':'Rejected');
+ }
+});
+
+test('running headless takeover occupies its own area outside the explanatory sentence', () => {
+ const html=renderToString(<Session data={{...data,session:{...data.session!,host:'none',takeover:{available:true}}}} onTakeover={()=>{}}/>);
+ expect(html).toMatch(/<div class="pc-session-run"><p>This run is headless — Take over to work in it live<\/p><button/);
+ expect(html).toContain('>Stop</button>');
+ expect(html).toContain('Stop and retry on');
+});
+
+test('ended row Replay link covers its row and preserves route query and accessible title', async () => {
+ const html=renderToString(<SessionsList recent={{data:[{...data,id:'ended task',state:'done',title:'Finished task'}]}} query="repo=project"/>);
+ expect(html).toContain('pc-session-replay');
+ expect(html).toContain('aria-label="Replay Finished task"');
+ expect(html).toContain('href="#/sessions/ended%20task?repo=project"');
+ expect(html).toContain('>Replay</a>');
+ const css=await Bun.file(new URL('../app/src/screens/session/session.css',import.meta.url)).text();
+ expect(css).toMatch(/\.pc-session-replay::after\s*\{[^}]*position:absolute;inset:0/);
+});
+
+test('session adapters preserve review outcome and suppression fields', async () => {
+ const {sessionRow}=await import('../app/src/screens/session/controller');
+ const task={id:'ended',goal:'Finished',state:'done',executor:'codex',backend:null,worktree:null,updatedAt:0,review:{accepted:true,kind:null,note:null,at:1},resolved:'handled',dismissed:true,retriedBy:'retry'};
+ expect(sessionRow(task)).toMatchObject({review:task.review,resolved:'handled',dismissed:true,retriedBy:'retry'});
+});
