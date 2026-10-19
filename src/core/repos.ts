@@ -104,8 +104,7 @@ async function registerRepo(ctx: Ctx,path: string): Promise<RepoRef> {
   if (/timed out/.test(String(error))) { markPathUnreachable(path); throw new CoreError("invalid_input", `repo folder is not responding: ${path}`); }
   return repoFor(ctx,path);
  }
- const reg=registry(ctx),known=registered(ctx,top);
- if(top===main&&known&&known.path!==main)return repoFor(ctx,top);
+ const reg=registry(ctx);
  const entry={key:key??reg[main]?.key??fallback(main).key,path:main,lastUsed:ctx.now};
  reg[main]=entry;
  // Persist linked checkout aliases so arbitrary worktree locations need no git on reads.

@@ -146,3 +146,13 @@ test("linked checkout identity does not require a successful git status",async()
  const run:typeof realRun=(args,...rest)=>args.includes("status")?Promise.resolve({code:1,stdout:"",stderr:"cannot inspect"}):realRun(args,...rest);
  expect(await resolveRepo({...ctx,run},wt)).toEqual(main);
 });
+
+test("a nested Git repository does not inherit its registered parent's identity", async () => {
+ const parent=gitRepo(),ctx=fakeCtx({run:realRun}),nested=join(parent,"nested");
+ await realRun(["git","-C",parent,"remote","add","origin","git@github.com:acme/parent.git"],10000);
+ const outer=await resolveRepo(ctx,parent); mkdirSync(nested);
+ expect((await realRun(["git","-C",nested,"init"],10000)).code).toBe(0);
+ const inner=await resolveRepo(ctx,nested);
+ expect(inner.key).not.toBe(outer.key); expect(inner.path).toBe(realpathSync(nested));
+ expect(repoFor(ctx,nested)).toEqual(inner);
+});
