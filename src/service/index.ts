@@ -46,6 +46,8 @@ const xml = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").re
 const unxml = (s: string) => s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&apos;", "'").replaceAll("&amp;", "&");
 // systemd performs specifier expansion even inside quotes; ExecStart also expands $.
 const quote = (s: string, exec = false) => '"' + s.replaceAll("%", "%%").replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t").replaceAll("$", () => exec ? "$$" : "$") + '"';
+// Standard, not Background: launchd throttles a Background job's disk I/O, and under
+// memory pressure its reads stalled the service (and its health thread) for 30-90s.
 export function plist(ctx: Ctx, argv: string[]): string {
   const str = (s: string) => `<string>${xml(s)}</string>`;
   const log = join(ctx.pacerHome, "logs/serve.log");
@@ -57,7 +59,7 @@ export function plist(ctx: Ctx, argv: string[]): string {
 <key>ProgramArguments</key><array>${[...argv, "serve"].map(str).join("")}</array>
 <key>EnvironmentVariables</key><dict><key>HOME</key>${str(ctx.home)}<key>PATH</key>${str(servicePATH(ctx))}<key>PACER_HOME</key>${str(ctx.pacerHome)}${ctx.env.PACER_PORT ? `<key>PACER_PORT</key>${str(ctx.env.PACER_PORT)}` : ""}</dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
-<key>ThrottleInterval</key><integer>10</integer><key>ProcessType</key>${str("Background")}
+<key>ThrottleInterval</key><integer>10</integer><key>ProcessType</key>${str("Standard")}
 <key>StandardOutPath</key>${str(log)}<key>StandardErrorPath</key>${str(log)}
 </dict></plist>
 `;
@@ -215,5 +217,9 @@ export async function restartAfterUpdate(ctx: Ctx, binary: string, deps: Service
   if (platform !== "darwin" && platform !== "linux") return false;
   const text = readText(servicePath(ctx, platform));
   if (text === null || !sameBinary(binaryInFile(text, platform), binary)) return false;
+  // A restart keeps the old launchd policy; reinstall a Background job so updates pick up Standard.
+  if (platform === "darwin" && /<key>ProcessType<\/key>\s*<string>Background<\/string>/.test(text)) {
+    await serviceBackend(ctx, deps).install(); return true;
+  }
   await serviceBackend(ctx, deps).restart(); return true;
 }
