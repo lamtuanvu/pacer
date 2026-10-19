@@ -171,7 +171,9 @@ links open `/app/#<route>` and resizing is skipped.
 
 ## Manual smoke checks
 
+- With no located or bundled CLI: the window shows "pacer needs its command-line tool" with an install link and makes no service-manager changes; installing pacer to `~/.local/bin` continues automatically.
 - With a located/bundled CLI and missing job: service installation and start happen automatically.
+- With a `com.pacer.serve` job that serves another `PACER_HOME` or port: the window shows "Another pacer is running" and the app never starts or restarts that job, even if its own port accepts connections without answering.
 - Stop a loaded service: the app starts it automatically.
 - Block on a volume permission: the main window and tray show the approval message;
   allowing access opens the app automatically, with no restart while waiting.
