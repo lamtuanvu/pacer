@@ -14,6 +14,7 @@ export interface ProviderStatus {
   verdict: Verdict;
   installed: boolean;
   unavailableReason?: string;
+  signedOutReason?: string;
   stale: boolean;
   error?: string;
   brokenReason?: string;
@@ -69,7 +70,7 @@ function reason(st: ProviderStatus): string {
 
 export function rankExecutors(
   kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>,
-): { ranked: RankedExecutor[]; excluded: Excluded[] } {
+): { ranked: RankedExecutor[]; excluded: Excluded[]; reason?: string } {
   statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [resolveRunner(s, id)?.id ?? id, status]));
   const ranked: (RankedExecutor & { unknown: boolean; order: number })[] = [];
   const excluded: Excluded[] = [];
@@ -86,6 +87,7 @@ export function rankExecutors(
     if (st.blockedReason) return exclude("Blocked by you");
     if (st.brokenReason) return exclude(`Not working · ${st.brokenReason}`);
     if (!st.installed) return exclude("not installed");
+    if (st.signedOutReason) return exclude(st.signedOutReason);
     if (st.verdict === "EXHAUSTED" && !account.allowPaid) return exclude("exhausted");
     ranked.push({ id, ...accountField, score: score(st, s), verdict: st.verdict, reason: reason(st), unknown: st.verdict === "UNKNOWN", order });
   });
@@ -155,5 +157,10 @@ export function rankExecutors(
     positions.forEach((position, i) => { ranked[position] = candidates[i]; });
   }
   if (s.pacing.policy === "priority") ranked.forEach((e, i) => { e.score = ranked.length - i; });
-  return { ranked: ranked.map(({ unknown, order, ...executor }) => executor), excluded };
+  const configured = executorsFor(kind, s).some(id => {
+    const runner = s.runners[id];
+    return runner && !(runner.agent === s.planner.agent && runner.account === s.planner.account);
+  });
+  return { ranked: ranked.map(({ unknown, order, ...executor }) => executor), excluded,
+    ...(!configured ? { reason: "no executor configured" } : {}) };
 }

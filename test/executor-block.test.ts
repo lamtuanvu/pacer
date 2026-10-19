@@ -5,10 +5,10 @@ import {validateStrategy} from "../src/config/strategy";
 import {computeStatus} from "../src/engine/status";
 import {delegate} from "../src/tasks/api";
 import {renderLine} from "../src/render/line";
-import {fakeCtx} from "./helpers";
+import {fakeCtx,withLoginIndicators} from "./helpers";
 const strategy=validateStrategy({planner:"claude-code",providers:{"claude-code":{usage:"reactive"},agy:{usage:"reactive"},codex:{usage:"reactive"}}},"/x");
 test("manual indefinite block persists, excludes ranking and prevents explicit delegation",async()=>{
- const ctx=fakeCtx();await Bun.write(`${ctx.pacerHome}/strategy.yaml`,"planner: claude-code\nproviders:\n  claude-code: {usage: reactive}\n  agy: {usage: reactive}\n  codex: {usage: reactive}\n");
+ const ctx=withLoginIndicators(fakeCtx());await Bun.write(`${ctx.pacerHome}/strategy.yaml`,"planner: claude-code\nproviders:\n  claude-code: {usage: reactive}\n  agy: {usage: reactive}\n  codex: {usage: reactive}\n");
  expect((await executorCommand(["block","agy","--reason","maintenance"],ctx)).code).toBe(0);
  expect(readBlocked({...ctx,now:ctx.now+864000}).agy).toEqual({until:null,reason:"maintenance"});
  const st=await computeStatus(ctx,strategy,{profile:null});

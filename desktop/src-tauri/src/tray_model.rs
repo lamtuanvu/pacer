@@ -66,6 +66,22 @@ mod tests {
         assert!(!TrayModel::from_snapshot(&json!({"pause":null})).paused);
     }
     #[test]
+    fn v3_snapshot_uses_planner_counts_and_pause() {
+        let m = TrayModel::from_snapshot(&json!({
+            "protocol": "3.0.0",
+            "seq": 1000000000003_u64,
+            "snapshot": {
+                "planner": {"label": "Codex", "usedPct": 42.4},
+                "counts": {"attention": 2},
+                "pause": {"until": 123},
+                "service": {"starting": false},
+                "future": true
+            }
+        }));
+        assert_eq!(m.title, "42% •");
+        assert!(m.paused);
+    }
+    #[test]
     fn legacy_snapshot_and_missing_fields() {
         let m = TrayModel::from_snapshot(
             &json!({"snapshot":{"budget":{"planner":"codex","providers":[{"id":"codex","usedPct":31}]}}}),

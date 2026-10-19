@@ -78,7 +78,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
       p.push(`planner must be one of ${PLANNERS.join(", ")} (got "${planner}")`);
     }
 
-    if (!isObj(raw.providers) || Object.keys(raw.providers).length === 0) {
+    if (!isObj(raw.providers) || (Object.keys(raw.providers).length === 0 && planner !== "opencode")) {
       p.push("providers must be a non-empty mapping");
     } else {
       for (const [id, v] of Object.entries(raw.providers)) {

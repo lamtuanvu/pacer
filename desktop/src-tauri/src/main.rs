@@ -593,7 +593,7 @@ fn dispatch_action(app: &AppHandle, action: Value) {
                 )
                 .await;
             }
-            if let Ok(snapshot) = session.json("/v2/snapshot").await {
+            if let Ok(snapshot) = session.json("/v3/snapshot").await {
                 update_tray(&app, TrayModel::from_snapshot(&snapshot));
             }
         }
@@ -691,11 +691,85 @@ fn open_external(url: &Url) {
     let opener = "xdg-open";
     let _ = std::process::Command::new(opener).arg(url.as_str()).spawn();
 }
+/// Only watch packaged macOS launches; development executables have no bundle to reopen.
+#[cfg(target_os = "macos")]
+fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::BundleIdentity) {
+    let bundle = executable
+        .parent()
+        .and_then(std::path::Path::parent)
+        .and_then(std::path::Path::parent)
+        .unwrap()
+        .to_owned();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            match logic::bundle_replaced(&executable, &started) {
+                Ok(false) => continue,
+                Err(error) => {
+                    desktop_log!("Unable to check pacer bundle: {error}");
+                    continue;
+                }
+                Ok(true) => {}
+            }
+            let hidden = app
+                .get_webview_window("main")
+                .is_some_and(|window| !window.is_visible().unwrap_or(true));
+            let route = app.state::<Shell>().route.lock().unwrap().clone();
+            // All variable data is argv. Wait for exit so the single-instance plugin
+            // cannot redirect the new launch back into this obsolete process.
+            let mut command = std::process::Command::new("/bin/sh");
+            command.args([
+                "-c",
+                "sleep 1; while kill -0 \"$1\" 2>/dev/null; do sleep 1; done; shift; exec /usr/bin/open -n \"$@\"",
+                "pacer-relaunch",
+            ])
+                .arg(std::process::id().to_string())
+                .arg(&bundle)
+                .arg("--args")
+                .arg(format!("--pacer-relaunch-route={route}"));
+            if hidden {
+                command.arg("--pacer-relaunch-hidden");
+            }
+            match command
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                Ok(_) => {
+                    app.exit(0);
+                    return;
+                }
+                Err(error) => desktop_log!("Unable to schedule pacer relaunch: {error}"),
+            }
+        }
+    });
+}
+
 fn main() {
     desktop_log!(
         "pacer lifecycle: desktop starting version {}",
         env!("CARGO_PKG_VERSION")
     );
+    #[cfg(target_os = "macos")]
+    let bundle_started = std::env::current_exe().ok().and_then(|executable| {
+        let macos = executable.parent()?;
+        let contents = macos.parent()?;
+        let bundle = contents.parent()?;
+        if macos.file_name()? != "MacOS"
+            || contents.file_name()? != "Contents"
+            || bundle.extension()? != "app"
+        {
+            return None;
+        }
+        match logic::bundle_identity(&executable) {
+            Ok(identity) => Some((executable, identity)),
+            Err(error) => {
+                desktop_log!("Unable to read initial pacer bundle identity: {error}");
+                None
+            }
+        }
+    });
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             for arg in args {
@@ -738,11 +812,18 @@ fn main() {
             session_expired,
             session_ready
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
+            if let Some(route) = std::env::args().find_map(|arg| {
+                arg.strip_prefix("--pacer-relaunch-route=")
+                    .and_then(logic::route)
+            }) {
+                *handle.state::<Shell>().route.lock().unwrap() = route;
+            }
             let nav = handle.clone();
             let window =
                 tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .visible(!std::env::args().any(|arg| arg == "--pacer-relaunch-hidden"))
                     .title("pacer")
                     .inner_size(1120., 760.)
                     .min_inner_size(720., 520.)
@@ -908,6 +989,10 @@ fn main() {
             approvals::request_notifications();
             tauri::async_runtime::spawn(client::monitor_approvals(handle.clone()));
             tauri::async_runtime::spawn(client::watch_startup(handle.clone()));
+            #[cfg(target_os = "macos")]
+            if let Some((executable, started)) = bundle_started {
+                watch_bundle(handle.clone(), executable, started);
+            }
             tauri::async_runtime::spawn(client::run(handle));
             Ok(())
         })

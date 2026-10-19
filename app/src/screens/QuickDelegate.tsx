@@ -29,7 +29,7 @@ export function QuickDelegate({ filterRepo }: { filterRepo: string | null }) {
   }}>
     <label htmlFor="qd-goal" className="pc-quick__label">What should be done?<input id="qd-goal" type="text" placeholder="e.g. Add a regression test for the cache key" value={goal} onInput={e => setGoal(e.currentTarget.value)} /></label>
     <div className="row">
-      <select id="qd-repo" aria-label="Repository" value={repo} onChange={e => setRepo(e.currentTarget.value)}>{repos.map(r => <option key={r.key} value={r.key} selected={r.key === repo}>{r.label}</option>)}</select>
+      <select className="pc-select" id="qd-repo" aria-label="Repository" value={repo} onChange={e => setRepo(e.currentTarget.value)}>{repos.map(r => <option key={r.key} value={r.key} selected={r.key === repo}>{r.label}</option>)}</select>
       <span className="grow" />
       <Button type="submit" size="sm" disabled={action.busy || !goal.trim()}>{action.busy ? "Delegating…" : "Delegate"}</Button>
     </div>
