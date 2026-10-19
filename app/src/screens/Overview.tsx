@@ -1,3 +1,4 @@
+import { SetupBanner } from "./setup/SetupBanner";
 import { queueWait } from "../../../src/view-model/capacity";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
@@ -143,6 +144,7 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
   const narrow = useNarrow(query);
   const scope: Scope = { repo: narrow ? activeRepo(query) : query.repo || null };
   return <NarrowContext.Provider value={narrow}><div className={`pc-overview${narrow ? " pc-overview--narrow" : ""}`}>
+    <SetupBanner />
     {!narrow && <PlannerStrip snapshot={snapshot} now={now} />}
     <RepoFilter snapshot={snapshot} query={query} narrow={narrow} />
     <div className="pc-overview__cols">

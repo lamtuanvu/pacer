@@ -29,7 +29,7 @@ test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  expect(html('#/sessions/t1')).toContain('Loading session');
 });
 test('legacy and unknown routes mount Overview',()=>{
- for(const path of ['/tasks','/tasks/t1','/executors','/executors/add','/accounts','/strategy','/hosts','/setup','/missing']) {
+ for(const path of ['/tasks','/tasks/t1','/executors','/executors/add','/accounts','/strategy','/hosts','/missing']) {
   expect(destination(`#${path}`).name).toBe('overview');
   expect(html(`#${path}`)).toContain('pc-overview');
  }
@@ -61,3 +61,5 @@ test('session adapter feeds the real brief, acceptance and timeline',()=>{
  expect(row.timeline?.data?.map(e=>e.text)).toEqual(task.timeline.map(e=>e.text));
  expect(sessionRow(task).repo).toBe(task.repo.label);
 });
+
+test("Setup mounts its own screen", () => { expect(html("#/setup")).toContain("Checking setup"); });

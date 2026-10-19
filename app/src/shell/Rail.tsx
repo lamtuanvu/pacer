@@ -1,3 +1,5 @@
+import { useContext } from "preact/hooks";
+import { SetupContext } from "../screens/setup/context";
 import type { Counts } from "../../../src/api/read-model/types";
 import { Mark } from "../ds/Mark";
 import { Tooltip } from "../ds/Tooltip";
@@ -10,9 +12,11 @@ const ITEMS: { name: "overview" | "review" | "sessions"; label: string; href: st
   { name: "sessions", label: "Sessions", href: "#/sessions", icon: "sessions", count: c => c.running, words: "running", tone: "info" },
 ];
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
-/** 56 px icon rail. Badges and the gear dot come from the service's counts only. */
+/** 56 px icon rail. Setup readiness comes from the shared service checklist. */
 export function Rail({ route, counts, narrow = false }: { route: Route; counts: Counts | null; narrow?: boolean }) {
-  const setupOpen = (counts?.setupOpen ?? 0) > 0;
+  const { checklist } = useContext(SetupContext);
+  const setupOpen = checklist ? !checklist.complete : (counts?.setupOpen ?? 0) > 0;
+  const showSetup = checklist ? !checklist.ready : setupOpen;
   return <nav className={narrow ? "pc-bottom-bar" : "pc-rail"} aria-label="pacer">
     {!narrow && <a className="pc-rail__mark" href={withQuery("#/", route.query)} aria-label="pacer home"><Mark size={22} wordmark={false} /></a>}
     {!narrow && <span className="pc-rail__divider" />}
@@ -26,9 +30,10 @@ export function Rail({ route, counts, narrow = false }: { route: Route; counts: 
       </Tooltip>;
     })}
     {!narrow && <span className="grow" />}
-    <Tooltip text={setupOpen ? "Settings · setup needs you" : "Settings"}>
-      <a className={`pc-rail__item${SETTINGS.has(route.name) ? " on" : ""}`} href={withQuery("#/settings", route.query)} aria-label={setupOpen ? "Settings · setup needs you" : "Settings"} aria-current={SETTINGS.has(route.name) ? "page" : undefined}>
-        <Icon name="settings" />{setupOpen && <span className="pc-rail__dot" aria-hidden="true" />}
+    {showSetup && <Tooltip text={setupOpen ? "Setup · needs you" : "Setup"}><a className={`pc-rail__item${route.name === "setup" ? " on" : ""}`} href={withQuery("#/setup", route.query)} aria-label={setupOpen ? "Setup · needs you" : "Setup"} aria-current={route.name === "setup" ? "page" : undefined}><Icon name="tasks" />{setupOpen && <span className="pc-rail__dot" aria-hidden="true" />}</a></Tooltip>}
+    <Tooltip text="Settings">
+      <a className={`pc-rail__item${SETTINGS.has(route.name) ? " on" : ""}`} href={withQuery("#/settings", route.query)} aria-label="Settings" aria-current={SETTINGS.has(route.name) ? "page" : undefined}>
+        <Icon name="settings" />
       </a>
     </Tooltip>
   </nav>;

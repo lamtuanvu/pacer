@@ -25,12 +25,11 @@ a running daemon; it does not start one.
 To open a particular screen, use, for example, `pacer open sessions` or
 `pacer open settings`. Pages use bookmarkable hash routes such as `#/`,
 `#/review`, `#/review/<id>` for tasks waiting for review, `#/sessions` and
-`#/sessions/<id>`; bookmarks require an active browser session. Old app routes
+`#/sessions/<id>` and `#/setup`; bookmarks require an active browser session. Old app routes
 (`#/tasks`, `#/tasks/<id>`,
-`#/executors`, `#/executors/add`, `#/accounts`, `#/strategy`, `#/hosts` and
-`#/setup`) no longer redirect to their replacement screens. They fall back to
+`#/executors`, `#/executors/add`, `#/accounts`, `#/strategy` and `#/hosts`) no longer redirect to their replacement screens. They fall back to
 Overview (`#/`), as do other unknown or malformed hashes. Incomplete setup
-redirects work screens to Settings.
+redirects work screens to Setup; Settings stays reachable.
 
 `pacer open --print` prints a sign-in URL instead of opening the browser.
 Open it within 60 seconds; it works once. Treat it as a credential and do not
@@ -43,6 +42,7 @@ command under Sign out; run it in a terminal.
 
 | Screen | What you can do |
 | --- | --- |
+| Setup | Complete required steps, connect agents with a file preview and consent, add an executor, try or skip a first delegation. |
 | Overview | Check planner usage and pace, mode, items needing attention, who runs next and running work; delegate a task. |
 | Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. |
 | Task detail | Follow the live log, inspect the diff and untracked files, accept or reject with a note, retry or stop. |
@@ -54,14 +54,26 @@ command under Sign out; run it in a terminal.
 | Settings | Change the planner, notifications and integrations; check and apply updates, inspect versions and find the sign-out command. |
 
 Account sign-in still happens in a terminal: the app shows the command to copy
-and refreshes the sign-in state. Service installation also uses a terminal
-command. Connecting an agent, or changing the planner with integrations, shows
+and refreshes the sign-in state. Setup installs the background service only after you confirm its login-service consent dialog. Connecting an agent, or changing the planner with integrations, shows
 the affected files and undo command before asking you to confirm.
 
 The app refreshes from live events. If the daemon disconnects, it keeps the
 current page content and shows “pacer isn't responding. Retrying…”. It refreshes
 when the connection returns. Unsent form drafts are kept in the tab's
 `sessionStorage`; endpoint keys are not retained there.
+
+## Guided setup
+
+Setup groups the service checklist into Required and Recommended steps and refreshes
+every five seconds and after each action. Once required setup finishes, choose
+**Go to Home**. Until pacer is ready, the rail keeps a Setup entry and Home offers
+**Continue setup** for the next recommended step. Dismissal stays in this browser
+and returns when the pending recommended items change.
+
+Agent connections show affected files, details and an undo command before consent.
+Provider sign-in commands stay in the terminal and can be copied from Setup.
+Action errors appear under their checklist row. Trying the first delegation opens
+its session and identifies the executor; **Skip** records that choice.
 
 ## Needs you and review
 
