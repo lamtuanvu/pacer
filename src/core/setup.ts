@@ -20,6 +20,7 @@ import { PROTOCOL_VERSION } from "../api/protocol";
 import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
 import * as config from "./config";
+export { tryDelegation as onboardingTry } from "../onboarding/try";
 
 export async function check(ctx: Ctx, options: {snapshotProbe?:boolean} = {}) {
   try { return await checkSetup(ctx,options); } catch (e) { throw toCoreError(e); }
