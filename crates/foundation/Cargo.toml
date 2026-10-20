@@ -6,7 +6,18 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+async = ["dep:tokio"]
+
+[dev-dependencies]
+tempfile = "3"
+
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, optional = true }
 pacer-client-protocol = { path = "../client-protocol" }
 
 [lints]
