@@ -2,7 +2,7 @@
 
 exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
 " ▬┃ pacer   [ Home ]  Review 2  Sessions 2  Settings                                  All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    14 pts under pace — spend it.
    
@@ -45,7 +45,7 @@ exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
 " ▬┃ pacer   [ Home ]  Review 2  Sessions 2  Settings               ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    14 pts under pace — spend it.
    
@@ -72,7 +72,7 @@ exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) review at 120x40 1`] = `
 " ▬┃ pacer   Home 4  [ Review ]  Sessions 2  Settings                                  All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    REVIEW QUEUE  2                              │ Fix flaky retry test in the payments client
  › ◐ Fix flaky retry test in the payment… 07:30 │ ◐ Waiting for review · Codex · team on devbox · ran 50m · pacer/revi…
@@ -115,7 +115,7 @@ exports[`golden frames (NO_COLOR) review at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) review at 80x24 1`] = `
 " ▬┃ pacer   Home 4  [ Review ]  Sessions 2  Settings               ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    REVIEW QUEUE  2
  › ◐ Fix flaky retry test in the payments client                          07:30
@@ -142,7 +142,7 @@ exports[`golden frames (NO_COLOR) review at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) review detail (narrow drill-in) at 80x24 1`] = `
 " ▬┃ pacer   Home 4  [ Review ]  Sessions 2  Settings               ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    Fix flaky retry test in the payments client
    ◐ Waiting for review · Codex · team on devbox · ran 50m · pacer/review → ma…
@@ -169,7 +169,7 @@ exports[`golden frames (NO_COLOR) review detail (narrow drill-in) at 80x24 1`] =
 
 exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  [ Sessions ]  Settings                                  All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    RUNNING  2 · 1 queued                                      │ Add SSH keepalive to remote runs
  › ▶ Editing             Add SSH keepalive to rem…        14m │ ▶ Editing · Codex · team on devbox · acme/api · pacer/…
@@ -212,7 +212,7 @@ exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) sessions at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  [ Sessions ]  Settings               ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    RUNNING  2 · 1 queued
  › ▶ Editing             Add SSH keepalive to remote runs                   14m
@@ -239,7 +239,7 @@ exports[`golden frames (NO_COLOR) sessions at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) sessions detail (narrow drill-in) at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  [ Sessions ]  Settings               ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    Add SSH keepalive to remote runs
    ▶ Editing · Codex · team on devbox · acme/api · pacer/review · started 07:00
@@ -266,7 +266,7 @@ exports[`golden frames (NO_COLOR) sessions detail (narrow drill-in) at 80x24 1`]
 
 exports[`golden frames (NO_COLOR) settings sections at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › Planner & pacing             │   PLANNER & PACING
    Accounts                     │   
@@ -309,7 +309,7 @@ exports[`golden frames (NO_COLOR) settings sections at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings sections at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
  › Planner & pacing                                                            
    Accounts
@@ -336,7 +336,7 @@ exports[`golden frames (NO_COLOR) settings sections at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Planner & pacing at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   PLANNER & PACING
    Accounts                     │   
@@ -379,7 +379,7 @@ exports[`golden frames (NO_COLOR) settings › Planner & pacing at 120x40 1`] = 
 
 exports[`golden frames (NO_COLOR) settings › Planner & pacing at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    PLANNER & PACING
    
@@ -406,7 +406,7 @@ exports[`golden frames (NO_COLOR) settings › Planner & pacing at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Accounts at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   ACCOUNTS
    Accounts                     │   
@@ -449,7 +449,7 @@ exports[`golden frames (NO_COLOR) settings › Accounts at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Accounts at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    ACCOUNTS
    
@@ -476,7 +476,7 @@ exports[`golden frames (NO_COLOR) settings › Accounts at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Executors at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   EXECUTORS
    Accounts                     │   
@@ -519,7 +519,7 @@ exports[`golden frames (NO_COLOR) settings › Executors at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Executors at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    EXECUTORS
    
@@ -546,7 +546,7 @@ exports[`golden frames (NO_COLOR) settings › Executors at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   THIS MACHINE
    Accounts                     │   
@@ -589,7 +589,7 @@ exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    THIS MACHINE
    
@@ -616,7 +616,7 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Remote hosts at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   REMOTE HOSTS
    Accounts                     │   
@@ -659,7 +659,7 @@ exports[`golden frames (NO_COLOR) settings › Remote hosts at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Remote hosts at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    REMOTE HOSTS
    
@@ -686,7 +686,7 @@ exports[`golden frames (NO_COLOR) settings › Remote hosts at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Routing at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   ROUTING
    Accounts                     │   
@@ -729,7 +729,7 @@ exports[`golden frames (NO_COLOR) settings › Routing at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Routing at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    ROUTING
    
@@ -756,7 +756,7 @@ exports[`golden frames (NO_COLOR) settings › Routing at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Project strategies at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   PROJECT STRATEGIES
    Accounts                     │   
@@ -799,7 +799,7 @@ exports[`golden frames (NO_COLOR) settings › Project strategies at 120x40 1`] 
 
 exports[`golden frames (NO_COLOR) settings › Project strategies at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    PROJECT STRATEGIES
    
@@ -826,7 +826,7 @@ exports[`golden frames (NO_COLOR) settings › Project strategies at 80x24 1`] =
 
 exports[`golden frames (NO_COLOR) settings › Strategies at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   STRATEGIES
    Accounts                     │   
@@ -869,7 +869,7 @@ exports[`golden frames (NO_COLOR) settings › Strategies at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Strategies at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    STRATEGIES
    
@@ -896,7 +896,7 @@ exports[`golden frames (NO_COLOR) settings › Strategies at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Updates & plugin at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   UPDATES & PLUGIN
    Accounts                     │   
@@ -939,7 +939,7 @@ exports[`golden frames (NO_COLOR) settings › Updates & plugin at 120x40 1`] = 
 
 exports[`golden frames (NO_COLOR) settings › Updates & plugin at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    UPDATES & PLUGIN
    
@@ -966,7 +966,7 @@ exports[`golden frames (NO_COLOR) settings › Updates & plugin at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Notifications at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   NOTIFICATIONS
    Accounts                     │   
@@ -1009,7 +1009,7 @@ exports[`golden frames (NO_COLOR) settings › Notifications at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Notifications at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    NOTIFICATIONS
    
@@ -1036,7 +1036,7 @@ exports[`golden frames (NO_COLOR) settings › Notifications at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Appearance at 120x40 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Planner & pacing             │   APPEARANCE
    Accounts                     │   
@@ -1079,7 +1079,7 @@ exports[`golden frames (NO_COLOR) settings › Appearance at 120x40 1`] = `
 
 exports[`golden frames (NO_COLOR) settings › Appearance at 80x24 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    APPEARANCE
    
@@ -1106,7 +1106,7 @@ exports[`golden frames (NO_COLOR) settings › Appearance at 80x24 1`] = `
 
 exports[`golden frames (NO_COLOR) setup replaces work screens while setup is incomplete 1`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  Settings  [ Setup ]                         All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    pacer works once the required steps are done. The rest makes it useful.
    
@@ -1149,7 +1149,7 @@ exports[`golden frames (NO_COLOR) setup replaces work screens while setup is inc
 
 exports[`golden frames (NO_COLOR) setup replaces work screens while setup is incomplete 2`] = `
 " ▬┃ pacer   Home 4  Review 2  Sessions 2  Settings  [ Setup ]      ● live 08:00
- Claude  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h · reset…
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    pacer works once the required steps are done. The rest makes it useful.
    
@@ -1176,7 +1176,7 @@ exports[`golden frames (NO_COLOR) setup replaces work screens while setup is inc
 
 exports[`color, plain and ASCII renditions home in truecolor uses token colors 1`] = `
 " \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[1m\x1B[38;2;147;197;253m[ Home ]\x1B[0m  \x1B[38;2;161;161;170mReview\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 2\x1B[0m  \x1B[38;2;161;161;170mSessions\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                  \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
- \x1B[1mClaude planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
+ \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
    \x1B[1m14 pts under pace — spend it.\x1B[0m
    
@@ -1219,7 +1219,7 @@ exports[`color, plain and ASCII renditions home in truecolor uses token colors 1
 
 exports[`color, plain and ASCII renditions review in truecolor uses token colors 1`] = `
 " \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Review ]\x1B[0m  \x1B[38;2;161;161;170mSessions\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                  \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
- \x1B[1mClaude planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
+ \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
    \x1B[1m\x1B[38;2;161;161;170mREVIEW QUEUE\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m2\x1B[0m                             \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1mFix flaky retry test in the payments client\x1B[0m
  \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[38;2;252;211;77m\x1B[48;2;39;39;42m◐\x1B[0m\x1B[48;2;39;39;42m \x1B[0m\x1B[1m\x1B[48;2;39;39;42mFix flaky retry test in the payment…\x1B[0m\x1B[48;2;39;39;42m \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m07:30\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m\x1B[38;2;161;161;170m · Codex · team on devbox · ran 50m · pacer/revi…\x1B[0m
@@ -1262,7 +1262,7 @@ exports[`color, plain and ASCII renditions review in truecolor uses token colors
 
 exports[`color, plain and ASCII renditions sessions in truecolor uses token colors 1`] = `
 " \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[38;2;161;161;170mReview\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 2\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Sessions ]\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                  \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
- \x1B[1mClaude planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
+ \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
    \x1B[1m\x1B[38;2;161;161;170mRUNNING\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m2\x1B[0m\x1B[38;2;161;161;170m · 1 queued\x1B[0m                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1mAdd SSH keepalive to remote runs\x1B[0m
  \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m▶ Editing\x1B[0m\x1B[48;2;39;39;42m           \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[1m\x1B[48;2;39;39;42mAdd SSH keepalive to rem…\x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[48;2;39;39;42m      \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m14m\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;147;197;253m▶ Editing\x1B[0m\x1B[38;2;161;161;170m · Codex · team on devbox · acme/api · pacer/…\x1B[0m
@@ -1305,7 +1305,7 @@ exports[`color, plain and ASCII renditions sessions in truecolor uses token colo
 
 exports[`color, plain and ASCII renditions settings in truecolor uses token colors 1`] = `
 " \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[38;2;161;161;170mReview\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 2\x1B[0m  \x1B[38;2;161;161;170mSessions\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Settings ]\x1B[0m                                \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
- \x1B[1mClaude planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
+ \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
    \x1B[1m\x1B[38;2;250;250;250mPlanner & pacing\x1B[0m            \x1B[38;2;63;63;70m │ \x1B[0m  \x1B[1m\x1B[38;2;161;161;170mPLANNER & PACING\x1B[0m
    \x1B[38;2;161;161;170mAccounts\x1B[0m                    \x1B[38;2;63;63;70m │ \x1B[0m  
@@ -1348,7 +1348,7 @@ exports[`color, plain and ASCII renditions settings in truecolor uses token colo
 
 exports[`color, plain and ASCII renditions plain mode drops glyphs and borders but keeps every label 1`] = `
 " =| pacer   Home (4)  [ Review ]  Sessions (2)  Settings           * live 08:00
- Claude  [######-|--]  63% used - pace 77%  Behind pace  10 active-h - reset...
+ Claude Code  [######-|--]  63% used - pace 77%  Behind pace  10 active-h -...
  ------------------------------------------------------------------------------
    Fix flaky retry test in the payments client
    Waiting for review - Codex - team on devbox - ran 50m - pacer/review -> main
@@ -1391,7 +1391,7 @@ exports[`color, plain and ASCII renditions plain mode drops glyphs and borders b
 
 exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
 " =| pacer   [ Home ]  Review 2  Sessions 2  Settings               * live 08:00
- Claude  [######-|--]  63% used - pace 77%  v Behind pace  10 active-h - res...
+ Claude Code  [######-|--]  63% used - pace 77%  v Behind pace  10 active-h...
  ------------------------------------------------------------------------------
    14 pts under pace - spend it.
    

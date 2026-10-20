@@ -65,6 +65,18 @@ describe("golden frames (NO_COLOR)", () => {
       expect(text).toMatchSnapshot();
     }
   });
+  test("setup without a planner points to pacer init (the app's planner choice is not offered here)", () => {
+    const s = snapshot();
+    const facts = { version: "0.3.0", planner: null, service: { installed: true, running: true }, link: true, live: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [], excluded: [] } };
+    const checklist = setupChecklist(facts, s.at);
+    const planner = checklist.items.find(i => i.id === "planner")!;
+    expect(planner.action).toBe("setup.init");
+    expect(planner.options).toEqual(["codex"]);
+    s.setup = { ...checklist, open: checklist.items.filter(i => i.status !== "done").length };
+    const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, state: { screen: "home" }, ops: ["service.install", "setup.init"] });
+    bounded(text, 120, 40);
+    expect(text).toContain("Choose which agent plans your work · pacer init");
+  });
 });
 
 describe("color, plain and ASCII renditions", () => {
