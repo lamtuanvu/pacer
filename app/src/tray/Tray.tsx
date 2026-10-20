@@ -11,7 +11,7 @@ import type { Action } from "../../../src/attention/types";
 import { agentInfo, markAgent, runnerAgent } from "../../../src/view-model/agents";
 import { backIn, clock, elapsed } from "../../../src/view-model/time";
 import { meterText } from "../../../src/view-model/format";
-import { attentionStatus, executorStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
+import { attentionStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
 import { plannerMeter } from "../../../src/view-model/selectors";
 import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";

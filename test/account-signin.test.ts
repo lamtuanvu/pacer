@@ -1,6 +1,6 @@
 import { accountEvidenceScope } from "../src/evidence/scope";
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { list, signin } from "../src/core/accounts";
@@ -21,12 +21,16 @@ afterEach(() => { mock.restore(); });
 
 test("a Codex usage authentication failure signs out the account until a successful read", async () => {
   const ctx = configured();
+  // Signed in per the login indicator, logged in before the failure below.
+  const home = join(ctx.home, "codex team's home");
+  mkdirSync(home, {recursive: true}); writeFileSync(join(home, "auth.json"), "{}");
+  utimesSync(join(home, "auth.json"), ctx.now - 3600, ctx.now - 3600);
   const read = spyOn(codex, "readCodex").mockResolvedValue({windows: [], capturedAt: null, stale: false, error: "401 Unauthorized"});
   expect((await list(ctx)).find(a => a.name === "codex")?.signedIn).toBe(false);
   expect(readAuthFailures(ctx)).toEqual({codex: ctx.now});
   read.mockResolvedValue({windows: [], capturedAt: ctx.now + 61, stale: false, source: "session-log"});
   ctx.now += 61;
-  expect((await list(ctx)).find(a => a.name === "codex")?.signedIn).not.toBe(false);
+  expect((await list(ctx)).find(a => a.name === "codex")?.signedIn).toBe(true);
   expect(readAuthFailures(ctx)).toEqual({});
 });
 

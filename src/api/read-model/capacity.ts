@@ -35,26 +35,46 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
   else if(jobs.some(j=>j.kind==="runner.check"&&j.target===id&&j.state==="running")){state="checking";}
   else if(p?.blockedReason){state="blocked";reason=p.blockedReason;}
   else if(p?.brokenReason || p?.unavailableReason || p?.installed===false){state="down";reason=p.brokenReason??p.unavailableReason??"not installed";}
+  else if(p?.signedOutReason){state="down";reason=p.signedOutReason;}
   else if(p?.eligibility?.state==="ineligible"){state=p.eligibility.budget==="exhausted"?"exhausted":"down";reason=eligibilityPresentation(p.eligibility,now).detail;}
   else if(!p?.eligibility&&p?.verdict==="EXHAUSTED"){state="exhausted";}
   else if(lastCheck?.passed===false){state="failing";reason=lastCheck.detail;}
   else if(recentFailures>=2){state="failing";reason=`${recentFailures} recent failures`;}
   else if(block){state="full";reason=block;}
   else if(used>0)state="busy";
+  // Routing keeps a not-tested endpoint (endpoint spec §5); show that it is unproven instead of Ready.
+  const untested=state==="ready"&&p?.endpointNotTested===true;
+  if(untested)reason="not tested — run a check";
   if(reason)reason=redactEndpointError(reason).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
   const places=[...new Set(Object.values(s.runners).filter(other=>other.account===account).map(other=>other.host??"this Mac"))].sort((a,b)=>a==="this Mac"?-1:b==="this Mac"?1:a.localeCompare(b)).join(" + ")||"this Mac";
   const tones:Record<ExecutorRow["state"],ExecutorRow["tone"]>={ready:"good",busy:"info",full:"info",failing:"warn",down:"bad",exhausted:"bad",blocked:"muted",disabled:"muted",checking:"info"};
   const assessment=eligibilityPresentation(p?.eligibility,now);
-  return {...(p?.eligibility?{eligibility:p.eligibility,stale:p.stale}:{}),id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:p?.eligibility?.state==="uncertain"?"warn":tones[state],sub:reason??(!p?.eligibility?`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`:`${assessment.label} · ${assessment.detail}${assessment.age?` · ${assessment.age}`:""} · ${places}`),...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
+  return {...(p?.eligibility?{eligibility:p.eligibility,stale:p.stale}:{}),id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:p?.eligibility?.state==="uncertain"?"warn":tones[state],sub:reason??(!p?.eligibility?`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`:`${assessment.label} · ${assessment.detail}${assessment.age?` · ${assessment.age}`:""} · ${places}`),...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),...(untested?{untested:true as const}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
  });
  const next=st.executors.ranked.find(e=>rows.some(r=>r.id===e.id&&r.eligibility?.state!=="ineligible"&&["ready","busy","failing"].includes(r.state)));
  if(next)rows.find(r=>r.id===next.id)!.next=true;
  return rows;
 }
+/**
+ * Sign-in comes from the status, which applies the shared local sign-in check
+ * (usage/signin.ts) to each local, non-planner runner, so an account and its
+ * executors never disagree. Endpoints have no sign-in (null). Planner-only and
+ * remote-only accounts are not checked locally: false after a recorded
+ * authentication failure, otherwise null.
+ */
+function signedIn(st: Status,s: Strategy,name: string,failures: Record<string,number>): boolean|null {
+ if(s.accounts[name]?.kind==="endpoint")return null;
+ const checked=Object.values(s.runners).filter(r=>r.account===name&&r.host===null&&!(r.agent===s.planner.agent&&r.account===s.planner.account)).map(r=>st.providers.find(p=>p.id===r.id||p.id===r.name)).filter(p=>!!p);
+ if(checked.some(p=>p.signedOutReason))return false;
+ if(checked.length)return true;
+ // Remote-only and planner-only accounts keep a recorded authentication failure.
+ return Object.hasOwn(failures,name)?false:null;
+}
 export function buildAccounts(st: Status,s: Strategy,ctx?: Ctx): AccountSummary[] {
+ const failures=ctx?Object.fromEntries(Object.values(s.accounts).filter(a=>accountAuthFailure(ctx,accountEvidenceScope(a,s.hosts))).map(a=>[a.name,ctx.now])):{};
  return Object.values(s.accounts).map(a=>{
   const runners=Object.values(s.runners).filter(r=>r.account===a.name),p=st.providers.find(p=>p.account===a.name||runners.some(r=>r.id===p.id)),status=st.accounts?.find(row=>row.name===a.name);
-  return {...(status?.eligibility?{eligibility:status.eligibility}:{}),stale:status?.stale??p?.stale??true,capturedAt:status?.capturedAt??null,name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:ctx && !!accountAuthFailure(ctx,accountEvidenceScope(a,s.hosts)) ? false : status && "signedIn" in status && status.signedIn===true ? true : null,executors:runners.map(r=>r.id)};
+  return {...(status?.eligibility?{eligibility:status.eligibility}:{}),stale:status?.stale??p?.stale??true,capturedAt:status?.capturedAt??null,name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id)};
  });
 }
 export function buildPlanner(st: Status): PlannerMeter | null {

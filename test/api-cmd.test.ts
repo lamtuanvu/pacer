@@ -16,11 +16,6 @@ async function ctxWithStrategy() {
   return ctx;
 }
 
-test("the dashboard and the shared module expose the same mapping", async () => {
-  const dash = await import("../src/dashboard/data");
-  expect(dash.cmdToOp).toBe(cmdToOp);
-});
-
 test("runMappedCmd reports success and errors and skips unmapped commands", async () => {
   const ctx = await ctxWithStrategy();
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });

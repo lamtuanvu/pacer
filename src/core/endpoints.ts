@@ -11,7 +11,7 @@ import {readKey, writeKey} from "../endpoints/keys";
 import {discoverModels, type DiscoveryResult} from "../endpoints/models";
 import {writeOpencodeConfig} from "../endpoints/opencode-config";
 import {endpointRow} from "../endpoints/row";
-import {readEndpointState, redactEndpointError, writeEndpointState} from "../endpoints/state";
+import {readEndpointState, redactEndpointMessage, writeEndpointState} from "../endpoints/state";
 import {testEndpoint as runTest} from "../endpoints/test-task";
 
 export interface EndpointDeps {
@@ -105,7 +105,7 @@ async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: Endp
     const row=await endpointRow(ctx,updated.accounts[name]);
     return {...(migrated ? {migrated} : {}),account:{...updated.accounts[name],...row},runner:updated.runners[`opencode#${name}`],...readEndpointState(ctx,name),...(row.state==='key_missing'?{state:'key_missing' as const}:{})};
   } catch(e) {
-    const message=redactEndpointError(e instanceof Error?e.message:String(e),[input.key ?? '']);
+    const message=redactEndpointMessage(e instanceof Error?e.message:String(e),[input.key ?? '']);
     throw new CoreError(e instanceof CoreError ? e.code : "invalid_input", message);
   }
 }

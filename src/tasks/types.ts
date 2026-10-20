@@ -130,6 +130,8 @@ export interface TaskRecord {
   createdAt: number;
   kind: string | null;
   requestedExecutor: string | null;
+  /** Set when the requested executor could not run and another one did. */
+  executorFallback?: { requested: string; reason: string; executor: string };
   timeoutS: number;
   brief: Brief;
   state: TaskState;

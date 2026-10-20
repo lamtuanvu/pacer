@@ -4,8 +4,7 @@ import { accountEvidenceScope, mergeEvidence } from "../core/evidence";
 import { appliesTo, currentEvidence, evidenceDeadline, evidenceFact, readingEvidence } from "./evidence";
 import { evaluateEligibility } from "./eligibility";
 import { statusTimer } from "../usage/trace";
-import { loginIndicator } from "../install/login";
-import { resolve } from "node:path";
+import { accountSignIn } from "../usage/signin";
 import { readPause, type PauseState } from "../core/pause";
 import { readHold, type ModeHold } from "../core/mode-hold";
 import { readEndpointState } from "../endpoints/state";
@@ -100,6 +99,12 @@ export async function computeStatus(
     const incoming = readingEvidence(scope, reading, usage);
     const auth = authObservation(ctx, scope);
     if (auth) incoming.availability.push(evidenceFact(auth.scope, "execution", auth.at, auth.at + 7200, "authentication_failed", "unavailable"));
+    if (runners.some(r => r.host === null && !(r.agent === s.planner.agent && r.account === s.planner.account))) {
+      const signIn = accountSignIn(ctx, account, scope);
+      // A newer login repairs matching account authentication evidence, never budget evidence.
+      if (signIn.recoveredAt !== undefined) incoming.availability.push(evidenceFact(scope, "session-log",
+        signIn.recoveredAt, signIn.recoveredAt + 7200, "signin_observed", "ready"));
+    }
     for (const limit of limits.filter(v => v.manual || v.scope?.identity === scope.identity)) incoming.budget.push(evidenceFact(limit.scope ?? scope, limit.manual ? "configuration" : "execution", limit.observedAt,
       limit.until, "quota_failure", { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: 21600, paced: false }));
     const snapshot = await mergeEvidence(ctx, scope, incoming);
@@ -119,12 +124,12 @@ export async function computeStatus(
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
     const eligibility = evaluateEligibility({ now: ctx.now, scope, usage, allowPaid: account.allowPaid,
       evidence: snapshot.evidence, restrictions: [] });
-    return { account, runners, reading: reconciledReading, windows, binding, verdict, endpointReason, scope, snapshot, eligibility, usage };
+    return { account, runners, reading: reconciledReading, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested", scope, snapshot, eligibility, usage };
   }));
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
-    const { account, reading, endpointReason, scope, snapshot, usage } = byAccount[runner.account];
+    const { account, reading, endpointReason, endpointNotTested, scope, snapshot, usage } = byAccount[runner.account];
     const runnerScope = { ...scope, runner: runner.name, model: runner.model ?? "default", host: runner.host ?? "local" };
     const windows = snapshot.evidence.facts.budget.filter(f => appliesTo(f, runnerScope)).map(f => evaluateWindow({ ...f.value,
       stale: f.value.stale || !currentEvidence(f, ctx.now, evidenceDeadline(f)) }, ctx.now, profile, {
@@ -133,17 +138,15 @@ export async function computeStatus(
       }));
     const live = windows.filter(w => !w.stale), binding = bindingWindow(live) ?? bindingWindow(windows);
     const verdict: Verdict = (usage === "unmetered" || usage === "reactive") && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
-    const folder = account.home ? resolve(account.home.replace(/^~(?=\/|$)/, ctx.home))
-      : account.source === "orca" && (account.kind === "claude" || account.kind === "codex")
-        ? orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ?? undefined : undefined;
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
-    const login = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? loginIndicator(ctx, runner.agent, folder) : null;
+    const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, scope) : null;
     const provider: ProviderStatus = {
       id: runner.name, account: account.name, usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
-      ...(login && !login.loggedIn ? { signedOutReason: `signed out — ${login.fix.startsWith("run ") ? login.fix : `run ${login.fix}`}` } : {}),
+      ...(signIn?.signedIn === false ? { signedOutReason: signIn.reason } : {}),
       ...(endpointReason ? {unavailableReason: endpointReason} : {}),
+      ...(endpointNotTested ? {endpointNotTested: true as const} : {}),
       installed: runner.host !== null || ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
       stale: reading.stale || windows.some(w => w.stale),
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),

@@ -194,7 +194,14 @@ has a maximum of three attempts.
 
 An override replaces global task-kind candidates and pacing order for that
 repository. Repositories without an override keep the global strategy. Removing
-an override restores that behavior; an empty list is rejected.
+an override restores that behavior; an empty list is rejected, with a pointer to
+`pacer project strategy remove`.
+
+Like `pacer delegate`, `pacer route` without `--repo` uses the repository in the
+current directory, so its preview matches what delegating from there would do.
+It does this only for a repository pacer already knows (one you delegated from,
+added, or gave a policy); previewing never probes or registers a new repository.
+Pass `--repo` to preview another repository.
 
 Policies persist in `$PACER_HOME/project-strategies.json`, independently of named
 strategies. Switching global strategies does not remove them. Executors are

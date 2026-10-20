@@ -21,6 +21,8 @@ export interface ProviderStatus {
   installed: boolean;
   unavailableReason?: string;
   signedOutReason?: string;
+  /** A managed endpoint whose test task has not run yet. Still routable (endpoint spec §5). */
+  endpointNotTested?: true;
   stale: boolean;
   error?: string;
   brokenReason?: string;

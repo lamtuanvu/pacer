@@ -1,5 +1,5 @@
 import { eligibilityPresentation } from "./eligibility";
-import { paceStatus } from "./words";
+import { executorRowStatus, paceStatus } from "./words";
 import type { ExecutorRow } from "../api/read-model/types";
 import type { ClientSnapshot, ClientTask } from "./snapshot";
 
@@ -27,7 +27,18 @@ export function executorPace(executor: ExecutorRow, snapshot: ClientSnapshot) {
 }
 
 export function executorEligibility(executor: ExecutorRow, now: number) {
-  return eligibilityPresentation(executor.eligibility, now);
+  const eligibility = eligibilityPresentation(executor.eligibility, now);
+  if (executor.eligibility) {
+    return executor.untested
+      ? { ...eligibility, detail: `${eligibility.detail} · Not tested` }
+      : eligibility;
+  }
+  // Older snapshots still carry operational state, but "ready" is not evidence
+  // that execution is eligible.
+  const operational = !executor.enabled ? executorRowStatus({ state: "disabled" }) : executorRowStatus(executor);
+  return executor.state !== "ready" || !executor.enabled || executor.untested
+    ? { ...eligibility, ...operational, detail: executor.reason || eligibility.detail }
+    : eligibility;
 }
 
 export function accountUsageFreshness(account: import("../api/read-model/types").AccountSummary) {

@@ -1,4 +1,5 @@
 import { clock as formatClock } from "../../../src/view-model/time";
+import { accountNeedsSignIn } from "../../../src/view-model/words";
 export interface Model { id: string; name?: string; context?: number; output?: number; tools?: boolean }
 export interface Account {
   name: string; kind: string; folder?: string; source?: string; signedIn?: boolean | null; signin_command?: string; runners?: string[];
@@ -13,7 +14,7 @@ export function accountsModel(accounts: Account[], limits: Limit[]) {
     const limit = limits.find(l => l.account === account.name);
     const captured = limit?.capturedAt ?? account.usageReading?.capturedAt;
     const stale = limit?.stale ?? account.usageReading?.stale;
-    return { ...account, signin: account.kind === "endpoint" || account.signedIn === true ? undefined : signinCommand(account),
+    return { ...account, signin: accountNeedsSignIn(account) ? signinCommand(account) : undefined,
       windows: (account.usageReading?.windows.length ? account.usageReading.windows : limit?.window ? [{ name: limit.window, usedPct: limit.usedPct ?? null, resetsAt: limit.resetsAt ?? null }] : []).map(w => ({ ...w, tone: legacyWindowTone(w.usedPct) })),
       freshness: captured == null ? "Usage not available yet" : `${stale ? "Stale since" : "Updated"} ${clock(captured)}`,
       source: limit?.source ?? account.usageReading?.source ?? "Unknown source", error: limit?.error, hint: limit?.hint ? limit.hint[0]!.toUpperCase() + limit.hint.slice(1) : limit?.hint };

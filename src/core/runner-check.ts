@@ -7,6 +7,8 @@ import { readJson, writeJsonAtomic } from "../fsutil";
 import { detectAgents } from "../install/detection";
 import { startJob, type Job } from "../jobs/registry";
 import type { Ctx } from "../types";
+import { accountSignIn } from "../usage/signin";
+import { accountEvidenceScope } from "../evidence/scope";
 import { list as listAccounts } from "./accounts";
 import { CoreError } from "./errors";
 import { check as checkLimits, type LimitsRow } from "./limits";
@@ -50,17 +52,33 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
       });
       // Reactive and unmetered accounts have no usage reader to authenticate.
       const hasUsage = account.usage === "quota" || account.usage === "metered";
-      let row: LimitsRow | undefined;
-      await perform("Signed in", `Account ${account.name}`, async () => {
+      // Sign-in is the shared local login state (login indicator plus recorded
+      // authentication failures), never a usage reading. A remote runner's login
+      // lives on its host, where the test task exercises it.
+      const local = runner.host === null;
+      await perform("Signed in", local ? `Account ${account.name}` : `Account ${account.name} · checked by the test task on ${runner.host}`, async () => {
+        if (!local) return;
         const status = (await (deps.listAccounts ?? listAccounts)(ctx)).find(a => a.name === account.name);
-        if (!status || status.signedIn === false) throw Error(`Sign in to account ${account.name}`);
-        row = (await (deps.checkLimits ?? checkLimits)(ctx, strategy)).find(r => r.account === account.name);
-        if (hasUsage && (!row || row.error)) throw Error(row?.error ?? "Usage reading unavailable");
+        if (!status) throw Error(`Sign in to account ${account.name}`);
+        if (status.signedIn === false) {
+          const signIn = accountSignIn(ctx, account, accountEvidenceScope(account, strategy.hosts));
+          throw Error(`Sign in to account ${account.name}${signIn.reason ? ` (${signIn.reason})` : ""}`);
+        }
       });
-      await perform("Usage readable", usageDetail(row, account.usage), async () => {
-        if (row?.error) throw Error(row.error);
-        if (hasUsage && !row) throw Error("Usage reading unavailable");
-      });
+      const row = (await (deps.checkLimits ?? checkLimits)(ctx, strategy)).find(r => r.account === account.name);
+      // Native usage first appears after the agent runs with this account (the Claude
+      // Code status line or Codex session logs). Routing treats it as unknown, so a
+      // missing first reading is skipped with its hint instead of failing the check.
+      const native = account.kind === "claude" || account.kind === "codex";
+      if (native && row && row.capturedAt === null && row.usedPct === null) {
+        step.start("Usage readable");
+        step.skip("Usage readable", `No usage reading yet${row.error ? ` · ${row.error}` : ""}${row.hint ? ` · ${row.hint}` : ""}`);
+      } else {
+        await perform("Usage readable", usageDetail(row, account.usage), async () => {
+          if (row?.error) throw Error(row.error);
+          if (hasUsage && !row) throw Error("Usage reading unavailable");
+        });
+      }
       await perform("Test task", "Write and run a one-line test in a scratch worktree", () => (deps.runTestTask ?? runTestTask)(ctx, runner.id));
       passed = true;
     } catch (error) {

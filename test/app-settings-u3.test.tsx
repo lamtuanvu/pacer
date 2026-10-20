@@ -97,13 +97,18 @@ test('a passed host connection check cannot make an executor Ready',()=>{
 });
 
 test('Accounts show usage words, sign-in pills, used-by and sign-in commands only in a disclosure',()=>{
- const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id],signin_command:'CODEX_HOME=$HOME/.codex-team codex login'},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'}];
+ const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id]},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
+  {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
  const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral initialData={{...settings,accounts}}/>,s);
  expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
- expect(html).toMatch(/pc-pill[^>]*>Signed in<\/span>/);expect(html).toMatch(/pc-pill[^>]*>No subscription<\/span>/);expect(html).toMatch(/pc-pill[^>]*>Unknown<\/span>/);
+ for(const label of ['Signed in','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+ expect(html).toContain('<th>Status</th>');expect(html).not.toContain('<th>Sign-in</th>');
  expect(html).toContain('<th>Used by</th>');expect(html).toContain(executor.id);
- expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
+ // Sign-in help only for native accounts known to be signed out (here: empty and out), never for endpoints.
+ expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for [a-z]+<\/span><\/summary>/g)).toHaveLength(2);
+ expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for empty</span></summary>');
+ expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<span class="sr-only"> for out<\/span><\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
 });
 
 test('multiple accounts always shows the threshold beside Spread and Fill, disabled only for Spread',()=>{
@@ -160,4 +165,40 @@ test('Settings and host executors share uncertainty; retained account usage is h
  expect(remote).toContain('Uncertain fallback');
  const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
  expect(render(<HostDetail alias="devbox" initialData={{...host,executors:[known] as any}}/>)).toContain('observed 3h ago');
+});
+
+test('Executors copy matches routing: a failed check does not skip an executor',()=>{
+ const html=render(<SettingsGeneral initialData={settings}/>);
+ expect(html).not.toContain('skipped until it passes again');
+ expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention; routing keeps using a Failing executor. Disable it to skip it.');
+});
+
+test('a not-tested endpoint executor reads Not tested, not Ready, in Executors',()=>{
+ const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,reason:'not tested — run a check',lastCheck:null} as any;
+ const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row]}});
+ expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Not tested<\/span>/);
+ expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
+});
+test('an untested endpoint keeps its eligibility decision and its unchecked status',()=>{
+ const eligibility={state:'uncertain',reasons:[{code:'budget_missing',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
+ const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,eligibility,lastCheck:null} as any;
+ const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}});
+ expect(html).toContain('Uncertain fallback');
+ expect(html).toContain('No budget observation is available · Not tested');
+ expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
+});
+test('an executor row states its reason once, not again under Last check',()=>{
+ const detail='Sign in to account cwork (signed out — run claude and log in)';
+ const row={...executor,state:'down',reason:'signed out — run claude and log in',lastCheck:{at:100,passed:false,detail}} as any;
+ const failing={...executor,id:'claude-code#main',state:'failing',reason:'test task failed: Not logged in',lastCheck:{at:100,passed:false,detail:'test task failed: Not logged in'}} as any;
+ const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row,failing]}});
+ expect(html.split('signed out — run claude and log in').length-1).toBe(1);
+ expect(html.split('test task failed: Not logged in').length-1).toBe(1);
+});
+test('Add executor offers sign-in only for a signed-out native account',()=>{
+ const accounts=[{name:'work',kind:'endpoint',signedIn:null,state:'not_tested'},{name:'in',kind:'claude',signedIn:true},{name:'out',kind:'claude',signedIn:false}] as any;
+ const html=(agent:string,account:string)=>render(<AddExecutor initialDraft={{step:'2',agent,account}} initialAccounts={accounts}/>);
+ expect(html('opencode','work')).not.toContain('Sign in to work');
+ expect(html('claude-code','in')).not.toContain('Sign in to in');
+ expect(html('claude-code','out')).toContain('Sign in to out');
 });
