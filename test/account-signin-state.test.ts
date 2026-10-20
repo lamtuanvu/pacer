@@ -135,3 +135,29 @@ test("routing excludes an executor whose authentication failed after its last lo
   expect(st.executors.ranked.some(e => e.id === "claude-code#work")).toBe(true);
   expect(st.executors.excluded.some(e => e.id === "claude-code#work")).toBe(false);
 });
+
+test("a not-tested endpoint executor stays routable but is not shown as Ready", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+    planner: "codex",
+    accounts: {codex: {kind: "codex"}, lab: {kind: "endpoint", usage: "unmetered", connection: {api: "openai-compatible", base_url: "http://127.0.0.1:9/v1", key: "none", models: [{id: "m", context: 128000, output: 16000, tools: true}]}}},
+    runners: {codex: {}, "opencode#lab": {model: "pacer-lab/m"}},
+    routing: [{default: ["opencode#lab"]}],
+  }));
+  const {executorRowStatus} = await import("../src/view-model/words") as typeof import("../src/view-model/words") & {executorRowStatus: (row: {state: string; untested?: boolean}) => {label: string; tone: string}};
+  const s = loadStrategy(ctx);
+  let st = await computeStatus(ctx, s);
+  // Spec (endpoint executors §5): routing excludes only Not working and Key missing.
+  expect(st.executors.ranked.some(e => e.id === "opencode#lab")).toBe(true);
+  let row = buildExecutors(st, s, [], ctx.now, ctx).find(r => r.id === "opencode#lab")! as ReturnType<typeof buildExecutors>[number] & {untested?: boolean};
+  expect(row.untested).toBe(true);
+  expect(row.reason).toBe("not tested — run a check");
+  expect(executorRowStatus(row)).toMatchObject({label: "Not tested", tone: "neutral"});
+  const {writeEndpointState} = await import("../src/endpoints/state");
+  writeEndpointState(ctx, "lab", {state: "ready", checked_at: new Date().toISOString()});
+  st = await computeStatus(ctx, s);
+  row = buildExecutors(st, s, [], ctx.now, ctx).find(r => r.id === "opencode#lab")!;
+  expect(row.untested).toBeUndefined();
+  expect(executorRowStatus(row).label).toBe("Ready");
+});

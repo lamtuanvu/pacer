@@ -12,7 +12,7 @@ import { ago, clock, elapsed } from "../../../src/view-model/time";
 import { meterText } from "../../../src/view-model/format";
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
-import { attentionStatus, executorLabel, executorStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
+import { attentionStatus, executorLabel, executorRowStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import { AgentMark } from "../ds/AgentMark";
@@ -86,10 +86,10 @@ function Capacity({ snapshot, narrow, query }: { snapshot: ClientSnapshot; narro
   const rows = capacity(snapshot), c = counts(snapshot);
   const next = rows.find(e => e.next), down = rows.filter(e => e.state === "down" || e.state === "failing").length;
   return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><SectionHeading id="capacity">Capacity</SectionHeading>{!narrow && c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" />{narrow && next ? <span className="muted">next: <b>{executorLabel(next.id)}</b></span> : <TextAction className="pc-text-action" href={withQuery("#/settings/executors", query)}>Details</TextAction>}</div>
-    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{rows.map(e => <ListRowLink key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${executorStatus(e.state).label}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
+    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{rows.map(e => <ListRowLink key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${executorRowStatus(e).label}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
       <AgentMark agent={markAgent(e.id, e.account)} size={20} labelled={false} />
-      {narrow && <span className={`pc-cap__dot pc-cap__dot--${executorStatus(e.state).tone}`} />}
-      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><StatusPill status={executorStatus(e.state)} /><div className="muted"><StatusGlyph status={executorPace(e, snapshot)} />{executorPace(e, snapshot).label}{e.reason || e.paceReason ? ` · ${e.reason ?? e.paceReason}` : ""}</div></div>
+      {narrow && <span className={`pc-cap__dot pc-cap__dot--${executorRowStatus(e).tone}`} />}
+      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><StatusPill status={executorRowStatus(e)} /><div className="muted"><StatusGlyph status={executorPace(e, snapshot)} />{executorPace(e, snapshot).label}{e.reason || e.paceReason ? ` · ${e.reason ?? e.paceReason}` : ""}</div></div>
       <div><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={executorPace(e, snapshot).tone} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
       <span className="muted pc-num">{e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`}</span>
       <span className="muted pc-num" aria-label={`${e.slots.used} of ${e.slots.max} parallel tasks`}>{e.slots.used}/{e.slots.max}</span>

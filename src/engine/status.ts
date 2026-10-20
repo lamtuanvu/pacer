@@ -96,13 +96,13 @@ export async function computeStatus(
     const verdict: Verdict = account.usage === "unmetered" && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     const endpoint = opts.cacheOnly ? (account.connection ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
-    return { account, runners, reading: fresh, windows, binding, verdict, endpointReason };
+    return { account, runners, reading: fresh, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested" };
   }));
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
   const authFailures = readAuthFailures(ctx);
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
-    const { account, reading, windows, binding, verdict, endpointReason } = byAccount[runner.account];
+    const { account, reading, windows, binding, verdict, endpointReason, endpointNotTested } = byAccount[runner.account];
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
     const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, authFailures) : null;
     return {
@@ -111,6 +111,7 @@ export async function computeStatus(
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
       ...(signIn?.signedIn === false ? { signedOutReason: signIn.reason } : {}),
       ...(endpointReason ? {unavailableReason: endpointReason} : {}),
+      ...(endpointNotTested ? {endpointNotTested: true as const} : {}),
       installed: runner.host !== null || ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
       stale: reading.stale,
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),

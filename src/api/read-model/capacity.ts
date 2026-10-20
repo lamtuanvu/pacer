@@ -40,10 +40,13 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
   else if(recentFailures>=2){state="failing";reason=`${recentFailures} recent failures`;}
   else if(block){state="full";reason=block;}
   else if(used>0)state="busy";
+  // Routing keeps a not-tested endpoint (endpoint spec §5); show that it is unproven instead of Ready.
+  const untested=state==="ready"&&p?.endpointNotTested===true;
+  if(untested)reason="not tested — run a check";
   if(reason)reason=redactEndpointError(reason).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
   const places=[...new Set(Object.values(s.runners).filter(other=>other.account===account).map(other=>other.host??"this Mac"))].sort((a,b)=>a==="this Mac"?-1:b==="this Mac"?1:a.localeCompare(b)).join(" + ")||"this Mac";
   const tones:Record<ExecutorRow["state"],ExecutorRow["tone"]>={ready:"good",busy:"info",full:"info",failing:"warn",down:"bad",exhausted:"bad",blocked:"muted",disabled:"muted",checking:"info"};
-  return {id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:tones[state],sub:reason??`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`,...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
+  return {id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:tones[state],sub:reason??`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`,...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),...(untested?{untested:true as const}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
  });
  const next=st.executors.ranked.find(e=>rows.some(r=>r.id===e.id&&["ready","busy"].includes(r.state)));
  if(next)rows.find(r=>r.id===next.id)!.next=true;

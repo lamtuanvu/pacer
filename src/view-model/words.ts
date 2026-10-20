@@ -84,6 +84,10 @@ const endpointStates: Record<string, Status> = {
   not_working: status("Not working", "bad", "✕"), key_missing: status("Key missing", "bad", "✕"),
   external: status("External provider", "neutral", "■"),
 };
+/** An executor row's label: a ready but not-tested endpoint reads "Not tested", like its account. */
+export function executorRowStatus(row: { state: string; untested?: boolean }): Status {
+  return row.state === "ready" && row.untested ? endpointStates.not_tested! : executorStatus(row.state);
+}
 export interface AccountStateInput { kind?: string; signedIn?: boolean | null; state?: string | { state?: string } }
 /**
  * One readiness label per account. Native accounts show local sign-in; endpoint
