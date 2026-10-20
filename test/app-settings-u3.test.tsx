@@ -184,3 +184,8 @@ test('Add executor offers sign-in only for a signed-out native account',()=>{
  expect(html('claude-code','in')).not.toContain('Sign in to in');
  expect(html('claude-code','out')).toContain('Sign in to out');
 });
+test('Accounts show an endpoint account\'s weekly dollar spend against its cap', () => {
+ const name = settings.accounts[0]!.name;
+ const html = render(<SettingsGeneral initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $'}]}});
+ expect(html).toContain('$3.20 of $5 this week');
+});

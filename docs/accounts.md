@@ -97,7 +97,8 @@ Its runner model is `<provider>/<model>`. OpenCode merges pacer's generated
 config with yours and resolves the key itself. If the provider is later signed
 out of OpenCode, the next check reports **Key missing — run `opencode auth login
 <provider>`**. Spend is read in dollars from `opencode stats --cost` and is always
-shown ("$3.20 this week"). With a cap, the reading has a `7d $` window whose used
+shown in `pacer account list` and Settings › Accounts ("$3.20 this week", or
+"$3.20 of $5 this week" with a cap, plus "cap reached" once it is reached). With a cap, the reading has a `7d $` window whose used
 percent is spend divided by the cap, and pacing treats a reached cap like any full
 window. Accounts without `connection` or `source` stay **External OpenCode
 provider** accounts (see [Legacy endpoint budgets](#legacy-endpoint-budgets));

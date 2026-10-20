@@ -18,6 +18,7 @@ import {deleteKey} from "../endpoints/keys";
 import {redactEndpointMessage, type EndpointState} from "../endpoints/state";
 import type {DiscoveredModel, DiscoveryResult} from "../endpoints/models";
 import type {Candidate, Detection} from "../endpoints/detect";
+import {spendCopy} from "../view-model/copy";
 import {filterModelIds, idChoice, type ModelChoice, type UsageClass} from "../endpoints/recommend";
 
 export interface AccountDeps extends endpoints.EndpointDeps {
@@ -103,7 +104,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
     let s = loadStrategy(ctx);
     if (verb === "list" && !pos.length) {
       const rows = await accounts.list(ctx);
-      return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
+      return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${spendCopy(a.usageReading.spendUsd, a.weeklyUsd) ?? (a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage)}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
     }
     if (["add", "edit", "rm"].includes(verb) || (verb === "models" && flags.refresh)) {
       const ensured=ensureAccounts(ctx);

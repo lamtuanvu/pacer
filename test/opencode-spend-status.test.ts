@@ -49,3 +49,10 @@ test("cached status keeps Key missing for an OpenCode provider account", async (
   const st = await computeStatus(ctx, loadStrategy(ctx), {cacheOnly: true});
   expect(st.providers.find(p => p.id === "opencode#openrouter")?.unavailableReason ?? "").toContain("Key missing");
 });
+
+test("account list shows the week's spend and cap for an OpenCode provider", async () => {
+  const ctx = setup({weekly_usd: 100});
+  const {accountCmd} = await import("../src/commands/accounts");
+  const out = (await accountCmd(["list"], ctx, {})).out;
+  expect(out).toMatch(/\$4\d\.\d\d of \$100 this week/);
+});
