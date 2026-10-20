@@ -22,6 +22,8 @@ export interface Act {
   /** Destructive or consequential actions ask first (TD-6). */
   confirm?: Confirm;
   danger?: boolean;
+  /** What the act is about, such as a task title; shown in a confirmation the TUI adds. */
+  subject?: string;
 }
 /** A consent question. `alt` offers a second answer, such as "Change only" beside "Change and connect". */
 export interface Confirm { title: string; body?: string[]; yes?: string; alt?: { key: string; label: string; act: Act } }
@@ -89,10 +91,25 @@ const select = (state: UiState, items: Item[], i: number): UiState => {
 };
 const go = (state: UiState, screen: ScreenId): UiState => ({ ...state, screen, focus: "list", scroll: 0, overlay: null });
 
-/** Run an act: confirm first when it asks to. */
-export function trigger(state: UiState, act: Act | undefined): KeyResult {
+/** Accept and reject verdicts, stops, removals, updates and danger-style service actions always confirm in the TUI, whichever
+ * screen or menu offers them (TD-6). Acts that bring their own wording keep it. */
+export function consequential(action: Action): boolean {
+  return action.op === "task.review" && ["accept", "reject"].includes(String(action.params.verdict)) || action.op === "task.stop" || /\.remove$/.test(action.op) || action.op === "update.apply" || action.style === "danger";
+}
+const VERDICT_WORDS: Record<string, string> = { accept: "Accept", reject: "Reject" };
+function guardConfirm(act: Act): Confirm | undefined {
+  if (act.confirm || act.effect.type !== "action" || !consequential(act.effect.action)) return act.confirm;
+  const { action } = act.effect, verdict = action.op === "task.review" ? VERDICT_WORDS[String(action.params.verdict)] : undefined;
+  return { title: `${verdict ?? act.label}?`, ...(act.subject ? { body: [act.subject] } : {}), yes: verdict ?? act.label };
+}
+
+/** Run an act: confirm first when it asks to, or when it is consequential. `confirmed` skips the question. */
+export function trigger(state: UiState, act: Act | undefined, confirmed = false): KeyResult {
   if (!act) return { state };
-  if (act.confirm) return { state: { ...state, overlay: { kind: "confirm", title: act.confirm.title, body: act.confirm.body ?? [], yes: act.confirm.yes ?? act.label, act, ...(act.confirm.alt ? { alt: act.confirm.alt } : {}) } } };
+  if (!confirmed) {
+    const confirm = guardConfirm(act);
+    if (confirm) return { state: { ...state, overlay: { kind: "confirm", title: confirm.title, body: confirm.body ?? [], yes: confirm.yes ?? act.label, act: { ...act, confirm }, ...(confirm.alt ? { alt: confirm.alt } : {}) } } };
+  }
   if (act.effect.type === "prompt") return { state: { ...state, overlay: { kind: "prompt", spec: act.effect.prompt, value: act.effect.prompt.value ?? "" } } };
   if (act.effect.type === "choose") return { state: { ...state, overlay: { kind: "menu", title: act.effect.title, actions: act.effect.options, index: 0 } } };
   return { state, effect: act.effect, act };
@@ -106,9 +123,9 @@ function overlayKey(state: UiState, overlay: Overlay, key: string): KeyResult {
     case "confirm":
       if (key === "y" || key === "Y" || key === "enter") {
         const { confirm: _, ...act } = overlay.act;
-        return trigger(close, act);
+        return trigger(close, act, true);
       }
-      if (overlay.alt && key === overlay.alt.key) return trigger(close, overlay.alt.act);
+      if (overlay.alt && key === overlay.alt.key) return trigger(close, overlay.alt.act, true);
       return { state: key === "n" || key === "N" || key === "escape" ? close : state };
     case "menu": {
       if (key === "escape") return { state: close };
@@ -124,7 +141,8 @@ function overlayKey(state: UiState, overlay: Overlay, key: string): KeyResult {
         const value = overlay.value.trim();
         if (!value && overlay.spec.required) return { state: { ...state, overlay: { ...overlay, error: overlay.spec.required } } };
         const effect = overlay.spec.submit(value);
-        return effect ? trigger(close, { label: overlay.spec.title, effect }) : { state: close };
+        // Submitting a prompt (such as a reject note) is the confirmation.
+        return effect ? trigger(close, { label: overlay.spec.title, effect }, true) : { state: close };
       }
       if (key.length && !["up", "down", "left", "right", "tab", "backtab", "pageup", "pagedown"].includes(key) && !/[\x00-\x1f\x7f]/.test(key)) {
         return { state: { ...state, overlay: { ...overlay, value: overlay.value + key, error: undefined } } };

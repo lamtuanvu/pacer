@@ -29,7 +29,7 @@ const SECTION_IDS: Record<string, string> = {
   strategies: "strategies", updates: "updates", notifications: "notifications", appearance: "appearance", hosts: "hosts",
 };
 /** Service actions become TUI acts. `ui.open` navigates inside the TUI; unknown ops are hidden (UI-13). */
-export function serviceAct(ctx: ScreenCtx, action: Action): Act | undefined {
+export function serviceAct(ctx: ScreenCtx, action: Action, subject?: string): Act | undefined {
   if (action.op === "ui.open") {
     const view = String(action.params.view ?? ""), id = typeof action.params.id === "string" ? action.params.id : undefined;
     const screen: ScreenId | undefined = view === "review" ? "review" : view === "task" || view === "session" ? "sessions" : view === "settings" ? "settings" : undefined;
@@ -43,6 +43,7 @@ export function serviceAct(ctx: ScreenCtx, action: Action): Act | undefined {
     effect: { type: "action", action },
     ...(action.confirm ? { confirm: { title: action.confirm } } : {}),
     ...(action.style === "danger" ? { danger: true } : {}),
+    ...(subject ? { subject } : {}),
   };
 }
 export const opAct = (ctx: ScreenCtx, label: string, op: string, params: Record<string, unknown>, extra: Partial<Act> = {}): Act | undefined =>

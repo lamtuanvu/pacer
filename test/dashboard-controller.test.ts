@@ -8,6 +8,7 @@ import { setupChecklist } from "../src/setup/checklist";
 import { ApiError, type ApiClient } from "../src/api/client";
 import { callOp } from "../src/api/ops";
 import { Dashboard } from "../src/dashboard/controller";
+import { initialState, trigger } from "../src/dashboard/state";
 import { withFallback } from "../src/dashboard/data";
 import { PLAIN_THEME } from "../src/dashboard/theme";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
@@ -377,4 +378,27 @@ test("x skips the first delegation from Setup", async () => {
   expect(t.last()).toContain("x skip first delegation");
   await t.keys("x");
   expect(t.ops()).toEqual([{ op: "onboarding.skip", params: {} }]);
+});
+
+test("Accept from Home's actions menu confirms before recording the verdict (TD-6)", async () => {
+  const t = setup();
+  t.dash.state = { ...t.dash.state, selected: { home: "attention:review:t-0412" } };
+  await t.dash.refresh();
+  await t.keys(".");
+  expect(t.last()).toContain("2 Accept");
+  await t.keys("2");
+  expect(t.dash.state.overlay).toMatchObject({ kind: "confirm" });
+  expect(t.last()).toContain("Fix flaky retry test in the payments client");
+  expect(t.ops().filter(c => c.op === "task.review")).toEqual([]);
+  await t.keys("y");
+  expect(t.ops().filter(c => c.op === "task.review")).toEqual([{ op: "task.review", params: { id: "t-0412", verdict: "accept" } }]);
+});
+
+test("every consequential service action confirms, whatever screen offers it", () => {
+  const act = (op: string, params: Record<string, unknown> = {}, style?: "danger") => ({ label: op, effect: { type: "action" as const, action: { label: op, op, params, ...(style ? { style } : {}) } } });
+  for (const a of [act("task.review", { verdict: "accept" }), act("task.review", { verdict: "reject", note: "x" }), act("task.stop", { id: "t" }), act("account.remove"), act("runner.remove"), act("project.strategy.remove"), act("update.apply"), act("host.set", {}, "danger")]) {
+    expect(trigger(initialState(), a).state.overlay).toMatchObject({ kind: "confirm" });
+    expect(trigger(initialState(), a).effect).toBeUndefined();
+  }
+  expect(trigger(initialState(), act("host.check")).effect).toMatchObject({ type: "action" });
 });
