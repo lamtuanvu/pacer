@@ -17,6 +17,7 @@ export function renderPluginProtocolDoc(): string {
     "## Overview", "",
     "A plugin is a subprocess the host starts lazily. Both sides speak newline-delimited JSON-RPC 2.0 on the plugin's stdin and stdout (one object per line, 1 MiB cap). stderr is captured to `$PACER_HOME/logs/plugins/<id>.log`. Both sides send requests, so each side matches replies by id. Additive changes do not bump the version; removals bump the major, and the host serves the previous major for one pacer minor release.", "",
     `The host sends \`${HELLO_METHOD}\` first and refuses a plugin whose reply has a different protocol major, or an id or version that differs from its manifest. Every call carries a deadline owned by the host; on expiry it sends the notification \`${CANCEL_METHOD}\` with \`{ id }\`, fails the call with \`plugin_timeout\` and drops any later reply.`, "",
+    "SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).", "",
     "## Manifest", "",
     "`pacer-plugin.json` in the plugin folder. Installed plugins live under `$PACER_HOME/plugins/<id>/`; the folder name must equal `id`.", "",
     "```json", json(manifestSchema), "```", "",
