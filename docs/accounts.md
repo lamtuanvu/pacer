@@ -99,9 +99,10 @@ out of OpenCode, the next check reports **Key missing — run `opencode auth log
 <provider>`**. Spend is read in dollars from `opencode stats --cost` and is always
 shown ("$3.20 this week"). With a cap, the reading has a `7d $` window whose used
 percent is spend divided by the cap, and pacing treats a reached cap like any full
-window. Accounts without `connection` or `source` (the earlier **External OpenCode
-provider**) are read as `source: opencode`, with the provider taken from the
-runner model.
+window. Accounts without `connection` or `source` stay **External OpenCode
+provider** accounts (see [Legacy endpoint budgets](#legacy-endpoint-budgets));
+to get the provider checks and dollar spend, add the provider again with
+`pacer account add opencode <provider>`.
 
 ### Endpoints at your own URL
 

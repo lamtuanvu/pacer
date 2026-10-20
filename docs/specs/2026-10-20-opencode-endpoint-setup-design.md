@@ -125,7 +125,7 @@ accounts:
 ```
 
 - The runner model for `source: opencode` is `<provider>/<model>`. pacer launches OpenCode with its generated config as today; OpenCode merges it with the user's config and resolves the key itself.
-- Accounts without `connection` and without `source` (today's "External OpenCode provider") are treated as `source: opencode`, with the provider taken from the runner model. No file rewrite is forced.
+- Accounts without `connection` and without `source` (today's "External OpenCode provider") were to be treated as `source: opencode`, with the provider taken from the runner model. **Not done in the first release:** they keep working as External OpenCode provider accounts, and users get the new behaviour by adding the provider again with `pacer account add opencode <provider>`. No file rewrite is forced either way.
 
 **Spend.** `src/usage/metered.ts` already runs `opencode stats --models --json --days 7`. It adds `--cost` and reads each model's dollar cost.
 
