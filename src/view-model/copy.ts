@@ -85,3 +85,11 @@ export function jobStateCopy(state: string): string {
   };
   return labels[state] ?? plainProgressLabel(state);
 }
+
+/** How an endpoint account is billed, as a short pill (shared by setup screens). */
+export type UsageKind = "quota" | "metered" | "unmetered";
+export const USAGE_KIND_WORDS: Record<UsageKind, { label: string; tone: "good" | "neutral" }> = {
+  quota: { label: "Quota", tone: "neutral" },
+  metered: { label: "Metered", tone: "neutral" },
+  unmetered: { label: "Free", tone: "good" },
+};

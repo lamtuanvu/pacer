@@ -72,8 +72,9 @@ test('standalone screens bundle for the browser with their CSP compatible styles
  expect(result.success).toBe(true);expect(result.outputs.length).toBe(1);
  const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
  // The aggregate includes the project-policy editor and additive Diagnostics screen.
- // This all-screens development entry has a 33 KB cap; the shipped app retains its separate 60 KB cap.
- expect(Bun.gzipSync(text).byteLength).toBeLessThan(33*1024);
+ // This all-screens development entry has a 36 KB cap (raised for the OpenCode provider picker, as #206 and
+ // #216 did for their screens); the shipped app retains its separate 60 KB cap.
+ expect(Bun.gzipSync(text).byteLength).toBeLessThan(36*1024);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
@@ -83,8 +84,9 @@ test('restored executor draft resumes checks and Ready follows a passed job only
  expect(draw('passed')).toContain(`${executor.id} is ready`);expect(draw('passed')).toContain('Back to settings');
 });
 test('new endpoint form includes URL, key source and model limits',()=>{
- const html=render(<AddExecutor initialDraft={{step:'2',agent:'opencode'}}/>);
- for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Quota','Metered','Unmetered'])expect(html).toContain(text);
+ // The URL form sits behind the OpenCode provider picker's "Use a URL instead".
+ const html=render(<AddExecutor initialDraft={{step:'2',agent:'opencode'}} initialUrlForm/>);
+ for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Quota — a plan with limits','Metered — pay per token','Unmetered — free or local'])expect(html).toContain(text);
 });
 test('the shipped app.js, which includes the Settings screens, stays within the 60 KB gzip budget (UI-3)',async()=>{
  const {APP_JS_BUDGET,buildApp}=await import('../app/build');
