@@ -2,7 +2,7 @@ import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {isNode} from "yaml";
 import {StrategyDoc} from "../config/edit";
-import {loadStrategy, strategyPath, validateStrategy} from "../config/strategy";
+import {loadStrategy, strategyPath, validateStrategy, type Strategy} from "../config/strategy";
 import type {EndpointConnection, EndpointModel, KeySource} from "../config/accounts";
 import { ensureAccounts } from "./accounts";
 import { CoreError } from "./errors";
@@ -47,6 +47,19 @@ function source(input: Pick<EndpointInput,"key_source"|"env_var">): KeySource {
 function value(doc: StrategyDoc, path: string[]): any {
   const node=doc.getIn(path); return isNode(node)?node.toJSON():node;
 }
+/** Equivalent to runner add plus appending to the default routing rule, inside one strategy edit. */
+export function addRunnerAndRoute(doc: StrategyDoc, s: Strategy, id: string, model: string): void {
+  if (s.runners[id]) return;
+  doc.addMappingEntry('runners',id,{model});
+  let rules=value(doc,['routing']);
+  if (!Array.isArray(rules)) {
+    rules=s.routing.map(r=>r.kinds?{kinds:r.kinds,executors:r.executors}:{default:r.executors});
+    doc.setIn(['routing'],rules);
+  }
+  const index=rules.findIndex((r: any)=>Array.isArray(r.default));
+  if (index<0) doc.setIn(['routing'],[...rules,{default:[id]}]);
+  else doc.setList(['routing',index,'default'],[...rules[index].default,id]);
+}
 /** Account, runner and routing validate together before the key or strategy is written. */
 async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: EndpointDeps) {
   const {strategy: s, migrated, edit}=ensureAccounts(ctx), name=input.name;
@@ -80,17 +93,7 @@ async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: Endp
       const selected=runner.model?.startsWith(prefix) && input.models.some(m=>prefix+m.id===runner.model) ? runner.model : prefix+(input.models[0]?.id ?? '');
       for (const ref of Object.keys(declarations)) if (s.runnerAliases[ref]===runner.id || ref===runner.id) doc.setIn(['runners',ref,'model'],selected);
     }
-    if (!s.runners[id]) {
-      doc.addMappingEntry('runners',id,{model:`pacer-${name}/${input.models[0]?.id ?? ''}`});
-      let rules=value(doc,['routing']);
-      if (!Array.isArray(rules)) {
-        rules=s.routing.map(r=>r.kinds?{kinds:r.kinds,executors:r.executors}:{default:r.executors});
-        doc.setIn(['routing'],rules);
-      }
-      const index=rules.findIndex((r: any)=>Array.isArray(r.default));
-      if (index<0) doc.setIn(['routing'],[...rules,{default:[id]}]);
-      else doc.setList(['routing',index,'default'],[...rules[index].default,id]);
-    }
+    addRunnerAndRoute(doc,s,id,`pacer-${name}/${input.models[0]?.id ?? ''}`);
   };
   try {
     const preview=new StrategyDoc(readFileSync(strategyPath(ctx),'utf8')); change(preview);

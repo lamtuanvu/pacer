@@ -24,7 +24,7 @@ const strategy = validateStrategy({
 
 test("metered: counts input+output+reasoning for the configured model only, against the weekly budget", async () => {
   const run: RunFn = async (argv) => {
-    expect(argv).toEqual(["opencode", "stats", "--models", "--json", "--days", "7"]);
+    expect(argv).toEqual(["opencode", "stats", "--models", "--cost", "--json", "--days", "7"]);
     return { code: 0, stdout: STATS, stderr: "" };
   };
   const r = await readUsage(fakeCtx({ run }), strategy.providers["opencode#opencode-go"]);
