@@ -9,8 +9,8 @@ import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 
 const USAGE = "usage: pacer plugin list [--json] | enable <id> [--yes] | disable <id> | remove <id> | doctor [<id>] [--json]\n       pacer plugin uninstall   (removes the Orca plugin an earlier pacer installed)";
-/** The only Orca plugin verb left after the Orca plugin was retired (0.5.0). */
-const ORCA_VERBS = ["uninstall"];
+/** Orca plugin verbs retired in 0.5.0: `uninstall` still cleans up an old install; the others explain the retirement. */
+const ORCA_VERBS = ["uninstall", "install", "status", "set"];
 const fail = (code: number, e: unknown): Result => ({ code, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` });
 
 async function confirm(question: string): Promise<boolean> {
