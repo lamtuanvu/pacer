@@ -88,3 +88,5 @@ Component tests establish native attributes, disabled/busy behavior, label/help/
 This migration consolidates the shared-foundation inventory from #174 while preserving #134's semantic status, title, time, containment and one-action requirements. Product-specific remaining work in #134 is complete only when its own observed acceptance criteria and visual evidence pass; architectural reuse alone does not close it.
 
 The canonical Disclosure supports `pc-disclosure--wrap` for multi-part summaries, wrapping title, status and evidence within the container. Diagnostics uses this variant with `pc-ellipsis` and a full title attribute for long identities. Native disclosure keyboard and open/closed semantics remain unchanged; no new upstream adaptation is introduced.
+
+Button backgrounds change immediately when theme tokens change; only opacity transitions. This avoids stale native WebKit background transitions during Appearance changes while preserving keyboard/focus semantics and the existing Button API.

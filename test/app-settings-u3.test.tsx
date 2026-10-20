@@ -72,8 +72,9 @@ test('standalone screens bundle for the browser with their CSP compatible styles
  expect(result.success).toBe(true);expect(result.outputs.length).toBe(1);
  const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
  // The aggregate includes the project-policy editor and additive Diagnostics screen.
- // This all-screens development entry has a 33 KB cap; the shipped app retains its separate 60 KB cap.
- expect(Bun.gzipSync(text).byteLength).toBeLessThan(33*1024);
+ // The desktop/service version rows add a native bridge and update guidance.
+ // This all-screens development entry has a 34 KB cap; the shipped app retains its separate 60 KB cap.
+ expect(Bun.gzipSync(text).byteLength).toBeLessThan(34*1024);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
@@ -181,4 +182,15 @@ test('Add executor offers sign-in only for a signed-out native account',()=>{
  expect(html('opencode','work')).not.toContain('Sign in to work');
  expect(html('claude-code','in')).not.toContain('Sign in to in');
  expect(html('claude-code','out')).toContain('Sign in to out');
+});
+
+test('Updates identifies the service and preserves failed-check status', () => {
+ const html = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false}}}/>);
+ expect(html).toContain('Service 0.5.0 · Up to date');
+ expect(html).not.toContain('Desktop app');
+ const failed = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false,error:'offline'}}}/>);
+ expect(failed).toContain('Update check failed');
+ expect(failed).not.toContain('Up to date');
+ const available = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true}}}/>);
+ expect(available).toContain('Update service and restart');
 });

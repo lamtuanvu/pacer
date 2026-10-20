@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Native desktop buttons keep readable backgrounds when switching Light/Dark appearance instead of retaining the previous theme during a stuck background transition.
+- Settings > Updates distinguishes the native desktop app version from the connected service version, provides desktop download/replacement guidance, and labels the service-only update action explicitly. Failed update checks no longer appear as up to date.
+
 ## [0.5.0] - 2026-10-20
 
 ### Added
