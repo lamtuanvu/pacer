@@ -92,3 +92,11 @@ export async function connectProvider(ctx: Ctx, provider: string, deps: SetupDep
   if (code !== 0) return false;
   return (await signedInProviders(ctx))?.some(p => p.id === provider) ?? false;
 }
+
+/** Connect a catalog provider from a client that cannot run an interactive CLI (the app). OpenCode stores provider
+ * keys; pacer must not put a key in argv, logs or state (security rules), and `opencode auth login` reading a key
+ * from stdin could not be confirmed without changing a real OpenCode login. So nothing runs here: the caller shows
+ * the command, and the user signs in through OpenCode in a terminal. */
+export async function connectWithKey(_ctx: Ctx, provider: string): Promise<{ connected: boolean; command: string }> {
+  return { connected: false, command: `opencode auth login ${provider}` };
+}

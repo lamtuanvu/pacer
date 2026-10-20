@@ -98,7 +98,7 @@ Rules on every path:
 - A failed test saves the account as **Not working** and keeps it out of routing, as today.
 - Providers that already have an account are listed as "added", not hidden.
 
-**App.** Add executor → OpenCode shows the same three groups as cards, from the same core result. For B, the browser cannot run an interactive CLI, so the app shows a key field. The service passes the key to `opencode auth login` on stdin (using `--method`/`--answer`), so OpenCode stores it and pacer keeps nothing. If OpenCode cannot take the key non-interactively, the app shows the command to copy instead.
+**App.** Add executor → OpenCode shows the same three groups as cards, from the same core result. For B, the browser cannot run an interactive CLI. The app shows the `opencode auth login <provider>` command to run in a terminal and a Refresh button that looks for the provider again; once OpenCode is signed in, the card moves to "Already signed in" and the flow continues as A. (Passing a key on stdin was considered, but it could not be confirmed without changing a real OpenCode login, so this release asks for no key at all. `executor.setup.connect` returns the command and runs nothing.)
 
 **Non-interactive:**
 
@@ -161,7 +161,7 @@ accounts:
 **Security.**
 
 - In A and B, pacer never reads `auth.json` or a key. It runs only `opencode auth list`, which prints provider names and "stored".
-- In the app's B path, the key goes from the request straight to `opencode auth login` on stdin. It is never logged, never in argv, and never stored by pacer.
+- In the app's B path, pacer never sees the key: the user signs in through `opencode auth login` in a terminal. `executor.setup.connect` runs nothing; an optional `key` param is accepted for later releases and never used, logged or stored.
 - Custom URLs keep today's Keychain, file or env storage and redaction.
 
 ### 5. Testing
