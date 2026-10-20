@@ -22,7 +22,14 @@ pub fn main(argv: Vec<String>) -> i32 {
     };
     let env: HashMap<String, String> = std::env::vars().collect();
     match resolve_core(&env, &exe) {
-        Ok(core) => exec_core(&core, args, &child_env(&env, &exe)),
+        Ok(core) => {
+            let env = child_env(&env, &exe);
+            if args.first().is_some_and(|a| a == "api") && args.iter().any(|a| a == "--stdio") {
+                pacer_server::run_stdio_blocking(core, env)
+            } else {
+                exec_core(&core, args, &env)
+            }
+        }
         Err(error) => {
             eprintln!("pacer: {error}");
             if matches!(error, CoreMissing::InvalidArgv) {
