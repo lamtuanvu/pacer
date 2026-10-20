@@ -14,7 +14,7 @@ test.skipIf(!openssl)("generates a code-signing identity with only a password-pr
   expect(existsSync(join(out, "key.pem"))).toBe(false);
   const info = Bun.spawnSync(["openssl", "x509", "-in", result.certificate, "-noout", "-text"]).stdout.toString();
   expect(info).toContain("Code Signing");
-  expect(info).toContain("CN=pacer interim code signing");
+  expect(info).toMatch(/CN ?= ?pacer interim code signing/); // LibreSSL and OpenSSL 3 space it differently
   const parsed = Bun.spawnSync(["openssl", "pkcs12", "-in", result.p12, "-nokeys", "-passin", `pass:${result.password}`]);
   const legacy = parsed.success || Bun.spawnSync(["openssl", "pkcs12", "-legacy", "-in", result.p12, "-nokeys", "-passin", `pass:${result.password}`]).success;
   expect(legacy).toBe(true);
