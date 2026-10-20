@@ -13,6 +13,7 @@ import type { Result } from "./types";
 import { table } from "../render/table";
 
 import * as endpoints from "../core/endpoints";
+import * as setup from "../core/opencode-setup";
 import {deleteKey} from "../endpoints/keys";
 import {redactEndpointMessage, type EndpointState} from "../endpoints/state";
 import type {DiscoveredModel, DiscoveryResult} from "../endpoints/models";
@@ -97,7 +98,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       return accountCmd(["add",kind,name,...options],ctx,deps);
     }
     const [verb, ...rest] = args;
-    const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
+    const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output","cap-usd","model","name"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
     let s = loadStrategy(ctx);
     if (verb === "list" && !pos.length) {
       const rows = await accounts.list(ctx);
@@ -126,6 +127,23 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       const input=await endpointFlags(pos[0],flags,deps,true);
       const result=await endpoints.editEndpoint(ctx,input,deps);
       return ok(endpointMessage(pos[0],result));
+    }
+    if (verb==='add' && pos[0]==='opencode' && pos.length===2) {
+      const provider=pos[1];
+      // AccountDeps.login takes (argv, env) for the claude/codex CLI login flow; SetupDeps.login
+      // takes (argv) for `opencode auth login`. The two are unrelated, so drop the former before
+      // forwarding deps into opencode-setup, instead of widening SetupDeps to match.
+      const {login: _login, ...setupDeps}: AccountDeps = deps;
+      const cap=flags['cap-usd']===undefined ? undefined : Number(flags['cap-usd']);
+      if (cap!==undefined && !(Number.isFinite(cap) && cap>0)) throw Error('--cap-usd must be a positive number of dollars, e.g. 10');
+      let model: string | undefined = typeof flags.model==='string' ? flags.model : undefined;
+      if (!model) {
+        const models=await setup.setupModels(ctx,{provider,group:'signed_in'},setupDeps);
+        model=models.pick?.id;
+        if (!model) throw Error(models.note ? `${models.note} pass --model <id>` : `no usable model found for ${provider}; pass --model <id>`);
+      }
+      const result=await setup.addOpencodeAccount(ctx,{provider,model,name:typeof flags.name==='string'?flags.name:undefined,cap_usd:cap,test:!flags['no-test']},setupDeps);
+      return ok(opencodeMessage(result.account.name,provider,model,result,cap));
     }
     if (verb==='add' && pos[0]==='endpoint' && pos.length===2 && (['base-url','key','models','context','output','no-test'].some(k=>flags[k]))) {
       if (s.accounts[pos[1]]) throw Error(`account ${pos[1]} already exists; use pacer account edit ${pos[1]}`);
@@ -158,7 +176,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       if (removeKey) await deleteKey(ctx,name,stored!);
       return ok(`Removed account ${name}.\n${diff}`);
     }
-    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | models <name> [--refresh] | test <name> | edit <name> | rm <name> [--delete-home] [--delete-key]');
+    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | add opencode <provider> [--model <id>] [--cap-usd <n>] [--name <n>] [--no-test] | models <name> [--refresh] | test <name> | edit <name> | rm <name> [--delete-home] [--delete-key]');
   } catch(e) {return fail(e);}
 }
 
@@ -205,6 +223,9 @@ function endpointMessage(name: string, state: EndpointState, added=false): strin
   return `${label}: opencode#${name}${state.detail ? ` · ${state.detail}` : ''}`+
     (state.state==='not_working' ? `\nRetry: pacer account test ${name}` : '')+
     (added ? '\nRouting: added to the end of the default rule. Move it in the app’s Executors screen.' : '');
+}
+function opencodeMessage(name: string, provider: string, model: string, state: EndpointState, cap?: number): string {
+  return endpointMessage(name, state, true).replace(`opencode#${name}`, `opencode#${name} (${provider}/${model})${cap ? ` · cap $${cap}/week` : ''}`);
 }
 function positiveLimit(value: string | true | undefined, fallback: number, message='model limits must be positive integers'): number {
   const n=value===undefined || value==='' ? fallback : parseSize(value);
