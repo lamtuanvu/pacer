@@ -185,7 +185,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
       // A manual stop is recorded by core.tasks.stop, rather than reported as a failure.
       if (d.state !== "stopped") appendActivity(ctx, {
         kind: "task_settled", level: d.state === "done" ? "info" : "warn",
-        text: d.state === "done" ? `${name} finished “${taskTitle(t)}” · waiting for review` : `${name} failed “${taskTitle(t)}”`,
+        text: d.state === "done" ? `${name} finished “${taskTitle(t)}”` : `${name} failed “${taskTitle(t)}”`,
         ...(t.brief.repo ? { repo: (t.repo ?? repoFor(ctx, t.brief.repo)).key } : {}), taskId: t.id,
         ...(d.executor ? { executor: d.executor } : {}), ...(t.run?.host ? { host: t.run.host } : {}),
       });

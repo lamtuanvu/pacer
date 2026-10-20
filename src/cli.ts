@@ -65,6 +65,7 @@ const USAGE = `usage: pacer <command>
            [--worktree current|new|auto] [--worktree-reason <text>]
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
   review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
+  task request-review <task-id> --note <text> [--expect-rev <n>] [--json] request a human decision
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--all] [--json]             recent tasks, including archives with --all
   tasks prune [--dry-run] [--json]               archive old settled tasks
@@ -374,6 +375,18 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       return route(rest, ctx);
     case "delegate":
       return delegateCmd(rest, ctx);
+    case "task": {
+      if (rest[0] !== "request-review") return {code:2,out:"",err:USAGE};
+      const {opts,pos} = parseFlags(rest.slice(1), ["json"]);
+      if (!pos[0]) return {code:2,out:"",err:USAGE};
+      const client = await connectTaskClient(ctx);
+      try {
+        const params = {id:pos[0],note:str(opts.note),...(opts["expect-rev"] !== undefined ? {expect_rev:Number(opts["expect-rev"])} : {})};
+        const result = client.kind === "inprocess" ? await callOp(ctx, "task.request_review", params) : await client.call("task.request_review", params);
+        return {code:0,out:opts.json ? JSON.stringify(result) : `${pos[0]} review requested`,err:""};
+      } catch (e) { return {code:2,out:"",err:explain(e)}; }
+      finally { client.close(); }
+    }
     case "tasks":
       return tasksCmd(rest, ctx);
     case "wait":
