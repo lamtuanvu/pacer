@@ -66,6 +66,8 @@ export async function addOpencodeAccount(ctx: Ctx, input: OpencodeAccountInput, 
     if (input.cap_usd !== undefined && !(Number.isFinite(input.cap_usd) && input.cap_usd > 0)) throw Error("cap_usd must be a positive number");
     const usage = classify({ id: input.provider }, (deps.catalog ?? readCachedCatalog(ctx))?.providers[input.provider]);
     const kind = input.usage ?? usage.usage;
+    // A cap is stored only on metered accounts; refusing it beats reporting a cap that would not be kept.
+    if (input.cap_usd !== undefined && kind !== "metered") throw Error(`A weekly dollar cap applies only to metered usage; ${input.provider} is ${kind}.`);
     const account: Record<string, unknown> = { kind: "endpoint", source: "opencode", provider: input.provider, usage: kind };
     if (kind === "metered" && input.cap_usd !== undefined) account.budget = { weekly_usd: input.cap_usd };
     if (kind === "quota" && usage.quota_source) account.quota_source = usage.quota_source;
@@ -88,6 +90,8 @@ async function defaultLogin(ctx: Ctx, argv: string[]): Promise<number> {
   return Bun.spawn(argv, { env: ctx.env as Record<string, string>, stdin: "inherit", stdout: "inherit", stderr: "inherit" }).exited;
 }
 export async function connectProvider(ctx: Ctx, provider: string, deps: SetupDeps = {}): Promise<boolean> {
+  // Same rule as the API: a catalog id must never reach argv as an option or anything but a plain id.
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(provider)) throw new CoreError("invalid_input", `${JSON.stringify(provider)} is not a valid OpenCode provider id`);
   const code = await (deps.login ?? (argv => defaultLogin(ctx, argv)))(["opencode", "auth", "login", provider]);
   if (code !== 0) return false;
   return (await signedInProviders(ctx))?.some(p => p.id === provider) ?? false;

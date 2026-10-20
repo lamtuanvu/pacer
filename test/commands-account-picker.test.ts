@@ -65,3 +65,19 @@ test("a local server with one model says model, and no recommendation is explain
   expect(printed).toContain("No model here can run an executor, so there is nothing to recommend. Enter a model id.");
   expect(questions).toContain("Model id");
 });
+
+test("a cancelled opencode auth login says so and shows the picker again, then a second try continues", async () => {
+  const {ctx, state} = setup([]);
+  let attempts = 0;
+  const {deps, printed} = script(["3", "1", "volc", "1", "1", "volc", "1", "", "", "n"], {login: async () => {
+    attempts++;
+    if (attempts === 1) return 130;
+    state.signed = ["volcengine-coding-plan"];
+    return 0;
+  }} as never);
+  expect((await accountCmd(["add"], ctx, deps)).code).toBe(0);
+  expect(attempts).toBe(2);
+  expect(printed).toContain("OpenCode did not finish signing in to volcengine-coding-plan.");
+  expect(printed.filter(l => l === "  Connect a provider (OpenCode stores the key)").length).toBe(2);
+  expect(loadStrategy(ctx).accounts["volcengine-coding-plan"]).toMatchObject({source: "opencode"});
+});

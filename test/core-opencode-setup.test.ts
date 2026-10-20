@@ -87,3 +87,19 @@ test("connectProvider reports success only when the provider then appears", asyn
   expect(await connectProvider(ctx, "deepseek", {login: async () => 0})).toBe(false);
   expect(await connectProvider(ctx, "deepseek", {login: async argv => { expect(argv).toEqual(["opencode", "auth", "login", "deepseek"]); state.signed = ["deepseek"]; return 0; }})).toBe(true);
 });
+
+test("a dollar cap on a quota or unmetered account is refused instead of being dropped", async () => {
+  const {ctx} = setup(["openrouter"]);
+  await expect(addOpencodeAccount(ctx, {provider: "openrouter", model: "qwen/qwen3-coder", usage: "quota", cap_usd: 10, test: false}, {catalog}))
+    .rejects.toThrow("A weekly dollar cap applies only to metered usage; openrouter is quota.");
+  expect(loadStrategy(ctx).accounts.openrouter).toBeUndefined();
+});
+
+test("connectProvider refuses a provider id that is not a plain id before running anything", async () => {
+  const {ctx} = setup([]);
+  const ran: string[][] = [];
+  for (const bad of ["--help", "a b", "x;rm", ""]) {
+    await expect(connectProvider(ctx, bad, {login: async argv => { ran.push(argv); return 0; }})).rejects.toThrow("not a valid OpenCode provider id");
+  }
+  expect(ran).toEqual([]);
+});
