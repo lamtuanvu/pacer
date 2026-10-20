@@ -18,7 +18,7 @@ import {deleteKey} from "../endpoints/keys";
 import {redactEndpointMessage, type EndpointState} from "../endpoints/state";
 import type {DiscoveredModel, DiscoveryResult} from "../endpoints/models";
 import type {Candidate, Detection} from "../endpoints/detect";
-import {idChoice, type ModelChoice, type UsageClass} from "../endpoints/recommend";
+import {filterModelIds, idChoice, type ModelChoice, type UsageClass} from "../endpoints/recommend";
 
 export interface AccountDeps extends endpoints.EndpointDeps {
   promptSecret?: (question: string) => Promise<string>;
@@ -236,17 +236,22 @@ function positiveLimit(value: string | true | undefined, fallback: number, messa
 async function chooseModels(result: DiscoveryResult, deps: AccountDeps): Promise<EndpointModel[]> {
   const ask=answered(deps.prompt ?? promptArgument,'endpoint setup'), print=deps.print ?? console.log;
   let selected: DiscoveredModel[];
-  if (result.listed && result.models.length) {
-    result.models.forEach((m,i)=>print(`${i+1}. ${m.id}${m.context ? ` · ${m.context} context` : ''}`));
+  // Embedding, image and speech models cannot run an executor; hide them, as the provider picker does.
+  const usable=new Set(filterModelIds(result.listed ? result.models.map(m=>m.id) : []));
+  const shown=result.listed ? result.models.filter(m=>usable.has(m.id)) : [];
+  const hidden=result.listed ? result.models.length-shown.length : 0;
+  if (hidden && shown.length) print(`Hid ${hidden} ${hidden===1 ? 'model' : 'models'} that cannot run an executor (embeddings, images or speech).`);
+  if (result.listed && shown.length) {
+    shown.forEach((m,i)=>print(`${i+1}. ${m.id}${m.context ? ` · ${m.context} context` : ''}`));
     for (;;) {
       const choices=(await ask('Models to use (e.g. 1,3)')).split(',').map(n=>Number(n.trim()));
-      if (choices.length && choices.every(n=>Number.isInteger(n) && n>=1 && n<=result.models.length)) {
-        selected=[...new Set(choices)].map(n=>result.models[n-1]);break;
+      if (choices.length && choices.every(n=>Number.isInteger(n) && n>=1 && n<=shown.length)) {
+        selected=[...new Set(choices)].map(n=>shown[n-1]);break;
       }
       print('Choose model numbers from the list.');
     }
   } else {
-    print(result.listed ? "This endpoint doesn't list models. Enter model ids." : result.detail);
+    print(!result.listed ? result.detail : result.models.length ? "None of this endpoint's models can run an executor. Enter model ids." : "This endpoint doesn't list models. Enter model ids.");
     const ids=await ask('Model ids (comma separated)');
     selected=[...new Set(ids.split(',').map(id=>id.trim()).filter(Boolean))].map(id=>({id}));
     if (!selected.length) throw Error('at least one model id is required');
@@ -308,7 +313,7 @@ function usageLabel(u: UsageClass): string {
 }
 function candidateLabel(c: Candidate): string {
   const base=c.group==='local'
-    ? `${c.name} (${(c.base_url ?? '').replace(/^https?:\/\//,'').replace(/\/v1$/,'')})   ${c.models ?? 0} models · free`
+    ? `${c.name} (${(c.base_url ?? '').replace(/^https?:\/\//,'').replace(/\/v1$/,'')})   ${c.models ?? 0} ${(c.models ?? 0)===1 ? 'model' : 'models'} · free`
     : `${c.name}  ${usageLabel(c.usage)}`;
   return c.added ? `${base} · added as ${c.added}` : base;
 }
@@ -344,7 +349,7 @@ async function chooseNumber<T>(ask: (q: string)=>Promise<string>, print: (line: 
 /** Steps 4: accept the recommendation, search others, or (no pick) enter a model id. */
 async function pickModel(ask: (q: string)=>Promise<string>, print: (line: string)=>void, result: setup.SetupModelsResult): Promise<ModelChoice> {
   if (!result.pick) {
-    if (result.note) print(result.note);
+    print(result.note ?? 'No model here can run an executor, so there is nothing to recommend. Enter a model id.');
     const id=await askUntil(ask,print,'Model id',answer=>answer.trim() ? answer.trim() : Error('A model id is required.'));
     return idChoice(id);
   }

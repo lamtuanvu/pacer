@@ -172,3 +172,30 @@ test("endpoint API operations return every line of a validation error", async ()
   expect(error?.message).toContain("models.0.name must be non-empty");
   expect(error?.message).toContain("models.1.name must be non-empty");
 });
+
+// Embedding, image and speech models cannot run an executor, so the URL path hides them as the picker does.
+const mixed = async (url: string) => /models\.dev|127\.0\.0\.1:(11434|1234)/.test(url) ? Promise.reject(Error("blocked in tests")) : Response.json({data: [
+  {id: "nomic-embed-text:latest", context_length: 8192, max_output_tokens: 8192},
+  {id: "qwen3-coder", context_length: 262144, max_output_tokens: 32768},
+]});
+const embeddingsOnly = async (url: string) => /models\.dev|127\.0\.0\.1:(11434|1234)/.test(url) ? Promise.reject(Error("blocked in tests")) : Response.json({data: [
+  {id: "nomic-embed-text:latest", context_length: 8192, max_output_tokens: 8192},
+]});
+
+test("the URL path hides models that cannot run an executor and says so", async () => {
+  const ctx = setup();
+  const s = script(["3", "1", "work", "http://test.invalid/v1", "none", "1", "unmetered", "n"], {fetch: mixed as never});
+  expect((await accountCmd(["add"], ctx, s.deps)).code).toBe(0);
+  expect(s.printed).toContain("1. qwen3-coder · 262144 context");
+  expect(s.printed.some(l => l.includes("nomic-embed-text"))).toBe(false);
+  expect(s.printed).toContain("Hid 1 model that cannot run an executor (embeddings, images or speech).");
+  expect(loadStrategy(ctx).runners["opencode#work"].model).toBe("pacer-work/qwen3-coder");
+});
+
+test("when every listed model is hidden, the URL path asks for model ids", async () => {
+  const ctx = setup();
+  const s = script(["3", "1", "work", "http://test.invalid/v1", "none", "my-model", "", "", "unmetered", "n"], {fetch: embeddingsOnly as never});
+  expect((await accountCmd(["add"], ctx, s.deps)).code).toBe(0);
+  expect(s.printed).toContain("None of this endpoint's models can run an executor. Enter model ids.");
+  expect(s.questions).toContain("Model ids (comma separated)");
+});

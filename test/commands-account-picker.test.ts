@@ -51,3 +51,17 @@ test("case B: search, OpenCode stores the key, then the flow continues", async (
   expect(logins).toEqual([["opencode", "auth", "login", "volcengine-coding-plan"]]);
   expect(loadStrategy(ctx).accounts["volcengine-coding-plan"]).toMatchObject({usage: "quota", quotaSource: "arkcli"});
 });
+
+test("a local server with one model says model, and no recommendation is explained", async () => {
+  const {ctx} = setup([]);
+  const local = (async (url: string | URL | Request) => {
+    const u = String(url instanceof Request ? url.url : url);
+    if (u.startsWith("http://127.0.0.1:11434/")) return Response.json({data: [{id: "nomic-embed-text:latest"}]});
+    throw Error("offline");
+  }) as never;
+  const {deps, printed, questions} = script(["3", "1", "llama3", "", "n"], {fetch: local});
+  expect((await accountCmd(["add"], ctx, deps)).code).toBe(0);
+  expect(printed.some(l => l.includes("Ollama (127.0.0.1:11434)   1 model · free"))).toBe(true);
+  expect(printed).toContain("No model here can run an executor, so there is nothing to recommend. Enter a model id.");
+  expect(questions).toContain("Model id");
+});
