@@ -76,7 +76,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
   useEffect(() => { panel.current?.focus(); setError(undefined); setNotice(''); }, [current]);
   const item = checklist.items.find(i => i.id === current);
   const plannerItem = checklist.items.find(i => i.id === 'planner');
-  const planner = typeof config.data?.keys.planner?.value === 'string' ? config.data.keys.planner.value : plannerItem?.detail?.split(' · ')[0] ?? checklist.items.find(i => i.id === 'connect')?.agent ?? '';
+  const planner = typeof config.data?.keys.planner?.value === 'string' ? config.data.keys.planner.value : (plannerItem?.status === 'done' ? plannerItem.detail?.split(' · ')[0] : undefined) ?? checklist.items.find(i => i.id === 'connect')?.agent ?? '';
   const options = plannerOptions(plannerItem?.options, detected.data?.filter(a => a.found).map(a => a.agent) ?? [], config.data?.planners ?? []);
   const chosen = options.includes(selected) ? selected : options.includes(planner) ? planner : options[0] ?? '';
   const plannerName = planner ? setupAgentName(planner) : 'your planner';

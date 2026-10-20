@@ -253,3 +253,12 @@ test('signed-out accounts of the planner vendor remain visible below executors',
   const providers = [{ id: 'codex#team', installed: true, signedOutReason: 'Sign in' }, { id: 'codex#personal', installed: true, signedOutReason: 'Sign in' }, { id: 'cursor', installed: false, signedOutReason: 'Missing' }];
   expect(signedOutRunners(providers, 'codex#team').map(p => p.id)).toEqual(['codex#personal']);
 });
+
+test('without a planner the connect step names no planner', () => {
+  const html = view({ checkedAt: 0, complete: false, ready: false, items: [
+    { id: 'planner', title: 'Planner', status: 'pending', required: true, detail: 'Choose which agent plans your work', action: 'setup.init', options: ['claude-code', 'codex'] },
+    { id: 'connect', title: 'Connect planner', status: 'pending', required: true },
+  ] });
+  expect(html).toContain('Connect your planner');
+  expect(html).not.toContain('Connect Choose');
+});
