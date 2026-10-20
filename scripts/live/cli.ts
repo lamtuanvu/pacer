@@ -126,4 +126,7 @@ export async function main(argv: string[]): Promise<number> {
 if (import.meta.main) {
   try { process.exitCode = await main(process.argv.slice(2)); }
   catch (error) { console.error(`live: ${(error as Error).message}`); process.exitCode = 1; }
+  // An OTA driver's event subscription and Desktop reference must not keep a finished
+  // (or failed) exercise alive; the lease, not the driver, retires native participants.
+  if (process.argv[2] === "ota") process.exit(process.exitCode);
 }
