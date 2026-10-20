@@ -39,7 +39,8 @@ export interface PromptSpec {
   submit(value: string): Effect | undefined;
 }
 export type Overlay =
-  | { kind: "help" }
+  /** `scroll` is the first help row shown when the help is taller than the screen. */
+  | { kind: "help"; scroll?: number }
   | { kind: "menu"; title: string; actions: Act[]; index: number }
   | { kind: "confirm"; title: string; body: string[]; yes: string; act: Act; alt?: Confirm["alt"] }
   | { kind: "prompt"; spec: PromptSpec; value: string; error?: string };
@@ -115,11 +116,15 @@ export function trigger(state: UiState, act: Act | undefined, confirmed = false)
   return { state, effect: act.effect, act };
 }
 
-function overlayKey(state: UiState, overlay: Overlay, key: string): KeyResult {
+function overlayKey(state: UiState, overlay: Overlay, key: string, page: number): KeyResult {
   const close = { ...state, overlay: null };
   switch (overlay.kind) {
-    case "help":
+    case "help": {
+      const step = key === "down" || key === "j" ? 1 : key === "up" || key === "k" ? -1 : key === "pagedown" ? page : key === "pageup" ? -page : 0;
+      // The renderer clamps to the last row; the cap only stops runaway scrolling.
+      if (step) return { state: { ...state, overlay: { kind: "help", scroll: Math.max(0, Math.min(200, (overlay.scroll ?? 0) + step)) } } };
       return { state: key === "?" || key === "escape" || key === "q" || key === "enter" ? close : state };
+    }
     case "confirm":
       if (key === "y" || key === "Y" || key === "enter") {
         const { confirm: _, ...act } = overlay.act;
@@ -155,7 +160,7 @@ function overlayKey(state: UiState, overlay: Overlay, key: string): KeyResult {
 /** Global and list keys. Screen keys come from the selected item's `keys`. */
 export function reduceKey(state: UiState, key: string, ctx: KeyContext): KeyResult {
   if (key === "interrupt") return { state, quit: true };
-  if (state.overlay) return overlayKey(state, state.overlay, key);
+  if (state.overlay) return overlayKey(state, state.overlay, key, ctx.page);
   const item = selectedItem(state, ctx.items, ctx.initial);
   const detail = state.focus === "detail";
 

@@ -9,7 +9,7 @@ import { counts, needsYou } from "../src/view-model/selectors";
 import { detectTheme, PLAIN_THEME } from "../src/dashboard/theme";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { DashData, SettingsData, TaskDetail } from "../src/dashboard/screens/types";
-import type { ScreenId, UiState } from "../src/dashboard/state";
+import { initialState, reduceKey, type ScreenId, type UiState } from "../src/dashboard/state";
 import { SECTIONS } from "../src/dashboard/screens/settings";
 
 const snapshot = () => structuredClone(fixture) as unknown as ClientSnapshot;
@@ -210,4 +210,35 @@ describe("row keys never collide with navigation or global keys", () => {
       expect(clashes).toEqual([]);
     });
   }
+});
+
+describe("help overlay fits the terminal", () => {
+  test("at 80x24 the help box is closed, marks hidden rows and scrolls to every key", () => {
+    const at = (scroll?: number) => frame("review", 80, 24, { state: { overlay: { kind: "help", ...(scroll !== undefined ? { scroll } : {}) } } });
+    const first = at();
+    bounded(first, 80, 24);
+    expect(first).toContain("╭ Keyboard shortcuts");
+    expect(first).toContain("╰");
+    expect(first).toMatch(/↓ \d+ more/);
+    const last = at(99);
+    bounded(last, 80, 24);
+    expect(last).toContain("╰");
+    expect(last).toMatch(/↑ \d+ more/);
+    for (const key of ["Show worktree path", "Retry on another executor"]) expect(last).toContain(key);
+  });
+  test("help keys scroll the overlay and close it", () => {
+    const ctx = { items: [], tabs: ["home", "review", "sessions", "settings"] as ScreenId[], page: 10, wide: false, hasDetail: false, repos: [], supports: () => true };
+    const open = { ...initialState("review"), overlay: { kind: "help" as const } };
+    expect(reduceKey(open, "down", ctx).state.overlay).toEqual({ kind: "help", scroll: 1 });
+    expect(reduceKey(open, "j", ctx).state.overlay).toEqual({ kind: "help", scroll: 1 });
+    expect(reduceKey(open, "pagedown", ctx).state.overlay).toEqual({ kind: "help", scroll: 10 });
+    expect(reduceKey({ ...open, overlay: { kind: "help", scroll: 3 } }, "up", ctx).state.overlay).toEqual({ kind: "help", scroll: 2 });
+    expect(reduceKey(open, "up", ctx).state.overlay).toEqual({ kind: "help", scroll: 0 });
+    expect(reduceKey(open, "?", ctx).state.overlay).toBeNull();
+  });
+  test("help names the keys the TUI handles", () => {
+    const text = frame("home", 120, 40, { state: { overlay: { kind: "help" } } });
+    for (const key of ["1-4 / Tab Shift-Tab", "R / Ctrl-R", "PgUp PgDn"]) expect(text).toContain(key);
+    expect(text).not.toContain("1-5");
+  });
 });

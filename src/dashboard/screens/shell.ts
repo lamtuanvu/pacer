@@ -125,10 +125,10 @@ function listRows(rows: Row[], selectedId: string | undefined, showSelection: bo
   return { rows: painted, selected: Math.max(0, selected) };
 }
 
-function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, width: number): Line[] {
+function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, width: number, height: number): Line[] {
   const { theme } = input, w = Math.min(width, 72);
   switch (overlay.kind) {
-    case "help": return box(theme, "Keyboard shortcuts", helpLines(input), w);
+    case "help": return box(theme, "Keyboard shortcuts", scrolled(theme, helpLines(input), overlay.scroll ?? 0, Math.max(3, height - 2)), w);
     case "confirm": return box(theme, overlay.title, [
       ...overlay.body.flatMap(text => wrap(text, w - 4).map(line => [span(line, { fg: "secondary" })])), [],
       [span("y", { bold: true }), span(` ${overlay.yes}`), ...(overlay.alt ? [span("   "), span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`)] : []), span("   "), span("n", { bold: true }), span(" Cancel")],
@@ -143,23 +143,38 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
     ], w);
   }
 }
+/** Show `rows` from `scroll` within `room` lines, marking rows hidden above and below. */
+function scrolled(theme: TerminalTheme, rows: Line[], scroll: number, room: number): Line[] {
+  if (rows.length <= room) return rows;
+  const offset = Math.max(0, Math.min(scroll, rows.length - (room - 1)));
+  const up = offset > 0;
+  let shown = room - (up ? 1 : 0);
+  const down = offset + shown < rows.length;
+  if (down) shown -= 1;
+  const marker = (arrow: string, n: number): Line => [span(`${glyph(theme, arrow)} ${n} more · j k scroll`, { fg: "muted" })];
+  return [...(up ? [marker("↑", offset)] : []), ...rows.slice(offset, offset + shown), ...(down ? [marker("↓", rows.length - offset - shown)] : [])];
+}
 /** Help rows: [keys, label, op that must be offered]. Rows whose op is absent are hidden (UI-13). */
 type HelpRow = [string, string, string?];
 const HELP: HelpRow[] = [
-  ["1-5 / Tab", "Switch screen"], [",", "Settings"], ["j k / ↑ ↓", "Select"], ["⏎", "Primary action"], [".", "All actions for the row"],
-  ["d", "Delegate a task", "task.delegate"], ["f", "Repo scope"], ["R", "Refresh"], ["?", "Keyboard shortcuts"], ["Esc", "Close or go back"], ["q", "Quit"],
+  ["TABS", "Switch screen"], [",", "Settings"], ["j k / ↑ ↓", "Select"], ["PgUp PgDn", "Page through a list"], ["⏎", "Primary action"], [".", "All actions for the row"],
+  ["d", "Delegate a task", "task.delegate"], ["f", "Repo scope"], ["R / Ctrl-R", "Refresh"], ["?", "Keyboard shortcuts"], ["Esc", "Close or go back"], ["q", "Quit"],
 ];
 const SCREEN_HELP: Partial<Record<ScreenId, HelpRow[]>> = {
   home: [["x", "Dismiss", "attention.dismiss"], ["v", "Open in Review"], ["b", "Block or unblock an executor", "runner.block"], ["t m", "Terminal window · tmux pane", "task.attach"], ["s", "Stop", "task.stop"]],
   review: [["a", "Accept and bring back", "task.review"], ["s", "Send back with a note", "task.review"], ["r", "Reject with a note", "task.review"], ["t", "Retry on another executor", "task.review"], ["o", "Show worktree path"]],
   sessions: [["⏎", "Watch here", "task.attach"], ["t", "Open in a terminal window", "task.attach"], ["m", "Open in a tmux pane", "task.attach"], ["s", "Stop", "task.stop"], ["x", "Dismiss", "task.dismiss"]],
   settings: [["⏎ / →", "Open a section"], ["← →", "Adjust a value"], ["Esc", "Back to sections"]],
-  setup: [["⏎", "Run the selected step"], ["k", "Skip first delegation", "onboarding.skip"]],
+  setup: [["⏎", "Run the selected step"], ["x", "Skip first delegation", "onboarding.skip"]],
 };
 function helpLines(input: FrameInput): Line[] {
   const screen = effectiveScreen(input.s, input.state.screen);
   const offered = (op?: string) => !op || input.ops === undefined || input.ops.includes(op);
-  const group = (title: string, rows: HelpRow[]): Line[] => [heading(input.theme, title), ...rows.filter(([, , op]) => offered(op)).map(([k, label]): Line => [span(k.padEnd(12), { bold: true }), span(label, { fg: "secondary" })])];
+  const switchKeys = `1-${tabs(input.s).length} / Tab Shift-Tab`;
+  const group = (title: string, rows: HelpRow[]): Line[] => [heading(input.theme, title), ...rows.filter(([, , op]) => offered(op)).map(([k, label]): Line => {
+    const keys = k === "TABS" ? switchKeys : k;
+    return [span(keys.padEnd(Math.max(12, keys.length + 2)), { bold: true }), span(label, { fg: "secondary" })];
+  })];
   return [...group("Anywhere", HELP), [], ...group(SCREEN_LABELS[screen], SCREEN_HELP[screen] ?? [])];
 }
 
@@ -232,7 +247,7 @@ export function renderFrame(input: FrameInput): string {
   }
   while (body.length < bodyHeight) body.push({ line: [] });
   if (state.overlay) {
-    const lines = overlayLines(input, state.overlay, view, inner);
+    const lines = overlayLines(input, state.overlay, view, inner, bodyHeight);
     const top = Math.max(0, Math.floor((bodyHeight - lines.length) / 3)), left = Math.max(0, Math.floor((inner - lineWidth(lines[0] ?? [])) / 2));
     lines.slice(0, bodyHeight).forEach((line, i) => { body[top + i] = { line: [span(" ".repeat(left)), ...line] }; });
   }
