@@ -174,9 +174,11 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "pacer-plugin-protocol",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
