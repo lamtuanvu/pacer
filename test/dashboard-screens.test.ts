@@ -104,6 +104,17 @@ describe("frame behavior", () => {
     const order = ["NEEDS YOU", "RUNNING", "CAPACITY", "DONE TODAY"].map(h => text.indexOf(h));
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
+  test("the planner strip rounds fractional active hours", () => {
+    const s = snapshot();
+    s.planner!.activeHoursLeft = 9.6;
+    const top = renderDashboard(s, 120, 40, s.at, { noColor: true }).split("\n")[1]!;
+    expect(top).toContain("10 active-h");
+    expect(top).not.toContain("9.6");
+  });
+  test("Needs you titles are not cut short at 120 columns", () => {
+    const text = frame("home", 120, 40);
+    expect(text).toContain("Fix flaky retry test in the payments client");
+  });
   test("the page title appears once, in the top bar", () => {
     const text = frame("review", 120, 40);
     expect(text.split("\n")[0]).toContain("[ Review ]");

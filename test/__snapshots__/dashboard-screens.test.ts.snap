@@ -7,10 +7,10 @@ exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
    14 pts under pace — spend it.
    
    NEEDS YOU  4
- › ✕ Unavailable         buildbox is not answering                         ssh failed twice · last answered 40m…  07:40
-   ✕ Failed              Retry budget refresh on 429           acme/api    Failed twice on Antigravity · test t…  07:50
-   ◐ Waiting for review  Fix flaky retry test in the payment…  acme/api    Tests passed · 11:58                   07:30
-   ◐ Waiting for review  Add dark mode to the web header       acme/web    Tests passed · 12:13                   07:45
+ › ✕ Unavailable         buildbox is not answering                                ssh failed twice · last answe…  07:40
+   ✕ Failed              Retry budget refresh on 429                  acme/api    Failed twice on Antigravity ·…  07:50
+   ◐ Waiting for review  Fix flaky retry test in the payments client  acme/api    Tests passed · 11:58            07:30
+   ◐ Waiting for review  Add dark mode to the web header              acme/web    Tests passed · 12:13            07:45
    
    RUNNING  2 · 1 queued
    ▶ Editing         Add SSH keepalive to remote runs                            acme/api      Codex · team on devbox  
@@ -1181,10 +1181,10 @@ exports[`color, plain and ASCII renditions home in truecolor uses token colors 1
    \x1B[1m14 pts under pace — spend it.\x1B[0m
    
    \x1B[1m\x1B[38;2;161;161;170mNEEDS YOU\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m4\x1B[0m
- \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[38;2;252;165;165m\x1B[48;2;39;39;42m✕ Unavailable\x1B[0m\x1B[48;2;39;39;42m       \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[1m\x1B[48;2;39;39;42mbuildbox is not answering\x1B[0m\x1B[48;2;39;39;42m           \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m\x1B[0m\x1B[48;2;39;39;42m          \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42mssh failed twice · last answered 40m…\x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m07:40\x1B[0m
-   \x1B[38;2;252;165;165m✕ Failed\x1B[0m              \x1B[1mRetry budget refresh on 429\x1B[0m           \x1B[38;2;161;161;170macme/api\x1B[0m    \x1B[38;2;161;161;170mFailed twice on Antigravity · test t…\x1B[0m  \x1B[38;2;161;161;170m07:50\x1B[0m
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mFix flaky retry test in the payment…\x1B[0m  \x1B[38;2;161;161;170macme/api\x1B[0m    \x1B[38;2;161;161;170mTests passed · 11:58\x1B[0m                   \x1B[38;2;161;161;170m07:30\x1B[0m
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mAdd dark mode to the web header\x1B[0m       \x1B[38;2;161;161;170macme/web\x1B[0m    \x1B[38;2;161;161;170mTests passed · 12:13\x1B[0m                   \x1B[38;2;161;161;170m07:45\x1B[0m
+ \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[38;2;252;165;165m\x1B[48;2;39;39;42m✕ Unavailable\x1B[0m\x1B[48;2;39;39;42m       \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[1m\x1B[48;2;39;39;42mbuildbox is not answering\x1B[0m\x1B[48;2;39;39;42m                  \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m\x1B[0m\x1B[48;2;39;39;42m          \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42mssh failed twice · last answe…\x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m07:40\x1B[0m
+   \x1B[38;2;252;165;165m✕ Failed\x1B[0m              \x1B[1mRetry budget refresh on 429\x1B[0m                  \x1B[38;2;161;161;170macme/api\x1B[0m    \x1B[38;2;161;161;170mFailed twice on Antigravity ·…\x1B[0m  \x1B[38;2;161;161;170m07:50\x1B[0m
+   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mFix flaky retry test in the payments client\x1B[0m  \x1B[38;2;161;161;170macme/api\x1B[0m    \x1B[38;2;161;161;170mTests passed · 11:58\x1B[0m            \x1B[38;2;161;161;170m07:30\x1B[0m
+   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mAdd dark mode to the web header\x1B[0m              \x1B[38;2;161;161;170macme/web\x1B[0m    \x1B[38;2;161;161;170mTests passed · 12:13\x1B[0m            \x1B[38;2;161;161;170m07:45\x1B[0m
    
    \x1B[1m\x1B[38;2;161;161;170mRUNNING\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m2\x1B[0m\x1B[38;2;161;161;170m · 1 queued\x1B[0m
    \x1B[38;2;147;197;253m▶ Editing\x1B[0m         \x1B[1mAdd SSH keepalive to remote runs\x1B[0m                            \x1B[38;2;161;161;170macme/api\x1B[0m      \x1B[38;2;161;161;170m● \x1B[0mCodex · team on devbox

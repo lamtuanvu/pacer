@@ -91,7 +91,7 @@ function plannerStrip(input: FrameInput, width: number): Line {
   const status = paceStatus(p.verdict), wide = width >= 100;
   const name = wide ? `${agentInfo(p.agent).name} planner` : agentInfo(p.agent).name;
   const line: Line = [span(name, { bold: true }), span("  "), ...meter(theme, p.usedPct, p.pacePct, wide ? 20 : 12, status.tone), span("  "), span(meterText(p.usedPct, p.pacePct, "full"), { bold: true }), span("  "), ...statusSpans(theme, status)];
-  const extra = [p.activeHoursLeft !== null ? `${p.activeHoursLeft} active-h` : "", p.resetsAt !== null ? `resets ${clock(p.resetsAt, input.now, input.timeZone)}` : "", p.stale ? "stale reading" : ""].filter(Boolean);
+  const extra = [p.activeHoursLeft !== null ? `${Math.round(p.activeHoursLeft)} active-h` : "", p.resetsAt !== null ? `resets ${clock(p.resetsAt, input.now, input.timeZone)}` : "", p.stale ? "stale reading" : ""].filter(Boolean);
   if (extra.length) line.push(span(`  ${extra.join(` ${glyph(theme, "·")} `)}`, { fg: "secondary" }));
   return line;
 }
