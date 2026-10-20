@@ -16,3 +16,12 @@ test("account windows keep today's meter colours until the settings rewrite", ()
   const rows = accountsModel([{ name: "team", kind: "codex", usageReading: { windows: [{ name: "5h", usedPct: 97, resetsAt: 1 }, { name: "7d", usedPct: 40, resetsAt: 2 }] } }], []);
   expect(rows[0]!.windows.map(w => w.tone)).toEqual(["bad", "good"]);
 });
+
+test("sign-in help is offered only for a native account known to be signed out", () => {
+  const rows = accountsModel([
+    { name: "unknown", kind: "claude", signedIn: null, signin_command: "claude" },
+    { name: "in", kind: "codex", signedIn: true, signin_command: "codex login" },
+    { name: "out", kind: "claude", signedIn: false, signin_command: "claude" },
+  ], []);
+  expect(rows.map(r => r.signin)).toEqual([undefined, undefined, "claude"]);
+});

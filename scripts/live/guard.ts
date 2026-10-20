@@ -7,7 +7,7 @@ export function refusal(args: string[]): string | undefined {
   const [command, action] = args;
   if (command === "desktop-update" && action !== "status") return "D3: desktop update requires a verified OTA fixture";
   if (["install", "uninstall", "init", "setup", "statusline", "update", "orca"].includes(command)) return `D3: ${command} changes the real user environment`;
-  const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["install", "set"], account: ["add", "rm", "login"], host: ["setup"] };
+  const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["uninstall"], account: ["add", "rm", "login"], host: ["setup"] };
   if (blocked[command]?.includes(action)) return `D3: ${command} ${action} changes the real user environment`;
   if (command === "open" && !args.includes("--print")) return "D3: open requires --print; use the agent's browser tools";
   return undefined;

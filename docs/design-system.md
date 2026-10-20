@@ -1,0 +1,90 @@
+# pacer design system
+
+The web app, desktop webview and tray use the Preact foundation in `app/src/ds/`. The service owns domain state; screens bind API actions and compose presentation. Components must not import screens, shell, data clients, API/core implementations or stores. The TUI consumes shared view-model descriptors, independently of Preact.
+
+## Tokens and density
+
+Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit color, type, spacing, radius, size, shadow, layer and motion groups. `tokens.local.json` holds documented provisional additions only; it is currently empty. Generate CSS and TypeScript with `bun scripts/ds-sync.ts app/src/ds/tokens.json` or `bun run app:build`. Never edit generated `tokens.css`/`tokens.ts` or embedded app assets manually. The app build also refreshes the generated token prefix in `desktop/ui/shell.css`, preserving the handwritten startup-shell suffix at its existing boundary comment; a missing boundary fails the build rather than overwriting it.
+
+All themes use one type scale. `space-2.5` supplies the missing 10px inset; control tokens specify compact 28px, normal 44px and touch 48px minima. Semantic foreground/background pairs carry statuses. Brand identity tokens are separate from status colors. The warning and information navigation badges use the tested semantic pairs, and text on tinted surfaces uses `ink-secondary`.
+
+`DensityProvider value="compact"` scopes the tray, including button dimensions, list rows, pills and meters. The normal app uses the default density. `NarrowContext`, owned by DS and reexported by shell for compatibility, selects touch density for narrow/repository-scoped views. Compact rows preserve the same type scale. `ListRow` also accepts an explicit density when a presentation needs it. Screens must not override primitive typography or control dimensions to create another density. Native fields inherit the same density; at narrow viewport widths the DS also supplies touch targets for dialogs mounted outside shell context, while explicit compact tray controls keep their compact size.
+
+## Catalog and API contracts
+
+| Component | API and supported states | Production use and accessibility contract |
+| --- | --- | --- |
+| `Button` | Native button props and ref; `variant="primary\|secondary\|ghost\|quiet\|danger"`, `size="md\|sm"`, `busy` | All screen, shell, terminal and tray actions. Defaults to `type="button"`; opt into submit. Busy sets native disabled and `aria-busy`, while retaining its name. Visible reasons accompany unavailable capabilities; ordinary pending progress stays announced. |
+| `ButtonLink`, `TextAction`, `IconButton` | Native anchor/button props and refs; ButtonLink shares button appearance | Navigation stays an anchor, including href, current page, target, download and modifier behavior. IconButton requires `aria-label`; tooltip alone is insufficient. `pc-inline-link` is the CSS contract for underlined links in prose. |
+| `Field` | `label`, optional `help`, `error`, children and className | Delegate, Quick Delegate, verdict and settings forms. Finds the first canonical labelable control through layout/fragment children, preserves every sibling, and assigns stable label/help/error IDs. Explicit child IDs win; existing `aria-describedby` values are retained. A Field owns one control; use separate Fields for several controls. Custom opaque child components must supply their own label contract. |
+| `TextInput`, `TextArea`, `Select` | Native attributes, events and native element refs | Form validation, autocomplete, disabled state, required, min/max, selection and keyboard behavior remain native. TextArea owns resize/minimum height; Select owns its themed arrow and forced-color fallback. |
+| `Checkbox`, `Switch`, `Range` | Native input props/ref; optional visible `label`; Checkbox/Switch `help` and `mixed` | Bulk selection, executor/update settings, host sessions, terminal screen-reader mode and planner reserve. A Checkbox without `label` requires a surrounding label or `aria-label`. `mixed` sets DOM indeterminate and `aria-checked="mixed"`; Switch uses a native checkbox with switch role. Range accepts its accessible label via Field, visible label or aria-label. |
+| `Disclosure` | `summary`, native details attributes and children | Technical routing, cost, log, acceptance and CLI details. Native summary retains keyboard and expanded behavior; full code remains selectable. |
+| `Dialog`, `useDialogs` | `title`, `close`, content; shared confirmation/prompt orchestration | Native modal dialog, Escape cancellation, native focus trap and return. Dialog/Field styles are DS-owned and available to tray. Use an explicit visible submit label, and preserve whitespace validation on required rejection notes. |
+| `TextRow` | `label`, `value`, optional `meta` | Settings check progress uses label/value/meta alignment and tabular figures. Values wrap without hiding labels; this is presentation, not a form or semantic table replacement. |
+| `ListRow` | `leading`, `content`, `meta`, `actions`, native div attributes, optional density | Overview attention/running/done/activity, Sessions list and tray attention. Slots are siblings. Row-level focus/data attributes remain on the outer row. Keep full titles in title/detail while clipping through CSS. Secondary actions belong in actions, outside any destination link. |
+| `ListRowLink` | Native anchor attributes and children | Capacity and tray running rows with a single destination. Never put another control inside it. Session replay uses the DS `pc-row-destination`/`pc-list-row--stretch` contract to expand a single link target without nesting controls. |
+| `SelectableRow`, `ChoiceCard`, `FilterChip` | Button props plus optional `selected`; existing aria-pressed/current supported | Review queue/files, Add Executor choices and repo filters. Selection stays controlled by the caller. Choices use buttons and pressed state, not invented tab semantics. |
+| `SegmentedControl`, `Tabs` | Label, controlled value, `{value,label,disabled?}` options and onChange; Tabs additionally requires stable id | Settings switches and Session views. SegmentedControl is a labelled group of pressed buttons. Tabs owns tablist/selected/controls/roving tabIndex and ArrowLeft/Right/Home/End; the consumer renders matching labelled tabpanels. Disabled tabs are skipped. |
+| `Card` / `pc-card`, `ApprovalCard` | Native section props; ApprovalCard optional title/actions slots | Shared settings card CSS also works on native form/div containers. Review verdict uses ApprovalCard framing while VerdictPanel owns decisions and actions. Do not repeat the same heading in both wrapper and content. |
+| `LoadingState`, `EmptyState` | Loading label/updating; empty title/description/children | Shell connection, task/session/settings resources, Overview and Review clear states, tray connecting. Loading is a polite status with decorative pixel grid; reduced motion freezes it. Refreshing content remains mounted. Errors remain explicit adjacent alerts with existing retry actions. |
+| `SectionHeading`, `Pill`, `StatusPill`, `StatusGlyph` | Existing heading and semantic descriptor APIs | One section-heading type scale. Status descriptors come from `src/view-model/words.ts`; glyph and text accompany color. Color alone never encodes a result. |
+| `UsageMeter`, `AgentMark`, `Mark`, `Icon`, `Kbd`, `Tooltip` | Existing documented typed props in their modules | Specialized meter geometry, vendor identity, navigation, shortcuts and tooltips remain shared. A Kbd composed inside a button inherits the action foreground on a transparent surface, retaining the action contrast pair in both themes. Usage percentages are data, not ad-hoc style. Agent colors mirror shared identity descriptors in both themes. |
+
+Example composition:
+
+```tsx
+<Field label="Rejection note" help="Explain what needs to change." error={error}>
+  <TextArea id="rejection-note" required value={note} onInput={onInput} ref={noteRef} />
+</Field>
+<ListRow
+  leading={<StatusGlyph status={status} />}
+  content={<TextAction href={destination}>{title}</TextAction>}
+  meta={<StatusPill status={status} />}
+  actions={<Button size="sm" busy={pending} onClick={review}>Review</Button>}
+/>
+```
+
+## Beautiful UI provenance
+
+Adapted from [slev12397/beautiful-ui](https://github.com/slev12397/beautiful-ui/tree/44a274e598395ab61e7c96c26fda2758780253b7), pinned revision `44a274e598395ab61e7c96c26fda2758780253b7`, under MIT. The complete upstream copyright/license is preserved in [beautiful-ui-LICENSE](../app/src/ds/third-party/beautiful-ui-LICENSE). The implementation combines selected upstream structures with existing pacer primitives; it does not install the upstream app or dependencies.
+
+| Pinned upstream source | Adapted implementation | Retained pattern and deliberate differences |
+| --- | --- | --- |
+| `components/atoms/Button.tsx` | `ds/Button.tsx`, `components.css` | Shared inline-flex alignment, size/variant matrix, quiet action, disabled and restrained transition states. Extends existing pacer Button; Preact types/refs replace React and cva, native safe default/busy semantics are added, pacer corners/tokens and touch targets replace demo pill dimensions. |
+| `components/atoms/TextRow.tsx` | `ds/Patterns.tsx: TextRow` | Label-left/value-right, optional baseline metadata and tabular numbers. Supports wrapping and tokens rather than Tailwind pixel literals. |
+| `components/atoms/SegmentedControl.tsx` | `ds/Patterns.tsx: SegmentedControl` | Controlled options and selected segments within shared framing. Removes animated sliding thumb; filters use correct pressed-button group semantics. Tabs are a separate keyboard-capable API. |
+| `components/atoms/Switch.tsx` | `ds/Controls.tsx: Switch/Checkbox`, switch CSS | Controlled checked state, rounded track and travelling thumb. Combines existing checkbox styling with a native labelled input, disabled/help/indeterminate/ref support, and reduced-motion/forced-color behavior. |
+| `components/primitives/TaskRows.tsx` | `ds/Patterns.tsx: ListRow/ListRowLink/SelectableRow` | Leading status/identity, flexible clipped title, numeric/status metadata, bounded row and disclosure/action grammar. Removes scripted demonstration status sequence, demo tasks, staggered animation and nested assumptions. Service descriptors decide actual state; sibling actions preserve valid HTML. |
+| `components/primitives/ApprovalCard.tsx` | `ds/Patterns.tsx: ApprovalCard`, Review composition | Closed card, question/content body and separated action/footer framing. Combines with VerdictPanel and native Dialog rather than porting question auto-advance, odometers, GlideMenu or demo state. |
+| `components/primitives/LoadingState.tsx` | `ds/Patterns.tsx: LoadingState` | Small decorative 3×3 pixel grid paired with readable status. Removes video, network media, elapsed interval, orbit variants and label shimmer. Uses one restrained token-based pulse only while loading; freezes under reduced motion. |
+
+No paid icon package, remote fonts, analytics, email capture, demo application, React or Tailwind runtime is included. Existing pacer SVG navigation/identity assets retain their own provenance.
+
+## Migration matrix and retained styles
+
+| Surface | Canonical adoption | Retained responsibility |
+| --- | --- | --- |
+| Overview | Shared rows, sibling secondary actions, row destinations, empty states, filters and canonical links | Screen section placement, capacity grid, counts, scope selection, API actions and shared semantic descriptors. |
+| Review/detail | Selectable queue/file rows, ApprovalCard, Field/input/select/disclosure, asynchronous state | Bulk selection and verdict workflows, semantic definition lists, specialized Diff renderer and horizontal code scrolling. |
+| Sessions/detail | ListRow, canonical replay target, Tabs, controls, loading/empty states | Controller/resource fetching, session/PTY lifecycle, timeline, terminal/diff rendering and command copy. Unsupported attach targets are omitted; refused takeover retains visible service reason. |
+| Settings/hosts/Add Executor/Diagnostics | Canonical form controls/Field, switch, range, SegmentedControl, ChoiceCard, pc-card, TextRow | Settings grid, semantic tables (including mobile data labels), wizard progress and API-bound operations. Host and executor domain decisions remain local. Diagnostics binds doctor.run to canonical Button, Pill and Disclosure; idle/running/error states are announced, reruns wait for completion, and technical evidence/repair guidance stays collapsed. |
+| Setup/delegate/dialogs | Button/ButtonLink/TextAction, Field/native controls, Dialog and Disclosure | Consent, setup checklist, draft/validation and delegation data. |
+| Shell | Canonical actions/links and DS density, loading status | Rail/topbar/secondary-navigation placement, sticky behavior, landmarks and skip-link route focus. |
+| Tray/desktop webview | Compact density, shared actions, ListRow, ListRowLink, headings, status/identity and loading | 340px host containment, count/executor layout, native IPC, menu state and keyboard order. Escape closes menus before IPC hide; Quit is offered only in desktop. |
+| Terminal wrapper | Canonical screen-reader checkbox and actions | Lazy import, xterm theme adapter, PTY scaling and session control; xterm vendor CSS remains vendor-owned. |
+| TUI | Shared framework-independent status/attention vocabulary | Terminal width/color adapter; it imports no browser components. |
+
+Authored screen CSS may own grids, flex placement, containment, overflow, sticky positioning, responsive breakpoints and domain metadata columns. Primitive visuals are DS-owned. The semantic tables, usage meter, code/diff and PTY renderers remain specialized; converting them into universal rows would damage their semantics.
+
+Narrow data-geometry adapters are explicit: `UsageMeter` supplies clamped numeric `--used`/`--pace`; AgentMark/Mark supply only `${size}px` through `--agent-size`/`--mark-size`; `TerminalView`'s `scale` function computes width/height solely from authoritative PTY cell/font metrics or measured xterm screen geometry. These do not permit arbitrary colors, typography or spacing. SVG path/viewBox/stroke geometry, intrinsic 1em icon dimensions, border hairlines, zero, percentages and responsive breakpoints follow the narrowly checked categories in UI-21. Other measurements come from tokens.
+
+## Checks and evidence
+
+Run `bun run ui:check`, `bun run typecheck`, focused component/behavior tests, the integrated suite and builds. The checker scans every authored app tree, including shell, tray and terminal, and rejects controls outside DS, reverse imports and visual token bypass. Negative fixtures establish that violations actually fail.
+
+Component tests establish native attributes, disabled/busy behavior, label/help/error relationships, compound fields, selected filters, mixed selection, sibling row actions, compact density, semantic contrast and async copy. Set `PACER_TEST_BROWSER` to a local Chrome/Chromium executable when running `test/app-ds-browser.test.tsx` to verify actual modal/disclosure keyboard composition and Settings frame borders; without an executable those browser checks explicitly skip. Rendered markup is not browser keyboard or visual evidence. UI-18 requires before/after route/theme/width screenshots; CT-11 requires isolated live validation. Record unexercised browser/native/assistive-technology surfaces as UNVERIFIED.
+
+This migration consolidates the shared-foundation inventory from #174 while preserving #134's semantic status, title, time, containment and one-action requirements. Product-specific remaining work in #134 is complete only when its own observed acceptance criteria and visual evidence pass; architectural reuse alone does not close it.
+
+The canonical Disclosure supports `pc-disclosure--wrap` for multi-part summaries, wrapping title, status and evidence within the container. Diagnostics uses this variant with `pc-ellipsis` and a full title attribute for long identities. Native disclosure keyboard and open/closed semantics remain unchanged; no new upstream adaptation is introduced.

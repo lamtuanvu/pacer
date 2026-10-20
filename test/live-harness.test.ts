@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
 import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
@@ -12,7 +12,7 @@ import { checkSetup } from "../src/setup/check";
 import { handleV2 } from "../src/api/http";
 import { computeStatus } from "../src/engine/status";
 import { refusal } from "../scripts/live/guard";
-import { isolatedWorker } from "../scripts/live/surfaces";
+import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
 import { BLOCKED_OPS, ClientWebSocket, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
 
@@ -25,10 +25,10 @@ function fixture(): Session {
 describe("live guard (D3)", () => {
   for (const args of [
     ["install", "codex"], ["uninstall"], ["init"], ["setup"], ["statusline"], ["update", "--check"],
-    ["service", "install"], ["service", "uninstall"], ["plugin", "install"], ["plugin", "set"],
+    ["service", "install"], ["service", "uninstall"], ["plugin", "uninstall"],
     ["account", "add"], ["account", "rm"], ["account", "login"], ["host", "setup"], ["orca"], ["orca", "status"], ["open"], ["open", "--browser"],
   ]) test(`refuses ${args.join(" ")}`, () => expect(refusal(args)).toContain("D3"));
-  for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
+  for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["plugin", "install"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
     test(`allows ${args.join(" ")}`, () => expect(refusal(args)).toBeUndefined());
   }
   test("executable guard exits 3 without reading a session or dispatching pacer", () => {
@@ -105,13 +105,6 @@ test("evidence is appended and reports retain commands, steps, captures and verd
   expect(renderReport(session, [])).toContain("UNVERIFIED");
 });
 
-test("Orca worker overrides every host settings read with sandbox service coordinates", () => {
-  const session = fixture();
-  const source = isolatedWorker(session);
-  expect(source).toContain(`port: ${session.port}`);
-  expect(source).toContain(JSON.stringify(join(session.root, "home")));
-  expect(source).toContain('method !== "settings.get"');
-});
 
 let canBind = true;
 try { await freePort(); }
@@ -322,7 +315,7 @@ test("UI seed writes only sandbox home and supplies safe task fixtures and accou
   const running = tasks.find(task => task.state === "running")!;
   expect(running.childPid).toBeUndefined();
   expect(running.run).toBeUndefined();
-  expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, running.id, () => { throw Error("must not spawn"); })?.state).toBe("running");
+  expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, running.id)?.state).toBe("running");
 
   const status = await computeStatus(ctx, loadStrategy(ctx));
   expect(status.accounts).toHaveLength(2);
@@ -384,6 +377,48 @@ test.skipIf(!canBind)("seeded service exposes setup-complete snapshots and task 
   } finally { await down(session); }
 }, 15000);
 
+
+test.skipIf(process.platform !== "darwin")("desktop bundle selects CFBundleExecutable when a CLI sidecar is present", () => {
+  const app = join(tmpDir(), "pacer.app");
+  const binaries = join(app, "Contents/MacOS");
+  mkdirSync(binaries, { recursive: true });
+  atomicWrite(join(binaries, "pacer"), "sidecar", 0o700);
+  atomicWrite(join(binaries, "pacer-desktop"), "shell", 0o700);
+  atomicWrite(join(app, "Contents/Info.plist"), '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>pacer-desktop</string></dict></plist>');
+  expect(desktopExecutable(app)).toBe(join(binaries, "pacer-desktop"));
+});
+
+test("desktop bundle falls back to a single file and refuses ambiguity", () => {
+  const app = join(tmpDir(), "pacer.app");
+  const binaries = join(app, "Contents/MacOS");
+  mkdirSync(binaries, { recursive: true });
+  atomicWrite(join(binaries, "shell"), "shell", 0o700);
+  mkdirSync(join(binaries, "support"));
+  expect(desktopExecutable(app)).toBe(join(binaries, "shell"));
+  atomicWrite(join(binaries, "sidecar"), "sidecar", 0o700);
+  expect(() => desktopExecutable(app)).toThrow("multiple executables");
+});
+
+
+test("desktop bundle does not follow symlink candidates", () => {
+  const root = tmpDir();
+  const app = join(root, "pacer.app");
+  const binaries = join(app, "Contents/MacOS");
+  mkdirSync(binaries, { recursive: true });
+  atomicWrite(join(binaries, "shell"), "shell", 0o700);
+  atomicWrite(join(root, "outside"), "outside", 0o700);
+  symlinkSync(join(root, "outside"), join(binaries, "sidecar"));
+  expect(desktopExecutable(app)).toBe(join(binaries, "shell"));
+});
+
+test.skipIf(process.platform !== "darwin")("desktop bundle reports malformed plist instead of guessing", () => {
+  const app = join(tmpDir(), "pacer.app");
+  const binaries = join(app, "Contents/MacOS");
+  mkdirSync(binaries, { recursive: true });
+  atomicWrite(join(binaries, "shell"), "shell", 0o700);
+  atomicWrite(join(app, "Contents/Info.plist"), "invalid plist");
+  expect(() => desktopExecutable(app)).toThrow("plutil");
+});
 test("OTA CLI requires explicit scoped options and never accepts arbitrary commands", async () => {
   for (const args of [
     ["ota", "prepare"], ["ota", "prepare", "--id", "missing"],

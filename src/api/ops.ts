@@ -1,5 +1,8 @@
 import { desktopUpdateOps } from "./ops-desktop-update";
 import type { DesktopUpdateRuntime } from "../update/desktop/service";
+import { resolvePolicyRepoInput } from "../core/project-policy";
+import * as projectStrategies from "../core/project-strategies";
+import { pruneTasks, restoreTask } from "../tasks/retention";
 import { parseRunnerId } from "../config/runner-id";
 import { pacerArgv } from "../install/self";
 import * as attention from "../core/attention";
@@ -9,7 +12,6 @@ import { requireRepoDirectory, resolveRepo, resolveRepoInput, listReposWithBranc
 import { apiTask } from "./read-model/tasks";
 import { appendActivity, readActivity } from "../activity/log";
 import { ACTIVITY_KINDS } from "../activity/types";
-import { drainQueueOnRead } from "../tasks/drain";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
@@ -23,7 +25,8 @@ import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
-import { redactEndpointError } from "../endpoints/state";
+import * as opencodeSetup from "../core/opencode-setup";
+import { redactEndpointMessage } from "../endpoints/state";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -37,7 +40,7 @@ import { CoreError, toCoreError } from "../core/errors";
 import { isExecutorSession } from "../install/role";
 import * as strategy from "../strategy/service";
 import { publish } from "../link/publish";
-import { checkForUpdate, installedPlugin, updateAvailable } from "../update/check";
+import { checkForUpdate, updateAvailable } from "../update/check";
 import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
 import { currentVersion } from "../update/version";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
@@ -80,11 +83,16 @@ const endpointFields = {
   weekly_tokens: z.number().int().positive().optional(), quota_source: z.string().min(1).optional(), test: z.boolean().optional(),
 };
 const endpointEdit = z.object({name: id, ...endpointFields}).partial().required({name: true});
+const setupGroup = z.enum(["signed_in", "local", "catalog"]);
+const opencodeProvider = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/);
+/** An executor that refers to a provider OpenCode is already signed in to; pacer never stores its key. */
+const opencodeAccount = z.object({kind: z.literal("endpoint"), source: z.literal("opencode"), provider: opencodeProvider, model: z.string().min(1),
+  name: id.regex(/^[a-z0-9][a-z0-9-]*$/).optional(), cap_usd: z.number().positive().optional(), usage: z.enum(["quota", "metered", "unmetered"]).optional(), test: z.boolean().optional()});
 async function endpointAction<T>(key: string | undefined, action: () => T | Promise<T>): Promise<T> {
   try { return await action(); }
   catch (error) {
     const safe = toCoreError(error);
-    throw new CoreError(safe.code, redactEndpointError(safe.message, [key ?? ""]));
+    throw new CoreError(safe.code, redactEndpointMessage(safe.message, [key ?? ""]));
   }
 }
 async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
@@ -146,6 +154,24 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
 
 export const OPS: Record<string, OpDef> = { ...sessionOps,
   ...desktopUpdateOps,
+  "project.strategy.list": op({
+    description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
+    handler: ctx => projectStrategies.list(ctx),
+  }),
+  "project.strategy.get": op({
+    description: "Read a repository executor override and revision; null executors inherit global routing.", params: z.object({ repo: z.string().min(1).max(4096) }),
+    handler: (ctx, p) => projectStrategies.get(ctx, p.repo),
+  }),
+  "project.strategy.set": op({
+    description: "Set an ordered repository executor allowlist. Requires the current revision (0 for a new policy).",
+    params: z.object({ repo: z.string().min(1).max(4096), executors: z.array(id).min(1), expect_rev: z.number().int().nonnegative().safe() }),
+    handler: (ctx, p) => mutation(ctx, "project-strategies", () => projectStrategies.set(ctx, p.repo, p.executors, p.expect_rev)),
+  }),
+  "project.strategy.remove": op({
+    description: "Remove a repository override and restore global routing, preserving its revision.",
+    params: z.object({ repo: z.string().min(1).max(4096), expect_rev: z.number().int().nonnegative().safe() }),
+    handler: (ctx, p) => mutation(ctx, "project-strategies", () => projectStrategies.remove(ctx, p.repo, p.expect_rev)),
+  }),
   "activity.list": op({
     description: "Activity log, newest first, with optional repo, kind and task filters.",
     params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
@@ -169,18 +195,23 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, p, deps.terminal) }),
   "account.add": op({
-    description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
-    params: z.discriminatedUnion("kind", [
+    description: "Create a Claude or Codex account home, configure and test a model endpoint, or add an executor for a provider OpenCode is signed in to (source: opencode).",
+    // `source: opencode` is tried first so it is not read as a pacer-managed endpoint.
+    params: z.union([opencodeAccount, z.discriminatedUnion("kind", [
       z.object({kind: z.literal("claude"), name: id, home: z.string().min(1).optional()}),
       z.object({kind: z.literal("codex"), name: id, home: z.string().min(1).optional()}),
       z.object({kind: z.literal("endpoint"), name: id, ...endpointFields}),
-    ]),
+    ])]),
     handler: (ctx, p, deps) => mutation(ctx, "accounts", async () => {
+      if ("source" in p) return opencodeSetup.addOpencodeAccount(ctx, p, deps.endpoint);
       if (p.kind === "endpoint") return endpointAction(p.key, () => endpoints.addEndpoint(ctx, p, deps.endpoint));
       const {migrated} = await accounts.add(ctx, p);
       return {...(migrated ? {migrated} : {}), account: (await accounts.list(ctx)).find(a => a.name === p.name)!};
     }),
   }),
+  "executor.setup.candidates": op({ description: "OpenCode providers, local model servers and catalog providers that can become executors; no secrets.", params: z.object({}), handler: (ctx, _p, deps) => opencodeSetup.setupCandidates(ctx, deps.endpoint) }),
+  "executor.setup.models": op({ description: "Usable models for one setup candidate, with a recommended pick and usage type.", params: z.object({provider: z.string().min(1), group: setupGroup, base_url: endpointFields.base_url.optional()}), handler: (ctx, p, deps) => opencodeSetup.setupModels(ctx, p, deps.endpoint) }),
+  "executor.setup.connect": op({ description: "Connect a catalog provider through OpenCode, which stores the key (never pacer). This release runs nothing and returns the opencode auth login command to run in a terminal; an optional key is accepted for later releases and never used or stored.", params: z.object({provider: opencodeProvider, key: z.string().min(1).optional()}), handler: (ctx, p) => endpointAction(p.key, () => opencodeSetup.connectWithKey(ctx, p.provider)) }),
   "account.models": op({ description: "Discover endpoint models using a supplied or stored key.", params: z.object({name: id.optional(), base_url: endpointFields.base_url.optional(), key: z.string().optional()}), handler: (ctx, p, deps) => endpointAction(p.key, () => endpoints.listModels(ctx, p, deps.endpoint)) }),
   "account.edit": op({ description: "Edit a managed endpoint and regenerate its OpenCode provider.", params: endpointEdit, handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.editEndpoint(ctx, p, deps.endpoint))) }),
   "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),
@@ -210,17 +241,18 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
+  "doctor.run": op({ description: "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.", params: z.object({}), handler: (ctx) => setup.doctor(ctx) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: (ctx, _p, deps) => setup.check(ctx, {snapshotProbe:deps.snapshotProbe}) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
   "service.install": op({ description: "Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.", params: z.object({consent: z.literal(true)}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.serviceInstall(ctx, p.consent)) }),
   "onboarding.try": op({ description: "Start a tiny docs delegation in a scratch git repository; returns task_id, executor and repo.", params: z.object({}), handler: (ctx, _p, deps) => mutation(ctx, "setup", () => setup.onboardingTry(ctx, {route: deps.onboardingRoute, delegate: deps.delegate, spawnRunner: deps.spawnRunner})) }),
   "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
-  "plugin.install": op({ description: "Install the Orca plugin under PACER_HOME without editing Orca settings.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.pluginInstall(ctx)) }),
+  "plugin.install": op({ description: "Retired: pacer no longer ships an Orca plugin. Always fails with not_allowed; removed in the next protocol major.", params: z.object({}), handler: () => setup.pluginInstall() }),
   "agent.preview": op({ description: "Preview agent integration files and the undo command before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),
   "agent.connect": op({ description: "Connect an agent after explicit consent to write its integration files.", params: z.object({agent, consent: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentConnect(ctx, p.agent, p)) }),
   "agent.disconnect": op({ description: "Remove an agent integration using its recorded undo actions.", params: z.object({agent}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentDisconnect(ctx, p.agent)) }),
-  "version.get": op({ description: "Pacer, protocol, installed plugin and service versions or status.", params: z.object({}), handler: ctx => setup.version(ctx) }),
+  "version.get": op({ description: "Pacer, protocol and service versions or status.", params: z.object({}), handler: ctx => setup.version(ctx) }),
   "host.list": op({ description: "Configured SSH hosts and running task counts.", params: z.object({}), handler: ctx => core.hosts.list(ctx) }),
   "host.check": op({ description: "Check SSH host prerequisites, checkouts and identity.", params: z.object({ alias: id, repo: z.string().min(1).optional() }), handler: async (ctx, p) => ({ job: await core.hosts.checkJob(ctx, p.alias, { repo: p.repo }) }) }),
   "task.get": op({ description: "One task's state and result.", params: z.object({ id }), handler: (ctx, p) => taskDetail(ctx, p.id) }),
@@ -228,8 +260,10 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "repo.list": op({ description: "Registered repos with local branches, current first.", params: z.object({}), handler: ctx => listReposWithBranches(ctx) }),
   "repo.add": op({ description: "Register a git repository.", params: z.object({path:z.string().min(1).max(4096)}), handler: (ctx,p) => addRepo(ctx,p.path) }),
   "repo.remove": op({ description: "Remove a repository from the registry.", params: z.object({key:z.string().min(1)}), handler: (ctx,p) => removeRepo(ctx,p.key) }),
+  "task.prune": op({ description: "Archive old reviewed or dismissed settled tasks; dry_run reports files and bytes without moving them.", params: z.object({ dry_run: z.boolean().optional() }), handler: (ctx, p) => pruneTasks(ctx, { dryRun: p.dry_run }) }),
+  "task.restore": op({ description: "Restore an archived task and its artifacts; conflicting files are never overwritten.", params: z.object({ id }), handler: async (ctx, p) => summarizeTask(await restoreTask(ctx, p.id)) }),
   "task.list": op({ description: "Recent tasks, newest first, always returned as a cursor page.", params: z.object({
-    limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
+    all:z.boolean().optional(), limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
   }), handler: (ctx,p) => {
     const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
@@ -242,7 +276,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     params: z.object({ ...delegateSchema, repo: z.string().min(1) }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      const repoRef=await resolveRepoInput(ctx,p.repo);
+      const repoRef=await resolvePolicyRepoInput(ctx,p.repo);
       const input=parseDelegateBrief({...p,repo:isAbsolute(p.repo)?p.repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
@@ -340,9 +374,9 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     strategy.remove(ctx, p.name);
     return {removed: true};
   })) }),
-  "update.check": op({ description: "Check release and installed plugin versions, optionally bypassing the cached update check.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
+  "update.check": op({ description: "Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
     const check = await checkForUpdate(ctx, {force: p.force});
-    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: installedPlugin(ctx), ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};
+    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};
   }) }),
   "update.apply": op({ description: "Apply pacer update as a shared job; package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
 };
@@ -362,6 +396,5 @@ export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDe
   const def = OPS[name];
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
-  if (["task.list", "task.get"].includes(name)) await drainQueueOnRead(ctx, deps.spawnRunner);
   return await def.handler(ctx, parsed.data, deps);
 }

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../../fsutil";
 import { type ExecutionCfg, validateExecution } from "../../config/execution";
 import { type ProviderCfg, loadStrategy } from "../../config/strategy";
-import { readTask, tasksDir, listTasks, updateTask } from "../../tasks/store";
+import { readTask, tasksDir, listTasksWhere, updateTask } from "../../tasks/store";
 import { resolvePlacement, type ResolvedPlacement, type TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { Backend } from "../backend";
@@ -59,7 +59,7 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   if (!isReady(await c.status())) return { ok: false, reason: "the Orca runtime is not ready (orca status)" };
   const git = await gitInfo(ctx.run, task.brief.repo);
   if ("error" in git) return { ok: false, reason: git.error };
-  const active=listTasks(ctx,Infinity).some(t=>{
+  const active=listTasksWhere(ctx, { states: ["running"] }).some(t=>{
     if(t.id===task.id||t.state!=="running"||!t.runnerPid||!pidAlive(t.runnerPid))return false;
     const path=realpathSafe(t.worktree??t.result?.worktree??t.brief.repo), top=realpathSafe(git.top);
     return path===top||path.startsWith(top+"/");

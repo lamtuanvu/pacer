@@ -3,13 +3,29 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 const script = readFileSync(new URL("../desktop/ui/shell.js", import.meta.url), "utf8");
+const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), "utf8");
 function shell(search: string) {
   const elements = new Map<string, any>();
   const timers: (() => void)[] = [];
   let now = 0;
+  const append = (...children: any[]) => {
+    for (const child of children) if (child.id) elements.set(`#${child.id}`, child);
+  };
   const document = {
+    createElement() { return { hidden: false, textContent: "", append }; },
     querySelector(selector: string) {
-      if (!elements.has(selector)) elements.set(selector, { hidden: false, value: "", textContent: "", addEventListener() {} });
+      if (!elements.has(selector)) {
+        const tag = selector.startsWith("#") ? html.match(new RegExp(`<[^>]+id="${selector.slice(1)}"[^>]*>`))?.[0] || "" : "";
+        const listeners = new Map<string, () => void>();
+        elements.set(selector, {
+          append,
+          hidden: /\bhidden\b/.test(tag), checked: /\bchecked\b/.test(tag),
+          href: tag.match(/href="([^"]*)"/)?.[1] || "", value: "", textContent: "",
+          set innerHTML(_: string) { throw new Error("Shell details must use textContent"); },
+          addEventListener(event: string, listener: () => void) { listeners.set(event, listener); },
+          dispatch(event: string) { listeners.get(event)?.(); },
+        });
+      }
       return elements.get(selector);
     },
     body: { classList: { add() {} } },
@@ -99,9 +115,110 @@ test("missing CLI page names the cause and links the install guide", () => {
 test("foreign service page names the other pacer folder", () => {
   const page = shell("?state=foreign&path=~/other-pacer");
   expect(page.element("h1").textContent).toBe("Another pacer is running");
-  expect(page.element("#message").textContent).toBe("The background service belongs to the pacer folder ~/other-pacer, and this app uses a different one. Stop the other service, or open the app with the same pacer folder.");
+  expect(page.element("#message").textContent).toBe("The background service belongs to the pacer folder ~/other-pacer, and this app uses a different one.");
+  expect(page.element("#foreign").hidden).toBe(false);
+  expect(html).toMatch(/<section id="foreign" hidden>[\s\S]*<code>pacer service uninstall<\/code>[\s\S]*<\/section>/);
   expect(page.element("#install-help").hidden).toBe(true);
   expect(page.element("#spinner").hidden).toBe(true);
+  page.render({ page: "starting" });
+  expect(page.element("#foreign").hidden).toBe(true);
+});
+
+test("foreign service page names the ports when only the port differs", () => {
+  const page = shell("?state=foreign&path=~/.pacer&port=5000&appPort=4317");
+  expect(page.element("h1").textContent).toBe("Another pacer is running");
+  expect(page.element("#message").textContent).toBe("The background service for the pacer folder ~/.pacer runs on port 5000, and this app uses port 4317.");
+  expect(page.element("#foreign").hidden).toBe(false);
+});
+
+test.each([
+  ["welcome", "Your planner plans. Your other agents do the work.", "#begin", "begin"],
+  ["consent", "Here's what pacer will change", "#agree", "consent?path=0"],
+  ["existing", "You already have pacer", "#use-app", "use-app"],
+  ["incomplete", "This copy of pacer is incomplete", "#download", "download"],
+])("%s shows its title and primary action", (state, title, action, sentinel) => {
+  const page = shell(`?state=${state}`);
+  expect(page.element("h1").textContent).toBe(title);
+  expect(page.element(action).href).toBe(`tauri://localhost/action/${sentinel}`);
+  expect(page.element(`#${state}`).hidden).toBe(false);
+  expect(page.element("#spinner").hidden).toBe(true);
+  page.render({ page: "starting" });
+  expect(page.element(`#${state}`).hidden).toBe(true);
+  expect(page.element("#spinner").hidden).toBe(false);
+});
+
+test("consent offers PATH changes only when needed and a shell file is available", () => {
+  const page = shell("?state=consent&onPath=false&rc=~%2F.zshrc");
+  expect(page.element("#path-row").hidden).toBe(false);
+  expect(page.element("#rc").textContent).toBe("~/.zshrc");
+  expect(page.element("#path").checked).toBe(false);
+  for (const detail of [{ onPath: true, rc: "~/.zshrc" }, { onPath: false }, { rc: "~/.zshrc" }]) {
+    page.render({ page: "consent", ...detail });
+    expect(page.element("#path-row").hidden).toBe(true);
+    expect(page.element("#agree").href).toBe("tauri://localhost/action/consent?path=0");
+  }
+});
+
+test("PATH choice updates consent, survives refreshes and resets after leaving consent", () => {
+  const page = shell("?state=consent");
+  const detail = { page: "consent", onPath: false, rc: "~/.bashrc" };
+  page.render(detail);
+  page.element("#path").checked = true;
+  page.element("#path").dispatch("change");
+  expect(page.element("#agree").href).toBe("tauri://localhost/action/consent?path=1");
+  page.render(detail);
+  expect(page.element("#path").checked).toBe(true);
+  expect(page.element("#agree").href).toBe("tauri://localhost/action/consent?path=1");
+  page.element("#path").checked = false;
+  page.element("#path").dispatch("change");
+  expect(page.element("#agree").href).toBe("tauri://localhost/action/consent?path=0");
+  page.element("#path").checked = true;
+  page.render({ page: "welcome" });
+  page.render(detail);
+  expect(page.element("#path").checked).toBe(false);
+});
+
+test("existing installs render paths and versions as literal text", () => {
+  const page = shell("?state=existing");
+  const path = '/tmp/<img src=x onerror="alert(1)">/pacer';
+  page.render({ page: "existing", path, installed: "0.2.2", version: "0.2.3" });
+  expect(page.element("#existing-path").textContent).toBe(path);
+  expect(page.element("#installed-version").textContent).toBe("0.2.2");
+  expect(page.element("#app-version").textContent).toBe("0.2.3");
+  expect(page.element("#keep-mine").href).toBe("tauri://localhost/action/keep-mine");
+});
+
+test("first-run markup supplies steps, consent controls, back navigation and recovery copy", () => {
+  expect(html).toMatch(/<ol\b[^>]*>[\s\S]*?<li>[\s\S]*?<li>[\s\S]*?<li>[\s\S]*?<\/ol>/);
+  expect(html).toContain("Takes about three minutes. Nothing changes until you agree.");
+  expect(html).toMatch(/<input[^>]*id="service"[^>]*checked[^>]*disabled/);
+  expect(html).toMatch(/<label[^>]*for="service"/);
+  expect(html).toMatch(/<input[^>]*id="terminal"[^>]*checked[^>]*disabled/);
+  expect(html).toMatch(/<label[^>]*for="terminal"/);
+  expect(html).toMatch(/<label[^>]*for="path"/);
+  expect(html).toContain('# &gt;&gt;&gt; pacer &gt;&gt;&gt;\nexport PATH="$HOME/.local/bin:$PATH"\n# &lt;&lt;&lt; pacer &lt;&lt;&lt;');
+  expect(html).toContain('href="tauri://localhost/index.html?state=welcome"');
+  expect(html).toContain("Homebrew");
+  expect(html).toContain("brew uninstall pacer");
+  const page = shell("?state=incomplete");
+  expect(page.element("#message").textContent).toBe("The app runs pacer through a command-line tool that should come inside it, and it's missing. Download pacer again and replace this app. Your settings are kept.");
+});
+
+
+test("relink offers recreation and a dismissal for this launch", () => {
+  const page = shell("?state=relink");
+  expect(page.element("h1").textContent).toBe("pacer's terminal command was removed");
+  expect(page.element("#relink").hidden).toBe(false);
+  expect(page.element("#recreate-link").textContent).toBe("Recreate it");
+  expect(page.element("#recreate-link").href).toBe("tauri://localhost/action/relink");
+  expect(page.element("#skip-relink").textContent).toBe("Not now");
+  expect(page.element("#skip-relink").href).toBe("tauri://localhost/index.html?state=starting");
+  expect(page.element("#spinner").hidden).toBe(true);
+  page.render({ page: "permission" });
+  expect(page.element("#relink").hidden).toBe(true);
+  page.render({ page: "starting" });
+  expect(page.element("#relink").hidden).toBe(true);
+  expect(page.element("#spinner").hidden).toBe(false);
 });
 
 test("OTA fallback pages distinguish installation, rollback, restored and failed recovery without private errors", () => {

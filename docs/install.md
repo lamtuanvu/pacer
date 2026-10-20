@@ -1,5 +1,33 @@
 # Install pacer
 
+[Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
+Choose `pacer-<version>-darwin-arm64-unsigned.dmg` for Apple silicon or
+`pacer-<version>-darwin-x64-unsigned.dmg` for Intel. Open the disk image and
+drag pacer into Applications.
+
+The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+
+The app includes the matching CLI. **Welcome** leads to one consent screen
+listing the background service and the terminal link at `~/.local/bin/pacer`.
+When `~/.local/bin` is missing from PATH, you can opt in to adding
+`export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` for zsh or `~/.bashrc` for
+bash. This checkbox is off by default; other shells get no automatic edit.
+Continue to the step-by-step **Setup**: choose a planner, connect agents,
+choose an executor and try a task. Install and sign in to the agents separately;
+pacer does not handle their credentials.
+
+If another pacer CLI is found, choose **Use the app's pacer** or **Keep mine**.
+The app does not silently overwrite an existing terminal command.
+
+Linux downloads are `pacer-<version>-linux-<x64|arm64>-unsigned.AppImage` and
+`pacer-<version>-linux-<x64|arm64>-unsigned.deb` on the same release page.
+Choose the matching architecture. Make the AppImage executable and launch it,
+or install the `.deb` with `sudo apt install ./<downloaded-file>.deb` and run
+`pacer-desktop`. Linux uses the same consent and Setup flow. See the
+[desktop guide](../desktop/README.md#linux) for runtime dependencies.
+
+## Terminal and servers
+
 Install and sign in to your planner and at least one executor CLI first; the
 [quickstart](../README.md#quickstart) has Claude Code and Codex commands. Then:
 
@@ -9,22 +37,20 @@ pacer init
 ```
 
 Init detects your tools, writes the strategy and connects agents after asking.
+Discovery never runs IDE launchers such as `cursor` or `agy`; Cursor versions
+come from `cursor-agent` when available. Local model discovery does not start
+applications: Ollama and LM Studio must already be serving. LM Studio is queried
+at its published API port (or its standard internal port, 41343). Otherwise the
+tool is still detected by path, but its local model is left unset and can be
+configured later.
 Ask your planner for work in your repository — it delegates through pacer.
-Use `pacer open` to watch and `pacer doctor` to check the installation.
+Use `pacer open` to watch and `pacer doctor` to check the installation. In the app, open **Settings → Diagnostics → Run checks** for the same results and suggested repairs. Checks do not change agent installations.
 
-## Orca plugin (optional)
+Diagnostics distinguishes **Configured** settings, **Tested working · fixture** handler behavior, and **Unverified** host invocation. The fixed Claude handler probes use isolated synthetic state; they never execute command strings from settings. They test Agent/Task denial, exploration/direct-edit allowance and session-context JSON. They do not prove that an installed command launches or that Claude fires it. Inspect `/hooks`, disabled hooks, project settings and launch overrides in the intended Claude account, then use a new session’s debug output to confirm invocation. The delegation guard covers Agent and Task subagents; normal direct edits are outside its scope. `PACER=off`, executor sessions, another selected planner, relaxed mode, unknown usage and no available executor can allow subagent calls.
 
-The Orca marketplace plugin can also bootstrap pacer in the background.
+The selected planner account determines the settings folder inspected. When another planner is selected, installed Claude integrations remain unverified with informational guidance to select the intended Claude account before checking its settings. A service `CLAUDE_CONFIG_DIR` mismatch is reported; the service cannot infer a separately launched Claude session’s environment. Preview a reconnect before repairing configuration, and use the named `claude-code#account` target when repairing a named account. Existing unrelated hooks remain owned by their original installer.
 
-In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
-install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.2.3`.
-The worker installs a checksum-verified binary and keeps older binaries updated to
-its version. It never downgrades. Once per Orca launch it opens a terminal titled
-**pacer** in the focused worktree: `pacer init` if strategy or login service setup
-is missing, otherwise `pacer dashboard`. If nothing is focused, it checks again
-every 30 seconds without reserving a terminal. Closing the tab does not reopen it;
-run `pacer init` or `pacer dashboard` manually.
+## Setup with pacer init
 
 `pacer init` is the complete setup command. It runs these steps in order:
 
@@ -37,33 +63,15 @@ run `pacer init` or `pacer dashboard` manually.
 3. Install the login service if missing.
 4. Show each unconnected agent's files and undo command, then ask y/N separately.
    No agent configuration changes without consent; no MCP servers are added.
-5. If Orca is installed, prepare `~/.pacer/orca-plugin`. Add that folder in Orca
-   **Settings > Plugins > Development > Add folder**, then enable pacer. Init
-   prints the path, copies it on macOS when pbcopy is available, and waits up to
-   five minutes for the live heartbeat. Enter or Ctrl-C skips this wait; finish
-   later with `pacer init`.
-6. Print a summary and open the dashboard in an interactive terminal, unless
+5. Print a summary and open the dashboard in an interactive terminal, unless
    `--no-dashboard` is supplied.
 
 Rerunning init skips completed steps. `--yes` consents to all detected agents;
-`--agents claude-code,codex` limits agent selection. Non-TTY runs do not prompt,
-wait or open a dashboard; they set up strategy/service, and connect agents only
+`--agents claude-code,codex` limits agent selection. Non-TTY runs do not prompt
+or open a dashboard; they set up strategy/service, and connect agents only
 with `--yes` or `--agents`. `--json` returns a machine summary without prompts.
-`pacer setup` remains an alias of `pacer init`.
-
-Only development-folder panels refresh live. Once that panel is running, the
-marketplace worker becomes dormant and sends one notification per version:
-“pacer now runs from its live panel. You can uninstall the marketplace copy in
-Orca Settings > Plugins.” Pacer never edits Orca settings or disables a plugin.
-`pacer plugin status` reports both copies. Undo an agent with
+`pacer setup` remains an alias of `pacer init`. Undo an agent with
 `pacer uninstall <agent>`.
-
-Set **releaseBase** in the plugin settings for a private or unpublished release
-folder. It accepts HTTPS, `file://`, or HTTP on `127.0.0.1`/`localhost`, with
-`PACER_RELEASE_BASE` as fallback. The layout is `latest.json`,
-`<version>/SHA256SUMS`, and `<version>/pacer-<os>-<arch>`. Failures show a manual
-`pacer init` command and use bounded retries. Before a plugin release, run the
-[real-Orca harness](testing/orca-e2e.md).
 
 ## From source
 
@@ -79,6 +87,22 @@ pacer --version
 ```
 
 Without compiling, run `bun src/cli.ts --help` or replace `pacer` in examples with `bun src/cli.ts`. The compiled binary runs without Bun; development and the current source entry point require Bun.
+
+To build the desktop app with that CLI, install the platform dependencies in
+the [desktop guide](../desktop/README.md#build), then run from the repository root:
+
+```sh
+cd desktop
+bun install --frozen-lockfile
+./scripts/stage-cli.sh ../dist/pacer
+CARGO_NET_OFFLINE=true bunx --no-install tauri build --bundles dmg --no-sign
+# On Linux, use --bundles appimage,deb instead.
+```
+
+Offline builds require cached locked Rust dependencies. For a cross build,
+stage a CLI compiled for the target with
+`TAURI_TARGET_TRIPLE=<triple> ./scripts/stage-cli.sh <cli>` and pass the same
+`--target <triple>` to the Tauri build.
 
 ## Binary installer
 
@@ -140,26 +164,15 @@ pacer status --json
 
 `install` adds the pacer skill and planner policy/hooks with tracked backups. MCP is optional: use `pacer install claude-code --mcp` to register the stdio server, or `--no-mcp` to remove an existing entry. A plain reinstall leaves an existing MCP entry unchanged. Restart an MCP client after updating. `pacer uninstall <planner>` reverses the integration while preserving later user edits.
 
-For local Orca development, run `pacer plugin install` and add the printed managed directory in Settings > Plugins; see the [plugin guide](../orca-plugin/README.md). `pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
+`pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
 
-On standalone `pacer serve` startup, managed plugin assets are compared with the
-bundled assets by content hash. Unchanged assets need no refresh, even when the
-service and plugin versions differ. When assets change, the service repairs them
-and adds one reload reminder in Needs you. Turn pacer off and on in Orca Settings
-> Plugins, then dismiss the reminder with Done. Dismissal survives service restarts.
-Orca currently exposes no plugin reload API or CLI command.
-
-Update availability is checked on plugin startup and every six hours, with one
-notification per new version. Marketplace: Orca Settings > Plugins > Refresh,
-then Update plugin. Development folder: use the live panel's Updates card or
-`pacer update`, then turn pacer off and on in Orca Settings > Plugins; if only the
-plugin is behind the CLI, run `pacer plugin install` first. `pacer update --check
---json` reports versions without installing. Disable checks with
+`pacer update --check --json` reports versions without installing. Disable checks with
 `PACER_NO_UPDATE_CHECK=1` or top-level `update_check: false` in the active strategy.
 Checks only GET `latest.json`, time out after three seconds, and cache in
-`~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours. The static marketplace
-panel has no update buttons or host calls, and the worker never installs a newer
-release than the version shipped with its plugin.
+`~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours.
+`PACER_RELEASE_BASE` selects a private or unpublished release folder (HTTPS,
+`file://`, or HTTP on `127.0.0.1`/`localhost`) laid out as `latest.json`,
+`<version>/SHA256SUMS` and `<version>/pacer-<os>-<arch>`.
 
 ## Pause delegation
 
@@ -175,11 +188,16 @@ pacer uninstall --all
 ```
 
 It lists everything it will remove (agent integrations, restoring their backups;
-the login service; the Orca plugin registration; `~/.pacer` or `PACER_HOME`), asks
-once, then removes it. Add `--binary` to delete the pacer binary too, and `--yes`
-to skip the question in scripts. Remove any pacer development-folder entry from
-Orca Settings > Plugins yourself. To disconnect a single agent, use
+the login service; a leftover Orca plugin; `~/.pacer` or `PACER_HOME`), asks
+once, then removes it. For an app install it also removes the app's terminal
+link and only the marked PATH block it added, preserving other shell settings.
+Move the app to the Trash afterward. Add `--binary` to delete a standalone pacer
+binary too, and `--yes` to skip the question in scripts. To disconnect a single agent, use
 `pacer uninstall <agent>`.
+
+pacer no longer ships an Orca plugin. If an earlier version installed it, run
+`pacer plugin uninstall` (or `pacer uninstall --all`), then remove pacer from
+Orca Settings > Plugins.
 
 ## Desktop app updates on macOS
 
@@ -187,7 +205,9 @@ Replace the installed `pacer.app` bundle with the new version at the same path.
 The running app checks its executable and bundle version every 30 seconds and
 restarts itself from the replacement bundle after a short delay. It keeps the
 main window's visibility and route, and the tray reconnects to the service to
-restore its status. Update the pacer CLI separately. See
+restore its status. Replacing the app also updates its bundled CLI;
+`pacer update` directs app installs to download the new app instead. If you chose
+**Keep mine**, update that separate CLI through its original install method. See
 [desktop build instructions](../desktop/README.md) for building the bundle.
 
 ## macOS: removable volumes

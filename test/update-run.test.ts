@@ -300,6 +300,70 @@ test("Homebrew detection follows executable symlinks and honors configured prefi
   }
 });
 
+const appHint = "pacer came with the pacer app; update the app instead (download it again from https://github.com/lamtuanvu/pacer/releases/latest)";
+
+for (const location of ["MacOS", "Resources"]) {
+  for (const linked of [false, true]) {
+    test(`app-bundled ${location} ${linked ? "terminal links" : "binaries"} refuse replacement`, async () => {
+      const home = tmpDir();
+      const binary = join(home, "pacer.app", "Contents", location, "pacer");
+      const link = join(home, ".local", "bin", "pacer");
+      mkdirSync(dirname(binary), { recursive: true });
+      mkdirSync(dirname(link), { recursive: true });
+      writeFileSync(binary, script("0.1.0"));
+      symlinkSync(binary, link);
+      const exec = linked ? link : binary;
+      const result = await runUpdate({ check: false }, deps(tmpDir(), exec, {
+        fetch: async () => { throw Error("must not fetch"); },
+      }));
+      expect(result).toEqual({ code: 2, out: "", err: `pacer update: ${appHint}` });
+      expect(readFileSync(binary, "utf8")).toBe(script("0.1.0"));
+      expect(readdirSync(dirname(binary))).toEqual(["pacer"]);
+      expect(realpathSync(link)).toBe(realpathSync(binary));
+    });
+  }
+}
+
+test("--check inside an app bundle reports the update without changing the binary", async () => {
+  const root = tmpDir();
+  release(root, "0.2.0");
+  const binary = join(tmpDir(), "pacer.app", "Contents", "MacOS", "pacer");
+  mkdirSync(dirname(binary), { recursive: true });
+  writeFileSync(binary, script("0.1.0"));
+  expect(await runUpdate({ check: true }, deps(root, binary))).toEqual({
+    code: 0, out: `update available: 0.1.0 -> 0.2.0\n${appHint}`, err: "",
+  });
+  expect(readFileSync(binary, "utf8")).toBe(script("0.1.0"));
+  expect(readdirSync(dirname(binary))).toEqual(["pacer"]);
+});
+
+test("a regular terminal binary outside an app bundle can still update", async () => {
+  const root = tmpDir();
+  release(root, "0.2.0");
+  const binary = join(tmpDir(), ".local", "bin", "pacer");
+  mkdirSync(dirname(binary), { recursive: true });
+  writeFileSync(binary, script("0.1.0"));
+  chmodSync(binary, 0o755);
+  expect((await runUpdate({ check: false }, deps(root, binary))).code).toBe(0);
+  expect(readFileSync(binary, "utf8")).toBe(script("0.2.0"));
+});
+
+test("npm and Homebrew hints take precedence over the app bundle hint", async () => {
+  const prefix = tmpDir();
+  const binary = join(prefix, "pacer.app", "Contents", "MacOS", "pacer");
+  mkdirSync(dirname(binary), { recursive: true });
+  writeFileSync(binary, script("0.1.0"));
+  for (const npm of [true, false]) {
+    const hint = npm
+      ? "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest"
+      : "pacer was installed with Homebrew; update with: brew upgrade pacer";
+    const result = await runUpdate({ check: false }, deps(tmpDir(), binary, {
+      env: { HOMEBREW_PREFIX: prefix, ...(npm ? { PACER_INSTALL_METHOD: "npm" } : {}) },
+    }));
+    expect(result).toEqual({ code: 2, out: "", err: `pacer update: ${hint}` });
+  }
+});
+
 test("a sibling of a Homebrew prefix keeps the default update behavior", async () => {
   const root = tmpDir(); release(root, "0.2.0"); const exec = installed();
   const d = deps(root, exec, { env: { PACER_RELEASE_BASE: pathToFileURL(root).href, HOMEBREW_PREFIX: dirname(exec) + "-other" } });
@@ -332,32 +396,6 @@ test("update refreshes only after replacement and --to forces same-version refre
   }
 });
 
-
-test("update refreshes the installed plugin after replacement, skips it with --no-reinstall and tolerates failure", async () => {
-  const { refreshIntegrations } = await import("../src/commands/update-refresh");
-  const { installPlugin, pluginDir } = await import("../src/plugin/install");
-  for (const mode of ["refresh", "skip", "failure"]) {
-    const root = tmpDir(); release(root, "0.2.0"); const exec = installed();
-    const calls: string[][] = [];
-    const ctx = fakeCtx({ run: async argv => {
-      calls.push(argv);
-      expect(argv).toEqual([realpathSync(exec), "plugin", "install"]);
-      expect(readFileSync(argv[0]!, "utf8")).toBe(script("0.2.0"));
-      if (mode === "failure") return { code: 1, stdout: "", stderr: "plugin failed\nmore" };
-      return { code: 0, stdout: (await installPlugin({ ctx, pacerArgv: [argv[0]!] })).text, stderr: "" };
-    } });
-    await installPlugin({ ctx, pacerArgv: ["old-pacer"] });
-    const file = join(pluginDir(ctx), "orca-plugin.json");
-    const original = readFileSync(file, "utf8"); writeFileSync(file, "old plugin");
-    const result = await runUpdate({ check: false, noRestart: true, noReinstall: mode === "skip" }, deps(root, exec, { refreshIntegrations: path => refreshIntegrations(ctx, path) }));
-    expect(result.code).toBe(0);
-    expect(calls.length).toBe(mode === "skip" ? 0 : 1);
-    expect(readFileSync(file, "utf8")).toBe(mode === "refresh" ? original : "old plugin");
-    if (mode === "refresh") expect(result.out).toContain("orca-plugin: refreshed (turn pacer off and on in Orca Settings > Plugins to load it)");
-    else if (mode === "failure") expect(result.out).toContain("WARNING: orca-plugin: failed: plugin failed");
-    else expect(result.out).not.toContain("orca-plugin:");
-  }
-});
 
 test('update progress follows download, verification, replacement, refresh and restart',async()=>{
  const root=tmpDir();release(root,'0.2.0');const exec=installed();

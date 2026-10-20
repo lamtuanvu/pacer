@@ -1,3 +1,6 @@
+import { FilterChip, SelectableRow } from "../ds/Patterns";
+
+import { TextInput } from "../ds/Controls";
 import { useRef, useState } from "preact/hooks";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import { activeRepo, scopeRepo } from "../shell/narrow";
@@ -24,7 +27,7 @@ export function repoChoices(snapshot: ClientSnapshot, active: string | null) {
 export function RepoList({ snapshot, active, search, onSelect }: { snapshot: ClientSnapshot; active: string | null; search: string; onSelect: (repo: string) => void }) {
   const matches = repoChoices(snapshot, active).all.filter(repo => `${repo.label} ${repo.key}`.toLowerCase().includes(search.trim().toLowerCase()));
   return <div className="pc-repo-list" role="group" aria-label="All repositories">
-    {matches.map(repo => <button type="button" key={repo.key} aria-pressed={repo.key === active} onClick={() => onSelect(repo.key)}>{repo.label} <span className="muted">{repo.count}</span></button>)}
+    {matches.map(repo => <SelectableRow key={repo.key} aria-pressed={repo.key === active} onClick={() => onSelect(repo.key)}>{repo.label} <span className="muted">{repo.count}</span></SelectableRow>)}
     {!matches.length && <p className="muted">No matching repositories.</p>}
   </div>;
 }
@@ -40,20 +43,20 @@ export function RepoFilter({ snapshot, query, narrow = false }: { snapshot: Clie
     const selected = activeRepo(query);
     const label = snapshot.repos?.find(repo => repo.key === here)?.label ?? here;
     return <div className="pc-chips pc-scope-toggle" role="group" aria-label="Scope" id="repo-filter">
-      <button type="button" disabled={!here} className={`pc-chip pc-btn--touch${selected ? " on" : ""}`} aria-pressed={!!selected} onClick={() => go(here)}>This repo{label ? ` · ${label}` : ""}</button>
-      <button type="button" className={`pc-chip pc-btn--touch${!selected ? " on" : ""}`} aria-pressed={!selected} onClick={() => go("")}>All repos</button>
+      <FilterChip disabled={!here} className={`pc-chip pc-btn--touch${selected ? " on" : ""}`} aria-pressed={!!selected} onClick={() => go(here)} aria-describedby={!here?"repo-scope-reason":undefined}>This repo{label ? ` · ${label}` : ""}</FilterChip>{!here&&<span id="repo-scope-reason" className="muted">Choose a repository to use this scope.</span>}
+      <FilterChip className={`pc-chip pc-btn--touch${!selected ? " on" : ""}`} aria-pressed={!selected} onClick={() => go("")}>All repos</FilterChip>
     </div>;
   }
   const chip = (repo: string | null, label: string, n?: number) =>
-    <button type="button" key={repo ?? "all"} className={`pc-chip${(query.repo || null) === repo ? " on" : ""}`} aria-pressed={(query.repo || null) === repo ? "true" : "false"} onClick={() => go(repo)}>{label}{n !== undefined && <> <span className="pc-chip__n">{n}</span></>}</button>;
+    <FilterChip key={repo ?? "all"} className={`pc-chip${(query.repo || null) === repo ? " on" : ""}`} aria-pressed={(query.repo || null) === repo ? "true" : "false"} onClick={() => go(repo)}>{label}{n !== undefined && <> <span className="pc-chip__n">{n}</span></>}</FilterChip>;
   return <div className="pc-filter">
     <div className="pc-chips" role="group" aria-label="Repository filter" id="repo-filter">
       {chip(null, "All repos")}
       {chips.map(repo => chip(repo.key, repo.label, repo.count))}
       {all.length > chips.length && <div className="pc-repo-picker">
-        <button type="button" className="pc-chip" aria-expanded={open} aria-controls="more-repos" onClick={() => setOpen(value => !value)}>More repos ▾</button>
+        <FilterChip className="pc-chip" aria-expanded={open} aria-controls="more-repos" onClick={() => setOpen(value => !value)}>More repos ▾</FilterChip>
         {open && <div className="pc-repo-popover" id="more-repos" onKeyDown={event => { if (event.key === "Escape") { setOpen(false); event.currentTarget.parentElement?.querySelector("button")?.focus(); } }}>
-          <input id="repo-search" autoFocus type="search" aria-label="Search repositories" placeholder="Search repositories…" value={search} onInput={event => setSearch(event.currentTarget.value)} />
+          <TextInput id="repo-search" autoFocus type="search" aria-label="Search repositories" placeholder="Search repositories…" value={search} onInput={event => setSearch(event.currentTarget.value)} />
           <RepoList snapshot={snapshot} active={query.repo} search={search} onSelect={go} />
         </div>}
       </div>}

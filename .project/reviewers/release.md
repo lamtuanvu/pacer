@@ -2,7 +2,7 @@
 
 Role: Check that a release or distribution change follows the documented flow and keeps artifacts verifiable.
 Human owner/approver: @lamtuanvu (the maintainer pushes the tag)
-Applies when: `package.json` version, `CHANGELOG.md`, `scripts/release*`, `release.yml`, `desktop.yml`, `npm/**`, the Homebrew formula, or the `orca-plugin` branch or tag handling changes.
+Applies when: `package.json` version, `CHANGELOG.md`, `scripts/release*`, `release.yml`, `release-prepare.yml`, `release-tag.yml`, `desktop.yml`, `npm/**`, or the Homebrew formula changes.
 Excludes: feature PRs that only add CHANGELOG Unreleased entries.
 Review requirement: Advisory. The `release.yml` verify job is the enforced check.
 
@@ -14,8 +14,7 @@ Read [constitution.md](../constitution.md), [context.md](../context.md), and [ru
 
 - REL-1: the CHANGELOG section is dated and lists breaking changes. The version bump matches SemVer for its contents.
 - REL-2: the PR title is `chore: release x.y.z`, the dry run was dispatched, and the tag will equal `package.json`.
-- REL-3/4/5: the build matrix, smoke tests, checksums and attestations are intact. The plugin tag is never moved. Prerelease handling is correct.
-- REL-7: an Orca e2e report exists for plugin-affecting releases.
+- REL-3/5: the build matrix, smoke tests, checksums and attestations are intact. Prerelease handling is correct.
 - REL-8 (proposed): the desktop version is in sync.
 - Protocol compat windows that close in this release are actually removed.
 

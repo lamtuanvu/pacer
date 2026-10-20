@@ -20,6 +20,7 @@ export interface Brief {
 }
 
 export interface RoutingNote {
+  policy?: { source: "project"; repoKey: string; rev: number; executors: string[] };
   kind: string | null;
   kindSource: "brief" | "classifier";
   rule: string;
@@ -101,6 +102,9 @@ export interface RunRef {
 }
 
 export interface TaskRecord {
+  settledAt?: number;
+  archived?: boolean;
+  archivePath?: string;
   title?: string;
   source?: "planner" | "ui" | "cli" | "onboarding";
   requestId?: string;
@@ -124,6 +128,8 @@ export interface TaskRecord {
   createdAt: number;
   kind: string | null;
   requestedExecutor: string | null;
+  /** Set when the requested executor could not run and another one did. */
+  executorFallback?: { requested: string; reason: string; executor: string };
   timeoutS: number;
   brief: Brief;
   state: TaskState;

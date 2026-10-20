@@ -1,3 +1,4 @@
+import { runDoctor } from "../install/doctor";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
@@ -8,7 +9,6 @@ import { agentPlans, type AgentId } from "../install/detection";
 import { installPlanner } from "../install";
 import { uninstallPlanner } from "../install/uninstall";
 import { pacerArgv } from "../install/self";
-import { installPlugin, pluginDir, MANAGED_MARKER } from "../plugin/install";
 import { serviceBackend, type ServiceBackend } from "../service";
 import { checkSetup } from "../setup/check";
 import { withLock } from "./lock";
@@ -51,11 +51,9 @@ export async function serviceStatus(ctx: Ctx) {
   } catch (e) { throw toCoreError(e); }
 }
 
-export async function pluginInstall(ctx: Ctx) {
-  try {
-    await installPlugin({ctx, pacerArgv: pacerArgv(ctx.env)});
-    return {path: pluginDir(ctx)};
-  } catch (e) { throw toCoreError(e); }
+/** Kept so protocol 3 clients get a clear refusal; remove with the next protocol major (API-2). */
+export function pluginInstall(): never {
+  throw new CoreError("not_allowed", "pacer no longer ships an Orca plugin", "Use the pacer desktop app or pacer open. Remove an earlier install with: pacer plugin uninstall");
 }
 
 function plannerTarget(ctx:Ctx,agent:AgentId) {
@@ -91,9 +89,7 @@ export async function agentDisconnect(ctx: Ctx, agent: AgentId) {
 }
 
 export async function version(ctx: Ctx) {
-  let plugin: string | undefined;
-  try { plugin = JSON.parse(readFileSync(join(pluginDir(ctx), MANAGED_MARKER), 'utf8')).version; } catch { /* not installed */ }
-  return {pacer: currentVersion(), protocol: PROTOCOL_VERSION, ...(plugin ? {plugin} : {}), service: await serviceStatus(ctx)};
+  return {pacer: currentVersion(), protocol: PROTOCOL_VERSION, service: await serviceStatus(ctx)};
 }
 
 export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<ServiceBackend,"install"|"status">=serviceBackend(ctx)) {
@@ -110,4 +106,10 @@ export function onboardingSkip(ctx:Ctx) {
     writeFileSync(tmp,"",{flag:"wx",mode:0o600});renameSync(tmp,path);
     return {skipped:true};
   }catch(e){throw toCoreError(e);}finally{rmSync(tmp,{force:true});}
+}
+
+/** Read diagnostics and run fixed isolated handler fixtures; never repair installations. */
+export async function doctor(ctx: Ctx) {
+  try { return { checkedAt: ctx.now, checks: await runDoctor(ctx) }; }
+  catch (e) { throw toCoreError(e); }
 }

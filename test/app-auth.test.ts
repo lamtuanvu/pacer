@@ -1,3 +1,4 @@
+import * as healthListener from "../src/serve/health-listener";
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -55,7 +56,11 @@ test("open prints a working single-use URL and serves the protected app and hell
   expect((await fetch(url + "/v2/hello", { headers })).status).toBe(200);
   expect((await fetch(url + "/app/tasks/one", { headers })).status).toBe(200);
   expect((await fetch(url + "/app/missing.js", { headers })).status).toBe(404);
-  expect(await (await fetch(url + "/app/app.js", { headers })).text()).toContain("/v2/hello");
+  // The protected app (entry plus the chunks it imports) still calls hello.
+  const appJs = await (await fetch(url + "/app/app.js", { headers })).text();
+  const chunks = [...appJs.matchAll(/from"\.\/(chunk-[\w-]+\.js)"/g)].map(m => m[1]);
+  const served = [appJs, ...await Promise.all(chunks.map(async c => (await fetch(url + "/app/" + c, { headers })).text()))].join("\n");
+  expect(served).toContain("/v2/hello");
   expect((await fetch(url + "/state", { headers })).status).toBe(401);
   const reused = await fetch(link, { redirect: "manual" });
   expect(reused.status).toBe(403);
@@ -199,9 +204,10 @@ test("HTTP browser access and open work through the server handler without a lis
     handler = opts.fetch;
     return { port: 4317, stop() {} };
   }) as typeof Bun.serve);
+  const listenerSpy = spyOn(healthListener, "startHealthListener").mockReturnValue({ port: 4317, stop() {} });
   let s: ReturnType<typeof startServer>;
   try { s = startServer(() => ctx, { pumpMs: 0 }); stop = s.stop; }
-  finally { serveSpy.mockRestore(); }
+  finally { serveSpy.mockRestore(); listenerSpy.mockRestore(); }
   const url = "http://127.0.0.1:4317";
   const request = (path: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
@@ -282,9 +288,10 @@ test("desktop exchanges a bearer for an app cookie; cookie-only exchange is forb
     handler = opts.fetch;
     return { port: 4317, stop() {} };
   }) as typeof Bun.serve);
+  const listenerSpy = spyOn(healthListener, "startHealthListener").mockReturnValue({ port: 4317, stop() {} });
   let s: ReturnType<typeof startServer>;
   try { s = startServer(() => ctx, { pumpMs: 0 }); stop = s.stop; }
-  finally { spy.mockRestore(); }
+  finally { spy.mockRestore(); listenerSpy.mockRestore(); }
   const url = "http://127.0.0.1:4317";
   const fetch = (target: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);

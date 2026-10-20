@@ -32,6 +32,7 @@ export interface ProviderCfg {
   cooldownS: number;
   quotaSource: "arkcli" | null;
   weeklyTokens: number | null;
+  weeklyUsd: number | null;
 }
 export interface RouteRule { kinds: string[] | null; executors: string[] }
 export interface Strategy {
@@ -49,6 +50,7 @@ export interface Strategy {
   execution: Record<string, unknown>;
   classifier: Record<string, unknown>;
   terminal?: {open:string};
+  taskRetentionDays?: number;
 }
 
 export class StrategyError extends Error {
@@ -118,7 +120,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
       ...(runner.session ? {session: runner.session} : {}),
       id, via: runner.agent === "opencode" ? "opencode" : null, model: runner.model,
       usage: account.usage, allowPaid: account.allowPaid, cooldownS: account.cooldownS,
-      quotaSource: account.quotaSource === "arkcli" ? "arkcli" : null, weeklyTokens: account.weeklyTokens,
+      quotaSource: account.quotaSource === "arkcli" ? "arkcli" : null, weeklyTokens: account.weeklyTokens, weeklyUsd: account.weeklyUsd,
     };
   }
 
@@ -206,9 +208,11 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
 
   const localMax = isObj(raw.execution) ? raw.execution.local_max_tasks : undefined;
   if (localMax !== undefined && (typeof localMax !== "number" || !Number.isInteger(localMax) || localMax < 1 || localMax > 16)) p.push("execution.local_max_tasks must be 1..16");
+  const taskRetentionDays = raw.task_retention_days ?? 14;
+  if (typeof taskRetentionDays !== "number" || !Number.isSafeInteger(taskRetentionDays) || taskRetentionDays < 0) p.push("task_retention_days must be a non-negative integer");
   if (p.length) throw new StrategyError(path, p);
   return {
-    name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing,
+    name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing, taskRetentionDays: taskRetentionDays as number,
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
     ...(isObj(raw.terminal) && raw.terminal.open !== undefined ? {terminal:{open:validateTerminalOpen(String(raw.terminal.open))}} : {}),

@@ -126,6 +126,7 @@ A `question:<task>` item has blocked severity, important notifications, the ques
 
 ## Task and repository operations
 
+Task retention defaults to 14 days (`task_retention_days`, zero disables). Default lists and snapshots exclude archived records; `task.list { all: true }` includes them. `task.prune { dry_run?: boolean }` reports paths and bytes or archives eligible settled reviewed/dismissed tasks. `task.restore { id }` restores artifacts without overwriting existing files. Archived task summaries expose `archived` and `archive_path`; API task rows expose `archived` and `archivePath`. ID lookup still works.
 `task.get` returns full task detail: brief, attempts with logs, routing explanation, cost, acceptance timing and summary, timestamps, diffstat files, retryOptions and timeline. `task.retry_options { id }` lists alternate executors in routing order with state and reason. `task.diff { id, path? }` returns files, patch, base and worktree. Patches are capped at 1 MiB, or 4 MiB with a path. Running remote tasks return an empty patch and a note until changes reach the local review worktree.
 
 `task.review` accepts verdict `accept`, `reject`, `send_back` (requires note), or `retry` (requires executor), and returns `{ task, retry? }`. Legacy `accepted: true/false` maps to accept/reject. Send back creates a retry on the same executor with the note as review feedback. Queued or running tasks cannot be reviewed.
@@ -177,60 +178,14 @@ host.get returns checks, facts, ExecutorRow objects, recent completions, mapped 
 
 ### `account.add`
 
-Create a Claude or Codex account home, or configure and test a model endpoint.
+Create a Claude or Codex account home, configure and test a model endpoint, or add an executor for a provider OpenCode is signed in to (source: opencode).
 
 Params JSON Schema:
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "oneOf": [
-    {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "type": "string",
-          "const": "claude"
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "home": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "required": [
-        "kind",
-        "name"
-      ],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "type": "string",
-          "const": "codex"
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "home": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "required": [
-        "kind",
-        "name"
-      ],
-      "additionalProperties": false
-    },
+  "anyOf": [
     {
       "type": "object",
       "properties": {
@@ -238,66 +193,27 @@ Params JSON Schema:
           "type": "string",
           "const": "endpoint"
         },
+        "source": {
+          "type": "string",
+          "const": "opencode"
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
         "name": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
         },
-        "base_url": {
-          "type": "string",
-          "format": "uri"
-        },
-        "key_source": {
-          "type": "string",
-          "enum": [
-            "keychain",
-            "file",
-            "env",
-            "none"
-          ]
-        },
-        "key": {
-          "type": "string"
-        },
-        "env_var": {
-          "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
-        },
-        "models": {
-          "minItems": 1,
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "name": {
-                "type": "string"
-              },
-              "context": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              "output": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              "tools": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "id",
-              "context",
-              "output",
-              "tools"
-            ],
-            "additionalProperties": false
-          }
+        "cap_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "usage": {
           "type": "string",
@@ -307,28 +223,166 @@ Params JSON Schema:
             "unmetered"
           ]
         },
-        "weekly_tokens": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "quota_source": {
-          "type": "string",
-          "minLength": 1
-        },
         "test": {
           "type": "boolean"
         }
       },
       "required": [
         "kind",
-        "name",
-        "base_url",
-        "key_source",
-        "models",
-        "usage"
+        "source",
+        "provider",
+        "model"
       ],
       "additionalProperties": false
+    },
+    {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "claude"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "home": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "codex"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "home": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "endpoint"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "base_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "key_source": {
+              "type": "string",
+              "enum": [
+                "keychain",
+                "file",
+                "env",
+                "none"
+              ]
+            },
+            "key": {
+              "type": "string"
+            },
+            "env_var": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "models": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "output": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "tools": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "context",
+                  "output",
+                  "tools"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "usage": {
+              "type": "string",
+              "enum": [
+                "quota",
+                "metered",
+                "unmetered"
+              ]
+            },
+            "weekly_tokens": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "quota_source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "test": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "base_url",
+            "key_source",
+            "models",
+            "usage"
+          ],
+          "additionalProperties": false
+        }
+      ]
     }
   ]
 }
@@ -954,6 +1008,7 @@ Params JSON Schema:
     "key": {
       "type": "string",
       "enum": [
+        "task_retention_days",
         "execution.local_max_tasks",
         "planner",
         "pacing.order",
@@ -1306,6 +1361,99 @@ Params JSON Schema:
   },
   "required": [
     "installationId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `doctor.run`
+
+Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `executor.setup.candidates`
+
+OpenCode providers, local model servers and catalog providers that can become executors; no secrets.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `executor.setup.connect`
+
+Connect a catalog provider through OpenCode, which stores the key (never pacer). This release runs nothing and returns the opencode auth login command to run in a terminal; an optional key is accepted for later releases and never used or stored.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "provider"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `executor.setup.models`
+
+Usable models for one setup candidate, with a recommended pick and usage type.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "group": {
+      "type": "string",
+      "enum": [
+        "signed_in",
+        "local",
+        "catalog"
+      ]
+    },
+    "base_url": {
+      "type": "string",
+      "format": "uri"
+    }
+  },
+  "required": [
+    "provider",
+    "group"
   ],
   "additionalProperties": false
 }
@@ -1878,7 +2026,7 @@ Params JSON Schema:
 
 ### `plugin.install`
 
-Install the Orca plugin under PACER_HOME without editing Orca settings.
+Retired: pacer no longer ships an Orca plugin. Always fails with not_allowed; removed in the next protocol major.
 
 Params JSON Schema:
 
@@ -1887,6 +2035,115 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `project.strategy.get`
+
+Read a repository executor override and revision; null executors inherit global routing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "repo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `project.strategy.list`
+
+List repository executor overrides, including policies for absent checkouts.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `project.strategy.remove`
+
+Remove a repository override and restore global routing, preserving its revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "repo",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `project.strategy.set`
+
+Set an ordered repository executor allowlist. Requires the current revision (0 for a new policy).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "executors": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "repo",
+    "executors",
+    "expect_rev"
+  ],
   "additionalProperties": false
 }
 ```
@@ -3039,6 +3296,9 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "all": {
+      "type": "boolean"
+    },
     "limit": {
       "type": "integer",
       "minimum": 1,
@@ -3108,6 +3368,49 @@ Params JSON Schema:
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `task.prune`
+
+Archive old reviewed or dismissed settled tasks; dry_run reports files and bytes without moving them.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "dry_run": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `task.restore`
+
+Restore an archived task and its artifacts; conflicting files are never overwritten.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
     }
   },
   "required": [
@@ -3397,7 +3700,7 @@ Params JSON Schema:
 
 ### `update.check`
 
-Check release and installed plugin versions, optionally bypassing the cached update check.
+Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.
 
 Params JSON Schema:
 
@@ -3416,7 +3719,7 @@ Params JSON Schema:
 
 ### `version.get`
 
-Pacer, protocol, installed plugin and service versions or status.
+Pacer, protocol and service versions or status.
 
 Params JSON Schema:
 

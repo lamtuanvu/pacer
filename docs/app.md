@@ -58,7 +58,7 @@ in it live” with a prominent **Take over** button. Watch-elsewhere options and
 attach command appear only for live or recorded terminal sessions.
 
 Account sign-in still happens in a terminal: the app shows the command to copy
-and refreshes the sign-in state. Setup installs the background service only after you confirm its login-service consent dialog. Connecting an agent, or changing the planner with integrations, shows
+and refreshes the sign-in state. Setup explains the login service inline; **Install service** confirms that consent. Connecting an agent, or changing the planner with integrations, shows
 the affected files and undo command before asking you to confirm.
 
 The app refreshes from live events. If the daemon disconnects, it keeps the
@@ -68,16 +68,24 @@ when the connection returns. Unsent form drafts are kept in the tab's
 
 ## Guided setup
 
-Setup groups the service checklist into Required and Recommended steps and refreshes
-every five seconds and after each action. Once required setup finishes, choose
-**Go to Home**. Until pacer is ready, the rail keeps a Setup entry and Home offers
-**Continue setup** for the next recommended step. Dismissal stays in this browser
-and returns when the pending recommended items change.
+Setup shows five steps in a left rail: choose a planner, install the background
+service, connect the planner, choose executor priority, and try an optional first
+task. Only the current step appears in the right panel. Actions refresh the
+checklist and advance in place; the Setup route stays open. **Change** returns to
+planner selection without connecting integrations until the connection step.
 
-Agent connections show affected files, details and an undo command before consent.
-Provider sign-in commands stay in the terminal and can be copied from Setup.
-Action errors appear under their checklist row. Trying the first delegation opens
-its session and identifies the executor; **Skip** records that choice.
+The connection card explains additions and edits in plain words. **Show the files**
+reveals technical paths and the undo command before consent. **Skip for now** leaves
+connection pending, with a return action in the rail. Restart open planner sessions
+after connecting. Executor checkboxes enable or block work, and arrow buttons save
+priority. **Looks right** confirms the list; an empty list offers the existing
+terminal add-executor flow while keeping Setup open.
+
+The first task shows its chosen executor, progress, diff, and **Accept and finish**
+or **Reject** inline. **Skip for now** records that the optional exercise was skipped.
+Provider sign-in commands remain in a disclosure with a copy action. Errors appear
+under the current action. Until pacer is ready, Home offers **Continue setup**;
+banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and review
 
@@ -167,7 +175,6 @@ Console commands and TUI actions use v2 operations. The TUI hides actions
 missing from `hello.ops`. Task sessions use the session API. `/state`,
 `/console/*`, `/link` and the unversioned `/events` route are removed.
 Internal probes and the app use `/v2/snapshot` during the one-minor overlap.
-The Orca plugin uses only the API transport, with HTTP v2 or stdio.
 
 
 `pacer status --line` adds `▸<running> ⚑<attention>` from the service counts.

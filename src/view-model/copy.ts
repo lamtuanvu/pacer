@@ -62,3 +62,43 @@ export function sessionTime(task: {state:string; attemptStartedAt?:number|null; 
   if (task.state === 'queued') return `queued for ${elapsed(now-task.updatedAt)}`;
   return `last updated ${ago(task.updatedAt,now)}`;
 }
+
+/** Forward-compatible presentation for background operation and step progress. */
+function plainProgressLabel(value: string): string {
+  const words = value.replace(/[._-]+/g, ' ').trim();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : 'Unknown';
+}
+export function jobKindCopy(kind: string): string {
+  const labels: Record<string, string> = {
+    'host.check': 'Host connection check',
+    'runner.check': 'Executor check',
+    'host.repo.setup': 'Repository setup',
+    'host.clean': 'Host cleanup',
+    'update.apply': 'pacer update',
+  };
+  return labels[kind] ?? plainProgressLabel(kind);
+}
+export function jobStateCopy(state: string): string {
+  const labels: Record<string, string> = {
+    pending: 'Waiting', running: 'In progress', passed: 'Passed', failed: 'Failed',
+    skipped: 'Skipped', cancelled: 'Cancelled',
+  };
+  return labels[state] ?? plainProgressLabel(state);
+}
+
+/** How an endpoint account is billed, as a short pill (shared by setup screens). */
+export type UsageKind = "quota" | "metered" | "unmetered";
+export const USAGE_KIND_WORDS: Record<UsageKind, { label: string; tone: "good" | "neutral" }> = {
+  quota: { label: "Quota", tone: "neutral" },
+  metered: { label: "Metered", tone: "neutral" },
+  unmetered: { label: "Free", tone: "good" },
+};
+export const USAGE_UNKNOWN = { label: "Usage unknown", tone: "neutral" as const };
+
+/** An endpoint account's weekly dollar spend, with its cap when set: "$3.20 of $5 this week · cap reached". */
+export function spendCopy(spendUsd: number | null | undefined, capUsd: number | null | undefined): string | null {
+  if (spendUsd === null || spendUsd === undefined) return null;
+  const spend = `$${spendUsd.toFixed(2)}`;
+  if (!capUsd) return `${spend} this week`;
+  return `${spend} of $${capUsd} this week${spendUsd >= capUsd ? " · cap reached" : ""}`;
+}

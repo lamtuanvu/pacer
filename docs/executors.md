@@ -28,7 +28,9 @@ providers:
     usage: unmetered
 ```
 
-These model IDs are examples; configure a model available in your OpenCode setup. Ollama models likewise use `ollama/<model>`. `pacer init` can discover local models with `ollama list` and `lms ls --json` when those CLIs and OpenCode are installed. A metered provider needs a `budget.weekly_tokens` value and reads seven-day token totals through OpenCode.
+These model IDs are examples; configure a model available in your OpenCode setup. Ollama models likewise use `ollama/<model>`. `pacer init` can discover local models with `ollama list` and `lms ls --json` when those CLIs and OpenCode are installed. A metered provider reads seven-day spend through OpenCode; `budget.weekly_tokens` and the newer `budget.weekly_usd` cap are both optional.
+
+The easiest way to add one is `pacer account add` → **Model endpoint (OpenCode)**, or Settings › Add executor → **Model endpoint (OpenCode)** in the app. Both list providers already signed in to OpenCode, local model servers and catalog providers, recommend a model and offer a weekly dollar cap; see [Endpoint accounts](accounts.md#endpoint-accounts-opencode). In the app, a catalog provider shows the `opencode auth login <provider>` command to run in a terminal, then Refresh; the browser never takes a key. A provider signed out of OpenCode reads **Key missing** with that command, and a reached weekly cap counts as a full window, so routing uses other executors until the week turns over.
 
 Claude usage requires the status-line integration to have received rate-limit data. Missing/stale readings are surfaced as unknown rather than invented quota values. BytePlus readings are cached for 10 minutes; OpenCode metered stats for 5 minutes, with stale fallback when a query fails.
 
@@ -65,8 +67,22 @@ warning. The planner is protected from these changes.
 `agent.detect` reports installed agents, versions and install hints.
 `runner.check { id }` starts a shared job that checks CLI presence, sign-in,
 usage and a scratch task that writes `hello.txt` containing `ok`. It never runs
-the test in a user repository. The row shows `checking` while running and
-`lastCheck` after completion; a failed check shows `failing` and executor attention.
+the test in a user repository. **Signed in** uses the account's local sign-in
+state (see [accounts](accounts.md#sign-in-state)), not a usage reading; for a
+remote runner the test task checks the host's login. **Usage readable** is
+skipped, with the reason, when a Claude or Codex account has no usage reading yet
+(Claude usage comes from the Claude Code status line, Codex usage from its
+session logs); routing treats that usage as unknown, so it does not fail the
+check. A usage reader error still fails it. The row shows `checking` while
+running and `lastCheck` after completion; a failed check shows `failing` and
+executor attention.
+
+A failed check does not by itself remove an executor from routing: the check
+reports readiness and asks for attention, while routing excludes executors only
+for the reasons `pacer route` lists (disabled, blocked, broken, not installed,
+signed out, out of quota, an endpoint that is Not working or has its key missing).
+A check can lead to one of those, for example a failed endpoint test task marks
+it Not working. To stop using an executor whose check failed, disable it.
 
 Capacity rows use the configured executor limit and report `full` when the
 executor, host or shared local machine limit is reached, naming the binding limit.

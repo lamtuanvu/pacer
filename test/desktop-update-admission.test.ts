@@ -80,7 +80,7 @@ describe("desktop work admission", () => {
 });
 
 import { createTask, updateTask, listTasks } from "../src/tasks/store";
-import { delegate, taskStatus } from "../src/tasks/api";
+import { delegate, superviseTask } from "../src/tasks/api";
 import { runTask } from "../src/tasks/runner";
 import { drainQueue } from "../src/tasks/drain";
 import { startRun } from "../src/supervisor/run";
@@ -125,7 +125,7 @@ test("status recovery and queue drain are held during maintenance without losing
   const record = task(ctx);
   updateTask(ctx, record.id, t => { t.state = "running"; t.run = { host: "remote", attempt: 1 } as any; });
   let spawned = 0;
-  const status = taskStatus(ctx, record.id, () => { spawned++; return 1; });
+  const status = await superviseTask(ctx, record.id, () => { spawned++; return 1; });
   expect(spawned).toBe(0); expect(status?.resumeSpawnedAt).toBeUndefined();
   updateTask(ctx, record.id, t => { t.state = "queued"; delete t.run; t.queue = { reason: "paused", since: ctx.now, position: 1 }; });
   expect(await drainQueue(ctx, () => { spawned++; return 1; }, queueDeps())).toEqual([]);

@@ -1,8 +1,10 @@
-export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string; action?:string; agent?:string }
-export interface SetupChecklist { checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
+import { PLANNERS } from "../config/strategy";
+
+export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string; action?:string; agent?:string; options?:string[] }
+export interface SetupChecklist { integration?: {configuration:"configured"|"unverified";invocation:"unverified"}; checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
 export interface SetupFacts {
- version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean; live:boolean;
- signedIn?:boolean; loginCommand?:string; connected?:boolean; orcaInstalled?:boolean;
+ version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean;
+ signedIn?:boolean; loginCommand?:string; connected?:boolean;
  executors?:{ranked:{id:string}[];excluded:{id:string;reason:string}[]}; verdict?:string; reviewed?:boolean; skipped?:boolean;
  agents:{id:string;name:string;installed:boolean;cliInstalled?:boolean}[]; errors?:Partial<Record<"binary"|"strategy"|"service"|"link"|"connect",string>>;
 }
@@ -26,14 +28,15 @@ export function setupChecklist(f:SetupFacts, checkedAt:number):SetupChecklist {
  const plannerAgent=f.planner?.split(/[#@]/)[0];
  const items:SetupItem[]=[
   item("binary","pacer",true,!!f.version,f.version??undefined,"pacer init",undefined,f.errors?.binary),
-  item("planner","Planner",true,!!f.planner&&f.signedIn!==false,f.planner?`${f.planner}${f.signedIn===false?" · signed out":""}`:"Choose a planner",f.planner?f.loginCommand:"pacer init",undefined,f.errors?.strategy),
+  f.planner
+   ? item("planner","Planner",true,f.signedIn!==false,`${f.planner}${f.signedIn===false?" · signed out":""}`,f.loginCommand,undefined,f.errors?.strategy)
+   : {...item("planner","Planner",true,false,"Choose which agent plans your work","pacer init","setup.init"),options:PLANNERS.filter(id=>f.agents.some(a=>a.id===id&&a.cliInstalled))},
   item("service","Background service",true,f.service.installed&&f.service.running,undefined,"pacer service install","service.install",f.errors?.service),
   {...item("connect","Connect planner",true,!!f.planner&&f.connected!==false,f.connected!==false?"Connected":"Integration missing or changed","pacer init","agent.connect",f.errors?.connect),...(plannerAgent?{agent:plannerAgent,installed:f.agents.find(a=>a.id===plannerAgent)?.cliInstalled??false}:{})},
   item("link","Link",true,f.link,undefined,"pacer init",undefined,f.errors?.link),
   item("executor","Executor",false,false),
   item("usage","Budget data",false,!!f.verdict&&f.verdict!=="UNKNOWN",`Start a session in ${f.planner??"your planner"} once`),
   item("first","First delegation",false,!!f.reviewed||!!f.skipped,f.skipped?"Skipped":undefined,undefined,"onboarding.try"),
-  ...(f.orcaInstalled?[item("live","Orca panel",false,f.live,undefined,"pacer init")]:[]),
   ...f.agents.filter(a=>a.id!==plannerAgent).map(a=>({...item(`agent:${a.id}`,a.name,false,a.installed,a.installed?"Connected":"Optional · not connected","pacer init","agent.connect"),agent:a.id,...(a.cliInstalled!==undefined?{installed:a.cliInstalled}:{})}))];
  return updateChecklist({checkedAt,complete:false,ready:false,items},f);
 }

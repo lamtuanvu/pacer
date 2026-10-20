@@ -1,5 +1,6 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolvePolicyRepo } from "../core/project-policy";
 import { route } from "../core/routing";
 import { delegate } from "../core/tasks";
 import { CoreError, toCoreError } from "../core/errors";
@@ -42,6 +43,7 @@ export async function tryDelegation(ctx: Ctx, deps: TryDeps = {}): Promise<TryRe
         if (result.code !== 0) throw new CoreError("invalid_input", "Could not create the first delegation repository", result.stderr.trim());
       }
       const task = (deps.delegate ?? delegate)(ctx, {
+        repoRef: await resolvePolicyRepo(ctx, repo),
         source: "onboarding", kind: "docs", worktree: "current", timeoutMin: 15,
         brief: {repo, goal: "Summarize README.md in three bullet points into SUMMARY.md", acceptance: "test -s SUMMARY.md"},
       }, deps.spawnRunner);

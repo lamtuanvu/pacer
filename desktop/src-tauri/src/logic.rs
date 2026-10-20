@@ -2,6 +2,158 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+pub fn recovery_for(bundle_app: bool, bundled_cli: bool, external_cli: bool) -> Option<&'static str> {
+    if bundled_cli || external_cli {
+        None
+    } else if bundle_app {
+        Some("incomplete")
+    } else {
+        Some("install")
+    }
+}
+
+pub fn relink_needed(consented: bool, keep: bool, bundled: bool, missing: bool) -> bool {
+    consented && !keep && bundled && missing
+}
+
+pub fn dismiss_relink(url: &Url, current: Option<&Url>) -> bool {
+    url.as_str() == "tauri://localhost/index.html?state=starting" && bundled_shell(current)
+}
+
+#[derive(Default)]
+pub struct VersionRecovery {
+    attempted: bool,
+}
+impl VersionRecovery {
+    // Consume the attempt before spawning, including a failed restart or canceled connection.
+    pub fn restart(
+        &mut self,
+        cli: Option<&str>,
+        service: Option<&str>,
+        consented: bool,
+        owned: bool,
+    ) -> bool {
+        let versions_differ = match (cli, service) {
+            (Some(cli), Some(service)) => {
+                let cli = cli.trim();
+                let cli = cli.strip_prefix("pacer ").unwrap_or(cli).trim();
+                !cli.is_empty() && !service.trim().is_empty() && cli != service.trim()
+            }
+            _ => false,
+        };
+        if self.attempted || !consented || !owned || !versions_differ {
+            return false;
+        }
+        self.attempted = true;
+        true
+    }
+}
+
+// Selection is kept pure so consent and explicit overrides can be tested together.
+pub fn cli_choice(
+    pacer_bin: Option<&Path>,
+    bundled: Option<&Path>,
+    external: Option<&Path>,
+    consented: bool,
+    keep: bool,
+    remembered: bool,
+) -> (Option<PathBuf>, Option<PathBuf>) {
+    let selected = pacer_bin.or_else(|| {
+        if keep || remembered {
+            external
+        } else if consented {
+            bundled.or(external)
+        } else {
+            external
+        }
+    });
+    let install = selected.filter(|selected| Some(*selected) == bundled);
+    (
+        selected.map(Path::to_path_buf),
+        install.map(Path::to_path_buf),
+    )
+}
+
+pub fn bundled_shell(current: Option<&Url>) -> bool {
+    current.is_some_and(|url| {
+        url.scheme() == "tauri"
+            && url.host_str() == Some("localhost")
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port().is_none()
+            && matches!(url.path(), "/" | "/index.html")
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Onboarding {
+    Welcome,
+    Consent,
+    Existing,
+    Ready,
+}
+
+pub fn onboarding(
+    consented: bool,
+    external_cli: Option<&str>,
+    keep_remembered: bool,
+    bundled: bool,
+) -> Onboarding {
+    if bundled && !consented {
+        match external_cli {
+            None => Onboarding::Welcome,
+            Some(_) if !keep_remembered => Onboarding::Existing,
+            _ => Onboarding::Ready,
+        }
+    } else {
+        Onboarding::Ready
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellAction {
+    Begin,
+    Consent { path: bool },
+    UseApp,
+    KeepMine,
+    Relink,
+    Download,
+}
+
+pub fn onboarding_back(url: &Url, current: Option<&Url>) -> bool {
+    url.as_str() == "tauri://localhost/index.html?state=welcome" && bundled_shell(current)
+}
+
+pub fn shell_action_url(url: &Url) -> Option<ShellAction> {
+    if url.scheme() != "tauri"
+        || url.host_str() != Some("localhost")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    if url.path() == "/action/consent" {
+        return match url.query() {
+            Some("path=0") => Some(ShellAction::Consent { path: false }),
+            Some("path=1") => Some(ShellAction::Consent { path: true }),
+            _ => None,
+        };
+    }
+    if url.query().is_some() {
+        return None;
+    }
+    match url.path() {
+        "/action/begin" => Some(ShellAction::Begin),
+        "/action/use-app" => Some(ShellAction::UseApp),
+        "/action/keep-mine" => Some(ShellAction::KeepMine),
+        "/action/relink" => Some(ShellAction::Relink),
+        "/action/download" => Some(ShellAction::Download),
+        _ => None,
+    }
+}
+
 /// Identity read from disk once at startup, then compared without using NSBundle's cache.
 #[cfg(any(target_os = "macos", test))]
 #[derive(Debug, PartialEq)]
@@ -64,12 +216,26 @@ pub struct Diagnosis {
     pub page: &'static str,
     pub path: Option<String>,
     pub error: Option<String>,
+    pub rc: Option<String>,
+    #[serde(rename = "onPath")]
+    pub on_path: Option<bool>,
+    pub installed: Option<String>,
+    pub version: Option<String>,
+    pub port: Option<u16>,
+    #[serde(rename = "appPort")]
+    pub app_port: Option<u16>,
 }
 pub fn diagnosis(page: &'static str, path: Option<String>) -> Diagnosis {
     Diagnosis {
         page,
         path,
         error: None,
+        rc: None,
+        on_path: None,
+        installed: None,
+        version: None,
+        port: None,
+        app_port: None,
     }
 }
 /// Track an unavailable interval independently of individual retry attempts.
@@ -101,8 +267,8 @@ impl Startup {
     pub fn diagnosis(&self, now: std::time::Instant) -> Option<Diagnosis> {
         self.stuck(now).then(|| Diagnosis {
             page: "stuck",
-            path: None,
             error: Some(self.error.clone()),
+            ..diagnosis("stuck", None)
         })
     }
 }
@@ -151,6 +317,7 @@ pub fn service_steps(action: RecoveryAction) -> &'static [&'static str] {
 #[derive(Default)]
 pub struct Lifecycle {
     hung_since: Option<u64>,
+    failed_probes: u32,
     next_action: u64,
     restart_delay: u64,
 }
@@ -165,24 +332,41 @@ impl Lifecycle {
         use RecoveryAction::*;
         if waiting {
             self.hung_since = None;
+            self.failed_probes = 0;
             return if matches!(health, HealthProbe::Ready | HealthProbe::Starting) {
                 Connect
             } else {
                 Wait
             };
         }
-        if job == JobState::Foreign
-            && matches!(health, HealthProbe::Refused | HealthProbe::NoAnswer)
-        {
+        if job == JobState::Foreign && matches!(health, HealthProbe::Refused | HealthProbe::NoAnswer) {
             self.hung_since = None;
+            self.failed_probes = 0;
             return Foreign;
         }
-        if health != HealthProbe::NoAnswer {
+        if !matches!(health, HealthProbe::NoAnswer | HealthProbe::Refused) {
             self.hung_since = None;
+            self.failed_probes = 0;
         }
         match health {
             HealthProbe::Ready | HealthProbe::Starting => Connect,
             HealthProbe::Invalid => Protocol,
+            HealthProbe::Refused | HealthProbe::NoAnswer if job == JobState::Running => {
+                // Require sustained failure, whether the listener is absent,
+                // unresponsive, or reports a stale backend heartbeat.
+                let since = *self.hung_since.get_or_insert(now);
+                self.failed_probes = self.failed_probes.saturating_add(1);
+                let delay = self.restart_delay.max(30);
+                if self.failed_probes >= 3 && now.saturating_sub(since) >= delay && now >= self.next_action {
+                    self.hung_since = None;
+                    self.failed_probes = 0;
+                    self.restart_delay = (delay * 2).min(80);
+                    self.next_action = now.saturating_add(self.restart_delay);
+                    Restart
+                } else {
+                    Wait
+                }
+            }
             HealthProbe::Refused if now >= self.next_action => {
                 self.next_action = now.saturating_add(20);
                 if job == JobState::NotLoaded {
@@ -191,23 +375,18 @@ impl Lifecycle {
                     Start
                 }
             }
-            HealthProbe::NoAnswer => {
-                let since = *self.hung_since.get_or_insert(now);
-                let delay = self.restart_delay.max(20);
-                if now.saturating_sub(since) >= delay && now >= self.next_action {
-                    self.hung_since = Some(now);
-                    self.restart_delay = (delay * 2).min(80);
-                    self.next_action = now.saturating_add(self.restart_delay);
-                    Restart
-                } else {
-                    Wait
-                }
-            }
             _ => Wait,
         }
     }
     pub fn ready(&mut self) {
         *self = Self::default();
+    }
+}
+pub fn health_response(status: u16, value: &Value) -> HealthProbe {
+    match status {
+        200 => health_probe(value),
+        503 => HealthProbe::NoAnswer,
+        _ => HealthProbe::Invalid,
     }
 }
 pub fn health_probe(value: &Value) -> HealthProbe {
@@ -300,10 +479,7 @@ pub fn launchd_environment(text: &str) -> Vec<(String, String)> {
 /// `Environment=` from `systemctl --user show`; assignments with spaces are double-quoted.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn systemd_environment(text: &str) -> Vec<(String, String)> {
-    let Some(line) = text
-        .lines()
-        .find_map(|line| line.strip_prefix("Environment="))
-    else {
+    let Some(line) = text.lines().find_map(|line| line.strip_prefix("Environment=")) else {
         return Vec::new();
     };
     let mut words = Vec::new();
@@ -339,26 +515,64 @@ pub fn systemd_environment(text: &str) -> Vec<(String, String)> {
 pub fn job_owner(env: &[(String, String)], default_home: &str) -> (String, u16) {
     let get = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
     let home = get("PACER_HOME").unwrap_or(default_home).to_owned();
-    let port = get("PACER_PORT")
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(4317);
+    let port = get("PACER_PORT").and_then(|p| p.parse().ok()).unwrap_or(4317);
     (home, port)
 }
 
+pub fn same_path(a: &Path, b: &Path) -> bool {
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    canonical(a) == canonical(b)
+}
+
+/// The pacer home and port a service job serves.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JobOwner {
+    pub home: String,
+    pub port: u16,
+}
+
+/// The job's owner when it serves another pacer than this shell: a different home, or the same
+/// home on a different port. `None` when the job is this shell's own.
+pub fn foreign_owner(env: &[(String, String)], default_home: &str, home: &Path, port: u16) -> Option<JobOwner> {
+    let (owner, owner_port) = job_owner(env, default_home);
+    (!same_path(Path::new(&owner), home) || owner_port != port).then_some(JobOwner {
+        home: owner,
+        port: owner_port,
+    })
+}
+
+/// The "foreign" page names the other pacer's folder, plus both ports when only the port differs.
+pub fn foreign_diagnosis(owner: &JobOwner, home: &Path, port: u16, user_home: &str) -> Diagnosis {
+    let port_only = same_path(Path::new(&owner.home), home);
+    Diagnosis {
+        port: port_only.then_some(owner.port),
+        app_port: port_only.then_some(port),
+        ..diagnosis("foreign", Some(display_home(&owner.home, user_home)))
+    }
+}
+
 /// The one page a lifecycle pass shows. It follows the state, not this pass's action, so the
-/// window doesn't fall back to "starting" on the `Wait` passes between gated actions.
+/// window doesn't fall back to "starting" on the `Wait` passes between gated actions. On Linux an
+/// unknown job (no usable systemctl) behind a refused or silent port is started with
+/// `pacer serve`, so it needs a CLI too. Other probes keep their own pages.
 pub fn shell_page(
     permission: bool,
     action: RecoveryAction,
+    health: HealthProbe,
     job: JobState,
     cli_found: bool,
+    macos: bool,
 ) -> &'static str {
+    let unknown_linux_job = !macos
+        && job == JobState::Unknown
+        && matches!(health, HealthProbe::Refused | HealthProbe::NoAnswer);
     if permission {
         "permission"
     } else if action == RecoveryAction::Foreign {
         "foreign"
     } else if !cli_found
         && (job == JobState::NotLoaded
+            || unknown_linux_job
             || matches!(action, RecoveryAction::Install | RecoveryAction::Connect))
     {
         "install"
@@ -654,6 +868,198 @@ impl Sse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recovery_truth_table() {
+        for app in [false, true] {
+            for bundled in [false, true] {
+                for external in [false, true] {
+                    let expected = if bundled || external { None }
+                        else if app { Some("incomplete") } else { Some("install") };
+                    assert_eq!(recovery_for(app, bundled, external), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn relink_requires_consent_and_a_missing_app_link() {
+        for consent in [false, true] {
+            for keep in [false, true] {
+                for bundled in [false, true] {
+                    for missing in [false, true] {
+                        assert_eq!(relink_needed(consent, keep, bundled, missing),
+                            consent && !keep && bundled && missing);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn relink_dismissal_is_only_from_the_local_shell() {
+        let target = Url::parse("tauri://localhost/index.html?state=starting").unwrap();
+        let shell = Url::parse("tauri://localhost/index.html?state=relink").unwrap();
+        let remote = Url::parse("http://127.0.0.1:4317/app/").unwrap();
+        assert!(dismiss_relink(&target, Some(&shell)));
+        assert!(!dismiss_relink(&target, Some(&remote)));
+        assert!(!dismiss_relink(&target, None));
+        assert!(!dismiss_relink(&shell, Some(&shell)));
+    }
+
+    #[test]
+    fn version_recovery_requires_known_different_versions_consent_and_ownership_once() {
+        for (cli, service, consent, owned, expected) in [
+            (Some("0.2.3"), Some("0.2.2"), true, true, true),
+            (Some("0.2.3\n"), Some("0.2.3"), true, true, false),
+            (Some("pacer 0.2.3\n"), Some("0.2.3"), true, true, false),
+            (Some("pacer 0.2.3\n"), Some("0.2.2"), true, true, true),
+            (Some("0.2.3"), Some("0.2.2"), false, true, false),
+            (Some("0.2.3"), Some("0.2.2"), true, false, false),
+            (None, Some("0.2.2"), true, true, false),
+            (Some("0.2.3"), None, true, true, false),
+            (Some(""), Some("0.2.2"), true, true, false),
+        ] {
+            let mut recovery = VersionRecovery::default();
+            assert_eq!(recovery.restart(cli, service, consent, owned), expected);
+            if expected { assert!(!recovery.restart(cli, service, consent, owned)); }
+        }
+        let mut recovery = VersionRecovery::default();
+        assert!(!recovery.restart(Some("2"), Some("1"), true, false));
+        assert!(recovery.restart(Some("2"), Some("1"), true, true));
+    }
+
+    #[test]
+    fn cli_choice_truth_table_preserves_explicit_overrides_and_consent() {
+        let b = Some(Path::new("/app/pacer"));
+        let e = Some(Path::new("/external/pacer"));
+        let p = Some(Path::new("/override/pacer"));
+        for (explicit, bundle, external, consent, keep, remembered, cli, env) in [
+            (p, b, e, true, false, false, p, None),
+            (p, b, e, false, false, false, p, None),
+            (p, b, e, true, true, true, p, None),
+            (b, b, e, true, false, false, b, b),
+            (None, b, e, false, false, false, e, None),
+            (None, b, None, false, false, false, None, None),
+            (None, b, e, true, false, false, b, b),
+            (None, b, None, true, false, false, b, b),
+            (None, b, e, true, false, true, e, None),
+            (None, b, e, false, false, true, e, None),
+            (None, b, e, true, true, true, e, None),
+            (None, b, e, true, true, false, e, None),
+            (None, b, None, true, true, false, None, None),
+            (None, None, e, false, false, false, e, None),
+            (None, None, e, true, false, false, e, None),
+            (None, None, None, false, false, false, None, None),
+        ] {
+            assert_eq!(
+                cli_choice(explicit, bundle, external, consent, keep, remembered),
+                (cli.map(Path::to_path_buf), env.map(Path::to_path_buf)),
+                "explicit={explicit:?} consent={consent} keep={keep} remembered={remembered}"
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_shell_rejects_remote_pages_and_other_authorities() {
+        assert!(!bundled_shell(None));
+        for raw in [
+            "tauri://localhost/",
+            "tauri://localhost/index.html?state=consent",
+        ] {
+            assert!(bundled_shell(Some(&Url::parse(raw).unwrap())));
+        }
+        for raw in [
+            "http://127.0.0.1:4317/app/",
+            "tauri://other/",
+            "tauri://localhost/action/begin",
+            "tauri://user@localhost/",
+            "tauri://localhost:123/index.html",
+        ] {
+            assert!(!bundled_shell(Some(&Url::parse(raw).unwrap())), "{raw}");
+        }
+    }
+
+    #[test]
+    fn onboarding_back_requires_a_bundled_source_and_exact_welcome_target() {
+        let target = Url::parse("tauri://localhost/index.html?state=welcome").unwrap();
+        let shell = Url::parse("tauri://localhost/index.html?state=consent").unwrap();
+        assert!(onboarding_back(&target, Some(&shell)));
+        assert!(!onboarding_back(&target, None));
+        assert!(!onboarding_back(
+            &target,
+            Some(&Url::parse("http://127.0.0.1:4317/app/").unwrap())
+        ));
+        assert!(!onboarding_back(
+            &Url::parse("tauri://localhost/index.html?state=consent").unwrap(),
+            Some(&shell)
+        ));
+    }
+
+    #[test]
+    fn onboarding_requires_consent_only_for_a_new_bundled_install() {
+        use Onboarding::*;
+        for (consented, external, remembered, bundled, expected) in [
+            (false, None, false, false, Ready),
+            (false, None, true, false, Ready),
+            (false, Some("/other/pacer"), false, false, Ready),
+            (false, Some("/other/pacer"), true, false, Ready),
+            (true, None, false, false, Ready),
+            (true, None, true, false, Ready),
+            (true, Some("/other/pacer"), false, false, Ready),
+            (true, Some("/other/pacer"), true, false, Ready),
+            (false, None, false, true, Welcome),
+            (false, None, true, true, Welcome),
+            (false, Some("/other/pacer"), false, true, Existing),
+            (false, Some("/other/pacer"), true, true, Ready),
+            (true, None, false, true, Ready),
+            (true, None, true, true, Ready),
+            (true, Some("/other/pacer"), false, true, Ready),
+            (true, Some("/other/pacer"), true, true, Ready),
+        ] {
+            assert_eq!(
+                onboarding(consented, external, remembered, bundled),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn shell_actions_accept_only_exact_local_sentinels() {
+        use ShellAction::*;
+        for (suffix, expected) in [
+            ("begin", Begin),
+            ("consent?path=0", Consent { path: false }),
+            ("consent?path=1", Consent { path: true }),
+            ("use-app", UseApp),
+            ("keep-mine", KeepMine),
+            ("relink", Relink),
+            ("download", Download),
+        ] {
+            assert_eq!(
+                shell_action_url(
+                    &Url::parse(&format!("tauri://localhost/action/{suffix}")).unwrap()
+                ),
+                Some(expected)
+            );
+        }
+        for url in [
+            "https://localhost/action/begin",
+            "tauri://other/action/begin",
+            "tauri://localhost/action/consent?path=2",
+            "tauri://localhost/action/consent",
+            "tauri://localhost/action/consent?path=1&path=0",
+            "tauri://localhost/action/consent?path=1&extra=1",
+            "tauri://localhost/action/unknown",
+            "tauri://localhost/action/begin?extra=1",
+            "tauri://localhost/action/begin#fragment",
+            "tauri://user@localhost/action/begin",
+            "tauri://localhost:123/action/begin",
+            "tauri://localhost/action/begin/",
+        ] {
+            assert_eq!(shell_action_url(&Url::parse(url).unwrap()), None, "{url}");
+        }
+    }
+
     use super::*;
     use serde_json::json;
     #[test]
@@ -743,36 +1149,60 @@ mod tests {
         assert_eq!(state.step(21, Ready, JobState::Running, false), Connect);
         state.ready();
         let refused = state.step(22, Refused, JobState::Running, false);
-        assert_eq!(refused, Start);
-        assert_eq!(service_steps(refused), &["start"]);
+        assert_eq!(refused, Wait);
+        assert_eq!(service_steps(refused), &[] as &[&str]);
         assert_eq!(state.step(23, Ready, JobState::Running, false), Connect);
     }
     #[test]
-    fn hung_service_restarts_with_capped_backoff_until_ready() {
+    fn stale_heartbeat_obeys_failure_window_and_recovery() {
+        use HealthProbe::*;
+        use RecoveryAction::*;
+        let stale = health_response(503, &json!({"ok":false,"backendLagS":46}));
+        assert_eq!(stale, NoAnswer);
+        assert_eq!(health_response(200, &json!({"ok":true})), Ready);
+        let mut state = Lifecycle::default();
+        assert_eq!(state.step(0, stale, JobState::Running, false), Wait);
+        assert_eq!(state.step(29, Ready, JobState::Running, false), Connect);
+        assert_eq!(state.step(30, stale, JobState::Running, false), Wait);
+        assert_eq!(state.step(59, NoAnswer, JobState::Running, false), Wait);
+        assert_eq!(state.step(60, stale, JobState::Running, false), Restart);
+    }
+    #[test]
+    fn unanswered_service_requires_sustained_failure() {
+        let mut state = Lifecycle::default();
+        for now in [0, 20, 29] {
+            assert_eq!(state.step(now, HealthProbe::NoAnswer, JobState::Running, false), RecoveryAction::Wait);
+        }
+        assert_eq!(state.step(30, HealthProbe::NoAnswer, JobState::Running, false), RecoveryAction::Restart);
+    }
+    #[test]
+    fn restart_requires_three_failures_over_thirty_seconds() {
         use HealthProbe::*;
         use RecoveryAction::*;
         let mut state = Lifecycle::default();
-        for (now, expected) in [
-            (0, Wait),
-            (19, Wait),
-            (20, Restart),
-            (59, Wait),
-            (60, Restart),
-            (139, Wait),
-            (140, Restart),
-            (219, Wait),
-            (220, Restart),
-        ] {
-            assert_eq!(
-                state.step(now, NoAnswer, JobState::Running, false),
-                expected,
-                "{now}"
-            );
-        }
-        assert_eq!(state.step(221, Ready, JobState::Running, false), Connect);
+        assert_eq!(state.step(0, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(29, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(30, Refused, JobState::Running, false), Restart);
+        // Backoff and a new sustained failure interval apply after a restart.
+        assert_eq!(state.step(31, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(60, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(91, Refused, JobState::Running, false), Restart);
+    }
+    #[test]
+    fn successful_health_resets_the_continuous_failure_window() {
+        use HealthProbe::*;
+        use RecoveryAction::*;
+        let mut state = Lifecycle::default();
+        assert_eq!(state.step(0, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(20, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(29, Ready, JobState::Running, false), Connect);
+        assert_eq!(state.step(30, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(59, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(60, Refused, JobState::Running, false), Restart);
+        // Sparse probes must not turn one or two failures into a restart.
         state.ready();
-        assert_eq!(state.step(222, NoAnswer, JobState::Running, false), Wait);
-        assert_eq!(state.step(242, NoAnswer, JobState::Running, false), Restart);
+        assert_eq!(state.step(100, Refused, JobState::Running, false), Wait);
+        assert_eq!(state.step(200, Refused, JobState::Running, false), Wait);
     }
     #[test]
     fn waiting_snapshot_and_consent_window_prevent_restart() {
@@ -1236,20 +1666,63 @@ mod tests {
     #[test]
     fn job_owner_defaults_to_the_standard_home_and_port() {
         let env = vec![("HOME".to_owned(), "/Users/u".to_owned())];
-        assert_eq!(
-            job_owner(&env, "/Users/u/.pacer"),
-            ("/Users/u/.pacer".to_owned(), 4317)
-        );
+        assert_eq!(job_owner(&env, "/Users/u/.pacer"), ("/Users/u/.pacer".to_owned(), 4317));
         let env = vec![
             ("PACER_HOME".to_owned(), "/tmp/other".to_owned()),
             ("PACER_PORT".to_owned(), "5000".to_owned()),
         ];
-        assert_eq!(
-            job_owner(&env, "/Users/u/.pacer"),
-            ("/tmp/other".to_owned(), 5000)
-        );
+        assert_eq!(job_owner(&env, "/Users/u/.pacer"), ("/tmp/other".to_owned(), 5000));
         let env = vec![("PACER_PORT".to_owned(), "not-a-port".to_owned())];
         assert_eq!(job_owner(&env, "/Users/u/.pacer").1, 4317);
+    }
+    #[test]
+    fn a_job_is_foreign_when_its_home_or_port_differs() {
+        let env = |home: &str, port: Option<&str>| {
+            let mut env = vec![("PACER_HOME".to_owned(), home.to_owned())];
+            env.extend(port.map(|port| ("PACER_PORT".to_owned(), port.to_owned())));
+            env
+        };
+        let ours = Path::new("/Users/u/.pacer");
+        assert_eq!(foreign_owner(&env("/Users/u/.pacer", None), "/Users/u/.pacer", ours, 4317), None);
+        assert_eq!(foreign_owner(&[], "/Users/u/.pacer", ours, 4317), None);
+        assert_eq!(
+            foreign_owner(&env("/Users/u/work", None), "/Users/u/.pacer", ours, 4317),
+            Some(JobOwner { home: "/Users/u/work".to_owned(), port: 4317 })
+        );
+        // Same home, different port: still another pacer.
+        assert_eq!(
+            foreign_owner(&env("/Users/u/.pacer", Some("5000")), "/Users/u/.pacer", ours, 4317),
+            Some(JobOwner { home: "/Users/u/.pacer".to_owned(), port: 5000 })
+        );
+        assert_eq!(foreign_owner(&env("/Users/u/.pacer", Some("5000")), "/Users/u/.pacer", ours, 5000), None);
+    }
+    #[test]
+    fn a_symlinked_home_is_the_same_pacer() {
+        let root = std::env::temp_dir().join(format!("pacer-foreign-{}", std::process::id()));
+        let real = root.join("real");
+        let link = root.join("link");
+        std::fs::create_dir_all(&real).unwrap();
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let env = vec![("PACER_HOME".to_owned(), link.to_string_lossy().into_owned())];
+        assert_eq!(foreign_owner(&env, "/unused", &real, 4317), None);
+        // Port-only detection still works through the symlink.
+        let owner = JobOwner { home: link.to_string_lossy().into_owned(), port: 5000 };
+        assert_eq!(foreign_diagnosis(&owner, &real, 4317, "").port, Some(5000));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn foreign_page_names_the_port_only_when_the_folder_matches() {
+        let ours = Path::new("/Users/u/.pacer");
+        let other_port = JobOwner { home: "/Users/u/.pacer".to_owned(), port: 5000 };
+        let detail = foreign_diagnosis(&other_port, ours, 4317, "/Users/u");
+        assert_eq!(detail.page, "foreign");
+        assert_eq!(detail.path.as_deref(), Some("~/.pacer"));
+        assert_eq!((detail.port, detail.app_port), (Some(5000), Some(4317)));
+        let other_home = JobOwner { home: "/Users/u/work".to_owned(), port: 5000 };
+        let detail = foreign_diagnosis(&other_home, ours, 4317, "/Users/u");
+        assert_eq!(detail.path.as_deref(), Some("~/work"));
+        assert_eq!((detail.port, detail.app_port), (None, None));
     }
     #[test]
     fn unconfirmed_or_foreign_jobs_are_not_managed() {
@@ -1267,21 +1740,10 @@ mod tests {
         use HealthProbe::*;
         use RecoveryAction::*;
         let mut state = Lifecycle::default();
-        assert_eq!(
-            state.step(0, Refused, JobState::Foreign, false),
-            RecoveryAction::Foreign
-        );
+        assert_eq!(state.step(0, Refused, JobState::Foreign, false), RecoveryAction::Foreign);
         for now in [20, 40, 60, 80, 140, 220] {
-            assert_eq!(
-                state.step(now, NoAnswer, JobState::Foreign, false),
-                RecoveryAction::Foreign,
-                "{now}"
-            );
-            assert_eq!(
-                state.step(now, Refused, JobState::Foreign, false),
-                RecoveryAction::Foreign,
-                "{now}"
-            );
+            assert_eq!(state.step(now, NoAnswer, JobState::Foreign, false), RecoveryAction::Foreign, "{now}");
+            assert_eq!(state.step(now, Refused, JobState::Foreign, false), RecoveryAction::Foreign, "{now}");
         }
         // A healthy service on this shell's own port is still used.
         assert_eq!(state.step(300, Ready, JobState::Foreign, false), Connect);
@@ -1292,56 +1754,51 @@ mod tests {
     fn one_page_per_pass_explains_a_missing_cli() {
         use RecoveryAction::*;
         let none = JobState::NotLoaded;
-        assert_eq!(shell_page(false, Install, none, false), "install");
-        // The Wait passes between gated installs keep the page.
-        assert_eq!(shell_page(false, Wait, none, false), "install");
-        assert_eq!(
-            shell_page(false, Connect, JobState::Unknown, false),
-            "install"
-        );
-        assert_eq!(shell_page(false, Install, none, true), "starting");
-        assert_eq!(
-            shell_page(false, Connect, JobState::Unknown, true),
-            "starting"
-        );
-        assert_eq!(
-            shell_page(false, Wait, JobState::Running, false),
-            "starting"
-        );
-        assert_eq!(
-            shell_page(false, Start, JobState::Stopped, false),
-            "starting"
-        );
-        assert_eq!(
-            shell_page(false, RecoveryAction::Foreign, JobState::Foreign, true),
-            "foreign"
-        );
-        assert_eq!(shell_page(true, Install, none, false), "permission");
-        assert_eq!(
-            shell_page(true, RecoveryAction::Foreign, JobState::Foreign, false),
-            "permission"
-        );
+        for macos in [true, false] {
+            assert_eq!(shell_page(false, Install, HealthProbe::Refused, none, false, macos), "install");
+            // The Wait passes between gated installs keep the page.
+            assert_eq!(shell_page(false, Wait, HealthProbe::Refused, none, false, macos), "install");
+            assert_eq!(shell_page(false, Connect, HealthProbe::Ready, JobState::Unknown, false, macos), "install");
+            assert_eq!(shell_page(false, Install, HealthProbe::Refused, none, true, macos), "starting");
+            assert_eq!(shell_page(false, Connect, HealthProbe::Ready, JobState::Unknown, true, macos), "starting");
+            assert_eq!(shell_page(false, Start, HealthProbe::Refused, JobState::Unknown, true, macos), "starting");
+            assert_eq!(shell_page(false, Wait, HealthProbe::Refused, JobState::Running, false, macos), "starting");
+            assert_eq!(shell_page(false, Start, HealthProbe::Refused, JobState::Stopped, false, macos), "starting");
+            assert_eq!(shell_page(false, RecoveryAction::Foreign, HealthProbe::Refused, JobState::Foreign, true, macos), "foreign");
+            assert_eq!(shell_page(true, Install, HealthProbe::Refused, none, false, macos), "permission");
+            assert_eq!(shell_page(true, RecoveryAction::Foreign, HealthProbe::Refused, JobState::Foreign, false, macos), "permission");
+        }
+        // macOS never starts an unconfirmed job, so the page stays "starting" until the job is known.
+        assert_eq!(shell_page(false, Start, HealthProbe::Refused, JobState::Unknown, false, true), "starting");
+        // Linux would start `pacer serve` for an unknown job, which needs a CLI.
+        assert_eq!(shell_page(false, Start, HealthProbe::Refused, JobState::Unknown, false, false), "install");
+        assert_eq!(shell_page(false, Wait, HealthProbe::Refused, JobState::Unknown, false, false), "install");
+        assert_eq!(shell_page(false, Wait, HealthProbe::NoAnswer, JobState::Unknown, false, false), "install");
+        // The job isn't queried for other probes; their pages stay (protocol, unreachable).
+        assert_eq!(shell_page(false, Protocol, HealthProbe::Invalid, JobState::Unknown, false, false), "starting");
+        assert_eq!(shell_page(false, Wait, HealthProbe::Unreachable, JobState::Unknown, false, false), "starting");
+    }
+    #[test]
+    fn linux_without_systemd_or_cli_shows_install_instead_of_stuck() {
+        let mut state = Lifecycle::default();
+        for now in 0..70 {
+            let action = state.step(now, HealthProbe::Refused, JobState::Unknown, false);
+            assert_eq!(shell_page(false, action, HealthProbe::Refused, JobState::Unknown, false, false), "install", "{now}");
+        }
     }
     #[test]
     fn missing_cli_page_holds_across_gated_install_passes() {
         let mut state = Lifecycle::default();
         for now in 0..70 {
             let action = state.step(now, HealthProbe::Refused, JobState::NotLoaded, false);
-            assert_eq!(
-                shell_page(false, action, JobState::NotLoaded, false),
-                "install",
-                "{now}"
-            );
+            assert_eq!(shell_page(false, action, HealthProbe::Refused, JobState::NotLoaded, false, true), "install", "{now}");
         }
     }
     #[test]
     fn display_home_abbreviates_only_the_home_prefix() {
         assert_eq!(display_home("/Users/u/.pacer", "/Users/u"), "~/.pacer");
         assert_eq!(display_home("/Users/u", "/Users/u"), "~");
-        assert_eq!(
-            display_home("/Users/user2/.pacer", "/Users/u"),
-            "/Users/user2/.pacer"
-        );
+        assert_eq!(display_home("/Users/user2/.pacer", "/Users/u"), "/Users/user2/.pacer");
         assert_eq!(display_home("/tmp/x", ""), "/tmp/x");
     }
 }

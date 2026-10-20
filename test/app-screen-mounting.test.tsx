@@ -1,3 +1,4 @@
+import { Switch } from "../app/src/ds/Controls";
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
 import { ActionContext } from '../app/src/data/action-context';
@@ -45,9 +46,10 @@ test('host full live sessions switch follows service capability and dispatches b
  expect(HostSessionSwitch({alias:'devbox',host:{},run})).toBeNull();
  for(const [session,enabled] of [['recording',true],['full',false]] as const) {
   const node=HostSessionSwitch({alias:'devbox',host:{session},run})!;
-  const input=(node.props as any).children[1];
-  expect(input.props.checked).toBe(session==='full');
-  input.props.onChange({currentTarget:{checked:enabled}});
+  expect(node.type).toBe(Switch);
+  expect(node.props.checked).toBe(session==='full');
+  expect(node.props['aria-label']).toBe('Full live sessions');
+  node.props.onChange!({currentTarget:{checked:enabled}} as any);
  }
  expect(calls).toEqual([['host.set',{alias:'devbox',session:'full'}],['host.set',{alias:'devbox',session:'recording'}]]);
  expect(renderToString(<HostSessionSwitch alias="devbox" host={{session:'full'}} run={run}/>)).toContain('role="switch"');
@@ -62,4 +64,4 @@ test('session adapter feeds the real brief, acceptance and timeline',()=>{
  expect(sessionRow(task).repo).toBe(task.repo.label);
 });
 
-test("Setup mounts its own screen", () => { expect(html("#/setup")).toContain("Checking setup"); });
+test("Setup mounts its own screen, loaded as its own chunk", () => { expect(html("#/setup")).toContain("Loading Setup"); });

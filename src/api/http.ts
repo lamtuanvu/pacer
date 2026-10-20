@@ -1,4 +1,4 @@
-import { callV2Op, v2Hello } from "./v2-compat";
+import { toV2Snapshot, V2_PROTOCOL, callV2Op, v2Hello } from "./v2-compat";
 import { sessionCookie } from "../serve/app-routes";
 import * as core from "../core";
 import type { Status } from "../engine/status";
@@ -38,7 +38,7 @@ function sse(tailMs: number, poll: (send: (frame: string) => void) => boolean): 
 }
 
 /** Auth is enforced by startServer before dispatching any v2 route. */
-export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?: OpDeps; tailMs?: number; status?: () => Promise<Status> }): Promise<Response> {
+export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?: OpDeps; tailMs?: number; status?: () => Promise<Status>; snapshot?: () => ReturnType<typeof liveSnapshot> }): Promise<Response> {
   const url = new URL(req.url);
   const version=url.pathname.startsWith("/v3/")?3:2;
   const pathname=version===3?url.pathname.replace(/^\/v3\//,"/v2/"):url.pathname;
@@ -68,12 +68,20 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       catch { return errorResponse({ code: "invalid_input", message: "body is not JSON" }); }
       const label=req.headers.get("X-Pacer-Client")??"";
       const client=/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/.test(label)?label:undefined;
-      const result = await (version===3?callOp:callV2Op)(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
+      const result = pathname === "/v2/ops/routing.status" && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
+        ? await deps.status()
+        : await (version===3?callOp:callV2Op)(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
       return Response.json({ result });
     }
     if (req.method !== "GET") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
     if (pathname === "/v2/hello") return Response.json(version===3?helloBody():v2Hello());
-    if (pathname === "/v2/snapshot") return Response.json(await (version===3?liveSnapshot:liveV2Snapshot)(deps.getCtx(), { status: deps.status }));
+    if (pathname === "/v2/snapshot") {
+      if (!deps.snapshot) return Response.json(await (version === 3 ? liveSnapshot : liveV2Snapshot)(deps.getCtx(), { status: deps.status }));
+      const result = await deps.snapshot();
+      if (version === 3) return Response.json(result);
+      const snapshot = toV2Snapshot(result.snapshot);
+      return Response.json({ protocol: V2_PROTOCOL, seq: snapshot.seq, snapshot });
+    }
     if (pathname === "/v2/events") {
       let last = Number(req.headers.get("last-event-id") ?? url.searchParams.get("since") ?? 0);
       if (!Number.isSafeInteger(last) || last < 0) return errorResponse({ code: "invalid_input", message: "since must be a non-negative integer" });

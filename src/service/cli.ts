@@ -2,16 +2,16 @@ import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { readText } from "../install/fsx";
 import { serviceBackend, type ServiceDeps } from "./index";
-export const SERVICE_USAGE = "service install|uninstall|status [--json]|restart|logs [-n N]";
+export const SERVICE_USAGE = "service install [--replace]|uninstall|status [--json]|restart|logs [-n N]";
 export async function serviceCli(args: string[], ctx: Ctx, deps: ServiceDeps = {}): Promise<Result> {
   const [cmd, ...rest] = args;
   const bad = () => ({ code: 2, out: "", err: `usage: pacer ${SERVICE_USAGE}` });
   if (!["install", "uninstall", "status", "restart", "logs"].includes(cmd)) return bad();
-  if (cmd === "status" ? rest.length > 1 || rest.some(x => x !== "--json") : cmd === "logs" ? rest.length !== 0 && (rest.length !== 2 || rest[0] !== "-n" || !/^\d+$/.test(rest[1]) || !Number.isSafeInteger(Number(rest[1]))) : rest.length > 0) return bad();
+  if (cmd === "install" ? rest.length > 1 || rest.some(x => x !== "--replace") : cmd === "status" ? rest.length > 1 || rest.some(x => x !== "--json") : cmd === "logs" ? rest.length !== 0 && (rest.length !== 2 || rest[0] !== "-n" || !/^\d+$/.test(rest[1]) || !Number.isSafeInteger(Number(rest[1]))) : rest.length > 0) return bad();
   try {
     const b = serviceBackend(ctx, deps); let out: string;
     switch (cmd) {
-      case "install": out = ["installed pacer serve", ...await b.install()].join("\n"); break;
+      case "install": out = ["installed pacer serve", ...await b.install({ replace: rest.includes("--replace") })].join("\n"); break;
       case "uninstall": await b.uninstall(); out = "uninstalled pacer serve"; break;
       case "restart": {
         await b.restart(); out = "restarted pacer serve"; break;

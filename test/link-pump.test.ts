@@ -74,10 +74,6 @@ test("a finished task that dropped out of the capped snapshot does not re-alert 
  await pumpOnce(c,{status:async()=>status(),tasks:()=>[broken("one"),broken("two")],publish:async(ctx,envs)=>{let s=(await import("../src/link/store")).readLatest(ctx);for(const e of envs)s=reduce(s,e,ctx.now);writeJsonAtomic(latestPath(ctx),s);return{seq:1,transports:["outbox"],errors:[]};}});
  const snap=(await import("../src/link/store")).readLatest(c);
  expect(snap.alerts.filter(a=>a.notification?.kind==="broken")).toHaveLength(2);
- const {notifyNewAlerts}=await import("../orca-plugin/src/notify");const {readSettings}=await import("../orca-plugin/src/settings");const notes:any[]=[];
- const host={call:async(method:string,params:any)=>{if(method==="notifications.show"){notes.push(params);return{delivered:true};}return{ok:true};}} as any;
- await notifyNewAlerts(host,snap,readSettings({notifications:"important"},c.home),c.now,c.now+31);
- expect(notes).toHaveLength(1);expect(notes[0].body).toContain("2 tasks affected");
  });
 
 test("resolved placement changes publish once while unchanged objects stay quiet",async()=>{
@@ -195,4 +191,25 @@ test("pump dispatches attention notifications once to the active notifier",async
  const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish:(c,envs)=>publish(c,envs)};
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(1);
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(0);
+});
+
+test("legacy failure alerts respect project retry policy and fail closed", async () => {
+  const { capacityFixture, record } = await import("./read-model-helpers");
+  const { writeProjectStrategy } = await import("../src/config/project-strategies");
+  const { join } = await import("node:path");
+  const { writeFileSync } = await import("node:fs");
+  for (const scenario of ["restricted", "unverified", "corrupt"] as const) {
+    const ctx = fakeCtx(), { s, st } = capacityFixture();
+    const repo = { key: "local:0123456789ab", path: ctx.home, name: "fixture", label: "fixture", ...(scenario === "unverified" ? { identityUnverified: true as const } : {}) };
+    await writeProjectStrategy(ctx, repo.key, ["cursor#cursor@local"], 0);
+    if (scenario === "corrupt") writeFileSync(join(ctx.pacerHome, "project-strategies.json"), "broken");
+    writeJsonAtomic(latestPath(ctx), { ...emptySnapshot(), seq: 1 });
+    const t = record("limit", ctx.now, { repo, brief: { repo: ctx.home, goal: "restricted failure" } });
+    const out = await pumpOnce(ctx, { status: async () => st, strategy: () => s, tasks: () => [t], setup: async () => ({ checkedAt: ctx.now, complete: true, ready: true, items: [] }), publish: async () => ({ seq: 2, transports: ["outbox"], errors: [] }) });
+    const alert = out.find(e => e.type === "alert" && e.data.key === `task-${t.id}`);
+    expect(alert?.type).toBe("alert");
+    if (alert?.type !== "alert") throw Error("Missing failure alert");
+    expect(alert.data.notification?.nextExecutor).toBe(scenario === "restricted" ? "cursor" : undefined);
+    expect(alert.data.body).not.toContain("retry on Codex");
+  }
 });

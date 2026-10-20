@@ -57,10 +57,10 @@ test("tray update indicator links shared settings without a second install mecha
   expect(html).toContain('href="/app/#/settings/updates"'); expect(html).toContain("Update ready"); expect(html).not.toContain("Restart to update</button>");
 });
 test("legacy update check does not retrigger on its own update event", async () => {
-  const { resourceInvalidation } = await import('../app/src/screens/settings/shared');
-  expect(resourceInvalidation('update.check', { update: 1, config: 1 })).toBe(resourceInvalidation('update.check', { update: 2, config: 1 }));
-  expect(resourceInvalidation('update.check', { config: 2 })).not.toBe(resourceInvalidation('update.check', { config: 1 }));
-  expect(resourceInvalidation('config.get', { update: 1 })).not.toBe(resourceInvalidation('config.get', { update: 2 }));
+  const { resourceRevision } = await import('../app/src/screens/settings/shared');
+  expect(resourceRevision('update.check', { update: 1, config: 1 })).toBe(resourceRevision('update.check', { update: 2, config: 1 }));
+  expect(resourceRevision('update.check', { config: 2 })).not.toBe(resourceRevision('update.check', { config: 1 }));
+  expect(resourceRevision('config.get', { update: 1 })).not.toBe(resourceRevision('config.get', { update: 2 }));
 });
 test('settings sidebar links the same update state and labels its status',async()=>{
  const {SettingsPanel}=await import('../app/src/shell/SettingsPanel');

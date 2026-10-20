@@ -1,19 +1,19 @@
-import { reasonCopy, sessionTime, timelineCopy } from '../../../../src/view-model/copy';
-import { useDialogs } from '../../ds/useDialogs';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { reasonCopy, sessionTime, timelineCopy } from "../../../../src/view-model/copy";
+import { useDialogs } from "../../ds/useDialogs";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from '../../../../src/core/task-detail';
 import type { ClientTask } from '../../../../src/view-model/snapshot';
 import type { SessionInfo } from '../../../../src/session/service';
-import { markAgent } from '../../../../src/view-model/agents';
-import { clock } from '../../../../src/view-model/time';
-import { running } from '../../../../src/view-model/selectors';
-import { withQuery, type RouteQuery } from '../../router';
-import { keys } from '../../keys/instance';
-import { useActions } from '../../data/action-context';
-import { useQuery, useTaskContext } from '../task-shared';
-import { Session } from './Session';
-import { takeoverSession, type TakeoverState } from './takeover';
-import { SessionsList } from './SessionsList';
+import { markAgent } from "../../../../src/view-model/agents";
+import { clock } from "../../../../src/view-model/time";
+import { running } from "../../../../src/view-model/selectors";
+import { withQuery, type RouteQuery } from "../../router";
+import { keys } from "../../keys/instance";
+import { useActions } from "../../data/action-context";
+import { useQuery, useTaskContext } from "../task-shared";
+import { Session } from "./Session";
+import { takeoverSession, type TakeoverState } from "./takeover";
+import { SessionsList } from "./SessionsList";
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
  return {id:task.id,title:task.fullTitle ?? task.title,goal:task.goal,state:task.state,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,

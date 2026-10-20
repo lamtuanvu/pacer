@@ -58,12 +58,12 @@ test("connectClient falls back when nothing or something else answers", async ()
   expect((await connectClient({ ...c2, env: { PACER_PORT: String(s.port), PACER_API: "inprocess" } })).kind).toBe("inprocess");
 });
 
-test("HTTP snapshots report live task states and the server budget", async () => {
+test("HTTP snapshots read task states without supervision and report the server budget", async () => {
   const { ctx, client } = await serve();
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   updateTask(ctx, t.id, x => { x.state = "running"; x.runnerPid = 2 ** 22 + 7; x.attemptStartedAt = ctx.now; });
   const result = await client.snapshot();
-  expect(result.snapshot.tasks.find(x => x.id === t.id)?.state).toBe("failed");
+  expect(result.snapshot.tasks.find(x => x.id === t.id)?.state).toBe("running");
   expect(result.snapshot.budget?.generatedAt).toBe(ctx.now);
 });
 

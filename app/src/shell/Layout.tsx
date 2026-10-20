@@ -1,3 +1,5 @@
+import { TextAction } from "../ds/Button";
+import { LoadingState } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
@@ -15,7 +17,7 @@ const NEEDS_READ_MODEL = new Set(["overview", "review"]);
 function Skeleton() {
   const [slow, setSlow] = useState(false);
   useEffect(() => { const t = setTimeout(() => setSlow(true), 1000); return () => clearTimeout(t); }, []);
-  if (slow) return <p className="muted">Connecting to pacer…</p>;
+  if (slow) return <LoadingState label="Connecting to pacer…"/>;
   return <div className="pc-skeleton" aria-hidden="true">{[0, 1, 2].map(i => <div key={i} className="pc-skeleton__section"><span /><span /><span /></div>)}</div>;
 }
 /** Rail, optional settings panel, top bar and main. Screens render inside main. */
@@ -27,13 +29,13 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}`}>
-    <a href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</a>
+    <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     <Rail route={route} counts={counts} narrow={narrow} />
     {SETTINGS.has(route.name) && <Panel route={route} counts={counts} snapshot={state.snapshot} />}
     <div className="pc-work">
-      <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review" && route.name !== "setup"} />
+      {route.name !== "setup" && <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} />}
       <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>
-      <main id="main-content" tabIndex={-1} className={`pc-main${["settings","hosts","add-executor","sessions"].includes(route.name)?" pc-main--canvas":""}`}>
+      <main id="main-content" tabIndex={-1} className={`pc-main${["settings","hosts","add-executor","sessions","setup"].includes(route.name)?" pc-main--canvas":""}`}>
         {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : children}
       </main>
     </div>

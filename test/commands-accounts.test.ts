@@ -14,7 +14,9 @@ export function commandCtx() {
 test("account list JSON and CLI dispatch show identities, sources and runners", async () => {
   const ctx=commandCtx(); const r=await main(["account","list","--json"],ctx);
   expect(r.code).toBe(0); const a=JSON.parse(r.out);
-  expect(a.find((x:any)=>x.name==='personal')).toMatchObject({kind:'claude',source:'default',runners:['claude-code'],signedIn:null});
+  // No ~/.claude.json login in the test home, so the default account is signed out.
+  expect(a.find((x:any)=>x.name==='personal')).toMatchObject({kind:'claude',source:'default',runners:['claude-code'],signedIn:false});
+  expect(a.find((x:any)=>x.name==='spare')).toMatchObject({kind:'endpoint',signedIn:null});
 });
 for (const kind of ['claude','codex']) test(`${kind} add creates private home and uses injected interactive login`, async()=>{
   const ctx=commandCtx(); const calls:any[]=[];
@@ -56,14 +58,38 @@ test("Orca links sanitized ids and labels and reports missing home as usage-only
 });
 for(const [command,args] of [
   ['account',['rm','personal']], ['account',['rm','codex']], ['account',['add','claude','Bad/Name','--no-login']],
-  ['account',['add','cursor','work','--no-login']], ['account',['add','endpoint','bad','--usage','metered']],
-  ['account',['add','endpoint','bad','--usage','quota']], ['account',['add','claude','personal','--no-login']],
+  ['account',['add','cursor','work','--no-login']], ['account',['add','endpoint','bad','--usage','quota']], ['account',['add','claude','personal','--no-login']],
   ['runner',['rm','claude-code']], ['runner',['add','codex#personal']], ['runner',['add','codex@remote']],
   ['runner',['add','opencode#spare']], ['runner',['add','invented']], ['account',['rm','missing']], ['runner',['rm','missing']],
 ] as const) test(`refuses ${command} ${args.join(' ')} without changing bytes`,async()=>{
   const ctx=commandCtx(); const p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
   const r=await (command==='account'?accountCmd:runnerCmd)([...args],ctx);
   expect(r.code).not.toBe(0); expect(readFileSync(p,'utf8')).toBe(before);
+});
+const OPENCODE_ONLY = '--model, --name and --cap-usd are only supported by pacer account add opencode <provider>';
+test('edit --model on an existing endpoint is refused and leaves the strategy unchanged',async()=>{
+  const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
+  const r=await accountCmd(['edit','spare','--model','x'],ctx);
+  expect(r.code).not.toBe(0);expect(r.err).toContain(OPENCODE_ONLY);
+  expect(readFileSync(p,'utf8')).toBe(before);
+});
+test('add claude --name is refused and leaves the strategy unchanged',async()=>{
+  const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
+  const r=await accountCmd(['add','claude','work','--no-login','--name','x'],ctx);
+  expect(r.code).not.toBe(0);expect(r.err).toContain(OPENCODE_ONLY);
+  expect(readFileSync(p,'utf8')).toBe(before);
+});
+test('add endpoint --cap-usd is refused and leaves the strategy unchanged',async()=>{
+  const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
+  const r=await accountCmd(['add','endpoint','e','--usage','unmetered','--cap-usd','5'],ctx);
+  expect(r.code).not.toBe(0);expect(r.err).toContain(OPENCODE_ONLY);
+  expect(readFileSync(p,'utf8')).toBe(before);
+});
+test('account add endpoint with metered usage and no budget tracks spend without pacing', async()=>{
+  const ctx=commandCtx();
+  const r=await accountCmd(['add','endpoint','meter','--usage','metered'],ctx);
+  expect(r.code).toBe(0);
+  expect(loadStrategy(ctx).accounts.meter).toMatchObject({kind:'endpoint',usage:'metered',weeklyTokens:null,weeklyUsd:null});
 });
 test('last runner refusal is byte identical',async()=>{
   const ctx=commandCtx(); const p=join(ctx.pacerHome,'strategy.yaml');

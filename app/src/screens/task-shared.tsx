@@ -1,3 +1,4 @@
+import { TextAction } from "../ds/Button";
 import { useActions } from "../data/action-context";
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -17,7 +18,7 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
   if (["task.get", "task.diff", "task.session"].includes(op)) {
     const id = (params as { id?: string } | null)?.id;
     const task = state.snapshot?.tasks.find(task => task.id === id);
-    return JSON.stringify([task?.rev, task?.updatedAt, state.activity.filter(entry => entry.taskId === id)]);
+    return JSON.stringify([...(op === "task.get" ? [state.invalidations["project-strategies"]] : []), task?.rev, task?.updatedAt, state.activity.filter(entry => entry.taskId === id)]);
   }
   return JSON.stringify(state.invalidations);
 }
@@ -73,4 +74,4 @@ export function useDraft<T extends { [K in keyof T]: string }>(key: string, defa
   return [draft, setDraft, clearDraft] as const;
 }
 export { Dialog } from "../ds/Dialog";
-export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <a className="pc-text-action" href={taskHref(id)}>{children}</a>; }
+export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <TextAction className="pc-text-action" href={taskHref(id)}>{children}</TextAction>; }

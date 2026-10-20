@@ -22,6 +22,8 @@ test("plist escapes XML and assembles deterministic argv, home, paths and launch
   expect(text).toContain("a&amp;b&lt;&quot;&apos;&gt;");
   expect(text).toContain('<array><string>/tools/bun</string><string>/repo/a&amp;b&lt;&quot;&apos;&gt;.ts</string><string>serve</string></array>');
   expect(text).toContain("<key>KeepAlive</key><true/>"); expect(text).toContain("<integer>10</integer>");
+  // Background jobs get throttled disk I/O, which stalled the service under memory pressure.
+  expect(text).toContain("<key>ProcessType</key><string>Standard</string>"); expect(text).not.toContain("Background");
   expect(text).toContain("/tmp/p&amp;x/logs/serve.log"); expect(servicePATH(ctx)).toBe("/bin:/usr/bin:/tools");
   expect(plist(ctx, ["x"])).toBe(plist(ctx, ["x"]));
   expect(binaryInFile(text, "darwin")).toBe("/tools/bun");
@@ -43,7 +45,7 @@ test("adopts handwritten launchd plist with one backup, manifest, and correct bo
   const record = readManifest(ctx).planners.service;
   expect(record.pacerArgv).toEqual(["/opt/pacer"]);
   expect(readFileSync(record.files[0].backup!, "utf8")).toBe(old);
-  expect(calls.slice(0, 3)).toEqual([["launchctl", "bootout", "gui/501/com.pacer.serve"], ["launchctl", "bootstrap", "gui/501", path], ["launchctl", "print", "gui/501/com.pacer.serve"]]);
+  expect(calls.slice(0, 4)).toEqual([["launchctl", "print", "gui/501/com.pacer.serve"], ["launchctl", "bootout", "gui/501/com.pacer.serve"], ["launchctl", "bootstrap", "gui/501", path], ["launchctl", "print", "gui/501/com.pacer.serve"]]);
   expect(existsSync(join(ctx.pacerHome, "logs"))).toBe(true);
   await b.install(); expect(readdirSync(join(ctx.pacerHome,"backups/service"))).toHaveLength(1);
   expect((await b.status())).toMatchObject({ installed: true, loaded: true, running: true, pid: 456, lastExitCode: 9, healthy: true, binaryMatches: true });
@@ -54,7 +56,7 @@ test("adopts handwritten launchd plist with one backup, manifest, and correct bo
 test("systemd lifecycle and show parsing", async () => {
   const { ctx, calls, d, path } = fixture("linux"); const b = serviceBackend(ctx, d);
   await b.install(); expect(readFileSync(path, "utf8")).toBe(unit(ctx, ["/opt/pacer"]));
-  expect(calls.slice(0, 2)).toEqual([["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", "pacer-serve.service"]]);
+  expect(calls.slice(0, 3)).toEqual([["systemctl", "--user", "show", "pacer-serve.service", "--property=Environment"], ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", "pacer-serve.service"]]);
   expect(await b.status()).toMatchObject({ loaded: true, running: true, pid: 456, lastExitCode: 9, healthy: true, binaryMatches: true });
   await b.restart(); expect(calls.at(-1)).toEqual(["systemctl", "--user", "restart", "pacer-serve.service"]);
   await b.uninstall(); expect(calls.slice(-2)).toEqual([["systemctl", "--user", "disable", "--now", "pacer-serve.service"], ["systemctl", "--user", "daemon-reload"]]);
@@ -98,6 +100,16 @@ test("restart after update only targets installed files pointing at replaced bin
     ctx.run = async () => ({ code: 1, stdout: "", stderr: "restart failed" });
     await expect(restartAfterUpdate(ctx, bin, d)).rejects.toThrow("restart failed");
   }
+});
+test("update reinstalls a Background launchd job as Standard instead of only restarting it", async () => {
+  const { ctx, calls, d, path } = fixture("darwin");
+  put(path, plist(ctx, ["/opt/pacer"]).replace("<string>Standard</string>", "<string>Background</string>"));
+  expect(await restartAfterUpdate(ctx, "/opt/pacer", d)).toBe(true);
+  expect(readFileSync(path, "utf8")).toBe(plist(ctx, ["/opt/pacer"]));
+  expect(calls.some(c => c[1] === "bootstrap")).toBe(true); expect(calls.some(c => c[1] === "kickstart")).toBe(false);
+  calls.length = 0;
+  expect(await restartAfterUpdate(ctx, "/opt/pacer", d)).toBe(true);
+  expect(calls.map(c => c[1])).toEqual(["kickstart"]);
 });
 test("service refuses source argv before any files or commands are changed", async () => {
  const {ctx,d,calls,path}=fixture();delete ctx.env.PACER_BIN;
@@ -163,4 +175,59 @@ test("bootstrap permanent I/O failures get only one retry before rollback",async
  const {ctx,d,path}=fixture();let attempts=0;
  ctx.run=async a=>a[1]==="bootstrap"?(attempts++,{code:5,stdout:"",stderr:"Input/output error"}):{code:0,stdout:"",stderr:""};
  await expect(serviceBackend(ctx,d).install()).rejects.toThrow("Input/output error");expect(attempts).toBe(2);expect(existsSync(path)).toBe(false);
+});
+
+// Every service-manager call below stays behind the injected runner.
+function ownedJob(platform: string, home: string, port?: number): string {
+  return platform === "darwin"
+    ? `gui/501/com.pacer.serve = {\n\tenvironment = {\n\t\tPACER_HOME => ${home}\n${port === undefined ? "" : `\t\tPACER_PORT => ${port}\n`}\t}\n\tpid = 456\n}`
+    : `Environment="PACER_HOME=${home}"${port === undefined ? "" : ` PACER_PORT=${port}`}\n`;
+}
+function ownerProbe(f: ReturnType<typeof fixture>, stdout: string, code = 0) {
+  const original = f.ctx.run;
+  let first = true;
+  f.ctx.run = async (args, timeout, options) => {
+    if (first && (args[1] === "print" || args.includes("--property=Environment"))) {
+      first = false; f.calls.push(args);
+      return { code, stdout, stderr: code ? "Could not find service" : "" };
+    }
+    return original(args, timeout, options);
+  };
+}
+for (const platform of ["darwin", "linux"]) {
+  for (const mismatch of ["home", "port"]) test(`${platform} refuses foreign ${mismatch} before any write or service mutation`, async () => {
+    const f = fixture(platform);
+    const home = mismatch === "home" ? join(f.ctx.home, "another pacer") : f.ctx.pacerHome;
+    const port = mismatch === "port" ? 5000 : 4317;
+    put(f.path, "original service");
+    ownerProbe(f, ownedJob(platform, home, port));
+    await expect(serviceBackend(f.ctx, f.d).install()).rejects.toMatchObject({
+      name: "CoreError", code: "conflict",
+      message: `Another pacer (PACER_HOME ${home}, port ${port}) owns the login service. Stop it with "pacer service uninstall" from that pacer, or rerun with --replace.`,
+    });
+    expect(readFileSync(f.path, "utf8")).toBe("original service");
+    expect(existsSync(f.ctx.pacerHome)).toBe(false);
+    expect(f.calls).toEqual([platform === "darwin" ? ["launchctl", "print", "gui/501/com.pacer.serve"] : ["systemctl", "--user", "show", "pacer-serve.service", "--property=Environment"]]);
+  });
+  for (const scenario of ["same", "absent", "replace", "symlink"]) test(`${platform} installs when owner is ${scenario}`, async () => {
+    const f = fixture(platform);
+    let home = scenario === "replace" ? join(f.ctx.home, "foreign") : f.ctx.pacerHome;
+    if (scenario === "symlink") {
+      mkdirSync(f.ctx.pacerHome); home = join(f.ctx.home, "alias"); symlinkSync(f.ctx.pacerHome, home);
+    }
+    ownerProbe(f, ownedJob(platform, home), scenario === "absent" ? 3 : 0);
+    const result = await serviceCli(["install", ...(scenario === "replace" ? ["--replace"] : [])], f.ctx, f.d);
+    expect(result.code).toBe(0);
+    expect(readFileSync(f.path, "utf8")).toContain("Managed by pacer service");
+    expect(f.calls.some(a => a.includes(platform === "darwin" ? "bootstrap" : "enable"))).toBe(true);
+  });
+}
+test("launchd owner ignores inherited, default and nested environment blocks", async () => {
+  const f = fixture();
+  ownerProbe(f, `gui/501/com.pacer.serve = {\n\tinherited environment = {\n\t\tPACER_HOME => /foreign\n\t}\n\tdefault environment = {\n\t\tPACER_PORT => 9000\n\t}\n\tendpoint = {\n\t\tenvironment = {\n\t\t\tPACER_HOME => /foreign\n\t\t}\n\t}\n\tenvironment = {\n\t\tPACER_HOME => ${f.ctx.pacerHome}\n\t}\n}`);
+  expect((await serviceCli(["install"], f.ctx, f.d)).code).toBe(0);
+});
+test("service install CLI reports a foreign owner with a failing exit code", async () => {
+  const f = fixture(); ownerProbe(f, ownedJob("darwin", "/foreign"));
+  expect(await serviceCli(["install"], f.ctx, f.d)).toMatchObject({ code: 1, err: expect.stringContaining("Another pacer") });
 });

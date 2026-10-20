@@ -1,4 +1,8 @@
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
+import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
+import { projectSnapshot, requireProjectExecutor } from "../core/project-policy";
+import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy";
+import { projectPolicy, type ProjectSelection } from "../engine/project-routing";
 import { queueCapacity } from "./capacity";
 import { persistTaskDiff } from "./diff";
 import { slotBlock, slotUse } from "../engine/slots";
@@ -29,7 +33,7 @@ import { remoteExclusion } from "../remote/eligibility";
 import { resolveRunner } from "../config/runner-id";
 import { markAuthFailed } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
-import { listTasks, readTask, updateTask } from "./store";
+import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
@@ -113,7 +117,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       const dispatched = t.state === "running" && !t.attemptStartedAt && !t.run && (!t.runnerPid || t.runnerPid === process.pid || !pidAlive(t.runnerPid));
       if(t.state!=="queued" && !resumable && !dispatched)return;
       if(t.state === "queued" && t.runnerPid && pidAlive(t.runnerPid) && !t.queue)return;
-      if(!t.force && t.state==="queued")duplicate=listTasks(ctx,Infinity).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
+      if(!t.force && t.state==="queued")duplicate=listTasksWhere(ctx, { states: ["queued", "running"] }).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
       if(duplicate)return;
       started=true;t.runnerPid=process.pid;delete t.queue;
       if (dispatched) t.attemptStartedAt = Date.now()/1000;
@@ -129,7 +133,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
   let attemptedModel: string | null = null;
   let attemptedBackend = "direct";
   try {
-    const s = deps.loadStrategy(ctx);
+    let s = deps.loadStrategy(ctx);
     const hooks = deps.hooks ?? activeHooks;
     const kind = await safe(() => hooks.taskKind(ctx, task), task.kind);
     const tried = new Set<string>();
@@ -137,10 +141,12 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
     const remoteSkipped = new Map<string, string>();
     let lastLimitReport: string | undefined;
     let requestedUnavailable: string | undefined;
+    let policyChanges = 0;
     let lastBroken: { brokenExecutor: string; brokenReason: string } | undefined;
 
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
       const resuming = i === 0 && task.run && task.run.attempt > task.attempts.length ? task.run : null;
+      let selection: ProjectSelection | undefined;
       let pick: string | undefined;
       let routing: RoutingNote | undefined;
       let pickReason: string | undefined;
@@ -152,19 +158,25 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         if (stopped(ctx, id)) {
           return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
         }
+        s = deps.loadStrategy(ctx);
+        const repo = task.repo && !task.repo.identityUnverified ? task.repo : await resolvePolicyRepo(ctx, task.brief.repo);
+        if (task.repo?.key !== repo.key) task = updateTask(ctx, id, t => { t.repo = repo; });
+        const snapshot = projectSnapshot(ctx, s, repo.key);
+        selection = snapshot.selection;
+        if (!tried.has(task.requestedExecutor ?? "")) requireProjectExecutor(selection, task.requestedExecutor);
         const now = Date.now() / 1000;
         const st = await deps.computeStatus({ ...ctx, now }, s);
         startStatus = st;
         const blocked = readBlocked({ ...ctx, now });
         const broken = readBroken({ ...ctx, now });
         byId = Object.fromEntries(st.providers.map((p) => [p.id, { ...p, ...(blocked[p.id] ? {blockedReason:blocked[p.id].reason,blockedUntil:blocked[p.id].until} : {}), ...(broken[p.id] ? { brokenReason: broken[p.id].reason } : {}) }]));
-        const ranking = rankExecutors(kind, s, byId);
+        const ranking = rankExecutors(kind, s, byId, selection && { executors: selection.executors, order: "configured" });
         // Resolve placement only for a remote candidate; local routing remains
         // unchanged and the backend still owns worktree creation and safety.
         if (ranking.ranked.some(e => resolveRunner(s, e.id)?.host)) {
           const git = await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" }));
           const top = realpathSafe("error" in git ? task.brief.repo : git.top);
-          const busy = listTasks(ctx, Infinity).some(t => {
+          const busy = listTasksWhere(ctx, { states: ["running"] }).some(t => {
             const path = realpathSafe(t.worktree ?? t.result?.worktree ?? t.brief.repo);
             return t.id !== task.id && t.state === "running" && !!t.runnerPid && pidAlive(t.runnerPid)
               && t.placement?.mode === "current" && (path === top || path.startsWith(top + "/"));
@@ -186,9 +198,12 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const requested = req && !tried.has(req) && rankedIds.includes(req);
         const f = requested ? rankedIds : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
         const allowed = Array.isArray(f) ? rankedIds.filter(x => f.includes(x)) : rankedIds;
-        await withLock(ctx, "slots", async () => {
+        let policyChanged = false;
+        await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
+          requirePolicyIdentity(ctx, repo);
+          if (projectRevision(readProjectStrategies(ctx), repo.key) !== snapshot.rev) { policyChanged = true; return; }
           if (stopped(ctx, id)) return;
-          const use = slotUse(listTasks(ctx, Infinity).filter(t => t.id !== id));
+          const use = slotUse(listTasksWhere(ctx, { states: ["running"] }).filter(t => t.id !== id));
           const full = new Set<string>();
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;
@@ -205,7 +220,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
           if (paused || (req && !tried.has(req) && full.has(req)) || (!pick && [...full].some(e => !tried.has(e)))) {
             task = updateTask(ctx, id, t => {
-              const waiting = listTasks(ctx, Infinity).filter(x => x.id !== id && x.state === "queued" && x.queue && x.createdAt <= t.createdAt);
+              const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== id && x.queue && x.createdAt <= t.createdAt);
               t.state = "queued";
               const blockedExecutor = req && full.has(req) ? req : [...full].find(e => !tried.has(e));
               const capacity = !paused && blockedExecutor ? queueCapacity(s, blockedExecutor, use) : undefined;
@@ -219,8 +234,16 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
             return;
           }
           if (req && !requested && !requestedUnavailable) requestedUnavailable = excluded.find(e => e.id === req)?.reason ?? "not in the routing list";
-          if (pick) task = updateTask(ctx, id, t => {t.state = "running"; t.executor = pick; t.attemptStartedAt = now; delete t.queue; delete t.run;});
-        });
+          const fallback = req && pick && pick !== req && requestedUnavailable ? { requested: req, reason: requestedUnavailable, executor: pick } : undefined;
+          if (pick) task = updateTask(ctx, id, t => {
+            t.state = "running"; t.executor = pick; t.attemptStartedAt = now; delete t.queue; delete t.run;
+            if (fallback) t.executorFallback = fallback;
+          });
+        }));
+        if (policyChanged) {
+          if (++policyChanges > 20) throw new Error("Project policy keeps changing; retry once editing is complete");
+          i--; continue;
+        }
         if (task.queue) return task;
       }
       if (!pick) break;
@@ -229,8 +252,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         for (const [executor, reason] of remoteSkipped) if (!skipped.has(executor)) skipped.set(executor, reason);
         if (task.requestedExecutor && requestedUnavailable && !skipped.has(task.requestedExecutor)) skipped.set(task.requestedExecutor, requestedUnavailable);
         routing = {
+          ...(selection ? { policy: projectPolicy(selection) } : {}),
           kind, kindSource: initial.kind === null ? "classifier" : "brief",
-          rule: ruleFor(kind, s).kinds?.join(", ") ?? "everything else", chosen: pick,
+          rule: selection ? "project order" : ruleFor(kind, s).kinds?.join(", ") ?? "everything else", chosen: pick,
           why: [pickReason ?? "available", ...new Set([...remoteSkipped.keys(), ...tried])].map((value, index) => index ? `${value} busy` : value).join("; "),
           skipped: [...skipped].map(([executor, reason]) => ({ executor, reason })),
         };
@@ -360,6 +384,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
     const req = task.requestedExecutor;
     const why = req && !tried.has(req)
       ? `requested executor "${req}" is unavailable (${excluded.find((e) => e.id === req)?.reason ?? "not in the routing list"})`
+      : tried.size >= MAX_ATTEMPTS
+        ? `attempt limit reached (${MAX_ATTEMPTS}); every executor tried hit a limit (${[...tried].join(", ")})`
       : tried.size
         ? `every executor tried hit a limit (${[...tried].join(", ")})`
         : `no executor available (${excluded.map((e) => `${e.id}: ${e.reason}`).join(", ") || "none configured"})`;

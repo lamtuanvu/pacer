@@ -1,162 +1,133 @@
-import { basename } from "node:path";
-import { attachDirectory, attachSession } from "../session/attach";
-import { openCmd } from "../commands/open";
-import { dashboardClient } from "./client";
-import { setupAction } from "./setup";
-import type { SetupChecklist } from "../setup/checklist";
-import { readUpdateCheck, updateLine } from "../update/check";
 import { StringDecoder } from "node:string_decoder";
+import { attachDirectory, attachSession } from "../session/attach";
+import { pacerArgv } from "../install/self";
+import { currentVersion } from "../update/version";
+import { updateState } from "./screens/common";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
-import { emptySnapshot, type CmdData } from "../link/envelope";
-import { listStrategies } from "../link/strategies";
-import { loadStrategy } from "../config/strategy";
-import { readTask } from "../tasks/store";
-import { delegate, taskStop } from "../tasks/api";
-import { use as switchStrategy } from "../strategy/service";
-import { selfHandle, resolveWorktreePath } from "../console/cli";
-import { consoleCommands, type ConsoleDeps } from "../console/console";
-import { cards, actionAvailable, type DashboardAction } from "./model";
-import type { ClientSnapshot } from "../view-model/snapshot";
-import { attachViewer, delegateViaClient, refreshView, runCommand, withFallback } from "./data";
-import { DashboardSettings, terminalLogin } from "./settings";
-import { renderDashboard } from "./render";
-import { Keys, moveSelection, selectionAction, viewerAction, updateKey, UPDATE_PROMPT } from "./input";
-export const ENTER_SCREEN="\x1b[?1049h\x1b[?25l";
-export const LEAVE_SCREEN="\x1b[0m\x1b[?25h\x1b[?1049l";
-export async function runDashboard(args:string[],ctx:Ctx):Promise<Result> {
- if(args.length)return {code:2,out:"",err:"usage: pacer dashboard\n"};
- if(!process.stdin.isTTY||!process.stdout.isTTY)return {code:2,out:"",err:"pacer dashboard needs an interactive terminal\n"};
- let setup:SetupChecklist|undefined;
- let selected=0,help=false,message="",messageUntil=0,busy=false,suspended=false,closed=false,exitError="";
- let statusTimer:ReturnType<typeof setTimeout>|undefined;
- let prompt:null|{type:"update"|"delegate"|"strategy";step:number;value:string;goal:string;repo:string;names:string[]}=null;
- const branchResult=await ctx.run(["git","-C",process.cwd(),"branch","--show-current"],10_000);
- const branch=branchResult.code===0?branchResult.stdout.trim()||"HEAD":"—";
- const repo=basename(process.cwd());
- const primary=await dashboardClient(ctx);
- let ops:readonly string[]=[];
- let confirmation: DashboardAction | undefined;
- let confirmationPreview:string[]|undefined;
- let snapshot:ClientSnapshot=emptySnapshot();let inFlight:Promise<void>|undefined;
- const fresh=():Ctx=>({...ctx,now:Date.now()/1000});
- const draw=()=>{if(closed||suspended)return;process.stdout.write("\x1b[H\x1b[2J"+renderDashboard(snapshot,process.stdout.columns||80,process.stdout.rows||24,Date.now()/1000,{repo,branch,ops,settings,setup,preview:confirmationPreview,updateLine:snapshot.desktopUpdates?.length?undefined:updateLine(readUpdateCheck(fresh())),selected,help,noColor:ctx.env.NO_COLOR!==undefined,message:Date.now()<messageUntil?message:"",prompt:confirmation&&"op" in confirmation?`${confirmationPreview?"Proceed?":confirmation.confirm} (y/n)`:prompt?`${prompt.type==="update"?UPDATE_PROMPT:prompt.type==="strategy"?`Strategy (${prompt.names.map((n,i)=>`${i+1}:${n}`).join(" ")})`: ["Goal",`Repo [${prompt.repo}]`,"Kind (optional)"][prompt.step]}: ${prompt.value}`:undefined}));};
- const report=(text:string)=>{message=text.split(/\r?\n/).filter(Boolean).at(-1)??"";messageUntil=Date.now()+5000;clearTimeout(statusTimer);statusTimer=setTimeout(draw,5000);draw();};
- const local=await dashboardClient(ctx,true);
- const client=withFallback(primary,()=>local,()=>report("pacer serve unavailable; working locally"));
- const refresh=()=>{
-  if(closed)return Promise.resolve();
-  if(inFlight)return inFlight;
-  const c=fresh();
-  inFlight=Promise.all([refreshView(client,{snapshot,selected,now:c.now,ops}),client.hello()]).then(([view,hello])=>{
-   ops=hello.ops;
-   if(closed)return;
-   snapshot=view.snapshot;if(snapshot.setup)setup={checkedAt:c.now,complete:snapshot.setup.complete,ready:snapshot.setup.ready??false,items:snapshot.setup.items};selected=view.selected;draw();
-  }).catch(e=>{if(!closed)report(String(e));}).finally(()=>{inFlight=undefined;});
-  return inFlight;
- };
- const reportOp=(text:string)=>{report(text);if(!text.startsWith("pacer: "))void refresh();};
- const use=async(name:string)=>{await command({cmd:"use",strategy:name});};
- const deps:ConsoleDeps={delegate,readTask,taskStop,configuredExecutors:c=>Object.keys(loadStrategy(c).providers),useStrategy:switchStrategy,listStrategies,statusText:async()=>"",pump:async()=>{refresh();return [];},heartbeat(){},resolveWorktreePath,selfHandle,every:()=>()=>{},pid:process.pid,cwd:process.cwd()};
- const startDelegate=(repo:string)=>{prompt={type:"delegate",step:0,value:"",goal:"",repo,names:[]};};
- const chooseStrategy=()=>{prompt={type:"strategy",step:0,value:"",goal:"",repo:"",names:listStrategies(fresh())};};
- const settings=new DashboardSettings(ctx,{ops:()=>ops,changed:()=>{draw();},report,command:data=>command(data),snapshot:()=>snapshot,login:(argv,env)=>terminalLogin(argv,{...ctx.env,...env},{
-  suspend(){suspended=true;clearTimeout(escapeTimer);keys.flush();process.stdin.off("data",input);process.stdin.pause();process.stdin.setRawMode(false);process.stdout.write(LEAVE_SCREEN);},
-  resume(){if(closed)return;process.stdin.setRawMode(true);process.stdout.write(ENTER_SCREEN);process.stdin.on("data",input);process.stdin.resume();suspended=false;refresh();}
- })});
- const fallback=consoleCommands(ctx,deps,report,{startDelegate,chooseStrategy,use,refresh:async()=>{refresh();report("Refreshed");}});
- const open=async(screen:string)=>{const result=await openCmd(screen?[screen]:[],fresh());report(result.err||result.out||"Opened pacer.");};
- const command=async(data:DashboardAction)=>{
-  if(!actionAvailable(data,ops))return;
-  if("op" in data&&data.confirm){confirmation=data;if(data.op==="service.install")confirmationPreview=["Run pacer in the background at login?","It keeps budgets fresh and runs delegated tasks."];draw();return;}
-  await runCommand(client,data,fallback,reportOp,open);
- };
- let finish!:(code:number)=>void;const done=new Promise<number>(resolve=>{finish=resolve;});
- const quit=(code=0)=>{if(closed)return;closed=true;finish(code);};
- const handle=async(key:string)=>{
-  if(key==="interrupt"){quit(130);return;}
-  if(confirmation){
-   const action=confirmation;
-   if(key.toLowerCase()==="y"){confirmation=undefined;confirmationPreview=undefined;await runCommand(client,action,fallback,reportOp,open);}
-   else if(["n","N","escape","enter"].includes(key)){confirmation=undefined;confirmationPreview=undefined;}
-   draw();return;
+import { dashboardClient } from "./client";
+import { withFallback } from "./data";
+import { Dashboard } from "./controller";
+import { Keys } from "./input";
+import type { ScreenId } from "./state";
+import { detectTheme } from "./theme";
+
+export const ENTER_SCREEN = "\x1b[?1049h\x1b[?25l";
+export const LEAVE_SCREEN = "\x1b[0m\x1b[?25h\x1b[?1049l";
+export const USAGE = "usage: pacer dashboard [--plain] [--once [--screen home|review|sessions|settings] [--width N]]\n";
+const SCREENS: ScreenId[] = ["home", "review", "sessions", "settings", "setup"];
+
+interface Options { plain: boolean; once: boolean; screen: ScreenId; width?: number }
+export function parseArgs(args: string[]): Options | string {
+  const options: Options = { plain: false, once: false, screen: "home" };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--plain") options.plain = true;
+    else if (arg === "--once") options.once = true;
+    else if (arg === "--screen" && SCREENS.includes(args[i + 1] as ScreenId)) options.screen = args[++i] as ScreenId;
+    else if (arg === "--width" && /^\d+$/.test(args[i + 1] ?? "") && Number(args[i + 1]) >= 40) options.width = Number(args[++i]);
+    else return USAGE;
   }
-  if(settings.open||key===","&&!prompt){await settings.handle(key);draw();return;}
-  if(prompt){
-   if(key==="escape"){prompt=null;draw();return;}
-   if(prompt.type==="update") {
-    const action=updateKey(key,true);
-    if(action && typeof action!=="string"){prompt=null;await command(action);}
-    else if(action==="cancel"){prompt=null;report("Update cancelled");}
-    draw();return;
-   }
-   if(key==="backspace")prompt.value=Array.from(prompt.value).slice(0,-1).join("");
-   else if(key==="enter"){
-    const p=prompt,value=p.value.trim();p.value="";
-    if(p.type==="strategy"){prompt=null;if(value)await use(/^\d+$/.test(value)?p.names[Number(value)-1]??value:value);}
-    else if(p.step===0){if(!value){prompt=null;report("Delegate cancelled");}else{p.goal=value;p.step++;}}
-    else if(p.step===1){p.repo=value||p.repo;p.step++;}
-    else {prompt=null;await delegateViaClient(client,{goal:p.goal,repo:p.repo,...(value?{kind:value}:{})},reportOp);}
-   }else if(key.length && !["up","down"].includes(key)&&!/[\x00-\x1f\x7f]/.test(key))prompt.value+=key;
-   draw();return;
+  if ((options.screen !== "home" || options.width !== undefined) && !options.once) return USAGE;
+  return options;
+}
+
+/** Collapse the empty body of a one-shot frame so output is as long as its content. */
+export function trimFrame(frame: string): string {
+  const lines = frame.split("\n"), footer = lines.length - 3;
+  let end = footer;
+  while (end > 3 && !lines[end - 1]!.trim()) end--;
+  return [...lines.slice(0, end), ...lines.slice(footer)].map(line => line.trimEnd()).join("\n");
+}
+
+export async function runDashboard(args: string[], ctx: Ctx): Promise<Result> {
+  const options = parseArgs(args);
+  if (typeof options === "string") return { code: 2, out: "", err: options };
+  if (!options.once && (!process.stdin.isTTY || !process.stdout.isTTY)) return { code: 2, out: "", err: "pacer dashboard needs an interactive terminal; use --once to print one frame\n" };
+  const theme = detectTheme(ctx.env, options.once ? false : process.stdout.isTTY === true, { plain: options.plain });
+  const primary = await dashboardClient(ctx), localClient = await dashboardClient(ctx, true);
+  let dash!: Dashboard;
+  const client = withFallback(primary, () => localClient, () => dash.fallback());
+  let closed = false, suspended = false;
+  const write = (frame: string) => {
+    if (closed || suspended || options.once) return;
+    // Overwrite in place instead of clearing the screen, so frames do not flicker.
+    process.stdout.write(`\x1b[H${frame.split("\n").join("\x1b[K\n")}\x1b[K\x1b[J`);
+  };
+  dash = new Dashboard({
+    client, theme, version: currentVersion(), cwd: process.cwd(), write,
+    now: () => Date.now() / 1000,
+    size: () => ({ width: options.width ?? process.stdout.columns ?? 100, height: options.once ? 200 : process.stdout.rows ?? 24 }),
+    // The environment switch is known before Settings reads update.check; Settings shows the same "off".
+    update: () => ctx.env.PACER_NO_UPDATE_CHECK ? "disabled" : updateState(dash.data.settings.update?.value),
+  });
+  dash.state = { ...dash.state, screen: options.screen };
+
+  if (options.once) {
+    try {
+      await dash.refresh();
+      await dash.settle();
+      return { code: 0, out: `${trimFrame(dash.render())}\n`, err: "" };
+    } finally { closed = true; client.close(); localClient.close(); }
   }
-  if(key==="q"){quit();return;}
-  if(key==="?"){help=!help;draw();return;}
-  const onboarding=setup&&setupAction(key,setup,ops);
-  if(onboarding){
-   if(onboarding==="add-executor")report("pacer runner add");
-   else if(onboarding.op==="agent.connect"){
-    const preview=await client.call<{files:string[];undo:string;detail?:string}>("agent.preview",{agent:onboarding.params.agent});
-    confirmationPreview=[`Connect ${onboarding.params.agent}?`,...preview.files,...(preview.detail?[preview.detail]:[]),`Undo: ${preview.undo}`,"No MCP servers will be added."];
-    await command({...onboarding,confirm:`Connect ${onboarding.params.agent}? Files: ${preview.files.join(", ")}${preview.detail?`. ${preview.detail}`:""}. Undo: ${preview.undo}. No MCP servers will be added.`});
-   }else await command(onboarding);
-   draw();return;
+
+  let exitError = "";
+  let finish!: (code: number) => void;
+  const done = new Promise<number>(resolve => { finish = resolve; });
+  const quit = (code = 0) => { if (closed) return; closed = true; finish(code); };
+  const keys = new Keys(), decoder = new StringDecoder("utf8");
+  let escapeTimer: ReturnType<typeof setTimeout> | undefined, queue = Promise.resolve(), busy = false;
+  const raw = process.stdin.isRaw;
+  const suspend = () => { suspended = true; clearTimeout(escapeTimer); keys.flush(); process.stdin.off("data", input); process.stdin.setRawMode(false); process.stdout.write(LEAVE_SCREEN); };
+  const resume = () => { if (closed) return; process.stdin.setRawMode(true); process.stdout.write(ENTER_SCREEN); process.stdin.on("data", input); process.stdin.resume(); suspended = false; dash.draw(); };
+  dash.deps.attachHere = async id => { suspend(); try { await attachSession(attachDirectory({ ...ctx, now: Date.now() / 1000 }, id), {}, `pacer ${id}`); } finally { resume(); } };
+  dash.deps.handoff = async argv => {
+    suspend();
+    try { return await Bun.spawn([...pacerArgv(ctx.env), ...argv], { env: ctx.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" }).exited; }
+    finally { resume(); }
+  };
+  const run = (key: string) => {
+    // Quit stays responsive while a slow action or the first snapshot is pending.
+    if (key === "interrupt" || key === "q" && busy && !dash.state.overlay) { quit(key === "interrupt" ? 130 : 0); return; }
+    queue = queue.then(async () => {
+      if (closed) return;
+      busy = true;
+      try { if (await dash.key(key) === "quit") quit(0); }
+      catch (error) { dash.reportError(error); }
+      finally { busy = false; }
+    });
+  };
+  const input = (chunk: Buffer) => {
+    clearTimeout(escapeTimer);
+    for (const key of keys.feed(decoder.write(chunk))) run(key);
+    escapeTimer = setTimeout(() => { for (const key of keys.flush()) run(key); }, 30);
+  };
+  const interrupt = () => { if (!suspended) quit(130); }, terminate = () => quit(143), hangup = () => quit(129);
+  const crash = (error: unknown) => { exitError = `pacer: ${error instanceof Error ? error.message : String(error)}`; quit(1); };
+  const restore = () => { process.stdin.setRawMode(raw); process.stdout.write(LEAVE_SCREEN); };
+  const redraw = () => dash.draw();
+  let timer: ReturnType<typeof setInterval> | undefined, spinner: ReturnType<typeof setInterval> | undefined, unsubscribe: (() => void) | undefined;
+  process.on("exit", restore);
+  try {
+    process.stdin.setRawMode(true); process.stdin.resume(); process.stdout.write(ENTER_SCREEN);
+    process.stdin.on("data", input); process.stdin.on("end", quit); process.stdout.on("resize", redraw);
+    process.on("SIGINT", interrupt); process.on("SIGTERM", terminate); process.on("SIGHUP", hangup);
+    process.on("uncaughtException", crash); process.on("unhandledRejection", crash);
+    dash.draw();
+    void dash.refresh().then(() => {
+      if (closed) return;
+      unsubscribe = client.subscribe(dash.snapshot.seq, () => { void dash.refresh(); });
+      if (dash.supports("update.check")) void client.call("update.check", {}).then(value => { dash.data.settings.update = { value: value as never }; dash.draw(); }).catch(() => {});
+    });
+    timer = setInterval(() => { void dash.refresh(); }, 2000);
+    if (theme.motion) spinner = setInterval(() => dash.tick(), 120);
+    return { code: await done, out: "", err: exitError };
+  } finally {
+    closed = true; unsubscribe?.(); client.close(); localClient.close();
+    clearInterval(timer); clearInterval(spinner); clearTimeout(escapeTimer);
+    process.stdin.off("data", input); process.stdin.off("end", quit); process.stdin.pause(); process.stdout.off("resize", redraw);
+    process.off("SIGINT", interrupt); process.off("SIGTERM", terminate); process.off("SIGHUP", hangup);
+    process.off("uncaughtException", crash); process.off("unhandledRejection", crash); process.off("exit", restore);
+    restore();
   }
-  const all=cards(snapshot,Date.now()/1000,ops).flatMap(g=>g.cards),card=all[selected];
-  if(["up","down","j","k"].includes(key))selected=moveSelection(key,selected,all.length);
-  else if(key==="d"&&ops.includes("task.delegate"))startDelegate(process.cwd());
-  else if(key==="s"&&ops.includes("strategy.use"))chooseStrategy();
-  else if(key==="r"){refresh();}
-  else if(settings.updateShortcut(key)){}
-  else if(key==="c")await command(updateKey(key) as import("../link/envelope").CmdData);
-  else if(updateKey(key)==="confirm"&&ops.includes("update.apply"))prompt={type:"update",step:0,value:"",goal:"",repo:"",names:[]};
-  else {
-   const viewer=viewerAction(key,card);
-   if(viewer&&ops.includes("task.attach")){
-    await attachViewer(client,viewer,async()=>{
-     const c=fresh();
-     suspended=true;clearTimeout(escapeTimer);keys.flush();process.stdin.off('data',input);process.stdin.setRawMode(false);process.stdout.write(LEAVE_SCREEN);
-     try{await attachSession(attachDirectory(c,viewer.id),{},`pacer ${viewer.id}`);}
-     finally{if(!closed){process.stdin.setRawMode(true);process.stdout.write(ENTER_SCREEN);process.stdin.on('data',input);process.stdin.resume();suspended=false;void refresh();}}
-    },report);
-   }else{const action=selectionAction(key,card);if(action)await command(action);}
-  }
-  draw();
- };
- const keys=new Keys(),decoder=new StringDecoder("utf8");let escapeTimer:ReturnType<typeof setTimeout>|undefined;
- let queue=Promise.resolve();
- const run=(key:string)=>{
-  if(key==="interrupt" || key==="q"&&busy&&!prompt&&!settings.open){quit(key==="interrupt"?130:0);return;}
-  queue=queue.then(async()=>{if(closed)return;busy=true;try{await handle(key);}catch(e){report(`pacer: ${e instanceof Error?e.message:String(e)}`);}finally{busy=false;}});
- };
- const input=(chunk:Buffer)=>{clearTimeout(escapeTimer);for(const key of keys.feed(decoder.write(chunk)))run(key);escapeTimer=setTimeout(()=>{for(const key of keys.flush())run(key);},30);};
- const interrupt=()=>{if(!suspended)quit(130);},terminate=()=>quit(143),hangup=()=>quit(129);
- const crash=(error:unknown)=>{exitError=`pacer: ${error instanceof Error?error.message:String(error)}`;report(exitError);quit(1);};
- const raw=process.stdin.isRaw;
- const restore=()=>{process.stdin.setRawMode(raw);process.stdout.write(LEAVE_SCREEN);};
- let timer:ReturnType<typeof setInterval>|undefined;
- let unsubscribe:(()=>void)|undefined;
- process.on("exit",restore);
- try {
-  process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write(ENTER_SCREEN);
-  process.stdin.on("data",input);process.stdin.on("end",quit);process.stdout.on("resize",draw);
-  process.on("SIGINT",interrupt);process.on("SIGTERM",terminate);process.on("SIGHUP",hangup);process.on("uncaughtException",crash);process.on("unhandledRejection",crash);
-  draw();
-  void refresh().then(()=>{if(!closed)unsubscribe=client.subscribe(snapshot.seq,()=>{void refresh();});});
-  timer=setInterval(()=>{try{void refresh();}catch(e){report(String(e));}},2000);
-  return {code:await done,out:"",err:exitError};
- }finally{
-  closed=true;unsubscribe?.();client.close();local.close();clearInterval(timer);clearTimeout(escapeTimer);clearTimeout(statusTimer);process.stdin.off("data",input);process.stdin.off("end",quit);process.stdin.pause();process.stdout.off("resize",draw);
-  process.off("SIGINT",interrupt);process.off("SIGTERM",terminate);process.off("SIGHUP",hangup);process.off("uncaughtException",crash);process.off("unhandledRejection",crash);process.off("exit",restore);restore();
- }
 }

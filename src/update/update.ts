@@ -88,6 +88,9 @@ function installHint(d: UpdateDeps): string | undefined {
   })) {
     return "pacer was installed with Homebrew; update with: brew upgrade pacer";
   }
+  if (/\.app\/Contents\/(MacOS|Resources)\/pacer$/.test(real)) {
+    return "pacer came with the pacer app; update the app instead (download it again from https://github.com/lamtuanvu/pacer/releases/latest)";
+  }
   return undefined;
 }
 

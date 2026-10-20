@@ -20,7 +20,7 @@ providers:
   const line = (await statusLine(ctx, JSON.stringify({ rate_limits: rateLimits })))
     .replace(/\x1b\[[0-9;]*m/g, "");
 
-  expect(line).toContain("Claude 40%·49");
+  expect(line).toContain("Claude Code 40%·49");
   expect(await Bun.file(join(ctx.pacerHome, "cache", "claude-rate-limits.json")).json())
     .toEqual({ ...rateLimits, captured_at: ctx.now });
 });

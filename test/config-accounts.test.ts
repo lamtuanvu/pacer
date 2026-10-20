@@ -108,7 +108,7 @@ test("account location restrictions and usage validation are enforced", () => {
     { kind: "claude", home: 123 },
     { kind: "codex", orca_account: "" },
     { kind: "unknown" },
-    { kind: "endpoint", usage: "metered" },
+    { kind: "endpoint", usage: "metered", budget: { weekly_tokens: "1M", weekly_usd: 1 } },
     { kind: "endpoint", usage: "quota" },
     { kind: "cursor", usage: "quota" },
     { kind: "claude", usage_source: "unknown" },

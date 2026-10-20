@@ -25,8 +25,8 @@ pacer runner add claude-code#work
 pacer config set planner claude-code#work
 ```
 
-A pacer-managed account uses a new folder under `~/.pacer/accounts/<name>`,
-created with permissions 0700. Choose another new folder with `--home <dir>`.
+A pacer-managed account uses a new folder, `~/.<kind>-<name>` (for example
+`~/.claude-work` or `~/.codex-work`), created with permissions 0700. Choose another new folder with `--home <dir>`.
 Claude starts with `CLAUDE_CONFIG_DIR` pointing at that folder; run `/login`,
 then exit to return to pacer. Codex runs `codex login` with `CODEX_HOME` set.
 The login process inherits your terminal. `--no-login` configures the account
@@ -54,12 +54,76 @@ reporting but cannot execute tasks or become an installed planner.
 
 ## Endpoint accounts (OpenCode)
 
-Run `pacer account add` and choose **Model endpoint (OpenCode)**. Enter a name,
-an HTTP(S) base URL and a hidden API key (leave it empty for a local server with
-no key). pacer discovers models through `/models`, lets you choose which to use,
+Run `pacer account add` and choose **Model endpoint (OpenCode)**. pacer first
+looks for models you can already use and lists them:
+
+- **Already signed in to OpenCode**: providers from `opencode auth list` and
+  your `opencode.json`. pacer refers to the provider and never reads or copies
+  its key, so rotating the key in OpenCode just works.
+- **Running on this machine**: Ollama (`localhost:11434`) and LM Studio
+  (`localhost:1234`), when they answer within a second.
+- **Connect a provider**: search the models.dev catalog (the data OpenCode
+  uses, cached for 24 hours in `~/.pacer/cache/models.json`). pacer runs
+  `opencode auth login <provider>` in the same terminal; OpenCode asks for the
+  key and stores it. pacer never sees it.
+- **Enter a URL yourself**: the pacer-managed connection described below.
+
+For a detected provider, pacer recommends one model that can call tools and
+produce text (`/` searches the others), sets the usage type from the catalog and
+asks only when the catalog cannot tell, offers an optional **weekly spend cap in
+dollars** for metered usage, suggests a name and offers the test task. Every
+prompt accepts its default on Enter. Providers that already have an account show
+`added as <name>`.
+
+```sh
+pacer account add opencode openrouter --cap-usd 10
+pacer account add opencode openrouter --model z-ai/glm-5.3 --name or-glm --no-test
+```
+
+Without `--model`, the recommended model is used. `--usage` sets the usage type
+when the catalog cannot tell; a weekly dollar cap applies only to metered usage
+and is refused otherwise. A provider account is stored
+with `source: opencode` and no connection or key:
+
+```yaml
+accounts:
+  openrouter:
+    kind: endpoint
+    source: opencode
+    provider: openrouter
+    usage: metered
+    budget: {weekly_usd: 10}   # optional; omitted means no cap
+```
+
+Its runner model is `<provider>/<model>`. OpenCode merges pacer's generated
+config with yours and resolves the key itself. If the provider is later signed
+out of OpenCode, the next check reports **Key missing — run `opencode auth login
+<provider>`**. Spend is read in dollars from `opencode stats --cost` and is always
+shown in `pacer account list` and Settings › Accounts ("$3.20 this week", or
+"$3.20 of $5 this week" with a cap, plus "cap reached" once it is reached). With a cap, the reading has a `7d $` window whose used
+percent is spend divided by the cap, and pacing treats a reached cap like any full
+window. Accounts without `connection` or `source` stay **External OpenCode
+provider** accounts (see [Legacy endpoint budgets](#legacy-endpoint-budgets));
+to get the provider checks and dollar spend, add the provider again with
+`pacer account add opencode <provider>`.
+
+### Endpoints at your own URL
+
+Choose **Enter a URL yourself**, then enter a name, an HTTP(S) base URL, where to keep the key (`keychain`, `file`, `env:VAR` or
+`none`; blank picks Keychain on macOS and a file elsewhere) and, for Keychain or
+file storage, a hidden API key (leave it empty for a local server with no key).
+pacer discovers models through `/models`, lets you choose which to use,
 and asks for context and output limits when the server does not provide them
-(defaults: 128K context and 16K output). Choose quota, metered or unmetered usage,
-then accept the optional test task.
+(defaults: 128K context and 16K output). Choose the usage type, each with a
+one-line explanation: quota (a plan with limits), metered (pay per token) or
+unmetered (free or local). Then accept the optional test task. Metered usage may
+set a weekly token budget (for example `50M`); leave it blank for none. Quota usage reads its quota with `arkcli`, the only supported
+quota source, so a blank answer selects it; pacer warns when `arkcli` is not on
+`PATH`, because the account's usage stays unknown until it is installed.
+
+Each answer is checked when you enter it. An invalid kind, name, key storage,
+usage, budget or quota source is explained and asked again without losing earlier
+answers. If saving still fails, the full reason is shown.
 
 If the URL is unreachable, pacer asks you to check it and try again. A 401/403
 asks for the key again; a server without `/models` allows manual model ids.
@@ -84,7 +148,7 @@ pacer account add endpoint local --base-url http://localhost:1234/v1 \
 
 With `--key keychain` or `--key file`, pipe the key on stdin; never put its value
 in command arguments. `--context` and `--output` set model limits (defaults 128K
-and 16K). Metered usage also needs `--weekly-tokens`, and quota usage needs
+and 16K). Metered usage may add `--weekly-tokens`; quota usage needs
 `--quota-source arkcli`.
 
 ### Keys and generated config
@@ -119,7 +183,7 @@ optional detail and last test time (`checked_at`).
 | State | Meaning |
 | --- | --- |
 | Ready (`ready`) | Last test task passed |
-| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit |
+| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit. Routing still uses the runner; the Executors screen, Overview and tray show it as Not tested, not Ready |
 | Not working (`not_working`) | Test failed; reason is recorded and routing excludes the runner |
 | Key missing (`key_missing`) | Stored key or environment variable is absent; routing excludes the runner |
 | External OpenCode provider (`external`) | Legacy endpoint without a managed connection |
@@ -164,8 +228,10 @@ pacer account add endpoint local --usage unmetered
 pacer runner add opencode#local --model ollama/qwen3
 ```
 
-Metered accounts require a positive weekly token budget; `K`, `M` and `G`
-suffixes are accepted. Quota endpoints require `--quota-source arkcli`.
+A metered account's weekly token budget is optional and, when set, must be
+positive; `K`, `M` and `G` suffixes are accepted. A dollar cap is set with
+`budget.weekly_usd` on the account in `strategy.yaml`; nothing migrates
+automatically. Quota endpoints require `--quota-source arkcli`.
 OpenCode runners require a `<provider>/<model>` model, either inherited from
 an account's YAML `model` setting or supplied with `runner add --model`.
 New runners are added to routing's default rule.
@@ -180,9 +246,34 @@ pacer account rm acme
 ```
 
 Account JSON includes kind, source, folder or Orca id, usage settings and
-`usageReading`, runner ids, `runnable`, and `signedIn`. Native sign-in state is
-`null` because pacer does not inspect credentials; a linked Orca identity is
-reported as signed in. Runner JSON includes id, agent, account, host and model.
+`usageReading`, runner ids, `runnable`, and `signedIn`. Runner JSON includes id,
+agent, account, host and model.
+
+### Sign-in state
+
+`signedIn` is the account's local sign-in on this machine. One check supplies it
+to `account list`, routing (`pacer route`), the Executors and Accounts screens,
+account attention and `runner.check`:
+
+| Account | `signedIn` |
+| --- | --- |
+| Claude, Codex or Cursor with a local runner or no runners | `true` when the agent's own config shows a login, otherwise `false`; also `false` after an authentication failure recorded since that login |
+| Used only by remote runners | `false` after a recorded authentication failure, otherwise `null` (the login lives on the host) |
+| Orca account whose folder is missing | `true` for a linked Orca identity, otherwise `null` |
+| Endpoint | `null`: endpoints use keys, so their endpoint state (Ready, Not tested, Not working, Key missing) is shown instead |
+
+The login check never reads credentials. It looks for an `oauthAccount` entry in
+Claude's `.claude.json`, the presence of Codex's `auth.json`, or Cursor's
+`authInfo`, in the account's folder, or for the agent's API key variable in
+pacer's environment. A recorded authentication failure stops counting once the
+agent rewrites that file, for example after you log in again.
+
+A signed-out executor is excluded from routing with the reason
+`signed out — <fix>`, shown as Unavailable with that reason in the Executors
+table, and raises one **Sign in** attention item for its account. `signin_command`
+and the app's **Fix sign-in** appear only for a native account that is signed out.
+The planner's own runner is not excluded this way; setup reports a signed-out
+planner instead.
 
 Account removal is refused while the planner or any runner uses the account.
 Runner removal is refused for the planner and the last runner; successful

@@ -13,9 +13,8 @@ while preserving later user edits. `pacer doctor` reports skill integrity.
 MCP is optional: `pacer install <planner> --mcp` registers it. A default reinstall
 leaves an existing pacer MCP entry unchanged; `--no-mcp` explicitly removes it.
 `pacer update` replaces the binary and refreshes every installed planner’s skill, policy and hooks
-with the new binary, preserving each planner’s MCP choice. It also refreshes the managed Orca
-plugin folder when installed; turn pacer off and on in Orca Settings > Plugins to load it.
-`--no-reinstall` skips both refreshes;
+with the new binary, preserving each planner’s MCP choice.
+`--no-reinstall` skips the refresh;
 `--check` only checks, and `--to <version>` forces replacement and refresh even at the same version.
 Refresh failures warn and do not stop other integrations or fail the update.
 
@@ -103,13 +102,21 @@ JSON contracts:
 | status | generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors |
 | route | kind, ranked, excluded |
 | limits check | Array of per-account usage, source, capture time, freshness, runners, error and hint rows |
-| delegate | id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields |
-| tasks id, wait, stop, retry | task_id, state, kind, requested_executor, placement, attempts, result, review, resolved |
+| delegate | id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields, including executorFallback |
+| tasks id, wait, stop, retry | task_id, state, kind, requested_executor, optional executor_fallback, placement, attempts, result, review, resolved |
 | tasks | Array of task summaries |
 | review | recorded |
 | clean | removed (task IDs), kept (objects with id and reason) |
 
 The task summary matches MCP task_status; delegate keeps returning the full task record.
+
+When `--executor` names an executor that cannot run (for example signed out,
+blocked, out of quota or at its limit), pacer keeps its fallback behavior and
+runs the next eligible executor, but records it: `executorFallback` (task record)
+or `executor_fallback` (summary) holds `{requested, reason, executor}`, `tasks <id>`
+and `delegate --wait` print `executor: requested <id>, ran on <id>: <reason>`, and
+the `tasks` list adds `(requested <id>: <reason>)` to the row. `placement` is about
+the worktree, not the executor.
 Needs attention clears for partial/failed tasks reviewed with either verdict, whose worker
 worktree was removed, or whose tracked/untracked file contents already match the base branch
 tip. The brain checks at most once per task per minute and exposes `resolved` with reason
@@ -120,8 +127,8 @@ short action error.
 ## Setup
 
 `pacer init [--planner <id>] [--yes] [--agents a,b] [--no-dashboard] [--json]`
-sets up planner selection, strategy, login service, agent integrations and the
-Orca live panel in order. `pacer setup` is an alias. Planner choices are
+sets up planner selection, strategy, login service and agent integrations in
+order. `pacer setup` is an alias. Planner choices are
 claude-code, codex, cursor and opencode. With several detected planners, a TTY
 shows a numbered choice defaulting to the current strategy's planner. Explicit
 `--planner` skips the question. With no CLIs, init creates a valid starter using
@@ -135,11 +142,7 @@ integration with `pacer uninstall <agent>`.
 
 Non-TTY runs set up strategy and service without prompts. Agents connect only
 with `--yes` or `--agents`; `--json` returns the summary as data. Non-TTY runs
-never wait or launch the dashboard. On a TTY, init prepares the managed Orca
-folder when Orca is installed, prints its path and guides you to Settings >
-Plugins > Development > Add folder. It waits up to five minutes for the live
-heartbeat; Enter or Ctrl-C skips with `Finish later with: pacer init`. Setup then
-prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
+never launch the dashboard. Setup then prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
 
 Before opening the dashboard, interactive init offers a first delegation when
 an executor is ranked and no task has been reviewed or the exercise skipped:
@@ -165,13 +168,13 @@ with `pacer uninstall --all` as part of `PACER_HOME` cleanup.
 
 `pacer uninstall --all [--yes] [--binary] [--json]` prints a complete removal
 plan from the install manifest, including each connected agent and its account
-folder, the installed login service, Orca plugin registration, `PACER_HOME`,
-and the binary path. In a terminal it asks once: `Remove all of this? [y/N]`.
+folder, the installed login service, a leftover Orca plugin from an earlier
+pacer, `PACER_HOME`, and the binary path. In a terminal it asks once: `Remove all of this? [y/N]`.
 Without a terminal, pass `--yes`; otherwise it prints the plan and exits 2.
 
 Removal runs in order: agent integrations (using their recorded undo operations
-and restoring backups), service, plugin, then all of `PACER_HOME`. Orca may still
-require removing the development plugin path in Settings; the command prints that
+and restoring backups), service, plugin, then all of `PACER_HOME`. For a leftover
+plugin, remove pacer from Orca Settings > Plugins yourself; the command prints that
 instruction. It continues after individual failures, reports each step as `ok` or
 `failed`, and exits 1 if any step failed. Review the plan carefully: `PACER_HOME`
 contains configuration, history and account data. Paths resolving to your home
@@ -182,6 +185,11 @@ to delete the shared Bun/Node runtime; use an installed pacer binary for that
 option. If the binary is inside `PACER_HOME`, removal requires `--binary`.
 `--json` returns `{plan, results}`; prompts and errors use stderr.
 Existing `pacer uninstall <planner>` remains available for a single integration.
+
+pacer no longer ships an Orca plugin. `pacer plugin uninstall` removes one that an
+earlier version installed: its files, its install record and pacer's keys in Orca's
+plugin storage. Every other `pacer plugin` subcommand exits 2 and points to the
+desktop app or `pacer open`.
 
 ## pacer open
 
@@ -202,29 +210,38 @@ background service; `pacer serve` runs it in the foreground). If it is down,
 
 ## Terminal dashboard
 
-`pacer dashboard` opens a full-screen live budget and task dashboard. Marketplace
-Orca installs open it in the **pacer** terminal tab after setup. It uses the v2
-API and connects to `pacer serve` when it runs; without it, the dashboard works
-in-process. It refreshes on events and every two seconds, with status computation
-in the background so network requests never block the display. An interactive
-TTY is required.
+`pacer dashboard [--plain] [--once [--screen home|review|sessions|settings] [--width N]]`
+opens a full-screen terminal UI that mirrors the app. It reads and writes only through
+the versioned API, connecting to `pacer serve` when it runs and working in-process
+otherwise. It refreshes on events and every two seconds; network requests never block
+the display. An interactive TTY is required unless `--once` prints a single frame.
 
-- Arrows or j/k select a card; Enter retries on the suggested executor, stops a
-  stalled task, or focuses a running task's Orca terminal.
-- d prompts for a goal, repo (defaults to cwd), and optional kind.
-- x dismisses an attention group or completed task; b blocks/unblocks an executor.
-- s lists strategies to switch; r refreshes; ? toggles help; q quits.
-- Escape cancels a prompt. Action results appear for five seconds.
+Screens are tabs in the app's order: **1 Home** (Needs you, Running, Capacity, Done
+today), **2 Review** (evidence and verdicts), **3 Sessions** (running and recent
+sessions, watch and timeline) and **4 Settings** (planner and pacing, accounts,
+executors, routing, project strategies, strategies, updates, notifications,
+appearance). While setup is incomplete, **5 Setup** replaces the work screens.
 
-The planner bar shows `#` for usage and `|` for pace. Small terminals use a
-compact view with scrolling lists. `NO_COLOR` disables highlighting; the dashboard
-uses no animated spinners, including when `PACER_NO_ANIM` is set. Exiting,
-Ctrl-C, SIGTERM and errors restore the normal screen, cursor and input mode.
+- `1`–`5` or Tab/Shift-Tab switch screens; `,` opens Settings; `?` lists every key.
+- Arrows or `j`/`k` select a row; Enter runs the row's primary action, which the key
+  bar names; `.` opens a numbered menu of all the row's actions.
+- `d` delegates a task; `f` cycles the repo scope; `R` or Ctrl-R refreshes; `q` quits.
+- Review: `a` accept, `s` send back, `r` reject, `t` retry on another executor.
+- Sessions: Enter watches here, `t` opens a terminal window, `m` a tmux pane, `s` stops.
+- Destructive actions (stop, remove, update, accept) always ask to confirm. Escape
+  closes a dialog or goes back.
+
+Status is always a glyph and a label, never color alone. Colors follow the design
+system tokens in truecolor, 256 or 16 colors, for dark or light terminals
+(`PACER_THEME=light|dark` overrides detection; `PACER_ASCII=1` uses ASCII glyphs). `NO_COLOR` removes color,
+`--plain` also removes glyphs, boxes and redraw effects for screen readers and logs,
+and `PACER_NO_ANIM` freezes the loading spinner. Exiting, Ctrl-C, SIGTERM and errors
+restore the normal screen, cursor and input mode.
 
 ### Update checks
 
 `pacer update --check [--json]` checks `latest.json` and reports the current CLI,
-latest release, availability, and installed Orca plugin version and update instructions.
+latest release and availability.
 It exits successfully even when offline and never installs anything. Checks time out
 after three seconds; failures are recorded in `~/.pacer/update-check.json`.
 The shared check caches results for 24 hours; explicit checks force a refresh.
@@ -236,23 +253,14 @@ strategy YAML to disable checks (including explicit checks). No telemetry is sen
 the only release request is a GET of `latest.json`. `PACER_RELEASE_BASE`, including
 `file://` bases, works as it does for `pacer update`.
 
-The live panel shows versions and update availability, with `pacer update` as
-selectable text. Run it in a terminal to update. In the dashboard, `c`
-checks immediately and `u` asks `Run pacer update? (y/n)` before updating; Escape or
-`n` cancels. After an update, turn pacer off and on in Orca Settings > Plugins.
-Marketplace plugins check on startup and every six hours, notifying once per new
-version: use Orca Settings > Plugins > Refresh, then Update plugin. Live plugins
-show the panel Update instruction. The worker also warns if the CLI is newer than
-the running plugin. These checks never install a newer release automatically;
-bootstrap installation still only installs/updates the CLI version shipped with
-that plugin.
+In the dashboard, Settings › Updates checks immediately and asks to confirm before
+updating; Escape or `n` cancels. These checks never install a newer release
+automatically.
 
 ## Console retirement
 
 `pacer console` and its command lines were removed in protocol 3.0. Use
-`pacer dashboard` for terminal actions or `pacer open` for the app. The Orca
-panel reads the API and delivers service notifications; **pacer: Open** points
-to the app. `pacer link status|probe` checks the outbox and versioned service.
+`pacer dashboard` for terminal actions or `pacer open` for the app.
 
 ## Remote hosts
 
@@ -297,6 +305,7 @@ pacer account list [--json]
 pacer account add
 pacer account add <claude|codex> <name> [--home <dir>] [--no-login]
 pacer account add <claude|codex> <name> --orca <id>
+pacer account add opencode <provider> [--model <id>] [--cap-usd <n>] [--usage <quota|metered|unmetered>] [--name <name>] [--no-test]
 pacer account add endpoint <name> --usage <quota|metered|unmetered> [--quota-source arkcli] [--weekly-tokens <n>]
 pacer account add endpoint <name> --base-url <url> --key <keychain|file|env:VAR|none> --models <id,...> --usage <quota|metered|unmetered> [--context <n>] [--output <n>] [--quota-source arkcli] [--weekly-tokens <n>] [--no-test]
 pacer account models <name> [--refresh]
@@ -311,8 +320,12 @@ pacer config set <key> <value>
 pacer config migrate
 ```
 
-Interactive `account add` offers **Model endpoint (OpenCode)**: URL, hidden key,
-model discovery/selection, limits, usage and an optional test. The explicit
+Interactive `account add` offers **Model endpoint (OpenCode)**: it lists providers
+already signed in to OpenCode, local model servers, a catalog search (OpenCode
+stores the key) and **Enter a URL yourself** (URL, hidden key, model
+discovery/selection, limits, usage and an optional test). `account add opencode
+<provider>` adds a signed-in provider in one command, using the recommended model
+unless `--model` is given; `--cap-usd` sets a weekly dollar cap. The explicit
 connection form creates the provider and runner automatically and tests by
 default; `--no-test` leaves it Not tested. Only a passing test reports Ready.
 For `--key keychain` or `file`, read the key from stdin; `env:VAR` refers to an

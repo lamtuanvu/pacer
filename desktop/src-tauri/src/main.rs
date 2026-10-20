@@ -5,9 +5,11 @@ macro_rules! desktop_log {
 mod actions;
 mod approvals;
 mod client;
+mod link;
 mod logging;
 mod logic;
 mod notifications;
+mod profile;
 mod tray_model;
 
 use reqwest::Url;
@@ -47,6 +49,9 @@ struct Shell {
     waiting: Mutex<Option<String>>,
     diagnosis: Mutex<Option<logic::Diagnosis>>,
     retry: AtomicBool,
+    relink_dismissed: AtomicBool,
+    shell_action: Mutex<Option<logic::ShellAction>>,
+    onboarding_page: Mutex<Option<logic::Onboarding>>,
     session: Mutex<Option<client::Session>>,
     expired: tokio::sync::Notify,
     actions: Mutex<std::collections::HashMap<String, Value>>,
@@ -70,6 +75,9 @@ impl Default for Shell {
             waiting: Mutex::new(None),
             diagnosis: Mutex::new(None),
             retry: AtomicBool::new(false),
+            relink_dismissed: AtomicBool::new(false),
+            shell_action: Mutex::new(None),
+            onboarding_page: Mutex::new(None),
             session: Mutex::new(None),
             expired: tokio::sync::Notify::new(),
             actions: Mutex::new(std::collections::HashMap::new()),
@@ -406,7 +414,31 @@ fn navigate(app: &AppHandle, raw: &str) {
 fn shell_url(url: &Url) -> bool {
     url.scheme() == "tauri" && url.host_str() == Some("localhost")
 }
-fn shell_action(url: &Url, current: Option<&Url>) -> bool {
+fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>) -> bool {
+    if logic::dismiss_relink(url, current)
+        && app.state::<Shell>().diagnosis.lock().unwrap().as_ref()
+            .is_some_and(|d| d.page == "relink")
+    {
+        app.state::<Shell>().relink_dismissed.store(true, Ordering::SeqCst);
+        app.state::<Shell>().startup.lock().unwrap().ready();
+        return false; // Allow the requested local starting page to load.
+    }
+    if logic::onboarding_back(url, current) {
+        *app.state::<Shell>().onboarding_page.lock().unwrap() = Some(logic::Onboarding::Welcome);
+        return true;
+    }
+    let bundled = logic::bundled_shell(current);
+    if let Some(action) = logic::shell_action_url(url) {
+        if bundled {
+            // The lifecycle loop is the sole owner of setup and service mutations.
+            app.state::<Shell>()
+                .shell_action
+                .lock()
+                .unwrap()
+                .get_or_insert(action);
+        }
+        return true;
+    }
     if url.as_str()
         != "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
     {
@@ -482,6 +514,11 @@ fn recovery(app: &AppHandle, state: &str) {
                     "protocol" => "protocol",
                     "permission" => "permission",
                     "install" => "install",
+                    "welcome" => "welcome",
+                    "consent" => "consent",
+                    "existing" => "existing",
+                    "incomplete" => "incomplete",
+                    "relink" => "relink",
                     "foreign" => "foreign",
                     "stuck" => "stuck",
                     _ => "starting",
@@ -505,7 +542,12 @@ fn recovery(app: &AppHandle, state: &str) {
         "oldApp" => "Update the pacer app",
         "oldService" => "Update pacer",
         "install" => "pacer needs its command-line tool",
+        "welcome" => "Welcome to pacer",
+        "consent" => "Set up pacer",
+        "existing" => "You already have pacer",
+        "incomplete" => "This copy of pacer is incomplete",
         "foreign" => "Another pacer is running",
+        "relink" => "pacer's terminal command was removed",
         "protocol" => "Unable to connect to pacer",
         _ => "Starting pacer…",
     };
@@ -527,6 +569,7 @@ fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
     if app.get_webview_window("tray").is_some() {
         return Ok(());
     }
+    let nav = app.clone();
     let current = Arc::new(Mutex::new(None::<Url>));
     let loaded = current.clone();
     let window = tauri::WebviewWindowBuilder::new(
@@ -550,7 +593,7 @@ fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
         }
     })
     .on_navigation(move |url| {
-        if shell_action(url, current.lock().unwrap().as_ref()) {
+        if shell_action(&nav, url, current.lock().unwrap().as_ref()) {
             return false;
         }
         shell_url(url) && matches!(url.path(), "/" | "/index.html")
@@ -1040,7 +1083,7 @@ fn main() {
                     })
                     .on_navigation(move |url| {
                         let current = current.lock().unwrap().clone();
-                        if shell_action(url, current.as_ref()) {
+                        if shell_action(&nav, url, current.as_ref()) {
                             return false;
                         }
                         let origin = nav.state::<Shell>().origin.lock().unwrap().clone();

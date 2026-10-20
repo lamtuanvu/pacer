@@ -117,17 +117,6 @@ classifier:
 
 Save named YAML files under `~/.pacer/strategies/`. `pacer strategy list` and `pacer strategy show` inspect them; `pacer use <name>` switches, and `pacer use default` returns to `strategy.yaml`. `pacer strategy preview` can compare a draft before saving; consult `pacer --help` for the strategy commands. `PACER=off` is the session escape hatch for planner enforcement.
 
-## Orca plugin transport
-
-The Orca plugin uses only the versioned API: HTTP v2 on loopback when the
-service is available, otherwise a `pacer api --stdio` child. The `transport`
-setting accepts `auto` or `api`; older saved values fall back to API selection.
-The storage bridge, channel sends and legacy HTTP routes are retired in 3.0.
-If no API can connect, the panel shows **Update the pacer plugin** with
-`pacer update`. Restart the plugin after updating. Notifications still use the
-service notifier registration and heartbeat. `autoConsole` is ignored;
-use `pacer dashboard` or `pacer open` to act.
-
 ## Capacity, pause and executor settings
 
 `execution.local_max_tasks` limits all local executors together (1–16, default 2).
@@ -156,4 +145,77 @@ the planner window resets, or an explicit future timestamp; `mode.release` ends 
 Automatic terminal opening tries Orca, the terminal app, then tmux. On a headless
 machine, operations return a copyable command with `opened: false`.
 Notifications are stored in `settings.json`, default to `important`, and support
-`off`, `important` and `all` without requiring the Orca plugin.
+`off`, `important` and `all`.
+
+## Task retention
+
+`task_retention_days` is a top-level strategy setting (default `14`; `0` disables
+retention). Set it with `pacer config set task_retention_days 30`. Once a day, the service archives terminal tasks that were reviewed or
+dismissed and settled before that window. A recent review restarts the window.
+Queued/running tasks, unreviewed tasks, and tasks with an existing local worktree
+or a recorded remote worktree stay untouched. Legacy tasks without a known
+settlement timestamp are kept conservatively.
+
+`pacer tasks prune --dry-run` lists the files and destination, compressed bytes
+saved, and bytes removed from the working set, without moving files. Omit
+`--dry-run` to archive now. Logs are streamed through gzip; logs, briefs, bundles
+and compatibility JSON move into
+`$PACER_HOME/archive/YYYY-MM/<task-id>/` (private directories and files).
+The month is the task's creation month in UTC.
+
+Default task lists and snapshots exclude archives. `pacer tasks --all` includes
+all archived and current records, and `pacer tasks <id>` still shows the
+record and archive location. `pacer tasks restore <id>` restores the artifacts,
+including decompressed logs, and returns the task to default lists. Conflicting
+files are never overwritten. Older binaries omit archived tasks because their
+JSON compatibility files move into the archive; restore before rolling back if
+those tasks must remain visible. Retention does not delete task history in SQLite.
+
+## Per-project executor strategy
+
+A project override defines the executors permitted to work on a repository, in
+strict priority order. For example:
+
+```sh
+pacer project strategy set --repo "$HOME/projects/api" --executors cursor,codex
+pacer project strategy set --repo "$HOME/projects/site" --executors codex
+pacer route tests --repo "$HOME/projects/api"
+pacer project strategy list
+pacer project strategy show --repo "$HOME/projects/api" --json
+pacer project strategy remove --repo "$HOME/projects/api"
+```
+
+The API project tries Cursor first, then Codex if eligible. The site project uses
+only Codex. An explicit executor may select any allowed runner; it cannot bypass
+the allowlist, including with `--force`. Disabled, unavailable, exhausted or busy
+executors retain their existing eligibility and capacity checks. A classifier
+hook may remove choices but cannot expand or reorder this list. Each run still
+has a maximum of three attempts.
+
+An override replaces global task-kind candidates and pacing order for that
+repository. Repositories without an override keep the global strategy. Removing
+an override restores that behavior; an empty list is rejected, with a pointer to
+`pacer project strategy remove`.
+
+Like `pacer delegate`, `pacer route` without `--repo` uses the repository in the
+current directory, so its preview matches what delegating from there would do.
+It does this only for a repository pacer already knows (one you delegated from,
+added, or gave a policy); previewing never probes or registers a new repository.
+Pass `--repo` to preview another repository.
+
+Policies persist in `$PACER_HOME/project-strategies.json`, independently of named
+strategies. Switching global strategies does not remove them. Executors are
+stored with explicit agent, account and host identities, so changing a default
+account cannot inherit another account's permission. A runner absent from the
+active strategy is reported unavailable.
+
+Repository identity follows its normalized origin, with linked worktrees sharing
+the main checkout's policy. Clones with the same origin share the policy. A
+repository without an origin uses its local identity; moving it or changing its
+origin does not automatically migrate the policy. `list` includes orphaned
+policies, which can be inspected or removed using the displayed repository key.
+
+Edits take effect at the next attempt reservation, including queued tasks and
+fallback attempts. They do not interrupt an already reserved attempt. Concurrent
+edits return a conflict instead of overwriting changes; reload and review before
+saving again. Invalid or unreadable policy data blocks new routing until repaired.

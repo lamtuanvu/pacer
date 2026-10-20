@@ -3,15 +3,13 @@ import type { SnapshotV3 } from "./read-model/types";
 import { buildPlanner } from "./read-model/capacity";
 import { fullTaskTitle, shortTitle } from "../core/short-title";
 import { readHold } from "../core/mode-hold";
-import { drainQueueOnRead } from "../tasks/drain";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { currentSnapshot, readOutboxSince } from "../link/store";
 import { toBudget } from "../link/budget";
 import { apiTasks, snapshotTasks } from "./read-model/tasks";
 import { buildReadModel, readModelContext } from "./read-model";
 import type { ApiTask } from "./read-model/types";
-import { listTasks, readTask } from "../tasks/store";
-import { taskStatus } from "../tasks/api";
+import { listTasksWhere, readTask, taskStoreVersion } from "../tasks/store";
 import { computeStatus, type Status } from "../engine/status";
 import { loadStrategy, validateStrategy } from "../config/strategy";
 import type { Ctx } from "../types";
@@ -20,15 +18,24 @@ import { type ApiEvent, PROTOCOL_VERSION } from "./protocol";
 /** The canonical snapshot is the negotiated v3 read model. */
 export async function apiSnapshot(ctx: Ctx) { return liveSnapshot(ctx); }
 
+const taskCache = new Map<string, { version: string; at: number; records: TaskRecord[] }>();
 const statusCache=new Map<string,{at:number;strategy:string;value:Status}>();
 export async function liveSnapshot(
   ctx: Ctx, o: { maxBudgetAgeS?: number; status?: (c: Ctx) => Promise<Status> } = {},
 ): Promise<{ protocol: string; seq: number; snapshot: SnapshotV3 }> {
-  await drainQueueOnRead(ctx);
   const snapshot = currentSnapshot(ctx);
-  // Only records the snapshot can show need a live status read; the rest are settled history.
+  const version = taskStoreVersion(ctx), cachedTasks = taskCache.get(ctx.pacerHome);
+  let records: TaskRecord[];
+  if (cachedTasks?.version === version && ctx.now >= cachedTasks.at) records = cachedTasks.records;
+  else {
+    const selected = new Map(listTasksWhere(ctx, { updatedSince: ctx.now - 86400 }).map(t => [t.id, t]));
+    for (const t of listTasksWhere(ctx, { states: ["queued", "running"] })) selected.set(t.id, t);
+    records = [...selected.values()].sort((a, b) => b.id.localeCompare(a.id));
+    taskCache.set(ctx.pacerHome, { version, at: ctx.now, records });
+  }
+  // Age settled records out of the cached selection on every read.
   const recent = (t: TaskRecord) => !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
-  const tasks = snapshotTasks(ctx,listTasks(ctx,Infinity).filter(recent).map(t=>taskStatus(ctx,t.id)??t));
+  const tasks = snapshotTasks(ctx, records.filter(recent));
   snapshot.tasks = tasks.map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...t}));
   let strategy;
   try{strategy=loadStrategy(ctx);}catch{

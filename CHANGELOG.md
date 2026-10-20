@@ -6,11 +6,76 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- macOS desktop OTA support with complete app/service packages, explicit restart after download, work admission, verified recovery, and shared Settings, tray, TUI and CLI controls. Production publication remains gated on signed native validation.
+- macOS desktop OTA support with complete app/service packages, explicit restart after download, work admission, verified recovery, and shared Settings, tray, TUI and CLI controls. Until pacer has an Apple Developer ID, releases are signed with a pinned project certificate; a later bridge release moves installed apps to Developer ID builds by update. macOS desktop downloads are the signed, auto-updating app; Linux packages are unchanged.
 - Separate `desktop.update.*` operations on protocol v3 and `pacer desktop-update` commands; existing standalone CLI update operations retain their behavior.
+- Guided OpenCode endpoint setup: `pacer account add` and Settings › Add executor list providers already signed in to OpenCode, local model servers (Ollama, LM Studio) and catalog providers, recommend a model that can call tools, set the usage type from the models.dev catalog and offer an optional weekly dollar cap. Signed-in providers are stored as `source: opencode` accounts that refer to the provider and never hold its key. `pacer account add opencode <provider> [--model] [--cap-usd] [--name] [--no-test]` does it in one command. Spend is read in dollars from `opencode stats --cost`, and new API ops `executor.setup.candidates`, `executor.setup.models` and `executor.setup.connect` serve the app.
+
+## [0.5.0] - 2026-10-20
+
+### Added
+
+- One-click releases: **Prepare release** picks the next version from commit titles, opens the release PR, dry-runs it and auto-merges it; **Release tag** then tags and publishes. Release PRs that change only version strings no longer need a UI evidence manifest.
+- Settings Diagnostics runs doctor checks with repair guidance, distinguishes configured integrations from fixture-tested handlers and unverified Claude invocation, and flags disabled or incomplete Claude hooks.
+
+### Changed
+
+- `pacer dashboard` is redesigned on the shared design system: Home, Review, Sessions, Settings and Setup screens mirror the app, statuses are glyph plus label, colors follow the design tokens for dark and light terminals, destructive actions confirm, and `--plain` and `--once` print screen-reader-friendly or single frames. The dashboard now reads and writes only through the API.
+
+### Fixed
+
+- Linux arm64 gets an AppImage again. AppImages now bundle the CLI untouched: linuxdeploy's patchelf step corrupted Bun-compiled binaries, so they are repacked after bundling and the bundled CLI is checked before release (#217).
+- The interactive account and endpoint setup checks each answer as it is entered and asks again instead of aborting: kind, name, key storage, usage, weekly token budget (with a budget-specific message) and quota source. A blank quota source selects `arkcli` instead of saving an empty value, with a warning when `arkcli` is not on `PATH`. Endpoint setup now asks where to keep the key on add as well as edit (Keychain on macOS and a file elsewhere by default). Endpoint save errors show their full reason instead of only the first line, and migration notices no longer print array indexes.
+- Account sign-in state now has one source, the local login indicator plus recorded authentication failures, shared by `account list`, routing, the Executors and Accounts screens, attention and `runner.check`. `account list` reports `signedIn: true/false` for native accounts instead of always `null`; a signed-out executor shows as Unavailable with its reason instead of Ready; the Accounts screen shows endpoint state (Ready, Not tested, Not working, Key missing) for endpoints and offers **Fix sign-in** only for signed-out native accounts.
+- `runner.check` no longer fails a signed-in Claude or Codex account that has no usage reading yet: **Signed in** uses the sign-in state rather than usage, and **Usage readable** is skipped with the reason, so the test task runs.
+- `pacer route` without `--repo` uses the project policy of the registered repository in the current directory, as `pacer delegate` does, instead of always showing global routing.
+- `pacer project strategy set --executors ''` explains that `pacer project strategy remove` restores the global strategy, instead of reporting an unknown option.
+- When an explicitly requested executor cannot run and another one does, the task records `executorFallback` (`executor_fallback` in summaries) with the requested executor and the reason, and `tasks`, `tasks <id>` and `delegate --wait` show it. Fallback behavior is unchanged.
+- The Executors settings no longer claim that an executor failing its check is skipped until it passes; a failed check marks it Failing and raises attention, and routing keeps using it unless it is unavailable for another reason (as before). Disable it to skip it.
+- An endpoint executor that has never passed its test task reads **Not tested** in the Executors screen, Overview and tray instead of Ready, matching its account (routing still uses it, as before; the executor summary adds `untested: true`). Add executor offers **Sign in** only for a signed-out native account, each **Fix sign-in** disclosure names its account for screen readers, and an executor row no longer repeats its reason under Last check.
+- The accounts guide gives the real default folder for pacer-managed accounts, `~/.<kind>-<name>`, instead of `~/.pacer/accounts/<name>`.
+
+## [0.4.0] - 2026-10-20
+
+### Added
+
+- Per-project executor allowlists with strict priority order, persistent policies, revision-checked API and CLI configuration, and a Routing settings editor (#190).
+- The desktop app ships its own CLI, shows Welcome and one consent screen before it changes anything, links `pacer` into `~/.local/bin` and can add an opt-in PATH line; recovery pages each offer one action; unsigned desktop downloads are published with each release. Linux arm64 ships as `.deb` only for now: the AppImage tool corrupts its bundled CLI.
+- Setup walks through five steps with an inline connection preview, executor priority controls, and first-task progress and review.
+
+### Removed
+
+- The Orca plugin: its panel, worker, marketplace manifest, `orca-plugin` branch and tag publishing, `pacer link status|probe`, the `pacer init` live-panel step and the "Orca panel" setup item. Use the desktop app or `pacer open`. Running delegated work in Orca worktrees is unchanged. `pacer plugin uninstall` and `uninstall --all` remove an earlier install; other `pacer plugin` subcommands exit 2. Protocol 3 keeps the `plugin.install` op, which now fails with `not_allowed`, `update.check` returns `plugin: null`, and `version.get` no longer includes its optional `plugin` field; the op and the null field go with the next protocol major.
+
+### Fixed
+
+- Setup discovery avoids IDE launchers and local-model app startup, so selecting a planner does not launch another app over the pacer window.
+- The desktop app's "Another pacer is running" page names the ports when only the port differs and shows how to free the service (`pacer service uninstall`); on Linux without systemd or a CLI it shows the install page instead of a stuck sign-in (#194).
+- `pacer service install` refuses to replace another pacer's login service (`--replace` overrides); `uninstall --all` refuses while delegated tasks run (`--force` overrides) and removes the app's link and PATH line; `pacer update` points to the app when its CLI came with the app.
+
+## [0.3.1] - 2026-10-19
+
+### Fixed
+
+- The macOS service is installed as a Standard launchd job instead of Background. Background jobs get throttled disk I/O, and under memory pressure that stalled the service and its health thread for 30–90 seconds, so the desktop app kept restarting it. Reinstalled on update.
+
+- `release:prepare` now keeps the desktop app configuration, Cargo manifest and lockfile version in step with `package.json`; the desktop version is corrected to 0.3.0 (#188).
+
+## [0.3.0] - 2026-10-19
+
+### Added
+
+- Shared UI foundation checks for canonical controls, token usage and import boundaries, plus required UI compliance and review evidence metadata for UI-changing pull requests (governance adoption by maintainer merge).
+- Reviewed or dismissed settled tasks archive after 14 days (configurable), with compressed logs, `tasks --all`, `tasks prune --dry-run` and `tasks restore <id>`.
+
 - Live validation supports `up --seed ui` for isolated setup-complete UI sample data without starting executors.
 
 ### Fixed
+
+- The service no longer restart-loops when building a snapshot is slow: a listener thread answers `/health` (reporting `backendLagS` from a main-thread heartbeat, 503 when it is older than 45s), snapshot and status reads serve the last value while refreshing in the background, and the desktop app restarts the service only after repeated failed probes over at least 30 seconds.
+- Status and activity readers scan Claude and Codex session logs incrementally (per-file cursors, appended bytes only) instead of re-reading the whole 28-day history on every status refresh; `PACER_TRACE_STATUS=1` prints per-phase timings.
+- Running tasks are supervised by a 5-second service timer; task reads no longer respawn or fail runners, and resolution checks no longer rewrite unchanged tasks every minute.
+- `pacer serve --help` prints usage instead of starting a second server.
+- Task records use a private SQLite store with indexed active/recent queries, concurrent transactional updates, non-destructive legacy import and atomic JSON write-through for older binaries.
 
 - Delegate defaults to the active repository filter or remembered repository, supports an optional task kind, previews routing and submits with Cmd+Enter (Ctrl+Enter on Linux).
 - Headless Session views explain the run and highlight Take over instead of showing unavailable watch options.

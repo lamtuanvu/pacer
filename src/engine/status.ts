@@ -1,5 +1,6 @@
-import { loginIndicator } from "../install/login";
-import { resolve } from "node:path";
+import { statusTimer } from "../usage/trace";
+import { accountSignIn } from "../usage/signin";
+import { readAuthFailures } from "../usage/auth";
 import { readPause, type PauseState } from "../core/pause";
 import { readHold, type ModeHold } from "../core/mode-hold";
 import { readEndpointState } from "../endpoints/state";
@@ -33,6 +34,7 @@ export interface AccountStatus {
   remoteHost?: string;
   capturedAt: number | null;
   runners: string[];
+  spendUsd: number | null;
 }
 
 export interface Status {
@@ -61,11 +63,13 @@ export { displayName } from "../render/accounts";
 export async function computeStatus(
   ctx: Ctx, s: Strategy, opts: { cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
+  const trace = statusTimer(ctx);
   const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
     .map(a => `account ${a.name}: usage_source orca is no longer read; using ${a.kind === "claude" || a.kind === "codex" ? "native" : "reactive"}`);
   const blocked = Object.fromEntries(Object.entries(readBlocked(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
   const broken = Object.fromEntries(Object.entries(readBroken(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
   const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx).catch(() => null);
+  trace("activity");
   // Evaluate an account once; every runner draws on this same budget.
   const budgets = await Promise.all(Object.values(s.accounts).map(async (account) => {
     const runners = Object.values(s.runners).filter(r => r.account === account.name);
@@ -90,25 +94,28 @@ export async function computeStatus(
     const windows = usageWindows.map(w => evaluateWindow(w, ctx.now, profile, th));
     const live = windows.filter(w => !w.stale);
     const binding = bindingWindow(live) ?? bindingWindow(windows);
-    const verdict: Verdict = account.usage === "unmetered" && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
-    const endpoint = opts.cacheOnly ? (account.connection ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
+    // Nothing to pace against: unmetered usage, or metered usage with no token budget and no dollar cap (spend is
+    // still reported). Such accounts are available rather than unknown, so routing does not rank them last.
+    const unlimited = account.usage === "unmetered" || account.usage === "metered" && account.weeklyUsd === null && account.weeklyTokens === null;
+    const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
+    const endpoint = opts.cacheOnly ? (account.connection || account.source === "opencode" ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
-    return { account, runners, reading: fresh, windows, binding, verdict, endpointReason };
+    return { account, runners, reading: fresh, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested" };
   }));
+  trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
+  const authFailures = readAuthFailures(ctx);
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
-    const { account, reading, windows, binding, verdict, endpointReason } = byAccount[runner.account];
-    const folder = account.home ? resolve(account.home.replace(/^~(?=\/|$)/, ctx.home))
-      : account.source === "orca" && (account.kind === "claude" || account.kind === "codex")
-        ? orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ?? undefined : undefined;
+    const { account, reading, windows, binding, verdict, endpointReason, endpointNotTested } = byAccount[runner.account];
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
-    const login = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? loginIndicator(ctx, runner.agent, folder) : null;
+    const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, authFailures) : null;
     return {
       id: runner.name, account: account.name, usage: account.usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
-      ...(login && !login.loggedIn ? { signedOutReason: `signed out — ${login.fix.startsWith("run ") ? login.fix : `run ${login.fix}`}` } : {}),
+      ...(signIn?.signedIn === false ? { signedOutReason: signIn.reason } : {}),
       ...(endpointReason ? {unavailableReason: endpointReason} : {}),
+      ...(endpointNotTested ? {endpointNotTested: true as const} : {}),
       installed: runner.host !== null || ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
       stale: reading.stale,
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
@@ -119,7 +126,7 @@ export async function computeStatus(
   const byId = Object.fromEntries(providers.map(p => [p.id, p]));
   const planner = byAccount[s.planner.account];
   const modeHold = readHold(ctx);
-  return {
+  const status: Status & { accounts: AccountStatus[] } = {
     paused: readPause(ctx), modeHold,
     generatedAt: ctx.now,
     strategy: s.name,
@@ -134,9 +141,12 @@ export async function computeStatus(
       resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
       stale: reading.stale, runners: runners.map(r => r.name),
       source: reading.source ?? null, capturedAt: reading.capturedAt,
+      spendUsd: reading.spendUsd ?? null,
       ...(reading.remoteHost ? { remoteHost: reading.remoteHost } : {}),
     })),
     providers,
     executors: rankExecutors(null, s, byId),
   };
+  trace("providers-and-ranking");
+  return status;
 }

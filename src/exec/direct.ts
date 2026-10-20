@@ -7,7 +7,7 @@ import { IDLE_AFTER_S, IDLE_FAIL_S, type ExecutionCfg, validateExecution } from 
 import { publish } from "../link/publish";
 import { pidAlive } from "../link/store";
 import { gitInfo, realpathSafe } from "../core/git";
-import { tasksDir, listTasks, readTask, updateTask } from "../tasks/store";
+import { tasksDir, listTasksWhere, readTask, updateTask } from "../tasks/store";
 import { resolvePlacement, type Attempt, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { parseRunnerId } from "../config/runner-id";
@@ -244,7 +244,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   const startedAt = Date.now() / 1000, log = join(dir, `${task.id}.${cfg.id}.log`), ex = loadExec(ctx);
   const git = await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" }));
   const top = realpathSafe("error" in git ? task.brief.repo : git.top);
-  const busy = listTasks(ctx, Infinity).some(t => { const path = realpathSafe(t.worktree ?? t.result?.worktree ?? t.brief.repo); return t.id !== task.id && t.state === "running" && !!t.runnerPid && pidAlive(t.runnerPid) && t.placement?.mode === "current" && (path === top || path.startsWith(top + "/")); });
+  const busy = listTasksWhere(ctx, { states: ["running"] }).some(t => { const path = realpathSafe(t.worktree ?? t.result?.worktree ?? t.brief.repo); return t.id !== task.id && t.state === "running" && !!t.runnerPid && pidAlive(t.runnerPid) && t.placement?.mode === "current" && (path === top || path.startsWith(top + "/")); });
   let resolved = resolvePlacement(task, ex.worktree, busy, !("error" in git) && git.dirty);
   let note = "", workdir = task.brief.repo, mode: "current" | "new" = resolved.mode;
   if (mode === "new" && "error" in git) {

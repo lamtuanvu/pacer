@@ -2,7 +2,7 @@
 
 Role: Keep the service-owns-work and thin-client boundaries, multi-client safety, and planner and host neutrality intact.
 Human owner/approver: @lamtuanvu
-Applies when: a change adds a capability, operation, client surface or execution backend; crosses `src/api` ↔ core ↔ clients ↔ adapters; touches `orca-plugin/` or `desktop/`; or proposes or changes an ADR or spec.
+Applies when: a change adds a capability, operation, client surface or execution backend; crosses `src/api` ↔ core ↔ clients ↔ adapters; touches `desktop/`; or proposes or changes an ADR or spec.
 Excludes: changes inside one module that leave its imports and public operations unchanged; docs-only typo fixes.
 Review requirement: Advisory (constitution, "Validation and review agreements").
 
@@ -12,11 +12,12 @@ Read [constitution.md](../constitution.md), [context.md](../context.md), and [ru
 
 ## Checks
 
-- ARCH-1/2: client code (`app/`, `src/dashboard/`, `orca-plugin/`, `desktop/`) uses only API ops and events. A new capability appears in `src/api/ops.ts` first.
+- ARCH-1/2: client code (`app/`, `src/dashboard/`, `desktop/`) uses only API ops and events. A new capability appears in `src/api/ops.ts` first.
 - ARCH-3: new mutating ops define their `conflict` behavior, and tests exercise concurrent clients.
-- ARCH-4: no new import from `src/core` to `src/exec/orca` or to `orca-plugin/` outside `src/serve/panel.ts`. The core-boundaries test still covers the change.
+- ARCH-4: no new import from `src/core` to `src/exec/orca`. The core-boundaries test still covers the change.
 - ARCH-5: no hard-coded planner (Claude) or host (Orca) assumptions in the core.
-- ARCH-6/7/8: the Orca worker stays information-only; remote execution follows the SSH/bundle model; the CLI and TUI stay complete.
+- ARCH-7/8: remote execution follows the SSH/bundle model; the CLI and TUI stay complete.
+- UI-20/22/23 (proposed amendment 0.4.0): DS imports point only toward Preact, DS and shared view vocabulary; density and primitive styles belong with DS. Check component boundaries, adaptation provenance and Preact/bundle tradeoffs. UI/QA reports required by that amendment are evidence; human merge authority remains unchanged.
 - ARCH-9: a durable design change has an ADR, or the PR explains why none is needed.
 
 ## Findings contract

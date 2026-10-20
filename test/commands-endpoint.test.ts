@@ -40,10 +40,19 @@ function server(status: number | number[] = 200) {
     return Response.json({data:[{id:"model-a",context_length:262144,max_output_tokens:32768}]},{status:Array.isArray(status)?status[Math.min(requestCount++,status.length-1)]:status});
   }});
 }
+// Rejects the OpenCode-picker's catalog and local-probe lookups (models.dev, 127.0.0.1:11434/1234) before
+// reaching `real`, so these endpoint-only fetch mocks are never invoked (or their call counts skewed) by
+// picker detection; `real` handles only the endpoint URL under test.
+function noDetectionFetch(real: (url: string, init?: RequestInit) => Promise<Response>) {
+  return async (url: string, init?: RequestInit) => {
+    if (/models\.dev|127\.0\.0\.1:(11434|1234)/.test(url)) throw Error("blocked in tests");
+    return real(url, init);
+  };
+}
 for (const transport of ['injected','server']) test(`interactive endpoint add reaches Ready (${transport})`, async () => {
   const ctx=setup(), api=transport==='server'?server():null;
   try {
-    const s=script(["3","work",api?.url.toString() ?? "http://test.invalid/v1","1","unmetered","y"],api?{}:{fetch:async()=>Response.json({data:[{id:"model-a",context_length:262144,max_output_tokens:32768}]})});
+    const s=script(["3","1","work",api?.url.toString() ?? "http://test.invalid/v1","","1","unmetered","y"],{fetch:noDetectionFetch(api?fetch:async()=>Response.json({data:[{id:"model-a",context_length:262144,max_output_tokens:32768}]}))});
     const result=await accountCmd(["add"],ctx,s.deps);
     expect(result.code).toBe(0); expect(result.out).toContain("Ready: opencode#work");
     expect(loadStrategy(ctx).runners["opencode#work"].model).toBe("pacer-work/model-a");
@@ -55,9 +64,9 @@ for (const transport of ['injected','server']) test(`interactive endpoint add re
 for (const transport of ['injected','server']) test(`401 re-asks for a hidden key before saving (${transport})`,async()=>{
   const ctx=setup(),api=transport==='server'?server([401,200]):null; let attempts=0, prompts=0;
   try {
-  const s=script(["endpoint","work",api?.url.toString() ?? "https://test.invalid/v1","1","unmetered","n"],{
+  const s=script(["endpoint","1","work",api?.url.toString() ?? "https://test.invalid/v1","","1","unmetered","n"],{
     promptSecret:async()=>{prompts++; return secret;},
-    ...(api?{}:{fetch:async()=>{attempts++;return Response.json({data:[{id:"m",context_length:100,max_output_tokens:50}]},{status:attempts===1?401:200});}}),
+    fetch:noDetectionFetch(api?fetch:async()=>{attempts++;return Response.json({data:[{id:"m",context_length:100,max_output_tokens:50}]},{status:attempts===1?401:200});}),
   });
   const result=await accountCmd(["add"],ctx,s.deps);
   expect(result.code).toBe(0);expect(prompts).toBe(2);expect(s.printed.join("\n")).toContain("The key was refused.");noLeaks(ctx,result,s.printed);
@@ -66,7 +75,7 @@ for (const transport of ['injected','server']) test(`401 re-asks for a hidden ke
 for (const transport of ['injected','server']) test(`missing models supports manual ids (${transport})`,async()=>{
   const ctx=setup(),api=transport==='server'?server(404):null;
   try {
-    const s=script(["endpoint","work",api?.url.toString() ?? "http://test.invalid/v1","manual-a,manual-b","128K","16K","unmetered","n"],api?{}:{fetch:async()=>new Response('',{status:404})});
+    const s=script(["endpoint","1","work",api?.url.toString() ?? "http://test.invalid/v1","","manual-a,manual-b","128K","16K","unmetered","n"],{fetch:noDetectionFetch(api?fetch:async()=>new Response('',{status:404}))});
     const result=await accountCmd(["add"],ctx,s.deps);
     expect(result.code).toBe(0);expect(result.out).toContain("Not tested");
     expect(loadStrategy(ctx).accounts.work.connection!.models).toEqual(["manual-a","manual-b"].map(id=>({id,context:128000,output:16000,tools:true})));
@@ -120,14 +129,14 @@ test("refresh changes selected models and adopt projects only external provider 
 
 test("invalid and unreachable URLs re-ask before saving any account",async()=>{
   const ctx=setup();let requests=0, hidden=0;
-  const s=script(['endpoint','work','file:///invalid','http://offline.invalid/v1','http://working.invalid/v1','1','unmetered','n'],{
+  const s=script(['endpoint','1','work','file:///invalid','http://offline.invalid/v1','','http://working.invalid/v1','1','unmetered','n'],{
     promptSecret:async()=>{hidden++;return secret;},
-    fetch:async()=>{
+    fetch:noDetectionFetch(async()=>{
       requests++;
       expect(loadStrategy(ctx).accounts.work).toBeUndefined();
       if(requests===1) throw Error(`Authorization: Bearer ${secret}`);
       return Response.json({data:[{id:'m',context_length:100,max_output_tokens:50}]});
-    },
+    }),
   });
   const result=await accountCmd(['add'],ctx,s.deps);
   expect(result.code).toBe(0);expect(hidden).toBe(1);expect(requests).toBe(2);
@@ -199,7 +208,7 @@ test("connection accounts reject usage outside quota, metered and unmetered",asy
 });
 test("exhausted scripted endpoint input cancels without saving",async()=>{
   const ctx=setup(),answers=['endpoint','work'];
-  const result=await accountCmd(['add'],ctx,{prompt:async()=>answers.shift()!,print:()=>{}});
+  const result=await accountCmd(['add'],ctx,{prompt:async()=>answers.shift()!,print:()=>{},fetch:noDetectionFetch(async()=>{throw Error('no network in tests');})});
   expect(result.code).not.toBe(0);expect(result.err).toContain('cancelled');
   expect(loadStrategy(ctx).accounts.work).toBeUndefined();noLeaks(ctx,result);
 });
@@ -208,14 +217,14 @@ test.skipIf(!Bun.which('python3'))("real terminal key entry does not echo the se
   const childCode=`import {accountCmd} from ${JSON.stringify(join(import.meta.dir,'../src/commands/accounts.ts'))};
 let stored='';const ctx={home:process.env.HOME,pacerHome:process.env.PACER_HOME,now:1,env:{HOME:process.env.HOME},which:()=>null,
 run:async(argv,t,o)=>{if(argv[1]==='-i') stored=Buffer.from(o.stdin.match(/-X ([0-9a-f]+)/)[1],'hex').toString();return {code:0,stdout:argv.includes('-w')?stored:'',stderr:''};}};
-const result=await accountCmd(['add'],ctx,{fetch:async()=>Response.json({data:[{id:'m',context_length:100,max_output_tokens:50}]})});console.log(JSON.stringify(result));`;
+const result=await accountCmd(['add'],ctx,{fetch:async(url)=>/models\\.dev|127\\.0\\.0\\.1:(11434|1234)/.test(String(url))?Promise.reject(new Error('blocked in tests')):Response.json({data:[{id:'m',context_length:100,max_output_tokens:50}]})});console.log(JSON.stringify(result));`;
   const python=`import os,pty,select,subprocess,sys,time
 master,slave=pty.openpty()
 proc=subprocess.Popen(['bun','-e',sys.argv[1]],stdin=slave,stdout=slave,stderr=slave,close_fds=True)
 os.close(slave)
 output=b''
 try:
- for answer in ['endpoint','terminal-api','http://test.invalid/v1','${secret}','1','unmetered','n']:
+ for answer in ['endpoint','1','terminal-api','http://test.invalid/v1','','${secret}','1','unmetered','n']:
   marker=len(output);deadline=time.time()+3
   while b'> ' not in output[marker:]:
    if time.time()>deadline:raise RuntimeError('terminal prompt timed out')

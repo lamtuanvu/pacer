@@ -1,10 +1,10 @@
+import { claudeHookChecks } from "../install/doctor-hooks";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { AGENT_BINS, agentPlans } from "../install/detection";
 import { serviceBackend } from "../service";
 import { currentVersion } from "../update/version";
-import { readLiveHeartbeat } from "../plugin/live";
 import type { Ctx } from "../types";
 import { setupChecklist, setupText, updateChecklist, type SetupChecklist, type SetupFacts } from "./checklist";
 import { loginIndicator } from "../install/login";
@@ -12,14 +12,18 @@ import { formatRunnerId, runnerDefaults } from "../config/runner-id";
 import { accountFolder } from "../install/role";
 import { readManifest, piecesPresent, type FileChange } from "../install/manifest";
 import { readText, sha256 } from "../install/fsx";
-import { listTasks } from "../tasks/store";
+import { listTasks, taskStoreVersion } from "../tasks/store";
 import { computeStatus, type Status } from "../engine/status";
 const statuses=new Map<string,{at:number;status:Status}>();
 // Reviewed is monotonic; remember it so polling does not rescan the task store.
 const reviewedHomes=new Set<string>();
+const reviewedVersions=new Map<string,string>();
 function anyReviewed(ctx:Ctx):boolean {
  if(reviewedHomes.has(ctx.pacerHome))return true;
+ const version=taskStoreVersion(ctx);
+ if(reviewedVersions.get(ctx.pacerHome)===version)return false;
  const r=listTasks(ctx,Infinity).some(t=>!!t.review);
+ reviewedVersions.set(ctx.pacerHome,version);
  if(r)reviewedHomes.add(ctx.pacerHome);
  return r;
 }
@@ -71,9 +75,13 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
   const cached=statuses.get(ctx.pacerHome);
   status=cached&&ctx.now>=cached.at&&ctx.now-cached.at<60?cached.status:await computeStatus({...ctx,readOnly:true},strategy,{cacheOnly:true});
  }
- return setupChecklist({version:currentVersion(),planner:strategy?formatRunnerId({...strategy.planner,host:null},runnerDefaults(strategy.accounts)):planner,signedIn:login?login.loggedIn:true,loginCommand:login?.fix,connected,service,link,
-  live:!!readLiveHeartbeat(ctx.pacerHome),orcaInstalled:!!(ctx.env.ORCA_CLI_COMMAND||ctx.which("orca")||existsSync("/Applications/Orca.app/Contents/Resources/bin/orca")),
+ const hookConfiguration = planner === "claude-code" ? claudeHookChecks(ctx,strategy).find(c=>c.name==="Claude hook configuration") : undefined;
+ if(hookConfiguration?.level==="warn")connected=false;
+ const result = setupChecklist({version:currentVersion(),planner:strategy?formatRunnerId({...strategy.planner,host:null},runnerDefaults(strategy.accounts)):planner,signedIn:login?login.loggedIn:true,loginCommand:login?.fix,connected,service,link,
   ...statusFacts(status),reviewed:anyReviewed(ctx),skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),agents,errors},ctx.now);
+ const connect = result.items.find(i=>i.id==="connect");
+ if(connect && connected)connect.detail="Configured · runtime invocation unverified. Run Settings Diagnostics for checks.";
+ return {...result, integration:{configuration:connected?"configured" as const:"unverified" as const, invocation:"unverified" as const}};
 }
 export async function checkSetupCommand(ctx:Ctx):Promise<string> {
  const result=await checkSetup(ctx);

@@ -13,6 +13,65 @@
     <h1 aria-live="polite">Starting pacer…</h1>
     <span id="spinner" class="spinner" aria-hidden="true"></span>
     <p id="message" role="status" aria-live="polite" hidden></p>
+    <section id="welcome" hidden>
+      <ol class="steps">
+        <li><strong>Choose your planner.</strong> It plans the work and reviews the results.</li>
+        <li><strong>Connect your other agents.</strong> They carry out the plan.</li>
+        <li><strong>Try your first task.</strong> Review the work before accepting it.</li>
+      </ol>
+      <div class="actions"><a id="begin" class="button primary" href="tauri://localhost/action/begin">Set up pacer</a></div>
+      <p class="note">Takes about three minutes. Nothing changes until you agree.</p>
+    </section>
+    <section id="consent" hidden>
+      <div class="consent-row">
+        <input id="service" type="checkbox" checked disabled aria-describedby="service-reason">
+        <label for="service">Run pacer in the background at login
+          <span id="service-reason" class="note">Required so the app can show your agents and their work.</span>
+        </label>
+      </div>
+      <div class="consent-row">
+        <input id="terminal" type="checkbox" checked disabled aria-describedby="terminal-reason">
+        <label for="terminal">Add the pacer command to your terminal
+          <code class="path">~/.local/bin/pacer</code>
+          <span id="terminal-reason" class="note">Required so your agents can find pacer.</span>
+        </label>
+      </div>
+      <div id="path-row" class="consent-row" hidden>
+        <input id="path" type="checkbox" aria-describedby="path-description">
+        <div>
+          <label for="path">Add ~/.local/bin to your PATH</label>
+          <p id="path-description" class="note">Add these lines to <code id="rc" class="path"></code> so you can run pacer in a new terminal.</p>
+          <pre><code># &gt;&gt;&gt; pacer &gt;&gt;&gt;
+export PATH="$HOME/.local/bin:$PATH"
+# &lt;&lt;&lt; pacer &lt;&lt;&lt;</code></pre>
+        </div>
+      </div>
+      <p class="note">You can remove these changes later from Settings → Uninstall pacer.</p>
+      <div class="actions">
+        <a id="agree" class="button primary" href="tauri://localhost/action/consent?path=0">Agree and continue</a>
+        <a class="button" href="tauri://localhost/index.html?state=welcome">Back</a>
+      </div>
+    </section>
+    <section id="existing" hidden>
+      <dl class="install-details">
+        <dt>Found on your computer</dt><dd><code id="existing-path" class="path"></code></dd>
+        <dt>Installed version</dt><dd id="installed-version"></dd>
+        <dt>This app's version</dt><dd id="app-version"></dd>
+      </dl>
+      <p class="note">If you installed pacer with Homebrew and choose this app's copy, run <code>brew uninstall pacer</code> so your terminal and the app use the same version. The app won't remove your Homebrew copy.</p>
+      <div class="actions">
+        <a id="use-app" class="button primary" href="tauri://localhost/action/use-app">Use this app's pacer</a>
+        <a id="keep-mine" class="button" href="tauri://localhost/action/keep-mine">Keep mine</a>
+      </div>
+    </section>
+    <section id="foreign" hidden>
+      <p class="note">To let this app run its own service, run this in a terminal. This window continues on its own, and your pacer folders keep their settings.</p>
+      <pre><code>pacer service uninstall</code></pre>
+      <p class="note">To keep the other service instead, quit this app and use pacer from a terminal.</p>
+    </section>
+    <section id="incomplete" hidden>
+      <div class="actions"><a id="download" class="button primary" href="tauri://localhost/action/download">Download pacer</a></div>
+    </section>
     <p><a id="privacy" href="x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders" hidden>Open Files and Folders settings</a></p>
     <p><a id="install-help" href="https://github.com/lamtuanvu/pacer/blob/main/docs/install.md" hidden>How to install pacer</a></p>
   </main>

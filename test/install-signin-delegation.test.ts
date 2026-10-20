@@ -150,7 +150,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       expect(await page.evaluate(() => document.cookie)).not.toContain("pacer_session");
       await browserFetch(page, "/v3/snapshot");
       expect((await context.request.get(auth)).status()).toBe(403); // single use
+      // This fixture has no installed service/planner integration. Let the
+      // asynchronous setup redirect finish before reload starts a navigation;
+      // WebKit otherwise cancels reload when location.replace wins the race.
+      await page.waitForURL(url => url.pathname === "/app/" && url.hash === "#/setup");
+      await page.getByRole("list", { name: "Setup steps", exact: true }).waitFor();
       expect((await page.reload())?.status()).toBe(200);
+      await page.getByRole("list", { name: "Setup steps", exact: true }).waitFor();
 
       const { result: task } = await browserFetch(page, "/v3/ops/task.delegate", {
         repo: s.repo, goal: "Create takeover-change.txt", acceptance: "test -f takeover-change.txt",

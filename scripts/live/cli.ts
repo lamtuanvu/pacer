@@ -3,7 +3,7 @@ import { basename, join, resolve } from "node:path";
 import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, sessions, up } from "./core";
 import { cleanupOta, exerciseOta, prepareOta } from "./ota";
 import { buildOtaFixtures } from "./ota-build";
-import { desktop, orca, tui } from "./surfaces";
+import { desktop, tui } from "./surfaces";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui]
@@ -19,7 +19,6 @@ const usage = `usage: bun run live <command> [--id <id>]
   login [--screen <screen>]        print fresh single-use app login URL
   tui start|keys <keys...>|capture [--out <name>]|stop
   desktop [--app <path>]           launch built macOS app
-  orca [--print]                   isolated Orca, or live panel HTML
   note [--behavior <b> --surface <s> --verdict PASS|FAIL|UNVERIFIED]
        [--steps <text>] <text>     record observed behavior
   attach <file>                   copy evidence into sandbox
@@ -94,7 +93,6 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "tui": console.log(await tui(session, positionals[0], positionals.slice(1), options.get("--out"))); break;
     case "desktop": console.log(desktop(session, options.get("--app"))); break;
-    case "orca": console.log(await orca(session, flags.has("--print"))); break;
     case "note": {
       const verdict = options.get("--verdict");
       if (verdict && !["PASS", "FAIL", "UNVERIFIED"].includes(verdict)) throw Error("verdict must be PASS, FAIL or UNVERIFIED");

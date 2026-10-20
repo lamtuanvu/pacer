@@ -18,28 +18,39 @@ Subscription budgets for AI coding agents: route and delegate coding work accord
 
 A planner can spend its subscription too quickly while other coding agents have unused capacity. pacer compares usage against time until reset, learns your active hours from local session logs, and helps the planner reserve capacity for decisions and review. Claude Code can plan while Codex, Cursor, agy, BytePlus or local models execute; Codex, Cursor and OpenCode can also be planners.
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/panel-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset=".github/assets/panel-light.png">
-    <img src=".github/assets/panel-light.png" alt="Orca budget panel showing provider usage, executor ranking, a task needing review and a running task" width="360">
-  </picture>
-</p>
-
-Rendered from the current plugin with sample data. [Roadmap](ROADMAP.md) · [Orca limitations](orca-plugin/README.md#known-limitations-orca-pluginapi-1-verified-on-orca-14224) · [Design system](design/README.md).
+[Roadmap](ROADMAP.md) · [Design system](design/README.md).
 
 ## Features
 
 - Budget status, executor ranking and routing by task kind.
 - Priority, even, burn-before-reset and cheapest-first pacing policies.
 - Delegation, limit-triggered fallback, task tracking and explicit planner review.
-- Planner skills and hooks, an optional stdio MCP server, and an Orca budget panel.
+- Planner skills and hooks, an optional stdio MCP server, a desktop app and a web app.
 - Direct CLI execution or Orca workers, with per-task worktree placement in Orca.
 - Rules-based classification, optional model adapters and local decision benchmarks.
 
 ## Install
 
-Install the latest binary from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases):
+[Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
+Choose the `darwin-arm64-unsigned.dmg` for Apple silicon or
+`darwin-x64-unsigned.dmg` for Intel, then drag pacer into Applications.
+
+The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+
+Welcome leads to one consent screen for the background service and the terminal
+link at `~/.local/bin/pacer`. If needed, an optional checkbox adds
+`export PATH="$HOME/.local/bin:$PATH"` to your `~/.zshrc` or `~/.bashrc`; it is
+off by default. Continue to the step-by-step **Setup** to choose your planner,
+connect agents, choose an executor and try a task. The app includes its CLI.
+
+`pacer uninstall --all` removes everything setup added, including the terminal
+link and the optional PATH block. Move the app to the Trash afterward. See
+[installation](docs/install.md) for Linux AppImage and `.deb` downloads, updates
+and uninstall details.
+
+### Terminal and servers
+
+Install the standalone CLI:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
@@ -89,7 +100,8 @@ codex login
 See the [Claude Code install guide](https://code.claude.com/docs/en/setup),
 [Claude Code login reference](https://code.claude.com/docs/en/cli-reference) and
 [Codex CLI guide](https://developers.openai.com/codex/cli) for prerequisites.
-Then install pacer and run setup:
+In the desktop app, follow **Setup** to connect these tools. For terminal and
+server installs, install pacer and run setup:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh | sh
@@ -154,19 +166,6 @@ Native executor launchers support Codex (`codex`), Cursor (`cursor-agent`), agy 
 
 The CLI is the primary agent interface. `pacer install <planner> --mcp` optionally registers `pacer mcp`, exposing budget, routing, delegation, task and review tools over stdio.
 
-## Orca plugin
-
-Install the pacer CLI as well: the plugin talks to its local service. In Orca Settings > Plugins, add marketplace source URL `https://github.com/lamtuanvu/pacer.git` with ref `main`, then install **pacer** (`lamtuanvu.pacer`). To install a specific release directly, use `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.2.3` (replace the version with the release you want).
-
-For local development:
-
-```sh
-pacer plugin install
-pacer serve
-```
-
-Add the managed development directory printed by the installer to Orca Settings > Plugins and enable its declared capabilities. Re-running `pacer plugin install` migrates an older `pacer.pacer` development install in the same directory; reload and enable the new identity in Orca. The plugin targets Orca >=1.4.224 and shows a read-only status page with budgets, tasks, alerts, versions and setup instructions, plus notifications. The worker never starts or contacts consoles. Its only command, **pacer: Open**, points to `pacer dashboard` in a terminal for delegating, reviewing, blocking executors and changing settings until the pacer app ships. `pacer console` is deprecated. The bootstrap installer is unchanged. See the [information-only decision](docs/decisions/2026-10-15-orca-plugin-information-only.md), the [plugin guide](orca-plugin/README.md) and its [known limitations](orca-plugin/README.md#known-limitations-orca-pluginapi-1-verified-on-orca-14224).
-
 ## App
 
 With the service running, `pacer open` opens the pacer app in your browser.
@@ -188,10 +187,11 @@ pacer uninstall --all
 ```
 
 It lists everything it will remove (agent integrations, restoring their backups;
-the login service; the Orca plugin registration; `~/.pacer` or `PACER_HOME`), asks
-once, then removes it. Add `--binary` to delete the pacer binary too, and `--yes`
-to skip the question in scripts. Remove any pacer development-folder entry from
-Orca Settings > Plugins yourself. To disconnect a single agent, use
+the login service; a leftover Orca plugin from an earlier pacer; `~/.pacer` or
+`PACER_HOME`), asks once, then removes it. Add `--binary` to delete the pacer
+binary too, and `--yes` to skip the question in scripts. pacer no longer ships an
+Orca plugin; if you installed it earlier, also remove pacer from Orca Settings >
+Plugins. To disconnect a single agent, use
 `pacer uninstall <agent>`.
 
 ## Privacy

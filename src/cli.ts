@@ -3,9 +3,14 @@ import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/des
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
 import { signerKind } from "./update/desktop/signer-requirement";
 import { currentVersion } from "./update/version";
+import { projectStrategyCmd } from "./commands/project-strategy";
+import { dashboardClient as connectTaskClient } from "./dashboard/client";
+import type { PruneResult } from "./tasks/retention";
+import { superviseTasks } from "./tasks/api";
+import { drainQueue } from "./tasks/drain";
 import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
-import { resolveRepoInput } from "./core/repos";
+import { registeredRepo, resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
@@ -22,7 +27,7 @@ import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { isExecutorSession } from "./install/role";
 import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
@@ -35,7 +40,6 @@ import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, strategyPa
 import { configCmd } from "./commands/config";
 import { accountCmd, runnerCmd } from "./commands/accounts";
 import { makeCtx } from "./ctx";
-import { rankExecutors } from "./engine/rank";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
 import { runStdio } from "./api/stdio";
@@ -58,14 +62,17 @@ const USAGE = `usage: pacer <command>
   status [--line | --json | --hook <planner>]   budget status (default: text report)
     --line [--width N] [--no-color] [--json]     compact local status; columns default to COLUMNS or 80
   pause <for> | resume                          pause or resume delegation
-  route [kind] [--json]                          executors pacer would use, in order
+  route [kind] [--repo <path-or-key>] [--json]                          executors pacer would use, in order (default repo: current directory)
+  project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-reason <text>]
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
   review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
   dismiss <task-id...>                           hide settled tasks
-  tasks [<task-id>] [--json]                     recent tasks, or one task in detail
+  tasks [<task-id>] [--all] [--json]             recent tasks, including archives with --all
+  tasks prune [--dry-run] [--json]               archive old settled tasks
+  tasks restore <task-id> [--json]               restore archived artifacts
   executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   report --task <task-id> --outcome done|failed|needs-input|running --summary <text>
@@ -197,22 +204,38 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
   }
 }
 
+function currentRepoKey(ctx: Ctx): string | undefined {
+  try { return registeredRepo(ctx, realpathSync(process.cwd()))?.key; }
+  catch { return undefined; }
+}
+
 async function route(args: string[], ctx: Ctx): Promise<Result> {
   const { opts, pos } = parseFlags(args, ["json"]);
   try {
-    const s = loadStrategy(ctx);
-    const st = await computeStatus(ctx, s);
-    const r = rankExecutors(pos[0] ?? null, s, Object.fromEntries(st.providers.map((p) => [p.id, p])));
-    if (opts.json) return { code: 0, out: JSON.stringify({kind:pos[0]??null,...r}, null, 1), err: "" };
-    const rows=r.ranked.map((e,i)=>({...e,index:i,...(!s.legacy ? {agent:s.runners[e.id]?.agent} : {})}));
+    if (opts.repo === true) throw new Error("--repo requires a path or repository key");
+    // Like delegate, default to the repository in the current directory, but
+    // only when it is already registered: a read never probes Git or registers it.
+    const repo = str(opts.repo) ?? currentRepoKey(ctx);
+    const client = await connectTaskClient(ctx);
+    let r: Awaited<ReturnType<typeof core.routing.route>>;
+    try {
+      const params = { kind: pos[0], repo };
+      r = client.kind === "inprocess" ? await callOp(ctx, "routing.route", params) as typeof r : await client.call("routing.route", params);
+    }
+    finally { client.close(); }
+    if (opts.json) return { code: 0, out: JSON.stringify(r, null, 1), err: "" };
+    const rows = r.ranked.map((e, i) => ({ ...e, index: i }));
     const lines = renderRoute(rows);
-    if (!lines.length) lines.push(r.reason ?? "no executor available");
+    if (!lines.length) lines.push("no executor available");
+    if (r.policy) lines.unshift(`Project order · ${r.policy.repoKey} · revision ${r.policy.rev}`);
     if (r.excluded.length) lines.push(`excluded: ${r.excluded.map((e) => `${e.id} (${e.reason})`).join(", ")}`);
     return { code: 0, out: lines.join("\n"), err: "" };
   } catch (e) {
     return { code: 2, out: "", err: explain(e) };
   }
 }
+
+const fallbackText = (f: NonNullable<TaskRecord["executorFallback"]>) => `requested ${f.requested}, ran on ${f.executor}: ${f.reason}`;
 
 function renderTask(t: TaskRecord): string {
   const r = t.result;
@@ -221,6 +244,8 @@ function renderTask(t: TaskRecord): string {
     `goal: ${t.brief.goal}`,
     `repo: ${t.brief.repo}`,
   ];
+  if(t.archived)lines.push(`archive: ${t.archivePath}`);
+  if(t.executorFallback)lines.push(`executor: ${fallbackText(t.executorFallback)}`);
   if(t.placement?.mode)lines.push(`placement: ${t.placement.mode} (${t.placement.why})`);
   if (t.attempts.length) {
     lines.push(`attempts: ${t.attempts.map((a) => `${a.executor} (exit ${a.exitCode}${a.limitHit ? ", limit" : ""}${a.timedOut ? ", timed out" : ""})`).join(" > ")}`);
@@ -267,21 +292,40 @@ async function controlProgress(ctx:Ctx,t:TaskRecord):Promise<string> {
 }
 
 async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts, pos } = parseFlags(args, ["json"]);
+  const { opts, pos } = parseFlags(args, ["json", "all", "dry-run"]);
+  if (pos[0] === "prune" || pos[0] === "restore") {
+    const client = await connectTaskClient(ctx);
+    try {
+      if (pos[0] === "restore") {
+        if (pos.length !== 2) throw new Error("usage: pacer tasks restore <task-id>");
+        const task = await client.call<Record<string, unknown>>("task.restore", { id: pos[1] });
+        return { code: 0, out: opts.json ? JSON.stringify(task, null, 1) : `restored ${pos[1]}`, err: "" };
+      }
+      if (pos.length !== 1) throw new Error("usage: pacer tasks prune [--dry-run]");
+      const result = await client.call<PruneResult>("task.prune", { dry_run: opts["dry-run"] === true });
+      return { code: 0, out: opts.json ? JSON.stringify(result, null, 1) : [
+        ...result.tasks.flatMap(t => [`${t.id} -> ${t.archivePath}`, ...t.files.map(f => `  ${f}`)]),
+        `${result.dryRun ? "would archive" : "archived"} ${result.tasks.length} tasks; ${result.bytesSaved} bytes saved; ${result.workingSetBytes} bytes removed from working set`,
+      ].join("\n"), err: "" };
+    } catch (e) { return { code: 2, out: "", err: explain(e) }; }
+    finally { client.close(); }
+  }
+  await superviseTasks(ctx, cliDeps.spawnRunner);
+  await drainQueue(ctx, cliDeps.spawnRunner);
   if (pos[0]) {
     try {
       const t = core.tasks.get(ctx, pos[0]);
       return { code: 0, out: opts.json ? JSON.stringify(summarizeTask(t), null, 1) : [renderTask(t),(await controlProgress(ctx,t))].filter(Boolean).join("\n"), err: "" };
     } catch (e) { return { code: 2, out: "", err: explain(e) }; }
   }
-  const list = core.tasks.list(ctx);
+  const list = core.tasks.list(ctx, { all: opts.all === true, ...(opts.all === true ? { limit: Infinity } : {}) });
   if (opts.json) return { code: 0, out: JSON.stringify(list.map(summarizeTask), null, 1), err: "" };
   if (!list.length) return { code: 0, out: "no tasks yet", err: "" };
   return {
     code: 0,
     out: (await Promise.all(list.map(async (t) => {
       const control=await controlProgress(ctx,t);
-      return `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
+      return `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.executorFallback?`  (requested ${t.executorFallback.requested}: ${t.executorFallback.reason})`:""}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
     }))).join("\n"),
     err: "",
   };
@@ -322,6 +366,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "account": return accountCmd(rest, ctx);
     case "runner": return runnerCmd(rest, ctx);
     case "config": return configCmd(rest, ctx);
+    case "project": return projectStrategyCmd(rest, ctx);
     case "dashboard": return runDashboard(rest, ctx);
     case "setup": return setupCmd(rest, ctx);
     case "answer": {
@@ -447,6 +492,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       return { code: 0, out: "", err: "", keepAlive: true };
     }
     case "serve": {
+      if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       const { opts } = parseFlags(rest, []);
       try {
         const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });

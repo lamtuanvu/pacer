@@ -20,6 +20,12 @@ and cookie-authenticated API access. Delegation through that browser session run
 `test/fixtures/bin/fake-agent` in completion mode and must produce a completed task
 in the review queue. The service, browser and any unfinished task are stopped.
 
+The disposable fixture intentionally leaves service/planner integration incomplete.
+Before reloading, the browser test waits for the resulting setup route and its
+required-steps region. This prevents the asynchronous setup redirect from canceling
+WebKit's reload; the test still requires an HTTP 200 reload and cookie-authenticated
+API access afterward.
+
 The unit suite skips these tests unless `PACER_E2E=1`. Missing builds or browsers
 fail the explicit e2e command. This CI test does not build or drive the native
 Tauri shell, install a launch agent, or verify native desktop process replacement

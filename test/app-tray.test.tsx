@@ -31,29 +31,29 @@ function fixture(): ClientSnapshot {
 const api = createApi();
 const ipc = createTrayIpc({ location: { assign() {} } });
 const draw = (snapshot: ClientSnapshot) => renderToString(<Tray snapshot={snapshot} api={api} ipc={ipc} />);
-const section = (html: string, name: string) => html.split(`<section class="tray-section" aria-label="${name}">`)[1]!.split("</section>")[0]!;
+const section = (html: string, name: string) => html.split(new RegExp(`<section(?=[^>]*class="[^"]*tray-section)(?=[^>]*aria-label="${name}")[^>]*>`))[1]!.split("</section>")[0]!;
 
 test("busy board has four linked counts, three attention rows, two running rows and one waiting line", () => {
   const snapshot = fixture(), html = draw(snapshot);
   const attention = section(html, "Needs you"), active = section(html, "Running");
-  expect(attention.match(/class="tray-attention /g)).toHaveLength(3);
-  expect(attention).toContain('href="/app/#/">+2 more in the app');
+  expect(attention.match(/class="[^"]*tray-attention /g)).toHaveLength(3);
+  expect(attention).toContain('>+2 more in the app');
   expect(attention).not.toContain("Attention 3");
   expect(attention).toContain("pacer · Testing · Failed twice 0");
-  expect(attention).toContain('aria-hidden="true">▶');
-  expect(attention).toContain('aria-hidden="true">…');
-  expect(attention).toContain('aria-hidden="true">◐');
+  expect(attention).toContain('>▶</span>');
+  expect(attention).toContain('>…</span>');
+  expect(attention).toContain('>◐</span>');
   expect(attention.match(/<button/g)).toHaveLength(3);
-  expect(attention).toContain('class="tray-action tray-action--primary"');
-  expect(attention).toContain('class="tray-action"');
+  expect(attention).toContain('pc-btn--compact');
+  expect(attention.match(/pc-list-row__actions/g)).toHaveLength(3);
   expect(attention).toContain(">Answer</span></button>");
   expect(attention).toContain(">Review</span></button>");
-  expect(active.match(/class="tray-running"/g)).toHaveLength(2);
+  expect(active.match(/class="[^"]*tray-running"/g)).toHaveLength(2);
   expect(active).toContain("Idle · running for 15m");
   expect(active).toContain("pc-status--warn");
   expect(active).not.toContain("Queued");
   expect(html).toContain("14 waiting for parallel tasks on Codex · next: Review screen");
-  const counts = html.split('aria-label="Task counts">')[1]!.split("</nav>")[0]!;
+  const counts = html.split(/<nav(?=[^>]*aria-label="Task counts")[^>]*>/)[1]!.split("</nav>")[0]!;
   for (const [n, label, route] of [[5, "needs you", "/"], [2, "running", "/sessions"], [14, "waiting", "/sessions?filter=waiting"], [3, "done today", "/sessions?filter=done"]]) {
     expect(counts).toContain(`href="/app/#${route}"`);
     expect(counts).toContain(`>${n}</b><span>${label}</span>`);
@@ -207,8 +207,8 @@ test("tray assets use their own entry and external CSS and are served with the a
   const css = files.find(f => f.path === "tray.css")!.text;
   expect(css).toContain("prefers-color-scheme: dark");
   expect(css).toContain("focus-visible");
-  expect(css).toContain("width:340px");
-  expect(css).toContain("max-height:520px");
+  expect(css).toContain("width:var(--size-340)");
+  expect(css).toContain("max-height:var(--size-520)");
   expect(css).toContain("font-variant-numeric:tabular-nums");
   expect(js).toContain("/settings/general");
   expect(js).toContain("strategy.use");
@@ -255,7 +255,7 @@ test("opencode executors use their account's mark and an unavailable account rea
   expect(html).toContain("agent-mark--byteplus");
   expect(html).toContain("agent-mark--local");
   expect(html).not.toContain("agent-mark--opencode");
-  expect(html).toMatch(/class="tray-executor tray-executor--off"[^>]*>.*?agent-mark--byteplus/);
+  expect(html).toMatch(/class="[^"]*tray-executor tray-executor--off"[^>]*>.*?agent-mark--byteplus/);
 });
 
 
@@ -278,7 +278,7 @@ test("unknown capacity never reads free or shows a ready glyph; unavailable capa
     const html = draw({ ...fixture(), executors: [row] });
     expect(html).toContain(">?</span>");
     expect(html).toContain("pc-glyph pc-status--neutral");
-    expect(html.split('aria-label="Executors">')[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
+    expect(html.split(/<section(?=[^>]*aria-label="Executors")[^>]*>/)[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
     expect(html).not.toContain(">free</span>");
   }
   for (const row of [
@@ -288,10 +288,19 @@ test("unknown capacity never reads free or shows a ready glyph; unavailable capa
   ]) {
     expect(executorValue(row)).toBe("off");
     const html = draw({ ...fixture(), executors: [row] });
-    expect(html).toContain('class="tray-executor tray-executor--off"');
+    expect(html).toMatch(/class="[^"]*tray-executor tray-executor--off"/);
     expect(html).toContain(">off</span>");
-    expect(html.split('aria-label="Executors">')[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
+    expect(html.split(/<section(?=[^>]*aria-label="Executors")[^>]*>/)[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
   }
   expect(executorValue({ ...unknown, paceReason: "unmetered" })).toBe("free");
   expect(executorValue({ ...unknown, state: "checking", paceReason: "unmetered" })).toBe("?");
+});
+
+test('Escape dismisses tray menus before hiding and reports native hide failures',async()=>{
+ const { dismissTray }=await import('../app/src/tray/Tray');
+ const steps:string[]=[];
+ await dismissTray(()=>steps.push('closed'),async()=>{steps.push('hidden');},message=>steps.push(message));
+ expect(steps).toEqual(['closed','hidden']);
+ await dismissTray(()=>steps.push('closed'),async()=>{throw new Error('Native hide failed');},message=>steps.push(message));
+ expect(steps.slice(-2)).toEqual(['closed','Native hide failed']);
 });

@@ -1,14 +1,13 @@
 import { configuredNativeServices } from "../update/desktop/native-provider";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
+import { retentionScheduler } from "../tasks/retention";
+import { superviseTasks } from "../tasks/api";
+import { startHealthListener } from "./health-listener";
+import { createReadCache } from "./read-cache";
+import { liveSnapshot } from "../api/events";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
-import { createManagedPanelWriter, panelRepo } from "./panel";
-import { checkSetup } from "../setup/check";
-import { MANAGED_MARKER, pluginDir } from "../plugin/install";
-import { installedPlugin, readUpdateCheck, updateAvailable } from "../update/check";
-import { currentVersion } from "../update/version";
-import { refreshManagedPlugin, type PluginRefreshDeps } from "./plugin-refresh";
 import { randomBytes } from "node:crypto";
 import { checkSession, safeEqual } from "./app-auth";
 import { appPage, appRoute } from "./app-routes";
@@ -42,7 +41,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { port?: number; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; pluginRefreshDeps?: Partial<PluginRefreshDeps> } = {},
+  getCtx: () => Ctx, opts: { port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
   const token = ensureToken(initialCtx);
@@ -57,55 +56,37 @@ export function startServer(
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;
   let snapshot = currentSnapshot(initialCtx);
-  const panelWriter = createManagedPanelWriter(initialCtx);
-  let panelBusy = false, panelCheckedAt = -Infinity;
-  // The setup check probes the service manager and HTTP; refresh it at most once a minute.
-  let panelSetup: Awaited<ReturnType<typeof checkSetup>> | undefined, panelSetupAt = -Infinity;
-  const refreshPanel = () => {
-    if (stopped || panelBusy || Date.now() - panelCheckedAt < 2000 || !existsSync(join(pluginDir(initialCtx), MANAGED_MARKER))) return;
-    panelBusy = true;
-    panelCheckedAt = Date.now();
-    void Promise.resolve().then(async () => {
-      const ctx = getCtx();
-      if (!panelSetup || Date.now() - panelSetupAt >= 60_000) {
-        panelSetup = await checkSetup(ctx, {snapshotProbe:false});
-        panelSetupAt = Date.now();
-      }
-      const setup = panelSetup;
-      const repo = (snapshot as import("../view-model/snapshot").ClientSnapshot).planner === undefined ? null : await panelRepo(snapshot, ctx.run);
-      const cli = currentVersion(), plugin = installedPlugin(ctx, cli)?.version ?? cli;
-      const check = readUpdateCheck(ctx, plugin);
-      if (!stopped) panelWriter.refresh(snapshot, {
-        nowS: ctx.now, reachable: true, transport: "http", setup, repo,
-        updates: { cli, plugin, latest: check?.latest ?? null, available: updateAvailable(check) || updateAvailable(check ? { ...check, current: cli } : null) },
-      });
-    }).catch(error => {
-      if (!stopped) console.log(`pacer: could not refresh the Orca panel: ${String(error instanceof Error ? error.message : error).split(/\r?\n/)[0]}`);
-    }).finally(() => { panelBusy = false; });
-  };
   let cachedStatus: Status | null = null;
   let statusError: string | null = null;
   let statusPending: Promise<void> | null = null;
   let stopped = false;
+  let listener: ReturnType<typeof startHealthListener> | undefined;
   const refreshStatus = () => {
     if(statusPending || stopped)return;
     statusPending = Promise.resolve().then(async()=>{
       const ctx=getCtx();
       const next=await computeStatus(ctx,loadStrategy(ctx));
-      if(!stopped){cachedStatus=next;statusError=null;}
+      if (!stopped) {
+        cachedStatus = next; statusError = null;
+      }
     }).catch(e=>{if(!stopped)statusError=e instanceof Error?e.message:String(e);}).finally(()=>{statusPending=null;});
   };
   const status = async () => {
     // A cold start rebuilds the activity profile from agent logs, which can take seconds.
     // Wait briefly for it, then let callers answer as "starting" instead of hanging.
-    if(statusPending)await (cachedStatus ? statusPending : Promise.race([statusPending, Bun.sleep(STATUS_WARMUP_WAIT_MS)]));
-    if(statusError)throw Error(statusError);
+    if (!cachedStatus && statusPending) await Promise.race([statusPending, Bun.sleep(STATUS_WARMUP_WAIT_MS)]);
+    if (!cachedStatus && statusError) throw Error(statusError);
     if(!cachedStatus)throw Error("status is warming up");
     return cachedStatus;
   };
+  const readCache = createReadCache(async () => {
+    const value = await liveSnapshot(getCtx(), { status });
+    return value;
+  }, 1000);
+  let publicPort = opts.port ?? DEFAULT_PORT;
   const refreshSnapshot = () => {
     if(stopped)return;
-    try{const ctx=getCtx();snapshot=currentSnapshot(ctx);refreshPanel();}catch{ /* Preserve last known data. */ }
+    try{const ctx=getCtx();snapshot=currentSnapshot(ctx);}catch{ /* Preserve last known data. */ }
   };
   // File notifications update memory outside request handlers; the timer covers missed notifications.
   let scheduled: ReturnType<typeof setTimeout> | undefined;
@@ -120,12 +101,12 @@ export function startServer(
   try { server = Bun.serve<SessionWS>({
     websocket: sessionWebSocket,
     hostname: "127.0.0.1",
-    port: opts.port ?? DEFAULT_PORT,
+    port: 0,
     idleTimeout: 0,
     async fetch(req, server) {
       const { pathname } = new URL(req.url);
       const sessionRoute=pathname.match(/^\/v[23]\/tasks\/([A-Za-z0-9_-]+)\/session$/);
-      const hosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
+      const hosts = [`127.0.0.1:${publicPort}`, `localhost:${publicPort}`];
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
       if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
       const headers = { "X-Pacer": "1" };
@@ -149,7 +130,7 @@ export function startServer(
       if (app) return appRoute(req, getCtx());
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status });
+        const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });
         response.headers.set("X-Pacer","1");
         return response;
       }
@@ -162,10 +143,24 @@ export function startServer(
     for (const watcher of watchers) watcher.close();
     throw error;
   }
+  try {
+    // Handler tests can explicitly skip the public listener and use the backend.
+    if (opts.listener === false) {
+      publicPort = server.port!;
+    } else {
+      listener = startHealthListener(server.port!, publicPort);
+      publicPort = listener.port;
+    }
+  } catch (error) {
+    stopped = true; nativeServices?.native.stop(); unbindDesktopUpdates(); clearTimeout(scheduled);
+    readCache.stop();
+    for (const watcher of watchers) watcher.close();
+    server.stop(true);
+    throw error;
+  }
   void desktopUpdates.start().catch(() => { console.error("pacer: desktop update startup requires recovery"); });
   const unregisterJobs = registerJobDaemon(initialCtx);
-  refreshPanel();
-  void refreshManagedPlugin(initialCtx, opts.pluginRefreshDeps).finally(refreshSnapshot);
+  refreshSnapshot();
   let busy = false;
   const tick = () => {
     if (busy || stopped) return;
@@ -185,10 +180,24 @@ export function startServer(
       });
     }).catch(() => []).finally(() => { busy = false; refreshSnapshot(); });
   };
+  const retention = retentionScheduler();
+  const prune = () => {
+    if (!stopped) void retention.tick(getCtx()).catch(error => console.warn(`pacer: task retention failed: ${String(error)}`));
+  };
+  const retentionStart = setTimeout(prune, 0);
+  const retentionTimer = setInterval(prune, 60_000);
+  let supervising = false;
+  const supervise = () => {
+    if (stopped || supervising) return;
+    supervising = true;
+    void superviseTasks(getCtx(), opts.opDeps?.spawnRunner, () => stopped)
+      .catch(error => { if (!stopped) console.error(`pacer: task supervision failed: ${String(error)}`); })
+      .finally(() => { supervising = false; });
+  };
+  const supervisorTimer = setInterval(supervise, 5000);
   const snapshotTimer=setInterval(refreshSnapshot,2000);
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  const stop = () => { nativeServices?.native.stop(); desktopUpdates.stop(); unbindDesktopUpdates(); unregisterJobs(); stopped=true; clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); };
-  return { port: server.port!, token, stop };
+  return { port: publicPort, token, stop: () => { nativeServices?.native.stop(); desktopUpdates.stop(); unbindDesktopUpdates(); listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(supervisorTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
 }

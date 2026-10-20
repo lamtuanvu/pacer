@@ -1,13 +1,16 @@
+import { jobKindCopy, jobStateCopy } from "../../../../src/view-model/copy";
+import { SegmentedControl, LoadingState, EmptyState, TextRow } from "../../ds/Patterns";
+export { Field } from "../../ds/Controls";
 import { clock } from "../../../../src/view-model/time";
 import { settingsMigrationMessage } from "../../../../src/view-model/feedback";
 import { SectionHeading } from "../../ds/SectionHeading";
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from 'preact';
 import type { Job } from '../../../../src/api/read-model/types';
 import type { BrowserApi } from '../../data/api';
-import { useActions } from '../../data/action-context';
-import { Button } from '../../ds/Button';
-import { ErrorMessage, useTaskContext } from '../task-shared';
+import { useActions } from "../../data/action-context";
+import { Button } from "../../ds/Button";
+import { ErrorMessage, useTaskContext } from "../task-shared";
 import styles from './settings.css' with {type:'text'};
 const styledDocuments = new WeakSet<Document>();
 /** Constructed sheets keep these standalone screens compatible with the app's strict style CSP. */
@@ -21,21 +24,21 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
 export function Section({id,title,detail,actions,children}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren}) {
  return <section id={id} className="u3-section"><div className="u3-heading"><div><SectionHeading>{title}</SectionHeading>{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>{children}</section>;
 }
-/** update.check publishes its own config event; rereading that event would loop. */
-export function resourceInvalidation(op:string,invalidations:Record<string,number>):string {
- return JSON.stringify(op==='update.check'?Object.fromEntries(Object.entries(invalidations).filter(([area])=>area!=='update')):invalidations);
+export function resourceRevision(op: string, invalidations: Record<string, number>): string {
+ // update.check itself publishes an update event; reacting to it creates a request loop.
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => op !== "update.check" || area !== "update"));
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
  const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[revision,reload]=useState(0);
- const serialized=JSON.stringify(params),invalidations=resourceInvalidation(op,state.invalidations);
+ const serialized=JSON.stringify(params),invalidations=resourceRevision(op,state.invalidations);
  useEffect(()=>{let active=true;setLoading(true);setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active)setData(r);},e=>{if(active)setError(e);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
- return {data,error,loading,reload:()=>reload(v=>v+1)};
+ return {data,error,loading,setData,reload:()=>reload(v=>v+1)};
 }
 export function ResourceState({resource,empty,children}:{resource:{data:unknown;loading:boolean;error:unknown;reload:()=>void};empty?:string;children:ComponentChildren}) {
  if(resource.error)return <><ErrorMessage error={resource.error}/><Button onClick={resource.reload}>Try again</Button></>;
- if(resource.data===undefined)return <p role="status">{resource.loading?'Loading…':'No data available.'}</p>;
- if(Array.isArray(resource.data)&&resource.data.length===0)return <p className="u3-muted">{empty??'Nothing here yet.'}</p>;
+ if(resource.data===undefined)return resource.loading?<LoadingState/>:<EmptyState title="No data available."/>;
+ if(Array.isArray(resource.data)&&resource.data.length===0)return <EmptyState title={empty??'Nothing here yet.'}/>;
  return <>{children}</>;
 }
 export interface OperationResult {data:unknown;message:string;hint?:string;command?:string;job?:Job;jobId?:string;path?:string;undo?:string}
@@ -63,18 +66,15 @@ export function useOperation(onDone?:()=>void) {
   },op,params);setResult(r);await done?.(r.data);if(!r.jobId)onDone?.();return r;}
   catch(e){setError(e);}finally{pending.current=false;setBusy(false);}
  }
- return {busy:busy||job?.state==='running',error,result,job,run};
+ return {busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};
 }
 export function JobProgress({job}:{job:Job}) {
- return <div className="u3-progress" role="status" aria-live="polite"><strong>{job.kind} · {job.state}</strong><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{step.state}</span> {step.name}{step.detail&&<span className="u3-muted"> · {step.detail}</span>}</li>)}</ul>{job.error&&<><p>{job.error.message}</p>{job.error.hint&&<p>{job.error.hint}</p>}</>}</div>;
+ return <div className="u3-progress" role="status" aria-live="polite"><TextRow label="Check progress" value={jobKindCopy(job.kind)} meta={jobStateCopy(job.state)} /><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{jobStateCopy(step.state)}</span> {step.name}{step.detail&&<span className="u3-muted"> · {step.detail}</span>}</li>)}</ul>{job.error&&<><p>{job.error.message}</p>{job.error.hint&&<p>{job.error.hint}</p>}</>}</div>;
 }
 export function Feedback({action}:{action:ReturnType<typeof useOperation>}) {
  return <div className="u3-feedback" aria-live="polite"><ErrorMessage error={action.error}/>{action.result&&<><span>{action.result.message}</span>{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
 }
-export function Segment({label,value,options,onChange,disabled}:{label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {
- return <div className="u3-segment" role="group" aria-label={label}>{options.map(option=><Button size="sm" key={option.value} disabled={disabled} aria-pressed={value===option.value} onClick={()=>onChange(option.value)}>{option.label}</Button>)}</div>;
-}
-export function Field({label,children,help}:{label:string;children:ComponentChildren;help?:string}) {return <label className="u3-field"><span>{label}</span>{children}{help&&<small>{help}</small>}</label>;}
+export function Segment(props:{label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
 export const words=(value:string)=>value.replaceAll('_',' ');
 export const time=(value:number|null)=>value===null?'Not checked':clock(value,Date.now()/1000);
 /** Keep host jobs visible after navigation or a service reconnect. */
