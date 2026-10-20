@@ -34,6 +34,7 @@ export interface AccountStatus {
   remoteHost?: string;
   capturedAt: number | null;
   runners: string[];
+  spendUsd: number | null;
 }
 
 export interface Status {
@@ -137,6 +138,7 @@ export async function computeStatus(
       resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
       stale: reading.stale, runners: runners.map(r => r.name),
       source: reading.source ?? null, capturedAt: reading.capturedAt,
+      spendUsd: reading.spendUsd ?? null,
       ...(reading.remoteHost ? { remoteHost: reading.remoteHost } : {}),
     })),
     providers,
