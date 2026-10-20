@@ -32,6 +32,7 @@ export function classify(provider: { id: string; local?: boolean }, catalog?: Ca
   if (/-coding-plan$/.test(provider.id)) return { usage: "quota", ...(/^(volcengine|byteplus)/.test(provider.id) ? { quota_source: "arkcli" as const } : {}), known: true };
   if (!catalog) return { usage: "metered", known: false };
   const priced = catalog.models.filter(m => m.costIn !== null || m.costOut !== null);
-  if (priced.length && priced.every(m => !m.costIn && !m.costOut)) return { usage: "quota", known: true };
+  if (!priced.length) return { usage: "metered", known: false };
+  if (priced.every(m => !m.costIn && !m.costOut)) return { usage: "quota", known: true };
   return { usage: "metered", known: true };
 }
