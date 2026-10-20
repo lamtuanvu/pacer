@@ -63,7 +63,7 @@ const sessionStates: Record<string, Status> = {
   queued: taskStates.queued!,
 };
 const waitingReview = status("Review requested", "warn", "◐");
-export interface TaskStatusInput { dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; phase?: string; progress?: { phase?: string } | null }
+export interface TaskStatusInput { dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; acceptanceState?: string; phase?: string; progress?: { phase?: string } | null }
 export function taskStatus(task: TaskStatusInput): Status {
   const phase = task.progress?.phase ?? task.phase;
   if (task.state === "running" && phase) return sessionStatus(phase);
@@ -122,7 +122,7 @@ export function paceStatus(verdict: string): Status {
 export function attentionStatus(item: { kind: string; taskId?: string }, tasks: (TaskStatusInput & { id: string })[] = []): Status {
   const task = tasks.find(t => t.id === item.taskId);
   if (item.kind === "review") return waitingReview;
-  if (item.kind === "failed" && task?.state === "done") return status("Checks failed", "bad", "✕");
+  if (item.kind === "failed" && (task?.state === "done" || task?.acceptanceState === "failed")) return status("Checks failed", "bad", "✕");
   if (task) return taskStatus(task);
   return ({ review: waitingReview, question: taskStates.needs_input!, failed: taskStates.failed!, limit: taskStates.limit!,
     executor_down: executorStates.down!, host_down: executorStates.down!, stuck: sessionStates.idle! } as Record<string, Status>)[item.kind] ?? status("Needs attention", "warn", "!");

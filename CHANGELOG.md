@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Explicit human review handoff through `task.request_review`, MCP `task_request_review`, and `pacer task request-review <id> --note <concern>`, with revision guards and no inferred acceptance.
+
 - Guided OpenCode endpoint setup: `pacer account add` and Settings › Add executor list providers already signed in to OpenCode, local model servers (Ollama, LM Studio) and catalog providers, recommend a model that can call tools, set the usage type from the models.dev catalog and offer an optional weekly dollar cap. Signed-in providers are stored as `source: opencode` accounts that refer to the provider and never hold its key. `pacer account add opencode <provider> [--model] [--cap-usd] [--name] [--no-test]` does it in one command. Spend is read in dollars from `opencode stats --cost`, and new API ops `executor.setup.candidates`, `executor.setup.models` and `executor.setup.connect` serve the app.
 
 ## [0.5.0] - 2026-10-20
@@ -16,6 +18,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Settings Diagnostics runs doctor checks with repair guidance, distinguishes configured integrations from fixture-tested handlers and unverified Claude invocation, and flags disabled or incomplete Claude hooks.
 
 ### Changed
+
+- Needs you replaces the routine review queue across the app, tray and terminal dashboard. Successful completion without a verdict stays in Tasks; failed checks, incomplete work and explicit human decisions remain actionable. Task results put checks and changes before collapsed transcripts, separate execution from verdicts, and clarify that acceptance does not merge branches. Legacy task links remain supported.
 
 - `pacer dashboard` is redesigned on the shared design system: Home, Review, Sessions, Settings and Setup screens mirror the app, statuses are glyph plus label, colors follow the design tokens for dark and light terminals, destructive actions confirm, and `--plain` and `--once` print screen-reader-friendly or single frames. The dashboard now reads and writes only through the API.
 

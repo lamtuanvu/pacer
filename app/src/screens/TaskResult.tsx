@@ -30,7 +30,7 @@ export function TaskResultView({ task, verdict, changes, question, onChanges }: 
     <div className="pc-task-result__heading"><SectionHeading>{task.fullTitle ?? task.title ?? task.goal}</SectionHeading><StatusPill status={taskStatus(task)} /></div>
     <p className="muted">{task.repo.label} · {executorLabel(task.executor)}{task.endedAt ? ` · finished ${clock(task.endedAt, Date.now() / 1000)}` : ""}</p>
     <div className="pc-task-result__columns"><article>
-      <section className="pc-section"><SectionHeading>Result</SectionHeading><p className="report">{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p></section>
+      <section className="pc-section"><SectionHeading>Result</SectionHeading><p>{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p></section>
       <section className="pc-section"><SectionHeading>Checks &amp; changes</SectionHeading>
         <p className={task.acceptance.state === "failed" ? "pc-warn-text" : "muted"}>{task.acceptance.state === "failed" ? "Checks failed" : task.acceptance.state === "passed" ? "Checks passed" : task.acceptance.state === "none" ? "No acceptance checks recorded" : "Checks have no final result"}{task.acceptance.summary ? ` · ${task.acceptance.summary}` : ""}</p>
         {task.acceptance.tail && <Disclosure className="pc-disclosure" summary="Acceptance output" open={task.acceptance.state === "failed"}><pre className="mono pc-code-scroll">{task.acceptance.tail}</pre></Disclosure>}

@@ -55,3 +55,11 @@ test("handoff validates note, state and concurrent mutations", async () => {
   }
   expect(await callOp(ctx, "task.request_review", { id: "missing", note: "Check" }).catch(toApiError)).toMatchObject({ code: "unknown_task" });
 });
+
+test("requesting review brings an old result back into the recent snapshot", async()=>{
+ const {ctx,id}=fixture();
+ ctx.now+=172800;
+ await callOp(ctx,"task.request_review",{id,note:"Check an older result"});
+ const {snapshotTasks}=await import("../src/api/read-model/tasks");
+ expect(snapshotTasks(ctx,[readTask(ctx,id)!]).map(t=>t.id)).toContain(id);
+});

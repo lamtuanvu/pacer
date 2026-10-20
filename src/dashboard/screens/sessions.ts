@@ -3,22 +3,22 @@ import { running } from "../../view-model/selectors";
 import { sessionTime, timelineCopy } from "../../view-model/copy";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
-import { executorLabel, taskStatus } from "../../view-model/words";
+import { executorLabel, taskStatus, taskOutcome } from "../../view-model/words";
 import type { ClientTask } from "../../view-model/snapshot";
 import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, MARK, opAct, time, wrapAfter } from "./common";
-import { errorRows } from "./review";
+import { errorRows, reviewDetail, reviewItem } from "./review";
 import type { Row, ScreenCtx, ScreenView } from "./types";
 
 const ACTIVE = new Set(["running", "queued"]);
 export const attachable = (ctx: ScreenCtx, t: ClientTask) => !!t.session && t.session.host !== "none" && ctx.supports("task.attach");
-const waitingForReview = (t: ClientTask) => ["done", "partial"].includes(t.state) && !t.review && !t.dismissed && !t.resolved && !t.retriedBy;
+const waitingForReview = (t: ClientTask) => !!t.reviewRequest && ["done", "partial"].includes(t.state) && !t.review && !t.dismissed && !t.resolved && !t.retriedBy;
 
-export function recentlyEnded(ctx: Pick<ScreenCtx, "s" | "state">): ClientTask[] {
+export function recentlyEnded(ctx: Pick<ScreenCtx, "s" | "state" | "data">): ClientTask[] {
   const scope = ctx.state.scope;
-  return ctx.s.tasks.filter(t => !t.dismissed && !ACTIVE.has(t.state) && (scope === null || !t.repo || t.repo.key === scope))
-    .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
+  return [...new Map([...(ctx.data?.history?.value?.tasks??[]),...ctx.s.tasks].map(t=>[t.id,t])).values()].filter(t => !t.dismissed && !ACTIVE.has(t.state) && (scope === null || !t.repo || t.repo.key === scope))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
@@ -29,11 +29,13 @@ export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
   const rev = typeof t.rev === "number" ? { expect_rev: t.rev } : {};
   const stop = active || t.state === "needs_input" ? opAct(ctx, "Stop", "task.stop", { id: t.id, ...rev }, { danger: true, confirm: { title: "Stop this session and its executor?", body: [displayTitle(t)], yes: "Stop" } }) : undefined;
   const review: Act | undefined = waitingForReview(t) ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
+  const detail = ctx.data.details.get(t.id)?.value;
+  const verdictItem = !active && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as import("../../attention/types").AttentionItem,t,detail) : undefined;
   const dismiss = !active ? opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...rev }) : undefined;
   return {
     id: `session:${t.id}`, primary: watch ?? review,
-    actions: defined([watch && review, terminal, tmux, stop, dismiss]),
-    keys: { ...(terminal ? { t: terminal } : {}), ...(tmux ? { m: tmux } : {}), ...(stop ? { s: stop } : {}), ...(dismiss ? { x: dismiss } : {}) },
+    actions: [...defined([watch && review, terminal, tmux, stop, dismiss]),...(verdictItem?.actions??[])],
+    keys: { ...verdictItem?.keys, ...(terminal ? { t: terminal } : {}), ...(tmux ? { m: tmux } : {}), ...(stop ? { s: stop } : {}), ...(dismiss ? { x: dismiss } : {}) },
   };
 }
 
@@ -42,6 +44,7 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
   // As Review: the detail gets the larger share, so its prose is not clipped.
   const listWidth = ctx.wide ? 46 : ctx.width;
   const list: Row[] = [], items: Item[] = [];
+  if(ctx.data.history?.error)list.push(...errorRows(ctx,ctx.data.history.error));
   const row = (t: ClientTask, timing: string) => {
     const item = sessionItem(ctx, t);
     items.push(item);
@@ -67,10 +70,14 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
   if (!active.length) list.push(empty("No running sessions."));
   for (const t of active) row(t, t.state === "queued" ? "queued" : elapsed(now - (t.attemptStartedAt ?? t.updatedAt)));
   const ended = recentlyEnded(ctx);
-  list.push(blank(), { line: heading(theme, "Recently ended", ended.length) });
-  if (!ended.length) list.push(empty("No recently ended sessions."));
+  list.push(blank(), { line: heading(theme, "Completed", ended.length) });
+  if (!ended.length) list.push(empty("No completed tasks."));
   for (const t of ended) row(t, time(ctx, t.updatedAt));
 
+  if(ctx.data.history?.value?.next) {
+    const more: Item={id:"history-more",primary:{label:"Load older tasks",effect:{type:"history-more"}},actions:[],keys:{}};
+    items.push(more);list.push({item:more.id,line:[span("Load older tasks",{fg:"secondary"})]});
+  }
   const all = [...active, ...ended];
   const selected = all.find(t => `session:${t.id}` === ctx.state.selected.sessions) ?? all[0];
   const detailWidth = ctx.wide ? ctx.width - listWidth - 3 : ctx.width - MARK;
@@ -83,6 +90,7 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
 }
 
 function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
+  if (!ACTIVE.has(t.state)) return reviewDetail(ctx,{taskId:t.id,title:displayTitle(t),kind:waitingForReview(t)?"review":"failed"} as import("../../attention/types").AttentionItem,ctx.data.details.get(t.id),width);
   const { theme, now } = ctx, resource = ctx.data.details.get(t.id), d = resource?.value;
   const dot = ` ${glyph(theme, "·")} `;
   const rows: Row[] = wrap(displayTitle(t), width, 2).map(line => ({ line: [span(line, { bold: true })] }));
@@ -101,7 +109,7 @@ function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
   rows.push(blank(), { line: heading(theme, "Done when") });
   const acceptance = (d?.acceptance ?? (t as { acceptance?: { cmd?: string } }).acceptance);
   rows.push(acceptance?.cmd ? { line: [span(acceptance.cmd)] } : empty("No done-when command."));
-  if (acceptance?.cmd) rows.push(...wrapAfter([], "pacer runs it after the executor exits, then asks you to review.", width, { fg: "muted" }));
+  if (acceptance?.cmd) rows.push(...wrapAfter([], "pacer runs it after the executor exits, records the checks with the result.", width, { fg: "muted" }));
 
   rows.push(blank(), { line: heading(theme, "Timeline") });
   if (resource?.error && !d) rows.push(...errorRows(ctx, resource.error));
