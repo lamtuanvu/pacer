@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import {
   nativeSocketPath,
   compiledAppleTeamId,
+  compiledSigningCertSha1,
   DarwinAuthority,
 } from "../src/update/desktop/native-os";
 import { fakeCtx } from "./helpers";
@@ -10,12 +11,15 @@ import { fakeCtx } from "./helpers";
 test("source and runtime env cannot enable native production trust", () => {
   const old = process.env.PACER_BUILD_APPLE_TEAM_ID;
   process.env.PACER_BUILD_APPLE_TEAM_ID = "ABCDE12345";
+  process.env.PACER_BUILD_SIGNING_CERT_SHA1 = "A".repeat(40);
   try {
     expect(compiledAppleTeamId()).toBeNull();
+    expect(compiledSigningCertSha1()).toBeNull();
     expect(DarwinAuthority.configured()).toBeNull();
   } finally {
     if (old === undefined) delete process.env.PACER_BUILD_APPLE_TEAM_ID;
     else process.env.PACER_BUILD_APPLE_TEAM_ID = old;
+    delete process.env.PACER_BUILD_SIGNING_CERT_SHA1;
   }
 });
 test("native socket derives short distinct endpoints from canonical home port and UID", () => {
@@ -30,7 +34,7 @@ test("native socket derives short distinct endpoints from canonical home port an
 });
 test("native dynamic verifier rejects an unrelated process and supplied invalid audit token", () => {
   if (process.platform !== "darwin") return;
-  const authority = new DarwinAuthority("ABCDE12345");
+  const authority = new DarwinAuthority({ appleTeamId: "ABCDE12345" });
   expect(() => authority.verifyPeer(new Uint8Array(32), "desktop")).toThrow();
   expect(() => authority.verifyStatic(process.execPath, "desktop")).toThrow();
 });
@@ -83,6 +87,8 @@ test("CLI build identity reports disabled source authority without copying runti
     fixture: false,
     otaMode: "disabled",
     appleTeamId: null,
+    signingCertSha1: null,
+    signer: null,
   });
 });
 
@@ -388,7 +394,7 @@ test("OS process enumeration and dynamic signing use kernel incarnations", async
     enumerateNativeProcesses().find((p) => p.process.pid === process.pid)
       ?.process,
   ).toEqual(ownProcessIdentity()!);
-  const authority = new DarwinAuthority("ABCDE12345");
+  const authority = new DarwinAuthority({ appleTeamId: "ABCDE12345" });
   expect(() => authority.verifyProcess(ownProcessIdentity()!, "cli")).toThrow();
 });
 
@@ -740,7 +746,7 @@ test("dedicated fixture trust verifies actual signed process and rejects changed
   await reader.read();
   reader.releaseLock();
   try {
-    const authority = new DarwinAuthority("", policy);
+    const authority = new DarwinAuthority({}, policy);
     authority.verifyStatic(binary, "cli");
     expect(
       authority.verifyProcess(processIdentity(child.pid)!, "cli").executable,

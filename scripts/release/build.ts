@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { validSignerPins, type SignerPins } from "../../src/update/desktop/signer-requirement";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
@@ -18,7 +19,7 @@ export interface BuildOptions {
   version?: string;
   targets?: Target[];
   bunExe?: string;
-  desktopTrust?: { appleTeamId: string };
+  desktopTrust?: SignerPins;
   log?: (line: string) => void;
 }
 
@@ -53,9 +54,9 @@ export function parseBuildArgs(argv: string[]): BuildArgs | string {
 }
 
 /** One `bun build --compile` for one target. The host target reuses the running bun, so it needs no download. */
-type CompileOptions = { root: string; target: Target; version: string; outfile: string; bunExe?: string; desktopTrust?: { appleTeamId: string } };
-function validateDesktopTrust(trust?: { appleTeamId: string }): void {
-  if (trust && !/^[A-Z0-9]{10}$/.test(trust.appleTeamId)) throw Error("Invalid desktop Apple Team ID");
+type CompileOptions = { root: string; target: Target; version: string; outfile: string; bunExe?: string; desktopTrust?: SignerPins };
+function validateDesktopTrust(trust?: SignerPins): void {
+  if (trust && !validSignerPins(trust)) throw Error("Invalid desktop signer pins (Apple Team ID and/or signing certificate SHA-1)");
 }
 export function compileCommand(o: CompileOptions): string[] {
   validateDesktopTrust(o.desktopTrust);
@@ -67,7 +68,8 @@ export function compileCommand(o: CompileOptions): string[] {
     bun, "build", "--compile",
     `--target=${o.target.bunTarget}`,
     "--define", `PACER_BUILD_VERSION=${JSON.stringify(o.version)}`,
-    ...(o.desktopTrust ? ["--define", `PACER_BUILD_APPLE_TEAM_ID=${JSON.stringify(o.desktopTrust.appleTeamId)}`] : []),
+    ...(o.desktopTrust?.appleTeamId ? ["--define", `PACER_BUILD_APPLE_TEAM_ID=${JSON.stringify(o.desktopTrust.appleTeamId)}`] : []),
+    ...(o.desktopTrust?.signingCertSha1 ? ["--define", `PACER_BUILD_SIGNING_CERT_SHA1=${JSON.stringify(o.desktopTrust.signingCertSha1)}`] : []),
     "--no-compile-autoload-dotenv",
     "--no-compile-autoload-bunfig",
     ...(isHost ? [`--compile-executable-path=${bun}`] : []),
@@ -160,7 +162,7 @@ if (import.meta.main) {
     const targets = a.targets ?? (a.host && host ? [host] : TARGETS);
     const { dir, manifest } = a.writeOnly
       ? { dir: join(outRoot, version), manifest: writeRelease(outRoot, version, targets) }
-      : await buildRelease({ root, outRoot, version: a.version, targets, desktopTrust: a.desktopProduction ? { appleTeamId: process.env.PACER_APPLE_TEAM_ID ?? "" } : undefined, log: line => console.log(line) });
+      : await buildRelease({ root, outRoot, version: a.version, targets, desktopTrust: a.desktopProduction ? { appleTeamId: process.env.PACER_APPLE_TEAM_ID || null, signingCertSha1: process.env.PACER_SIGNING_CERT_SHA1 || null } : undefined, log: line => console.log(line) });
     console.log(`release ${manifest.version}: ${dir}`);
     for (const x of manifest.assets) console.log(`  ${x.file}  ${x.size} bytes  sha256 ${x.sha256}`);
   } catch (e) {

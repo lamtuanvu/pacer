@@ -20,7 +20,7 @@ import {
 import { dirname } from "node:path";
 import { FrameDecoder, encodeFrame } from "./adapter";
 import { loadNativeShim, NATIVE_SHIM_SYMBOLS } from "./native-shim";
-import { compiledAppleTeamId } from "./native-os";
+import { compiledSignerPins } from "./native-os";
 import { compiledNativeFixture } from "./native-fixture";
 import {
   ownProcessIdentity,
@@ -52,7 +52,7 @@ function errno() {
 }
 let shim: ReturnType<typeof descriptorShim> | undefined;
 function descriptorShim() {
-  if (Bun.isStandaloneExecutable || compiledAppleTeamId() || compiledNativeFixture()) return loadNativeShim();
+  if (Bun.isStandaloneExecutable || compiledSignerPins() || compiledNativeFixture()) return loadNativeShim();
   return developmentDescriptorShim();
 }
 function developmentDescriptorShim() {

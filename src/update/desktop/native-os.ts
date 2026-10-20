@@ -1,5 +1,6 @@
 /** macOS system-library trust root. No executable supplied by a peer is run. */
 import { fileIdentity, VerifiedOnce } from "./verification-cache";
+import { signerRequirement, validSignerPins, type SignerPins } from "./signer-requirement";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import {
@@ -30,6 +31,19 @@ export function compiledAppleTeamId(): string | null {
       ? PACER_BUILD_APPLE_TEAM_ID
       : "";
   return /^[A-Z0-9]{10}$/.test(team) ? team : null;
+}
+declare const PACER_BUILD_SIGNING_CERT_SHA1: string | undefined;
+/** SHA-1 of the project's self-signed code-signing certificate, compiled in only. */
+export function compiledSigningCertSha1(): string | null {
+  const cert =
+    typeof PACER_BUILD_SIGNING_CERT_SHA1 === "string"
+      ? PACER_BUILD_SIGNING_CERT_SHA1
+      : "";
+  return /^[0-9A-F]{40}$/.test(cert) ? cert : null;
+}
+export function compiledSignerPins(): SignerPins | null {
+  const pins = { appleTeamId: compiledAppleTeamId(), signingCertSha1: compiledSigningCertSha1() };
+  return validSignerPins(pins) ? pins : null;
 }
 export function nativeSocketPath(
   home: string,
@@ -90,22 +104,19 @@ export class DarwinAuthority {
   private auditKey: Pointer;
   private pidKey: Pointer;
   static configured(): DarwinAuthority | null {
-    const team = compiledAppleTeamId(),
+    const pins = compiledSignerPins(),
       fixture = compiledNativeFixture();
-    if (team && fixture) throw denied();
-    return process.platform === "darwin" && (team || fixture)
-      ? new DarwinAuthority(team ?? "", fixture ?? undefined)
+    if (pins && fixture) throw denied();
+    return process.platform === "darwin" && (pins || fixture)
+      ? new DarwinAuthority(pins ?? {}, fixture ?? undefined)
       : null;
   }
   /** Internal constructor for OS boundary tests. Production composition uses configured(). */
   constructor(
-    private readonly team: string,
+    private readonly pins: SignerPins,
     private readonly fixture?: NativeFixture,
   ) {
-    if (
-      process.platform !== "darwin" ||
-      (!fixture && !/^[A-Z0-9]{10}$/.test(team))
-    )
+    if (process.platform !== "darwin" || (!fixture && !validSignerPins(pins)))
       throw denied();
     const cfPath =
         "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
@@ -164,7 +175,7 @@ export class DarwinAuthority {
       const identifier = role === "native-shim" ? "dev.pacer.desktop.native-shim" : identifiers[role];
       const requirement = this.fixture
         ? `identifier "${identifier}"`
-        : `anchor apple generic and identifier "${identifier}" and certificate leaf[subject.OU] = "${this.team}"`;
+        : signerRequirement(identifier, this.pins);
       const text = this.cf.symbols.CFStringCreateWithCString(
         null,
         ptr(cstr(requirement)),

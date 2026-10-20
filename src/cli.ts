@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
-import { compiledAppleTeamId } from "./update/desktop/native-os";
+import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
+import { signerKind } from "./update/desktop/signer-requirement";
 import { currentVersion } from "./update/version";
 import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
@@ -305,8 +306,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
   switch (cmd) {
     case "--pacer-identity": {
       if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-identity"};
-      const appleTeamId=compiledAppleTeamId();
-      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:"dev.pacer.cli",version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":appleTeamId?"production":"disabled",appleTeamId,fixturePolicySha256:compiledNativeFixtureSha256()})};
+      const appleTeamId=compiledAppleTeamId(), signingCertSha1=compiledSigningCertSha1(), pins=compiledSignerPins();
+      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:"dev.pacer.cli",version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
     }
     case "pause":
     case "resume": {
