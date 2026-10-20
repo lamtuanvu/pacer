@@ -138,6 +138,8 @@ fn server(body: String, status: &str) -> (u16, std::thread::JoinHandle<String>) 
                 Err(e) => panic!("HTTP test server: {e}"),
             }
         };
+        // macOS: an accepted socket inherits O_NONBLOCK from the listener.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(std::time::Duration::from_secs(2)))
             .unwrap();
