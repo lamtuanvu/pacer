@@ -144,6 +144,8 @@ impl FixturePolicy {
             candidate_version: String,
             arch: String,
             updater_key_sha256: String,
+            #[serde(default)]
+            signing_cert_sha1: Option<String>,
         }
         let intent: BuildIntent =
             serde_json::from_value(record["nativeFixture"].clone()).map_err(|_| ())?;
@@ -170,6 +172,7 @@ impl FixturePolicy {
             || !matches!(intent.arch.as_str(), "aarch64" | "x86_64")
             || version(&intent.candidate_version)? <= version(&intent.baseline_version)?
             || intent.updater_key_sha256 != format!("{:x}", Sha256::digest(public_key.as_bytes()))
+            || intent.signing_cert_sha1 != self.signing_cert_sha1
             || record["sources"] != sources
         {
             return Err(());
@@ -338,5 +341,26 @@ mod tests {
                 "{pointer}"
             );
         }
+    }
+    #[test]
+    fn certificate_signed_build_requires_the_same_pin_in_lease_and_intent() {
+        use sha2::{Digest, Sha256};
+        const CERT: &str = "2C5405FB6D2906AE2049D59B9DF5D42661997922";
+        let (_temp, mut policy) = fixture();
+        let path = policy.root.join("record.json");
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        record["phase"] = serde_json::json!("building");
+        record["nativeFixture"] = serde_json::json!({"schema":1,"kind":"native-build","buildRoot":policy.root.join("build"),"baselineVersion":"0.2.3","candidateVersion":"0.2.4","arch":"aarch64","updaterKeySha256":format!("{:x}",Sha256::digest(b"disposable-public-key")),"signingCertSha1":CERT});
+        record["sources"] = serde_json::json!([
+            {"path":policy.root.join("build/baseline/pacer.app"),"sha256":null},
+            {"path":policy.root.join("build/candidate/pacer.app"),"sha256":null}
+        ]);
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(policy.validate_build("disposable-public-key").is_err());
+        policy.signing_cert_sha1 = Some(CERT.into());
+        assert!(policy.validate_build("disposable-public-key").is_ok());
+        policy.signing_cert_sha1 = Some("A".repeat(40));
+        assert!(policy.validate_build("disposable-public-key").is_err());
     }
 }
