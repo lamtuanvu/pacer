@@ -29,7 +29,7 @@ test("source: opencode rejects bad shapes", () => {
   }, {"opencode#b": {model: "x/m"}, "opencode#e": {model: "y/m"}}));
   expect(ps.join("\n")).toContain("accounts.a: source: opencode requires an endpoint account");
   expect(ps.join("\n")).toContain("accounts.b: source: opencode needs provider");
-  expect(ps.join("\n")).toContain("accounts.c: source must be opencode");
+  expect(ps.join("\n")).not.toContain("accounts.c:");
   expect(ps.join("\n")).toContain("accounts.d: budget cannot combine weekly_usd and weekly_tokens");
   expect(ps.join("\n")).toContain("accounts.e: budget.weekly_usd must be a positive number");
   expect(ps.join("\n")).toContain('runner opencode#e: model must start with "x/"');
@@ -40,7 +40,8 @@ test("quota on a source: opencode account needs no quota_source", () => {
     {"opencode#zhipu": {model: "zhipuai-coding-plan/glm-5"}}))).toEqual([]);
 });
 
-test("other source values are ignored as before, so existing native accounts still load", () => {
+test("other source values are ignored as before, so existing native and endpoint accounts still load", () => {
+  expect(problems(base({acme: {kind: "endpoint", source: "elsewhere", usage: "unmetered", model: "acme/m"}}, {"opencode#acme": {}}))).toEqual([]);
   for (const source of ["external", "default", "pacer"]) {
     expect(problems(base({work: {kind: "claude", source, home: "/tmp/work"}}, {"claude-code#work": {}}))).toEqual([]);
     expect(problems(base({team: {kind: "codex", source}}, {"codex#team": {}}))).toEqual([]);
