@@ -40,7 +40,7 @@ eval "$(bun run live env --id my-change)"
 
 Use those exports in a dedicated shell so later work does not inherit the sandbox. The guarded `pacer` stays first on `PATH`, and `PACER_BIN` points at it. Each guarded call reapplies sandbox env, including calls made by child tools. Do not bypass the wrapper or override the sandbox coordinates.
 
-The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall`, `account add|rm|login`, `host setup`, `orca`, and `open` without `--print`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
+The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall|remove`, `account add|rm|login`, `host setup`, `orca`, and `open` without `--print`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
 
 ## D8: service operation guard
 
