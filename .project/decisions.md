@@ -14,7 +14,9 @@ This log holds dated governance decisions, exceptions and superseded rules. Arch
 
 ## Exceptions
 
-None recorded.
+| Date | Exception | Scope | Expiry | Decided by | Source |
+|------|-----------|-------|--------|------------|--------|
+| 2026-10-20 | OD-5 release gate: desktop releases may publish without Developer ID signing or notarization | Public desktop releases signed with the pinned self-signed certificate, provided both architectures validate and CT-11 evidence covers the self-signed signer | The Developer ID bridge release | Proposed; accepted by @lamtuanvu by merging the PR | [interim self-signed OTA design](../docs/specs/2026-10-20-interim-self-signed-ota-design.md), [ADR 0001 addendum](../docs/decisions/0001-desktop-ota.md) |
 
 ## Open decisions
 

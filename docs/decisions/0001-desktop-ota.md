@@ -45,3 +45,17 @@ The existing proposed governance rules are unchanged. This ADR records the deskt
 - Trust public client claims or PID alone: does not prove signed native identity or protect against PID reuse.
 - Permit administrator fallback: makes a permission race capable of crossing the approved installation boundary.
 - Stop work to install immediately: violates the explicit wait-for-work behavior and risks task state.
+
+## Addendum 2026-10-20: interim self-signed releases
+
+Status: Proposed with [the interim self-signed OTA design](../specs/2026-10-20-interim-self-signed-ota-design.md). Accepted when the maintainer merges it.
+
+Until the project holds an Apple Developer ID, production builds may pin a project-owned self-signed code-signing certificate by its SHA-1 (`PACER_SIGNING_CERT_SHA1`) in place of, or alongside, the Apple Team ID.
+
+- Every role's requirement is its exact identifier ANDed with the configured signer alternatives.
+- Self-signed builds run without hardened runtime, because library validation refuses a dylib whose self-signed certificate carries no Team ID. They are not notarized.
+- Library validation is never disabled through an entitlement.
+- The Ed25519 updater signature, feed and both-architecture gate are unchanged.
+
+Moving to Developer ID uses one bridge release that is signed with the self-signed certificate and pins both signers. Later releases pin only the Team ID.
+
