@@ -17,8 +17,8 @@ test("current clients render without legacy snapshot fields",()=>{
  expect(mutedProviders(s).map(p=>p.id)).toContain("local");
  expect(answerDetail(s,s.at)).toContain("37% left");
  const tui=renderDashboard(s,120,24,s.at,{selected:0,noColor:true});
- expect(tui).toContain("[NORMAL]  strategy current");
- expect(tui).toContain("Claude Code planner  week");
+ expect(tui).toContain("All repos · Normal");
+ expect(tui).toContain("Claude Code planner");
  expect(tui).toContain("63% used · pace 77%");
 });
 test("a null planner still means a current service",()=>{
@@ -39,7 +39,7 @@ test("equivalent read-model and older service data: the TUI renders board fields
  // The board consumes service-derived fields; legacy budget content cannot change it.
  const board=renderDashboard(s,120,24,s.at,{selected:0,noColor:true});
  expect(board).toContain("Claude Code planner");
- expect(board).toMatch(/1\s+Codex\s+team\s+week/);
+ expect(board).toMatch(/1\s+Codex · team on devbox/);
  Object.defineProperty(s,"budget",{value:legacy.budget,configurable:true});
  expect(renderDashboard(s,120,24,s.at,{selected:0,noColor:true})).toBe(board);
  expect(renderDashboard(old,120,24,s.at,{selected:0,noColor:true})).toContain("Planner · waiting for service data");

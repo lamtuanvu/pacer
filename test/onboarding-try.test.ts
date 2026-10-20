@@ -80,18 +80,21 @@ test("onboarding tasks stay reviewable and listed but do not count as finished t
 
 test("TUI Try it requires a ranked executor and reports the started task", async () => {
  const {setupChecklist}=await import("../src/setup/checklist");
- const {setupHints,setupAction}=await import("../src/dashboard/setup");
- const {runCommand}=await import("../src/dashboard/data");
+ const {setupAct}=await import("../src/dashboard/screens/setup");
+ const {Dashboard}=await import("../src/dashboard/controller");
+ const {PLAIN_THEME}=await import("../src/dashboard/theme");
+ const {emptySnapshot}=await import("../src/link/envelope");
  const facts={version:"test",planner:"claude-code",service:{installed:true,running:true},link:true,live:false,agents:[]};
- const ops=["onboarding.try","onboarding.skip"];
- const noExecutor=setupChecklist(facts,0);
- expect(setupHints(noExecutor,ops)).not.toContain("t try");expect(setupAction("t",noExecutor,ops)).toBeUndefined();
+ const ops=["onboarding.try","onboarding.skip"],supports=(op:string)=>ops.includes(op);
+ const first=(c:ReturnType<typeof setupChecklist>)=>setupAct(c,c.items.find(i=>i.id==="first")!,supports);
+ expect(first(setupChecklist(facts,0))).toBeUndefined();
  const checklist=setupChecklist({...facts,executors:{ranked:[{id:"codex"}],excluded:[]}},0);
- expect(setupHints(checklist,ops)).toContain("t try a first delegation");
- const action=setupAction("t",checklist,ops)!;expect(action).toMatchObject({op:"onboarding.try",params:{}});
- const reports:string[]=[];
- await runCommand({call:async<T>()=>({task_id:"t-first",executor:"codex"}) as T} as any,action as any,async()=>{},s=>reports.push(s));
- expect(reports).toEqual(["Started t-first on codex. Review it with: pacer review t-first (or in pacer open)"]);
+ const act=first(checklist)!;expect(act.effect).toMatchObject({type:"action",action:{op:"onboarding.try",params:{}}});
+ const frames:string[]=[];
+ const dash=new Dashboard({client:{kind:"inprocess",hello:async()=>({ops}),snapshot:async()=>({seq:1,snapshot:emptySnapshot()}),call:async<T>()=>({task_id:"t-first",executor:"codex"}) as T,subscribe:()=>()=>{},close(){}} as any,
+  theme:PLAIN_THEME,version:"t",cwd:"/tmp",now:()=>0,size:()=>({width:120,height:30}),write:f=>frames.push(f)});
+ await dash.run(act.effect);
+ expect(frames.at(-1)).toContain("Started t-first on codex. Review it when it finishes.");
 });
 
 test("retry keeps the onboarding source and fixed exercise settings", async () => {

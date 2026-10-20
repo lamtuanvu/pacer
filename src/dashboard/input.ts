@@ -1,39 +1,34 @@
-export type Key = "up"|"down"|"enter"|"escape"|"backspace"|"interrupt"|string;
+export type Key = "up" | "down" | "left" | "right" | "enter" | "escape" | "backspace" | "interrupt" | "tab" | "backtab" | "pageup" | "pagedown" | "home" | "end" | string;
+
+const SEQUENCES: [string, Key][] = [
+  ["\x1b[A", "up"], ["\x1b[B", "down"], ["\x1b[C", "right"], ["\x1b[D", "left"],
+  ["\x1bOA", "up"], ["\x1bOB", "down"], ["\x1bOC", "right"], ["\x1bOD", "left"],
+  ["\x1b[Z", "backtab"], ["\x1b[5~", "pageup"], ["\x1b[6~", "pagedown"],
+  ["\x1b[H", "home"], ["\x1b[F", "end"], ["\x1b[1~", "home"], ["\x1b[4~", "end"], ["\x1bOH", "home"], ["\x1bOF", "end"],
+];
+/** Escape sequences that may still be arriving in a later chunk. */
+const isPrefix = (text: string) => SEQUENCES.some(([seq]) => seq.startsWith(text) && seq !== text);
+
 /** Keep split escape sequences and UTF-8 input intact across terminal chunks. */
 export class Keys {
- private pending="";
- feed(text:string):Key[] {
-  this.pending+=text;const out:Key[]=[];
-  while(this.pending) {
-   if(this.pending==="\x1b"||this.pending==="\x1b[")break;
-   if(this.pending.startsWith("\x1b[A")||this.pending.startsWith("\x1b[B")||this.pending.startsWith("\x1b[C")||this.pending.startsWith("\x1b[D")){out.push(({A:"up",B:"down",C:"right",D:"left"} as Record<string,string>)[this.pending[2]]);this.pending=this.pending.slice(3);continue;}
-   const char=Array.from(this.pending)[0];this.pending=this.pending.slice(char.length);
-   out.push(char==="\x03"?"interrupt":char==="\r"||char==="\n"?"enter":char==="\x7f"?"backspace":char==="\x1b"?"escape":char);
-  }return out;
- }
- flush():Key[] {const text=this.pending;this.pending="";return text==="\x1b"?["escape"]:[];}
-}
-
-import type { Card, DashboardAction } from "./model";
-import type { CmdData } from "../link/envelope";
-export function selectionAction(key:Key,card?:Card):DashboardAction|undefined {
- if(key==="enter")return card?.action;
- if(key==="x")return card?.dismiss;
- if(/^[1-9]$/.test(key))return card?.actions?.[Number(key)-1];
- if(key==="b"&&card?.executor)return {cmd:card.executor.state==="blocked"?"unblock":"block",executor:card.executor.id};
-}
-export function moveSelection(key:Key,selected:number,count:number):number {
- return key==="up"||key==="k"?Math.max(0,selected-1):key==="down"||key==="j"?Math.min(Math.max(0,count-1),selected+1):selected;
-}
-
-export const UPDATE_PROMPT = "Run pacer update? (y/n)";
-export function updateKey(key: Key, confirming = false): "confirm" | "cancel" | CmdData | undefined {
- if(confirming) return key.toLowerCase()==="y" ? {cmd:"update"} : ["n","N","enter","escape"].includes(key) ? "cancel" : undefined;
- return key==="c" ? {cmd:"check-updates"} : key==="u" ? "confirm" : undefined;
-}
-
-export function viewerAction(key:Key,card?:Card):{id:string;target:'here'|'terminal'|'tmux'}|undefined {
- if(!card?.sessionTaskId)return;
- const target=key==='enter'?'here':key==='t'?'terminal':key==='m'?'tmux':undefined;
- if(target)return {id:card.sessionTaskId,target};
+  private pending = "";
+  feed(text: string): Key[] {
+    this.pending += text;
+    const out: Key[] = [];
+    while (this.pending) {
+      if (isPrefix(this.pending)) break;
+      const sequence = SEQUENCES.find(([seq]) => this.pending.startsWith(seq));
+      if (sequence) { out.push(sequence[1]); this.pending = this.pending.slice(sequence[0].length); continue; }
+      const char = Array.from(this.pending)[0]!;
+      this.pending = this.pending.slice(char.length);
+      out.push(char === "\x03" ? "interrupt" : char === "\r" || char === "\n" ? "enter" : char === "\x7f" || char === "\b" ? "backspace" : char === "\t" ? "tab" : char === "\x1b" ? "escape" : char);
+    }
+    return out;
+  }
+  /** A lone escape after a pause is the Escape key. */
+  flush(): Key[] {
+    const text = this.pending;
+    this.pending = "";
+    return text === "\x1b" ? ["escape"] : [];
+  }
 }

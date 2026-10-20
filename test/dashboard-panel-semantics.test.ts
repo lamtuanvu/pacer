@@ -22,7 +22,7 @@ for (const item of doneCases) test(`TUI preserves ${item.label} in completed row
   s.tasks = [task]; s.attention = []; s.executors = [];
   const plain = renderDashboard(s, 100, 25, s.at, { selected: -1, noColor: true });
   const line = plain.split("\n").find(line => line.includes("Semantic task"))!;
-  expect(line).toContain(`${item.glyph} Semantic task`);
+  expect(line).toContain(`${item.glyph} ${item.label}`);
   expect(line).toContain(item.label);
   expect(plain).not.toContain("\x1b");
   const colored = renderDashboard(s, 100, 25, s.at, { selected: -1 });
@@ -40,7 +40,7 @@ for (const item of attentionCases) test(`attention renders ${item.kind} with the
   const s = snapshot(); s.tasks = []; s.executors = [];
   s.attention = [{ ...s.attention![0]!, id: "semantic-attention", kind: item.kind as AttentionItem["kind"], title: "Attention task", detail: "Please check", actions: [], taskId: undefined, executor: undefined, host: undefined }];
   const plain = renderDashboard(s, 100, 25, s.at, { selected: -1, noColor: true });
-  expect(plain.split("\n").find(line => line.includes("Attention task"))).toContain(`${item.glyph} Attention task`);
+  expect(plain.split("\n").find(line => line.includes("Attention task"))).toContain(`${item.glyph} ${item.label}`);
   const colored = renderDashboard(s, 100, 25, s.at, { selected: -1 });
   expect(colored).toContain(`\x1b[${item.code}m${item.glyph} `);
 });
@@ -49,6 +49,6 @@ test("attention linked to an unknown task uses its task status", () => {
   const s = snapshot();
   s.tasks = [{ ...s.tasks[3]!, state: "future-state", review: undefined }];
   s.attention = [{ ...s.attention![0]!, kind: "review", taskId: s.tasks[0]!.id, title: "Unknown task", actions: [] }];
-  expect(renderDashboard(s, 100, 30, s.at, { selected: -1, noColor: true })).toContain("? Unknown task");
+  expect(renderDashboard(s, 100, 30, s.at, { selected: -1, noColor: true }).split("\n").find(line => line.includes("Unknown task"))).toContain("? Unknown");
 });
 

@@ -210,23 +210,33 @@ background service; `pacer serve` runs it in the foreground). If it is down,
 
 ## Terminal dashboard
 
-`pacer dashboard` opens a full-screen live budget and task dashboard. It uses the v2
-API and connects to `pacer serve` when it runs; without it, the dashboard works
-in-process. It refreshes on events and every two seconds, with status computation
-in the background so network requests never block the display. An interactive
-TTY is required.
+`pacer dashboard [--plain] [--once [--screen home|review|sessions|settings] [--width N]]`
+opens a full-screen terminal UI that mirrors the app. It reads and writes only through
+the versioned API, connecting to `pacer serve` when it runs and working in-process
+otherwise. It refreshes on events and every two seconds; network requests never block
+the display. An interactive TTY is required unless `--once` prints a single frame.
 
-- Arrows or j/k select a card; Enter retries on the suggested executor, stops a
-  stalled task, or focuses a running task's Orca terminal.
-- d prompts for a goal, repo (defaults to cwd), and optional kind.
-- x dismisses an attention group or completed task; b blocks/unblocks an executor.
-- s lists strategies to switch; r refreshes; ? toggles help; q quits.
-- Escape cancels a prompt. Action results appear for five seconds.
+Screens are tabs in the app's order: **1 Home** (Needs you, Running, Capacity, Done
+today), **2 Review** (evidence and verdicts), **3 Sessions** (running and recent
+sessions, watch and timeline) and **4 Settings** (planner and pacing, accounts,
+executors, routing, project strategies, strategies, updates, notifications,
+appearance). While setup is incomplete, **5 Setup** replaces the work screens.
 
-The planner bar shows `#` for usage and `|` for pace. Small terminals use a
-compact view with scrolling lists. `NO_COLOR` disables highlighting; the dashboard
-uses no animated spinners, including when `PACER_NO_ANIM` is set. Exiting,
-Ctrl-C, SIGTERM and errors restore the normal screen, cursor and input mode.
+- `1`–`5` or Tab/Shift-Tab switch screens; `,` opens Settings; `?` lists every key.
+- Arrows or `j`/`k` select a row; Enter runs the row's primary action, which the key
+  bar names; `.` opens a numbered menu of all the row's actions.
+- `d` delegates a task; `f` cycles the repo scope; `R` or Ctrl-R refreshes; `q` quits.
+- Review: `a` accept, `s` send back, `r` reject, `t` retry on another executor.
+- Sessions: Enter watches here, `t` opens a terminal window, `m` a tmux pane, `s` stops.
+- Destructive actions (stop, remove, update, accept) always ask to confirm. Escape
+  closes a dialog or goes back.
+
+Status is always a glyph and a label, never color alone. Colors follow the design
+system tokens in truecolor, 256 or 16 colors, for dark or light terminals
+(`PACER_THEME=light|dark` overrides detection; `PACER_ASCII=1` uses ASCII glyphs). `NO_COLOR` removes color,
+`--plain` also removes glyphs, boxes and redraw effects for screen readers and logs,
+and `PACER_NO_ANIM` freezes the loading spinner. Exiting, Ctrl-C, SIGTERM and errors
+restore the normal screen, cursor and input mode.
 
 ### Update checks
 
@@ -243,8 +253,8 @@ strategy YAML to disable checks (including explicit checks). No telemetry is sen
 the only release request is a GET of `latest.json`. `PACER_RELEASE_BASE`, including
 `file://` bases, works as it does for `pacer update`.
 
-In the dashboard, `c` checks immediately and `u` asks `Run pacer update? (y/n)`
-before updating; Escape or `n` cancels. These checks never install a newer release
+In the dashboard, Settings › Updates checks immediately and asks to confirm before
+updating; Escape or `n` cancels. These checks never install a newer release
 automatically.
 
 ## Console retirement

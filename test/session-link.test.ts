@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 import { parseOutboxEvent, emptySnapshot } from '../src/link/envelope';
-import { cards } from '../src/dashboard/model';
-import { viewerAction } from '../src/dashboard/input';
+import { screenItems } from '../src/dashboard/render';
 import { sessionTaskData } from '../src/session/link';
 import { fakeCtx } from './helpers';
 import { createTask } from '../src/tasks/store';
@@ -13,13 +12,13 @@ test('session envelope clips labels and viewer counts and rejects unknown hosts'
  const bad=parseOutboxEvent({type:'task',data:{...base,session:{host:'evil',live:true}}});
  expect(bad?.type==='task'&&bad.data.session).toBeUndefined();
 });
-test('dashboard shows Attach and chooses here, terminal and tmux targets',()=>{
+test('dashboard watches sessions here and offers terminal and tmux targets',()=>{
  const s=emptySnapshot();s.tasks=[{id:'t',state:'running',goal:'g',executor:null,backend:'direct',worktree:null,updatedAt:0,session:{host:'builtin',live:true,controller:null,viewers:0}}];
- const card=cards(s,1).flatMap(g=>g.cards).find(c=>c.id==='running:t')!;
- expect(card.action).toMatchObject({cmd:'attach',taskId:'t'});
- expect(viewerAction('enter',card)).toEqual({id:'t',target:'here'});
- expect(viewerAction('t',card)).toEqual({id:'t',target:'terminal'});
- expect(viewerAction('m',card)).toEqual({id:'t',target:'tmux'});
+ const item=screenItems(s,1,{ops:['task.attach']}).find(i=>i.id==='task:t')!;
+ expect(item.primary?.effect).toEqual({type:'attach',id:'t',target:'here'});
+ expect(item.keys.t?.effect).toEqual({type:'attach',id:'t',target:'terminal'});
+ expect(item.keys.m?.effect).toEqual({type:'attach',id:'t',target:'tmux'});
+ expect(screenItems(s,1,{ops:[]}).find(i=>i.id==='task:t')!.primary?.effect).toEqual({type:'navigate',screen:'sessions',id:'t'});
 });
 test('link session data throttles lookups but reflects Orca terminal receipts at once',async()=>{
  const ctx=fakeCtx();const t=createTask(ctx,{brief:{goal:'g',repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:30});
@@ -29,8 +28,8 @@ test('link session data throttles lookups but reflects Orca terminal receipts at
  const soon=await sessionTaskData({...ctx,now:ctx.now+0.5},data,false);expect(soon.session?.live).toBe(false);expect(soon.terminalPresent).toBe(false);
  expect((await sessionTaskData({...ctx,now:ctx.now+0.7},data,true)).terminalPresent).toBe(true);
 });
-test('dashboard names the selected session action Attach',async()=>{
+test('dashboard names the selected session action Watch',async()=>{
  const {renderDashboard}=await import('../src/dashboard/render');const s=emptySnapshot();
  s.tasks=[{id:'t',state:'running',goal:'g',executor:null,backend:'direct',worktree:null,updatedAt:0,session:{host:'builtin',live:true,controller:null,viewers:0}}];
- expect(renderDashboard(s,100,30,1,{selected:0,noColor:true})).toContain('⏎ Attach');
+ expect(renderDashboard(s,100,30,1,{selected:0,noColor:true,ops:['task.attach']})).toContain('⏎ Watch');
 });
