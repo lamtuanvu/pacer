@@ -319,7 +319,7 @@ for (const c of [
 
 test("installing the service from Setup asks for consent first", async () => {
   const s = structuredClone(fixture) as unknown as ClientSnapshot;
-  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, live: true, agents: [], executors: { ranked: [], excluded: [] } }, s.at);
+  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, agents: [], executors: { ranked: [], excluded: [] } }, s.at);
   s.setup = { ...checklist, open: checklist.items.filter(i => i.status !== "done").length };
   const t = setup({ snapshot: s, ops: SETTINGS_OPS_ALL });
   t.dash.state = { ...t.dash.state, screen: "setup", selected: { setup: "setup:service" } };
@@ -352,7 +352,7 @@ test("the fallback warning is still shown on the first local frame after a slow 
 
 test("on the Setup screen shown in place of Home, j moves the visible selection and Enter acts on that row", async () => {
   const s = structuredClone(fixture) as unknown as ClientSnapshot;
-  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, live: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [], excluded: [] } }, s.at);
+  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [], excluded: [] } }, s.at);
   s.setup = { ...checklist, open: checklist.items.filter(i => i.status !== "done").length };
   const t = setup({ snapshot: s, ops: SETTINGS_OPS_ALL });
   await t.dash.refresh();
@@ -369,7 +369,7 @@ test("on the Setup screen shown in place of Home, j moves the visible selection 
 
 test("x skips the first delegation from Setup", async () => {
   const s = structuredClone(fixture) as unknown as ClientSnapshot;
-  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: true, running: true }, link: true, live: true, connected: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [{ id: "codex" }], excluded: [] } }, s.at);
+  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: true, running: true }, link: true, connected: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [{ id: "codex" }], excluded: [] } }, s.at);
   s.setup = { ...checklist, open: checklist.items.filter(i => i.status !== "done").length };
   const t = setup({ snapshot: s, ops: [...SETTINGS_OPS_ALL, "onboarding.skip", "onboarding.try"] });
   t.dash.state = { ...t.dash.state, screen: "setup", selected: { setup: "setup:first" } };

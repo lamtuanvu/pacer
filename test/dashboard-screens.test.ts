@@ -54,7 +54,7 @@ describe("golden frames (NO_COLOR)", () => {
   }
   test("setup replaces work screens while setup is incomplete", () => {
     const s = snapshot();
-    const facts = { version: "0.3.0", planner: "codex", service: { installed: true, running: false }, link: true, live: true, agents: [{ id: "claude-code", name: "Claude Code", installed: true }], executors: { ranked: [], excluded: [] } };
+    const facts = { version: "0.3.0", planner: "codex", service: { installed: true, running: false }, link: true, agents: [{ id: "claude-code", name: "Claude Code", installed: true }], executors: { ranked: [], excluded: [] } };
     const checklist = setupChecklist(facts, s.at);
     s.setup = { ...checklist, open: checklist.items.filter(i => i.status !== "done").length };
     for (const [width, height] of [[120, 40], [80, 24]] as const) {
@@ -67,7 +67,7 @@ describe("golden frames (NO_COLOR)", () => {
   });
   test("setup without a planner points to pacer init (the app's planner choice is not offered here)", () => {
     const s = snapshot();
-    const facts = { version: "0.3.0", planner: null, service: { installed: true, running: true }, link: true, live: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [], excluded: [] } };
+    const facts = { version: "0.3.0", planner: null, service: { installed: true, running: true }, link: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [], excluded: [] } };
     const checklist = setupChecklist(facts, s.at);
     const planner = checklist.items.find(i => i.id === "planner")!;
     expect(planner.action).toBe("setup.init");
@@ -196,7 +196,7 @@ describe("row keys never collide with navigation or global keys", () => {
   // section, row keys are checked first, and ← → and l (open a section from the list) are free to use there.
   const GLOBAL = ["j", "k", "l", "h", "q", "?", "R", "f", "d", ".", ",", "1", "2", "3", "4", "5", "enter", "escape", "tab", "backtab", "up", "down", "pageup", "pagedown", "home", "end"];
   const s = snapshot();
-  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, live: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [{ id: "codex" }], excluded: [] } }, s.at);
+  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [{ id: "codex" }], excluded: [] } }, s.at);
   const withSetup = { ...s, setup: { ...checklist, open: checklist.items.filter(i => i.status !== "done").length } } as ClientSnapshot;
   const views: [string, ClientSnapshot, Partial<UiState>][] = [
     ["home", s, { screen: "home" }], ["review", s, { screen: "review" }], ["sessions", s, { screen: "sessions" }], ["setup", withSetup, { screen: "setup" }],
