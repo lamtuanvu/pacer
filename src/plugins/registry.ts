@@ -11,6 +11,7 @@ import { hostRangeAccepts, readManifestFile } from "./manifest";
 import { PluginProcess, type SpawnSpec } from "./process";
 import { EXTENSION_METHODS, HELLO_METHOD, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult } from "./protocol";
 import type { BundledPlugin } from "./types";
+import { currentVersion } from "../update/version";
 
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void> }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
@@ -24,7 +25,6 @@ interface Entry {
 }
 const ENABLED: ReadonlySet<PluginState> = new Set(["idle", "starting", "ready"]);
 const CRASH_WINDOW_S = 60, CRASH_LIMIT = 3, MAX_BACKOFF_MS = 30_000, HELLO_DEADLINE_MS = 10_000;
-const PACER_VERSION = (await import("../../package.json")).version as string;
 
 export class PluginRegistry {
   private readonly entries = new Map<string, Entry>();
@@ -120,7 +120,7 @@ export class PluginRegistry {
       e.process = proc;
       const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
       try {
-        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, pacer: PACER_VERSION, manifest, config: pluginsConfig(ctx).config[e.id] ?? {}, grants }, HELLO_DEADLINE_MS);
+        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, pacer: currentVersion(), manifest, config: pluginsConfig(ctx).config[e.id] ?? {}, grants }, HELLO_DEADLINE_MS);
         const hello = helloResult.safeParse(raw);
         if (!hello.success) throw new CoreError("plugin_refused", `handshake reply is malformed: ${hello.error.issues[0]?.message ?? "unknown"}`);
         const major = Number(hello.data.protocol.split(".")[0]);
