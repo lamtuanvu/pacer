@@ -45,6 +45,15 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
   const row = (t: ClientTask, timing: string) => {
     const item = sessionItem(ctx, t);
     items.push(item);
+    if (ctx.wide) {
+      // Beside the detail pane, a row is two lines (title and time, then status), so titles keep their room.
+      const w = flex(listWidth - MARK, [{ weight: 1, min: 8 }, { fixed: 9 }]);
+      list.push({ item: item.id, line: cols([
+        { content: displayTitle(t), width: w[0]!, style: { bold: true } },
+        { content: timing, width: w[1]!, align: "right", style: { fg: "muted" } },
+      ], 2, theme) }, { item: item.id, cont: true, line: statusSpans(theme, taskStatus(t)) });
+      return;
+    }
     const w = flex(listWidth - MARK, [{ fixed: 20 }, { weight: 1, min: 8 }, { fixed: 9 }]);
     list.push({ item: item.id, line: cols([
       { content: statusSpans(theme, taskStatus(t)), width: w[0]! },

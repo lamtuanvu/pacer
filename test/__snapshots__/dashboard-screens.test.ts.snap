@@ -172,24 +172,24 @@ exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    RUNNING  2 · 1 queued                        │ Add SSH keepalive to remote runs
- › ▶ Editing             Add SSH ke…        14m │ ▶ Editing · Codex · team on devbox · acme/api · pacer/review ·
-   … Idle                Split the…         40m │ started 07:00
-   … Queued              Document t…     queued │ running for 14m · 6 files · 2 commits · output 8s ago
+ › Add SSH keepalive to remote runs         14m │ ▶ Editing · Codex · team on devbox · acme/api · pacer/review ·
+   ▶ Editing                                    │ started 07:00
+   Split the settings page into sec…        40m │ running for 14m · 6 files · 2 commits · output 8s ago
+   … Idle                                       │ 
+   Document the token sync               queued │ WATCH
+   … Queued                                     │ This run is headless; its output is in the task log.
                                                 │ 
-   RECENTLY ENDED  5                            │ WATCH
-   ✕ Failed              Retry budg…      07:50 │ This run is headless; its output is in the task log.
-   ◐ Waiting for review  Add dark m…      07:45 │ 
-   ◐ Waiting for review  Fix flaky…       07:30 │ DONE WHEN
-   ✓ Accepted            Rename run…      03:00 │ bun test
-   ✕ Rejected            Bump yaml…       02:00 │ pacer runs it after the executor exits, then asks you to review.
-                                                │ 
-                                                │ TIMELINE
-                                                │ 07:46 Executor selected
-                                                │ 07:46 Working copy created
-                                                │ 07:51 Running checks
-                                                │ 
-                                                │ 
-                                                │ 
+   RECENTLY ENDED  5                            │ DONE WHEN
+   Retry budget refresh on 429            07:50 │ bun test
+   ✕ Failed                                     │ pacer runs it after the executor exits, then asks you to review.
+   Add dark mode to the web header        07:45 │ 
+   ◐ Waiting for review                         │ TIMELINE
+   Fix flaky retry test in the paym…      07:30 │ 07:46 Executor selected
+   ◐ Waiting for review                         │ 07:46 Working copy created
+   Rename runner ids in docs              03:00 │ 07:51 Running checks
+   ✓ Accepted                                   │ 
+   Bump yaml to 2.8.2                     02:00 │ 
+   ✕ Rejected                                   │ 
                                                 │ 
                                                 │ 
                                                 │ 
@@ -275,8 +275,8 @@ exports[`golden frames (NO_COLOR) settings sections at 120x40 1`] = `
    Remote hosts 1 needs setup   │   Policy                    [Priority]  Even  Burn before reset  Cheapest first      
    Routing                      │   Planner reserve           ‹ 10% ›  kept for planning and review                    
    Project strategies           │   Multiple accounts         Spread  [Fill]                                           
-   Strategies                   │   Move to the next accoun…  ‹ 80% used ›  50–100, steps of 5                         
-   Updates                      │ 
+   Strategies                   │   Move to the next account  ‹ 80% used ›  50–100, steps of 5                         
+   Updates                      │   at                                                                                 
    Notifications                │ 
    Appearance                   │ 
                                 │ 
@@ -345,8 +345,8 @@ exports[`golden frames (NO_COLOR) settings › Planner & pacing at 120x40 1`] = 
      Remote hosts 1 needs setup │   Policy                    [Priority]  Even  Burn before reset  Cheapest first      
      Routing                    │   Planner reserve           ‹ 10% ›  kept for planning and review                    
      Project strategies         │   Multiple accounts         Spread  [Fill]                                           
-     Strategies                 │   Move to the next accoun…  ‹ 80% used ›  50–100, steps of 5                         
-     Updates                    │ 
+     Strategies                 │   Move to the next account  ‹ 80% used ›  50–100, steps of 5                         
+     Updates                    │   at                                                                                 
      Notifications              │ 
      Appearance                 │ 
                                 │ 
@@ -385,12 +385,12 @@ exports[`golden frames (NO_COLOR) settings › Planner & pacing at 80x24 1`] = `
    
  › Planner                   Claude Code  claude-code                          
                              14 pts under pace — spend it.                     
-   Policy                    [Priority]  Even  Burn before reset  Cheapest fir…
+   Policy                    [Priority]  Even  Burn before reset               
+                             Cheapest first                                    
    Planner reserve           ‹ 10% ›  kept for planning and review             
    Multiple accounts         Spread  [Fill]                                    
-   Move to the next accoun…  ‹ 80% used ›  50–100, steps of 5                  
- 
- 
+   Move to the next account  ‹ 80% used ›  50–100, steps of 5                  
+   at                                                                          
  
  
  
@@ -594,8 +594,8 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
    THIS MACHINE
    
  › Parallel tasks            ‹ 2 ›  1 busy now                                 
-                             Shared by all executors that run on this machine.…
- 
+                             Shared by all executors that run on this machine. 
+                             1–16.                                             
  
  
  
@@ -1265,24 +1265,24 @@ exports[`color, plain and ASCII renditions sessions in truecolor uses token colo
  \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
    \x1B[1m\x1B[38;2;161;161;170mRUNNING\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m2\x1B[0m\x1B[38;2;161;161;170m · 1 queued\x1B[0m                       \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1mAdd SSH keepalive to remote runs\x1B[0m
- \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m▶ Editing\x1B[0m\x1B[48;2;39;39;42m           \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[1m\x1B[48;2;39;39;42mAdd SSH ke…\x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[48;2;39;39;42m      \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m14m\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;147;197;253m▶ Editing\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mCodex · team on devbox · acme/api · pacer/review ·\x1B[0m
-   \x1B[38;2;252;211;77m… Idle\x1B[0m                \x1B[1mSplit the…\x1B[0m         \x1B[38;2;161;161;170m40m\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mstarted 07:00\x1B[0m
-   \x1B[38;2;161;161;170m… Queued\x1B[0m              \x1B[1mDocument t…\x1B[0m     \x1B[38;2;161;161;170mqueued\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mrunning for 14m · 6 files · 2 commits · output 8s ago\x1B[0m
+ \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[1m\x1B[48;2;39;39;42mAdd SSH keepalive to remote runs\x1B[0m\x1B[48;2;39;39;42m \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[48;2;39;39;42m      \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m14m\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;147;197;253m▶ Editing\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mCodex · team on devbox · acme/api · pacer/review ·\x1B[0m
+ \x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m▶ Editing\x1B[0m\x1B[48;2;39;39;42m                                   \x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mstarted 07:00\x1B[0m
+   \x1B[1mSplit the settings page into sec…\x1B[0m        \x1B[38;2;161;161;170m40m\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mrunning for 14m · 6 files · 2 commits · output 8s ago\x1B[0m
+   \x1B[38;2;252;211;77m… Idle\x1B[0m                                      \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[1mDocument the token sync\x1B[0m               \x1B[38;2;161;161;170mqueued\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mWATCH\x1B[0m
+   \x1B[38;2;161;161;170m… Queued\x1B[0m                                    \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mThis run is headless; its output is in the task log.\x1B[0m
                                                \x1B[38;2;63;63;70m │ \x1B[0m
-   \x1B[1m\x1B[38;2;161;161;170mRECENTLY ENDED\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m5\x1B[0m                           \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mWATCH\x1B[0m
-   \x1B[38;2;252;165;165m✕ Failed\x1B[0m              \x1B[1mRetry budg…\x1B[0m      \x1B[38;2;161;161;170m07:50\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mThis run is headless; its output is in the task log.\x1B[0m
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mAdd dark m…\x1B[0m      \x1B[38;2;161;161;170m07:45\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mFix flaky…\x1B[0m       \x1B[38;2;161;161;170m07:30\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mDONE WHEN\x1B[0m
-   \x1B[38;2;134;239;172m✓ Accepted\x1B[0m            \x1B[1mRename run…\x1B[0m      \x1B[38;2;161;161;170m03:00\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0mbun test
-   \x1B[38;2;252;165;165m✕ Rejected\x1B[0m            \x1B[1mBump yaml…\x1B[0m       \x1B[38;2;161;161;170m02:00\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mpacer runs it after the executor exits, then asks you to review.\x1B[0m
-                                               \x1B[38;2;63;63;70m │ \x1B[0m
-                                               \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mTIMELINE\x1B[0m
-                                               \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:46 \x1B[0mExecutor selected
-                                               \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:46 \x1B[0mWorking copy created
-                                               \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:51 \x1B[0mRunning checks
-                                               \x1B[38;2;63;63;70m │ \x1B[0m
-                                               \x1B[38;2;63;63;70m │ \x1B[0m
-                                               \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[1m\x1B[38;2;161;161;170mRECENTLY ENDED\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m5\x1B[0m                           \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mDONE WHEN\x1B[0m
+   \x1B[1mRetry budget refresh on 429\x1B[0m            \x1B[38;2;161;161;170m07:50\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0mbun test
+   \x1B[38;2;252;165;165m✕ Failed\x1B[0m                                    \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mpacer runs it after the executor exits, then asks you to review.\x1B[0m
+   \x1B[1mAdd dark mode to the web header\x1B[0m        \x1B[38;2;161;161;170m07:45\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m                        \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mTIMELINE\x1B[0m
+   \x1B[1mFix flaky retry test in the paym…\x1B[0m      \x1B[38;2;161;161;170m07:30\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:46 \x1B[0mExecutor selected
+   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m                        \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:46 \x1B[0mWorking copy created
+   \x1B[1mRename runner ids in docs\x1B[0m              \x1B[38;2;161;161;170m03:00\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:51 \x1B[0mRunning checks
+   \x1B[38;2;134;239;172m✓ Accepted\x1B[0m                                  \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[1mBump yaml to 2.8.2\x1B[0m                     \x1B[38;2;161;161;170m02:00\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[38;2;252;165;165m✕ Rejected\x1B[0m                                  \x1B[38;2;63;63;70m │ \x1B[0m
                                                \x1B[38;2;63;63;70m │ \x1B[0m
                                                \x1B[38;2;63;63;70m │ \x1B[0m
                                                \x1B[38;2;63;63;70m │ \x1B[0m
@@ -1314,8 +1314,8 @@ exports[`color, plain and ASCII renditions settings in truecolor uses token colo
    \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mRemote hosts\x1B[0m\x1B[38;2;252;211;77m 1 needs setup\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m  \x1B[38;2;161;161;170mPolicy\x1B[0m                    \x1B[1m\x1B[38;2;147;197;253m[Priority]\x1B[0m  \x1B[38;2;161;161;170mEven\x1B[0m  \x1B[38;2;161;161;170mBurn before reset\x1B[0m  \x1B[38;2;161;161;170mCheapest first\x1B[0m      
    \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mRouting\x1B[0m                   \x1B[38;2;63;63;70m │ \x1B[0m  \x1B[38;2;161;161;170mPlanner reserve\x1B[0m           \x1B[38;2;161;161;170m‹ \x1B[0m\x1B[1m10%\x1B[0m\x1B[38;2;161;161;170m ›\x1B[0m\x1B[38;2;161;161;170m  kept for planning and review\x1B[0m                    
    \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mProject strategies\x1B[0m        \x1B[38;2;63;63;70m │ \x1B[0m  \x1B[38;2;161;161;170mMultiple accounts\x1B[0m         \x1B[38;2;161;161;170mSpread\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[Fill]\x1B[0m                                           
-   \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mStrategies\x1B[0m                \x1B[38;2;63;63;70m │ \x1B[0m  \x1B[38;2;161;161;170mMove to the next accoun…\x1B[0m  \x1B[38;2;161;161;170m‹ \x1B[0m\x1B[1m80% used\x1B[0m\x1B[38;2;161;161;170m ›\x1B[0m\x1B[38;2;161;161;170m  50–100, steps of 5\x1B[0m                         
-   \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mUpdates\x1B[0m                   \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mStrategies\x1B[0m                \x1B[38;2;63;63;70m │ \x1B[0m  \x1B[38;2;161;161;170mMove to the next account\x1B[0m  \x1B[38;2;161;161;170m‹ \x1B[0m\x1B[1m80% used\x1B[0m\x1B[38;2;161;161;170m ›\x1B[0m\x1B[38;2;161;161;170m  50–100, steps of 5\x1B[0m                         
+   \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mUpdates\x1B[0m                   \x1B[38;2;63;63;70m │ \x1B[0m  \x1B[38;2;161;161;170mat\x1B[0m                                                                                 
    \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mNotifications\x1B[0m             \x1B[38;2;63;63;70m │ \x1B[0m
    \x1B[1m\x1B[38;2;147;197;253m  \x1B[0m\x1B[38;2;161;161;170mAppearance\x1B[0m                \x1B[38;2;63;63;70m │ \x1B[0m
                                \x1B[38;2;63;63;70m │ \x1B[0m

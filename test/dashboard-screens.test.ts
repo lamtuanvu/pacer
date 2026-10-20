@@ -356,3 +356,25 @@ test("help labels line up in one column", () => {
   const at = (line: string, label: string) => line.indexOf(label);
   expect(new Set([at(rows[0]!, "Switch screen"), at(rows[1]!, "Primary action"), at(rows[2]!, "Accept and bring back")]).size).toBe(1);
 });
+
+test("Sessions list titles keep about 30 characters at 120x40 without shrinking the detail", () => {
+  const text = frame("sessions", 120, 40);
+  const lines = text.split("\n");
+  const list = lines.slice(3, -3).map(line => line.split("│")[0]!);
+  expect(list.some(line => line.includes("Add SSH keepalive to remote runs"))).toBe(true);
+  expect(list.some(line => line.includes("Split the settings page into"))).toBe(true);
+  for (const word of ["Editing", "Idle", "Queued", "Waiting for review"]) expect(list.some(line => line.includes(word))).toBe(true);
+  expect(lines[4]!.indexOf("│")).toBeLessThan(60);
+});
+
+describe("every Settings section wraps instead of clipping", () => {
+  for (const [width, height] of [[120, 40], [80, 24]] as const) {
+    for (const section of SECTIONS) {
+      test(`${section.label} at ${width}x${height}`, () => {
+        const text = frame("settings", width, height, { state: { section: section.id, focus: "detail" } });
+        bounded(text, width, height);
+        expect(text.split("\n").slice(3, -3).filter(line => line.includes("…"))).toEqual([]);
+      });
+    }
+  }
+});

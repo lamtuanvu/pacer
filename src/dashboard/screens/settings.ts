@@ -2,7 +2,7 @@
 import type { ExecutorRow, HostSummary } from "../../api/read-model/types";
 import { capacityNote } from "../../view-model/capacity";
 import { executorLabel, executorStatus, type Status } from "../../view-model/words";
-import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line } from "../frame";
+import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line, cellWidth, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, time, updateState } from "./common";
 import { errorRows } from "./review";
@@ -34,10 +34,29 @@ const set = (ctx: ScreenCtx, label: string, key: string, value: unknown, extra: 
 const cycle = <T,>(values: T[], current: T, step: number) => values[(values.indexOf(current) + step + values.length) % values.length]!;
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 /** A label/value row in a fixed label column (TextRow). */
-function field(ctx: ScreenCtx, width: number, label: string, value: Line, note?: string): Line {
+/** A label and its value, wrapped: the label within its column, the value and note span by span (UI-11). */
+function field(ctx: ScreenCtx, width: number, label: string, value: Line, note?: string): Line[] {
   const w = flex(width, [{ fixed: 24 }, { weight: 1, min: 10 }]);
-  return cols([{ content: label, width: w[0]!, style: { fg: "secondary" } }, { content: [...value, ...(note ? [span(`  ${note}`, { fg: "muted" })] : [])], width: w[1]! }], GAP, ctx.theme);
+  const labels = label ? wrap(label, w[0]!) : [""];
+  const values = flow([...value, ...(note ? [span(`  ${note}`, { fg: "muted" })] : [])], w[1]!);
+  return Array.from({ length: Math.max(labels.length, values.length) }, (_, i) =>
+    cols([{ content: labels[i] ?? "", width: w[0]!, style: { fg: "secondary" } }, { content: values[i] ?? [], width: w[1]! }], GAP, ctx.theme));
 }
+/** Break a line between spans to fit `width`; a span too long on its own wraps at word boundaries. */
+function flow(line: Line, width: number): Line[] {
+  const out: Line[] = [[]];
+  for (const piece of line) {
+    for (const [i, text] of (cellWidth(piece.text) > width ? wrap(piece.text, width) : [piece.text]).entries()) {
+      let current = out.at(-1)!;
+      if (i > 0 || (current.length && lineWidth(current) + cellWidth(text) > width)) { current = []; out.push(current); }
+      const shown = current.length ? text : text.trimStart();
+      if (shown) current.push({ ...piece, text: shown });
+    }
+  }
+  return out.filter((l, i) => l.length || i === 0);
+}
+/** Field lines as rows of one item: the first selects, the rest continue it. */
+const fieldRows = (lines: Line[], item?: string): Row[] => lines.map((line, i) => ({ line, ...(item ? { item, ...(i ? { cont: true } : {}) } : {}) }));
 function resourceState<T>(ctx: ScreenCtx, resource: Resource<T> | undefined, text = "Loading…"): Row[] | undefined {
   if (resource?.value !== undefined) return undefined;
   if (resource?.error) return errorRows(ctx, resource.error);
@@ -57,14 +76,14 @@ const planner: Build = (ctx, width) => {
     effect: { type: "choose", title: "Planner", options: planners.map(id => ({ label: `${executorLabel(id)}${id === plannerId ? " · current" : ""}`, effect: { type: "flow", name: "change-planner", params: { value: id } } })) },
   } : undefined;
   items.push({ id: "setting:planner", primary: choose, actions: [], keys: {} });
-  rows.push({ item: "setting:planner", line: field(ctx, width, "Planner", [span(executorLabel(plannerId), { bold: true }), span(`  ${plannerId}`, { fg: "muted" })]) });
-  if (ctx.s.planner?.advice) rows.push({ line: field(ctx, width, "", [span(ctx.s.planner.advice, { fg: "secondary" })]) });
+  rows.push(...fieldRows(field(ctx, width, "Planner", [span(executorLabel(plannerId), { bold: true }), span(`  ${plannerId}`, { fg: "muted" })]), "setting:planner"));
+  if (ctx.s.planner?.advice) rows.push(...fieldRows(field(ctx, width, "", [span(ctx.s.planner.advice, { fg: "secondary" })])));
 
   const policy = String(value("pacing.policy") ?? "priority"), policyIds = POLICIES.map(p => p[0]);
   const policyAct = (step: number) => set(ctx, "Policy", "pacing.policy", cycle(policyIds, policy, step));
   const prevPolicy = policyAct(-1), nextPolicy = policyAct(1);
   items.push({ id: "setting:policy", primary: nextPolicy, actions: [], keys: { ...(prevPolicy ? { left: prevPolicy } : {}), ...(nextPolicy ? { right: nextPolicy } : {}) } });
-  rows.push({ item: "setting:policy", line: field(ctx, width, "Policy", POLICIES.flatMap(([id, label], i): Line => [...(i ? [span("  ")] : []), span(id === policy ? `[${label}]` : label, id === policy ? { fg: "focus", bold: true } : { fg: "muted" })])) });
+  rows.push(...fieldRows(field(ctx, width, "Policy", POLICIES.flatMap(([id, label], i): Line => [...(i ? [span("  ")] : []), span(id === policy ? `[${label}]` : label, id === policy ? { fg: "focus", bold: true } : { fg: "muted" })])), "setting:policy"));
 
   const number = (id: string, label: string, key: string, min: number, max: number, fallback: number, unit = "%", note?: string) => {
     const current = Number(value(key) ?? fallback);
@@ -74,13 +93,13 @@ const planner: Build = (ctx, width) => {
     if (down) keysFor.left = down;
     if (up) keysFor.right = up;
     items.push({ id: `setting:${id}`, actions: [], keys: keysFor });
-    rows.push({ item: `setting:${id}`, line: field(ctx, width, label, [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(`${current}${unit}`, { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], note ?? `${min}–${max}, steps of 5`) });
+    rows.push(...fieldRows(field(ctx, width, label, [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(`${current}${unit}`, { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], note ?? `${min}–${max}, steps of 5`), `setting:${id}`));
   };
   number("reserve", "Planner reserve", "pacing.planner_reserve", 0, 50, 10, "%", "kept for planning and review");
   const accountsMode = String(value("pacing.accounts") ?? "spread");
   const modeAct = set(ctx, "Multiple accounts", "pacing.accounts", accountsMode === "spread" ? "fill" : "spread");
   items.push({ id: "setting:accounts-mode", primary: modeAct, actions: [], keys: modeAct ? { left: modeAct, right: modeAct } : {} });
-  rows.push({ item: "setting:accounts-mode", line: field(ctx, width, "Multiple accounts", [["spread", "Spread"], ["fill", "Fill"]].flatMap(([id, label], i): Line => [...(i ? [span("  ")] : []), span(id === accountsMode ? `[${label}]` : label!, id === accountsMode ? { fg: "focus", bold: true } : { fg: "muted" })])) });
+  rows.push(...fieldRows(field(ctx, width, "Multiple accounts", [["spread", "Spread"], ["fill", "Fill"]].flatMap(([id, label], i): Line => [...(i ? [span("  ")] : []), span(id === accountsMode ? `[${label}]` : label!, id === accountsMode ? { fg: "focus", bold: true } : { fg: "muted" })])), "setting:accounts-mode"));
   if (accountsMode === "fill") number("threshold", "Move to the next account at", "pacing.fill_threshold", 50, 100, 80, "% used");
   return { rows, items, hints: ["← → adjust"] };
 };
@@ -177,8 +196,8 @@ const machine: Build = (ctx, width) => {
   const down = step(-1), up = step(1);
   items.push({ id: "setting:local-max", actions: [], keys: { ...(down ? { left: down } : {}), ...(up ? { right: up } : {}) } });
   const busy = ctx.s.machine ? `${ctx.s.machine.used} busy now` : undefined;
-  rows.push({ item: "setting:local-max", line: field(ctx, width, "Parallel tasks", [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(String(current), { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], busy) });
-  rows.push({ line: field(ctx, width, "", [span("Shared by all executors that run on this machine. 1–16.", { fg: "muted" })]) });
+  rows.push(...fieldRows(field(ctx, width, "Parallel tasks", [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(String(current), { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], busy), "setting:local-max"));
+  rows.push(...fieldRows(field(ctx, width, "", [span("Shared by all executors that run on this machine. 1–16.", { fg: "muted" })])));
   return { rows, items, hints: ["← → adjust"] };
 };
 
@@ -321,20 +340,20 @@ const updates: Build = (ctx, width) => {
   // A check cannot run while checks are off, so the row offers none; "Check for updates" below says why (UI-13).
   const canCheck = reading !== "disabled";
   items.push({ id: "update:check", ...(canCheck && check ? { primary: check } : {}), actions: [], keys: {} });
-  rows.push({ item: "update:check", line: field(ctx, width, "Version", [span(u.current, { bold: true }), span(`  ${state}`, { fg: u.available ? "warn" : u.error ? "bad" : "secondary" })], canCheck ? "⏎ check now" : "") });
+  rows.push(...fieldRows(field(ctx, width, "Version", [span(u.current, { bold: true }), span(`  ${state}`, { fg: u.available ? "warn" : u.error ? "bad" : "secondary" })], canCheck ? "⏎ check now" : ""), "update:check"));
   const apply = u.available ? opAct(ctx, "Update and restart", "update.apply", {}, { confirm: { title: "Update pacer and restart the service?", yes: "Update and restart" } }) : undefined;
   if (apply) {
     items.push({ id: "update:apply", primary: apply, actions: [], keys: { u: apply } });
-    rows.push({ item: "update:apply", line: field(ctx, width, "", [span("Update and restart", { fg: "warn", bold: true })]) });
+    rows.push(...fieldRows(field(ctx, width, "", [span("Update and restart", { fg: "warn", bold: true })]), "update:apply"));
   }
   const configured = config?.value?.keys?.update_check?.value !== false;
   if (u.disabled && configured) {
     // The strategy allows checks, so the environment turned them off; the toggle cannot change that.
-    rows.push({ line: field(ctx, width, "Check for updates", [span("Off", { bold: true })], "PACER_NO_UPDATE_CHECK is set") });
+    rows.push(...fieldRows(field(ctx, width, "Check for updates", [span("Off", { bold: true })], "PACER_NO_UPDATE_CHECK is set")));
   } else {
     const toggle = set(ctx, "Update checks", "update_check", !configured);
     items.push({ id: "update:daily", primary: toggle, actions: [], keys: {} });
-    rows.push({ item: "update:daily", line: field(ctx, width, "Check for updates", [span(configured ? "On" : "Off", { bold: true })], "once a day, in the background") });
+    rows.push(...fieldRows(field(ctx, width, "Check for updates", [span(configured ? "On" : "Off", { bold: true })], "once a day, in the background"), "update:daily"));
   }
   return { rows, items };
 };
@@ -348,8 +367,8 @@ const notifications: Build = (ctx, width) => {
   const change = (step: number) => opAct(ctx, "Notifications", "notifications.set", { level: cycle(ids, level, step) });
   const next = change(1), prev = change(-1);
   items.push({ id: "setting:notifications", primary: next, actions: [], keys: { ...(prev ? { left: prev } : {}), ...(next ? { right: next } : {}) } });
-  rows.push({ item: "setting:notifications", line: field(ctx, width, "Notify me about", LEVELS.flatMap(([id, label], i): Line => [...(i ? [span("  ")] : []), span(id === level ? `[${label}]` : label, id === level ? { fg: "focus", bold: true } : { fg: "muted" })])) });
-  rows.push({ line: field(ctx, width, "", [span("Important: failures, stuck tasks and reviews.", { fg: "muted" })]) });
+  rows.push(...fieldRows(field(ctx, width, "Notify me about", LEVELS.flatMap(([id, label], i): Line => [...(i ? [span("  ")] : []), span(id === level ? `[${label}]` : label, id === level ? { fg: "focus", bold: true } : { fg: "muted" })])), "setting:notifications"));
+  rows.push(...fieldRows(field(ctx, width, "", [span("Important: failures, stuck tasks and reviews.", { fg: "muted" })])));
   return { rows, items, hints: ["← → change"] };
 };
 
@@ -358,7 +377,7 @@ const appearance: Build = (ctx, width) => {
   const flow = (label: string, key: string): Act => ({ label, effect: { type: "flow", name: "appearance", params: { key } } });
   const entry = (id: string, label: string, value: string, act?: Act, note?: string) => {
     if (act) items.push({ id, primary: act, actions: [], keys: { left: act, right: act } });
-    rows.push({ ...(act ? { item: id } : {}), line: field(ctx, width, label, [span(value, { bold: true })], note) });
+    rows.push(...fieldRows(field(ctx, width, label, [span(value, { bold: true })], note), act ? id : undefined));
   };
   entry("appearance:theme", "Theme", t.appearance === "light" ? "Light" : "Dark", flow("Switch theme", "theme"), "truecolor and 256-color terminals");
   entry("appearance:color", "Colors", { truecolor: "Truecolor", "256": "256 colors", "16": "16 colors", none: "No color" }[t.depth], flow("Switch colors", "color"));
