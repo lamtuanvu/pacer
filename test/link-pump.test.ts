@@ -74,10 +74,6 @@ test("a finished task that dropped out of the capped snapshot does not re-alert 
  await pumpOnce(c,{status:async()=>status(),tasks:()=>[broken("one"),broken("two")],publish:async(ctx,envs)=>{let s=(await import("../src/link/store")).readLatest(ctx);for(const e of envs)s=reduce(s,e,ctx.now);writeJsonAtomic(latestPath(ctx),s);return{seq:1,transports:["outbox"],errors:[]};}});
  const snap=(await import("../src/link/store")).readLatest(c);
  expect(snap.alerts.filter(a=>a.notification?.kind==="broken")).toHaveLength(2);
- const {notifyNewAlerts}=await import("../orca-plugin/src/notify");const {readSettings}=await import("../orca-plugin/src/settings");const notes:any[]=[];
- const host={call:async(method:string,params:any)=>{if(method==="notifications.show"){notes.push(params);return{delivered:true};}return{ok:true};}} as any;
- await notifyNewAlerts(host,snap,readSettings({notifications:"important"},c.home),c.now,c.now+31);
- expect(notes).toHaveLength(1);expect(notes[0].body).toContain("2 tasks affected");
  });
 
 test("resolved placement changes publish once while unchanged objects stay quiet",async()=>{

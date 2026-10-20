@@ -1569,7 +1569,7 @@ Params JSON Schema:
 
 ### `plugin.install`
 
-Install the Orca plugin under PACER_HOME without editing Orca settings.
+Retired: pacer no longer ships an Orca plugin. Always fails with not_allowed; removed in the next protocol major.
 
 Params JSON Schema:
 
@@ -3047,7 +3047,7 @@ Params JSON Schema:
 
 ### `update.check`
 
-Check release and installed plugin versions, optionally bypassing the cached update check.
+Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.
 
 Params JSON Schema:
 
@@ -3066,7 +3066,7 @@ Params JSON Schema:
 
 ### `version.get`
 
-Pacer, protocol, installed plugin and service versions or status.
+Pacer, protocol and service versions or status.
 
 Params JSON Schema:
 

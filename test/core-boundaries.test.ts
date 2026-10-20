@@ -9,13 +9,9 @@ function files(dir: string): string[] {
   });
 }
 
-test("core source only imports the Orca status renderer through the serve panel adapter", () => {
+test("source never imports the removed Orca plugin", () => {
   const src = join(import.meta.dir, "..", "src");
-  const offenders = files(src).filter(f => {
-    const imports = [...readFileSync(f, "utf8").matchAll(/from\s+["']([^"']*orca-plugin\/[^"']*)["']/g)];
-    // Serve reuses the read-only page; worker runtime and host APIs stay outside core.
-    return imports.some(m => f !== join(src, "serve", "panel.ts") || m[1] !== "../../orca-plugin/src/panel");
-  });
+  const offenders = files(src).filter(f => /from\s+["'][^"']*orca-plugin\//.test(readFileSync(f, "utf8")));
   expect(offenders).toEqual([]);
 });
 

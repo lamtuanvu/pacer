@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { setupCmd, waitForLive, type SetupDeps } from "../src/commands/setup";
+import { setupCmd, type SetupDeps } from "../src/commands/setup";
 import { validateStrategy } from "../src/config/strategy";
 import { readManifest } from "../src/install/manifest";
 import { main } from "../src/cli";
@@ -9,7 +9,7 @@ import { fakeCtx } from "./helpers";
 function fixture(bins = ["claude", "codex", "cursor-agent", "opencode"]) {
  const ctx = fakeCtx({ which: bin => bins.includes(bin) ? `/fixture/${bin}` : null, env: { PACER_BIN: "/fixture/pacer" } });
  let installed = false, installs = 0, questions: string[] = [], previews: string[] = [];
- const deps: SetupDeps = { tty: false, stdoutTTY: false, orcaInstalled: false, print: () => {}, question: async q => { questions.push(q); return ""; }, confirm: async p => { previews.push(p); return false; }, service: () => ({ status: async () => ({ installed }) as any, install: async () => { installed = true; installs++; return []; } }) };
+ const deps: SetupDeps = { tty: false, stdoutTTY: false, print: () => {}, question: async q => { questions.push(q); return ""; }, confirm: async p => { previews.push(p); return false; }, service: () => ({ status: async () => ({ installed }) as any, install: async () => { installed = true; installs++; return []; } }) };
  return { ctx, deps, questions, previews, get installs() { return installs; } };
 }
 test("non TTY ensures strategy and skips service but never edits agent config without consent", async () => {
@@ -52,19 +52,8 @@ test("non-TTY --agents grants consent only to selection",async()=>{
 for(const args of [["--agents","wrong"],["--agents"],["--planner","wrong"],["--wat"]])test(`init rejects ${args.join(" ")}`,async()=>{
  const f=fixture();expect((await setupCmd(args,f.ctx,f.deps)).code).toBe(2);expect(f.installs).toBe(0);
 });
-test("live wait succeeds, Enter skips, timeout uses fake clock",async()=>{
- let at=0;
- expect(await waitForLive("unused",()=>{},{now:()=>at,live:()=>at>=2,sleep:async()=>{at++;},skip:new Promise(()=>{})})).toBe(true);
- expect(await waitForLive("unused",()=>{},{live:()=>false,skip:Promise.resolve()})).toBe(false);
- at=0;expect(await waitForLive("unused",()=>{},{now:()=>at,live:()=>false,sleep:async()=>{at+=60;},skip:new Promise(()=>{})})).toBe(false);
-});
-test("Orca init installs panel; TTY waits; non-TTY never waits/dashboard",async()=>{
- for(const tty of [false,true]){
-  const f=fixture([]);let waits=0,dashboards=0,installs=0;const lines:string[]=[];
-  const r=await setupCmd([],f.ctx,{...f.deps,tty,stdoutTTY:tty,orcaInstalled:true,print:l=>lines.push(l),plugin:async()=>{installs++;return {text:"done"};},waitLive:async()=>{waits++;return true;},dashboard:async()=>{dashboards++;return {code:0,out:"dashboard",err:""};}});
-  expect(r.code).toBe(0);expect(installs).toBe(1);expect(waits).toBe(tty?1:0);expect(dashboards).toBe(tty?1:0);if(tty)expect(lines).toContain("✓ Live panel connected");else expect(r.out).toContain("Finish later with: pacer init");
- }
- const f=fixture([]);const lines:string[]=[];await setupCmd(["--no-dashboard"],f.ctx,{...f.deps,tty:true,orcaInstalled:true,print:l=>lines.push(l),plugin:async()=>({text:""}),waitLive:async()=>false});expect(lines).toContain("Finish later with: pacer init");
+test("init no longer offers an Orca panel when Orca is installed",async()=>{
+ const f=fixture([]);f.ctx.env.ORCA_CLI_COMMAND="orca";const r=await setupCmd([],f.ctx,f.deps);expect(r.code).toBe(0);expect(r.out).not.toMatch(/Orca|live panel/i);
 });
 test("CLI help exposes init and setup alias",async()=>{const f=fixture();const help=(await main(["help"],f.ctx)).out;expect(help).toContain("init [--planner");expect(help).toContain("setup [--planner");});
 test("non-TTY input never launches dashboard even if stdout is a TTY",async()=>{

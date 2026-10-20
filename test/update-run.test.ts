@@ -395,32 +395,6 @@ test("update refreshes only after replacement and --to forces same-version refre
 });
 
 
-test("update refreshes the installed plugin after replacement, skips it with --no-reinstall and tolerates failure", async () => {
-  const { refreshIntegrations } = await import("../src/commands/update-refresh");
-  const { installPlugin, pluginDir } = await import("../src/plugin/install");
-  for (const mode of ["refresh", "skip", "failure"]) {
-    const root = tmpDir(); release(root, "0.2.0"); const exec = installed();
-    const calls: string[][] = [];
-    const ctx = fakeCtx({ run: async argv => {
-      calls.push(argv);
-      expect(argv).toEqual([realpathSync(exec), "plugin", "install"]);
-      expect(readFileSync(argv[0]!, "utf8")).toBe(script("0.2.0"));
-      if (mode === "failure") return { code: 1, stdout: "", stderr: "plugin failed\nmore" };
-      return { code: 0, stdout: (await installPlugin({ ctx, pacerArgv: [argv[0]!] })).text, stderr: "" };
-    } });
-    await installPlugin({ ctx, pacerArgv: ["old-pacer"] });
-    const file = join(pluginDir(ctx), "orca-plugin.json");
-    const original = readFileSync(file, "utf8"); writeFileSync(file, "old plugin");
-    const result = await runUpdate({ check: false, noRestart: true, noReinstall: mode === "skip" }, deps(root, exec, { refreshIntegrations: path => refreshIntegrations(ctx, path) }));
-    expect(result.code).toBe(0);
-    expect(calls.length).toBe(mode === "skip" ? 0 : 1);
-    expect(readFileSync(file, "utf8")).toBe(mode === "refresh" ? original : "old plugin");
-    if (mode === "refresh") expect(result.out).toContain("orca-plugin: refreshed (turn pacer off and on in Orca Settings > Plugins to load it)");
-    else if (mode === "failure") expect(result.out).toContain("WARNING: orca-plugin: failed: plugin failed");
-    else expect(result.out).not.toContain("orca-plugin:");
-  }
-});
-
 test('update progress follows download, verification, replacement, refresh and restart',async()=>{
  const root=tmpDir();release(root,'0.2.0');const exec=installed();
  const events:unknown[]=[];

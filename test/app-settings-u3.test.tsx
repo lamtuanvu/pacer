@@ -10,7 +10,7 @@ const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as a
 const render = (child:any,s=state) => renderToString(<TaskContext.Provider value={{state:s,api}}>{child}</TaskContext.Provider>);
 test('General follows board order and uses the actual planner agent',()=>{
  const html=render(<SettingsGeneral initialData={settings}/>);
- const labels=['Planner &amp; pacing','Accounts','Executors','Remote hosts','Routing','Strategies','Updates &amp; plugin','Notifications','Appearance'];
+ const labels=['Planner &amp; pacing','Accounts','Executors','Remote hosts','Routing','Strategies','Updates','Notifications','Appearance'];
  let at=html.indexOf('<h1');
  for(const label of labels){const next=html.indexOf(`>${label}</h2>`,at);expect(next).toBeGreaterThan(at);at=next;}
  expect(html).toContain('aria-label="Codex"');expect(html).toContain('codex#team');expect(html).toContain('Scratch task passed');

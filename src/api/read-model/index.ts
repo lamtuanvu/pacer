@@ -2,7 +2,6 @@ import { readProjectStrategies, type ProjectStrategyFile } from "../../config/pr
 import { resolveProjectSelection } from "../../engine/project-routing";
 import { validateExecution } from "../../config/execution";
 import { resolveRunner } from "../../config/runner-id";
-import { readPluginReload } from "../../attention/plugin-reload";
 import { cachedPath, schedulePathRefresh, waitingIO } from "../../core/path-probe";
 import { redactEndpointError } from "../../endpoints/state";
 import { readPause } from "../../core/pause";
@@ -38,7 +37,7 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  let policies: ProjectStrategyFile | undefined, policyError: string | undefined;
  try { policies = readProjectStrategies(ctx); } catch (error) { policyError = error instanceof Error ? error.message : String(error); }
  const attentionTasks = tasks.map(task => ({ ...task, title: task.fullTitle ?? task.title }));
- const attention=applyStore(ctx,deriveTaskItems({pluginReload:readPluginReload(ctx),now:ctx.now,tasks:attentionTasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>policyError ? null : retryTargetFor(t,strategy,executors,policies)}));
+ const attention=applyStore(ctx,deriveTaskItems({now:ctx.now,tasks:attentionTasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>policyError ? null : retryTargetFor(t,strategy,executors,policies)}));
  const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
  const safe=(text:string|null)=>text===null?null:redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
  const pause=paused?{...paused,reason:safe(paused.reason),by:safe(paused.by)}:null;

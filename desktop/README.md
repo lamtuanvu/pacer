@@ -26,8 +26,7 @@ same consent flow. For terminal and servers, use the
 [standalone installer](../docs/install.md#terminal-and-servers).
 
 Run `pacer uninstall --all` to remove everything setup added, including the
-terminal link and the marked PATH block. Move the app to the Trash afterward;
-remove any development-folder plugin entry in Orca Settings yourself.
+terminal link and the marked PATH block. Move the app to the Trash afterward.
 
 ## Build
 

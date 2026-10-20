@@ -541,8 +541,8 @@ test("uninstall --all requires --binary when PACER_HOME contains the binary", as
 
 test("uninstall --all runs the existing login service and plugin uninstall paths", async () => {
   const { ctx } = allFixture();
-  const { installPlugin } = await import("../src/plugin/install");
-  await installPlugin({ ctx, pacerArgv: [ctx.env.PACER_BIN!] });
+  const { installLegacyPlugin } = await import("./helpers");
+  await installLegacyPlugin(ctx);
   const unit = servicePath(ctx, "linux");
   mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
   writeFileSync(unit, `# ${MARKER}\n`);

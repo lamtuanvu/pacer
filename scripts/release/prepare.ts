@@ -43,10 +43,6 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   if (compareVersions(version, pkg.version) <= 0) throw new Error(`version must be greater than ${pkg.version}`);
   const changelogPath = join(root, "CHANGELOG.md");
   const changelog = prepareChangelog(readFileSync(changelogPath, "utf8"), version, new Date().toISOString().slice(0, 10));
-  const marketplacePath = join(root, "orca-marketplace.json");
-  const marketplace = JSON.parse(readFileSync(marketplacePath, "utf8"));
-  const plugin = marketplace.plugins.find((p: { id: string }) => p.id === "lamtuanvu.pacer");
-  if (!plugin) throw new Error("orca-marketplace.json has no lamtuanvu.pacer entry");
   const desktopPath = join(root, "desktop", "src-tauri");
   const tauriPath = join(desktopPath, "tauri.conf.json");
   const tauri = bumpJsonVersion(readFileSync(tauriPath, "utf8"), version);
@@ -54,16 +50,12 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   const cargo = bumpCargoVersion(readFileSync(cargoPath, "utf8"), version, false);
   const lockPath = join(desktopPath, "Cargo.lock");
   const lock = bumpCargoVersion(readFileSync(lockPath, "utf8"), version, true);
-  plugin.source.ref = `orca-plugin-v${version}`;
   pkg.version = version;
   writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
   writeFileSync(changelogPath, changelog);
-  writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`);
   writeFileSync(tauriPath, tauri);
   writeFileSync(cargoPath, cargo);
   writeFileSync(lockPath, lock);
-  const p = Bun.spawn([process.execPath, "run", "plugin:build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
-  if (await p.exited !== 0) throw new Error("plugin:build failed; fix the build and rerun bun run plugin:build before committing");
   // The app embeds APP_VERSION, which the release build checks against package.json.
   const a = Bun.spawn([process.execPath, "run", "app:build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
   if (await a.exited !== 0) throw new Error("app:build failed; fix the build and rerun bun run app:build before committing");

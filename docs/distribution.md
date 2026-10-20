@@ -5,10 +5,10 @@ Every tagged release (`vX.Y.Z`, see [CONTRIBUTING](../CONTRIBUTING.md#releasing)
 | Channel | Install | Built from |
 | --- | --- | --- |
 | GitHub Releases | download `pacer-<os>-<arch>` and check it against `SHA256SUMS` | `release.yml` |
+| Desktop app | download `pacer-<version>-<os>-<arch>-unsigned.dmg`, `.AppImage` or `.deb`; see [desktop](../desktop/README.md) | `release.yml` |
 | install.sh | `curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh \| sh` | GitHub Releases |
 | npm | `npm install -g @lamtuanvu/pacer` | `bun run release:npm` |
 | Homebrew | `brew install lamtuanvu/tap/pacer` | `bun run release:homebrew` |
-| Orca plugin | marketplace source `https://github.com/lamtuanvu/pacer.git` at ref `main` | `orca-plugin` branch and `orca-plugin-v<version>` tags |
 
 Artifact attestations require a public repository (or GitHub Enterprise); real releases happen after this repository is public.
 
@@ -54,18 +54,14 @@ Tap setup:
 
 The release workflow commits `Formula/pacer.rb` to the tap’s `main` branch with a sign-off. It skips prereleases, does nothing when the formula is unchanged, and prints `skipped: HOMEBREW_TAP_TOKEN not set` while the secret is missing.
 
-## Orca plugin
-
-On each release, `release.yml` publishes `orca-plugin/dist` as the root of the `orca-plugin` branch and tags it `orca-plugin-v<version>`. `orca-marketplace.json` on `main` points at that tag; `bun run release:prepare` bumps it. Users can add the marketplace or install `https://github.com/lamtuanvu/pacer.git#orca-plugin-v<version>` directly. The pacer CLI must be installed as well.
-
 ## Dry-run release validation
 
-From a checkout whose package version, plugin bundle and changelog are prepared for the version, run:
+From a checkout whose package version, app assets and changelog are prepared for the version, run:
 
 ```sh
 gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
 ```
 
-The workflow checks the input against `package.json`, builds and smoke-tests all four binaries, writes metadata, and prints asset SHA-256 hashes and release notes. It exercises the plugin branch/tag publishing steps against a throwaway local bare repository and prints the proposed plugin tag. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
+The workflow checks the input against `package.json`, builds and smoke-tests all four binaries, writes metadata, and prints asset SHA-256 hashes and release notes. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
 
-Dry runs skip attestations, GitHub release uploads, remote plugin pushes, npm publication and tap pushes. Build artifacts expire after one day. A dispatch with `dry_run=false` is refused; only version tags can publish releases.
+Dry runs skip attestations, GitHub release uploads, npm publication and tap pushes. Build artifacts expire after one day. A dispatch with `dry_run=false` is refused; only version tags can publish releases.

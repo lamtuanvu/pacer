@@ -11,7 +11,7 @@ const evidence = () => ({ version: 1, base, head, compliance: report("1"), ui: r
 const body = (value: unknown) => `## How tested\n<!-- pacer-ui-evidence\n${JSON.stringify(value)}\n-->`;
 
 describe("UI PR evidence manifest", () => {
-  test.each(["app/src/term/term.tsx", "app/src/tray/tray.css", "src/dashboard/render.ts", "src/render/table.ts", "src/view-model/words.ts", "orca-plugin/src/panel/board.ts", "desktop/src-tauri/src/main.rs"])("requires real report references for %s", file => {
+  test.each(["app/src/term/term.tsx", "app/src/tray/tray.css", "src/dashboard/render.ts", "src/render/table.ts", "src/view-model/words.ts", "desktop/src-tauri/src/main.rs"])("requires real report references for %s", file => {
     expect(checkUiEvidence([file], "- [x] UI reviewed; QA passed", base, head)).not.toEqual([]);
     expect(checkUiEvidence([file], body(evidence()), base, head)).toEqual([]);
   });

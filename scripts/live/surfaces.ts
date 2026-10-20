@@ -1,8 +1,6 @@
-import { existsSync, readFileSync, readdirSync, lstatSync } from "node:fs";
+import { existsSync, readdirSync, lstatSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { PLUGIN_FILES, PANEL_PLACEHOLDER, PLUGIN_VERSION } from "../../src/plugin/assets.generated";
 import { atomicWrite, checkout, launch, record, run, sandboxEnv, saveSession, shellQuote, type Session } from "./core";
-import { mkdirSync } from "node:fs";
 
 export async function tui(session: Session, action: string, keys: string[], out?: string): Promise<string> {
   if (!Bun.which("tmux")) throw Error("tmux is required for the TUI; record this surface as UNVERIFIED if unavailable");
@@ -78,64 +76,4 @@ export function desktop(session: Session, requested?: string): string {
   saveSession(session);
   record(session, { kind: "command", argv: [app], code: 0, stdout: `Launched PID ${session.desktopPid}; inspect with computer-use` });
   return `Desktop launched (PID ${session.desktopPid}); use computer-use to inspect it.`;
-}
-
-export async function orca(session: Session, print: boolean): Promise<string> {
-  // Write only sandbox-owned plugin assets. The managed marker lets serve refresh live.html.
-  const plugin = join(session.root, "home/orca-plugin");
-  mkdirSync(plugin, { recursive: true, mode: 0o700 });
-  for (const file of PLUGIN_FILES) {
-    const path = join(plugin, file.rel);
-    mkdirSync(resolve(path, ".."), { recursive: true, mode: 0o700 });
-    if (file.rel === "worker.mjs") {
-      atomicWrite(join(plugin, "worker-source.mjs"), file.text);
-      atomicWrite(path, isolatedWorker(session));
-    } else atomicWrite(path, file.text);
-  }
-  atomicWrite(join(plugin, ".pacer-managed"), JSON.stringify({ version: PLUGIN_VERSION, installedAt: new Date().toISOString() }));
-  const panel = join(plugin, "panel/live.html");
-  mkdirSync(join(plugin, "panel"), { recursive: true, mode: 0o700 });
-  if (!existsSync(panel)) atomicWrite(panel, PANEL_PLACEHOLDER);
-  // serve refreshes the actual live panel every two seconds; don't claim a fixture is live.
-  const deadline = Date.now() + 7000;
-  while (Date.now() < deadline && readFileSync(panel, "utf8") === PANEL_PLACEHOLDER) await Bun.sleep(100);
-  if (readFileSync(panel, "utf8") === PANEL_PLACEHOLDER) throw Error("Service did not render the sandbox's live Orca panel; inspect logs/serve.log");
-  if (print) {
-    const path = join(session.root, "evidence/orca-panel.html");
-    atomicWrite(path, readFileSync(panel, "utf8"));
-    record(session, { kind: "capture", path, text: "Live Orca panel HTML; host integration remains UNVERIFIED" });
-    return `${path}\nInspect this file with browser MCP. Orca host integration is UNVERIFIED.`;
-  }
-  // Electron's flag is required as well as PACER_ORCA_USER_DATA (which only redirects pacer's files).
-  // Never call a running Orca CLI, which could resolve to the user's real profile.
-  const binary = process.env.PACER_LIVE_ORCA_BINARY;
-  if (!binary || !existsSync(binary)) throw Error("Set PACER_LIVE_ORCA_BINARY to the Orca Electron executable for an isolated instance, or use live orca --print; never use the real profile");
-  session.orcaPid = launch(session, [resolve(binary), `--user-data-dir=${sandboxEnv(session).PACER_ORCA_USER_DATA!}`], "orca.log");
-  saveSession(session);
-  record(session, { kind: "note", text: `Isolated Orca launched (PID ${session.orcaPid}); profile ${sandboxEnv(session).PACER_ORCA_USER_DATA}` });
-  return `Isolated Orca launched (PID ${session.orcaPid}). In THIS instance's Settings > Plugins, enable plugins and add development folder ${plugin}, then enable pacer and open its panel. If isolation cannot be confirmed, stop it and use orca --print. Inspect logs/orca.log for startup failures.`;
-}
-
-/** Host settings otherwise default to the real ~/.pacer and port 4317. */
-export function isolatedWorker(session: Session): string {
-  // Orca scrubs the worker process environment. Restore isolation before the
-  // source module captures paths for subprocesses, heartbeats and update checks.
-  const env = sandboxEnv(session);
-  const keys = ["PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA",
-    ...(session.seed === "ui" ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])];
-  const overrides = Object.fromEntries(keys.map(key => [key, env[key]]));
-  const guardPath = session.seed === "ui" ? `${join(session.root, "home/bin")}:${join(session.root, "bin")}` : join(session.root, "bin");
-  return `Object.assign(process.env, ${JSON.stringify(overrides)});
-process.env.PATH = ${JSON.stringify(guardPath)} + ":" + (process.env.PATH ?? "");
-const { default: activate, deactivate } = await import("./worker-source.mjs");
-export { deactivate };
-export default function(ctx) {
-  const host = ctx.host;
-  return activate({ ...ctx, host: { ...host, async call(method, params) {
-    const reply = await host.call(method, params);
-    if (method !== "settings.get") return reply;
-    return { ...reply, settings: { ...reply.settings, port: ${session.port}, pacerHome: ${JSON.stringify(join(session.root, "home"))} } };
-  } } });
-}
-`;
 }

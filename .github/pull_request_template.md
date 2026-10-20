@@ -33,5 +33,5 @@ CI requires the following JSON manifest for UI changes. Replace the SHA and repo
 - [ ] All commits are signed off with `git commit -s` (DCO).
 - [ ] `bun run test`, `bun run typecheck` and `bun run ui:check` pass.
 - [ ] Documentation and CHANGELOG are updated for behavior changes.
-- [ ] Generated token/app/plugin assets are rebuilt when their inputs changed.
+- [ ] Generated token and app assets are rebuilt when their inputs changed.
 - [ ] Required evidence reports are linked above; any exception is recorded with maintainer, scope and expiry in `.project/decisions.md`.

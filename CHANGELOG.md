@@ -10,6 +10,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - The desktop app ships its own CLI, shows Welcome and one consent screen before it changes anything, links `pacer` into `~/.local/bin` and can add an opt-in PATH line; recovery pages each offer one action; unsigned desktop downloads are published with each release.
 - Setup walks through five steps with an inline connection preview, executor priority controls, and first-task progress and review.
 
+### Removed
+
+- The Orca plugin: its panel, worker, marketplace manifest, `orca-plugin` branch and tag publishing, `pacer link status|probe`, the `pacer init` live-panel step and the "Orca panel" setup item. Use the desktop app or `pacer open`. Running delegated work in Orca worktrees is unchanged. `pacer plugin uninstall` and `uninstall --all` remove an earlier install; other `pacer plugin` subcommands exit 2. Protocol 3 keeps the `plugin.install` op, which now fails with `not_allowed`, `update.check` returns `plugin: null`, and `version.get` no longer includes its optional `plugin` field; the op and the null field go with the next protocol major.
+
 ### Fixed
 
 - Setup discovery avoids IDE launchers and local-model app startup, so selecting a planner does not launch another app over the pacer window.

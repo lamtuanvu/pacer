@@ -1,6 +1,6 @@
 # pacer design system
 
-The web app, desktop webview and tray use the Preact foundation in `app/src/ds/`. The service owns domain state; screens bind API actions and compose presentation. Components must not import screens, shell, data clients, API/core implementations or stores. TUI and the static Orca panel consume shared view-model descriptors, independently of Preact.
+The web app, desktop webview and tray use the Preact foundation in `app/src/ds/`. The service owns domain state; screens bind API actions and compose presentation. Components must not import screens, shell, data clients, API/core implementations or stores. The TUI consumes shared view-model descriptors, independently of Preact.
 
 ## Tokens and density
 
@@ -73,7 +73,7 @@ No paid icon package, remote fonts, analytics, email capture, demo application, 
 | Shell | Canonical actions/links and DS density, loading status | Rail/topbar/secondary-navigation placement, sticky behavior, landmarks and skip-link route focus. |
 | Tray/desktop webview | Compact density, shared actions, ListRow, ListRowLink, headings, status/identity and loading | 340px host containment, count/executor layout, native IPC, menu state and keyboard order. Escape closes menus before IPC hide; Quit is offered only in desktop. |
 | Terminal wrapper | Canonical screen-reader checkbox and actions | Lazy import, xterm theme adapter, PTY scaling and session control; xterm vendor CSS remains vendor-owned. |
-| TUI/Orca panel | Shared framework-independent status/attention vocabulary | Terminal width/color adapter and static script-free HTML; neither imports browser components. |
+| TUI | Shared framework-independent status/attention vocabulary | Terminal width/color adapter; it imports no browser components. |
 
 Authored screen CSS may own grids, flex placement, containment, overflow, sticky positioning, responsive breakpoints and domain metadata columns. Primitive visuals are DS-owned. The semantic tables, usage meter, code/diff and PTY renderers remain specialized; converting them into universal rows would damage their semantics.
 

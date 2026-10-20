@@ -10,7 +10,7 @@ import {callV2Op,v2Hello} from "../src/api/v2-compat";
 import {fakeCtx,tmpDir} from "./helpers";
 import {sha256} from "../src/install/fsx";
 import type {Status} from "../src/engine/status";
-const facts:SetupFacts={version:"1.0",planner:"codex",signedIn:true,connected:true,service:{installed:true,running:true},link:true,live:false,orcaInstalled:false,agents:[{id:"codex",name:"Codex",installed:true},{id:"cursor",name:"Cursor",installed:false}],executors:{ranked:[{id:"cursor"}],excluded:[]},verdict:"OK",reviewed:true};
+const facts:SetupFacts={version:"1.0",planner:"codex",signedIn:true,connected:true,service:{installed:true,running:true},link:true,agents:[{id:"codex",name:"Codex",installed:true},{id:"cursor",name:"Cursor",installed:false}],executors:{ranked:[{id:"cursor"}],excluded:[]},verdict:"OK",reviewed:true};
 const item=(f:SetupFacts,id:string)=>setupChecklist(f,1).items.find(i=>i.id===id)!;
 test("guided item order, optional rows, complete and ready",()=>{
  const s=setupChecklist(facts,1);
@@ -24,8 +24,7 @@ test("guided item order, optional rows, complete and ready",()=>{
  expect(setupChecklist({...facts,reviewed:false,skipped:true},1).ready).toBe(true);
  expect(item({...facts,version:null},"binary").status).toBe("pending");
  expect(item({...facts,errors:{service:"unreachable"}},"service")).toMatchObject({status:"failed",detail:"unreachable"});
- expect(item({...facts,orcaInstalled:true},"live").status).toBe("pending");
- expect(item({...facts,orcaInstalled:true,live:true},"live").status).toBe("done");
+ expect(setupChecklist(facts,1).items.some(i=>i.id==="live")).toBe(false);
  expect(item(facts,"agent:cursor")).toMatchObject({status:"pending",action:"agent.connect",agent:"cursor"});
  expect(item({...facts,agents:[{id:"cursor",name:"Cursor",installed:true}]},"agent:cursor").status).toBe("done");
 });
