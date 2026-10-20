@@ -27,6 +27,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - `pacer project strategy set --executors ''` explains that `pacer project strategy remove` restores the global strategy, instead of reporting an unknown option.
 - When an explicitly requested executor cannot run and another one does, the task records `executorFallback` (`executor_fallback` in summaries) with the requested executor and the reason, and `tasks`, `tasks <id>` and `delegate --wait` show it. Fallback behavior is unchanged.
 - The Executors settings no longer claim that an executor failing its check is skipped until it passes; a failed check marks it Failing and raises attention, and routing keeps using it unless it is unavailable for another reason (as before). Disable it to skip it.
+- An endpoint executor that has never passed its test task reads **Not tested** in the Executors screen, Overview and tray instead of Ready, matching its account (routing still uses it, as before; the executor summary adds `untested: true`). Add executor offers **Sign in** only for a signed-out native account, each **Fix sign-in** disclosure names its account for screen readers, and an executor row no longer repeats its reason under Last check.
 - The accounts guide gives the real default folder for pacer-managed accounts, `~/.<kind>-<name>`, instead of `~/.pacer/accounts/<name>`.
 
 ## [0.3.1] - 2026-10-19
