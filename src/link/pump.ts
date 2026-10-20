@@ -36,9 +36,15 @@ import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
 export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:OutboxEvent[]):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
 export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t),publish};
+export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceState {
+  return t.result?.acceptance ? t.result.acceptance.passed ? "passed" : "failed"
+    : !t.brief.acceptance ? "none" : t.progress?.phase === "testing" ? "running" : "pending";
+}
 export function taskData(t:TaskRecord):TaskData & {title:string} {
   const last=t.attempts.at(-1); return {id:t.id,title:taskTitle(t),state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0),
     ...(t.placement?.mode && t.placement.why!==undefined ? {placement:{mode:t.placement.mode,why:t.placement.why}} : {}),
+    acceptanceState: acceptanceState(t),
+    ...(t.reviewRequest ? {reviewRequest:t.reviewRequest} : {}),
     ...(t.review?{review:t.review}:{}),...(t.resolved?{resolved:t.resolved}:{}),
     ...(t.dismissed ? {dismissed:true} : {}), ...(t.retryOf ? {retryOf:t.retryOf} : {}), ...(t.retriedBy ? {retriedBy:t.retriedBy} : {}),
     ...(t.result?.brokenReason ? {brokenExecutor:t.result.brokenExecutor,brokenReason:t.result.brokenReason} : {}),
