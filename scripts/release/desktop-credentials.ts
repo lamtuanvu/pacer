@@ -27,7 +27,11 @@ export async function cleanupSigningRecord(record: string, run = command): Promi
 
 /** CI only. Never import credentials into an existing user keychain. */
 export async function withSigningCredentials<T>(env: NodeJS.ProcessEnv, body: (config: ReturnType<typeof signingConfig>) => Promise<T>, run = command): Promise<T> {
-  if (["PACER_APPLE_CERTIFICATE_BASE64", "PACER_APPLE_CERTIFICATE_PASSWORD", "PACER_NOTARY_KEY", "TAURI_SIGNING_PRIVATE_KEY"].some(k => !env[k])) throw Error("Production signing credentials are not configured");
+  // The interim signer imports the project's self-signed certificate; it has no notary key.
+  const self = !!env.PACER_SIGNING_CERT_SHA1;
+  if (self && (env.PACER_APPLE_CERTIFICATE_BASE64 || env.PACER_NOTARY_KEY)) throw Error("Configure one signing certificate: Apple or the interim certificate");
+  const certificate = self ? "PACER_SELF_SIGNING_CERTIFICATE_BASE64" : "PACER_APPLE_CERTIFICATE_BASE64", certificatePassword = self ? "PACER_SELF_SIGNING_CERTIFICATE_PASSWORD" : "PACER_APPLE_CERTIFICATE_PASSWORD";
+  if ([certificate, certificatePassword, ...(self ? [] : ["PACER_NOTARY_KEY"]), "TAURI_SIGNING_PRIVATE_KEY"].some(k => !env[k])) throw Error("Production signing credentials are not configured");
   // Validate non-secret configuration before any keychain mutation.
   signingConfig({ ...env, PACER_SIGNING_KEYCHAIN: "pending", PACER_NOTARY_KEY_PATH: "pending", TAURI_SIGNING_PRIVATE_KEY_PATH: "pending" });
   const original = await run(["/usr/bin/security", "list-keychains", "-d", "user"]);
@@ -42,14 +46,14 @@ export async function withSigningCredentials<T>(env: NodeJS.ProcessEnv, body: (c
   try { writeFileSync(cleanupRecord, JSON.stringify({ schema: 1, dir, keychains }), { mode: 0o600, flag: "wx" }); }
   catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
   try {
-    writeFileSync(p12, Buffer.from(env.PACER_APPLE_CERTIFICATE_BASE64!, "base64"), { mode: 0o600 });
-    writeFileSync(notary, env.PACER_NOTARY_KEY!, { mode: 0o600 });
+    writeFileSync(p12, Buffer.from(env[certificate]!, "base64"), { mode: 0o600 });
+    if (!self) writeFileSync(notary, env.PACER_NOTARY_KEY!, { mode: 0o600 });
     writeFileSync(signer, env.TAURI_SIGNING_PRIVATE_KEY!, { mode: 0o600 });
     // The durable record exists before create: a lost response still requires cleanup.
     await run(["/usr/bin/security", "create-keychain", "-p", password, keychain]);
     await run(["/usr/bin/security", "set-keychain-settings", "-lut", "21600", keychain]);
     await run(["/usr/bin/security", "unlock-keychain", "-p", password, keychain]);
-    await run(["/usr/bin/security", "import", p12, "-k", keychain, "-P", env.PACER_APPLE_CERTIFICATE_PASSWORD!, "-T", "/usr/bin/codesign"]);
+    await run(["/usr/bin/security", "import", p12, "-k", keychain, "-P", env[certificatePassword]!, "-T", "/usr/bin/codesign"]);
     await run(["/usr/bin/security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", password, keychain]);
     return await body(config);
   } finally {
