@@ -5,10 +5,9 @@ import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
 import { executorLabel, taskStatus } from "../../view-model/words";
 import type { ClientTask } from "../../view-model/snapshot";
-import { cols, flex, glyph, heading, lineWidth, span, statusSpans, wrap, type Line } from "../frame";
-import type { Style } from "../theme";
+import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
 import type { Act, Item } from "../state";
-import { blank, defined, empty, MARK, opAct, time } from "./common";
+import { blank, defined, empty, MARK, opAct, time, wrapAfter } from "./common";
 import { errorRows } from "./review";
 import type { Row, ScreenCtx, ScreenView } from "./types";
 
@@ -106,9 +105,3 @@ function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
   return rows;
 }
 
-/** `prefix` then `text`, wrapped at word boundaries to `width`; later lines start at the left edge. */
-function wrapAfter(prefix: Line, text: string, width: number, style: Style): Row[] {
-  const first = wrap(text, Math.max(8, width - lineWidth(prefix)));
-  const rest = first.slice(1).join(" ");
-  return [{ line: [...prefix, span(first[0] ?? "", style)] }, ...(rest ? wrap(rest, width).map(line => ({ line: [span(line, style)] })) : [])];
-}

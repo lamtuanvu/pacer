@@ -314,3 +314,30 @@ describe("prose wraps instead of clipping (UI-11, UI-13)", () => {
     });
   }
 });
+
+describe("review queue rows carry a status word (UI-2)", () => {
+  for (const [width, height] of [[120, 40], [80, 24]] as const) {
+    test(`at ${width}x${height}, also in plain mode`, () => {
+      for (const theme of [PLAIN_THEME, detectTheme({}, false, { plain: true })]) {
+        // The queue is the left pane at wide sizes; the detail repeats the title, so only the list side counts.
+        const queueRows = frame("review", width, height, { theme }).split("\n").slice(3).map(line => line.split(/│|\s\|\s/)[0]!).filter(line => /Fix flaky|Add dark mode/.test(line));
+        expect(queueRows.length).toBeGreaterThanOrEqual(2);
+        for (const row of queueRows) expect(row).toContain("Waiting for review");
+      }
+    });
+  }
+});
+
+test("with NO_COLOR the Settings nav marks the open section while focus is in the section (UI-2)", () => {
+  const nav = (state: Partial<UiState>) => frame("settings", 120, 40, { state }).split("\n").slice(3).map(line => line.split("│")[0]!);
+  const detail = nav({ section: "executors", focus: "detail" });
+  expect(detail.filter(line => line.includes("▸"))).toEqual([expect.stringContaining("▸ Executors")]);
+  expect(nav({ section: "executors", focus: "list" }).some(line => line.includes("▸"))).toBe(false);
+});
+
+test("the Review detail wraps its status line and box prose at 120x40 and 80x24", () => {
+  const wide = frame("review", 120, 40).split("\n").slice(3, -3).map(line => line.split("│").slice(1).join("│"));
+  expect(wide.filter(line => line.includes("…"))).toEqual([]);
+  const narrow = frame("review", 80, 24, { state: { focus: "detail" } }).split("\n").slice(3, -3);
+  expect(narrow.filter(line => line.includes("…"))).toEqual([]);
+});

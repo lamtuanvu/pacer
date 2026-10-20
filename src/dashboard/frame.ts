@@ -93,7 +93,7 @@ export function flex(total: number, specs: ({ fixed: number } | { weight: number
 
 const ASCII: Record<string, string> = {
   "✓": "+", "✕": "x", "▶": ">", "…": "~", "■": "=", "◐": "o", "↓": "v", "↑": "^", "∞": "*", "●": "*", "○": "o",
-  "›": ">", "‹": "<", "·": "-", "→": "->", "⏎": "Enter", "━": "#", "─": "-", "┃": "|", "│": "|", "▬┃": "=|",
+  "›": ">", "‹": "<", "▸": ">", "·": "-", "→": "->", "⏎": "Enter", "━": "#", "─": "-", "┃": "|", "│": "|", "▬┃": "=|",
 };
 /** A Unicode glyph, or its ASCII stand-in. Labels always accompany glyphs, so the stand-ins only aid scanning. */
 export const glyph = (theme: TerminalTheme, g: string) => theme.unicode ? g : ASCII[g] ?? g;

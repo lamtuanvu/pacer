@@ -6,9 +6,9 @@ import { displayTitle } from "../../view-model/titles";
 import { elapsed } from "../../view-model/time";
 import { executorLabel, taskStatus, type Status } from "../../view-model/words";
 import type { ClientTask } from "../../view-model/snapshot";
-import { box, cols, flex, glyph, heading, span, statusSpans, wrap, type Line } from "../frame";
+import { box, cols, flex, glyph, heading, span, statusSpans, wrap, type Line, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
-import { blank, defined, empty, GAP, MARK, time } from "./common";
+import { blank, defined, empty, GAP, MARK, time, wrapAfter, wrapLines } from "./common";
 import type { Resource, Row, ScreenCtx, ScreenView, TaskDetail } from "./types";
 
 export const KINDS = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
@@ -54,16 +54,17 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
 
 export function reviewScreen(ctx: ScreenCtx): ScreenView {
   const { s, theme } = ctx, queue = scopedReviewQueue(ctx);
-  const listWidth = ctx.wide ? 46 : ctx.width;
+  const listWidth = ctx.wide ? 52 : ctx.width;
   const list: Row[] = [{ line: heading(theme, "Review queue", queue.length) }];
   const items: Item[] = [];
   for (const a of queue) {
     const task = s.tasks.find(t => t.id === a.taskId), detail = ctx.data.details.get(a.taskId!)?.value;
     const item = reviewItem(ctx, a, task, detail);
     items.push(item);
-    const w = flex(listWidth - MARK, [{ fixed: 1 }, { weight: 1, min: 8 }, { fixed: 5 }], 1);
+    // Glyph and word, as every status (UI-2); plain mode has no glyph, so the word is all it has.
+    const w = flex(listWidth - MARK, [{ fixed: 20 }, { weight: 1, min: 8 }, { fixed: 5 }], 1);
     list.push({ item: item.id, line: cols([
-      { content: statusSpans(theme, { ...taskStatus(task ?? { state: "done" }), label: "" }).map(x => ({ ...x, text: x.text.trimEnd() })), width: w[0]! },
+      { content: statusSpans(theme, taskStatus(task ?? { state: "done" })), width: w[0]! },
       { content: task ? displayTitle(task) : a.title, width: w[1]!, style: { bold: true } },
       { content: time(ctx, a.raisedAt), width: w[2]!, align: "right", style: { fg: "muted" } },
     ], 1, theme) });
@@ -100,7 +101,7 @@ function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskD
   const ran = d?.startedAt && d.endedAt ? `ran ${elapsed(d.endedAt - d.startedAt)}` : task?.attemptStartedAt ? `ran ${elapsed(task.updatedAt - task.attemptStartedAt)}` : "";
   const branch = d?.branch ? `${d.branch}${d.base ? ` ${glyph(theme, "→")} ${d.base}` : ""}` : "";
   const dot = ` ${glyph(theme, "·")} `;
-  rows.push({ line: [...statusSpans(theme, status), span([executorLabel(executor), ran, branch].filter(Boolean).map(x => dot + x).join(""), { fg: "secondary" })] });
+  rows.push(...wrapAfter([...statusSpans(theme, status), span(dot, { fg: "secondary" })], [executorLabel(executor), ran, branch].filter(Boolean).join(dot), width, { fg: "secondary" }));
   const finished = d?.endedAt ?? task?.updatedAt;
   rows.push({ line: [span([a.repo?.label ?? task?.repo?.label, finished ? `finished ${time(ctx, finished)}` : ""].filter(Boolean).join(` ${glyph(theme, "·")} `), { fg: "muted" })] });
   if (resource?.loading && !d) return [...rows, blank(), loadingRow(ctx, "Loading task…")];
@@ -115,13 +116,13 @@ function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskD
   rows.push(blank());
   const acc = d.acceptance ?? (task as { acceptance?: TaskDetail["acceptance"] } | undefined)?.acceptance;
   const doneWhen: Line[] = acc?.cmd
-    ? [[span(acc.cmd)], [...statusSpans(theme, ACCEPTANCE[acc.state ?? ""] ?? { label: "No done-when command", tone: "neutral", glyph: "?" }), span([acc.summary, acc.durationS != null ? `checks ran ${acc.durationS} s` : "", acc.machine ? `run by pacer on ${acc.machine}` : ""].filter(Boolean).map(x => ` ${glyph(theme, "·")} ${x}`).join(""), { fg: "secondary" })]]
+    ? [[span(acc.cmd)], ...wrapLines([...statusSpans(theme, ACCEPTANCE[acc.state ?? ""] ?? { label: "No done-when command", tone: "neutral", glyph: "?" }), span(dot, { fg: "secondary" })], [acc.summary, acc.durationS != null ? `checks ran ${acc.durationS} s` : "", acc.machine ? `run by pacer on ${acc.machine}` : ""].filter(Boolean).join(dot), width - 4, { fg: "secondary" })]
     : [[span("No done-when command", { fg: "muted" })]];
   rows.push(...box(theme, "Done when", doneWhen, width).map(line => ({ line })));
 
   // Why this executor
-  const why: Line[] = [[span(reasonCopy(d.routing?.why))], ...(d.routing?.skipped ?? []).slice(0, 3).map((x): Line => [span(`Skipped ${executorLabel(x.executor)}: ${reasonCopy(x.reason)}`, { fg: "secondary" })])];
-  if (d.cost?.executor) why.push([span(`Cost: ${costCopy(d.cost.executor ?? null)}`, { fg: "secondary" })]);
+  const why: Line[] = [...wrapLines([], reasonCopy(d.routing?.why), width - 4, {}), ...(d.routing?.skipped ?? []).slice(0, 3).flatMap(x => wrapLines([], `Skipped ${executorLabel(x.executor)}: ${reasonCopy(x.reason)}`, width - 4, { fg: "secondary" }))];
+  if (d.cost?.executor) why.push(...wrapLines([], `Cost: ${costCopy(d.cost.executor ?? null)}`, width - 4, { fg: "secondary" }));
   rows.push(...box(theme, `Why ${executorLabel(executor)}`, why, width).map(line => ({ line })));
 
   // Changes
@@ -148,10 +149,19 @@ function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskD
   // Verdict
   rows.push(blank());
   const can = ctx.supports("task.review");
-  const keys: Line = can
-    ? [span("a", { bold: true }), span(" Accept and bring back", { fg: "ink", bold: true }), span("   s", { bold: true }), span(" Send back", { fg: "secondary" }), span("   r", { bold: true }), span(" Reject", { fg: "bad" }), ...((d.retryOptions ?? []).some(o => o.state === "ready") ? [span("   t", { bold: true }), span(" Retry on another executor", { fg: "secondary" })] : [])]
-    : [span("This pacer service does not offer reviews here. Use pacer review " + d.id + ".", { fg: "muted" })];
-  rows.push(...box(theme, "Your verdict", [keys, [span("Accept records the verdict; you merge the branch.", { fg: "muted" })]], width).map(line => ({ line })));
+  // Each verdict key stays whole; groups move to the next line when the box is narrow.
+  const groups: Line[] = can
+    ? [[span("a", { bold: true }), span(" Accept and bring back", { fg: "ink", bold: true })], [span("s", { bold: true }), span(" Send back", { fg: "secondary" })], [span("r", { bold: true }), span(" Reject", { fg: "bad" })],
+      ...((d.retryOptions ?? []).some(o => o.state === "ready") ? [[span("t", { bold: true }), span(" Retry on another executor", { fg: "secondary" })]] : [])]
+    : [];
+  const keyLines: Line[] = [];
+  for (const group of groups) {
+    const last = keyLines.at(-1);
+    if (last && lineWidth(last) + 3 + lineWidth(group) <= width - 4) last.push(span("   "), ...group);
+    else keyLines.push([...group]);
+  }
+  const body: Line[] = can ? keyLines : wrapLines([], `This pacer service does not offer reviews here. Use pacer review ${d.id}.`, width - 4, { fg: "muted" });
+  rows.push(...box(theme, "Your verdict", [...body, ...wrapLines([], "Accept records the verdict; you merge the branch.", width - 4, { fg: "muted" })], width).map(line => ({ line })));
   void now;
   return rows;
 }

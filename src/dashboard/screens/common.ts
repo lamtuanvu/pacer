@@ -2,9 +2,9 @@ import type { Action } from "../../attention/types";
 import { agentInfo, runnerAgent } from "../../view-model/agents";
 import { executorLabel, type AccountLike } from "../../view-model/words";
 import { clock } from "../../view-model/time";
-import { glyph, span, type Line } from "../frame";
+import { glyph, lineWidth, span, wrap, type Line } from "../frame";
 import type { Act, ScreenId } from "../state";
-import type { TerminalTheme } from "../theme";
+import type { Style, TerminalTheme } from "../theme";
 import type { Row, ScreenCtx, UpdateInfo } from "./types";
 
 export const GAP = 2;
@@ -56,3 +56,12 @@ export function updateState(u: UpdateInfo | undefined): UpdateState {
   if (!u) return "unchecked";
   return u.error ? "failed" : u.disabled ? "disabled" : u.available ? "available" : u.latest ? "current" : "unchecked";
 }
+
+/** `prefix` then `text`, wrapped at word boundaries to `width`; later lines start at the left edge. Prose is
+ * wrapped, never clipped (UI-11). */
+export function wrapLines(prefix: Line, text: string, width: number, style: Style): Line[] {
+  const first = wrap(text, Math.max(8, width - lineWidth(prefix)));
+  const rest = first.slice(1).join(" ");
+  return [[...prefix, span(first[0] ?? "", style)], ...(rest ? wrap(rest, width).map(line => [span(line, style)]) : [])];
+}
+export const wrapAfter = (prefix: Line, text: string, width: number, style: Style): Row[] => wrapLines(prefix, text, width, style).map(line => ({ line }));

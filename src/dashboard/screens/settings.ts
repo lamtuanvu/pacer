@@ -380,9 +380,11 @@ export function settingsScreen(ctx: ScreenCtx): ScreenView {
   const badges = BADGES(ctx);
   const list: Row[] = SECTIONS.map(section => {
     const active = section.id === sectionId, badge = badges[section.id];
+    // While keys move inside the section, the list has no selection marker; mark the open section without colour.
+    const mark = ctx.state.focus === "detail" ? [span(active ? `${glyph(theme, "▸")} ` : "  ", { fg: "focus", bold: true })] : [];
     return {
       item: `section:${section.id}`,
-      line: [span(section.label, active ? { fg: "ink", bold: true } : { fg: "secondary" }), ...(badge ? [span(` ${badge[0]}`, { fg: badge[1] })] : [])],
+      line: [...mark, span(section.label, active ? { fg: "ink", bold: true } : { fg: "secondary" }), ...(badge ? [span(` ${badge[0]}`, { fg: badge[1] })] : [])],
     };
   });
   const width = (ctx.wide ? ctx.width - listWidth - 3 : ctx.width) - MARK;
