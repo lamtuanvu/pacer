@@ -18,7 +18,7 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
   if (["task.get", "task.diff", "task.session"].includes(op)) {
     const id = (params as { id?: string } | null)?.id;
     const task = state.snapshot?.tasks.find(task => task.id === id);
-    return JSON.stringify([task?.rev, task?.updatedAt, state.activity.filter(entry => entry.taskId === id)]);
+    return JSON.stringify([...(op === "task.get" ? [state.invalidations["project-strategies"]] : []), task?.rev, task?.updatedAt, state.activity.filter(entry => entry.taskId === id)]);
   }
   return JSON.stringify(state.invalidations);
 }

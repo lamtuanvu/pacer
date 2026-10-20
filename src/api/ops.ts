@@ -1,3 +1,5 @@
+import { resolvePolicyRepoInput } from "../core/project-policy";
+import * as projectStrategies from "../core/project-strategies";
 import { pruneTasks, restoreTask } from "../tasks/retention";
 import { parseRunnerId } from "../config/runner-id";
 import { pacerArgv } from "../install/self";
@@ -142,6 +144,24 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
 }
 
 export const OPS: Record<string, OpDef> = { ...sessionOps,
+  "project.strategy.list": op({
+    description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
+    handler: ctx => projectStrategies.list(ctx),
+  }),
+  "project.strategy.get": op({
+    description: "Read a repository executor override and revision; null executors inherit global routing.", params: z.object({ repo: z.string().min(1).max(4096) }),
+    handler: (ctx, p) => projectStrategies.get(ctx, p.repo),
+  }),
+  "project.strategy.set": op({
+    description: "Set an ordered repository executor allowlist. Requires the current revision (0 for a new policy).",
+    params: z.object({ repo: z.string().min(1).max(4096), executors: z.array(id).min(1), expect_rev: z.number().int().nonnegative().safe() }),
+    handler: (ctx, p) => mutation(ctx, "project-strategies", () => projectStrategies.set(ctx, p.repo, p.executors, p.expect_rev)),
+  }),
+  "project.strategy.remove": op({
+    description: "Remove a repository override and restore global routing, preserving its revision.",
+    params: z.object({ repo: z.string().min(1).max(4096), expect_rev: z.number().int().nonnegative().safe() }),
+    handler: (ctx, p) => mutation(ctx, "project-strategies", () => projectStrategies.remove(ctx, p.repo, p.expect_rev)),
+  }),
   "activity.list": op({
     description: "Activity log, newest first, with optional repo, kind and task filters.",
     params: z.object({ before: z.string().min(1).optional(), limit: z.number().int().min(1).max(500).optional(), repo: z.string().min(1).optional(), kinds: z.array(z.enum(ACTIVITY_KINDS)).optional(), taskId: id.optional() }),
@@ -240,7 +260,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     params: z.object({ ...delegateSchema, repo: z.string().min(1) }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      const repoRef=await resolveRepoInput(ctx,p.repo);
+      const repoRef=await resolvePolicyRepoInput(ctx,p.repo);
       const input=parseDelegateBrief({...p,repo:isAbsolute(p.repo)?p.repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");

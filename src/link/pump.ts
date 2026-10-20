@@ -1,10 +1,12 @@
+import { readProjectStrategies, type ProjectStrategyFile } from "../config/project-strategies";
+import { buildExecutors } from "../api/read-model/capacity";
 import { resume, type PauseState } from "../core/pause";
 import { taskTitle } from "../core/short-title";
 import { probeHosts } from "../remote/eligibility";
 import { dispatchNotifications } from "../notify/decide";
 import { repoFor, backfillRepos } from "../core/repos";
-import { buildReadModel, readModelContext } from "../api/read-model";
-import { snapshotTasks } from "../api/read-model/tasks";
+import { buildReadModel, readModelContext, retryTargetFor } from "../api/read-model";
+import { apiTasks, snapshotTasks } from "../api/read-model/tasks";
 import type { Strategy } from "../config/strategy";
 import type { SetupChecklist } from "../setup/checklist";
 import type { EntityData } from "./envelope";
@@ -153,6 +155,12 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
   // Let healthy, larger comparisons finish in the background without delaying clients.
   const records=await Promise.all(deps.tasks(ctx).map(t=>pumpResolution(ctx,t)));
   await withTimeout(()=>(deps.backfillRepos??backfillRepos)(ctx,records.map(t=>t.brief.repo).filter((p):p is string=>typeof p==="string")),250).catch(()=>{});
+  let strategy:Strategy|undefined;
+  try{strategy=(deps.strategy??loadStrategy)(ctx);}catch{/* No configured strategy yet. */}
+  let policies: ProjectStrategyFile | undefined;
+  try { policies = readProjectStrategies(ctx); } catch { /* Invalid policy must never produce a global retry suggestion. */ }
+  const policyTasks = strategy ? apiTasks(ctx, records) : [];
+  const retryExecutors = strategy ? buildExecutors(st, strategy, policyTasks, ctx.now, ctx) : [];
   const timesPath=join(ctx.pacerHome,"link","task-events-at.json"),times=readJson<Record<string,number>>(timesPath)??{};
   let timesChanged=false;
   const dataPath=join(ctx.pacerHome,"link","task-data-seen.json"),seenData=readJson<Record<string,TaskData>>(dataPath)??{};
@@ -166,7 +174,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
     out.push({type:"task",data:d});times[d.id]=ctx.now;nextData[d.id]=d;timesChanged=true;
     const terminal=TERMINAL_STATES.includes(d.state as TaskState);
     if(terminal&&d.state!=="needs_input"&&before!==d.state&&(before!==undefined||latest.seq>0)) {
-      const last=t.attempts.at(-1), name=executorName(d.executor), next=b.ranked.find(x=>x.id!==d.executor)?.id;
+      const last=t.attempts.at(-1), name=executorName(d.executor), next=strategy && policies ? retryTargetFor(policyTasks[index]!,strategy,retryExecutors,policies) : null;
       const kind=d.state==="done"?"done":"failed";
       // A manual stop is recorded by core.tasks.stop, rather than reported as a failure.
       if (d.state !== "stopped") appendActivity(ctx, {
@@ -211,8 +219,6 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
   const report=out.length ? await deps.publish(ctx,out) : null;
   if(statesChanged && report?.transports.includes("outbox"))writeJsonAtomic(statesPath,known);
   if(timesChanged && report?.transports.includes("outbox")){writeJsonAtomic(timesPath,times);writeJsonAtomic(dataPath,nextData);}
-  let strategy:Strategy|undefined;
-  try{strategy=(deps.strategy??loadStrategy)(ctx);}catch{/* No configured strategy yet. */}
   if(strategy){
     const probePath=join(ctx.pacerHome,"state","host-probe-at.json"),lastProbe=readJson<number>(probePath);
     if(lastProbe===null||ctx.now<lastProbe||ctx.now-lastProbe>=300){

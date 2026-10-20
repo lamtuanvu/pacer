@@ -181,3 +181,45 @@ including decompressed logs, and returns the task to default lists. Conflicting
 files are never overwritten. Older binaries omit archived tasks because their
 JSON compatibility files move into the archive; restore before rolling back if
 those tasks must remain visible. Retention does not delete task history in SQLite.
+
+## Per-project executor strategy
+
+A project override defines the executors permitted to work on a repository, in
+strict priority order. For example:
+
+```sh
+pacer project strategy set --repo "$HOME/projects/api" --executors cursor,codex
+pacer project strategy set --repo "$HOME/projects/site" --executors codex
+pacer route tests --repo "$HOME/projects/api"
+pacer project strategy list
+pacer project strategy show --repo "$HOME/projects/api" --json
+pacer project strategy remove --repo "$HOME/projects/api"
+```
+
+The API project tries Cursor first, then Codex if eligible. The site project uses
+only Codex. An explicit executor may select any allowed runner; it cannot bypass
+the allowlist, including with `--force`. Disabled, unavailable, exhausted or busy
+executors retain their existing eligibility and capacity checks. A classifier
+hook may remove choices but cannot expand or reorder this list. Each run still
+has a maximum of three attempts.
+
+An override replaces global task-kind candidates and pacing order for that
+repository. Repositories without an override keep the global strategy. Removing
+an override restores that behavior; an empty list is rejected.
+
+Policies persist in `$PACER_HOME/project-strategies.json`, independently of named
+strategies. Switching global strategies does not remove them. Executors are
+stored with explicit agent, account and host identities, so changing a default
+account cannot inherit another account's permission. A runner absent from the
+active strategy is reported unavailable.
+
+Repository identity follows its normalized origin, with linked worktrees sharing
+the main checkout's policy. Clones with the same origin share the policy. A
+repository without an origin uses its local identity; moving it or changing its
+origin does not automatically migrate the policy. `list` includes orphaned
+policies, which can be inspected or removed using the displayed repository key.
+
+Edits take effect at the next attempt reservation, including queued tasks and
+fallback attempts. They do not interrupt an already reserved attempt. Concurrent
+edits return a conflict instead of overwriting changes; reload and review before
+saving again. Invalid or unreadable policy data blocks new routing until repaired.

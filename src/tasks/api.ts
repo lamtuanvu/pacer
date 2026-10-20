@@ -1,3 +1,9 @@
+import { requirePolicyIdentity } from "../core/project-policy";
+import { readProjectStrategies } from "../config/project-strategies";
+import { resolveProjectSelection } from "../engine/project-routing";
+import { requireProjectExecutor } from "../core/project-policy";
+import { registeredRepo } from "../core/repos";
+import { CoreError } from "../core/errors";
 import { shortTitle, taskTitle } from "../core/short-title";
 import type { RepoRef } from "../api/read-model/types";
 import { readPause } from "../core/pause";
@@ -126,6 +132,11 @@ export function delegate(
   const problems = validateInput(s, input);
   if(input.executor && Object.keys(readBlocked(ctx)).some(id => (resolveRunner(s,id)?.id ?? id) === input.executor))problems.push(`${input.executor}: Blocked by you; run pacer executor unblock ${input.executor}`);
   if (problems.length) throw new DelegateError(problems.join("; "));
+  const policies = readProjectStrategies(ctx);
+  const repo = input.repoRef ?? registeredRepo(ctx, input.brief.repo);
+  if (!repo && Object.values(policies.projects).some(p => p.executors)) throw new CoreError("invalid_input", "Resolve the repository before delegating with project policies");
+  if (repo) requirePolicyIdentity(ctx, repo);
+  requireProjectExecutor(repo ? resolveProjectSelection(s, repo.key, policies.projects) : undefined, input.executor);
   const task = createTask(ctx, {
     title: input.title?.trim() ?? shortTitle(input.brief.goal),
     brief: input.brief,

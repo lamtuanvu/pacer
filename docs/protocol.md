@@ -1612,6 +1612,115 @@ Params JSON Schema:
 }
 ```
 
+### `project.strategy.get`
+
+Read a repository executor override and revision; null executors inherit global routing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "repo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `project.strategy.list`
+
+List repository executor overrides, including policies for absent checkouts.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `project.strategy.remove`
+
+Remove a repository override and restore global routing, preserving its revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "repo",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `project.strategy.set`
+
+Set an ordered repository executor allowlist. Requires the current revision (0 for a new policy).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "executors": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "repo",
+    "executors",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `repo.add`
 
 Register a git repository.

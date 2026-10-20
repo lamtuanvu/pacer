@@ -20,6 +20,7 @@ export interface Brief {
 }
 
 export interface RoutingNote {
+  policy?: { source: "project"; repoKey: string; rev: number; executors: string[] };
   kind: string | null;
   kindSource: "brief" | "classifier";
   rule: string;

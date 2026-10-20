@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Per-project executor allowlists with strict priority order, persistent policies, revision-checked API and CLI configuration, and a Routing settings editor (#190).
+
 ## [0.3.1] - 2026-10-19
 
 ### Fixed

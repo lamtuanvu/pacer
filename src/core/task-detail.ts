@@ -1,3 +1,7 @@
+import { requirePolicyIdentity } from "./project-policy";
+import { remoteExclusion } from "../remote/eligibility";
+import { projectSnapshot } from "./project-policy";
+import { repoFor, registeredRepo } from "./repos";
 import { repoFs, withTimeout } from "./path-probe";
 import { join, resolve } from "node:path";
 import { boundedGitRead } from "./git";
@@ -15,7 +19,6 @@ import { executorName } from "../link/notification";
 import { listTasks } from "../tasks/store";
 import { TERMINAL_STATES, type Attempt, type Brief, type RoutingNote, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { route, status } from "./routing";
 import { diff, get, type DiffFile } from "./tasks";
 
 export interface Cost {
@@ -37,6 +40,7 @@ export interface TaskDetail extends ApiTask {
   endedAt: number | null;
   files: DiffFile[];
   retryOptions: RetryOption[];
+  policyError?: string;
   timeline: { at: number; text: string }[];
   derived?: { files: "ready" | "unavailable"; branch: "ready" | "unavailable"; retryOptions: "cached"; timeline: "ready" | "partial" };
 }
@@ -44,18 +48,23 @@ export interface TaskDetail extends ApiTask {
 async function optionsFor(ctx: Ctx, task: TaskRecord, cacheOnly = false): Promise<RetryOption[]> {
   let strategy;
   try { strategy = loadStrategy(ctx); } catch { return []; }
-  // Review is a read of stored evidence; explicit retry_options may refresh usage.
-  const [routing, st] = await (cacheOnly ? (async () => {
-    const st = await computeStatus(ctx, strategy, {cacheOnly: true, profile: readJson<ActivityProfile>(join(ctx.pacerHome, "activity.json"))});
-    return [rankExecutors(task.kind, strategy, Object.fromEntries(st.providers.map(p => [p.id, p]))), st] as const;
-  })() : Promise.all([route(ctx, task.kind, strategy), status(ctx, strategy)]));
+  const repo = task.repo ?? registeredRepo(ctx, task.brief.repo) ?? {...repoFor(ctx,task.brief.repo),identityUnverified:true as const};
+  requirePolicyIdentity(ctx,repo);
+  const selection = projectSnapshot(ctx, strategy, repo.key).selection;
+  // Reads use stored identity and never run Git or mutate the repository registry.
+  const st = await computeStatus(ctx, strategy, cacheOnly ? {cacheOnly: true, profile: readJson<ActivityProfile>(join(ctx.pacerHome, "activity.json"))} : {});
+  if (!cacheOnly) await Promise.all(st.providers.map(async provider => {
+    const reason = await remoteExclusion(ctx, strategy, provider.id, {repo: task.brief.repo, placement: "new"});
+    if (reason) provider.unavailableReason = reason;
+  }));
+  const routing = rankExecutors(task.kind, strategy, Object.fromEntries(st.providers.map(p => [p.id, p])), selection && { executors: selection.executors, order: "configured" });
   const rows = buildExecutors(st, strategy, apiTasks(ctx, listTasks(ctx, Infinity)), ctx.now);
   const ran = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor;
-  return [...new Set(executorsFor(task.kind, strategy))].filter(id => id !== ran).map(id => {
+  return [...new Set(selection?.executors ?? executorsFor(task.kind, strategy))].filter(id => id !== ran).map(id => {
     const row = rows.find(r => r.id === id);
     const excluded = routing.excluded.find(r => r.id === id);
     const busy = row?.state === "busy" || row?.state === "full";
-    return { id, state: row?.state ?? "down", reason: busy ? "busy" : row?.reason ?? excluded?.reason ?? (row?.state === "ready" ? "available" : row?.state ?? "not configured") };
+    return { id, state: selection && excluded ? "down" : row?.state ?? "down", reason: busy ? "busy" : (selection ? excluded?.reason ?? row?.reason : row?.reason ?? excluded?.reason) ?? (row?.state === "ready" ? "available" : row?.state ?? "not configured") };
   });
 }
 
@@ -131,10 +140,12 @@ async function gitSummary(ctx: Ctx, task: TaskRecord): Promise<GitSummary> {
 
 export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
   const task = get(ctx, id), last = task.attempts.at(-1);
-  const [changes, retryOptions] = await Promise.all([gitSummary(ctx, task), optionsFor(ctx, task, true)]);
+  let policyError: string | undefined;
+  const [changes, retryOptions] = await Promise.all([gitSummary(ctx, task), optionsFor(ctx, task, true).catch(error => { policyError = error instanceof Error ? error.message : String(error); return []; })]);
   const acceptance = task.result?.acceptance, terminal = TERMINAL_STATES.includes(task.state);
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {
+    ...(policyError ? { policyError } : {}),
     ...apiTask(ctx, task), brief: task.brief, attempts: task.attempts,
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null, cost: costFor(ctx, task),
     acceptance: { cmd, state: acceptance ? acceptance.passed ? "passed" : "failed" : !cmd ? "none" : task.progress?.phase === "testing" ? "running" : "pending", tail: Buffer.from(acceptance?.tail ?? "").subarray(-4096).toString("utf8"), machine: acceptance?.machine ?? null, ...(acceptance?.durationS !== undefined ? { durationS: acceptance.durationS } : {}), ...(acceptance?.summary ? { summary: acceptance.summary } : {}) },

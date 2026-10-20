@@ -196,3 +196,24 @@ test("pump dispatches attention notifications once to the active notifier",async
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(1);
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(0);
 });
+
+test("legacy failure alerts respect project retry policy and fail closed", async () => {
+  const { capacityFixture, record } = await import("./read-model-helpers");
+  const { writeProjectStrategy } = await import("../src/config/project-strategies");
+  const { join } = await import("node:path");
+  const { writeFileSync } = await import("node:fs");
+  for (const scenario of ["restricted", "unverified", "corrupt"] as const) {
+    const ctx = fakeCtx(), { s, st } = capacityFixture();
+    const repo = { key: "local:0123456789ab", path: ctx.home, name: "fixture", label: "fixture", ...(scenario === "unverified" ? { identityUnverified: true as const } : {}) };
+    await writeProjectStrategy(ctx, repo.key, ["cursor#cursor@local"], 0);
+    if (scenario === "corrupt") writeFileSync(join(ctx.pacerHome, "project-strategies.json"), "broken");
+    writeJsonAtomic(latestPath(ctx), { ...emptySnapshot(), seq: 1 });
+    const t = record("limit", ctx.now, { repo, brief: { repo: ctx.home, goal: "restricted failure" } });
+    const out = await pumpOnce(ctx, { status: async () => st, strategy: () => s, tasks: () => [t], setup: async () => ({ checkedAt: ctx.now, complete: true, ready: true, items: [] }), publish: async () => ({ seq: 2, transports: ["outbox"], errors: [] }) });
+    const alert = out.find(e => e.type === "alert" && e.data.key === `task-${t.id}`);
+    expect(alert?.type).toBe("alert");
+    if (alert?.type !== "alert") throw Error("Missing failure alert");
+    expect(alert.data.notification?.nextExecutor).toBe(scenario === "restricted" ? "cursor" : undefined);
+    expect(alert.data.body).not.toContain("retry on Codex");
+  }
+});
