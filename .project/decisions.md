@@ -22,7 +22,9 @@ Draft-readiness clarification in the same proposed amendment: require current re
 
 ## Exceptions
 
-None recorded.
+| Date | Rule | Scope | Granted by | Expires | Reason |
+|------|------|-------|------------|---------|--------|
+| 2026-10-20 | UI-2 (manual VoiceOver pass) | PR #211 only: Settings > Updates and its nav link | @lamtuanvu | When #211 merges | Removal-only change: one row and its button are removed and no control is added. Chrome's accessibility tree, keyboard focus and screenshots were checked live; VoiceOver could not be run from the session. |
 
 ## Open decisions
 
