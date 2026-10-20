@@ -35,3 +35,17 @@ test("desktop fixture must prove compiled isolation before launch", () => {
   expect(() => validateFixtureIdentity(state, identity, "desktop", "0.2.3")).toThrow();
   expect(() => validateFixtureIdentity(state, { ...identity, fixtureIsolationProtocol: 1 }, "desktop", "0.2.3")).not.toThrow();
 });
+
+test("fixtures model a user who already consented to first-run setup", async () => {
+  const { seedFixtureConsent } = await import("../scripts/live/ota-native");
+  const { tmpDir } = await import("./helpers");
+  const { readFileSync, statSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const home = tmpDir(), file = join(home, "Library/Application Support/dev.pacer.desktop/consent.json");
+  seedFixtureConsent({ pacerHome: home });
+  expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ path: false, keep: false });
+  expect(statSync(file).mode & 0o777).toBe(0o600);
+  writeFileSync(file, JSON.stringify({ at: "x", path: false, keep: true }));
+  seedFixtureConsent({ pacerHome: home });
+  expect(JSON.parse(readFileSync(file, "utf8")).keep).toBe(true);
+});

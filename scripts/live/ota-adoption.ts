@@ -16,7 +16,7 @@ import { ATTACHED_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { verifyAdoptionOutcome, verifyAdoptionSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
-import { attachFixtureService, fixtureEnvironment, fixtureExternalCli, fixtureInstallation, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
+import { attachFixtureService, fixtureEnvironment, seedFixtureConsent, fixtureExternalCli, fixtureInstallation, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
 
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
@@ -60,6 +60,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
   const log = openSync(join(session.root, "evidence/native-desktop.log"), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   let launched: ProcessIdentity | null;
   try {
+    seedFixtureConsent(state);
     const desktop = Bun.spawn([join(state.currentApp, "Contents/MacOS/pacer")], { env: fixtureEnvironment(state), stdin: "ignore", stdout: log, stderr: log });
     desktop.unref(); // A failed driver must exit; the Desktop is retired through the lease, not by the driver.
     launched = processIdentity(desktop.pid);

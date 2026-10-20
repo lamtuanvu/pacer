@@ -12,7 +12,7 @@ import { readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions
 import { MANAGED_SCENARIOS, newExercise, resumableStartup } from "./ota-exercise-record";
 import { verifyExerciseOutcome, verifyExerciseSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
-import { fixtureEnvironment, fixtureInstallation, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
+import { fixtureEnvironment, fixtureInstallation, inspectFixtureJobs, seedFixtureConsent, verifyFixtureBundle } from "./ota-native";
 import { makeCtx } from "../../src/ctx";
 import { hasReservation } from "../../src/update/desktop/admission";
 import { readNativeTransaction } from "../../src/update/desktop/native-record";
@@ -60,6 +60,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   const log = openSync(join(session.root, resuming ? `evidence/native-desktop-retry-${driver.pid}.log` : "evidence/native-desktop.log"), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   let launched: ProcessIdentity | null;
   try {
+    seedFixtureConsent(state);
     const desktop = Bun.spawn([join(state.currentApp, "Contents/MacOS/pacer")], { env: fixtureEnvironment(state), stdin: "ignore", stdout: log, stderr: log });
     launched = processIdentity(desktop.pid);
   } finally { closeSync(log); }

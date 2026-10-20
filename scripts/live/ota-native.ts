@@ -1,5 +1,6 @@
 /** Fixed native fixture diagnostics. No caller-provided executable or manager argument. */
 import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { appDigest, otaFixturePolicy, recordOtaDiagnosticProcess, type OtaRecord } from "./ota";
@@ -27,6 +28,16 @@ export function fixtureInstallation(state: OtaRecord, observed: unknown, version
   if (ownership && ownership !== actual) throw Error(`Fixture service is ${actual}, not ${ownership}`);
   const identity: Omit<Installation, "id" | "version"> = { appPath: state.currentApp, bundleId: "dev.pacer.desktop", ownerUid: state.ownerUid, arch: state.nativeFixture!.arch, pacerHome: state.pacerHome, port: state.innerPort, serviceLabel: state.serviceLabel, ownership: actual };
   return { ...identity, id: installationFingerprint(identity, service.executable, service.registrationText), version };
+}
+/**
+ * A fixture models an installed user who already finished first-run setup: the desktop
+ * only installs or restarts a service after recorded consent (desktop/src-tauri/src/client.rs).
+ */
+export function seedFixtureConsent(state: Pick<OtaRecord, "pacerHome">): void {
+  const dir = join(state.pacerHome, "Library/Application Support/dev.pacer.desktop"), file = join(dir, "consent.json");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (existsSync(file)) return;
+  writeFileSync(file, JSON.stringify({ at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), path: false, keep: false }), { mode: 0o600, flag: "wx" });
 }
 export function fixtureEnvironment(state: OtaRecord): Record<string, string> {
   return { HOME: state.pacerHome, PACER_HOME: state.pacerHome, PACER_PORT: String(state.innerPort), PATH: "/usr/bin:/bin:/usr/sbin:/sbin" };
