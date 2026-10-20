@@ -1034,6 +1034,21 @@ Params JSON Schema:
 }
 ```
 
+### `doctor.run`
+
+Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `host.account.add`
 
 Map a host account folder and return its login command.

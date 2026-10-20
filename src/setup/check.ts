@@ -1,3 +1,4 @@
+import { claudeHookChecks } from "../install/doctor-hooks";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy, type Strategy } from "../config/strategy";
@@ -74,8 +75,13 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
   const cached=statuses.get(ctx.pacerHome);
   status=cached&&ctx.now>=cached.at&&ctx.now-cached.at<60?cached.status:await computeStatus({...ctx,readOnly:true},strategy,{cacheOnly:true});
  }
- return setupChecklist({version:currentVersion(),planner:strategy?formatRunnerId({...strategy.planner,host:null},runnerDefaults(strategy.accounts)):planner,signedIn:login?login.loggedIn:true,loginCommand:login?.fix,connected,service,link,
+ const hookConfiguration = planner === "claude-code" ? claudeHookChecks(ctx,strategy).find(c=>c.name==="Claude hook configuration") : undefined;
+ if(hookConfiguration?.level==="warn")connected=false;
+ const result = setupChecklist({version:currentVersion(),planner:strategy?formatRunnerId({...strategy.planner,host:null},runnerDefaults(strategy.accounts)):planner,signedIn:login?login.loggedIn:true,loginCommand:login?.fix,connected,service,link,
   ...statusFacts(status),reviewed:anyReviewed(ctx),skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),agents,errors},ctx.now);
+ const connect = result.items.find(i=>i.id==="connect");
+ if(connect && connected)connect.detail="Configured · runtime invocation unverified. Run Settings Diagnostics for checks.";
+ return {...result, integration:{configuration:connected?"configured" as const:"unverified" as const, invocation:"unverified" as const}};
 }
 export async function checkSetupCommand(ctx:Ctx):Promise<string> {
  const result=await checkSetup(ctx);
