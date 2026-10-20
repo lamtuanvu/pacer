@@ -138,13 +138,16 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       const {login: _login, ...setupDeps} = deps;
       const cap=flags['cap-usd']===undefined ? undefined : Number(flags['cap-usd']);
       if (cap!==undefined && !(Number.isFinite(cap) && cap>0)) throw Error('--cap-usd must be a positive number of dollars, e.g. 10');
+      // For providers the catalog cannot classify; otherwise the catalog sets the usage type.
+      const usage=flags.usage===undefined ? undefined : String(flags.usage);
+      if (usage!==undefined && !['quota','metered','unmetered'].includes(usage)) throw Error('--usage must be quota, metered or unmetered');
       let model: string | undefined = typeof flags.model==='string' ? flags.model : undefined;
       if (!model) {
         const models=await setup.setupModels(ctx,{provider,group:'signed_in'},setupDeps);
         model=models.pick?.id;
         if (!model) throw Error(models.note ? `${models.note} Or pass --model <id>.` : `no usable model found for ${provider}; pass --model <id>`);
       }
-      const result=await setup.addOpencodeAccount(ctx,{provider,model,name:typeof flags.name==='string'?flags.name:undefined,cap_usd:cap,test:!flags['no-test']},setupDeps);
+      const result=await setup.addOpencodeAccount(ctx,{provider,model,name:typeof flags.name==='string'?flags.name:undefined,cap_usd:cap,...(usage ? {usage: usage as 'quota'|'metered'|'unmetered'} : {}),test:!flags['no-test']},setupDeps);
       return ok(opencodeMessage(result.account.name,provider,model,result,cap));
     }
     if (verb==='add' && pos[0]==='endpoint' && pos.length===2 && (['base-url','key','models','context','output','no-test'].some(k=>flags[k]))) {
@@ -178,7 +181,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       if (removeKey) await deleteKey(ctx,name,stored!);
       return ok(`Removed account ${name}.\n${diff}`);
     }
-    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | add opencode <provider> [--model <id>] [--cap-usd <n>] [--name <n>] [--no-test] | models <name> [--refresh] | test <name> | edit <name> | rm <name> [--delete-home] [--delete-key]');
+    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | add opencode <provider> [--model <id>] [--cap-usd <n>] [--usage <quota|metered|unmetered>] [--name <n>] [--no-test] | models <name> [--refresh] | test <name> | edit <name> | rm <name> [--delete-home] [--delete-key]');
   } catch(e) {return fail(e);}
 }
 

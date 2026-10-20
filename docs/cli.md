@@ -305,7 +305,7 @@ pacer account list [--json]
 pacer account add
 pacer account add <claude|codex> <name> [--home <dir>] [--no-login]
 pacer account add <claude|codex> <name> --orca <id>
-pacer account add opencode <provider> [--model <id>] [--cap-usd <n>] [--name <name>] [--no-test]
+pacer account add opencode <provider> [--model <id>] [--cap-usd <n>] [--usage <quota|metered|unmetered>] [--name <name>] [--no-test]
 pacer account add endpoint <name> --usage <quota|metered|unmetered> [--quota-source arkcli] [--weekly-tokens <n>]
 pacer account add endpoint <name> --base-url <url> --key <keychain|file|env:VAR|none> --models <id,...> --usage <quota|metered|unmetered> [--context <n>] [--output <n>] [--quota-source arkcli] [--weekly-tokens <n>] [--no-test]
 pacer account models <name> [--refresh]

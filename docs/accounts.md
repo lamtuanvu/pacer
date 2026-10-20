@@ -80,7 +80,9 @@ pacer account add opencode openrouter --cap-usd 10
 pacer account add opencode openrouter --model z-ai/glm-5.3 --name or-glm --no-test
 ```
 
-Without `--model`, the recommended model is used. A provider account is stored
+Without `--model`, the recommended model is used. `--usage` sets the usage type
+when the catalog cannot tell; a weekly dollar cap applies only to metered usage
+and is refused otherwise. A provider account is stored
 with `source: opencode` and no connection or key:
 
 ```yaml

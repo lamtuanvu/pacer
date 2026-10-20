@@ -28,3 +28,14 @@ test("accepts an explicit model and name, and rejects a bad cap", async () => {
   expect((await accountCmd(["add", "opencode", "openrouter", "--model", "z-ai/glm-5.3", "--name", "or-glm", "--no-test"], ctx, {})).out).toContain("opencode#or-glm (openrouter/z-ai/glm-5.3)");
   expect((await accountCmd(["add", "opencode", "openrouter", "--cap-usd", "0", "--no-test"], ctx, {})).err).toContain("--cap-usd must be a positive number of dollars");
 });
+
+test("--usage sets the usage type, is checked, and a cap on a quota provider is refused", async () => {
+  const ctx = await setup();
+  expect((await accountCmd(["add", "opencode", "openrouter", "--usage", "quota", "--name", "or-quota", "--no-test"], ctx, {})).code).toBe(0);
+  expect(loadStrategy(ctx).accounts["or-quota"].usage).toBe("quota");
+  expect((await accountCmd(["add", "opencode", "openrouter", "--usage", "free", "--name", "or-bad", "--no-test"], ctx, {})).err).toContain("--usage must be quota, metered or unmetered");
+  const capped = await accountCmd(["add", "opencode", "openrouter", "--usage", "quota", "--cap-usd", "5", "--name", "or-cap", "--no-test"], ctx, {});
+  expect(capped.code).not.toBe(0);
+  expect(capped.err).toContain("A weekly dollar cap applies only to metered usage; openrouter is quota.");
+  expect(loadStrategy(ctx).accounts["or-cap"]).toBeUndefined();
+});
