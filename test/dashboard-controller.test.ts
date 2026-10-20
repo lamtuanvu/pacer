@@ -3,6 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fixture from "./fixtures/ui/snapshot.json";
 import taskGet from "./fixtures/ui/task-get.json";
+import settingsFixture from "./fixtures/ui/tui-settings.json";
+import { setupChecklist } from "../src/setup/checklist";
 import { ApiError, type ApiClient } from "../src/api/client";
 import { callOp } from "../src/api/ops";
 import { Dashboard } from "../src/dashboard/controller";
@@ -244,4 +246,86 @@ test("a quiet service stays live: liveness follows successful reads, not the sna
   failing = false; clock += 2;
   await t.dash.refresh();
   expect(t.last().split("\n")[0]).toContain("● live");
+});
+
+// TD-6: Enter on a running row never stops the task, whatever kind of session it has.
+for (const [label, session] of [
+  ["no session", undefined],
+  ["a headless session", { host: "none", live: false, controller: null, viewers: 0 }],
+] as const) {
+  test(`Enter on a running row with ${label} never sends task.stop (Home and Sessions)`, async () => {
+    const s = structuredClone(fixture) as unknown as ClientSnapshot;
+    const running = s.tasks.find(t => t.id === "t-0420")!;
+    if (session) running.session = session as typeof running.session; else delete running.session;
+    const t = setup({ snapshot: s });
+    t.dash.state = { ...t.dash.state, selected: { home: "task:t-0420" } };
+    await t.dash.refresh();
+    await t.keys("enter");
+    expect(t.ops().map(c => c.op)).not.toContain("task.stop");
+    expect(t.dash.state.overlay).toBeNull();
+    expect(t.dash.state.screen).toBe("sessions");
+    expect(t.dash.state.selected.sessions).toBe("session:t-0420");
+    await t.keys("enter", "enter");
+    expect(t.ops().map(c => c.op)).not.toContain("task.stop");
+    expect(t.dash.state.overlay).toBeNull();
+    expect(t.attached).toEqual([]);
+  });
+}
+
+test("Enter on an attachable running row watches instead of stopping", async () => {
+  const s = structuredClone(fixture) as unknown as ClientSnapshot;
+  s.tasks.find(t => t.id === "t-0420")!.session = { host: "builtin", live: true, controller: null, viewers: 0 };
+  const t = setup({ snapshot: s, respond: op => op === "task.session" ? { host: "builtin" } : undefined });
+  t.dash.state = { ...t.dash.state, selected: { home: "task:t-0420" } };
+  await t.dash.refresh();
+  await t.keys("enter");
+  expect(t.ops().map(c => c.op)).not.toContain("task.stop");
+  expect(t.attached).toEqual(["t-0420"]);
+});
+
+// TD-6: destructive and consequential settings and setup actions confirm before any op is sent.
+const SETTINGS_OPS_ALL = [...ALL_OPS, "account.remove", "runner.remove", "project.strategy.list", "project.strategy.set", "project.strategy.remove", "strategy.list", "update.check", "update.apply", "service.install"];
+const settingsResponse = (op: string) => {
+  const key = ({ "config.get": "config", "account.list": "accounts", "routing.get": "routing", "project.strategy.list": "projects", "strategy.list": "strategies", "update.check": "update", "notifications.get": "notifications" } as Record<string, keyof typeof settingsFixture>)[op];
+  return key ? structuredClone(settingsFixture[key].value) : undefined;
+};
+for (const c of [
+  { name: "remove account", section: "accounts", item: "account:spare", key: "x", title: "Remove account spare?", op: "account.remove", params: { name: "spare" } },
+  { name: "remove executor", section: "executors", item: "executor:cursor", key: "x", title: "Remove executor cursor?", op: "runner.remove", params: { id: "cursor" } },
+  { name: "remove rule", section: "routing", item: "rule:0", key: "x", title: "Remove rule 1?", op: "routing.set" },
+  { name: "use global strategy", section: "projects", item: "project:github.com/acme/api", key: "x", title: "Use the global strategy for acme/api?", op: "project.strategy.remove", params: { repo: "github.com/acme/api", expect_rev: 2 } },
+  { name: "update and restart", section: "updates", item: "update:apply", key: "u", title: "Update pacer and restart the service?", op: "update.apply", params: {} },
+]) {
+  test(`${c.name} confirms before sending ${c.op}`, async () => {
+    const t = setup({ ops: SETTINGS_OPS_ALL, respond: settingsResponse });
+    t.dash.state = { ...t.dash.state, screen: "settings", section: c.section, focus: "detail", selected: { settings: c.item } };
+    await t.dash.refresh();
+    await t.dash.settle();
+    t.dash.draw();
+    const sent = () => t.ops().filter(x => x.op === c.op);
+    await t.keys(c.key);
+    expect(t.dash.state.overlay).toMatchObject({ kind: "confirm", title: c.title });
+    expect(t.last()).toContain(c.title);
+    expect(sent()).toEqual([]);
+    await t.keys("n");
+    expect(t.dash.state.overlay).toBeNull();
+    expect(sent()).toEqual([]);
+    await t.keys(c.key, "y");
+    expect(sent()).toHaveLength(1);
+    if (c.params) expect(sent()[0]!.params).toEqual(c.params);
+  });
+}
+
+test("installing the service from Setup asks for consent first", async () => {
+  const s = structuredClone(fixture) as unknown as ClientSnapshot;
+  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, live: true, agents: [], executors: { ranked: [], excluded: [] } }, s.at);
+  s.setup = { ...checklist, open: checklist.items.filter(i => i.status !== "done").length };
+  const t = setup({ snapshot: s, ops: SETTINGS_OPS_ALL });
+  t.dash.state = { ...t.dash.state, screen: "setup", selected: { setup: "setup:service" } };
+  await t.dash.refresh();
+  await t.keys("enter");
+  expect(t.dash.state.overlay).toMatchObject({ kind: "confirm", title: "Run pacer in the background at login?" });
+  expect(t.ops().map(x => x.op)).not.toContain("service.install");
+  await t.keys("y");
+  expect(t.ops().filter(x => x.op === "service.install")).toEqual([{ op: "service.install", params: { consent: true } }]);
 });
