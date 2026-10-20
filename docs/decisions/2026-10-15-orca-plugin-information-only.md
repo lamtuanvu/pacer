@@ -2,7 +2,8 @@
 
 > Historical context: protocol 3.0 retired the v1 Orca link, storage bridge, channel sends, console command lines and unversioned read routes on 2026-10-18. The owner waived the release gate; `/v2` remains for one more pacer minor release. See [current protocol](../protocol.md).
 
-Status: accepted; human live verification pending.
+Status: superseded by the [retire-orca-plugin decision](2026-10-20-retire-orca-plugin.md) on 2026-10-20: the Orca plugin is removed. Kept as history.
+Previous status: accepted; human live verification pending.
 Source: the owner's request for an information-only plugin and a proper pacer
 app as the place to act, following the client direction in the
 [core contract design](../specs/2026-10-14-core-contract-design.md).

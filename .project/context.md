@@ -20,7 +20,6 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `src/dashboard/`, `src/render/`, `src/view-model/` | TUI, status line and tables, shared view vocabulary |
 | `src/link/`, `src/console/` | Remnants of the transport retired in 3.0 (see open decisions) |
 | `app/` | Preact web UI and tray popover served at `/app/`, with its design system in `app/src/ds/`. The bundle is embedded in `src/app/assets.generated.ts`. |
-| `orca-plugin/` | Orca worker plus static, information-only panel. `dist/` is committed generated output. |
 | `desktop/` | Tauri v2 macOS shell that loads the service's `/app/` |
 | `npm/launcher/` | npm launcher that picks the platform package |
 | `scripts/` | Release, protocol-doc, e2e, QA, brand and design-system sync scripts |
@@ -49,11 +48,10 @@ These come from the configuration listed in Source. None were run while this ind
 | Test | `bun run test` (pins `TZ=Asia/Ho_Chi_Minh`; plain `bun test` gives unreliable date results) | package.json, CONTRIBUTING.md |
 | UI policy and PR evidence | `bun run ui:check` | scripts/ui-check.ts; ci.yml |
 | Build binary | `bun run build` | package.json |
-| Rebuild generated assets | `bun run plugin:build`, `bun run app:build`, `bun run protocol:doc` | package.json, CONTRIBUTING.md |
+| Rebuild generated assets | `bun run app:build`, `bun run protocol:doc` | package.json, CONTRIBUTING.md |
 | Release | `bun run release:prepare <x.y.z>` → PR `chore: release x.y.z` → dry-run dispatch → tag `v<x.y.z>` | CONTRIBUTING.md |
 | Desktop | `cargo test --offline`; `bunx tauri build --no-sign` (in `desktop/`) | desktop/README.md |
 | Live validation | `bun run live up`, then drive the surfaces, `bun run live report`, `bun run live down --keep` | docs/testing/live-validation.md |
-| Orca e2e | `scripts/e2e/orca-bootstrap.ts` (outside `bun test`) | docs/testing/orca-e2e.md |
 
 There is no lint or format command; `.editorconfig` is the only style config.
 
@@ -61,11 +59,11 @@ There is no lint or format command; `.editorconfig` is the only style config.
 
 | Aspect | Applies to | Canonical rules/source | Status |
 |--------|------------|------------------------|--------|
-| Architecture | `src/**`, `app/**`, `orca-plugin/**`, `desktop/**`; any new capability or surface | [rules/architecture.md](rules/architecture.md) | Established, plus proposals |
+| Architecture | `src/**`, `app/**`, `desktop/**`; any new capability or surface | [rules/architecture.md](rules/architecture.md) | Established, plus proposals |
 | API & protocol compatibility | `src/api/**`, `src/serve/**`, `src/mcp/**`, `docs/protocol*.md`, any client reading the API | [rules/api-protocol.md](rules/api-protocol.md) | Established |
-| Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, `orca-plugin/**`, CI workflows | [rules/security.md](rules/security.md) | Established |
-| TypeScript & testing | `src/**`, `app/**`, `orca-plugin/**`, `test/**`, `scripts/**` | [rules/code-and-testing.md](rules/code-and-testing.md) | Established, plus proposals |
-| UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `orca-plugin/` panel, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25) | Established (spec), plus proposals |
+| Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, CI workflows | [rules/security.md](rules/security.md) | Established |
+| TypeScript & testing | `src/**`, `app/**`, `test/**`, `scripts/**` | [rules/code-and-testing.md](rules/code-and-testing.md) | Established, plus proposals |
+| UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25) | Established (spec), plus proposals |
 | Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
 | Repository hygiene & docs | all tracked files, commits, PRs, `docs/**` | [rules/repository.md](rules/repository.md) | Established, plus proposals |
 
@@ -78,8 +76,8 @@ The human approver for every merge is @lamtuanvu. Amendment 0.4.0 proposes requi
 | Architecture | New surface or capability; changes across `src/api` ↔ core ↔ clients; new ADR | [reviewers/architecture.md](reviewers/architecture.md) | Advisory |
 | Protocol compatibility | `src/api/**`, `src/serve/**`, `docs/protocol*.md`, client API reads | [reviewers/protocol-compat.md](reviewers/protocol-compat.md) | Advisory |
 | Security | Paths in the security rule; new subprocess, network, file-permission or secret handling | [reviewers/security.md](reviewers/security.md) | Advisory |
-| QA & tests | Any behavior change in `src/`, `app/` or `orca-plugin/` | [reviewers/qa.md](reviewers/qa.md) | Advisory; UI-affecting changes require a report under amendment 0.4.0 |
-| UI & accessibility | `app/**`, TUI rendering, Orca panel HTML, desktop shell | [reviewers/ui-accessibility.md](reviewers/ui-accessibility.md) | Required UI evidence report under proposed amendment 0.4.0; human approves merge |
+| QA & tests | Any behavior change in `src/`, `app/` or `desktop/` | [reviewers/qa.md](reviewers/qa.md) | Advisory; UI-affecting changes require a report under amendment 0.4.0 |
+| UI & accessibility | `app/**`, TUI rendering, desktop shell | [reviewers/ui-accessibility.md](reviewers/ui-accessibility.md) | Required UI evidence report under amendment 0.4.0; human approves merge |
 | Release | Version bumps, CHANGELOG, release scripts and workflows, distribution packages | [reviewers/release.md](reviewers/release.md) | Advisory |
 
 Docs-only changes need just the repository rule, plus the protocol reviewer when `docs/protocol*.md` changes.

@@ -1,6 +1,6 @@
 # UI and accessibility rules
 
-Applies to: `app/**` (web UI and tray popover), `src/dashboard/**` and `src/render/**` (TUI and status line), the Orca panel HTML in `orca-plugin/`, `desktop/**`.
+Applies to: `app/**` (web UI and tray popover), `src/dashboard/**` and `src/render/**` (TUI and status line), `desktop/**`.
 Out of scope: CLI `--json` output (see the API rules) and brand artwork under `design/`.
 Owner: @lamtuanvu
 Canonical sources: [UI implementation spec](../../docs/specs/2026-10-16-ui-implementation-design.md) (accessibility section), [UI functionality spec](../../docs/specs/2026-10-16-ui-functionality-design.md), `app/src/ds/` (tokens.json → generated CSS/TS), `app/build.ts`
@@ -11,7 +11,7 @@ Canonical sources: [UI implementation spec](../../docs/specs/2026-10-16-ui-imple
 | UI-2 | Accessibility: controls have accessible names, the current page carries `aria-current`, pages have landmarks and a skip link, and status is never shown by color alone. Contrast is ≥ 4.5:1, focus rings are always visible, live regions are polite, and `prefers-reduced-motion` is honored. | Established | UI implementation spec (accessibility section) | Review; manual VoiceOver check |
 | UI-3 | Bundle budgets: app ≤ 60 KB gzip, terminal ≤ 150 KB gzip. | Established | `app/build.ts` | `bun run app:build` |
 | UI-4 | The TUI honors `NO_COLOR` and `PACER_NO_ANIM`. | Established | `src/dashboard/` | Tests |
-| UI-5 | The Orca panel is static, script-free HTML that shows information only. | Established | ADR orca-plugin-information-only | Review; panel tests |
+| UI-5 | Retired (0.5.0). Was: the Orca panel is static, script-free HTML. The Orca plugin is removed. | Retired (0.5.0) | ADR retire-orca-plugin | — |
 | UI-6 | Every surface renders from the shared view model and vocabulary (`src/view-model/`) and the golden fixture `test/fixtures/ui/snapshot.json`. | Established | view-model tests | `bun run test` |
 | UI-7 | Add automated accessibility checks (e.g. axe on rendered app pages) to the test suite. | Proposed | No automated a11y tests today | Pending decision |
 

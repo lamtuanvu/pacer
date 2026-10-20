@@ -1,6 +1,6 @@
 # Security and secrets rules
 
-Applies to: `src/serve/**`, `src/endpoints/**`, `src/usage/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `src/service/**`, `desktop/**`, `orca-plugin/**`, `.github/workflows/**`. Also applies to any new subprocess, network listener, file write under `PACER_HOME`, or secret.
+Applies to: `src/serve/**`, `src/endpoints/**`, `src/usage/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `src/service/**`, `desktop/**`, `.github/workflows/**`. Also applies to any new subprocess, network listener, file write under `PACER_HOME`, or secret.
 Out of scope: purely presentational UI changes that touch no auth or data flow.
 Owner: @lamtuanvu
 Canonical sources: [SECURITY.md](../../SECURITY.md), [docs/accounts.md](../../docs/accounts.md), [docs/protocol.md](../../docs/protocol.md), [ADR app-web-ui](../../docs/decisions/2026-10-15-app-web-ui.md), [ADR remote-hosts-ssh](../../docs/decisions/2026-10-15-remote-hosts-ssh.md), `desktop/src-tauri/capabilities/README.md`
