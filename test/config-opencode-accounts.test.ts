@@ -39,3 +39,11 @@ test("quota on a source: opencode account needs no quota_source", () => {
   expect(problems(base({zhipu: {kind: "endpoint", source: "opencode", provider: "zhipuai-coding-plan", usage: "quota"}},
     {"opencode#zhipu": {model: "zhipuai-coding-plan/glm-5"}}))).toEqual([]);
 });
+
+test("other source values are ignored as before, so existing native accounts still load", () => {
+  for (const source of ["external", "default", "pacer"]) {
+    expect(problems(base({work: {kind: "claude", source, home: "/tmp/work"}}, {"claude-code#work": {}}))).toEqual([]);
+    expect(problems(base({team: {kind: "codex", source}}, {"codex#team": {}}))).toEqual([]);
+  }
+  expect(problems(base({work: {kind: "claude", source: "opencode", provider: "openrouter"}}))).toContain("accounts.work: source: opencode requires an endpoint account");
+});

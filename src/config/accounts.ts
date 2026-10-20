@@ -162,7 +162,9 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
     if (!["quota", "metered", "reactive", "unmetered"].includes(cfg.usage)) problems.push(`${at}: unknown usage kind`);
     if (!["native", "orca", "arkcli", "metered", "reactive", "unmetered"].includes(cfg.usageSource)) problems.push(`${at}: unknown usage_source`);
     if (["cursor", "agy"].includes(cfg.kind) && cfg.usage === "quota" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage is not available for ${cfg.kind}; use reactive`);
-    if (value.source !== undefined) {
+    // Endpoint accounts may say `source: opencode`; native accounts keep ignoring other source values (external,
+    // default, pacer), as they did before, so existing strategies still load.
+    if (value.source !== undefined && (cfg.kind === "endpoint" || value.source === "opencode")) {
       if (value.source !== "opencode") problems.push(`${at}: source must be opencode`);
       else if (cfg.kind !== "endpoint") problems.push(`${at}: source: opencode requires an endpoint account`);
       else {
