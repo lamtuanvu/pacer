@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- `pacer dashboard` is redesigned on the shared design system: Home, Review, Sessions, Settings and Setup screens mirror the app, statuses are glyph plus label, colors follow the design tokens for dark and light terminals, destructive actions confirm, and `--plain` and `--once` print screen-reader-friendly or single frames. The dashboard now reads and writes only through the API.
+
 ### Fixed
 
 - The interactive account and endpoint setup checks each answer as it is entered and asks again instead of aborting: kind, name, key storage, usage, weekly token budget (with a budget-specific message) and quota source. A blank quota source selects `arkcli` instead of saving an empty value, with a warning when `arkcli` is not on `PATH`. Endpoint setup now asks where to keep the key on add as well as edit (Keychain on macOS and a file elsewhere by default). Endpoint save errors show their full reason instead of only the first line, and migration notices no longer print array indexes.
@@ -33,10 +37,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Setup discovery avoids IDE launchers and local-model app startup, so selecting a planner does not launch another app over the pacer window.
 - The desktop app's "Another pacer is running" page names the ports when only the port differs and shows how to free the service (`pacer service uninstall`); on Linux without systemd or a CLI it shows the install page instead of a stuck sign-in (#194).
 - `pacer service install` refuses to replace another pacer's login service (`--replace` overrides); `uninstall --all` refuses while delegated tasks run (`--force` overrides) and removes the app's link and PATH line; `pacer update` points to the app when its CLI came with the app.
-
-### Changed
-
-- `pacer dashboard` is redesigned on the shared design system: Home, Review, Sessions, Settings and Setup screens mirror the app, statuses are glyph plus label, colors follow the design tokens for dark and light terminals, destructive actions confirm, and `--plain` and `--once` print screen-reader-friendly or single frames. The dashboard now reads and writes only through the API.
 
 ## [0.3.1] - 2026-10-19
 
