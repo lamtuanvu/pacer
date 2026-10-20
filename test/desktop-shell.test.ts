@@ -115,9 +115,20 @@ test("missing CLI page names the cause and links the install guide", () => {
 test("foreign service page names the other pacer folder", () => {
   const page = shell("?state=foreign&path=~/other-pacer");
   expect(page.element("h1").textContent).toBe("Another pacer is running");
-  expect(page.element("#message").textContent).toBe("The background service belongs to the pacer folder ~/other-pacer, and this app uses a different one. Stop the other service, or open the app with the same pacer folder.");
+  expect(page.element("#message").textContent).toBe("The background service belongs to the pacer folder ~/other-pacer, and this app uses a different one.");
+  expect(page.element("#foreign").hidden).toBe(false);
+  expect(html).toMatch(/<section id="foreign" hidden>[\s\S]*<code>pacer service uninstall<\/code>[\s\S]*<\/section>/);
   expect(page.element("#install-help").hidden).toBe(true);
   expect(page.element("#spinner").hidden).toBe(true);
+  page.render({ page: "starting" });
+  expect(page.element("#foreign").hidden).toBe(true);
+});
+
+test("foreign service page names the ports when only the port differs", () => {
+  const page = shell("?state=foreign&path=~/.pacer&port=5000&appPort=4317");
+  expect(page.element("h1").textContent).toBe("Another pacer is running");
+  expect(page.element("#message").textContent).toBe("The background service for the pacer folder ~/.pacer runs on port 5000, and this app uses port 4317.");
+  expect(page.element("#foreign").hidden).toBe(false);
 });
 
 test.each([

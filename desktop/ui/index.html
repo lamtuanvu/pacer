@@ -64,6 +64,11 @@ export PATH="$HOME/.local/bin:$PATH"
         <a id="keep-mine" class="button" href="tauri://localhost/action/keep-mine">Keep mine</a>
       </div>
     </section>
+    <section id="foreign" hidden>
+      <p class="note">To let this app run its own service, run this in a terminal. This window continues on its own, and your pacer folders keep their settings.</p>
+      <pre><code>pacer service uninstall</code></pre>
+      <p class="note">To keep the other service instead, quit this app and use pacer from a terminal.</p>
+    </section>
     <section id="incomplete" hidden>
       <div class="actions"><a id="download" class="button primary" href="tauri://localhost/action/download">Download pacer</a></div>
     </section>
