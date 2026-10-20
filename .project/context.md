@@ -57,6 +57,11 @@ These come from the configuration listed in Source. None were run while this ind
 | Plugin protocol docs | `bun run plugin:protocol` | package.json |
 | Release | `bun run release:prepare <x.y.z>` → PR `chore: release x.y.z` → dry-run dispatch → tag `v<x.y.z>` | CONTRIBUTING.md |
 | Desktop | `cargo test --offline`; `bunx tauri build --no-sign` (in `desktop/`) | desktop/README.md |
+| Rust build | `cargo build --workspace` | ci.yml, CONTRIBUTING.md |
+| Rust test | `cargo test --workspace --locked` (also in the rust CI job) | ci.yml, CONTRIBUTING.md |
+| Generate Rust code | `cargo xtask gen` (`cargo xtask gen --check` verifies it is fresh) | ci.yml, rules/rust.md |
+| Crate sizes | `cargo xtask loc` (`cargo xtask loc --check` in CI) | ci.yml, rules/rust-crates.md |
+| Crate layers and heavy deps | `cargo xtask deps` | ci.yml, rules/rust-crates.md |
 | Live validation | `bun run live up`, then drive the surfaces, `bun run live report`, `bun run live down --keep` | docs/testing/live-validation.md |
 
 There is no lint or format command; `.editorconfig` is the only style config.

@@ -113,3 +113,48 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: "false"
           # The job log is the report; artifacts count against the account storage quota.
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+          components: rustfmt, clippy
+      - name: Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Generated types fresh
+        run: cargo xtask gen --check
+      - name: Crate sizes (CRATE-1, CRATE-3, CRATE-7)
+        run: cargo xtask loc --check
+      - name: Crate layers and heavy dependencies (CRATE-2, CRATE-4, CRATE-5, CRATE-6)
+        run: cargo xtask deps
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build timings (CRATE-9)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cargo clean
+          cargo build --workspace --timings
+          touch crates/server/src/lib.rs
+          cargo build --workspace --timings
+      - name: Upload timings
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cargo-timings
+          path: target/cargo-timings/

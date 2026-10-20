@@ -111,6 +111,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Live validation supports `up --seed ui` for isolated setup-complete UI sample data without starting executors.
 
+- Cargo workspace for the Rust host, generated protocol types, and required Rust CI checks.
+
 ### Fixed
 
 - The service no longer restart-loops when building a snapshot is slow: a listener thread answers `/health` (reporting `backendLagS` from a main-thread heartbeat, 503 when it is older than 45s), snapshot and status reads serve the last value while refreshing in the background, and the desktop app restarts the service only after repeated failed probes over at least 30 seconds.
