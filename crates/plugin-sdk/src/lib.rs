@@ -3,6 +3,8 @@
 mod error;
 mod host;
 mod serve;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod wire;
 
 pub use error::PluginError;
