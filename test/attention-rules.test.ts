@@ -17,20 +17,27 @@ test("unanswered needs_input raises a blocked question and clears after answerin
  expect(deriveItems({...input(),tasks:[t]})[0]).toMatchObject({id:`question:${t.id}`,kind:"question",severity:"blocked",notify:"important",detail:raw.question.text.slice(0,200),since:raw.question.at,actions:[{label:"Answer",op:"task.answer",params:{id:t.id}},{label:"Stop",op:"task.stop",params:{id:t.id}}]});
  for(const patch of [{question:{...raw.question,answer:"postgres"}},{retriedBy:"next"},{dismissed:true},{state:"stopped"}]) expect(deriveItems({...input(),tasks:[{...t,...patch}]})).toEqual([]);
 });
-test("review raises for unreviewed done and partial tasks and clears on verdict", () => {
- for (const state of ["done", "partial"] as const) {
-  const t = task(state);
-  expect(deriveItems({...input(),tasks:[t]})[0]).toMatchObject({id:`review:${t.id}`,actions:[{op:"ui.open",params:{view:"review",id:t.id}},{op:"task.review",params:{id:t.id,verdict:"accept"}}]});
-  expect(deriveItems({...input(),tasks:[{...t,review:{accepted:true,at:ctx.now,kind:null,note:null}}]})).toEqual([]);
+test("ordinary completions never escalate for missing verdicts", () => {
+ for (const acceptanceState of ["passed", "none", "pending"] as const) {
+  for (const elapsed of [0, 600, 86400]) {
+   const t = {...task("done"), source: "planner" as const, acceptanceState};
+   expect(deriveItems({...input(), now: ctx.now + elapsed, tasks: [t]})).toEqual([]);
+  }
  }
 });
-test("planner reviews wait 600 seconds for every planner", () => {
- for (const runner of ["claude-code", "codex", "cursor", "opencode"]) {
-  const {s,st} = capacityFixture(runner);
-  const planner = buildReadModel(ctx,{strategy:s,status:st,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}}).planner;
-  const t = {...task("done",ctx.now-599),source:"planner" as const};
-  expect(deriveItems({...input(),planner,tasks:[t]})).toEqual([]);
-  expect(deriveItems({...input(),planner,now:ctx.now+1,tasks:[t]})[0]?.id).toBe(`review:${t.id}`);
+test("only explicit review requests raise a decision; failures and incomplete work take precedence", () => {
+ const request = {note:"Check the permission change", at:ctx.now};
+ const t = {...task("done"), reviewRequest: request};
+ expect(deriveItems({...input(),tasks:[t]})[0]).toMatchObject({kind:"review",detail:request.note,actions:[{label:"Review changes",op:"ui.open"}]});
+ for (const [state, acceptanceState, detail] of [["done","failed","Acceptance checks failed"],["partial","none","Execution is incomplete"],["partial","failed","Acceptance checks failed"]] as const) {
+  const current = {...t,state,acceptanceState};
+  const items = deriveItems({...input(),tasks:[current]});
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({kind:"failed",severity:"problem",detail});
+  expect(items[0]!.actions.some(a=>a.op==="task.review")).toBe(false);
+  for (const patch of [{review:{accepted:true,at:ctx.now,kind:null,note:null}},{resolved:"reviewed"},{dismissed:true},{retriedBy:"next"}]) {
+   expect(deriveItems({...input(),tasks:[{...current,...patch}]})).toEqual([]);
+  }
  }
 });
 test("failed and limit offer a concrete retry and clear on retry, dismissal or review", () => {
@@ -44,7 +51,7 @@ test("failed and limit offer a concrete retry and clear on retry, dismissal or r
 });
 test("idle tasks are blocked and sort before failures then reviews, oldest first", () => {
  const idle={...task("running"),progress:{phase:"idle",lastOutputAt:ctx.now-600,files:0,commits:0,logBytes:0}};
- const items=deriveItems({...input(),tasks:[task("done"),task("failed",ctx.now-10),idle,task("failed",ctx.now-20)]});
+ const items=deriveItems({...input(),tasks:[{...task("done"),reviewRequest:{note:"Inspect",at:ctx.now}},task("failed",ctx.now-10),idle,task("failed",ctx.now-20)]});
  expect(items.map(i=>i.kind)).toEqual(["stuck","failed","failed","review"]);
  expect(items[1]?.since).toBeLessThan(items[2]!.since);
  expect(items[0]?.actions[0]).toMatchObject({op:"ui.open",label:"Open task"});
@@ -93,9 +100,9 @@ test("superseded failed and partial attempts contribute no duplicate attention",
  for(const state of ["failed","partial"] as const) for(const nextState of ["queued","running","done"] as const) {
   const original=task(state,ctx.now-1200),next={...task(nextState,ctx.now-700),retryOf:original.id};
   const items=deriveTaskItems({...input(),tasks:[original,next]});
-  expect(items.map(i=>i.taskId)).toEqual(nextState==="done"?[next.id]:[]);
-  expect(buildCounts([original,next],[],input().setup,[],items)).toMatchObject({attention:nextState==="done"?1:0,review:nextState==="done"?1:0});
-  expect(deriveTaskItems({...input(),tasks:[{...original,retriedBy:next.id},next]})).toHaveLength(nextState==="done"?1:0);
+  expect(items.map(i=>i.taskId)).toEqual([]);
+  expect(buildCounts([original,next],[],input().setup,[],items)).toMatchObject({attention:0,review:0});
+  expect(deriveTaskItems({...input(),tasks:[{...original,retriedBy:next.id},next]})).toHaveLength(0);
  }
 });
 test("task attention titles use the short task title",()=>{
@@ -111,7 +118,7 @@ test("dismissed or stopped retries restore the original attention",()=>{
   // A forward link to a retry not yet in the snapshot still hides the original, so clients drop it at once.
   const hidden=retry==="missing"&&forward;
   expect(items.map(i=>i.taskId)).toEqual(hidden?[]:[original.id]);
-  expect(buildCounts(tasks,[],input().setup,[],items)).toMatchObject({attention:hidden?0:1,review:state==="partial"?1:0});
+  expect(buildCounts(tasks,[],input().setup,[],items)).toMatchObject({attention:hidden?0:1,review:0});
  }
 });
 
