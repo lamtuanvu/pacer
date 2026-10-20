@@ -164,8 +164,8 @@ function helpLines(input: FrameInput): Line[] {
 }
 
 function keyBar(input: FrameInput, item: Item | undefined, view: ScreenView, screen: ScreenId, width: number): Line {
-  const { theme } = input, hints: Line = [];
-  const add = (key: string, label: string) => { if (hints.length) hints.push(span("  ")); hints.push(span(key, { bold: true }), span(` ${label}`, { fg: "secondary" })); };
+  const { theme } = input, groups: Line[] = [];
+  const add = (key: string, label: string) => { groups.push([span(key, { bold: true }), span(` ${label}`, { fg: "secondary" })]); };
   const listFocus = screen === "settings" && input.state.focus === "list";
   const enter = glyph(theme, "⏎");
   if (listFocus) { add(enter, "open section"); add("j k", "sections"); }
@@ -177,12 +177,15 @@ function keyBar(input: FrameInput, item: Item | undefined, view: ScreenView, scr
     if (more) add(".", `actions (${more + (item.primary ? 1 : 0)})`);
   }
   for (const hint of view.hints ?? []) { const [key, ...label] = hint.split(" "); add(key!, label.join(" ")); }
-  add("?", "help");
+  const help: Line = [span("?", { bold: true }), span(" help", { fg: "secondary" })];
   const update = input.update === "available" ? span("update available", { fg: "warn", bold: true }) : span("up to date", { fg: "muted" });
   const right: Line = width < 100
     ? [input.update === "available" ? update : span(`pacer ${input.version}`, { fg: "muted" })]
     : [span(`pacer ${input.version}`, { fg: "muted" }), span(` ${glyph(theme, "·")} `, { fg: "muted" }), update];
-  return ends(hints, right, width, theme);
+  // Drop whole hints from the end, never the first (the primary) or "? help", so no key is shown cut in half.
+  const room = width - lineWidth(right) - 2, join = (list: Line[]) => list.flatMap((g, i) => i ? [span("  "), ...g] : g);
+  while (groups.length > 1 && lineWidth(join([...groups, help])) > room) groups.splice(groups.length - 1, 1);
+  return ends(join([...groups, help]), right, width, theme);
 }
 
 /** Render the whole frame as terminal text. Pure. */

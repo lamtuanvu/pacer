@@ -68,7 +68,7 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
     list, items, listWidth,
     detail: selected ? sessionDetail(ctx, selected, detailWidth) : [{ line: [span("Select a session.", { fg: "muted" })] }],
     needs: selected ? [selected.id] : [],
-    hints: ctx.wide ? [] : [`${glyph(theme, "→")} details`],
+    hints: ctx.wide || !items.length ? [] : [`${glyph(theme, "→")} details`],
   };
 }
 

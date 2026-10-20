@@ -67,7 +67,7 @@ exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
  ↓ 13 more
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  x dismiss  . actions (3)  f repo scope  d del…  pacer 0.0.0-test"
+ ⏎ Run checks  x dismiss  . actions (3)  f repo scope  ? help  pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) review at 120x40 1`] = `
@@ -110,7 +110,7 @@ exports[`golden frames (NO_COLOR) review at 120x40 1`] = `
                                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- a accept and bring back  s send back  r reject  t retry on another executor  o show wo…  pacer 0.0.0-test · up to date"
+ a accept and bring back  s send back  r reject  t retry on another executor  ? help      pacer 0.0.0-test · up to date"
 `;
 
 exports[`golden frames (NO_COLOR) review at 80x24 1`] = `
@@ -137,7 +137,7 @@ exports[`golden frames (NO_COLOR) review at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- a accept and bring back  s send back  r reject  t retry on…   pacer 0.0.0-test"
+ a accept and bring back  s send back  r reject  ? help        pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) review detail (narrow drill-in) at 80x24 1`] = `
@@ -164,7 +164,7 @@ exports[`golden frames (NO_COLOR) review detail (narrow drill-in) at 80x24 1`] =
  ↓ 6 more
  ──────────────────────────────────────────────────────────────────────────────
  
- a accept and bring back  s send back  r reject  t retry on…   pacer 0.0.0-test"
+ a accept and bring back  s send back  r reject  ? help        pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
@@ -681,7 +681,7 @@ exports[`golden frames (NO_COLOR) settings › Remote hosts at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  p pause new work  . actions (2)  Esc sections…  pacer 0.0.0-test"
+ ⏎ Run checks  p pause new work  . actions (2)  ? help         pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Routing at 120x40 1`] = `
@@ -751,7 +751,7 @@ exports[`golden frames (NO_COLOR) settings › Routing at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Edit executor order  n add rule  x remove rule  . actions…  pacer 0.0.0-test"
+ ⏎ Edit executor order  n add rule  x remove rule  ? help      pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Project strategies at 120x40 1`] = `
@@ -794,7 +794,7 @@ exports[`golden frames (NO_COLOR) settings › Project strategies at 120x40 1`] 
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Edit project order  x use global strategy  n add project order  . actions (3)  Esc s…  pacer 0.0.0-test · up to date"
+ ⏎ Edit project order  x use global strategy  n add project order  . actions (3)  ? help  pacer 0.0.0-test · up to date"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Project strategies at 80x24 1`] = `
@@ -821,7 +821,7 @@ exports[`golden frames (NO_COLOR) settings › Project strategies at 80x24 1`] =
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Edit project order  x use global strategy  n add project…   pacer 0.0.0-test"
+ ⏎ Edit project order  x use global strategy  ? help           pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Strategies at 120x40 1`] = `
@@ -1257,7 +1257,7 @@ exports[`color, plain and ASCII renditions review in truecolor uses token colors
                                                \x1B[38;2;63;63;70m │ \x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
  
- \x1B[1ma\x1B[0m\x1B[38;2;161;161;170m accept and bring back\x1B[0m  \x1B[1ms\x1B[0m\x1B[38;2;161;161;170m send back\x1B[0m  \x1B[1mr\x1B[0m\x1B[38;2;161;161;170m reject\x1B[0m  \x1B[1mt\x1B[0m\x1B[38;2;161;161;170m retry on another executor\x1B[0m  \x1B[1mo\x1B[0m\x1B[38;2;161;161;170m show wo…\x1B[0m  \x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mup to date\x1B[0m"
+ \x1B[1ma\x1B[0m\x1B[38;2;161;161;170m accept and bring back\x1B[0m  \x1B[1ms\x1B[0m\x1B[38;2;161;161;170m send back\x1B[0m  \x1B[1mr\x1B[0m\x1B[38;2;161;161;170m reject\x1B[0m  \x1B[1mt\x1B[0m\x1B[38;2;161;161;170m retry on another executor\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m      \x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mup to date\x1B[0m"
 `;
 
 exports[`color, plain and ASCII renditions sessions in truecolor uses token colors 1`] = `
@@ -1386,7 +1386,7 @@ exports[`color, plain and ASCII renditions plain mode drops glyphs and borders b
  
  ------------------------------------------------------------------------------
  
- a accept and bring back  s send back  r reject  t retry o...  pacer 0.0.0-test"
+ a accept and bring back  s send back  r reject  ? help        pacer 0.0.0-test"
 `;
 
 exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
@@ -1413,5 +1413,5 @@ exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
  v 13 more
  ------------------------------------------------------------------------------
  
- Enter Run checks  x dismiss  . actions (3)  f repo scope  d.  pacer 0.0.0-test"
+ Enter Run checks  x dismiss  . actions (3)  ? help            pacer 0.0.0-test"
 `;

@@ -79,7 +79,7 @@ export function reviewScreen(ctx: ScreenCtx): ScreenView {
   const detail = selected ? reviewDetail(ctx, selected, ctx.data.details.get(selected.taskId!), detailWidth) : [{ line: [span("Select a task to review.", { fg: "muted" })] }];
   return {
     list, detail, listWidth, items, needs: selected?.taskId ? [selected.taskId] : [],
-    hints: ctx.wide ? [] : [`${glyph(theme, "→")} details`],
+    hints: ctx.wide || !items.length ? [] : [`${glyph(theme, "→")} details`],
   };
 }
 

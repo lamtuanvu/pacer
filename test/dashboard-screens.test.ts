@@ -125,6 +125,19 @@ describe("frame behavior", () => {
     expect(row).not.toMatch(/\bOn\b/);
     expect(row).toContain("PACER_NO_UPDATE_CHECK");
   });
+  test("the key bar keeps the primary action and ? help at 80 columns, dropping middle hints whole", () => {
+    for (const screen of ["home", "review", "sessions", "settings"] as const) {
+      const lines = frame(screen, 80, 24).split("\n"), bar = lines.at(-1)!;
+      expect(bar).toContain("? help");
+      expect(bar).not.toMatch(/\S…/);
+    }
+  });
+  test("an empty review queue does not offer details", () => {
+    const s = snapshot();
+    s.attention = s.attention!.filter(a => a.kind !== "review");
+    const text = renderDashboard(s, 80, 24, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "review" } });
+    expect(text.split("\n").at(-1)).not.toContain("details");
+  });
   test("the page title appears once, in the top bar", () => {
     const text = frame("review", 120, 40);
     expect(text.split("\n")[0]).toContain("[ Review ]");
