@@ -93,3 +93,4 @@ export const USAGE_KIND_WORDS: Record<UsageKind, { label: string; tone: "good" |
   metered: { label: "Metered", tone: "neutral" },
   unmetered: { label: "Free", tone: "good" },
 };
+export const USAGE_UNKNOWN = { label: "Usage unknown", tone: "neutral" as const };

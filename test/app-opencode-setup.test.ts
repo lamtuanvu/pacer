@@ -45,3 +45,10 @@ test("a local server adds a pacer-managed endpoint with no key, and names are ch
   expect(addParams({ candidate: { group: "signed_in", provider: "openrouter" }, model, usage: "metered", cap: "", name: "Open Router" }))
     .toEqual({ error: "Use lowercase letters, digits and hyphens, starting with a letter or digit." });
 });
+
+test("contexts of a million tokens or more read in M, and unknown usage gets its own pill", () => {
+  expect(modelFacts({ context: 1_000_000, costIn: 0.195, costOut: 0.975 })).toBe("1M context · $0.195/$0.975 per M");
+  expect(modelFacts({ context: 2_097_152, costIn: null, costOut: null })).toBe("2.1M context");
+  expect(usagePill({ usage: "metered", known: false })).toEqual({ label: "Usage unknown", tone: "neutral" });
+  expect(usagePill({ usage: "metered", known: true })).toEqual({ label: "Metered", tone: "neutral" });
+});

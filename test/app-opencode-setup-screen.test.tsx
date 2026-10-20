@@ -64,3 +64,25 @@ test("Add executor step 2 for OpenCode shows the provider picker, and the URL fo
   expect(html).toContain("Use a URL instead");
   expect(html).not.toContain("Base URL");
 });
+
+test("a candidate with no usable model explains why and asks for a model id instead of a dead end", () => {
+  const local = detection.candidates[1]!;
+  const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={detection} initialChoice={local}
+    initialModels={{ pick: null, rest: [], usage: { usage: "unmetered", known: true } }} />);
+  expect(html).toContain("None of Ollama’s models can run an executor");
+  expect(html).toContain("Model id");
+  expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Add executor/);
+});
+
+test("search says when nothing matches and when more results exist", () => {
+  const many: Detection = { ...detection, candidates: Array.from({ length: 15 }, (_, i) => ({ group: "catalog" as const, provider: `p${i}`, name: `Provider ${i}`, added: null, usage: { usage: "metered" as const, known: true } })) };
+  const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={many} />);
+  expect(html).toContain("Showing 12 of 15; search to narrow.");
+});
+
+test("on the OpenCode picker step the wizard's Continue is hidden, so Add executor is the one primary action", () => {
+  const html = render(<AddExecutor initialDraft={{ agent: "opencode", step: "2" }} initialAccounts={[]} />);
+  expect(html).not.toContain(">Continue<");
+  const url = render(<AddExecutor initialDraft={{ agent: "opencode", step: "2" }} initialAccounts={[]} initialUrlForm />);
+  expect(url).toContain("Back to providers");
+});

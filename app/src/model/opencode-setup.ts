@@ -1,5 +1,5 @@
 // Pure helpers for adding an OpenCode executor from a detected provider (Settings › Add executor).
-import { USAGE_KIND_WORDS, type UsageKind } from "../../../src/view-model/copy";
+import { USAGE_KIND_WORDS, USAGE_UNKNOWN, type UsageKind } from "../../../src/view-model/copy";
 
 export type Group = "signed_in" | "local" | "catalog";
 export const GROUP_TITLES: Record<Group, string> = {
@@ -15,8 +15,13 @@ export function groupCandidates<T extends { group: Group }>(list: T[]): [Group, 
   return ORDER.map(g => [g, list.filter(c => c.group === g)] as [Group, T[]]).filter(([, items]) => items.length > 0);
 }
 
+/** "262K context", or "1M context" from a million tokens up. */
+export function contextLabel(tokens: number): string {
+  return tokens >= 1_000_000 ? `${Math.round(tokens / 100_000) / 10}M context` : `${Math.round(tokens / 1000)}K context`;
+}
+
 export function modelFacts(m: { context: number; costIn: number | null; costOut: number | null }): string {
-  const context = `${Math.round(m.context / 1000)}K context`;
+  const context = contextLabel(m.context);
   return m.costIn !== null && m.costOut !== null ? `${context} · $${m.costIn}/$${m.costOut} per M` : context;
 }
 
@@ -33,7 +38,8 @@ export function searchCandidates<T extends { provider: string; name: string }>(l
   return list.filter(c => !needle || c.provider.toLowerCase().includes(needle) || c.name.toLowerCase().includes(needle)).slice(0, limit);
 }
 
-export const usagePill = (u: { usage: UsageKind }) => USAGE_KIND_WORDS[u.usage];
+/** The catalog's usage type, or "Usage unknown" when it has no answer (the user picks one later). */
+export const usagePill = (u: { usage: UsageKind; known?: boolean }) => u.known === false ? USAGE_UNKNOWN : USAGE_KIND_WORDS[u.usage];
 
 export interface ModelLike { id: string; context: number; output: number; tools: boolean }
 export interface AddInput {

@@ -51,7 +51,7 @@ export function OpencodeSetup({ onCreated, onUseUrl, initialDetection, initialCh
         {group === "catalog" && <Field label="Search providers" help="OpenCode stores the key; pacer never sees it.">
           <TextInput value={query} placeholder="e.g. deepseek" onInput={e => setQuery(e.currentTarget.value)} />
         </Field>}
-        <div className="u3-choices">{(group === "catalog" ? searchCandidates(list, query) : list).map(card)}</div>
+        {group === "catalog" ? <CatalogResults list={list} query={query} card={card} /> : <div className="u3-choices">{list.map(card)}</div>}
       </div>)}
       {!candidates.length && <p>No providers or local model servers found.</p>}
     </ResourceState>
@@ -59,6 +59,16 @@ export function OpencodeSetup({ onCreated, onUseUrl, initialDetection, initialCh
     {choice && choice.group !== "catalog" && <ModelStep key={`${choice.group}:${choice.provider}`} candidate={choice} initialModels={initialModels} onCreated={onCreated} />}
     <p><Button variant="quiet" size="sm" onClick={onUseUrl}>Use a URL instead</Button></p>
   </div>;
+}
+
+function CatalogResults({ list, query, card }: { list: Candidate[]; query: string; card: (c: Candidate) => unknown }) {
+  const shown = searchCandidates(list, query);
+  const matches = query.trim() ? searchCandidates(list, query, list.length).length : list.length;
+  return <>
+    {!shown.length && <p className="u3-muted">No provider matches “{query.trim()}”.</p>}
+    <div className="u3-choices">{shown.map(card) as never}</div>
+    {matches > shown.length && <p className="u3-muted">Showing {shown.length} of {matches}; search to narrow.</p>}
+  </>;
 }
 
 /** A catalog provider: OpenCode signs in from a terminal; the browser never takes the key. */
@@ -83,13 +93,17 @@ function ModelStep({ candidate, initialModels, onCreated }: { candidate: Candida
   const [error, setError] = useState("");
 
   const list = models.data ? [...(models.data.pick ? [models.data.pick] : []), ...models.data.rest] : [];
-  const model = list.find(m => m.id === modelId) ?? list[0];
+  // With nothing to recommend, the user names the model (as the CLI asks for a model id); limits use the defaults.
+  const manual = !!models.data && !list.length;
+  const [manualId, setManualId] = useState("");
+  const model = manual ? (manualId.trim() ? { id: manualId.trim(), context: 128_000, output: 16_000, tools: true, costIn: null, costOut: null } : undefined)
+    : list.find(m => m.id === modelId) ?? list[0];
   const known = models.data?.usage.known ?? true;
   const kind = candidate.group === "local" ? "unmetered" : usage || (known ? models.data?.usage.usage ?? "metered" : "metered");
 
   function submit(e: Event) {
     e.preventDefault();
-    if (!model) { setError("Choose a model."); return; }
+    if (!model) { setError(manual ? "Enter a model id." : "Choose a model."); return; }
     const result = addParams({ candidate, model, usage: kind, cap, name });
     if ("error" in result) { setError(result.error); return; }
     setError("");
@@ -97,8 +111,12 @@ function ModelStep({ candidate, initialModels, onCreated }: { candidate: Candida
   }
 
   return <form className="u3-section" onSubmit={submit}>
-    <ResourceState resource={models} empty="No usable models found.">
+    <ResourceState resource={models}>
       {models.data?.note && <p className="u3-muted">{models.data.note}</p>}
+      {manual && !models.data?.note && <p className="u3-muted">None of {candidate.name}’s models can run an executor (embeddings, images or speech only), so there is nothing to recommend.</p>}
+      {manual && <Field label="Model id" help="A model this provider serves that can call tools.">
+        <TextInput required value={manualId} onInput={e => setManualId(e.currentTarget.value)} />
+      </Field>}
       {list.length > 0 && <Field label="Model" help={model ? modelFacts(model) : undefined}>
         <Select value={model?.id} onChange={e => setModelId(e.currentTarget.value)}>
           {list.map((m, i) => <option key={m.id} value={m.id}>{m.id}{i === 0 && models.data?.pick ? " (recommended)" : ""}</option>)}
@@ -118,7 +136,7 @@ function ModelStep({ candidate, initialModels, onCreated }: { candidate: Candida
         <TextInput required value={name} pattern="[a-z0-9][a-z0-9-]*" onInput={e => setName(e.currentTarget.value)} />
       </Field>
       {error && !error.startsWith("Enter a positive") && !error.startsWith("Use lowercase") && <p role="alert">{error}</p>}
-      <Button type="submit" disabled={action.busy || !model}>Add executor</Button>
+      <Button type="submit" variant="primary" disabled={action.busy}>Add executor</Button>
       <p className="u3-muted">Next, a short test task checks it before it is Ready.</p>
     </ResourceState>
     <Feedback action={action} />
