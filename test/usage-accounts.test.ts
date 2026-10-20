@@ -26,7 +26,7 @@ test("Codex accounts read their own sessions instead of the default login", asyn
     mkdirSync(join(home, "sessions"), { recursive: true });
     await Bun.write(join(home, "sessions", "rollout-test.jsonl"), JSON.stringify({
       rate_limits: { primary: { used_percent: pct, window_minutes: 10080, resets_at: ctx.now + 86400 } },
-    }));
+    })+"\n");
   }
   const st = await computeStatus(ctx, strategy(ctx.home), { profile: null });
   expect(st.accounts.find(a => a.name === "codex-work")?.usedPct).toBe(73);
@@ -163,7 +163,7 @@ test("Orca unavailable reads linked Codex logs only when its derived home exists
   mkdirSync(folder, {recursive: true});
   await Bun.write(join(folder, "rollout-test.jsonl"), JSON.stringify({
     rate_limits: {primary: {used_percent: 66, window_minutes: 10080, resets_at: ctx.now + 86400}},
-  }));
+  })+"\n");
   // Advance beyond the source cache TTL.
   ctx.now += 61;
   st = await computeStatus(ctx, s, {profile: null});
@@ -192,7 +192,7 @@ test("a native default runner limit does not exhaust a different account", async
   await Bun.write(join(ctx.pacerHome, "cache", "claude-rate-limits.claude-work.json"), JSON.stringify({
     ...limits, captured_at: ctx.now,
   }));
-  markExhausted(ctx, "claude-code", ctx.now + 3600);
+  markExhausted(ctx, "claude-code", ctx.now + 3600, {manual:true});
   const st = await computeStatus(ctx, s, {profile: null});
   expect(st.accounts.find(a => a.name === "claude-code")?.verdict).toBe("EXHAUSTED");
   const work = st.providers.find(p => p.account === "claude-work")!;

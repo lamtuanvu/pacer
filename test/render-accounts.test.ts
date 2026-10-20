@@ -121,7 +121,7 @@ test("starter text preserves provider names and main route format", async () => 
  mkdirSync(ctx.pacerHome,{recursive:true});
  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),Bun.YAML.stringify(starter));
  const logs=join(ctx.home,".codex","sessions");mkdirSync(logs,{recursive:true});
- writeFileSync(join(logs,"rollout-test.jsonl"),JSON.stringify({timestamp:new Date(ctx.now*1000).toISOString(),rate_limits:{primary:{used_percent:19,window_minutes:10080,resets_at:ctx.now+604800*0.82}}}));
+ writeFileSync(join(logs,"rollout-test.jsonl"),JSON.stringify({timestamp:new Date(ctx.now*1000).toISOString(),rate_limits:{primary:{used_percent:19,window_minutes:10080,resets_at:ctx.now+604800*0.82}}})+"\n");
  const st=await computeStatus(ctx,validateStrategy(starter,"test"),{profile:null});
  expect(renderText(st)).toContain("- BytePlus: Eligible · Execution permitted");
  expect(renderText(st)).toContain("- Local: Eligible · Execution permitted");

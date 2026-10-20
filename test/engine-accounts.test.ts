@@ -124,7 +124,7 @@ test("live metered readings count the runner model once per account", async () =
 
 test("exhausting a runner exhausts its account", async () => {
   const { markExhausted } = await import("../src/usage/reactive");
-  const ctx = fakeCtx({ now }); markExhausted(ctx, "opencode#a", now + 3600);
+  const ctx = fakeCtx({ now }); markExhausted(ctx, "opencode#a", now + 3600, {manual:true});
   const result = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["a", reading(40)], ["b", reading(40)], ["plan", reading(40)]]) });
   expect(result.providers.find(p => p.id === "opencode#a")?.verdict).toBe("EXHAUSTED");
   expect(result.executors.ranked.map(r => r.id)).toEqual(["opencode#b"]);
@@ -183,7 +183,7 @@ test("an expired exhausted weekly snapshot is historical and uncertain", async (
 
 test("a limit mark beats staleness", async () => {
   const now = 2_000_000, ctx = fakeCtx({ now });
-  markExhausted(ctx, "plan", now + 3600);
+  markExhausted(ctx, "plan", now + 3600, {manual:true});
   const r: UsageReading = { windows: [
     { name: "weekly", usedPct: 10, resetsAt: now + 2 * 86400, lengthS: 7 * 86400, paced: true },
   ], capturedAt: now - 3 * 86400, stale: false, source: "session-log" };
@@ -203,7 +203,7 @@ for (const usageSource of [undefined, "orca"] as const) {
     mkdirSync(logs, { recursive: true });
     writeFileSync(join(logs, "rollout-test.jsonl"), JSON.stringify({
       rate_limits: { primary: { used_percent: 27, window_minutes: 10080, resets_at: now + 86400 } },
-    }));
+    }) + "\n");
     mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true });
     writeFileSync(join(ctx.pacerHome, "cache", "claude-rate-limits.work.json"), JSON.stringify({
       seven_day: { used_percentage: 42, resets_at: now + 86400 }, captured_at: now,

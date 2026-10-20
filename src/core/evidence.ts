@@ -5,9 +5,9 @@ import type { AccountEvidence, EvidenceScope, ReconciledEvidence } from "../evid
 import { emptyEvidence, evidenceFact, reconcileEvidence } from "../engine/evidence";
 import { readJson } from "../fsutil";
 import type { Ctx } from "../types";
-import { withLock } from "./lock";
+import { withLock, withLockSync } from "./lock";
 
-export interface EvidenceSnapshot { version: 1; revision: number; identity: string; evidence: ReconciledEvidence }
+export interface EvidenceSnapshot { retiredAt?: number; version: 1; revision: number; identity: string; evidence: ReconciledEvidence }
 export { accountEvidenceScope } from "../evidence/scope";
 function evidencePath(ctx: Ctx, scope: EvidenceScope): string {
   if (!/^[a-f0-9]{64}$/.test(scope.identity)) throw Error("invalid evidence identity");
@@ -37,9 +37,13 @@ export const evidenceRevision = (ctx: Ctx, scope: EvidenceScope): number => read
 export async function mergeEvidence(ctx: Ctx, scope: EvidenceScope, incoming: AccountEvidence): Promise<EvidenceSnapshot> {
   const merge = async () => {
     const previous = readEvidence(ctx, scope);
-    const evidence = reconcileEvidence(previous.evidence.facts, incoming, ctx.now);
+    const accepted = emptyEvidence();
+    for (const kind of ["availability", "budget", "spending"] as const) {
+      (accepted[kind] as import("../evidence/types").Evidence<unknown>[]).push(...incoming[kind].filter(f => previous.retiredAt === undefined || f.source === "configuration" || f.observedAt !== null && f.observedAt > previous.retiredAt));
+    }
+    const evidence = reconcileEvidence(previous.evidence.facts, accepted, ctx.now);
     if (JSON.stringify(evidence) === JSON.stringify(previous.evidence)) return previous;
-    const next: EvidenceSnapshot = { version: 1, revision: previous.revision + 1, identity: scope.identity, evidence };
+    const next: EvidenceSnapshot = { ...(previous.retiredAt !== undefined ? {retiredAt: previous.retiredAt} : {}), version: 1, revision: previous.revision + 1, identity: scope.identity, evidence };
     if (!ctx.readOnly) {
       const dir = join(ctx.pacerHome, "state/evidence");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -70,4 +74,16 @@ export async function recordExecutionEvidence(ctx: Ctx, scope: EvidenceScope, re
       result.classification === "success" ? "ready" : "unavailable"));
   }
   return mergeEvidence(ctx, scope, facts);
+}
+
+/** Preserve a lifetime boundary so delayed reads cannot repopulate a removed account. */
+export function retireEvidence(ctx: Ctx, scope: EvidenceScope): void {
+ if (ctx.readOnly) return;
+ withLockSync(ctx, `evidence-${scope.identity}`, () => {
+  const previous=readEvidence(ctx,scope),path=evidencePath(ctx,scope),temp=`${path}.${randomUUID()}.tmp`;
+  mkdirSync(join(ctx.pacerHome,"state/evidence"),{recursive:true,mode:0o700});
+  const next:EvidenceSnapshot={version:1,identity:scope.identity,revision:previous.revision+1,retiredAt:Math.max(ctx.now,previous.retiredAt??0),evidence:{facts:emptyEvidence(),conflicts:[]}};
+  try {writeFileSync(temp,JSON.stringify(next),{flag:"wx",mode:0o600});renameSync(temp,path);}
+  finally {try {unlinkSync(temp);}catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;}}
+ });
 }

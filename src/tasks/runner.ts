@@ -148,6 +148,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       let routing: RoutingNote | undefined;
       let pickReason: string | undefined;
       let startStatus: Status | undefined;
+      let applicableIds: string[] = [];
       let byId: Record<string, Status["providers"][number]> = {};
       if (resuming) {
         pick = resuming.executor;
@@ -213,6 +214,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
             return false;
           });
           const ids = ranking.ranked.map(e => e.id);
+          applicableIds = ids;
           const paused = readPause(ctx);
           pick = requested && ids.includes(req!) ? req! : ids.find(e => !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
@@ -296,7 +298,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           excluded.push(...refreshedRanking.excluded);
           tried.add(pick); continue;
         }
-        if (!task.requestedExecutor && prepared.decision.state === "uncertain" && refreshedRanking.ranked.some(e => e.eligibility?.state === "eligible" && !tried.has(e.id))) {
+        if (!task.requestedExecutor && prepared.decision.state === "uncertain" && refreshedRanking.ranked.some(e => e.eligibility?.state === "eligible" && applicableIds.includes(e.id) && !tried.has(e.id))) {
           if (++policyChanges > 20) throw new CoreError("conflict", "Executor eligibility keeps changing; retry the task");
           i--; continue;
         }
@@ -333,20 +335,22 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         out.report = `${note}\n\n${out.report}`;
         if (existsSync(out.attempt.log)) appendFileSync(out.attempt.log, `\n--- routing\n${note}\n`);
       }
-      const authAccount = resolveRunner(s, pick)?.account;
+      const executedRunner = resolveRunner(s, pick);
+      const authAccount = executedRunner?.account;
+      const outcomeScope = authAccount && s.accounts[authAccount] ? { ...accountEvidenceScope(s.accounts[authAccount], s.hosts), runner: pick, model: out.attempt.model ?? cfg.model ?? "default", host: executedRunner?.host ?? "local" } : undefined;
       const takeover = out.takeover || !!readTask(ctx,id)?.takeover;
       // Only a failed attempt can mean a signed-out CLI; check where the CLI prints, not the agent's report.
       if (!takeover && authAccount && out.attempt.exitCode !== 0 && !out.attempt.timedOut) {
         let log = "";
         try { log = readFileSync(out.attempt.log, "utf8").slice(-4096); } catch { /* Some backends only return output. */ }
-        markAuthFailed({...ctx, now: out.attempt.endedAt}, authAccount, `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}\n${log}`, {attempt: true});
+        markAuthFailed({...ctx, now: out.attempt.endedAt}, authAccount, `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}\n${log}`, {attempt: true, scope: outcomeScope});
       }
       if (!takeover && authAccount && s.accounts[authAccount]) {
         const text = `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}`;
         const classification = out.exec.code === 0 ? "success" : out.attempt.limitHit ? "quota"
           : attemptAuthError.test(text) ? "authentication"
           : /no active (?:subscription|coding.plan)|subscription (?:expired|required|inactive)/i.test(text) ? "subscription" : "task";
-        await recordExecutionEvidence({ ...ctx, now: out.attempt.endedAt }, accountEvidenceScope(s.accounts[authAccount], s.hosts), {
+        await recordExecutionEvidence({ ...ctx, now: out.attempt.endedAt }, outcomeScope!, {
           endedAt: out.attempt.endedAt, exitCode: out.exec.code, timedOut: out.exec.timedOut, classification,
           ...(classification === "quota" ? { until: exhaustUntil(byId[pick], cfg, out.attempt.endedAt, text) } : {}),
         });
@@ -397,7 +401,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       lastBroken = undefined;
       if (out.attempt.limitHit) {
         lastLimitReport = out.report;
-        markExhausted({ ...ctx, now: out.attempt.endedAt }, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`));
+        markExhausted({ ...ctx, now: out.attempt.endedAt }, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`), { scope: outcomeScope });
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
         continue;
       }

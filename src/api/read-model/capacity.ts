@@ -1,9 +1,10 @@
+import { accountEvidenceScope } from "../../evidence/scope";
 import { eligibilityPresentation } from "../../view-model/eligibility";
 import type { Ctx } from "../../types";
 import { slotLimit, slotBlock, type SlotUse } from "../../engine/slots";
 import { readRunnerCheck } from "../../core/runner-check";
 import { listJobs } from "../../jobs/registry";
-import { readAuthFailures } from "../../usage/auth";
+import { accountAuthFailure } from "../../usage/auth";
 import { redactEndpointError } from "../../endpoints/state";
 import type { Status } from "../../engine/status";
 import type { Strategy } from "../../config/strategy";
@@ -53,7 +54,7 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
 export function buildAccounts(st: Status,s: Strategy,ctx?: Ctx): AccountSummary[] {
  return Object.values(s.accounts).map(a=>{
   const runners=Object.values(s.runners).filter(r=>r.account===a.name),p=st.providers.find(p=>p.account===a.name||runners.some(r=>r.id===p.id)),status=st.accounts?.find(row=>row.name===a.name);
-  return {...(status?.eligibility?{eligibility:status.eligibility}:{}),name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:ctx && Object.hasOwn(readAuthFailures(ctx),a.name) ? false : status && "signedIn" in status && status.signedIn===true ? true : null,executors:runners.map(r=>r.id)};
+  return {...(status?.eligibility?{eligibility:status.eligibility}:{}),stale:status?.stale??p?.stale??true,capturedAt:status?.capturedAt??null,name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:ctx && !!accountAuthFailure(ctx,accountEvidenceScope(a,s.hosts)) ? false : status && "signedIn" in status && status.signedIn===true ? true : null,executors:runners.map(r=>r.id)};
  });
 }
 export function buildPlanner(st: Status): PlannerMeter | null {

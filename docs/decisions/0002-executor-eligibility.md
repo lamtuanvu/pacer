@@ -10,7 +10,7 @@ Pacing verdicts, cached usage and execution failures previously served as compet
 
 ## Decision
 
-Adapters emit timestamped availability, budget and spending facts. The core reconciles them within account/source identity and optional runner, model and host scopes. Newest valid observations win; equal-time source precedence is deterministic and contradictions remain explicit. State persistence is atomic and revisioned.
+Adapters emit timestamped availability, budget and spending facts. The core reconciles them within account/source identity and optional runner, model and host scopes. Newest valid observations win; equal-time source precedence is deterministic and contradictions remain explicit. State persistence is atomic and revisioned. Only completed JSONL records can supply persistent evidence. Account removal records a lifetime boundary, preventing delayed reads and identical-name recreation from reopening old facts. Execution-derived facts retain their actual runner, model and host scope; name-only legacy marks cannot acquire a new source identity.
 
 A pure evaluator returns eligible, uncertain or ineligible with reasons, references, evidence age and a validity boundary. Pacing ranks inside those groups. Automatic delegation permits labelled uncertain fallbacks after eligible choices, as selected by the maintainer. Guards require a confirmed eligible alternative before redirecting local work. Credits never replace configured paid permission.
 

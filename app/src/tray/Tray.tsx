@@ -130,9 +130,9 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
         const readiness = executorEligibility(executor, snapshot.at);
-        const valueStatus = value === "?" ? paceStatus("unknown") : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
+        const valueStatus = value === "?" ? readiness : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
         const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${readiness.detail}${readiness.age ? ` · ${readiness.age}` : ""} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
-        return <TextAction className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><StatusGlyph status={value === "?" ? valueStatus : readiness} /></span><span className={`pc-status--${valueStatus.tone}`}>{value}</span></TextAction>;
+        return <TextAction className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><StatusGlyph status={readiness} /></span><span className={`pc-status--${valueStatus.tone}`}>{value}</span></TextAction>;
       })}</section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}

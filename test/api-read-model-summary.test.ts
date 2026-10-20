@@ -1,3 +1,5 @@
+import { accountEvidenceScope } from "../src/evidence/scope";
+import { markAuthFailed } from "../src/usage/auth";
 import { expect, test } from "bun:test";
 import { buildReadModel } from "../src/api/read-model";
 import { capacityFixture } from "./read-model-helpers";
@@ -74,7 +76,7 @@ test("snapshot wires pause, hold, auth failure, readiness and disabled rows",asy
  const {writeJsonAtomic}=await import("../src/fsutil"),{startJob,registerJobDaemon}=await import("../src/jobs/registry");
  const ctx=fakeCtx(),{s,st}=capacityFixture();
  writeJsonAtomic(join(ctx.pacerHome,"state/pause.json"),{until:ctx.now+60,reason:"break",by:null});
- writeJsonAtomic(join(ctx.pacerHome,"state/auth-failed.json"),{[s.runners.codex!.account]:ctx.now});
+ markAuthFailed(ctx,s.runners.codex!.account,"authentication failed",{scope:accountEvidenceScope(s.accounts[s.runners.codex!.account],s.hosts)});
  writeJsonAtomic(join(ctx.pacerHome,"state/runner-checks.json"),{codex:{at:ctx.now,passed:false,detail:"failed sk-private-test-token person@example.test"}});
  st.modeHold={mode:"normal",until:ctx.now+60};
  const model=()=>buildReadModel(ctx,{status:st,strategy:s,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});

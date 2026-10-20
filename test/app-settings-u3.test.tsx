@@ -68,11 +68,12 @@ test('section failures show the service hint and a retry action',async()=>{
  expect(html).toContain('Cannot read settings');expect(html).toContain('Start pacer');expect(html).toContain('Try again');
 });
 test('standalone screens bundle for the browser with their CSP compatible styles',async()=>{
+ const {APP_JS_BUDGET}=await import('../app/build');
  const result=await Bun.build({entrypoints:['app/src/screens/settings/index.ts'],target:'browser',minify:true});
  expect(result.success).toBe(true);expect(result.outputs.length).toBe(1);
  const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
- // The aggregate settings entry includes the project-policy editor; the shipped app retains its separate 60 KB cap.
- expect(Bun.gzipSync(text).byteLength).toBeLessThan(32*1024);
+ // Settings composes the shared eligibility vocabulary; use the governed UI-3 budget.
+ expect(Bun.gzipSync(text).byteLength).toBeLessThan(APP_JS_BUDGET);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
@@ -147,4 +148,16 @@ test('settings pages leave their page title to the shell and inline links are un
  const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
  expect(render(<RemoteHosts/>, emptyState)).not.toContain('>Remote hosts</h2>');
  expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toMatch(/<a(?=[^>]*class="pc-inline-link")(?=[^>]*href="#\/settings\/hosts")[^>]*>Add a host\.<\/a>/);
+});
+
+test('Settings and host executors share uncertainty; retained account usage is historical',()=>{
+ const decision={state:'uncertain',reasons:[{code:'budget_expired_or_unknown',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
+ const uncertain={...executor,eligibility:decision};
+ const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,usedPct:61,window:'5h',stale:true,eligibility:decision}]};
+ const general=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot});
+ expect(general).toContain('Uncertain fallback');expect(general).toContain('Historical usage');expect(general).toContain('Observation time unknown');
+ const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
+ expect(remote).toContain('Uncertain fallback');
+ const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
+ expect(render(<HostDetail alias="devbox" initialData={{...host,executors:[known] as any}}/>)).toContain('observed 3h ago');
 });

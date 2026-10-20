@@ -29,7 +29,7 @@ export function findRateLimits(root: unknown): Record<string, unknown> | null {
 export async function lastRateLimits(path: string): Promise<Record<string, unknown> | null> {
   const file = Bun.file(path);
   const text = await file.slice(Math.max(0, file.size - TAIL_BYTES)).text();
-  const lines = text.split("\n");
+  const lines = text.split("\n").slice(0, -1);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].includes('"rate_limits"')) continue;
     let obj: unknown;
@@ -115,7 +115,7 @@ async function incrementalRateLimits(path: string, previous: Cursor<RateAggregat
         }
         offset = start + i + 1;
         last = found;
-      } else last = newer(found, candidate);
+      } // An unterminated JSONL record is provisional, never permission-bearing.
       lineStart = i + 1;
     }
     return { size: s.size, mtime: s.mtimeMs, inode: s.ino, offset,
@@ -145,7 +145,7 @@ export async function readCodex(ctx: Ctx, account?: AccountCfg): Promise<UsageRe
   if (!store) {
     store = new CursorStore(key, value => isObj(value)
       && (value.found === null || isObj(value.found)) && (value.last === null || isObj(value.last))
-      && typeof value.position === "number" && Number.isFinite(value.position), 3);
+      && typeof value.position === "number" && Number.isFinite(value.position), 4);
     codexStores.set(key, store);
   }
   return store.run<UsageReading>(ctx, async cursors => {

@@ -29,3 +29,8 @@ export function executorPace(executor: ExecutorRow, snapshot: ClientSnapshot) {
 export function executorEligibility(executor: ExecutorRow, now: number) {
   return eligibilityPresentation(executor.eligibility, now);
 }
+
+export function accountUsageFreshness(account: import("../api/read-model/types").AccountSummary) {
+ const historical = account.usedPct !== null && (account.stale !== false || account.eligibility?.budget === "unknown");
+ return historical ? `Historical usage · ${account.capturedAt == null ? "Observation time unknown" : eligibilityPresentation(account.eligibility, account.eligibility?.evaluatedAt ?? 0).age ?? "Observation time unknown"}` : null;
+}

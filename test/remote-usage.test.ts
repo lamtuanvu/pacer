@@ -1,6 +1,6 @@
 import { accountEvidenceScope } from "../src/evidence/scope";
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { main } from "../src/cli";
@@ -45,7 +45,7 @@ test("probe parses the fake host session and caches the reading", async () => {
   expect(reading).toMatchObject({ capturedAt: ctx.now - 20, source: "session-log", remoteHost: "box", windows: [
     { name: "5h", usedPct: 45, resetsAt: ctx.now - 20 + 3600 }, { name: "weekly", usedPct: 20 },
   ] });
-  expect(JSON.parse(readFileSync(join(ctx.pacerHome, "cache", "remote-usage", "codex.json"), "utf8"))).toEqual({ version: 2, identity: accountEvidenceScope(s.accounts.codex).identity, sourceIdentity: JSON.stringify([host.alias, host.ssh, null]), reading, at: ctx.now });
+  expect(JSON.parse(readFileSync(join(ctx.pacerHome, "cache", "remote-usage", "codex.json"), "utf8"))).toEqual({ version: 3, identity: accountEvidenceScope(s.accounts.codex).identity, sourceIdentity: JSON.stringify([host.alias, host.ssh, null]), reading, at: ctx.now });
 });
 
 test("probe uses the declared remote account home", async () => {
@@ -112,3 +112,12 @@ test("host check probes Codex accounts", async () => {
   expect(cached?.alternatives).toBeUndefined();
   expect(accountEvidenceScope(s.accounts.codex, { box: changed }).identity).not.toBe(accountEvidenceScope(s.accounts.codex, { box: host }).identity);
  });
+
+test("remote probe ignores a parseable unterminated quota line", async()=>{
+ const {ctx,home,s,host}=fixture();const native=join(home,".codex");session(native,ctx.now-10,100);
+ const path=join(native,"sessions/2026/10/rollout-test.jsonl");
+ appendFileSync(path,JSON.stringify({timestamp:new Date(ctx.now*1000).toISOString(),rate_limits:{primary:{used_percent:0,window_minutes:300,resets_in_seconds:3600}}}));
+ expect((await probeCodexUsage(ctx,host,s.accounts.codex))?.windows[0].usedPct).toBe(100);
+ appendFileSync(path,"invalid\n");
+ expect((await probeCodexUsage(ctx,host,s.accounts.codex))?.windows[0].usedPct).toBe(100);
+});

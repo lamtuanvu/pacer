@@ -12,18 +12,23 @@ NEEDS YOU 4
   ◐ Add dark mode to the web…  Cursor · Tests passed ·…   [⏎ review] [2 accept]
 
 WHO RUNS NEXT 4
-  # EXECUTOR    ACCOUNT WINDOW METER     USED STATUS        RESETS        SLOTS 
-  P Claude Code —       week   [####|-]  63%  Behind pace   18 Jan 08:00  1/1   
-  1 Codex       team    week   [|-----]  3%   Behind pace   20 Jan 08:00  1/3   
-  2 Cursor      —       —      [------]  —    Usage unknown —             0/3   
-  3 Antigravity —       failing · 2 recent failures                       0/1   
-  4 Local model —       down · LM Studio is not running                   0/1   
+  # EXECUTOR    ACCOUNT WINDOW METER     USED STATUS        RESETS        SLOTS
+  P Claude Code —       week   [####|-]  63%  Eligibility…  18 Jan 08:00  1/1
+    Eligibility unknown · No execution decision is available
+  1 Codex       team    week   [|-----]  3%   Eligibility…  20 Jan 08:00  1/3
+    Eligibility unknown · No execution decision is available
+  2 Cursor      —       —      [------]  —    Eligibility…  —             0/3
+    Eligibility unknown · No execution decision is available
+  3 Antigravity —       Eligibility unknown · 2 recent failures           0/1
+    Eligibility unknown · No execution decision is available
+  4 Local model —       Eligibility unknown · LM Studio is not running    0/1
+    Eligibility unknown · No execution decision is available
 
 RUNNING 2 · QUEUED 1
-  TASK                  EXECUTOR    PHASE    TIME CHANGES         OUTPUT        
-  Add SSH keepalive to… Codex       Editing  14m  6 files 2c      8s ago        
-  Split the settings p… Claude Code Idle     40m  3 files 0c      idle 6m       
-  Document the token s… queued      waiting  1m   —               —             
+  TASK                  EXECUTOR    PHASE    TIME CHANGES         OUTPUT
+  Add SSH keepalive to… Codex       Editing  14m  6 files 2c      8s ago
+  Split the settings p… Claude Code Idle     40m  3 files 0c      idle 6m
+  Document the token s… queued      waiting  1m   —               —
 
 DONE TODAY 7 · 6 accepted
   ✕ Retry budget refresh on 429                   Failed · Antigravity — · 07:50
@@ -31,11 +36,6 @@ DONE TODAY 7 · 6 accepted
   ◐ Fix flaky retry test in the payments…   Waiting for review · Codex — · 07:30
   ✓ Rename runner ids in docs                         Accepted · Codex — · 03:00
   ✕ Bump yaml to 2.8.2                          Rejected · Local model — · 02:00
-
-
-
-
-
 
 
 
@@ -65,47 +65,25 @@ NEEDS YOU 4
   ◐ Add dark mode to the web header                  Cursor · Tests passed · 12:13                [⏎ review] [2 accept]
 
 WHO RUNS NEXT 4
-  #  EXECUTOR      ACCOUNT   WINDOW USED | PACE           USED  STATUS          RESETS           SLOTS  
-  P  Claude Code   —         week   [###########--|----]  63%   Behind pace     18 Jan 08:00     1/1    
-  1  Codex         team      week   [#-|---------------]  3%    Behind pace     20 Jan 08:00     1/3    
-  2  Cursor        —         —      [------------------]  —     Usage unknown   —                0/3    
-  3  Antigravity   —         failing · 2 recent failures                                         0/1    
-  4  Local model   —         down · LM Studio is not running                                     0/1    
+  #  EXECUTOR      ACCOUNT   WINDOW USED | PACE           USED  STATUS          RESETS           SLOTS
+  P  Claude Code   —         week   [###########--|----]  63%   Eligibility un… 18 Jan 08:00     1/1
+    Eligibility unknown · No execution decision is available
+  1  Codex         team      week   [#-|---------------]  3%    Eligibility un… 20 Jan 08:00     1/3
+    Eligibility unknown · No execution decision is available
+  2  Cursor        —         —      [------------------]  —     Eligibility un… —                0/3
+    Eligibility unknown · No execution decision is available
+  3  Antigravity   —         Eligibility unknown · 2 recent failures                             0/1
+    Eligibility unknown · No execution decision is available
+  4  Local model   —         Eligibility unknown · LM Studio is not running                      0/1
+    Eligibility unknown · No execution decision is available
 
 RUNNING 2 · QUEUED 1
-  TASK                                            EXECUTOR      PHASE       TIME    CHANGES            OUTPUT           
-  Add SSH keepalive to remote runs                Codex         Editing     14m     6 files 2 commits  8s ago           
-  Split the settings page into sections           Claude Code   Idle        40m     3 files 0 commits  idle 6m          
-  Document the token sync                         queued        waiting     1m      —                  —                
+  TASK                                            EXECUTOR      PHASE       TIME    CHANGES            OUTPUT
+  Add SSH keepalive to remote runs                Codex         Editing     14m     6 files 2 commits  8s ago
+  Split the settings page into sections           Claude Code   Idle        40m     3 files 0 commits  idle 6m
+  Document the token sync                         queued        waiting     1m      —                  —
 
 DONE TODAY 7 · 6 accepted
-  ✕ Retry budget refresh o…  Failed · Antigravity — · 07:50    ◐ Add dark mode t…  Waiting for review · Cursor — · 07:45
-  ◐ Fix flaky retry…   Waiting for review · Codex — · 07:30    ✓ Rename runner ids in docs    Accepted · Codex — · 03:00
-  ✕ Bump yaml to 2.8.2     Rejected · Local model — · 02:00
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-j/k select  ⏎ action  d delegate  x dismiss  b block  s strategy  , settings  r refresh  ? help      v0.2.3 · up to date"
-`;
-Y 7 · 6 accepted
   ✕ Retry budget refresh o…  Failed · Antigravity — · 07:50    ◐ Add dark mode t…  Waiting for review · Cursor — · 07:45
   ◐ Fix flaky retry…   Waiting for review · Codex — · 07:30    ✓ Rename runner ids in docs    Accepted · Codex — · 03:00
   ✕ Bump yaml to 2.8.2     Rejected · Local model — · 02:00

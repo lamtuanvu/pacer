@@ -1793,6 +1793,7 @@ function providers(s) {
   return capacity(s).map((e) => {
     const a = s.accounts?.find((a) => a.name === e.account);
     return {
+      eligibility: e.eligibility,
       id: e.id,
       agent: e.agent,
       account: e.account,
@@ -1816,6 +1817,7 @@ function plannerProvider(s) {
     return;
   const e = capacity(s).find((e) => e.id === p.runner);
   return {
+    eligibility: p.eligibility,
     id: p.runner,
     agent: p.agent,
     account: e?.account,

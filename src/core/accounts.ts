@@ -1,3 +1,4 @@
+import { accountEvidenceScope, retireEvidence } from "./evidence";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join, resolve, sep, parse } from "node:path";
 import { parseSize } from "../config/accounts";
@@ -7,7 +8,7 @@ import { migrateStrategy, type MigrationResult } from "../config/migrate";
 import { accountFolder } from "../install/role";
 import { shq } from "../install/fsx";
 import { readOrcaAccounts } from "../orca/accounts";
-import { readAuthFailures } from "../usage/auth";
+import { accountAuthFailure } from "../usage/auth";
 import { openInTerminal, type TerminalDeps, type TerminalOptions } from "../terminal/open";
 import { readAccountUsage } from "../usage";
 import { CoreError, toCoreError } from "./errors";
@@ -91,11 +92,11 @@ export async function list(ctx: Ctx) {
     const runners = Object.values(s.runners).filter(r=>r.account===a.name);
     const identity = a.orcaAccount && (a.kind === "claude" || a.kind === "codex") ? orca?.[a.kind].find(v=>v.id===a.orcaAccount) : undefined;
     const folder = accountFolder(ctx,a);
-    const usageReading = await readAccountUsage({...ctx,readOnly:true},a,runners);
+    const usageReading = await readAccountUsage({...ctx,readOnly:true},a,runners,false,false,s.hosts);
     // Keep listing order stable when declarations precede inferred runners.
     return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), executors:runners.map(r=>r.id).sort(),
       ...(s.planner.account === a.name ? {locked: "Planner — can't remove"} : runners.length ? {locked: `In use by ${runners.length} executor(s)`} : {}),
-      signedIn: Object.hasOwn(readAuthFailures(ctx), a.name) ? false : identity ? true : null,
+      signedIn: !!accountAuthFailure(ctx, accountEvidenceScope(a, s.hosts)) ? false : identity ? true : null,
       runnable: a.source !== "orca" || folder !== null, usageReading, ...await endpointRow(ctx, a)};
   }));
   return rows.map(row => {
@@ -167,6 +168,7 @@ export function remove(ctx: Ctx, name: string, {deleteHome = false}: {deleteHome
     if (s.planner.account === name || Object.values(s.runners).some(r => r.account === name)) throw new CoreError("conflict", `account ${name} is in use`, "Remove its runners and change the planner first.");
     const folder = deleteHome ? deletionHome(ctx, s, name) : null;
     const diff = edit(doc => doc.removeMappingEntry('accounts', name));
+    retireEvidence(ctx, accountEvidenceScope(a, s.hosts));
     if (folder) rmSync(folder, {recursive: true, force: true});
     return {removed: true as const, diff, ...(migrated ? {migrated} : {})};
   } catch (e) {

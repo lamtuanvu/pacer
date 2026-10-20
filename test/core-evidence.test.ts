@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { statSync, readdirSync, writeFileSync } from "node:fs";
+import { statSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { accountEvidenceScope, mergeEvidence, readEvidence } from "../src/core/evidence";
 import { emptyEvidence, evidenceFact } from "../src/engine/evidence";
@@ -44,4 +44,23 @@ test("corrupt persisted fact values are discarded instead of becoming eligibilit
   (saved.evidence.facts.budget[0] as { value: unknown }).value = null;
   writeFileSync(join(ctx.pacerHome, "state/evidence", `${scope.identity}.json`), JSON.stringify(saved));
   expect(readEvidence(ctx, scope).revision).toBe(0);
+});
+
+test("removing and recreating the same account retires old observations and in-flight writes", async () => {
+  const { remove } = await import("../src/core/accounts");
+  const { loadStrategy } = await import("../src/config/strategy");
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, {recursive:true});
+  const strategy = "accounts:\n  planner: {kind: claude}\n  spare: {kind: endpoint, usage: unmetered}\nplanner: claude-code#planner\nrouting: []\n";
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), strategy);
+  const scope = accountEvidenceScope(loadStrategy(ctx).accounts.spare);
+  const old = { ...emptyEvidence(), availability: [evidenceFact(scope, "execution", ctx.now - 1, ctx.now + 600, "authentication_failed", "unavailable" as const)] };
+  const first = await mergeEvidence(ctx, scope, old);
+  remove(ctx, "spare");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), strategy);
+  const recreated = await mergeEvidence(ctx, scope, old);
+  expect(recreated.revision).toBeGreaterThan(first.revision);
+  expect(recreated.evidence.facts.availability).toEqual([]);
+  const next = await mergeEvidence({...ctx, now:ctx.now+1}, scope, { ...emptyEvidence(), availability: [evidenceFact(scope,"configuration",0,null,"measurement_contract","ready")] });
+  expect(next.evidence.facts.availability[0].value).toBe("ready");
 });

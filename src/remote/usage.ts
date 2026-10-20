@@ -18,7 +18,7 @@ export function cachedRemoteUsage(ctx: Ctx, account: AccountCfg, hosts?: Record<
     const host = reading?.remoteHost && hosts?.[reading.remoteHost];
     const sameSource = !hosts || !!host && sourceIdentity === origin(host, account);
     return reading && Number.isFinite(reading.capturedAt) && Array.isArray(reading.windows)
-      && typeof reading.remoteHost === "string" ? version === 2 && sameSource && identity === accountEvidenceScope(account).identity
+      && typeof reading.remoteHost === "string" ? version === 3 && sameSource && identity === accountEvidenceScope(account).identity
         ? reading : { ...reading, alternatives: undefined, capturedAt: null, stale: true } : null;
   } catch { return null; }
 }
@@ -30,7 +30,7 @@ export async function probeCodexUsage(ctx: Ctx, host: HostCfg, account: AccountC
     const home = host.accounts[account.name]?.home;
     const result = await runRemote(ctx, host, SCRIPTS.CODEX_USAGE, home ? [home] : []);
     if (result.code !== 0) return null;
-    const observations = result.stdout.trim().split("\n").flatMap(line => {
+    const observations = result.stdout.split("\n").slice(0, -1).flatMap(line => {
       try { const value = rateLimitObservation(JSON.parse(line)); return value ? [value] : []; } catch { return []; }
     }).filter(value => value.observedAt !== null && value.observedAt <= ctx.now)
       .sort((a, b) => b.observedAt! - a.observedAt!);
@@ -40,7 +40,7 @@ export async function probeCodexUsage(ctx: Ctx, host: HostCfg, account: AccountC
     const cached = cachedRemoteUsage(ctx, account);
     const previous = cached?.remoteHost === host.alias ? cachedRemoteUsage(ctx, account, { [host.alias]: host }) : cached;
     if (!ctx.readOnly && (previous?.capturedAt == null || reading.capturedAt! > previous.capturedAt)) {
-      writeJsonAtomic(cachePath(ctx, account.name), { version: 2, identity: accountEvidenceScope(account).identity,
+      writeJsonAtomic(cachePath(ctx, account.name), { version: 3, identity: accountEvidenceScope(account).identity,
         sourceIdentity: origin(host, account), reading, at: ctx.now });
     }
     return reading;
