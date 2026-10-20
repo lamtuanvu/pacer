@@ -44,10 +44,33 @@ export async function lastRateLimits(path: string): Promise<Record<string, unkno
   return null;
 }
 
+export interface RateLimitObservation { rateLimits: Record<string, unknown>; observedAt: number | null }
+export function rateLimitObservation(event: unknown): RateLimitObservation | null {
+  const rateLimits = findRateLimits(event);
+  return rateLimits ? { rateLimits, observedAt: isObj(event) ? parseTs(event.timestamp) : null } : null;
+}
+function newer(a: RateLimitObservation | null, b: RateLimitObservation | null): RateLimitObservation | null {
+  if (!a) return b;
+  if (!b) return a;
+  return (b.observedAt ?? -Infinity) >= (a.observedAt ?? -Infinity) ? b : a;
+}
+export function readingFromObservation(observation: RateLimitObservation): UsageReading {
+  const credits = observation.rateLimits.credits;
+  return { windows: windowsFromRateLimits(observation.rateLimits, observation.observedAt), capturedAt: observation.observedAt,
+    stale: false, source: "session-log",
+    ...(isObj(credits) ? { spending: { creditsAvailable: typeof credits.has_credits === "boolean" ? credits.has_credits : null,
+      creditBalance: toNum(typeof credits.balance === "string" && credits.balance.trim() ? Number(credits.balance) : credits.balance), paidConsumption: "unknown" as const } } : {}),
+  };
+}
+export async function newestRateLimitObservation(path: string): Promise<RateLimitObservation | null> {
+  const cursor = await incrementalRateLimits(path, undefined);
+  return cursor.aggregate.last;
+}
+
 interface RateAggregate {
-  found: Record<string, unknown> | null;
+  found: RateLimitObservation | null;
   position: number;
-  last: Record<string, unknown> | null;
+  last: RateLimitObservation | null;
 }
 const codexStores = new Map<string, CursorStore<RateAggregate>>();
 
@@ -74,15 +97,15 @@ async function incrementalRateLimits(path: string, previous: Cursor<RateAggregat
     for (let i = 0; i <= read; i++) {
       if (i < read && bytes[i] !== 10) continue;
       const text = bytes.subarray(lineStart, i).toString("utf8");
-      let candidate: Record<string, unknown> | null = null;
+      let candidate: RateLimitObservation | null = null;
       if (text.includes('"rate_limits"')) {
-        try { candidate = findRateLimits(JSON.parse(text)); } catch { /* Incomplete/corrupt line. */ }
+        try { candidate = rateLimitObservation(JSON.parse(text)); } catch { /* Incomplete/corrupt line. */ }
       }
       if (i < read) {
-        if (candidate) { found = candidate; position = start + lineStart; }
+        if (candidate && newer(found, candidate) === candidate) { found = candidate; position = start + lineStart; }
         offset = start + i + 1;
         last = found;
-      } else last = candidate ?? found;
+      } else last = newer(found, candidate);
       lineStart = i + 1;
     }
     return { size: s.size, mtime: s.mtimeMs, inode: s.ino, offset,
@@ -112,7 +135,7 @@ export async function readCodex(ctx: Ctx, account?: AccountCfg): Promise<UsageRe
   if (!store) {
     store = new CursorStore(key, value => isObj(value)
       && (value.found === null || isObj(value.found)) && (value.last === null || isObj(value.last))
-      && typeof value.position === "number" && Number.isFinite(value.position));
+      && typeof value.position === "number" && Number.isFinite(value.position), 2);
     codexStores.set(key, store);
   }
   return store.run<UsageReading>(ctx, async cursors => {
@@ -121,6 +144,7 @@ export async function readCodex(ctx: Ctx, account?: AccountCfg): Promise<UsageRe
     const live = new Set(recent.map(f => f.p));
     // Keep other account roots intact.
     for (const path of Object.keys(cursors)) if (path.startsWith(root + "/") && !live.has(path)) delete cursors[path];
+    let selected: RateLimitObservation | null = null;
     for (const f of recent) {
       let cursor: Cursor<RateAggregate>;
       try {
@@ -133,18 +157,18 @@ export async function readCodex(ctx: Ctx, account?: AccountCfg): Promise<UsageRe
         throw error;
       }
       cursors[f.p] = cursor;
-      const rl = cursor.aggregate.last;
-      if (!rl) continue;
-      trace("codex.read-tail");
-      return { windows: windowsFromRateLimits(rl, cursor.mtime / 1000), capturedAt: cursor.mtime / 1000, stale: false, source: "session-log" };
+      const observation = cursor.aggregate.last;
+      if (observation?.observedAt != null && observation.observedAt > ctx.now) continue;
+      selected = newer(selected, observation);
     }
+    if (selected) { trace("codex.read-tail"); return readingFromObservation(selected); }
     trace("codex.read-tail");
     return { windows: [], capturedAt: null, stale: false, error: "no rate_limits found in recent Codex session logs" };
   });
 }
 
 /** Shared conversion for local rollout files and the SSH session-log probe. */
-export function windowsFromRateLimits(rl: Record<string, unknown>, mtime: number): UsageWindow[] {
+export function windowsFromRateLimits(rl: Record<string, unknown>, observedAt: number | null): UsageWindow[] {
   const windows: UsageWindow[] = [];
   for (const key of ["primary", "secondary"] as const) {
     const w = rl[key];
@@ -152,7 +176,7 @@ export function windowsFromRateLimits(rl: Record<string, unknown>, mtime: number
     const mins = toNum(w.window_minutes) ?? 10080;
     let resetsAt = parseTs(w.resets_at);
     const inS = toNum(w.resets_in_seconds);
-    if (resetsAt === null && inS !== null) resetsAt = mtime + inS;
+    if (resetsAt === null && inS !== null && observedAt !== null) resetsAt = observedAt + inS;
     windows.push({
       name: mins >= 7 * 1440 ? "weekly" : `${Math.round(mins / 60)}h`,
       usedPct: toNum(w.used_percent),

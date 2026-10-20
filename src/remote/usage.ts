@@ -3,7 +3,7 @@ import type { AccountCfg } from "../config/accounts";
 import type { HostCfg } from "../config/hosts";
 import type { Ctx, UsageReading } from "../types";
 import { readJson, writeJsonAtomic } from "../fsutil";
-import { findRateLimits, windowsFromRateLimits } from "../usage/codex";
+import { rateLimitObservation, readingFromObservation } from "../usage/codex";
 import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
 
@@ -25,15 +25,14 @@ export async function probeCodexUsage(ctx: Ctx, host: HostCfg, account: AccountC
     const home = host.accounts[account.name]?.home;
     const result = await runRemote(ctx, host, SCRIPTS.CODEX_USAGE, home ? [home] : []);
     if (result.code !== 0) return null;
-    const [header, ...lines] = result.stdout.trim().split("\n");
-    if (!/^mtime=\d+(?:\.\d+)?$/.test(header)) return null;
-    const mtime = Number(header.slice(6));
-    const rl = findRateLimits(JSON.parse(lines.join("\n")));
-    if (!rl) return null;
-    const reading: UsageReading = { windows: windowsFromRateLimits(rl, mtime), capturedAt: mtime,
-      stale: false, source: "session-log", remoteHost: host.alias };
+    const observations = result.stdout.trim().split("\n").flatMap(line => {
+      try { const value = rateLimitObservation(JSON.parse(line)); return value ? [value] : []; } catch { return []; }
+    }).filter(value => value.observedAt !== null && value.observedAt <= ctx.now)
+      .sort((a, b) => b.observedAt! - a.observedAt!);
+    if (!observations.length) return null;
+    const reading: UsageReading = { ...readingFromObservation(observations[0]), remoteHost: host.alias };
     const previous = cachedRemoteUsage(ctx, account.name);
-    if (!ctx.readOnly && (previous?.capturedAt == null || mtime > previous.capturedAt)) {
+    if (!ctx.readOnly && (previous?.capturedAt == null || reading.capturedAt! > previous.capturedAt)) {
       writeJsonAtomic(cachePath(ctx, account.name), { reading, at: ctx.now });
     }
     return reading;

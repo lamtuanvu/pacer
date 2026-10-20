@@ -8,10 +8,7 @@ while IFS= read -r -d '' file; do
   printf '%s %s\\n' "$mtime" "$file"
 done < <(find "$home/sessions" -type f -name 'rollout-*.jsonl' -print0) |
 sort -rn | head -n 15 | while read -r mtime file; do
-  line=$(tail -n 4000 "$file" | grep '"rate_limits"' | tail -1)
-  [ -n "$line" ] || continue
-  printf 'mtime=%s\\n%s\\n' "$mtime" "$line"
-  break
+  tail -c 4000000 "$file" | grep '"rate_limits"' || true
 done`,
   PROBE: `printf 'glibc=%s\\n' "$(getconf GNU_LIBC_VERSION 2>/dev/null | sed 's/^glibc //')"
 printf 'os=%s\\n' "$(uname -s)"

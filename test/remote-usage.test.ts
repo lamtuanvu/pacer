@@ -13,7 +13,7 @@ function session(home: string, at: number, used: number, file = "rollout-test.js
   const dir = join(home, "sessions", "2026", "10");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, file);
-  writeFileSync(path, `${JSON.stringify({ payload: { rate_limits: {
+  writeFileSync(path, `${JSON.stringify({ timestamp: new Date(at * 1000).toISOString(), payload: { rate_limits: {
     primary: { used_percent: used, window_minutes: 300, resets_in_seconds: 3600 },
     secondary: { used_percent: 20, window_minutes: 10080, resets_at: at + 7200 },
   } } })}\n`);
