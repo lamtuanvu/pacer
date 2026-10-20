@@ -366,3 +366,15 @@ test("on the Setup screen shown in place of Home, j moves the visible selection 
   await t.keys("n");
   expect(t.dash.state.screen).toBe("home");
 });
+
+test("x skips the first delegation from Setup", async () => {
+  const s = structuredClone(fixture) as unknown as ClientSnapshot;
+  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: true, running: true }, link: true, live: true, connected: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [{ id: "codex" }], excluded: [] } }, s.at);
+  s.setup = { ...checklist, open: checklist.items.filter(i => i.status !== "done").length };
+  const t = setup({ snapshot: s, ops: [...SETTINGS_OPS_ALL, "onboarding.skip", "onboarding.try"] });
+  t.dash.state = { ...t.dash.state, screen: "setup", selected: { setup: "setup:first" } };
+  await t.dash.refresh();
+  expect(t.last()).toContain("x skip first delegation");
+  await t.keys("x");
+  expect(t.ops()).toEqual([{ op: "onboarding.skip", params: {} }]);
+});

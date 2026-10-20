@@ -53,7 +53,7 @@ export function setupScreen(ctx: ScreenCtx): ScreenView {
       const blocked = !item.required && firstOpen && item.id === "first" && !act;
       const skip: Act | undefined = item.id === "first" && item.status !== "done" && ctx.supports("onboarding.skip")
         ? { label: "Skip first delegation", effect: { type: "action", action: { label: "Skip first delegation", op: "onboarding.skip", params: {} } } } : undefined;
-      items.push({ id: `setup:${item.id}`, primary: act, actions: skip ? [skip] : [], keys: skip ? { k: skip } : {} });
+      items.push({ id: `setup:${item.id}`, primary: act, actions: skip ? [skip] : [], keys: skip ? { x: skip } : {} });
       const detail = item.command && item.status !== "done" ? `${item.detail ? `${item.detail} · ` : ""}${item.command}` : item.detail ?? (blocked ? "Finish the required steps first." : "");
       rows.push({ item: `setup:${item.id}`, line: cols([
         { content: statusSpans(theme, STATUS[item.status]), width: w[0]! },

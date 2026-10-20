@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
 import taskGet from "./fixtures/ui/task-get.json";
 import settingsFixture from "./fixtures/ui/tui-settings.json";
-import { renderDashboard } from "../src/dashboard/render";
+import { renderDashboard, screenItems } from "../src/dashboard/render";
 import { cellWidth } from "../src/dashboard/frame";
 import { setupChecklist } from "../src/setup/checklist";
 import { counts, needsYou } from "../src/view-model/selectors";
@@ -189,4 +189,25 @@ describe("frame behavior", () => {
     s.planner = null;
     expect(renderDashboard(s, 100, 24, s.at, { noColor: true })).toContain("Planner · waiting for service data");
   });
+});
+
+describe("row keys never collide with navigation or global keys", () => {
+  // reduceKey handles these before a row's own keys, so a row key using one would never fire. Inside a Settings
+  // section, row keys are checked first, and ← → and l (open a section from the list) are free to use there.
+  const GLOBAL = ["j", "k", "l", "h", "q", "?", "R", "f", "d", ".", ",", "1", "2", "3", "4", "5", "enter", "escape", "tab", "backtab", "up", "down", "pageup", "pagedown", "home", "end"];
+  const s = snapshot();
+  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, live: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [{ id: "codex" }], excluded: [] } }, s.at);
+  const withSetup = { ...s, setup: { ...checklist, open: checklist.items.filter(i => i.status !== "done").length } } as ClientSnapshot;
+  const views: [string, ClientSnapshot, Partial<UiState>][] = [
+    ["home", s, { screen: "home" }], ["review", s, { screen: "review" }], ["sessions", s, { screen: "sessions" }], ["setup", withSetup, { screen: "setup" }],
+    ...SECTIONS.map(x => [`settings › ${x.label}`, s, { screen: "settings", section: x.id, focus: "detail" }] as [string, ClientSnapshot, Partial<UiState>]),
+  ];
+  for (const [name, snap, state] of views) {
+    test(name, () => {
+      const items = screenItems(snap, snap.at, { state, data: data(), ops: undefined });
+      expect(items.length).toBeGreaterThan(0);
+      const clashes = items.flatMap(item => Object.keys(item.keys).filter(k => GLOBAL.includes(k) && !(state.screen === "settings" && ["left", "right", "l"].includes(k))).map(k => `${item.id}: ${k}`));
+      expect(clashes).toEqual([]);
+    });
+  }
 });
