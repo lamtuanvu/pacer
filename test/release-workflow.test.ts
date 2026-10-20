@@ -37,7 +37,7 @@ test("desktop release builds every OS and architecture from the matching CLI art
     { runner: "macos-latest", target: "aarch64-apple-darwin", platform: "darwin-arm64", cli_artifact: "binaries-macos-latest", bundles: "dmg" },
     { runner: "macos-latest", target: "x86_64-apple-darwin", platform: "darwin-x64", cli_artifact: "binaries-macos-latest", bundles: "dmg" },
     { runner: "ubuntu-24.04", target: "x86_64-unknown-linux-gnu", platform: "linux-x64", cli_artifact: "binaries-ubuntu-latest", bundles: "appimage,deb" },
-    { runner: "ubuntu-24.04-arm", target: "aarch64-unknown-linux-gnu", platform: "linux-arm64", cli_artifact: "binaries-ubuntu-latest", bundles: "appimage,deb" },
+    { runner: "ubuntu-24.04-arm", target: "aarch64-unknown-linux-gnu", platform: "linux-arm64", cli_artifact: "binaries-ubuntu-latest", bundles: "deb" },
   ]);
   const download = desktop.steps.find(s => s.uses?.startsWith("actions/download-artifact@"));
   expect(download?.with).toMatchObject({ name: "${{ matrix.cli_artifact }}", path: "dist/release" });
@@ -57,7 +57,7 @@ test("desktop bundle collection gives all downloads versioned unsigned names", (
     ["aarch64-apple-darwin", "darwin-arm64", ["dmg"]],
     ["x86_64-apple-darwin", "darwin-x64", ["dmg"]],
     ["x86_64-unknown-linux-gnu", "linux-x64", ["appimage", "deb"]],
-    ["aarch64-unknown-linux-gnu", "linux-arm64", ["appimage", "deb"]],
+    ["aarch64-unknown-linux-gnu", "linux-arm64", ["deb"]],
   ] as const) {
     const root = tmpDir();
     const files = bundles.map(bundle => {
@@ -67,7 +67,7 @@ test("desktop bundle collection gives all downloads versioned unsigned names", (
       writeFileSync(join(dir, `pacer_1.2.3.${ext}`), `${platform}-${ext}`);
       return `pacer-1.2.3-${platform}-unsigned.${ext}`;
     });
-    const result = run(step("Collect unsigned desktop bundles"), root, { VERSION: "1.2.3", TARGET: target, PLATFORM: platform });
+    const result = run(step("Collect unsigned desktop bundles"), root, { VERSION: "1.2.3", TARGET: target, PLATFORM: platform, BUNDLES: bundles.join(",") });
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);
     expect(readdirSync(join(root, "dist/desktop")).sort()).toEqual(files.sort());
@@ -94,7 +94,7 @@ test("publish includes desktop downloads in checksums, provenance and release as
   writeFileSync(join(dir, "SHA256SUMS"), cliSum);
   const files = ["pacer-1.2.3-darwin-arm64-unsigned.dmg", "pacer-1.2.3-darwin-x64-unsigned.dmg",
     "pacer-1.2.3-linux-x64-unsigned.AppImage", "pacer-1.2.3-linux-x64-unsigned.deb",
-    "pacer-1.2.3-linux-arm64-unsigned.AppImage", "pacer-1.2.3-linux-arm64-unsigned.deb"];
+    "pacer-1.2.3-linux-arm64-unsigned.deb"];
   for (const file of files) writeFileSync(join(dir, file), file);
   expect(run(step("Add desktop checksums"), root, { VERSION: "1.2.3" }).exitCode).toBe(0);
   const sums = readFileSync(join(dir, "SHA256SUMS"), "utf8");
