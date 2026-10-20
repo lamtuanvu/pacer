@@ -227,7 +227,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
             return;
           }
           if (req && !requested && !requestedUnavailable) requestedUnavailable = excluded.find(e => e.id === req)?.reason ?? "not in the routing list";
-          if (pick) task = updateTask(ctx, id, t => {t.state = "running"; t.executor = pick; t.attemptStartedAt = now; delete t.queue; delete t.run;});
+          const fallback = req && pick && pick !== req && requestedUnavailable ? { requested: req, reason: requestedUnavailable, executor: pick } : undefined;
+          if (pick) task = updateTask(ctx, id, t => {
+            t.state = "running"; t.executor = pick; t.attemptStartedAt = now; delete t.queue; delete t.run;
+            if (fallback) t.executorFallback = fallback;
+          });
         }));
         if (policyChanged) {
           if (++policyChanges > 20) throw new Error("Project policy keeps changing; retry once editing is complete");

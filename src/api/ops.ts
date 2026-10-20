@@ -23,7 +23,7 @@ import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
-import { redactEndpointError } from "../endpoints/state";
+import { redactEndpointMessage } from "../endpoints/state";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -83,7 +83,7 @@ async function endpointAction<T>(key: string | undefined, action: () => T | Prom
   try { return await action(); }
   catch (error) {
     const safe = toCoreError(error);
-    throw new CoreError(safe.code, redactEndpointError(safe.message, [key ?? ""]));
+    throw new CoreError(safe.code, redactEndpointMessage(safe.message, [key ?? ""]));
   }
 }
 async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {

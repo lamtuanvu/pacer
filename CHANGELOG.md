@@ -8,12 +8,24 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Settings Diagnostics runs doctor checks with repair guidance, distinguishes configured integrations from fixture-tested handlers and unverified Claude invocation, and flags disabled or incomplete Claude hooks.
 
+### Fixed
+
+- The interactive account and endpoint setup checks each answer as it is entered and asks again instead of aborting: kind, name, key storage, usage, weekly token budget (with a budget-specific message) and quota source. A blank quota source selects `arkcli` instead of saving an empty value, with a warning when `arkcli` is not on `PATH`. Endpoint setup now asks where to keep the key on add as well as edit (Keychain on macOS and a file elsewhere by default). Endpoint save errors show their full reason instead of only the first line, and migration notices no longer print array indexes.
+- Account sign-in state now has one source, the local login indicator plus recorded authentication failures, shared by `account list`, routing, the Executors and Accounts screens, attention and `runner.check`. `account list` reports `signedIn: true/false` for native accounts instead of always `null`; a signed-out executor shows as Unavailable with its reason instead of Ready; the Accounts screen shows endpoint state (Ready, Not tested, Not working, Key missing) for endpoints and offers **Fix sign-in** only for signed-out native accounts.
+- `runner.check` no longer fails a signed-in Claude or Codex account that has no usage reading yet: **Signed in** uses the sign-in state rather than usage, and **Usage readable** is skipped with the reason, so the test task runs.
+- `pacer route` without `--repo` uses the project policy of the registered repository in the current directory, as `pacer delegate` does, instead of always showing global routing.
+- `pacer project strategy set --executors ''` explains that `pacer project strategy remove` restores the global strategy, instead of reporting an unknown option.
+- When an explicitly requested executor cannot run and another one does, the task records `executorFallback` (`executor_fallback` in summaries) with the requested executor and the reason, and `tasks`, `tasks <id>` and `delegate --wait` show it. Fallback behavior is unchanged.
+- The Executors settings no longer claim that an executor failing its check is skipped until it passes; a failed check marks it Failing and raises attention, and routing keeps using it unless it is unavailable for another reason (as before). Disable it to skip it.
+- An endpoint executor that has never passed its test task reads **Not tested** in the Executors screen, Overview and tray instead of Ready, matching its account (routing still uses it, as before; the executor summary adds `untested: true`). Add executor offers **Sign in** only for a signed-out native account, each **Fix sign-in** disclosure names its account for screen readers, and an executor row no longer repeats its reason under Last check.
+- The accounts guide gives the real default folder for pacer-managed accounts, `~/.<kind>-<name>`, instead of `~/.pacer/accounts/<name>`.
+
 ## [0.4.0] - 2026-10-20
 
 ### Added
 
 - Per-project executor allowlists with strict priority order, persistent policies, revision-checked API and CLI configuration, and a Routing settings editor (#190).
-- The desktop app ships its own CLI, shows Welcome and one consent screen before it changes anything, links `pacer` into `~/.local/bin` and can add an opt-in PATH line; recovery pages each offer one action; unsigned desktop downloads are published with each release.
+- The desktop app ships its own CLI, shows Welcome and one consent screen before it changes anything, links `pacer` into `~/.local/bin` and can add an opt-in PATH line; recovery pages each offer one action; unsigned desktop downloads are published with each release. Linux arm64 ships as `.deb` only for now: the AppImage tool corrupts its bundled CLI.
 - Setup walks through five steps with an inline connection preview, executor priority controls, and first-task progress and review.
 
 ### Removed
@@ -23,6 +35,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Setup discovery avoids IDE launchers and local-model app startup, so selecting a planner does not launch another app over the pacer window.
+- The desktop app's "Another pacer is running" page names the ports when only the port differs and shows how to free the service (`pacer service uninstall`); on Linux without systemd or a CLI it shows the install page instead of a stuck sign-in (#194).
 - `pacer service install` refuses to replace another pacer's login service (`--replace` overrides); `uninstall --all` refuses while delegated tasks run (`--force` overrides) and removes the app's link and PATH line; `pacer update` points to the app when its CLI came with the app.
 
 ## [0.3.1] - 2026-10-19

@@ -53,6 +53,8 @@ test('diagnostic titles retain readable agent and account identities', async () 
   expect(diagnosticTitle('Usage codex')).toBe('Budget · Codex');
   expect(diagnosticTitle('Install claude-code')).toBe('Integration · Claude');
   expect(diagnosticTitle('Skill codex')).toBe('Planner skill · Codex');
+  expect(diagnosticTitle('Unknown codex')).toBe('Unknown codex');
+  expect(diagnosticTitle('toString codex')).toBe('toString codex');
 });
 
 test('persistent and local Settings navigation mark Diagnostics current', async () => {
