@@ -66,6 +66,25 @@ for(const [command,args] of [
   const r=await (command==='account'?accountCmd:runnerCmd)([...args],ctx);
   expect(r.code).not.toBe(0); expect(readFileSync(p,'utf8')).toBe(before);
 });
+const OPENCODE_ONLY = '--model, --name and --cap-usd are only supported by pacer account add opencode <provider>';
+test('edit --model on an existing endpoint is refused and leaves the strategy unchanged',async()=>{
+  const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
+  const r=await accountCmd(['edit','spare','--model','x'],ctx);
+  expect(r.code).not.toBe(0);expect(r.err).toContain(OPENCODE_ONLY);
+  expect(readFileSync(p,'utf8')).toBe(before);
+});
+test('add claude --name is refused and leaves the strategy unchanged',async()=>{
+  const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
+  const r=await accountCmd(['add','claude','work','--no-login','--name','x'],ctx);
+  expect(r.code).not.toBe(0);expect(r.err).toContain(OPENCODE_ONLY);
+  expect(readFileSync(p,'utf8')).toBe(before);
+});
+test('add endpoint --cap-usd is refused and leaves the strategy unchanged',async()=>{
+  const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
+  const r=await accountCmd(['add','endpoint','e','--usage','unmetered','--cap-usd','5'],ctx);
+  expect(r.code).not.toBe(0);expect(r.err).toContain(OPENCODE_ONLY);
+  expect(readFileSync(p,'utf8')).toBe(before);
+});
 test('account add endpoint with metered usage and no budget tracks spend without pacing', async()=>{
   const ctx=commandCtx();
   const r=await accountCmd(['add','endpoint','meter','--usage','metered'],ctx);

@@ -99,6 +99,8 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
     }
     const [verb, ...rest] = args;
     const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output","cap-usd","model","name"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
+    const opencodeAdd = verb === "add" && pos[0] === "opencode" && pos.length === 2;
+    if (!opencodeAdd && (flags.model !== undefined || flags.name !== undefined || flags["cap-usd"] !== undefined)) throw Error("--model, --name and --cap-usd are only supported by pacer account add opencode <provider>");
     let s = loadStrategy(ctx);
     if (verb === "list" && !pos.length) {
       const rows = await accounts.list(ctx);
@@ -133,14 +135,14 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       // AccountDeps.login takes (argv, env) for the claude/codex CLI login flow; SetupDeps.login
       // takes (argv) for `opencode auth login`. The two are unrelated, so drop the former before
       // forwarding deps into opencode-setup, instead of widening SetupDeps to match.
-      const {login: _login, ...setupDeps}: AccountDeps = deps;
+      const {login: _login, ...setupDeps} = deps;
       const cap=flags['cap-usd']===undefined ? undefined : Number(flags['cap-usd']);
       if (cap!==undefined && !(Number.isFinite(cap) && cap>0)) throw Error('--cap-usd must be a positive number of dollars, e.g. 10');
       let model: string | undefined = typeof flags.model==='string' ? flags.model : undefined;
       if (!model) {
         const models=await setup.setupModels(ctx,{provider,group:'signed_in'},setupDeps);
         model=models.pick?.id;
-        if (!model) throw Error(models.note ? `${models.note} pass --model <id>` : `no usable model found for ${provider}; pass --model <id>`);
+        if (!model) throw Error(models.note ? `${models.note} Or pass --model <id>.` : `no usable model found for ${provider}; pass --model <id>`);
       }
       const result=await setup.addOpencodeAccount(ctx,{provider,model,name:typeof flags.name==='string'?flags.name:undefined,cap_usd:cap,test:!flags['no-test']},setupDeps);
       return ok(opencodeMessage(result.account.name,provider,model,result,cap));
