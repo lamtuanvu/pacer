@@ -89,6 +89,14 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and review
 
+On wide screens, Overview pairs Needs you with Capacity, Running with Quick delegate,
+and Done today with Activity. Cards in each row share their height. Needs you and
+Capacity show five rows per page; Running, Done today and Activity show three.
+Previous/Next navigation keeps longer lists contained. Repository changes reset
+scoped lists to their first page. Bulk review applies to the entire filtered queue,
+including tasks on other pages; selections persist while paging. Compact Capacity
+continues to show all executors. Narrow layouts stack the existing sections.
+
 Overview reads the service's attention queue in its supplied order: blocked items,
 problems, then decisions, oldest first within each group. The service includes
 review work, failed or limited tasks, stuck work, sign-in and executor problems,
@@ -102,7 +110,7 @@ behavior.
 
 Overview and Review offer a repository filter and checkboxes to select review tasks.
 Use **Accept selected** or **Reject selected** (with a required shared note), or
-**Accept all with passing checks** to check the visible queue’s stored acceptance
+**Accept all with passing checks** to check the filtered queue’s stored acceptance
 results. The confirmation lists each eligible task before recording verdicts.
 Tasks without passing checks are excluded from accept-all; errors and concurrent
 reviews are reported per task. Accepting records a verdict only; merge branches

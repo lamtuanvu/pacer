@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- Overview uses aligned pairs of cards and paginated attention, running, capacity, completed-work and activity lists, keeping the existing design system and compact layout.
+
 ## [0.5.0] - 2026-10-20
 
 ### Added

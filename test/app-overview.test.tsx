@@ -104,8 +104,9 @@ test("capacity dims a down executor and gives its reason; header counts ready ex
 test("done today and activity use absolute times and the service's sentences", () => {
   const html = view();
   expect(html).toContain("7 · 6 accepted");
-  expect(html).toContain(">Accepted<");
-  expect(html).toContain(">Rejected<");
+  expect(html).toContain('aria-label="Done today pages"');
+  expect(html).toContain("1–3 of 5");
+  expect(html).toContain(">Waiting for review<");
   expect(html).toContain("Mode Normal → Relaxed · planner behind pace");
 });
 
@@ -190,4 +191,15 @@ test("wide repo filter uses repo Done today totals and counts accepted rows only
 test("repo Done today falls back to its filtered rows when no repo total is supplied", () => {
   const html = view('github.com/acme/api', { ...snap, today: { ...snap.today!, byRepo: {} } });
   expect(html.slice(html.indexOf('aria-labelledby="done-today"'))).toContain('2 · 0 accepted');
+});
+
+test("overview bounds a long attention queue and exposes its page range", () => {
+  const item = snap.attention![0]!;
+  const snapshot = { ...snap, attention: Array.from({ length: 13 }, (_, i) => ({ ...item, id: `page-${i}`, title: `Attention ${i}`, taskId: undefined })) };
+  const html = view(null, snapshot);
+  expect(html.match(/data-attention-id=/g)).toHaveLength(5);
+  expect(html).toContain('aria-label="Needs you pages"');
+  expect(html).toContain('1–5 of 13');
+  expect(html).toContain('Next');
+  expect(html).not.toContain('Attention 12');
 });
