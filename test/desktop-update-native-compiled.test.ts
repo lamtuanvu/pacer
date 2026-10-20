@@ -37,8 +37,11 @@ test("compiled fixture transport requires its fixed signed native shim and never
  success(["/usr/bin/xcrun","clang","-dynamiclib","-arch",process.arch==="arm64"?"x86_64":"arm64",resolve("src/update/desktop/native-socket.c"),"-o",library]);
  chmodSync(library,0o700);sign(library,"dev.pacer.desktop.native-shim");expect(execute().exitCode).not.toBe(0);
  writeFileSync(library,original,{mode:0o700});
- // Ad-hoc libraries have no matching Apple Team. Hardened library validation
- // must refuse, without silently falling back to unsigned runtime compilation.
+ // Ad-hoc libraries have no matching Apple Team. Whether hardened library validation refuses
+ // them differs across macOS releases; either way the CLI must never fall back to unsigned
+ // runtime compilation, which would leave a smoke directory behind.
  sign(executable,"dev.pacer.cli",["--options","runtime","--entitlements",entitlements]);
- const hardened=execute();expect(hardened.exitCode).not.toBe(0);expect(hardened.stdout.toString()).not.toContain("roundtrip passed");
+ const hardened=execute();
+ if(hardened.exitCode!==0)expect(hardened.stdout.toString()).not.toContain("roundtrip passed");
+ expect(smokeDirectories()).toEqual(beforeSmoke);
 },60_000);

@@ -19,7 +19,12 @@ function selfSigner(): string | null {
   ];
   for (const argv of steps) if (!run(argv).success) return null;
   const fingerprint = run(["openssl", "x509", "-noout", "-fingerprint", "-sha1", "-in", join(dir, "cert.pem")]);
-  return fingerprint.success ? fingerprint.stdout.toString().trim().split("=").at(-1)!.replaceAll(":", "") : null;
+  if (!fingerprint.success) return null;
+  const sha1 = fingerprint.stdout.toString().trim().split("=").at(-1)!.replaceAll(":", "");
+  // Some hosted runners cannot use a private keychain identity from codesign; skip there.
+  const probe = join(dir, "probe");
+  copyFileSync("/usr/bin/true", probe);
+  return run(["/usr/bin/codesign", "--force", "--timestamp=none", "--sign", sha1, "--keychain", keychain, probe]).success ? sha1 : null;
 }
 const sha1 = selfSigner();
 afterAll(() => { if (process.platform === "darwin") run(["security", "delete-keychain", keychain]); rmSync(dir, { recursive: true, force: true }); });
