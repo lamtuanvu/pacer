@@ -9,7 +9,7 @@ import { record } from "./read-model-helpers";
 import { fakeCtx } from "./helpers";
 import { renderDashboard } from "../src/dashboard/render";
 import { emptySnapshot } from "../src/link/envelope";
-import { cards } from "../src/dashboard/model";
+import { screenItems } from "../src/dashboard/render";
 import type { LinkSnapshot } from "../src/link/envelope";
 
 test("executor env carries the current task identity", () => {
@@ -27,12 +27,10 @@ test("needs_input is terminal and labelled in app, panel and TUI", () => {
   const task=apiTask(ctx,record("needs_input",100,{question:{text:"Which database?",at:100}}));
   const attention=deriveTaskItems({now:100,tasks:[task],executors:[],accounts:[],planner:null,setup:{complete:true,open:0,items:[]},update:null,retryTarget:()=>null});
   const current={...emptySnapshot(),at:100,tasks:[task],attention};
-  const card=cards(current,100).find(g=>g.title==="NEEDS YOU")!.cards[0];
-  expect(card.detail).toContain("Needs your answer");
-  expect(card.detail).toContain("Which database?");
-  expect(card.action).toMatchObject({op:"task.answer",params:{id:task.id}});
+  const item=screenItems(current,100).find(i=>i.id===`attention:${attention[0]!.id}`)!;
+  expect(item.primary?.effect).toMatchObject({type:"action",action:{op:"task.answer",params:{id:task.id}}});
   const tui=renderDashboard(current,150,24,100,{selected:0,noColor:true});
-  expect(tui).toContain("Needs your answer");
+  expect(tui).toContain("! Needs your answer");
   expect(tui).toContain("Which database?");
-  expect(tui).toContain("[⏎ answer]");
+  expect(tui).toContain(`⏎ ${item.primary!.label}`);
 });

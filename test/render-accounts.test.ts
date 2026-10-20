@@ -43,7 +43,7 @@ test("account metadata survives the link and appears in the dashboard",async()=>
  const st=await status(), s=parseSnapshot({...emptySnapshot(),budget:toBudget(st)})!;
  const board=boardSnapshot(st,validateStrategy(raw,"test"));
  expect(s.budget!.providers.find(p=>p.id==="codex#team")).toMatchObject({account:"team",agent:"codex",usedPct:34});
- expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true})).toMatch(/Codex\s+team\s+week.*34%/);
+ expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true})).toMatch(/Codex · team .*34%/);
  expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true,version:"0.2.3"}).split("\n").map(line=>line.trimEnd()).join("\n")).toMatchSnapshot();
  expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true}).split("\n")[1]).toContain("Claude");
 });
@@ -69,12 +69,12 @@ test("shared accounts group runner rows without changing executor preference",as
  strategy.hosts.desktop={alias:"desktop",ssh:"desktop",maxTasks:3,repos:{},accounts:{}};
  const s=boardSnapshot(st,strategy);
  const dash=renderDashboard(s,150,30,st.generatedAt,{selected:0,noColor:true});
- // The board keeps service order and repeats the shared account in its own column.
- const rows=dash.split("\n").filter(line=>/BytePlus\s+byteplus/.test(line));
+ // The board keeps service order and names each runner of the shared account.
+ const rows=dash.split("\n").filter(line=>/^\s+\d\s+BytePlus/.test(line));
  expect(rows).toHaveLength(2);
- expect(dash).toMatch(/1\s+BytePlus\s+byteplus/);
- expect(dash).toMatch(/2\s+Codex\s+team/);
- expect(dash).toMatch(/3\s+BytePlus\s+byteplus/);
+ expect(dash).toMatch(/1\s+BytePlus\s/);
+ expect(dash).toMatch(/2\s+Codex · team/);
+ expect(dash).toMatch(/3\s+BytePlus on desktop/);
  expect(s.accounts.find(a=>a.name==="byteplus")?.executors).toEqual(["opencode#byteplus","opencode#byteplus@desktop"]);
  expect(s.budget.ranked.map(p=>p.id)).toEqual(["opencode#byteplus","codex#team","opencode#byteplus@desktop"]);
 });
