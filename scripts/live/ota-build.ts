@@ -41,9 +41,14 @@ export function copyFixtureSource(source: string, destination: string, version: 
   };
   mkdirSync(destination, { mode: 0o700 });
   for (const name of readdirSync(source)) if (filter(join(source, name))) cpSync(join(source, name), join(destination, name), { recursive: true, dereference: false, filter });
+  // Fixtures always run at the synthetic baseline/candidate versions; the checkout's own
+  // version only has to be one stable version shared by every package identity.
+  const current = JSON.parse(readFileSync(join(destination, "package.json"), "utf8")).version;
+  if (typeof current !== "string" || !/^\d+\.\d+\.\d+$/.test(current)) throw Error("Fixture source version is not a stable release version");
+  const escaped = current.replaceAll(".", "\\.");
   for (const path of ["package.json", "desktop/src-tauri/tauri.conf.json"]) {
     const file = join(destination, path), value = JSON.parse(readFileSync(file, "utf8"));
-    if (value.version !== "0.2.3") throw Error("Fixture source baseline version changed");
+    if (value.version !== current) throw Error("Fixture source baseline version changed");
     value.version = version;
     if (path === "desktop/src-tauri/tauri.conf.json" && value.plugins) delete value.plugins["deep-link"];
     writeFileSync(file, JSON.stringify(value, null, 2) + "\n");
@@ -54,8 +59,9 @@ export function copyFixtureSource(source: string, destination: string, version: 
     let count = 0;
     const next = text.replace(pattern, (all, header: string, body: string) => {
       if (!/^name = "pacer-desktop"$/m.test(body)) return all;
-      if (!/^version = "0\.2\.3"$/m.test(body)) throw Error("Fixture native baseline changed");
-      count++; return header + body.replace(/^version = "0\.2\.3"$/m, `version = "${version}"`);
+      const pinned = new RegExp(`^version = "${escaped}"$`, "m");
+      if (!pinned.test(body)) throw Error("Fixture native baseline changed");
+      count++; return header + body.replace(pinned, `version = "${version}"`);
     });
     if (count !== 1) throw Error("Fixture native package identity missing");
     writeFileSync(file, next);

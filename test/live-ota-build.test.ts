@@ -47,6 +47,23 @@ test("source snapshot changes only isolated version inputs and excludes live dat
   copyFixtureSource(source, join(source, ".work/live/test/ota/build/diagnostics/source-2"), "0.2.3");
   expect(() => copyFixtureSource(source, join(source, ".work/live/test/ota/build/diagnostics/source-5"), "0.2.3")).toThrow();
 });
+test("fixture sources at any one stable release version become the synthetic baseline", () => {
+  const make = (cargo: string) => {
+    const source = realpathSync(tmpDir()), destination = join(source, ".work/live/test/ota/build/baseline/source");
+    mkdirSync(join(source, "desktop/src-tauri"), { recursive: true }); mkdirSync(join(source, "src"));
+    writeFileSync(join(source, "package.json"), JSON.stringify({ version: "0.5.0" }));
+    writeFileSync(join(source, "desktop/src-tauri/tauri.conf.json"), JSON.stringify({ version: "0.5.0" }));
+    writeFileSync(join(source, "desktop/src-tauri/Cargo.toml"), `[package]\nname = "pacer-desktop"\nversion = "${cargo}"\n`);
+    writeFileSync(join(source, "desktop/src-tauri/Cargo.lock"), '[[package]]\nname = "pacer-desktop"\nversion = "0.5.0"\n');
+    return { source, destination };
+  };
+  const ok = make("0.5.0");
+  copyFixtureSource(ok.source, ok.destination, "0.2.3");
+  expect(JSON.parse(readFileSync(join(ok.destination, "package.json"), "utf8")).version).toBe("0.2.3");
+  expect(readFileSync(join(ok.destination, "desktop/src-tauri/Cargo.lock"), "utf8")).toContain('version = "0.2.3"');
+  const mixed = make("0.4.0");
+  expect(() => copyFixtureSource(mixed.source, mixed.destination, "0.2.3")).toThrow("Fixture native baseline changed");
+});
 test("host fixture feed preserves production URL and does not fabricate another architecture", () => {
   const feed = JSON.parse(fixtureFeed("aarch64", Buffer.from("archive"), "signature"));
   expect(Object.keys(feed.platforms)).toEqual(["darwin-aarch64"]);
