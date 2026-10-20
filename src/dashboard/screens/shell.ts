@@ -171,10 +171,10 @@ function helpLines(input: FrameInput): Line[] {
   const screen = effectiveScreen(input.s, input.state.screen);
   const offered = (op?: string) => !op || input.ops === undefined || input.ops.includes(op);
   const switchKeys = `1-${tabs(input.s).length} / Tab Shift-Tab`;
-  const group = (title: string, rows: HelpRow[]): Line[] => [heading(input.theme, title), ...rows.filter(([, , op]) => offered(op)).map(([k, label]): Line => {
-    const keys = k === "TABS" ? switchKeys : k;
-    return [span(keys.padEnd(Math.max(12, keys.length + 2)), { bold: true }), span(label, { fg: "secondary" })];
-  })];
+  const keysOf = (k: string) => k === "TABS" ? switchKeys : k;
+  // One key column for the whole overlay, as wide as its longest key.
+  const column = Math.max(12, ...[...HELP, ...(SCREEN_HELP[screen] ?? [])].map(([k]) => keysOf(k).length + 2));
+  const group = (title: string, rows: HelpRow[]): Line[] => [heading(input.theme, title), ...rows.filter(([, , op]) => offered(op)).map(([k, label]): Line => [span(keysOf(k).padEnd(column), { bold: true }), span(label, { fg: "secondary" })])];
   return [...group("Anywhere", HELP), [], ...group(SCREEN_LABELS[screen], SCREEN_HELP[screen] ?? [])];
 }
 

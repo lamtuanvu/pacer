@@ -349,3 +349,10 @@ test("Done when shows no dangling separator when the check has no extra facts", 
   const line = text.split("\n").find(l => l.includes("Tests passed"))!;
   expect(line).not.toMatch(/Tests passed ·/);
 });
+
+test("help labels line up in one column", () => {
+  const rows = frame("review", 120, 40, { state: { overlay: { kind: "help" } } }).split("\n").filter(line => /Switch screen|Primary action|Accept and bring back/.test(line));
+  expect(rows).toHaveLength(3);
+  const at = (line: string, label: string) => line.indexOf(label);
+  expect(new Set([at(rows[0]!, "Switch screen"), at(rows[1]!, "Primary action"), at(rows[2]!, "Accept and bring back")]).size).toBe(1);
+});
