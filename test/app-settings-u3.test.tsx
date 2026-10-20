@@ -96,12 +96,16 @@ test('a passed host connection check cannot make an executor Ready',()=>{
 });
 
 test('Accounts show usage words, sign-in pills, used-by and sign-in commands only in a disclosure',()=>{
- const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id],signin_command:'CODEX_HOME=$HOME/.codex-team codex login'},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'}];
+ const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id]},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
+  {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
  const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral initialData={{...settings,accounts}}/>,s);
  expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
- expect(html).toMatch(/pc-pill[^>]*>Signed in<\/span>/);expect(html).toMatch(/pc-pill[^>]*>No subscription<\/span>/);expect(html).toMatch(/pc-pill[^>]*>Unknown<\/span>/);
+ for(const label of ['Signed in','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+ expect(html).toContain('<th>Status</th>');expect(html).not.toContain('<th>Sign-in</th>');
  expect(html).toContain('<th>Used by</th>');expect(html).toContain(executor.id);
+ // Sign-in help only for native accounts known to be signed out (here: empty and out), never for endpoints.
+ expect(html.match(/<summary>Fix sign-in<\/summary>/g)).toHaveLength(2);
  expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
 });
 

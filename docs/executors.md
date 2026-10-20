@@ -65,8 +65,15 @@ warning. The planner is protected from these changes.
 `agent.detect` reports installed agents, versions and install hints.
 `runner.check { id }` starts a shared job that checks CLI presence, sign-in,
 usage and a scratch task that writes `hello.txt` containing `ok`. It never runs
-the test in a user repository. The row shows `checking` while running and
-`lastCheck` after completion; a failed check shows `failing` and executor attention.
+the test in a user repository. **Signed in** uses the account's local sign-in
+state (see [accounts](accounts.md#sign-in-state)), not a usage reading; for a
+remote runner the test task checks the host's login. **Usage readable** is
+skipped, with the reason, when a Claude or Codex account has no usage reading yet
+(Claude usage comes from the Claude Code status line, Codex usage from its
+session logs); routing treats that usage as unknown, so it does not fail the
+check. A usage reader error still fails it. The row shows `checking` while
+running and `lastCheck` after completion; a failed check shows `failing` and
+executor attention.
 
 Capacity rows use the configured executor limit and report `full` when the
 executor, host or shared local machine limit is reached, naming the binding limit.

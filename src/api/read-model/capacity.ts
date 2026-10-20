@@ -33,6 +33,8 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
   else if(jobs.some(j=>j.kind==="runner.check"&&j.target===id&&j.state==="running")){state="checking";}
   else if(p?.blockedReason){state="blocked";reason=p.blockedReason;}
   else if(p?.brokenReason || p?.unavailableReason || p?.installed===false){state="down";reason=p.brokenReason??p.unavailableReason??"not installed";}
+  // Routing excludes a signed-out executor (engine/status), so it is never shown as Ready.
+  else if(p?.signedOutReason){state="down";reason=p.signedOutReason;}
   else if(p?.verdict==="EXHAUSTED"){state="exhausted";}
   else if(lastCheck?.passed===false){state="failing";reason=lastCheck.detail;}
   else if(recentFailures>=2){state="failing";reason=`${recentFailures} recent failures`;}
@@ -47,10 +49,26 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
  if(next)rows.find(r=>r.id===next.id)!.next=true;
  return rows;
 }
+/**
+ * Sign-in comes from the status, which applies the shared local sign-in check
+ * (usage/signin.ts) to each local, non-planner runner, so an account and its
+ * executors never disagree. Endpoints have no sign-in (null). Planner-only and
+ * remote-only accounts are not checked locally: false after a recorded
+ * authentication failure, otherwise null.
+ */
+function signedIn(st: Status,s: Strategy,name: string,failures: Record<string,number>): boolean|null {
+ if(s.accounts[name]?.kind==="endpoint")return null;
+ const checked=Object.values(s.runners).filter(r=>r.account===name&&r.host===null&&!(r.agent===s.planner.agent&&r.account===s.planner.account)).map(r=>st.providers.find(p=>p.id===r.id||p.id===r.name)).filter(p=>!!p);
+ if(checked.some(p=>p.signedOutReason))return false;
+ if(checked.length)return true;
+ // Remote-only and planner-only accounts keep a recorded authentication failure.
+ return Object.hasOwn(failures,name)?false:null;
+}
 export function buildAccounts(st: Status,s: Strategy,ctx?: Ctx): AccountSummary[] {
+ const failures=ctx?readAuthFailures(ctx):{};
  return Object.values(s.accounts).map(a=>{
   const runners=Object.values(s.runners).filter(r=>r.account===a.name),p=st.providers.find(p=>p.account===a.name||runners.some(r=>r.id===p.id)),status=st.accounts?.find(row=>row.name===a.name);
-  return {name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:ctx && Object.hasOwn(readAuthFailures(ctx),a.name) ? false : status && "signedIn" in status && status.signedIn===true ? true : null,executors:runners.map(r=>r.id)};
+  return {name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id)};
  });
 }
 export function buildPlanner(st: Status): PlannerMeter | null {

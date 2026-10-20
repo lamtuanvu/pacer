@@ -189,9 +189,34 @@ pacer account rm acme
 ```
 
 Account JSON includes kind, source, folder or Orca id, usage settings and
-`usageReading`, runner ids, `runnable`, and `signedIn`. Native sign-in state is
-`null` because pacer does not inspect credentials; a linked Orca identity is
-reported as signed in. Runner JSON includes id, agent, account, host and model.
+`usageReading`, runner ids, `runnable`, and `signedIn`. Runner JSON includes id,
+agent, account, host and model.
+
+### Sign-in state
+
+`signedIn` is the account's local sign-in on this machine. One check supplies it
+to `account list`, routing (`pacer route`), the Executors and Accounts screens,
+account attention and `runner.check`:
+
+| Account | `signedIn` |
+| --- | --- |
+| Claude, Codex or Cursor with a local runner or no runners | `true` when the agent's own config shows a login, otherwise `false`; also `false` after an authentication failure recorded since that login |
+| Used only by remote runners | `false` after a recorded authentication failure, otherwise `null` (the login lives on the host) |
+| Orca account whose folder is missing | `true` for a linked Orca identity, otherwise `null` |
+| Endpoint | `null`: endpoints use keys, so their endpoint state (Ready, Not tested, Not working, Key missing) is shown instead |
+
+The login check never reads credentials. It looks for an `oauthAccount` entry in
+Claude's `.claude.json`, the presence of Codex's `auth.json`, or Cursor's
+`authInfo`, in the account's folder, or for the agent's API key variable in
+pacer's environment. A recorded authentication failure stops counting once the
+agent rewrites that file, for example after you log in again.
+
+A signed-out executor is excluded from routing with the reason
+`signed out — <fix>`, shown as Unavailable with that reason in the Executors
+table, and raises one **Sign in** attention item for its account. `signin_command`
+and the app's **Fix sign-in** appear only for a native account that is signed out.
+The planner's own runner is not excluded this way; setup reports a signed-out
+planner instead.
 
 Account removal is refused while the planner or any runner uses the account.
 Runner removal is refused for the planner and the last runner; successful

@@ -1,6 +1,6 @@
 import { statusTimer } from "../usage/trace";
-import { loginIndicator } from "../install/login";
-import { resolve } from "node:path";
+import { accountSignIn } from "../usage/signin";
+import { readAuthFailures } from "../usage/auth";
 import { readPause, type PauseState } from "../core/pause";
 import { readHold, type ModeHold } from "../core/mode-hold";
 import { readEndpointState } from "../endpoints/state";
@@ -100,18 +100,16 @@ export async function computeStatus(
   }));
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
+  const authFailures = readAuthFailures(ctx);
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
     const { account, reading, windows, binding, verdict, endpointReason } = byAccount[runner.account];
-    const folder = account.home ? resolve(account.home.replace(/^~(?=\/|$)/, ctx.home))
-      : account.source === "orca" && (account.kind === "claude" || account.kind === "codex")
-        ? orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ?? undefined : undefined;
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
-    const login = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? loginIndicator(ctx, runner.agent, folder) : null;
+    const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, authFailures) : null;
     return {
       id: runner.name, account: account.name, usage: account.usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
-      ...(login && !login.loggedIn ? { signedOutReason: `signed out — ${login.fix.startsWith("run ") ? login.fix : `run ${login.fix}`}` } : {}),
+      ...(signIn?.signedIn === false ? { signedOutReason: signIn.reason } : {}),
       ...(endpointReason ? {unavailableReason: endpointReason} : {}),
       installed: runner.host !== null || ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
       stale: reading.stale,

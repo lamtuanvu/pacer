@@ -79,6 +79,26 @@ const executorStates: Record<string, Status> = {
   disabled: status("Disabled", "neutral", "■"), checking: status("Checking", "info", "…"),
 };
 export const executorStatus = (state: string): Status => Object.hasOwn(executorStates, state) ? executorStates[state]! : unknownStatus;
+const endpointStates: Record<string, Status> = {
+  ready: executorStates.ready!, not_tested: status("Not tested", "neutral", "…"),
+  not_working: status("Not working", "bad", "✕"), key_missing: status("Key missing", "bad", "✕"),
+  external: status("External provider", "neutral", "■"),
+};
+export interface AccountStateInput { kind?: string; signedIn?: boolean | null; state?: string | { state?: string } }
+/**
+ * One readiness label per account. Native accounts show local sign-in; endpoint
+ * accounts have keys rather than a sign-in, so they show their endpoint state.
+ */
+export function accountStatus(account: AccountStateInput): Status {
+  const state = typeof account.state === "string" ? account.state : account.state?.state;
+  if (account.kind === "endpoint") return state && Object.hasOwn(endpointStates, state) ? endpointStates[state]! : unknownStatus;
+  if (state === "no_subscription") return status("No subscription", "neutral", "■");
+  if (account.signedIn === true) return status("Signed in", "good", "✓");
+  if (account.signedIn === false) return status("Signed out", "bad", "✕");
+  return unknownStatus;
+}
+/** Sign-in help applies only to a native account known to be signed out. */
+export const accountNeedsSignIn = (account: AccountStateInput): boolean => account.kind !== "endpoint" && account.signedIn === false;
 const paceStates: Record<string, Status> = {
   behind: status("Behind pace", "good", "↓"), on_pace: status("On pace", "good", "✓"),
   ahead: status("Ahead of pace", "warn", "↑"), out: taskStates.limit!,
