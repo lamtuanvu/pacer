@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.5.0 (retire the Orca plugin) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.4.0 was adopted on 2026-10-19 by merging #193. | Version: 0.5.0 | Updated: 2026-10-20
+Status: Amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.6.0 | Updated: 2026-10-20
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -71,11 +71,18 @@ The maintainer's approval is the merge decision. Reviewers identify violations a
 
 Other reviewers remain advisory. This amendment changes no remote branch protection and gives no bot approval authority.
 
-**Amendment 0.5.0 — retire the Orca plugin (proposed; adopted only by the maintainer merging this amendment PR):**
+**Amendment 0.5.0 — retire the Orca plugin (adopted 2026-10-20 by merging #209):**
 
 - The Orca plugin (worker, panel, marketplace manifest, `orca-plugin` branch and tags) is removed. The Orca execution backend (`src/exec/orca`, Orca accounts) stays. See [ADR retire-orca-plugin](../docs/decisions/2026-10-20-retire-orca-plugin.md).
 - Retired: P7, ARCH-6, UI-5, REL-4, REL-7 and CT-10. Their IDs stay reserved and are not reused.
 - Narrowed: P8 and ARCH-4 keep only "`src/core` never imports `src/exec/orca`". P11 and CT-5 no longer cover plugin `dist/` or `plugin:build`. Client lists and Applies-to lines no longer name the Orca panel or `orca-plugin/**`.
+
+**Amendment 0.6.0 — automated releases (proposed; adopted only by the maintainer merging this amendment PR):**
+
+- REL-2 now describes the automated flow. The maintainer runs **Prepare release** on `main` (bump `auto`, `patch`, `minor` or `major`). It picks the version from Conventional Commit titles since the last tag, runs `release:prepare`, opens the `chore: release x.y.z` PR, dry-runs that branch and turns on auto-merge only after the dry run passes. When the PR merges, **Release tag** creates the annotated tag `vx.y.z` at the merge commit, which runs `release.yml`. The manual flow stays as a fallback.
+- Running Prepare release is the maintainer's merge decision for that release PR. Auto-merge still waits for every required check, and only users with write access can dispatch the workflow. This gives no bot approval authority over any other PR.
+- UI-24 does not apply to a PR whose UI-scoped changes are only version strings (`"version": "x.y.z"` and `APP_VERSION`). CI verifies every changed line of every UI-scoped file before exempting it; any other UI change in the same PR needs the full reports.
+- Release writes use the repository secret `RELEASE_TOKEN`, a fine-grained token scoped to this repository (Contents, Pull requests and Workflows: read and write), because GitHub does not run workflows for `GITHUB_TOKEN` pushes. Tags are never moved, and a version whose tag exists is never re-tagged.
 
 ## Workflow choice
 

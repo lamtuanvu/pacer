@@ -2,7 +2,7 @@
 
 Role: Check that a release or distribution change follows the documented flow and keeps artifacts verifiable.
 Human owner/approver: @lamtuanvu (the maintainer pushes the tag)
-Applies when: `package.json` version, `CHANGELOG.md`, `scripts/release*`, `release.yml`, `desktop.yml`, `npm/**`, or the Homebrew formula changes.
+Applies when: `package.json` version, `CHANGELOG.md`, `scripts/release*`, `release.yml`, `release-prepare.yml`, `release-tag.yml`, `desktop.yml`, `npm/**`, or the Homebrew formula changes.
 Excludes: feature PRs that only add CHANGELOG Unreleased entries.
 Review requirement: Advisory. The `release.yml` verify job is the enforced check.
 
