@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Guided OpenCode endpoint setup: `pacer account add` and Settings › Add executor list providers already signed in to OpenCode, local model servers (Ollama, LM Studio) and catalog providers, recommend a model that can call tools, set the usage type from the models.dev catalog and offer an optional weekly dollar cap. Signed-in providers are stored as `source: opencode` accounts that refer to the provider and never hold its key. `pacer account add opencode <provider> [--model] [--cap-usd] [--name] [--no-test]` does it in one command. Spend is read in dollars from `opencode stats --cost`, and new API ops `executor.setup.candidates`, `executor.setup.models` and `executor.setup.connect` serve the app.
+
 ## [0.5.0] - 2026-10-20
 
 ### Added

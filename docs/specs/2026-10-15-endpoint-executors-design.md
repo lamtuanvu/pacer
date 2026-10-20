@@ -52,6 +52,8 @@ pacer reports **Ready** only after that test task succeeds.
 
 ### 1. The account owns the connection
 
+> Since 2026-10-20, providers signed in to OpenCode are referenced as `source: opencode` accounts instead of adopted; see [OpenCode endpoint setup](2026-10-20-opencode-endpoint-setup-design.md).
+
 An endpoint account gains a `connection`:
 
 ```yaml

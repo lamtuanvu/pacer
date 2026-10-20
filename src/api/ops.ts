@@ -23,6 +23,7 @@ import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
+import * as opencodeSetup from "../core/opencode-setup";
 import { redactEndpointMessage } from "../endpoints/state";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
@@ -79,6 +80,11 @@ const endpointFields = {
   weekly_tokens: z.number().int().positive().optional(), quota_source: z.string().min(1).optional(), test: z.boolean().optional(),
 };
 const endpointEdit = z.object({name: id, ...endpointFields}).partial().required({name: true});
+const setupGroup = z.enum(["signed_in", "local", "catalog"]);
+const opencodeProvider = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/);
+/** An executor that refers to a provider OpenCode is already signed in to; pacer never stores its key. */
+const opencodeAccount = z.object({kind: z.literal("endpoint"), source: z.literal("opencode"), provider: opencodeProvider, model: z.string().min(1),
+  name: id.regex(/^[a-z0-9][a-z0-9-]*$/).optional(), cap_usd: z.number().positive().optional(), usage: z.enum(["quota", "metered", "unmetered"]).optional(), test: z.boolean().optional()});
 async function endpointAction<T>(key: string | undefined, action: () => T | Promise<T>): Promise<T> {
   try { return await action(); }
   catch (error) {
@@ -185,18 +191,23 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, p, deps.terminal) }),
   "account.add": op({
-    description: "Create a Claude or Codex account home, or configure and test a model endpoint.",
-    params: z.discriminatedUnion("kind", [
+    description: "Create a Claude or Codex account home, configure and test a model endpoint, or add an executor for a provider OpenCode is signed in to (source: opencode).",
+    // `source: opencode` is tried first so it is not read as a pacer-managed endpoint.
+    params: z.union([opencodeAccount, z.discriminatedUnion("kind", [
       z.object({kind: z.literal("claude"), name: id, home: z.string().min(1).optional()}),
       z.object({kind: z.literal("codex"), name: id, home: z.string().min(1).optional()}),
       z.object({kind: z.literal("endpoint"), name: id, ...endpointFields}),
-    ]),
+    ])]),
     handler: (ctx, p, deps) => mutation(ctx, "accounts", async () => {
+      if ("source" in p) return opencodeSetup.addOpencodeAccount(ctx, p, deps.endpoint);
       if (p.kind === "endpoint") return endpointAction(p.key, () => endpoints.addEndpoint(ctx, p, deps.endpoint));
       const {migrated} = await accounts.add(ctx, p);
       return {...(migrated ? {migrated} : {}), account: (await accounts.list(ctx)).find(a => a.name === p.name)!};
     }),
   }),
+  "executor.setup.candidates": op({ description: "OpenCode providers, local model servers and catalog providers that can become executors; no secrets.", params: z.object({}), handler: (ctx, _p, deps) => opencodeSetup.setupCandidates(ctx, deps.endpoint) }),
+  "executor.setup.models": op({ description: "Usable models for one setup candidate, with a recommended pick and usage type.", params: z.object({provider: z.string().min(1), group: setupGroup, base_url: endpointFields.base_url.optional()}), handler: (ctx, p, deps) => opencodeSetup.setupModels(ctx, p, deps.endpoint) }),
+  "executor.setup.connect": op({ description: "Connect a catalog provider through OpenCode, which stores the key (never pacer). This release runs nothing and returns the opencode auth login command to run in a terminal; an optional key is accepted for later releases and never used or stored.", params: z.object({provider: opencodeProvider, key: z.string().min(1).optional()}), handler: (ctx, p) => endpointAction(p.key, () => opencodeSetup.connectWithKey(ctx, p.provider)) }),
   "account.models": op({ description: "Discover endpoint models using a supplied or stored key.", params: z.object({name: id.optional(), base_url: endpointFields.base_url.optional(), key: z.string().optional()}), handler: (ctx, p, deps) => endpointAction(p.key, () => endpoints.listModels(ctx, p, deps.endpoint)) }),
   "account.edit": op({ description: "Edit a managed endpoint and regenerate its OpenCode provider.", params: endpointEdit, handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.editEndpoint(ctx, p, deps.endpoint))) }),
   "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),

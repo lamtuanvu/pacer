@@ -43,7 +43,7 @@ test('executor usage follows the account/planner verdict independently of readin
   snapshot.planner = {...snapshot.planner!,usedPct:37,pacePct:20,verdict:'ahead'};
   const executor = {...snapshot.executors![0]!,id:snapshot.planner.runner,state:'ready' as const,tone:'good' as const,usedPct:37};
   expect(executorPace(executor,snapshot)).toEqual(paceStatus('ahead'));
-  snapshot.accounts = [{name:executor.account,agent:executor.agent,source:'default',usedPct:37,pacePct:20,window:'week',resetsAt:null,verdict:'AHEAD',signedIn:true,executors:['other']}];
+  snapshot.accounts = [{name:executor.account,agent:executor.agent,source:'default',usedPct:37,pacePct:20,window:'week',resetsAt:null,verdict:'AHEAD',signedIn:true,executors:['other'],spendUsdWeek:null,capUsdWeek:null}];
   expect(executorPace({...executor,id:'other'},snapshot)).toEqual(paceStatus('ahead'));
   expect(executorPace({...executor,id:'unknown',account:'missing'},snapshot)).toEqual(paceStatus('unknown'));
 });

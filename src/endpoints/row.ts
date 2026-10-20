@@ -5,6 +5,7 @@ import { readEndpointState } from "./state";
 
 /** Safe, shared account.list fields for CLI and app API callers. */
 export async function endpointRow(ctx: Ctx, account: AccountCfg) {
+  if (account.source === "opencode") return {...readEndpointState(ctx, account.name), opencode: {provider: account.provider}};
   if (!account.connection) return account.kind === "endpoint" ? {state: "external" as const} : {};
   const connection = account.connection;
   const present = await hasKey(ctx, account.name, connection.key);

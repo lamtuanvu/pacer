@@ -85,3 +85,20 @@ export function jobStateCopy(state: string): string {
   };
   return labels[state] ?? plainProgressLabel(state);
 }
+
+/** How an endpoint account is billed, as a short pill (shared by setup screens). */
+export type UsageKind = "quota" | "metered" | "unmetered";
+export const USAGE_KIND_WORDS: Record<UsageKind, { label: string; tone: "good" | "neutral" }> = {
+  quota: { label: "Quota", tone: "neutral" },
+  metered: { label: "Metered", tone: "neutral" },
+  unmetered: { label: "Free", tone: "good" },
+};
+export const USAGE_UNKNOWN = { label: "Usage unknown", tone: "neutral" as const };
+
+/** An endpoint account's weekly dollar spend, with its cap when set: "$3.20 of $5 this week · cap reached". */
+export function spendCopy(spendUsd: number | null | undefined, capUsd: number | null | undefined): string | null {
+  if (spendUsd === null || spendUsd === undefined) return null;
+  const spend = `$${spendUsd.toFixed(2)}`;
+  if (!capUsd) return `${spend} this week`;
+  return `${spend} of $${capUsd} this week${spendUsd >= capUsd ? " · cap reached" : ""}`;
+}

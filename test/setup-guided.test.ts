@@ -105,7 +105,7 @@ test("planner connection uses manifest integrity, login and the selected account
  expect((await checkSetup(ctx,{snapshotProbe:false,deferStatus:true})).items.find(i=>i.id==="connect")?.status).toBe("pending");
  // A dedicated planner account must not silently connect the default home.
  const folder=join(home,"work-codex");
- writeFileSync(join(ctx.pacerHome,"strategy.yaml"),`planner: codex#work\naccounts:\n  work:\n    kind: codex\n    source: home\n    home: ${folder}\nrunners:\n  codex#work: {}\n`);
+ writeFileSync(join(ctx.pacerHome,"strategy.yaml"),`planner: codex#work\naccounts:\n  work:\n    kind: codex\n    home: ${folder}\nrunners:\n  codex#work: {}\n`);
  expect(loadStrategy(ctx).planner.account).toBe("work");
  expect(agentPreview(ctx,"codex").files).toContain(join(folder,"AGENTS.md"));
  await agentConnect(ctx,"codex",{consent:true});

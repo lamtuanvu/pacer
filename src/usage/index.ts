@@ -69,7 +69,7 @@ export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: R
     via: account.kind === "endpoint" ? "opencode" : null, model,
     usage: account.usage, allowPaid: account.allowPaid, cooldownS: account.cooldownS,
     quotaSource: account.quotaSource === "arkcli" || account.usageSource === "arkcli" ? "arkcli" : null,
-    weeklyTokens: account.weeklyTokens,
+    weeklyTokens: account.weeklyTokens, weeklyUsd: account.weeklyUsd,
   };
   // Orca is never a usage source; a legacy usage_source: orca reads natively (claude/codex) or reactively.
   if (account.usageSource === "orca" && account.kind !== "claude" && account.kind !== "codex") cfg.usage = "reactive";

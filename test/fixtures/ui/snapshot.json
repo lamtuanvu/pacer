@@ -553,7 +553,9 @@
    "signedIn": true,
    "executors": [
     "codex#team@devbox"
-   ]
+   ],
+   "spendUsdWeek": null,
+   "capUsdWeek": null
   }
  ],
  "hosts": [

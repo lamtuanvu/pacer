@@ -5,6 +5,7 @@ import { loadStrategy } from "../config/strategy";
 import { launchFor, runnerEnv } from "../exec/launch";
 import { execProcess, executorEnv, type ExecSpec, type ExecResult } from "../exec/process";
 import type { Ctx } from "../types";
+import { configProviders, signedInProviders } from "./detect";
 import { redactEndpointError, writeEndpointState, type EndpointState } from "./state";
 
 export interface TestTaskDeps { spawn?: (spec: ExecSpec) => Promise<ExecResult> }
@@ -43,7 +44,16 @@ async function runInTestRepo(ctx: Ctx, runnerId: string, deps: TestTaskDeps, dir
 
 export async function testEndpoint(ctx: Ctx, name: string, deps: TestTaskDeps = {}): Promise<EndpointState> {
   const strategy = loadStrategy(ctx), account = strategy.accounts[name];
-  if (!account?.connection) throw Error("a configured endpoint connection is required");
+  if (!account?.connection && account?.source !== "opencode") throw Error("a configured endpoint connection is required");
+  if (account.source === "opencode" && account.provider) {
+    const signed = await signedInProviders(ctx);
+    const configured = configProviders(ctx).some(p => p.id === account.provider);
+    if (signed !== null && !configured && !signed.some(p => p.id === account.provider)) {
+      const missing: EndpointState = {state: "key_missing", detail: `Run opencode auth login ${account.provider}`};
+      writeEndpointState(ctx, name, missing);
+      return missing;
+    }
+  }
   const runner = Object.values(strategy.runners).find(r => r.account === name && r.agent === "opencode");
   if (!runner) throw Error("endpoint runner not configured");
   let state: EndpointState;
