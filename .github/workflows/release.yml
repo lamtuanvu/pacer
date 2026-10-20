@@ -122,7 +122,8 @@ jobs:
             target: aarch64-unknown-linux-gnu
             platform: linux-arm64
             cli_artifact: binaries-ubuntu-latest
-            bundles: appimage,deb
+            # linuxdeploy's patchelf corrupts the bundled arm64 CLI, so no AppImage until that is fixed.
+            bundles: deb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -165,6 +166,8 @@ jobs:
           BUNDLES: ${{ matrix.bundles }}
         run: bunx --no-install tauri build --target "$TARGET" --bundles "$BUNDLES" --no-sign
       - name: Collect unsigned desktop bundles
+        env:
+          BUNDLES: ${{ matrix.bundles }}
         run: |
           bundle="desktop/src-tauri/target/$TARGET/release/bundle"
           mkdir -p dist/desktop
@@ -173,7 +176,9 @@ jobs:
               cp "$bundle"/dmg/*.dmg "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.dmg"
               ;;
             linux-*)
-              cp "$bundle"/appimage/*.AppImage "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.AppImage"
+              case ",$BUNDLES," in
+                *,appimage,*) cp "$bundle"/appimage/*.AppImage "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.AppImage" ;;
+              esac
               cp "$bundle"/deb/*.deb "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.deb"
               ;;
             *) exit 1 ;;
