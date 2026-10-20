@@ -19,8 +19,9 @@ pacer does not handle their credentials.
 If another pacer CLI is found, choose **Use the app's pacer** or **Keep mine**.
 The app does not silently overwrite an existing terminal command.
 
-Linux downloads are `pacer-<version>-linux-<x64|arm64>-unsigned.AppImage` and
-`pacer-<version>-linux-<x64|arm64>-unsigned.deb` on the same release page.
+Linux downloads are `pacer-<version>-linux-x64-unsigned.AppImage` and
+`pacer-<version>-linux-<x64|arm64>-unsigned.deb` on the same release page
+(arm64 has no AppImage yet).
 Choose the matching architecture. Make the AppImage executable and launch it,
 or install the `.deb` with `sudo apt install ./<downloaded-file>.deb` and run
 `pacer-desktop`. Linux uses the same consent and Setup flow. See the
