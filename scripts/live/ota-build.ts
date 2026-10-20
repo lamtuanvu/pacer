@@ -100,6 +100,8 @@ async function createFixtureSigner(directory: string, run: (argv: string[], cwd?
   await run(["/usr/bin/openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "7", "-keyout", p("signer.key"), "-out", p("signer.pem"), "-config", p("signer.cnf")], directory, true);
   await run(["/usr/bin/openssl", "pkcs12", "-export", "-inkey", p("signer.key"), "-in", p("signer.pem"), "-out", p("signer.p12"), "-passout", `pass:${password}`], directory, true);
   await run(["/usr/bin/security", "create-keychain", "-p", password, keychain], directory, true);
+  // A new keychain locks after five idle minutes; a slow build reaches signing later than that.
+  await run(["/usr/bin/security", "set-keychain-settings", "-t", "21600", keychain], directory, true);
   await run(["/usr/bin/security", "unlock-keychain", "-p", password, keychain], directory, true);
   await run(["/usr/bin/security", "import", p("signer.p12"), "-k", keychain, "-P", password, "-T", "/usr/bin/codesign"], directory, true);
   await run(["/usr/bin/security", "set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", password, keychain], directory, true);
