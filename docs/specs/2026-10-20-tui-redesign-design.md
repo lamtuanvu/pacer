@@ -150,7 +150,7 @@ Data: `snapshot` only, through `needsYou`, `running`, `capacity`, `doneToday`, `
 
 ```
  ▬┃ pacer  [ Home ]  Review 2  Sessions 2  Settings                               All repos · Normal · ● live 08:00
- Claude planner  ━━━━━━━━━━━━━┃━━━━━━───────  63% used · pace 77%  ↓ Behind pace  14 pts under pace — spend it  10 active-h
+ Claude Code planner  ━━━━━━━━━━━━━┃━━━━━━───────  63% used · pace 77%  ↓ Behind pace  14 pts under pace — spend it  10 active-h
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   NEEDS YOU  4
  › ✕ Unavailable        buildbox is not answering                      ssh failed twice · last answered 40m ago   07:40
@@ -181,17 +181,29 @@ Data: `snapshot` only, through `needsYou`, `running`, `capacity`, `doneToday`, `
 - Empty states use the app copy: "Nothing needs you.", "Nothing running. Delegate a task, or ask your planner to.", "No executors yet. Add one in Settings › Executors.", "Nothing finished yet today."
 - When scoped to a repo, the heading adds "+2 in other repos" (`otherReposNeedingYou`). Budgets stay global; the scope line reads "acme/api · budgets are shared across repos".
 
-At 80×24 the planner strip keeps the meter and verdict; Needs you drops the time and repo columns; Running shows status, title and output; Capacity shows rank, name, status, used %, slots.
+At 80×24 the top bar drops the repo scope and mode and keeps the live indicator; the planner strip keeps the meter and verdict; Needs you drops the time and repo columns; Running shows status, title and output; Capacity shows rank, name, status, used %, slots.
 
 ```
- ▬┃ pacer [Home] Review 2  Sessions 2  Settings              Normal · ● 08:00
- Claude  ━━━━━━━━┃━━───  63% · pace 77%  ↓ Behind pace
+ ▬┃ pacer   [ Home ]  Review 2  Sessions 2  Settings               ● live 08:00
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
-  NEEDS YOU  4
- › ✕ Unavailable   buildbox is not answering   ssh failed twice · last answe…
-   ✕ Failed        Retry budget refresh on 429  Failed twice on Antigravity …
+   14 pts under pace — spend it.
+
+   NEEDS YOU  4
+ › ✕ Unavailable         buildbox is not answering   ssh failed twice · last a…
+   ✕ Failed              Retry budget refresh on 4…  Failed twice on Antigravi…
+   ◐ Waiting for review  Fix flaky retry test in t…  Tests passed · 11:58
+   ◐ Waiting for review  Add dark mode to the web…   Tests passed · 12:13
+
+   RUNNING  2 · 1 queued
+   ▶ Editing         Add SSH keepalive to remote runs        Codex · team on d…
+                     running 14m · 6 files · 2 commits · output 8s ago
    …
- ⏎ Run checks · . actions · ? help                          pacer 0.3.1
+   CAPACITY  2/4 executors ready
+ ↓ 13 more
+ ──────────────────────────────────────────────────────────────────────────────
+
+ ⏎ Run checks  x dismiss  . actions (3)  f repo scope  ? help  pacer 0.0.0-test
 ```
 
 ### Review
@@ -200,7 +212,7 @@ Data: `reviewQueue` (attention items of kind `review`, oldest first, scoped by r
 
 ```
  ▬┃ pacer   Home  [ Review ]  Sessions 2  Settings                                    All repos · Normal · ● live 08:00
- Claude planner  …
+ Claude Code planner  …
  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   REVIEW QUEUE  2                          │ Fix flaky retry test in the payments client
  › ◐ Fix flaky retry test in the paym…  07:30│ ◐ Waiting for review · Codex · team on devbox · ran 50m · pacer/review → main
@@ -284,7 +296,7 @@ Shown instead of Home/Review/Sessions while `setup.complete` is false, and as ta
 | State | Treatment |
 | --- | --- |
 | First connection | Body: spinner + "Connecting to pacer…"; header shows "○ connecting". |
-| Service unavailable | The existing in-process fallback continues; the message line reads "! pacer serve unavailable; working locally" (warn) and the header shows "○ local". |
+| Service unavailable | The existing in-process fallback continues; the message line reads "! pacer serve unavailable; working locally" (warn) and the header shows "○ local". The warning stays until the first local read has drawn, then for 5 s, so a slow local read cannot hide it. |
 | Not responding | Header "○ not responding · updated 07:58" (warn) when a read fails after an earlier success; it returns to "● live" on the next successful read. Liveness follows the dashboard's own reads, because a quiet service keeps its snapshot time unchanged (found in live validation). |
 | Section/detail loading | "Loading task…", "Loading…" with spinner unless motion is off; previous content stays visible while refreshing ("Updating…"). |
 | Errors | `✕ <message> (<hint>)` in `bad` on the message line for 5 s; detail panes keep an inline error with "R retries". `forbidden` errors (for example the live-validation guard) are shown verbatim. |
@@ -308,8 +320,9 @@ src/dashboard/
   frame.ts       cells, spans, clipping, columns, boxes, meters, painting (pure)
   state.ts       navigation, selection, overlays, key → intent (pure)
   screens/       shell, home, review, sessions, settings, setup (pure: snapshot + state + data → lines)
-  settings.ts    settings data and mutations through the ApiClient
-  data.ts        refresh, fallback client, action runner, attach (existing)
+  controller.ts  state, reads through the ApiClient, effects (ops, prompts, attach, CLI handoff) and drawing
+  client.ts      HTTP client, or the in-process client when the service is unavailable (existing)
+  data.ts        fallback client that switches to in-process reads (existing)
   cli.ts         terminal I/O loop; flicker-free redraw; child-CLI handoff
 ```
 
@@ -324,6 +337,8 @@ src/dashboard/
 - `test/dashboard-state.test.ts`: keymap, tab switching, selection bounds, overlays, gating by ops.
 - Golden frames (`test/__snapshots__/dashboard-screens.test.ts.snap`): each screen at 120×40 and 80×24 with `NO_COLOR`, one truecolor frame per screen, plain mode and ASCII. Frames pass an explicit version string (`0.0.0-test`) and time, so goldens are independent of the package version and the clock.
 - Settings controller tests run against the in-process API client on a temporary `PACER_HOME`.
+- Controller tests (`test/dashboard-controller.test.ts`): Enter on a running row never sends `task.stop`, and every destructive or consequential action (stop, remove account/executor/rule, use the global strategy, update and restart, service install, accept) confirms before any op is sent.
+- `test/dashboard-imports.test.ts` fails when `src/dashboard` imports a module for its values outside the dashboard, the view model, the API client and a short named allowlist (ARCH-1).
 - Cross-surface status tests (`test/dashboard-panel-semantics.test.ts`) keep TUI and Orca panel glyph/label/tone parity.
 - Live validation (CT-11): `bun run live up --seed ui`, drive every screen in tmux at 120×40, capture each into evidence, and record verdicts.
 
