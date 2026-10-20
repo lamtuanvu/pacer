@@ -8,7 +8,7 @@ export function reportSessionEnded(): void {
   void host.__TAURI__?.core?.invoke("session_expired").catch(() => { /* shell may already be navigating to recovery */ });
 }
 /** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
-const V3_OPS = new Set(["setup.check", "service.install", "onboarding.try", "onboarding.skip"]);
+const V3_OPS = new Set(["project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip"]);
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   async function request<T>(path: string, params?: unknown): Promise<T> {
@@ -23,7 +23,10 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
     return response.json() as Promise<T>;
   }
   return {
-    hello: () => request<Hello>("/v2/hello"), snapshot: () => request<Awaited<ReturnType<ApiClient["snapshot"]>>>("/v2/snapshot"),
+    hello: async () => {
+      try { return await request<Hello>("/v3/hello"); }
+      catch (error) { if (error instanceof ApiError && error.status === 404) return request<Hello>("/v2/hello"); throw error; }
+    }, snapshot: () => request<Awaited<ReturnType<ApiClient["snapshot"]>>>("/v2/snapshot"),
     call: async <T>(op: string, params: unknown = {}) => (await request<{ result: T }>(`/${V3_OPS.has(op) ? "v3" : "v2"}/ops/${encodeURIComponent(op)}`, params)).result,
   };
 }

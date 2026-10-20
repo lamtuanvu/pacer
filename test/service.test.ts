@@ -22,6 +22,8 @@ test("plist escapes XML and assembles deterministic argv, home, paths and launch
   expect(text).toContain("a&amp;b&lt;&quot;&apos;&gt;");
   expect(text).toContain('<array><string>/tools/bun</string><string>/repo/a&amp;b&lt;&quot;&apos;&gt;.ts</string><string>serve</string></array>');
   expect(text).toContain("<key>KeepAlive</key><true/>"); expect(text).toContain("<integer>10</integer>");
+  // Background jobs get throttled disk I/O, which stalled the service under memory pressure.
+  expect(text).toContain("<key>ProcessType</key><string>Standard</string>"); expect(text).not.toContain("Background");
   expect(text).toContain("/tmp/p&amp;x/logs/serve.log"); expect(servicePATH(ctx)).toBe("/bin:/usr/bin:/tools");
   expect(plist(ctx, ["x"])).toBe(plist(ctx, ["x"]));
   expect(binaryInFile(text, "darwin")).toBe("/tools/bun");
@@ -98,6 +100,16 @@ test("restart after update only targets installed files pointing at replaced bin
     ctx.run = async () => ({ code: 1, stdout: "", stderr: "restart failed" });
     await expect(restartAfterUpdate(ctx, bin, d)).rejects.toThrow("restart failed");
   }
+});
+test("update reinstalls a Background launchd job as Standard instead of only restarting it", async () => {
+  const { ctx, calls, d, path } = fixture("darwin");
+  put(path, plist(ctx, ["/opt/pacer"]).replace("<string>Standard</string>", "<string>Background</string>"));
+  expect(await restartAfterUpdate(ctx, "/opt/pacer", d)).toBe(true);
+  expect(readFileSync(path, "utf8")).toBe(plist(ctx, ["/opt/pacer"]));
+  expect(calls.some(c => c[1] === "bootstrap")).toBe(true); expect(calls.some(c => c[1] === "kickstart")).toBe(false);
+  calls.length = 0;
+  expect(await restartAfterUpdate(ctx, "/opt/pacer", d)).toBe(true);
+  expect(calls.map(c => c[1])).toEqual(["kickstart"]);
 });
 test("service refuses source argv before any files or commands are changed", async () => {
  const {ctx,d,calls,path}=fixture();delete ctx.env.PACER_BIN;

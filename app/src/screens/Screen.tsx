@@ -1,5 +1,5 @@
 import { useContext } from "preact/hooks";
-import { Setup } from "./setup/Setup";
+import { LazySetup } from "./setup/LazySetup";
 import { SetupContext } from "./setup/context";
 import type { Route } from '../router';
 import { Overview } from "./Overview";
@@ -10,7 +10,7 @@ import { Sessions, SessionRoute } from "./session/controller";
 export function Screen({route}:{route:Route}) {
  const { running } = useContext(SetupContext);
  switch(route.name) {
- case 'setup': return <Setup query={route.query}/>;
+ case 'setup': return <LazySetup query={route.query}/>;
  case 'overview': return <Overview query={route.query}/>;
  case 'review': return <Review route={route}/>;
  case 'sessions': return route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<SessionRoute key={route.id} id={route.id}/></>:<Sessions query={route.query}/>;

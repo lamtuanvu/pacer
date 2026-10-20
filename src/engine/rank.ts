@@ -68,13 +68,15 @@ function reason(st: ProviderStatus): string {
   return bits.join(", ");
 }
 
+export interface CandidateSelection { executors: readonly string[]; order: "configured" }
+
 export function rankExecutors(
-  kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>,
+  kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>, selection?: CandidateSelection,
 ): { ranked: RankedExecutor[]; excluded: Excluded[]; reason?: string } {
   statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [resolveRunner(s, id)?.id ?? id, status]));
   const ranked: (RankedExecutor & { unknown: boolean; order: number })[] = [];
   const excluded: Excluded[] = [];
-  [...new Set(executorsFor(kind, s))].forEach((id, order) => {
+  [...new Set(selection?.executors ?? executorsFor(kind, s))].forEach((id, order) => {
     const st = statuses[id];
     const runner = s.runners[id];
     const account = runner ? s.accounts[runner.account] : undefined;
@@ -91,6 +93,13 @@ export function rankExecutors(
     if (st.verdict === "EXHAUSTED" && !account.allowPaid) return exclude("exhausted");
     ranked.push({ id, ...accountField, score: score(st, s), verdict: st.verdict, reason: reason(st), unknown: st.verdict === "UNKNOWN", order });
   });
+  if (selection) {
+    return {
+      ranked: ranked.map(({ unknown, order, ...executor }, index) => ({ ...executor, score: ranked.length - index })),
+      excluded,
+      ...(!selection.executors.some(id => s.runners[id] && !(s.runners[id].agent === s.planner.agent && s.runners[id].account === s.planner.account)) ? { reason: "no executor configured" } : {}),
+    };
+  }
   if (s.pacing.policy === "priority") {
     const sequence: typeof ranked = [];
     const placed = new Set<string>();

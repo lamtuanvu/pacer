@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Per-project executor allowlists with strict priority order, persistent policies, revision-checked API and CLI configuration, and a Routing settings editor (#190).
 - The desktop app ships its own CLI, shows Welcome and one consent screen before it changes anything, links `pacer` into `~/.local/bin` and can add an opt-in PATH line; recovery pages each offer one action; unsigned desktop downloads are published with each release.
 - Setup walks through five steps with an inline connection preview, executor priority controls, and first-task progress and review.
 
@@ -13,6 +14,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Setup discovery avoids IDE launchers and local-model app startup, so selecting a planner does not launch another app over the pacer window.
 - `pacer service install` refuses to replace another pacer's login service (`--replace` overrides); `uninstall --all` refuses while delegated tasks run (`--force` overrides) and removes the app's link and PATH line; `pacer update` points to the app when its CLI came with the app.
+
+## [0.3.1] - 2026-10-19
+
+### Fixed
+
+- The macOS service is installed as a Standard launchd job instead of Background. Background jobs get throttled disk I/O, and under memory pressure that stalled the service and its health thread for 30–90 seconds, so the desktop app kept restarting it. Reinstalled on update.
+
 - `release:prepare` now keeps the desktop app configuration, Cargo manifest and lockfile version in step with `package.json`; the desktop version is corrected to 0.3.0 (#188).
 
 ## [0.3.0] - 2026-10-19

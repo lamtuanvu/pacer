@@ -17,7 +17,7 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['task.prune','task.restore','task.takeover','service.install','onboarding.skip','onboarding.try']);
+export const V3_ONLY_OPS = new Set(['project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','task.takeover','service.install','onboarding.skip','onboarding.try']);
 
 export function v2Hello() {
  const {previous:_,...hello}=helloBody();

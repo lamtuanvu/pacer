@@ -1,20 +1,45 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "pacer",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "identifier": "dev.pacer.desktop",
-  "build": { "frontendDist": "../ui" },
+  "build": {
+    "frontendDist": "../ui"
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [],
-    "security": { "capabilities": [], "csp": "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; frame-src 'none'" }
+    "security": {
+      "capabilities": [],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; frame-src 'none'"
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "externalBin": ["binaries/pacer"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "macOS": { "minimumSystemVersion": "11.0" }
+    "targets": [
+      "app"
+    ],
+    "externalBin": [
+      "binaries/pacer"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   },
-  "plugins": { "deep-link": { "desktop": { "schemes": ["pacer"] } } }
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "pacer"
+        ]
+      }
+    }
+  }
 }

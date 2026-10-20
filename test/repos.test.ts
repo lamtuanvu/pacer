@@ -83,7 +83,7 @@ test("deleted linked worktrees retain the main repo identity on resolution and r
  expect(await resolveRepo(ctx,join(wt,"."))).toEqual(main);
  rmSync(wt,{recursive:true});
  const offline={...ctx,run:async()=>{throw Error("no git for deleted paths");}};
- expect(await resolveRepo(offline,wt)).toEqual(main);
+ expect(await resolveRepo(offline,wt)).toEqual({...main,identityUnverified:true});
  expect(repoFor(offline,join(wt,"src"))).toEqual(main);
  expect(listRepos(ctx)).toEqual([main]);
  expect(Object.keys(await Bun.file(join(ctx.pacerHome,"state","repos.json")).json())).toEqual([realpathSync(repo)]);
@@ -91,7 +91,7 @@ test("deleted linked worktrees retain the main repo identity on resolution and r
 
 test("missing unknown paths never create registry entries during resolution or backfill",async()=>{
  const ctx=fakeCtx({run:realRun}),folder=tmpDir();rmSync(folder,{recursive:true});
- expect(await resolveRepo(ctx,folder)).toEqual(repoFor(ctx,folder));
+ expect(await resolveRepo(ctx,folder)).toEqual({...repoFor(ctx,folder),identityUnverified:true});
  await backfillRepos(ctx,[folder]);
  expect(listRepos(ctx)).toEqual([]);
  expect(await Bun.file(join(ctx.pacerHome,"state","repos.json")).exists()).toBe(false);
@@ -107,7 +107,7 @@ test("unresolved paths fall back without recording or pruning the registry",asyn
   if(mode==="missing")rmSync(folder,{recursive:true});
   if(mode==="git-fails")ctx.run=async()=>{throw Error("git unavailable");};
   const ref=await resolveRepoInput(ctx,folder);
-  expect(ref).toEqual(repoFor(ctx,folder));
+  expect(ref).toEqual({...repoFor(ctx,folder),identityUnverified:true});
   expect(ref.key).toMatch(/^local:[0-9a-f]{12}$/);
   expect(await registryFile.text()).toBe(before);
  }
@@ -145,4 +145,14 @@ test("linked checkout identity does not require a successful git status",async()
  expect((await realRun(["git","-C",repo,"worktree","add","-b","status-fails",wt],10000)).code).toBe(0);
  const run:typeof realRun=(args,...rest)=>args.includes("status")?Promise.resolve({code:1,stdout:"",stderr:"cannot inspect"}):realRun(args,...rest);
  expect(await resolveRepo({...ctx,run},wt)).toEqual(main);
+});
+
+test("a nested Git repository does not inherit its registered parent's identity", async () => {
+ const parent=gitRepo(),ctx=fakeCtx({run:realRun}),nested=join(parent,"nested");
+ await realRun(["git","-C",parent,"remote","add","origin","git@github.com:acme/parent.git"],10000);
+ const outer=await resolveRepo(ctx,parent); mkdirSync(nested);
+ expect((await realRun(["git","-C",nested,"init"],10000)).code).toBe(0);
+ const inner=await resolveRepo(ctx,nested);
+ expect(inner.key).not.toBe(outer.key); expect(inner.path).toBe(realpathSync(nested));
+ expect(repoFor(ctx,nested)).toEqual(inner);
 });
