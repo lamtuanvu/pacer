@@ -117,17 +117,6 @@ classifier:
 
 Save named YAML files under `~/.pacer/strategies/`. `pacer strategy list` and `pacer strategy show` inspect them; `pacer use <name>` switches, and `pacer use default` returns to `strategy.yaml`. `pacer strategy preview` can compare a draft before saving; consult `pacer --help` for the strategy commands. `PACER=off` is the session escape hatch for planner enforcement.
 
-## Orca plugin transport
-
-The Orca plugin uses only the versioned API: HTTP v2 on loopback when the
-service is available, otherwise a `pacer api --stdio` child. The `transport`
-setting accepts `auto` or `api`; older saved values fall back to API selection.
-The storage bridge, channel sends and legacy HTTP routes are retired in 3.0.
-If no API can connect, the panel shows **Update the pacer plugin** with
-`pacer update`. Restart the plugin after updating. Notifications still use the
-service notifier registration and heartbeat. `autoConsole` is ignored;
-use `pacer dashboard` or `pacer open` to act.
-
 ## Capacity, pause and executor settings
 
 `execution.local_max_tasks` limits all local executors together (1–16, default 2).
@@ -156,7 +145,7 @@ the planner window resets, or an explicit future timestamp; `mode.release` ends 
 Automatic terminal opening tries Orca, the terminal app, then tmux. On a headless
 machine, operations return a copyable command with `opened: false`.
 Notifications are stored in `settings.json`, default to `important`, and support
-`off`, `important` and `all` without requiring the Orca plugin.
+`off`, `important` and `all`.
 
 ## Task retention
 

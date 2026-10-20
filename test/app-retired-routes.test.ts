@@ -6,7 +6,7 @@ const retiredRoute = /(?:["'`](?:#?\/|(?=(?:tasks|executors|accounts|hosts|strat
 
 test("shipped sources contain no retired UI route literals", async () => {
   const violations: string[] = [];
-  for (const root of ["app/src", "src", "desktop/src-tauri/src", "orca-plugin/src"]) {
+  for (const root of ["app/src", "src", "desktop/src-tauri/src"]) {
     for await (const file of new Bun.Glob("**/*.{ts,tsx,rs}").scan(root)) {
       const path = `${root}/${file}`;
       readFileSync(path, "utf8").split("\n").forEach((line, i) => {

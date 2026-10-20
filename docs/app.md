@@ -175,7 +175,6 @@ Console commands and TUI actions use v2 operations. The TUI hides actions
 missing from `hello.ops`. Task sessions use the session API. `/state`,
 `/console/*`, `/link` and the unversioned `/events` route are removed.
 Internal probes and the app use `/v2/snapshot` during the one-minor overlap.
-The Orca plugin uses only the API transport, with HTTP v2 or stdio.
 
 
 `pacer status --line` adds `▸<running> ⚑<attention>` from the service counts.

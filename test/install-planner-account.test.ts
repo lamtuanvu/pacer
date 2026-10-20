@@ -35,7 +35,7 @@ for (const agent of ["claude-code", "codex"] as const) {
 test("init asks for the planner agent then that agent's account", async () => {
   const ctx = accountCtx(); const questions: string[] = [];
   const result = await setupCmd(["--agents", "claude-code", "--no-dashboard"], ctx, {
-    tty: true, orcaInstalled: false, print: () => {}, confirm: async () => false,
+    tty: true, print: () => {}, confirm: async () => false,
     question: async q => { questions.push(q); return ""; },
     service: () => ({ status: async () => ({ installed: true, loaded: true, running: true, pid: null, lastExitCode: null, healthy: true, plistPath: "", binaryPath: null, binaryMatches: true }), install: async () => [] }),
   });
@@ -97,7 +97,7 @@ test("init selects the sole non-default account after choosing another planner a
   const path = join(ctx.pacerHome, "strategy.yaml");
   writeFileSync(path, readFileSync(path, "utf8").replace("  work:", "  team: {kind: codex, home: ~/.codex-team}\n  work:"));
   const r = await setupCmd(["--no-dashboard"], ctx, {
-    tty: true, orcaInstalled: false, print: () => {}, confirm: async () => false,
+    tty: true, print: () => {}, confirm: async () => false,
     question: async () => "2",
     service: () => ({status: async () => ({installed: true, loaded: true, running: true, pid: null, lastExitCode: null, healthy: true, plistPath: "", binaryPath: null, binaryMatches: true}), install: async () => []}),
   });

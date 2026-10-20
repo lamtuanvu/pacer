@@ -67,3 +67,16 @@ export function withLoginIndicators(ctx: Ctx): Ctx {
   writeFileSync(join(ctx.home, ".claude.json"), '{"oauthAccount":{}}');
   return ctx;
 }
+/** Recreates what `pacer plugin install` left behind before the Orca plugin was removed. */
+export async function installLegacyPlugin(ctx: Ctx): Promise<string> {
+  const { runInstall } = await import("../src/install/txn");
+  const root = join(ctx.pacerHome, "orca-plugin");
+  await runInstall({ ctx, pacerArgv: [ctx.env.PACER_BIN ?? "pacer"] }, "orca-plugin", tx => {
+    tx.edit(join(root, "orca-plugin.json"), () => '{"publisher":"lamtuanvu","id":"pacer"}\n', []);
+    tx.edit(join(root, "worker.mjs"), () => "export default () => {};\n", []);
+    tx.edit(join(root, ".pacer-managed"), () => '{"version":"0.1.0"}\n', []);
+  });
+  mkdirSync(join(root, "panel"), { recursive: true });
+  writeFileSync(join(root, "panel", "live.html"), "<p>panel</p>");
+  return root;
+}

@@ -13,8 +13,6 @@ import { migrateStrategy, migrationLines } from "../config/migrate";
 import { installPlanner } from "../install";
 import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceBackend } from "../service";
-import { installPlugin, pluginDir, MANAGED_MARKER } from "../plugin/install";
-import { readLiveHeartbeat } from "../plugin/live";
 import { dashboardClient } from "../dashboard/client";
 import type { ApiClient } from "../api/client-types";
 import type { SetupChecklist } from "../setup/checklist";
@@ -29,31 +27,7 @@ export interface SetupDeps {
   onboardingClient?: (ctx: Ctx) => Promise<Pick<ApiClient, "call" | "close">>;
   confirm?: (plan: string) => Promise<boolean>; question?: (question: string) => Promise<string>;
   print?: (line: string) => void; service?: (ctx: Ctx) => Pick<ServiceBackend, "status" | "install">;
-  orcaInstalled?: boolean; plugin?: typeof installPlugin; dashboard?: typeof runDashboard;
-  waitLive?: (pacerHome: string, print: (line: string) => void) => Promise<boolean>;
-}
-/** Polling and skip IO are injectable so tests never wait five minutes. */
-export async function waitForLive(pacerHome: string, print: (line: string) => void, deps: {
-  now?: () => number; live?: () => boolean; sleep?: (ms: number) => Promise<void>; skip?: Promise<void>;
-} = {}): Promise<boolean> {
-  const now = deps.now ?? (() => Date.now() / 1000), live = deps.live ?? (() => !!readLiveHeartbeat(pacerHome));
-  const start = now(); let skipped = false;
-  let rl: ReturnType<typeof createInterface> | undefined;
-  const skip = deps.skip ?? new Promise<void>(resolve => {
-    rl = createInterface({ input: process.stdin, output: process.stdout });
-    rl.on("SIGINT", () => resolve()); rl.on("close", () => resolve());
-    void rl.question("Press Enter to finish later.\n").then(() => resolve(), () => resolve());
-  });
-  void skip.then(() => { skipped = true; });
-  try {
-    while (now() - start < 300) {
-      if (live()) return true;
-      if (skipped) return false;
-      print(`Waiting for the live panel… ${Math.floor(now() - start)}s / 300s`);
-      await Promise.race([(deps.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))))(1000), skip]);
-    }
-    return false;
-  } finally { rl?.close(); }
+  dashboard?: typeof runDashboard;
 }
 export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): Promise<Result> {
   let yes = false, installService = false, json = false, noDashboard = false, planner: string | undefined, selected: AgentId[] | undefined;
@@ -153,26 +127,9 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
       print(connected ? `✓ ${agent.name}${installed ? " (already done)" : " connected"}` : `${agent.name}: skipped`);
       results.push({ ...agent, installed: connected, status: connected ? installed ? "already connected" : "connected" : "skipped" });
     }
-    let live = !!readLiveHeartbeat(ctx.pacerHome);
-    const orcaInstalled = deps.orcaInstalled ?? !!(ctx.env.ORCA_CLI_COMMAND || ctx.which("orca") || existsSync("/Applications/Orca.app/Contents/Resources/bin/orca"));
-    if (orcaInstalled) {
-      const already = existsSync(join(pluginDir(ctx), MANAGED_MARKER));
-      await (deps.plugin ?? installPlugin)({ ctx, pacerArgv: pacerArgv(ctx.env) });
-      print(`✓ Orca live panel installed${already ? " (already done)" : ""}`);
-      if (!live) {
-        if (process.platform === "darwin" && ctx.which("pbcopy")) {
-          try { const { spawn } = await import("node:child_process"); await new Promise<void>(resolve => { const child = spawn(ctx.which("pbcopy")!, [], { env: ctx.env }); child.on("error", () => resolve()); child.on("close", () => resolve()); child.stdin.on("error", () => {}); child.stdin.end(pluginDir(ctx)); }); } catch {}
-        }
-        print("Last step: turn on the live panel. In Orca: Settings > Plugins > Development > Add folder, paste the path (copied to your clipboard), then enable pacer.");
-        print(pluginDir(ctx));
-        if (tty) live = await (deps.waitLive ?? waitForLive)(ctx.pacerHome, print);
-        if (!live) print("Finish later with: pacer init");
-      }
-      if (live) print("✓ Live panel connected");
-    }
     const migration = migrationLines(path, migrateStrategy(path));
     migration.forEach(print);
-    print(`Setup: planner ${planner}; strategy ready; login service ${serviceInstalled ? "installed" : "skipped"}; ${results.filter(a => a.installed).length} agents connected; live panel ${live ? "connected" : "pending"}.`);
+    print(`Setup: planner ${planner}; strategy ready; login service ${serviceInstalled ? "installed" : "skipped"}; ${results.filter(a => a.installed).length} agents connected.`);
     print("Next:\n  Ask your planner for some work and it will delegate.\n  pacer open — watch work and budgets\n  pacer doctor — check your setup");
     if (tty) {
       // Best effort: the offer needs the service, which the user may have just declined.
@@ -194,6 +151,6 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
       if (!tty) (deps.print ?? console.log)(lines.join("\n"));
       return (deps.dashboard ?? runDashboard)([], ctx);
     }
-    return { code: 0, out: json ? JSON.stringify({ planner, strategy: path, service: serviceInstalled, agents: results, live, applied: true, migration }) : tty ? "" : lines.join("\n"), err: "" };
+    return { code: 0, out: json ? JSON.stringify({ planner, strategy: path, service: serviceInstalled, agents: results, applied: true, migration }) : tty ? "" : lines.join("\n"), err: "" };
   } catch (e) { return { code: 1, out: json ? "" : tty ? "" : lines.join("\n"), err: `pacer init: ${(e as Error).message}` }; }
 }

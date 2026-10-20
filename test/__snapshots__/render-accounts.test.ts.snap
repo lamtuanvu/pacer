@@ -12,7 +12,7 @@ Executor preference: codex#team > opencode#byteplus
 Pace clock: calendar (not enough activity history yet)"
 `;
 
-exports[`account metadata survives the link and appears in dashboard and panel 1`] = `
+exports[`account metadata survives the link and appears in the dashboard 1`] = `
 "▬┃ pacer  [RELAXED]  strategy default  local · —                                                                                       ● live 12:00:00
 Claude Code planner  week [#######---------|---] 34% used · pace 84%
 Behind pace · -50 pts · 1 active-h · resets 13:00

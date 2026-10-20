@@ -12,7 +12,7 @@ import { checkSetup } from "../src/setup/check";
 import { handleV2 } from "../src/api/http";
 import { computeStatus } from "../src/engine/status";
 import { refusal } from "../scripts/live/guard";
-import { desktopExecutable, isolatedWorker } from "../scripts/live/surfaces";
+import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
 import { BLOCKED_OPS, ClientWebSocket, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
 
@@ -25,10 +25,10 @@ function fixture(): Session {
 describe("live guard (D3)", () => {
   for (const args of [
     ["install", "codex"], ["uninstall"], ["init"], ["setup"], ["statusline"], ["update", "--check"],
-    ["service", "install"], ["service", "uninstall"], ["plugin", "install"], ["plugin", "set"],
+    ["service", "install"], ["service", "uninstall"], ["plugin", "uninstall"],
     ["account", "add"], ["account", "rm"], ["account", "login"], ["host", "setup"], ["orca"], ["orca", "status"], ["open"], ["open", "--browser"],
   ]) test(`refuses ${args.join(" ")}`, () => expect(refusal(args)).toContain("D3"));
-  for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
+  for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["plugin", "install"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
     test(`allows ${args.join(" ")}`, () => expect(refusal(args)).toBeUndefined());
   }
   test("executable guard exits 3 without reading a session or dispatching pacer", () => {
@@ -105,34 +105,6 @@ test("evidence is appended and reports retain commands, steps, captures and verd
   expect(renderReport(session, [])).toContain("UNVERIFIED");
 });
 
-test("Orca worker overrides every host settings read with sandbox service coordinates", () => {
-  const session = fixture();
-  const source = isolatedWorker(session);
-  expect(source).toContain(`port: ${session.port}`);
-  expect(source).toContain(JSON.stringify(join(session.root, "home")));
-  expect(source).toContain('method !== "settings.get"');
-});
-
-test("Orca worker restores sandbox environment before source module initialization", () => {
-  const session = fixture();
-  atomicWrite(join(session.root, "worker.mjs"), isolatedWorker(session));
-  atomicWrite(join(session.root, "worker-source.mjs"), `
-    console.log(JSON.stringify({ home: process.env.PACER_HOME, bin: process.env.PACER_BIN,
-      port: process.env.PACER_PORT, updates: process.env.PACER_NO_UPDATE_CHECK, path: process.env.PATH }));
-    export default function() {};
-    export function deactivate() {};
-  `);
-  const child = Bun.spawnSync([process.execPath, join(session.root, "worker.mjs")], {
-    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe",
-  });
-  expect(child.exitCode).toBe(0);
-  const env = JSON.parse(child.stdout.toString());
-  expect(env.home).toBe(join(session.root, "home"));
-  expect(env.bin).toBe(join(session.root, "bin/pacer"));
-  expect(env.port).toBe(String(session.port));
-  expect(env.updates).toBe("1");
-  expect(env.path.split(":")[0]).toBe(join(session.root, "bin"));
-});
 
 let canBind = true;
 try { await freePort(); }
