@@ -28,6 +28,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - `runner.check` no longer fails a signed-in Claude or Codex account that has no usage reading yet: **Signed in** uses the sign-in state rather than usage, and **Usage readable** is skipped with the reason, so the test task runs.
 - `pacer route` without `--repo` uses the project policy of the registered repository in the current directory, as `pacer delegate` does, instead of always showing global routing.
 - `pacer project strategy set --executors ''` explains that `pacer project strategy remove` restores the global strategy, instead of reporting an unknown option.
+- When an explicitly requested executor cannot run and another one does, the task records `executorFallback` (`executor_fallback` in summaries) with the requested executor and the reason, and `tasks`, `tasks <id>` and `delegate --wait` show it. Fallback behavior is unchanged.
 - The Executors settings no longer claim that an executor failing its check is skipped until it passes; a failed check marks it Failing and raises attention, and routing keeps using it unless it is unavailable for another reason (as before). Disable it to skip it.
 
 ## [0.3.1] - 2026-10-19

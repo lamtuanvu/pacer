@@ -231,6 +231,8 @@ async function route(args: string[], ctx: Ctx): Promise<Result> {
   }
 }
 
+const fallbackText = (f: NonNullable<TaskRecord["executorFallback"]>) => `requested ${f.requested}, ran on ${f.executor}: ${f.reason}`;
+
 function renderTask(t: TaskRecord): string {
   const r = t.result;
   const lines = [
@@ -239,6 +241,7 @@ function renderTask(t: TaskRecord): string {
     `repo: ${t.brief.repo}`,
   ];
   if(t.archived)lines.push(`archive: ${t.archivePath}`);
+  if(t.executorFallback)lines.push(`executor: ${fallbackText(t.executorFallback)}`);
   if(t.placement?.mode)lines.push(`placement: ${t.placement.mode} (${t.placement.why})`);
   if (t.attempts.length) {
     lines.push(`attempts: ${t.attempts.map((a) => `${a.executor} (exit ${a.exitCode}${a.limitHit ? ", limit" : ""}${a.timedOut ? ", timed out" : ""})`).join(" > ")}`);
@@ -318,7 +321,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     code: 0,
     out: (await Promise.all(list.map(async (t) => {
       const control=await controlProgress(ctx,t);
-      return `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
+      return `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.executorFallback?`  (requested ${t.executorFallback.requested}: ${t.executorFallback.reason})`:""}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
     }))).join("\n"),
     err: "",
   };
