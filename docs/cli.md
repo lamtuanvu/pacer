@@ -102,13 +102,21 @@ JSON contracts:
 | status | generatedAt, strategy, planner, mode, disabled, calendarPace, providers, executors |
 | route | kind, ranked, excluded |
 | limits check | Array of per-account usage, source, capture time, freshness, runners, error and hint rows |
-| delegate | id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields |
-| tasks id, wait, stop, retry | task_id, state, kind, requested_executor, placement, attempts, result, review, resolved |
+| delegate | id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields, including executorFallback |
+| tasks id, wait, stop, retry | task_id, state, kind, requested_executor, optional executor_fallback, placement, attempts, result, review, resolved |
 | tasks | Array of task summaries |
 | review | recorded |
 | clean | removed (task IDs), kept (objects with id and reason) |
 
 The task summary matches MCP task_status; delegate keeps returning the full task record.
+
+When `--executor` names an executor that cannot run (for example signed out,
+blocked, out of quota or at its limit), pacer keeps its fallback behavior and
+runs the next eligible executor, but records it: `executorFallback` (task record)
+or `executor_fallback` (summary) holds `{requested, reason, executor}`, `tasks <id>`
+and `delegate --wait` print `executor: requested <id>, ran on <id>: <reason>`, and
+the `tasks` list adds `(requested <id>: <reason>)` to the row. `placement` is about
+the worktree, not the executor.
 Needs attention clears for partial/failed tasks reviewed with either verdict, whose worker
 worktree was removed, or whose tracked/untracked file contents already match the base branch
 tip. The brain checks at most once per task per minute and exposes `resolved` with reason

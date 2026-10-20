@@ -12,6 +12,8 @@ export interface ExecutorRow {
  id: string; agent: string; account: string; host: string | null; model: string | null;
  rank: number | "planner"; enabled: boolean;
  state: "ready" | "busy" | "full" | "failing" | "down" | "blocked" | "exhausted" | "disabled" | "checking";
+ /** Ready to route, but a managed endpoint whose test task has not run yet. Shown as "Not tested". */
+ untested?: true;
  tone: "good" | "info" | "warn" | "bad" | "muted";
  sub: string; reason?: string; usedPct: number | null; pacePct: number | null; paceReason?: string;
  limitedBy?: "machine" | "host";
