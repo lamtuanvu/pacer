@@ -27,7 +27,8 @@ test("groups render in order with usage pills, notes and added providers disable
   expect(at("Already signed in to OpenCode")).toBeGreaterThan(-1);
   expect(at("Already signed in to OpenCode")).toBeLessThan(at("Running on this machine"));
   expect(at("Running on this machine")).toBeLessThan(at("Connect a provider"));
-  for (const text of ["OpenRouter", "Metered", "Free", "DeepSeek", "Added as zhipu", "Using the cached models catalog.", "Use a URL instead", "Search providers"]) expect(html).toContain(text);
+  for (const text of ["OpenRouter", "Metered", "Free", "DeepSeek", "Added as zhipu", "Using the cached models catalog.", "Use a URL instead", "Search providers", "3 models"]) expect(html).toContain(text);
+  expect(html).not.toContain("pc-card");
   expect(html).toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*Zhipu AI/);
   expect((html.match(/pc-btn--primary/g) || []).length).toBe(0);
 });
@@ -55,6 +56,7 @@ test("a catalog provider shows the OpenCode sign-in command and asks for no key"
   expect(html).toContain("<code>opencode auth login deepseek</code>");
   expect(html).toContain("Refresh");
   expect(html).not.toMatch(/type="password"/);
+  expect(html).toContain("Once it is signed in, DeepSeek appears under");
 });
 
 test("Add executor step 2 for OpenCode shows the provider picker, and the URL form keeps its clearer usage labels", () => {

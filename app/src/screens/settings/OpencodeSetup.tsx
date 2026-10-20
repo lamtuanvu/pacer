@@ -10,6 +10,8 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { addParams, GROUP_TITLES, groupCandidates, modelFacts, searchCandidates, usagePill } from "../../model/opencode-setup";
 import { Feedback, Field, ResourceState, useOperation, useResource } from "./shared";
 
+const modelCount = (n: number) => `${n} ${n === 1 ? "model" : "models"}`;
+
 interface ModelsResult { pick: ModelChoice | null; rest: ModelChoice[]; usage: UsageClass; note?: string }
 
 export interface OpencodeSetupProps {
@@ -33,14 +35,15 @@ export function OpencodeSetup({ onCreated, onUseUrl, initialDetection, initialCh
       onClick={() => setChoice(c)}>
       <div>
         <strong>{c.name}</strong>
-        {c.group === "local" && <div className="u3-muted">{c.base_url} · {c.models ?? 0} models</div>}
-        <Pill tone={pill.tone}>{pill.label}</Pill>
+        {c.group === "local" && <div className="u3-muted">{c.base_url} · {modelCount(c.models ?? 0)}</div>}
+        <div><Pill tone={pill.tone}>{pill.label}</Pill></div>
         {c.added && <div className="u3-muted">Added as {c.added}</div>}
       </div>
     </ChoiceCard>;
   };
 
-  return <div className="pc-card">
+  // Rendered inside the wizard's card, so this is a section, not a nested card.
+  return <div className="u3-section">
     <ResourceState resource={detection}>
       {(detection.data?.notes ?? []).map(note => <p className="u3-muted" key={note}>{note}</p>)}
       {groupCandidates(candidates).map(([group, list]) => <div className="u3-section" key={group}>
@@ -52,19 +55,19 @@ export function OpencodeSetup({ onCreated, onUseUrl, initialDetection, initialCh
       </div>)}
       {!candidates.length && <p>No providers or local model servers found.</p>}
     </ResourceState>
-    {choice?.group === "catalog" && <ConnectProvider key={choice.provider} provider={choice.provider} onRefresh={() => { setChoice(undefined); detection.reload(); }} />}
+    {choice?.group === "catalog" && <ConnectProvider key={choice.provider} provider={choice.provider} name={choice.name} onRefresh={() => { setChoice(undefined); detection.reload(); }} />}
     {choice && choice.group !== "catalog" && <ModelStep key={`${choice.group}:${choice.provider}`} candidate={choice} initialModels={initialModels} onCreated={onCreated} />}
     <p><Button variant="quiet" size="sm" onClick={onUseUrl}>Use a URL instead</Button></p>
   </div>;
 }
 
 /** A catalog provider: OpenCode signs in from a terminal; the browser never takes the key. */
-function ConnectProvider({ provider, onRefresh }: { provider: string; onRefresh: () => void }) {
+function ConnectProvider({ provider, name, onRefresh }: { provider: string; name: string; onRefresh: () => void }) {
   const command = `opencode auth login ${provider}`;
   return <div className="u3-section">
     <p>Run this in a terminal, then refresh:</p>
     <code>{command}</code>
-    <p className="u3-muted">OpenCode asks for the key and stores it. Once it is signed in, {provider} appears under “{GROUP_TITLES.signed_in}”.</p>
+    <p className="u3-muted">OpenCode asks for the key and stores it. Once it is signed in, {name} appears under “{GROUP_TITLES.signed_in}”.</p>
     <Button onClick={onRefresh}>Refresh</Button>
   </div>;
 }
