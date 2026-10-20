@@ -14,7 +14,7 @@ const ALL_OPS = ["host.check", "host.set", "task.retry", "task.review", "task.ge
   "config.get", "config.set", "agent.preview", "account.list", "account.signin", "notifications.get", "notifications.set", "runner.check", "runner.set", "runner.block", "runner.unblock", "runner.reorder", "routing.get", "routing.set"];
 
 interface Call { op: string; params: unknown }
-function setup(options: { ops?: string[]; respond?: (op: string, params: Record<string, unknown>) => unknown; client?: Partial<ApiClient>; snapshot?: ClientSnapshot } = {}) {
+function setup(options: { ops?: string[]; respond?: (op: string, params: Record<string, unknown>) => unknown; client?: Partial<ApiClient>; snapshot?: ClientSnapshot; now?: () => number } = {}) {
   const calls: Call[] = [], frames: string[] = [], attached: string[] = [], handoffs: string[][] = [];
   const s = options.snapshot ?? structuredClone(fixture) as unknown as ClientSnapshot;
   const client: ApiClient = {
@@ -35,7 +35,7 @@ function setup(options: { ops?: string[]; respond?: (op: string, params: Record<
   };
   const dash = new Dashboard({
     client, theme: PLAIN_THEME, version: "0.0.0-test", cwd: "/tmp/repo", timeZone: "UTC",
-    now: () => s.at, size: () => ({ width: 120, height: 40 }), write: frame => frames.push(frame),
+    now: options.now ?? (() => s.at), size: () => ({ width: 120, height: 40 }), write: frame => frames.push(frame),
     attachHere: async id => { attached.push(id); }, handoff: async argv => { handoffs.push(argv); return 0; },
   });
   const keys = async (...list: string[]) => { for (const key of list) { await dash.key(key); await dash.settle(); } };
@@ -227,4 +227,21 @@ test("legacy task states alone never raise Needs you", async () => {
   const t = setup({ snapshot: s });
   await t.dash.refresh();
   expect(t.last()).toContain("Nothing needs you.");
+});
+
+test("a quiet service stays live: liveness follows successful reads, not the snapshot's own time", async () => {
+  let clock = 0, failing = false;
+  const s = structuredClone(fixture) as unknown as ClientSnapshot;
+  clock = s.at + 300;
+  const t = setup({ snapshot: s, now: () => clock, client: { snapshot: async () => { if (failing) throw new Error("connect ECONNREFUSED"); return { protocol: "3.0.0", seq: 1, snapshot: s }; } } });
+  await t.dash.refresh();
+  expect(t.last().split("\n")[0]).toContain("● live");
+  failing = true; clock += 60;
+  await t.dash.refresh();
+  const top = t.last().split("\n")[0]!;
+  expect(top).toContain("○ not responding");
+  expect(top).not.toContain("● live");
+  failing = false; clock += 2;
+  await t.dash.refresh();
+  expect(t.last().split("\n")[0]).toContain("● live");
 });

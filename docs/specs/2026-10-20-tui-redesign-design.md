@@ -285,7 +285,7 @@ Shown instead of Home/Review/Sessions while `setup.complete` is false, and as ta
 | --- | --- |
 | First connection | Body: spinner + "Connecting to pacer…"; header shows "○ connecting". |
 | Service unavailable | The existing in-process fallback continues; the message line reads "! pacer serve unavailable; working locally" (warn) and the header shows "○ local". |
-| Stale data | Header "○ updated 07:58" when the last snapshot is older than 30 s. |
+| Not responding | Header "○ not responding · updated 07:58" (warn) when a read fails after an earlier success; it returns to "● live" on the next successful read. Liveness follows the dashboard's own reads, because a quiet service keeps its snapshot time unchanged (found in live validation). |
 | Section/detail loading | "Loading task…", "Loading…" with spinner unless motion is off; previous content stays visible while refreshing ("Updating…"). |
 | Errors | `✕ <message> (<hint>)` in `bad` on the message line for 5 s; detail panes keep an inline error with "R retries". `forbidden` errors (for example the live-validation guard) are shown verbatim. |
 | Empty | App copy for each section (above). |

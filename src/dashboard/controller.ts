@@ -44,6 +44,8 @@ export class Dashboard {
   snapshot: ClientSnapshot = emptySnapshot();
   ops: readonly string[] | undefined;
   connection: FrameInput["connection"] = "connecting";
+  /** When the last successful snapshot read finished. */
+  private readAt: number | undefined;
   theme: TerminalTheme;
   data: { details: Map<string, Resource<TaskDetail> & { stamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
   private message?: { text: string; tone: StatusTone; until: number };
@@ -79,7 +81,7 @@ export class Dashboard {
     const message = this.message && this.message.until > now ? { text: this.message.text, tone: this.message.tone } : undefined;
     return {
       s: this.snapshot, now, theme: this.theme, state: this.state, width, height, ops: this.ops, data: this.data as DashData,
-      version: this.deps.version, update: this.deps.update?.(), connection: this.connection,
+      version: this.deps.version, update: this.deps.update?.(), connection: this.connection, ...(this.readAt !== undefined ? { readAt: this.readAt } : {}),
       ...(message ? { message } : {}),
       ...(this.theme.motion && this.loading > 0 ? { spinner: SPINNER[this.frame % SPINNER.length] } : {}),
       ...(this.deps.timeZone ? { timeZone: this.deps.timeZone } : {}),
@@ -103,10 +105,14 @@ export class Dashboard {
         this.ops = hello.ops;
         this.snapshot = result.snapshot as ClientSnapshot;
         this.connection = this.deps.client.kind === "http" ? "live" : "local";
+        this.readAt = this.deps.now();
         this.loadNeeds();
         this.draw();
       })
-      .catch(error => this.reportError(error))
+      .catch(error => {
+        if (this.readAt !== undefined) { this.connection = "offline"; this.draw(); }
+        this.reportError(error);
+      })
       .finally(() => { this.inFlight = undefined; });
     return this.inFlight;
   }

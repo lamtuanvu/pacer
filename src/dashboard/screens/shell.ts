@@ -27,7 +27,10 @@ export interface FrameInput {
   data: DashData;
   version: string;
   update?: "available" | "current";
-  connection: "live" | "local" | "connecting";
+  /** live/local: the last read succeeded; offline: it failed after an earlier success. */
+  connection: "live" | "local" | "connecting" | "offline";
+  /** When the last successful read finished (seconds). Shown while offline. */
+  readAt?: number;
   message?: { text: string; tone: StatusTone };
   /** Spinner frame for loading states; absent when motion is off. */
   spinner?: string;
@@ -70,13 +73,15 @@ function topBar(input: FrameInput, screen: ScreenId, width: number): Line {
     if (n > 0 && !active) left.push(span(theme.plain ? ` (${n})` : ` ${n}`, { fg: toneRole(tone), bold: true }));
     if (tab === "setup" && !active) left.push(span(" !", { fg: "warn", bold: true }));
   }
+  // A quiet service keeps its snapshot time, so liveness follows the dashboard's own reads.
+  const readAt = input.readAt ?? s.at;
   const live = input.connection === "connecting" ? `${glyph(theme, "○")} connecting`
-    : input.connection === "local" ? `${glyph(theme, "○")} local ${clock(s.at || input.now, input.now, input.timeZone)}`
-    : s.at > 0 && input.now - s.at < 30 ? `${glyph(theme, "●")} live ${clock(input.now, input.now, input.timeZone)}`
-    : `${glyph(theme, "○")} updated ${s.at > 0 ? clock(s.at, input.now, input.timeZone) : "never"}`;
+    : input.connection === "local" ? `${glyph(theme, "○")} local ${clock(input.now, input.now, input.timeZone)}`
+    : input.connection === "live" ? `${glyph(theme, "●")} live ${clock(input.now, input.now, input.timeZone)}`
+    : `${glyph(theme, "○")} not responding${readAt > 0 ? ` ${glyph(theme, "·")} updated ${clock(readAt, input.now, input.timeZone)}` : ""}`;
   const scope = input.state.scope ? s.repos?.find(r => r.key === input.state.scope)?.label ?? input.state.scope : "All repos";
   const mode = s.mode?.mode ?? s.planner?.mode;
-  const liveSpan = span(live, { fg: input.connection === "live" && live.includes("live") ? "good" : "muted" });
+  const liveSpan = span(live, { fg: input.connection === "live" ? "good" : input.connection === "offline" ? "warn" : "muted" });
   const right: Line = width < 100 ? [liveSpan] : [span(scope, { fg: "secondary" }), ...(mode ? [span(` ${glyph(theme, "·")} `, { fg: "muted" }), span(modeWords(mode), { fg: mode === "normal" ? "secondary" : "warn" })] : []), span(` ${glyph(theme, "·")} `, { fg: "muted" }), liveSpan];
   return ends(left, right, width, theme);
 }
