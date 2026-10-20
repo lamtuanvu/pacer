@@ -99,11 +99,14 @@ export async function computeStatus(
     const incoming = readingEvidence(scope, reading, usage);
     const auth = authObservation(ctx, scope);
     if (auth) incoming.availability.push(evidenceFact(auth.scope, "execution", auth.at, auth.at + 7200, "authentication_failed", "unavailable"));
-    if (runners.some(r => r.host === null && !(r.agent === s.planner.agent && r.account === s.planner.account))) {
-      const signIn = accountSignIn(ctx, account, scope);
-      // A newer login repairs matching account authentication evidence, never budget evidence.
-      if (signIn.recoveredAt !== undefined) incoming.availability.push(evidenceFact(scope, "session-log",
-        signIn.recoveredAt, signIn.recoveredAt + 7200, "signin_observed", "ready"));
+    for (const runner of runners.filter(r => r.host === null && !(r.agent === s.planner.agent && r.account === s.planner.account))) {
+      const runnerScope = { ...scope, runner: runner.name, model: runner.model ?? "default", host: "local" };
+      const signIn = accountSignIn(ctx, account, runnerScope);
+      // A newer local login repairs only matching authentication facts, never quota or remote evidence.
+      for (const recoveredScope of signIn.recoveredScopes ?? []) {
+        incoming.availability.push(evidenceFact(recoveredScope, "session-log",
+          signIn.recoveredAt!, signIn.recoveredAt! + 7200, "signin_observed", "ready"));
+      }
     }
     for (const limit of limits.filter(v => v.manual || v.scope?.identity === scope.identity)) incoming.budget.push(evidenceFact(limit.scope ?? scope, limit.manual ? "configuration" : "execution", limit.observedAt,
       limit.until, "quota_failure", { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: 21600, paced: false }));
@@ -139,7 +142,7 @@ export async function computeStatus(
     const live = windows.filter(w => !w.stale), binding = bindingWindow(live) ?? bindingWindow(windows);
     const verdict: Verdict = (usage === "unmetered" || usage === "reactive") && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
-    const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, scope) : null;
+    const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, runnerScope) : null;
     const provider: ProviderStatus = {
       id: runner.name, account: account.name, usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),

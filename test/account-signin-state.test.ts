@@ -178,3 +178,41 @@ test("unbound legacy authentication marks do not sign out a current account iden
   const st = await computeStatus(ctx, loadStrategy(ctx));
   expect(st.executors.ranked.some(e => e.id === "claude-code#work")).toBe(true);
 });
+
+for (const clearSidecar of [false, true]) {
+  test(`new local login recovers scoped execution authentication (${clearSidecar ? "persisted only" : "with sidecar"})`, async () => {
+    const {ctx, work} = setup(), strategy = loadStrategy(ctx);
+    const {recordExecutionEvidence, readEvidence} = await import("../src/core/evidence");
+    const {recordAuthReading} = await import("../src/usage/auth");
+    const scope = {...accountEvidenceScope(strategy.accounts.work!, strategy.hosts), runner: "claude-code#work", model: "default", host: "local"};
+    const failedAt = ctx.now;
+    await recordExecutionEvidence(ctx, scope, {endedAt: failedAt, exitCode: 1, timedOut: false, classification: "authentication"});
+    const remote = {...scope, host: "remote"};
+    await recordExecutionEvidence(ctx, remote, {endedAt: failedAt, exitCode: 1, timedOut: false, classification: "authentication"});
+    markAuthFailed(ctx, "work", "authentication failed", {scope});
+    utimesSync(join(work, ".claude.json"), failedAt - 600, failedAt - 600);
+    if (clearSidecar) {
+      ctx.now += 10;
+      recordAuthReading(ctx, "work", {capturedAt: ctx.now, windows: [], stale: false, source: "session-log"}, scope);
+    }
+    expect((await computeStatus(ctx, strategy)).executors.ranked.some(e => e.id === scope.runner)).toBe(false);
+    utimesSync(join(work, ".claude.json"), failedAt + 60, failedAt + 60);
+    ctx.now = failedAt + 61;
+    expect((await computeStatus(ctx, strategy)).executors.ranked.some(e => e.id === scope.runner)).toBe(true);
+    const facts = readEvidence(ctx, scope).evidence.facts.availability;
+    expect(facts.find(f => f.scope.host === "local")).toMatchObject({value: "ready", scope, observedAt: failedAt + 60});
+    expect(facts.find(f => f.scope.host === "remote")).toMatchObject({value: "unavailable", scope: remote});
+  });
+}
+
+test("successful same-scope execution supersedes its older auth sidecar without rewriting login", async () => {
+  const {ctx, work} = setup(), strategy = loadStrategy(ctx);
+  const {recordExecutionEvidence} = await import("../src/core/evidence");
+  const scope = {...accountEvidenceScope(strategy.accounts.work!, strategy.hosts), runner: "claude-code#work", model: "default", host: "local"};
+  utimesSync(join(work, ".claude.json"), ctx.now - 600, ctx.now - 600);
+  markAuthFailed(ctx, "work", "authentication failed", {scope});
+  await recordExecutionEvidence(ctx, scope, {endedAt: ctx.now, exitCode: 1, timedOut: false, classification: "authentication"});
+  ctx.now += 10;
+  await recordExecutionEvidence(ctx, scope, {endedAt: ctx.now, exitCode: 0, timedOut: false, classification: "success"});
+  expect((await computeStatus(ctx, strategy)).executors.ranked.some(e => e.id === scope.runner)).toBe(true);
+});
