@@ -58,6 +58,17 @@ export PATH="$HOME/.local/bin:$PATH"
 pacer --version
 ```
 
+### macOS desktop app
+
+Desktop releases are signed with the project's own code-signing certificate until pacer has an Apple Developer ID, so macOS blocks the first launch:
+
+1. Download `desktop-pacer-<version>-darwin-<arch>.app.tar.gz` from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases), extract it and move `pacer.app` to `/Applications`.
+2. Open the app once. When macOS says it cannot verify the developer, open **System Settings › Privacy & Security** and choose **Open Anyway**.
+
+Alternatively, from a terminal: `xattr -dr com.apple.quarantine /Applications/pacer.app`.
+
+This is needed once. In-app updates are verified against the same pinned certificate and a separate update signature, and install without further prompts.
+
 The future npm package is `@lamtuanvu/pacer`; it is not published yet. The planned Homebrew tap is `lamtuanvu/homebrew-tap`; it has not been created. The command stays `pacer`.
 
 ## Quickstart

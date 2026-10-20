@@ -30,3 +30,13 @@ test("dispatch fixture release exercise needs no production credentials and cann
   expect(body).toContain("desktop-feed-fixture.ts --fixture");
   expect(body).not.toContain(" publish ");
 });
+
+test("interim certificate signing is wired through build, signing and publication without Apple-only gates", () => {
+  for (const job of ["desktop-build", "desktop-publish"]) expect(jobs[job].env.PACER_SIGNING_CERT_SHA1).toBe("${{ vars.PACER_SIGNING_CERT_SHA1 }}");
+  const steps = jobs["desktop-build"].steps;
+  const trust = steps.find((s: any) => s.name === "Verify native runner and production trust").run;
+  expect(trust).toContain('test -n "$PACER_APPLE_TEAM_ID" || test -n "$PACER_SIGNING_CERT_SHA1"');
+  const sign = steps.find((s: any) => typeof s.run === "string" && s.run.includes("desktop-credentials.ts") && !s.run.includes("--cleanup"));
+  expect(sign.env.PACER_SELF_SIGNING_CERTIFICATE_BASE64).toBe("${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}");
+  expect(sign.env.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD).toBe("${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}");
+});

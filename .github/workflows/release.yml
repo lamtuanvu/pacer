@@ -350,6 +350,8 @@ jobs:
       ARCH: ${{ matrix.arch }}
       PACER_OTA_PUBLIC_KEY: ${{ vars.PACER_OTA_PUBLIC_KEY }}
       PACER_APPLE_TEAM_ID: ${{ vars.PACER_APPLE_TEAM_ID }}
+      # Interim signer until a Developer ID exists (docs/specs/2026-10-20-interim-self-signed-ota-design.md).
+      PACER_SIGNING_CERT_SHA1: ${{ vars.PACER_SIGNING_CERT_SHA1 }}
       PACER_SIGNING_CLEANUP_RECORD: ${{ runner.temp }}/pacer-desktop-sign.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -362,7 +364,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$PACER_OTA_PUBLIC_KEY"
-          test -n "$PACER_APPLE_TEAM_ID"
+          test -n "$PACER_APPLE_TEAM_ID" || test -n "$PACER_SIGNING_CERT_SHA1"
           actual=$(uname -m)
           if test "$actual" = arm64; then actual=aarch64; fi
           test "$actual" = "$ARCH"
@@ -384,8 +386,10 @@ jobs:
           cargo build --offline --locked --release --features ota-production --manifest-path desktop/src-tauri/Cargo.toml --bin pacer-update-helper
           cp -R desktop/src-tauri/target/release/bundle/macos/pacer.app "dist/desktop-cli/$VERSION/pacer.app"
           cp desktop/src-tauri/target/release/pacer-update-helper "dist/desktop-cli/$VERSION/pacer-update-helper"
-      - name: Sign complete app, notarize, staple and version-sign final artifact
+      - name: Sign complete app (Developer ID builds also notarize and staple) and version-sign final artifact
         env:
+          PACER_SELF_SIGNING_CERTIFICATE_BASE64: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}
+          PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}
           PACER_APPLE_SIGNING_IDENTITY: ${{ vars.PACER_APPLE_SIGNING_IDENTITY }}
           PACER_APPLE_CERTIFICATE_BASE64: ${{ secrets.PACER_APPLE_CERTIFICATE_BASE64 }}
           PACER_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.PACER_APPLE_CERTIFICATE_PASSWORD }}
@@ -422,6 +426,7 @@ jobs:
       VERSION: ${{ needs.verify.outputs.version }}
       PACER_OTA_PUBLIC_KEY: ${{ vars.PACER_OTA_PUBLIC_KEY }}
       PACER_APPLE_TEAM_ID: ${{ vars.PACER_APPLE_TEAM_ID }}
+      PACER_SIGNING_CERT_SHA1: ${{ vars.PACER_SIGNING_CERT_SHA1 }}
       PACER_DESKTOP_RELEASE_ENABLED: ${{ vars.PACER_DESKTOP_RELEASE_ENABLED }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -438,7 +443,7 @@ jobs:
           merge-multiple: true
       - name: Prepare deterministic desktop metadata
         run: bun scripts/release/desktop-release.ts prepare dist/desktop-assets "$VERSION"
-      - name: Verify both signed notarized architecture packages before any publication
+      - name: Verify both signed architecture packages before any publication
         run: bun scripts/release/desktop-release.ts validate dist/desktop-assets "$VERSION" > dist/desktop-feed-preview.json
       - name: Publish immutable desktop assets and compare-and-swap stable feed
         env:
