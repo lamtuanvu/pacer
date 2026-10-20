@@ -402,3 +402,21 @@ test("every consequential service action confirms, whatever screen offers it", (
   }
   expect(trigger(initialState(), act("host.check")).effect).toMatchObject({ type: "action" });
 });
+
+test("with update checks off, Settings › Updates offers no check and a check result says checks are off", async () => {
+  const off = { current: "0.4.0", latest: null, available: false, disabled: true };
+  const t = setup({ ops: SETTINGS_OPS_ALL, respond: op => op === "update.check" ? off : settingsResponse(op) });
+  t.dash.state = { ...t.dash.state, screen: "settings", section: "updates", focus: "detail", selected: { settings: "update:check" } };
+  await t.dash.refresh();
+  await t.dash.settle();
+  t.dash.draw();
+  expect(t.last()).toContain("Update checking disabled");
+  expect(t.last()).not.toContain("check now");
+  expect(t.last().split("\n").at(-1)).not.toMatch(/⏎ Check now/i);
+  const before = t.ops().filter(c => c.op === "update.check").length;
+  await t.keys("enter");
+  expect(t.ops().filter(c => c.op === "update.check").length).toBe(before);
+  await t.dash.run({ type: "action", action: { label: "Check now", op: "update.check", params: { force: true } } });
+  expect(t.last()).toContain("Update checks are off");
+  expect(t.last()).not.toContain("Up to date");
+});

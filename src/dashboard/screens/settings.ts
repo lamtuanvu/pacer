@@ -316,10 +316,12 @@ const updates: Build = (ctx, width) => {
     items.push({ id: "update:check", primary: check, actions: [], keys: {} });
     return { rows: pending.map(r => ({ ...r, item: "update:check" })), items };
   }
-  const u = resource!.value!;
-  const state = { failed: "Update check failed", disabled: "Update checking disabled", available: `Update available: ${u.latest}`, current: "Up to date", unchecked: "Not checked" }[updateState(u)];
-  items.push({ id: "update:check", primary: check, actions: [], keys: {} });
-  rows.push({ item: "update:check", line: field(ctx, width, "Version", [span(u.current, { bold: true }), span(`  ${state}`, { fg: u.available ? "warn" : u.error ? "bad" : "secondary" })], "⏎ check now") });
+  const u = resource!.value!, reading = updateState(u);
+  const state = { failed: "Update check failed", disabled: "Update checking disabled", available: `Update available: ${u.latest}`, current: "Up to date", unchecked: "Not checked" }[reading];
+  // A check cannot run while checks are off, so the row offers none; "Check for updates" below says why (UI-13).
+  const canCheck = reading !== "disabled";
+  items.push({ id: "update:check", ...(canCheck && check ? { primary: check } : {}), actions: [], keys: {} });
+  rows.push({ item: "update:check", line: field(ctx, width, "Version", [span(u.current, { bold: true }), span(`  ${state}`, { fg: u.available ? "warn" : u.error ? "bad" : "secondary" })], canCheck ? "⏎ check now" : "") });
   const apply = u.available ? opAct(ctx, "Update and restart", "update.apply", {}, { confirm: { title: "Update pacer and restart the service?", yes: "Update and restart" } }) : undefined;
   if (apply) {
     items.push({ id: "update:apply", primary: apply, actions: [], keys: { u: apply } });

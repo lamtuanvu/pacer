@@ -8,10 +8,10 @@ import { jobKindCopy } from "../view-model/copy";
 import type { StatusTone } from "../view-model/words";
 import { renderFrame, screenView, tabs, type FrameInput } from "./screens/shell";
 import { KINDS, scopedReviewQueue } from "./screens/review";
-import type { DashData, Resource, SettingsData, TaskDetail } from "./screens/types";
+import type { DashData, Resource, SettingsData, TaskDetail, UpdateInfo } from "./screens/types";
 import { initialState, reduceKey, type Act, type Effect, type ScreenId, type UiState } from "./state";
 import type { TerminalTheme } from "./theme";
-import type { UpdateState } from "./screens/common";
+import { updateState, type UpdateState } from "./screens/common";
 
 export interface ControllerDeps {
   client: ApiClient;
@@ -300,7 +300,12 @@ function successCopy(action: Action, result: Record<string, unknown> | null): st
     case "onboarding.try": return `Started ${String(r.task_id)} on ${String(r.executor)}. Review it when it finishes.`;
     case "config.set": return `Saved.${r.undo ? ` Undo: ${String(r.undo)}` : ""}`;
     case "strategy.build": case "account.signin": case "runner.add": return r.opened ? `${action.label}: opened in a new terminal` : r.command ? `Run: ${String(r.command)}` : `${action.label}: done`;
-    case "update.check": return r.error ? `Update check failed: ${String(r.error)}` : r.available ? `Update available: ${String(r.latest)}` : "Up to date";
+    case "update.check": {
+      // The same reading as the footer and Settings › Updates.
+      const reading = updateState(r as unknown as UpdateInfo);
+      return reading === "failed" ? `Update check failed: ${String(r.error)}` : reading === "disabled" ? "Update checks are off, so nothing was checked"
+        : reading === "available" ? `Update available: ${String(r.latest)}` : reading === "current" ? "Up to date" : "Not checked";
+    }
     case "task.dismiss": case "attention.dismiss": return "Dismissed";
     default: return `${action.label}: done`;
   }
