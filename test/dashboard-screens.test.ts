@@ -115,6 +115,16 @@ describe("frame behavior", () => {
     const text = frame("home", 120, 40);
     expect(text).toContain("Fix flaky retry test in the payments client");
   });
+  test("Updates says checks are off, and why, when the environment disables them", () => {
+    const d = data();
+    d.settings!.update = { value: { current: "0.3.1", latest: null, available: false, disabled: true } };
+    const s = snapshot();
+    const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state: { screen: "settings", section: "updates", focus: "detail" } });
+    const row = text.split("\n").find(line => line.includes("Check for updates"))!;
+    expect(row).toContain("Off");
+    expect(row).not.toMatch(/\bOn\b/);
+    expect(row).toContain("PACER_NO_UPDATE_CHECK");
+  });
   test("the page title appears once, in the top bar", () => {
     const text = frame("review", 120, 40);
     expect(text.split("\n")[0]).toContain("[ Review ]");

@@ -322,16 +322,20 @@ const updates: Build = (ctx, width) => {
     items.push({ id: "update:apply", primary: apply, actions: [], keys: { u: apply } });
     rows.push({ item: "update:apply", line: field(ctx, width, "", [span("Update and restart", { fg: "warn", bold: true })]) });
   }
-  const daily = config?.value?.keys?.update_check?.value !== false;
-  const toggle = set(ctx, "Update checks", "update_check", !daily);
-  items.push({ id: "update:daily", primary: toggle, actions: [], keys: {} });
-  rows.push({ item: "update:daily", line: field(ctx, width, "Check for updates", [span(daily ? "On" : "Off", { bold: true })], "once a day, in the background") });
+  const configured = config?.value?.keys?.update_check?.value !== false;
+  if (u.disabled && configured) {
+    // The strategy allows checks, so the environment turned them off; the toggle cannot change that.
+    rows.push({ line: field(ctx, width, "Check for updates", [span("Off", { bold: true })], "PACER_NO_UPDATE_CHECK is set") });
+  } else {
+    const toggle = set(ctx, "Update checks", "update_check", !configured);
+    items.push({ id: "update:daily", primary: toggle, actions: [], keys: {} });
+    rows.push({ item: "update:daily", line: field(ctx, width, "Check for updates", [span(configured ? "On" : "Off", { bold: true })], "once a day, in the background") });
+  }
   const plugin = opAct(ctx, "Install Orca panel", "plugin.install", {});
   if (plugin) {
     items.push({ id: "update:plugin", primary: plugin, actions: [], keys: {} });
     rows.push({ item: "update:plugin", line: field(ctx, width, "Orca plugin", [span("Install Orca panel", { fg: "secondary" })]) });
   }
-  if (u.disabled) rows.push(blank(), { line: [span("Automatic update checks are off.", { fg: "muted" })] });
   return { rows, items };
 };
 
