@@ -5,7 +5,7 @@ Every tagged release (`vX.Y.Z`, see [CONTRIBUTING](../CONTRIBUTING.md#releasing)
 | Channel | Install | Built from |
 | --- | --- | --- |
 | GitHub Releases | download `pacer-<os>-<arch>` and check it against `SHA256SUMS` | `release.yml` |
-| Desktop app | download `pacer-<version>-<os>-<arch>-unsigned.dmg`, `.AppImage` or `.deb`; see [desktop](../desktop/README.md) | `release.yml` |
+| Desktop app | macOS: download `desktop-pacer-<version>-darwin-<arch>.app.tar.gz` (signed, updates itself); Linux: `pacer-<version>-linux-<arch>-unsigned.AppImage` or `.deb`; see [desktop](../desktop/README.md) | `release.yml` |
 | install.sh | `curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh \| sh` | GitHub Releases |
 | npm | `npm install -g @lamtuanvu/pacer` | `bun run release:npm` |
 | Homebrew | `brew install lamtuanvu/tap/pacer` | `bun run release:homebrew` |

@@ -33,10 +33,10 @@ test("recovery and attached states preserve truthful copy without unauthorized a
   expect(render(desktopStatus({ phase: "recovery-failed", actions: [] }))).not.toContain("has been restored");
   const attached = render(desktopStatus({ ownership: "attached", actions: [] })); expect(attached).toContain("externally managed service"); expect(attached).not.toContain("Use the desktop service</button>");
 });
-test("desktop status replaces legacy update offer while keeping plugin controls", () => {
+test("desktop status replaces the legacy update offer", () => {
   const status = desktopStatus({ phase: "ready", target: "0.2.4", actions: ["restart"] });
   const html = renderToString(<TaskContext.Provider value={{ api, state: { ...initialState(), connected: true, features: { readModel: true, ops: new Set(["desktop.update.restart"]) }, snapshot: { ...emptySnapshot(), desktopUpdates: [status] } } }}><UpdatesSection initialData={{ current: "0.2.3", latest: "0.2.4", available: true }}/></TaskContext.Provider>);
-  expect(html).toContain("Restart to update"); expect(html).not.toContain("Update and restart"); expect(html).toContain("Install Orca panel");
+  expect(html).toContain("Restart to update"); expect(html).not.toContain("Update and restart"); expect(html).not.toContain("Orca");
 });
 test("update conflicts refresh status and retain explicit failure rather than claiming another client succeeded", async () => {
   let refreshed = 0;

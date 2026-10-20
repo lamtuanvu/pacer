@@ -300,7 +300,7 @@ test("Homebrew detection follows executable symlinks and honors configured prefi
   }
 });
 
-const appHint = "pacer came with the pacer app; update the app instead (download it again from https://github.com/lamtuanvu/pacer/releases/latest)";
+const appHint = "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
 
 for (const location of ["MacOS", "Resources"]) {
   for (const linked of [false, true]) {

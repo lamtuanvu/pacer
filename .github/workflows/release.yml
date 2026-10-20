@@ -103,16 +103,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-latest
-            target: aarch64-apple-darwin
-            platform: darwin-arm64
-            cli_artifact: binaries-macos-latest
-            bundles: dmg
-          - runner: macos-latest
-            target: x86_64-apple-darwin
-            platform: darwin-x64
-            cli_artifact: binaries-macos-latest
-            bundles: dmg
+          # macOS desktop downloads are the signed, auto-updating app from desktop-build.
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             platform: linux-x64
@@ -177,9 +168,6 @@ jobs:
           bundle="desktop/src-tauri/target/$TARGET/release/bundle"
           mkdir -p dist/desktop
           case "$PLATFORM" in
-            darwin-*)
-              cp "$bundle"/dmg/*.dmg "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.dmg"
-              ;;
             linux-*)
               case ",$BUNDLES," in
                 *,appimage,*) cp "$bundle"/appimage/*.AppImage "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.AppImage" ;;
@@ -221,13 +209,13 @@ jobs:
         run: bun scripts/release/build.ts --write-only
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: desktop-*
+          pattern: desktop-linux-*-unsigned
           path: dist/release/${{ env.VERSION }}
           merge-multiple: true
       - name: Add desktop checksums
         run: |
           cd "dist/release/$VERSION"
-          sha256sum pacer-*-unsigned.dmg pacer-*-unsigned.AppImage pacer-*-unsigned.deb >> SHA256SUMS
+          sha256sum pacer-*-unsigned.AppImage pacer-*-unsigned.deb >> SHA256SUMS
       - name: Extract release notes
         run: |
           awk -v heading="## [$VERSION]" '

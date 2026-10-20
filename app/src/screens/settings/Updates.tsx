@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "preact/hooks";
-import { Checkbox } from "../../ds/Controls";
+import { Checkbox, Disclosure } from "../../ds/Controls";
 import type { UpdateStatus } from "../../../../src/update/desktop/types";
 import { desktopUpdateView, desktopUpdateFeedback, desktopAdoptionConfirmation, updateIntent, type DesktopAction } from "../../../../src/view-model/updates";
 import { useActions } from "../../data/action-context";
@@ -38,14 +38,14 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
   return <div className="u3-desktop-update" aria-label={`Desktop ${status.current}`} aria-busy={busy}>
     <div className="u3-row"><strong>pacer desktop · {status.current}{status.target && status.target !== status.current && ` → ${status.target}`}</strong><StatusPill status={view}/></div>
     <div role="status" aria-live="polite"><p>{view.detail}</p>{busy && <p>Sending request…</p>}{message && <p>{message}</p>}</div>
-    {showIdentity && <details className="pc-disclosure"><summary>Installation details</summary><code>{status.installationId}</code></details>}
+    {showIdentity && <Disclosure summary="Installation details"><code>{status.installationId}</code></Disclosure>}
     {status.adoption && <div aria-label="Service change"><p>Current service · <code>{status.adoption.currentServiceExecutable}</code></p><p>Desktop service · <code>{status.adoption.replacementServiceExecutable}</code></p><p>{status.adoption.serviceLabel} · port {status.adoption.port}</p>{status.adoption.resultingInstallationId && <p>Installation · <code>{status.adoption.previousInstallationId}</code> → <code>{status.adoption.resultingInstallationId}</code></p>}{status.adoption.blockers.length > 0 && <ul aria-label="Work holding the service change">{status.adoption.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label}</li>)}</ul>}{status.adoption.error && <p>{status.adoption.error.message}</p>}</div>}
     {status.blockers.length > 0 && <ul aria-label="Work holding the update">{status.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label || ({ task: "Running task", session: "Interactive session", launch: "Starting work", operation: "Operation in progress" }[blocker.kind])}</li>)}</ul>}
     {status.error?.hint && <p>{status.error.hint}</p>}
     <p className="u3-muted">Last checked · {time(status.checkedAt)}</p>
-    {status.releaseNotes && <details className="pc-disclosure"><summary>What's new in {status.target}</summary><p className="u3-release-notes">{status.releaseNotes}</p></details>}
+    {status.releaseNotes && <Disclosure summary={`What's new in ${status.target}`}><p className="u3-release-notes">{status.releaseNotes}</p></Disclosure>}
     <div className="u3-actions">{view.action && <Button variant="primary" disabled={busy || !state.connected} onClick={() => void run(view.action!)}>{view.primary}</Button>}{view.action !== "check" && available.actions.includes("check") && <Button disabled={busy || !state.connected} onClick={() => void run("check")}>Check for updates</Button>}</div>
-    {available.actions.includes("configure") ? <label className="pc-checkbox"><span>Download updates automatically <small className="u3-muted">Restart only with your permission</small></span><input className="pc-checkbox__input" type="checkbox" checked={status.autoDownload} disabled={busy || !state.connected || !available.actions.includes("configure")} onChange={event => void run("configure", event.currentTarget.checked)}/></label> : <p className="u3-muted">Automatic downloads are {status.autoDownload ? "on" : "off"}.</p>}
+    {available.actions.includes("configure") ? <label className="pc-checkbox"><span>Download updates automatically <small className="u3-muted">Restart only with your permission</small></span><Checkbox className="pc-checkbox__input" checked={status.autoDownload} disabled={busy || !state.connected || !available.actions.includes("configure")} onChange={event => void run("configure", event.currentTarget.checked)}/></label> : <p className="u3-muted">Automatic downloads are {status.autoDownload ? "on" : "off"}.</p>}
     {!state.connected && <p role="status">Reconnecting… update status may be out of date.</p>}
     <ErrorMessage error={error}/>{dialogs.dialog}
   </div>;

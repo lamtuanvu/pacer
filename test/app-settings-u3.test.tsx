@@ -72,9 +72,9 @@ test('standalone screens bundle for the browser with their CSP compatible styles
  expect(result.success).toBe(true);expect(result.outputs.length).toBe(1);
  const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
  // The aggregate includes the project-policy editor and additive Diagnostics screen.
- // This all-screens development entry has a 36 KB cap (raised for the OpenCode provider picker, as #206 and
- // #216 did for their screens); the shipped app retains its separate 60 KB cap.
- expect(Bun.gzipSync(text).byteLength).toBeLessThan(36*1024);
+ // This all-screens development entry has a 40 KB cap (raised for the OpenCode provider picker, as #206 and
+ // #216 did for their screens, then for desktop update controls); the shipped app retains its separate 60 KB cap.
+ expect(Bun.gzipSync(text).byteLength).toBeLessThan(40*1024);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
