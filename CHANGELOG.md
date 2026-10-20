@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Settings Diagnostics runs doctor checks with repair guidance, distinguishes configured integrations from fixture-tested handlers and unverified Claude invocation, and flags disabled or incomplete Claude hooks.
+
 ## [0.4.0] - 2026-10-20
 
 ### Added
