@@ -70,7 +70,7 @@ export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: R
     via: account.kind === "endpoint" ? "opencode" : null, model,
     usage: account.usage, allowPaid: account.allowPaid, cooldownS: account.cooldownS,
     quotaSource: account.quotaSource === "arkcli" || account.usageSource === "arkcli" ? "arkcli" : null,
-    weeklyTokens: account.weeklyTokens,
+    weeklyTokens: account.weeklyTokens, weeklyUsd: account.weeklyUsd,
   };
   // Orca is never a usage source; a legacy usage_source: orca reads natively (claude/codex) or reactively.
   if (account.usageSource === "orca" && account.kind !== "claude" && account.kind !== "codex") cfg.usage = "reactive";
@@ -87,6 +87,7 @@ export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: R
   const first = readings[0];
   return {
     ...first,
+    spendUsd: readings.every(r => r.spendUsd != null) ? readings.reduce((sum, r) => sum + r.spendUsd!, 0) : undefined,
     windows: first.windows.map(w => ({ ...w, usedPct: readings.some(r => !!r.error || r.windows.find(v => v.name === w.name)?.usedPct == null) ? null : readings.reduce((sum, r) => sum + (r.windows.find(v => v.name === w.name)?.usedPct ?? 0), 0) })),
     capturedAt: readings.every(r => r.capturedAt !== null) ? Math.min(...readings.map(r => r.capturedAt!)) : null,
     stale: readings.some(r => r.stale || !!r.error),

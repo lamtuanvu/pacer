@@ -27,6 +27,7 @@ export interface AccountSummary {
  eligibility?: import("../../evidence/types").EligibilityDecision;
  name: string; agent: string; source: string; usedPct: number | null; pacePct: number | null;
  window: string | null; resetsAt: number | null; verdict: string; signedIn: boolean | null; executors: string[];
+ spendUsdWeek: number | null; capUsdWeek: number | null;
 }
 export interface PlannerMeter {
  eligibility?: import("../../evidence/types").EligibilityDecision;

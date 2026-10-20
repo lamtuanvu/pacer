@@ -32,6 +32,7 @@ export interface ProviderCfg {
   cooldownS: number;
   quotaSource: "arkcli" | null;
   weeklyTokens: number | null;
+  weeklyUsd: number | null;
 }
 export interface RouteRule { kinds: string[] | null; executors: string[] }
 export interface Strategy {
@@ -119,7 +120,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
       ...(runner.session ? {session: runner.session} : {}),
       id, via: runner.agent === "opencode" ? "opencode" : null, model: runner.model,
       usage: account.usage, allowPaid: account.allowPaid, cooldownS: account.cooldownS,
-      quotaSource: account.quotaSource === "arkcli" ? "arkcli" : null, weeklyTokens: account.weeklyTokens,
+      quotaSource: account.quotaSource === "arkcli" ? "arkcli" : null, weeklyTokens: account.weeklyTokens, weeklyUsd: account.weeklyUsd,
     };
   }
 

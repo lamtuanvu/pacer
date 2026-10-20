@@ -27,7 +27,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityDecisio
   const conflict = all.filter(f => input.evidence.conflicts.includes(f.id));
   const unavailable = liveAvailability.filter(f => f.value === "unavailable");
   const exhausted = liveBudget.filter(f => f.value.usedPct !== null && f.value.usedPct >= EXHAUSTED_PCT);
-  const noBudgetRequired = usage === "reactive" || usage === "unmetered";
+  const noBudgetRequired = input.budgetRequired === false || usage === "reactive" || usage === "unmetered";
   const unknownBudget = !noBudgetRequired && (!budget.length || liveBudget.length !== budget.length || liveBudget.some(f => f.value.usedPct === null));
   const deadlines = [...availability.map(f => f.validUntil), ...budget.map(evidenceDeadline)].filter((v): v is number => v !== null && v > now);
   const times = all.filter(f => f.source !== "configuration").map(f => f.observedAt).filter((v): v is number => v !== null && v <= now);

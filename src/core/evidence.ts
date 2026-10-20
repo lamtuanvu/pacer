@@ -34,14 +34,14 @@ export function readEvidence(ctx: Ctx, scope: EvidenceScope): EvidenceSnapshot {
   return saved;
 }
 export const evidenceRevision = (ctx: Ctx, scope: EvidenceScope): number => readEvidence(ctx, scope).revision;
-export async function mergeEvidence(ctx: Ctx, scope: EvidenceScope, incoming: AccountEvidence): Promise<EvidenceSnapshot> {
+export async function mergeEvidence(ctx: Ctx, scope: EvidenceScope, incoming: AccountEvidence, budgetPolicy?: string): Promise<EvidenceSnapshot> {
   const merge = async () => {
     const previous = readEvidence(ctx, scope);
     const accepted = emptyEvidence();
     for (const kind of ["availability", "budget", "spending"] as const) {
       (accepted[kind] as import("../evidence/types").Evidence<unknown>[]).push(...incoming[kind].filter(f => previous.retiredAt === undefined || f.source === "configuration" || f.observedAt !== null && f.observedAt > previous.retiredAt));
     }
-    const evidence = reconcileEvidence(previous.evidence.facts, accepted, ctx.now);
+    const evidence = reconcileEvidence(previous.evidence.facts, accepted, ctx.now, budgetPolicy);
     if (JSON.stringify(evidence) === JSON.stringify(previous.evidence)) return previous;
     const next: EvidenceSnapshot = { ...(previous.retiredAt !== undefined ? {retiredAt: previous.retiredAt} : {}), version: 1, revision: previous.revision + 1, identity: scope.identity, evidence };
     if (!ctx.readOnly) {

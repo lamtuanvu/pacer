@@ -8,6 +8,7 @@ export function accountEvidenceScope(account: AccountCfg, hosts: Record<string, 
     account.home, account.orcaAccount, account.usageSource, account.quotaSource,
     account.connection?.base_url, account.connection?.key,
     Object.entries(hosts).sort(([a], [b]) => a.localeCompare(b)).map(([alias, host]) =>
-      [alias, host.ssh, host.accounts[account.name]?.home ?? null])])).digest("hex");
+      [alias, host.ssh, host.accounts[account.name]?.home ?? null]),
+    ...(account.provider ? [account.provider] : [])])).digest("hex");
   return { account: account.name, identity };
 }

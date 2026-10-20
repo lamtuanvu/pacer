@@ -83,8 +83,9 @@ test('restored executor draft resumes checks and Ready follows a passed job only
  expect(draw('passed')).toContain(`${executor.id} is ready`);expect(draw('passed')).toContain('Back to settings');
 });
 test('new endpoint form includes URL, key source and model limits',()=>{
- const html=render(<AddExecutor initialDraft={{step:'2',agent:'opencode'}}/>);
- for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Quota','Metered','Unmetered'])expect(html).toContain(text);
+ // The URL form sits behind the OpenCode provider picker's "Use a URL instead".
+ const html=render(<AddExecutor initialDraft={{step:'2',agent:'opencode'}} initialUrlForm/>);
+ for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Quota — a plan with limits','Metered — pay per token','Unmetered — free or local'])expect(html).toContain(text);
 });
 test('the shipped app.js, which includes the Settings screens, stays within the 60 KB gzip budget (UI-3)',async()=>{
  const {APP_JS_BUDGET,buildApp}=await import('../app/build');
@@ -201,4 +202,15 @@ test('Add executor offers sign-in only for a signed-out native account',()=>{
  expect(html('opencode','work')).not.toContain('Sign in to work');
  expect(html('claude-code','in')).not.toContain('Sign in to in');
  expect(html('claude-code','out')).toContain('Sign in to out');
+});
+test('Accounts show an endpoint account\'s weekly dollar spend against its cap', () => {
+ const name = settings.accounts[0]!.name;
+ const html = render(<SettingsGeneral initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $'}]}});
+ expect(html).toContain('$3.20 of $5 this week');
+});
+test('historical endpoint usage keeps its weekly spend and cap', () => {
+ const name = settings.accounts[0]!.name;
+ const html = render(<SettingsGeneral initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
+ expect(html).toContain('$3.20 of $5 this week');
+ expect(html).toContain('Historical usage · Observation time unknown');
 });

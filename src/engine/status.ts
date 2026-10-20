@@ -40,6 +40,7 @@ export interface AccountStatus {
   remoteHost?: string;
   capturedAt: number | null;
   runners: string[];
+  spendUsd: number | null;
 }
 
 export interface Status {
@@ -97,6 +98,10 @@ export async function computeStatus(
     const fresh = markFreshness(reading, ctx.now);
     const scope = accountEvidenceScope(account, s.hosts);
     const incoming = readingEvidence(scope, reading, usage);
+    // Percentages derived from a previous cap remain history, not current constraints.
+    const budgetPolicy = JSON.stringify([account.weeklyUsd, account.weeklyTokens]);
+    incoming.budget = incoming.budget.map(f => f.source === "metered"
+      ? evidenceFact(f.scope, f.source, f.observedAt, f.validUntil, f.reason, f.value, budgetPolicy) : f);
     const auth = authObservation(ctx, scope);
     if (auth) incoming.availability.push(evidenceFact(auth.scope, "execution", auth.at, auth.at + 7200, "authentication_failed", "unavailable"));
     for (const runner of runners.filter(r => r.host === null && !(r.agent === s.planner.agent && r.account === s.planner.account))) {
@@ -110,7 +115,14 @@ export async function computeStatus(
     }
     for (const limit of limits.filter(v => v.manual || v.scope?.identity === scope.identity)) incoming.budget.push(evidenceFact(limit.scope ?? scope, limit.manual ? "configuration" : "execution", limit.observedAt,
       limit.until, "quota_failure", { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: 21600, paced: false }));
-    const snapshot = await mergeEvidence(ctx, scope, incoming);
+    const snapshot = await mergeEvidence(ctx, scope, incoming, budgetPolicy);
+    snapshot.evidence = {
+      ...snapshot.evidence,
+      facts: {...snapshot.evidence.facts, budget: snapshot.evidence.facts.budget.filter(f =>
+        f.source !== "metered" || f.budgetPolicy === budgetPolicy)},
+    };
+    const applicableIds = new Set(Object.values(snapshot.evidence.facts).flat().map(f => f.id));
+    snapshot.evidence.conflicts = snapshot.evidence.conflicts.filter(id => applicableIds.has(id));
     const usageWindows = snapshot.evidence.facts.budget.filter(f => appliesTo(f, scope)).map(f => ({ ...f.value,
       stale: f.value.stale || !currentEvidence(f, ctx.now, evidenceDeadline(f)) }));
     const windows = usageWindows.map(w => evaluateWindow(w, ctx.now, profile, th));
@@ -118,21 +130,24 @@ export async function computeStatus(
     const binding = bindingWindow(live) ?? bindingWindow(windows);
     const bindingFact = snapshot.evidence.facts.budget.find(f => f.value.name === binding?.name);
     const reconciledReading = { ...fresh, windows: usageWindows,
-      stale: usageWindows.some(w => w.stale),
+      stale: fresh.stale || usageWindows.some(w => w.stale),
       ...(bindingFact ? { capturedAt: bindingFact.observedAt,
         ...(!["execution", "configuration"].includes(bindingFact.source) ? { source: bindingFact.source as UsageSource } : {}) } : {}),
     };
-    const verdict: Verdict = (usage === "unmetered" || usage === "reactive") && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
-    const endpoint = opts.cacheOnly ? (account.connection ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
+    // Nothing to pace against: unmetered usage, or metered usage with no token budget and no dollar cap (spend is
+    // still reported). Such accounts are available rather than unknown, so routing does not rank them last.
+    const unlimited = usage === "unmetered" || usage === "reactive" || account.usage === "metered" && account.weeklyUsd === null && account.weeklyTokens === null;
+    const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
+    const endpoint = opts.cacheOnly ? (account.connection || account.source === "opencode" ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
-    const eligibility = evaluateEligibility({ now: ctx.now, scope, usage, allowPaid: account.allowPaid,
+    const eligibility = evaluateEligibility({ now: ctx.now, scope, usage, budgetRequired: !unlimited, allowPaid: account.allowPaid,
       evidence: snapshot.evidence, restrictions: [] });
-    return { account, runners, reading: reconciledReading, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested", scope, snapshot, eligibility, usage };
+    return { account, runners, reading: reconciledReading, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested", scope, snapshot, eligibility, usage, unlimited };
   }));
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
-    const { account, reading, endpointReason, endpointNotTested, scope, snapshot, usage } = byAccount[runner.account];
+    const { account, reading, endpointReason, endpointNotTested, scope, snapshot, usage, unlimited } = byAccount[runner.account];
     const runnerScope = { ...scope, runner: runner.name, model: runner.model ?? "default", host: runner.host ?? "local" };
     const windows = snapshot.evidence.facts.budget.filter(f => appliesTo(f, runnerScope)).map(f => evaluateWindow({ ...f.value,
       stale: f.value.stale || !currentEvidence(f, ctx.now, evidenceDeadline(f)) }, ctx.now, profile, {
@@ -140,7 +155,7 @@ export async function computeStatus(
         paceScale: account.name === s.planner.account ? 1 - s.pacing.plannerReserve / 100 : 1,
       }));
     const live = windows.filter(w => !w.stale), binding = bindingWindow(live) ?? bindingWindow(windows);
-    const verdict: Verdict = (usage === "unmetered" || usage === "reactive") && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
+    const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
     const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, runnerScope) : null;
     const provider: ProviderStatus = {
@@ -164,7 +179,7 @@ export async function computeStatus(
       if (provider[field]) restrictions.push({ code, evidenceIds: [] });
     }
     provider.eligibility = evaluateEligibility({ now: ctx.now, scope: runnerScope,
-      usage, allowPaid: account.allowPaid, evidence: snapshot.evidence, restrictions });
+      usage, budgetRequired: !unlimited, allowPaid: account.allowPaid, evidence: snapshot.evidence, restrictions });
     if ((reading.error || reading.stale) && provider.eligibility.state === "eligible") {
       provider.eligibility = { ...provider.eligibility, state: "uncertain", reasons: [{ code: "refresh_failed", evidenceIds: [] }] };
     }
@@ -188,6 +203,7 @@ export async function computeStatus(
       resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
       stale: reading.stale, runners: runners.map(r => r.name),
       source: reading.source ?? null, capturedAt: reading.capturedAt,
+      spendUsd: reading.spendUsd ?? null,
       ...(reading.remoteHost ? { remoteHost: reading.remoteHost } : {}),
     })),
     providers,

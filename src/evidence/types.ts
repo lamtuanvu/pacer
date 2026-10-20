@@ -2,6 +2,8 @@ import type { UsageKind, UsageSource, UsageWindow } from "../types";
 
 export interface EvidenceScope { account: string; identity: string; runner?: string; model?: string; host?: string }
 export interface Evidence<T> {
+  /** Configuration used to derive a metered percentage; not execution identity. */
+  budgetPolicy?: string;
   id: string;
   scope: EvidenceScope;
   source: UsageSource | "execution" | "configuration";
@@ -25,6 +27,7 @@ export interface EligibilityInput {
   now: number;
   scope: EvidenceScope;
   usage: UsageKind;
+  budgetRequired?: boolean;
   allowPaid: boolean;
   evidence: ReconciledEvidence;
   restrictions: { code: string; evidenceIds: string[] }[];

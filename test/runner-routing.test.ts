@@ -21,7 +21,7 @@ function setup(kind: string | null = "tests") {
     loadStrategy: () => strategy,
     computeStatus: async () => ({
       generatedAt: ctx.now, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
-      accounts: [{ name: strategy.runners.cursor.account, kind: "cursor", verdict: "ON_PACE", pacePct: null, resetsAt: null, stale: false, source: null, capturedAt: null, runners: ["cursor"], usedPct: ++reads === 1 ? 3 : 4.2, window: "week" }],
+      accounts: [{ name: strategy.runners.cursor.account, kind: "cursor", verdict: "ON_PACE", pacePct: null, resetsAt: null, stale: false, source: null, capturedAt: null, runners: ["cursor"], usedPct: ++reads === 1 ? 3 : 4.2, window: "week", spendUsd: null }],
       providers: Object.keys(strategy.providers).map(id => ({ id, eligibility: eligibility(), usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false, ...(id === "codex" ? { blockedReason: "manual" } : {}) })),
       executors: { ranked: [], excluded: [] },
     } as Status),

@@ -79,7 +79,7 @@ test("rotation keeps the newest 20 000 valid entries within 30 days and runs dai
 const status = (now: number, usedPct = 20): Status => ({
   generatedAt: now, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false,
   providers: [{ id: "codex", account: "team", usage: "quota", verdict: "ON_PACE", installed: true, stale: false, windows: [], binding: null }],
-  accounts: [{ name: "team", kind: "codex", verdict: "ON_PACE", usedPct, pacePct: null, resetsAt: null, window: "week", stale: false, source: null, capturedAt: now, runners: ["codex"] }],
+  accounts: [{ name: "team", kind: "codex", verdict: "ON_PACE", usedPct, pacePct: null, resetsAt: null, window: "week", stale: false, source: null, capturedAt: now, runners: ["codex"], spendUsd: null }],
   executors: { ranked: [], excluded: [] },
 });
 const publish: PumpDeps["publish"] = async (ctx, events) => {

@@ -1,0 +1,112 @@
+name: Prepare release
+
+# One click: pick the version from commit titles, open the release PR, dry-run
+# it, then let auto-merge land it. release-tag.yml tags the merge commit, and
+# the tag runs release.yml. Writes go through RELEASE_TOKEN so the PR and tag
+# trigger CI (GitHub does not run workflows for GITHUB_TOKEN pushes).
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (auto reads feat/fix/breaking commits since the last tag)
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: write # dispatch and watch the dry run; workflow_dispatch from GITHUB_TOKEN does start runs
+    env:
+      BUMP: ${{ inputs.bump }}
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+    steps:
+      - name: Require main and the release token
+        run: |
+          test "$GITHUB_REF" = refs/heads/main || { echo "::error::Run Prepare release from main"; exit 1; }
+          test -n "$GH_TOKEN" || { echo "::error::Add a RELEASE_TOKEN secret (see CONTRIBUTING.md, Releasing)"; exit 1; }
+      - name: Commit as the token's owner
+        # The PR is opened with the same token; one author keeps DCO sign-off and attribution consistent.
+        run: |
+          read -r login id name <<< "$(gh api user --jq '"\(.login) \(.id) \(.name // .login)"')"
+          { echo "GIT_AUTHOR_NAME=$name"; echo "GIT_COMMITTER_NAME=$name"
+            echo "GIT_AUTHOR_EMAIL=$id+$login@users.noreply.github.com"; echo "GIT_COMMITTER_EMAIL=$id+$login@users.noreply.github.com"; } >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # next-version reads commits since the last tag.
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Pick the version
+        id: version
+        run: |
+          version=$(bun scripts/release/next-version.ts "$BUMP")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Preparing pacer $version" >> "$GITHUB_STEP_SUMMARY"
+      - name: Refuse a release that is already in flight
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --heads origin "release/v$VERSION" >/dev/null; then
+            echo "::error::Branch release/v$VERSION already exists; finish or close that release first"; exit 1
+          fi
+          open=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "chore: release"' --json number --jq length)
+          test "$open" = 0 || { echo "::error::A release PR is already open"; exit 1; }
+      - name: Prepare, commit and open the release PR
+        id: pr
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bun run release:prepare "$VERSION"
+          branch="release/v$VERSION"
+          git switch -c "$branch"
+          git add -A
+          git commit -s -m "chore: release $VERSION"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraheader=$auth" push origin "$branch"
+          notes=$(awk -v heading="## [$VERSION]" '
+            /^## / { if (found) exit; if (index($0, heading) == 1) { found=1; next } }
+            found { print }' CHANGELOG.md)
+          body=$(printf 'Prepared by the **Prepare release** workflow (bump: `%s`).\n\nThe only UI-scoped changes are version strings, so no UI evidence manifest is needed (UI-24 version-only exemption, checked by CI).\n\nThe release dry run runs on this branch; auto-merge turns on when it passes. Merging tags `v%s` and publishes.\n\n## Changes\n%s\n' "$BUMP" "$VERSION" "$notes")
+          url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --title "chore: release $VERSION" --body "$body")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Release PR: $url" >> "$GITHUB_STEP_SUMMARY"
+      - name: Dry-run the release on the PR branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          # RELEASE_TOKEN has no Actions permission; GitHub starts runs for GITHUB_TOKEN dispatches.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="release/v$VERSION"
+          before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$branch" -f version="$VERSION" -f dry_run=true
+          run=""
+          for _ in $(seq 1 30); do
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --branch "$branch" --event workflow_dispatch \
+              --json databaseId,createdAt --jq "[.[] | select(.createdAt >= \"$before\")][0].databaseId // empty")
+            test -n "$run" && break
+            sleep 10
+          done
+          test -n "$run" || { echo "::error::The dry run did not start"; exit 1; }
+          echo "Dry run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run" >> "$GITHUB_STEP_SUMMARY"
+          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --interval 30 --exit-status
+      - name: Turn on auto-merge
+        env:
+          URL: ${{ steps.pr.outputs.url }}
+        run: gh pr merge "$URL" --auto --squash
+      - name: Report a failed dry run on the PR
+        if: failure() && steps.pr.outputs.url != ''
+        env:
+          URL: ${{ steps.pr.outputs.url }}
+        run: gh pr comment "$URL" --body "The release dry run failed, so auto-merge stays off. See $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Fix main, close this PR, delete the branch and run Prepare release again."

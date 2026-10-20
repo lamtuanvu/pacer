@@ -4,8 +4,8 @@ import type { UsageWindow } from "../types";
 
 export const emptyEvidence = (): AccountEvidence => ({ availability: [], budget: [], spending: [] });
 export function evidenceFact<T>(scope: EvidenceScope, source: Evidence<T>["source"], observedAt: number | null,
-  validUntil: number | null, reason: string, value: T): Evidence<T> {
-  const fact = { scope, source, observedAt, validUntil, reason, value };
+  validUntil: number | null, reason: string, value: T, budgetPolicy?: string): Evidence<T> {
+  const fact = { scope, source, observedAt, validUntil, reason, value, ...(budgetPolicy !== undefined ? {budgetPolicy} : {}) };
   return { id: createHash("sha256").update(JSON.stringify(fact)).digest("hex").slice(0, 24), ...fact };
 }
 export function appliesTo(fact: Evidence<unknown>, scope: EvidenceScope): boolean {
@@ -27,13 +27,13 @@ export function currentEvidence(fact: Evidence<unknown>, now: number, deadline =
 const precedence = (source: Evidence<unknown>["source"]) => source === "configuration" ? 3 : source === "provider-cli" ? 2 : 1;
 
 /** Retain the latest observation of each fact, including equal-authority conflicts. */
-export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEvidence, now: number): ReconciledEvidence {
+export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEvidence, now: number, budgetPolicy?: string): ReconciledEvidence {
   const facts = emptyEvidence(), conflicts: string[] = [];
   for (const kind of ["availability", "budget", "spending"] as const) {
     const groups = new Map<string, Evidence<unknown>[]>();
     for (const fact of [...previous[kind], ...incoming[kind]]) {
       const key = JSON.stringify([fact.scope.account, fact.scope.identity, fact.scope.runner, fact.scope.model, fact.scope.host,
-        kind === "budget" ? (fact.value as UsageWindow).name : kind]);
+        kind === "budget" ? [(fact.value as UsageWindow).name, fact.budgetPolicy] : kind]);
       const values = groups.get(key) ?? [];
       values.push(fact); groups.set(key, values);
     }
@@ -49,7 +49,8 @@ export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEv
       (facts[kind] as Evidence<unknown>[]).push(...unique);
     }
   }
-  const measured = facts.budget.filter(f => f.source !== "execution" && f.source !== "configuration" && f.value.name !== "limit");
+  const measured = facts.budget.filter(f => f.source !== "execution" && f.source !== "configuration" && f.value.name !== "limit"
+    && (f.source !== "metered" || budgetPolicy === undefined || f.budgetPolicy === budgetPolicy));
   if (measured.length && measured.every(f => currentEvidence(f, now, evidenceDeadline(f)) && f.value.usedPct !== null && f.value.usedPct < 97)) {
     facts.budget = facts.budget.filter(f => f.source !== "execution" || f.value.name !== "limit"
       || !measured.every(sample => sample.observedAt! > (f.observedAt ?? Infinity) && appliesTo(sample, f.scope)));
@@ -71,10 +72,10 @@ export function readingEvidence(scope: EvidenceScope, reading: import("../types"
   const availability = reading.availability;
   if (availability) facts.availability.push(evidenceFact(scope, source, reading.capturedAt, availability.validUntil, availability.reason, availability.state));
   else if (contract) facts.availability.push(evidenceFact(scope, "configuration", 0, null, "measurement_contract", "ready"));
-  else if (facts.budget.length && !reading.error && !reading.stale) {
+  else if ((facts.budget.length || reading.spendUsd != null) && !reading.error && !reading.stale) {
     const deadlines = facts.budget.map(evidenceDeadline).filter((at): at is number => at !== null);
     facts.availability.push(evidenceFact(scope, source, reading.capturedAt,
-      deadlines.length ? Math.min(...deadlines) : null, "usage_observed", "ready"));
+      deadlines.length ? Math.min(...deadlines) : reading.capturedAt === null ? null : reading.capturedAt + 86400, "usage_observed", "ready"));
   }
   if (reading.spending) facts.spending.push(evidenceFact(scope, source, reading.capturedAt,
     reading.capturedAt === null ? null : reading.capturedAt + 7200, "spending_observed", reading.spending));

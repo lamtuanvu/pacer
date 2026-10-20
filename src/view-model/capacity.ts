@@ -42,6 +42,12 @@ export function executorEligibility(executor: ExecutorRow, now: number) {
 }
 
 export function accountUsageFreshness(account: import("../api/read-model/types").AccountSummary) {
- const historical = account.usedPct !== null && (account.stale !== false || account.eligibility?.budget === "unknown");
- return historical ? `Historical usage · ${account.capturedAt == null ? "Observation time unknown" : eligibilityPresentation(account.eligibility, account.eligibility?.evaluatedAt ?? 0).age ?? "Observation time unknown"}` : null;
+  const historical = (account.usedPct !== null || account.spendUsdWeek != null)
+    && (account.stale !== false || account.eligibility?.budget === "unknown");
+  if (!historical) return null;
+  const ageS = account.capturedAt == null || !account.eligibility ? null
+    : Math.max(0, account.eligibility.evaluatedAt - account.capturedAt);
+  const age = ageS === null ? "Observation time unknown"
+    : `observed ${ageS < 60 ? `${Math.floor(ageS)}s` : ageS < 3600 ? `${Math.floor(ageS / 60)}m` : `${Math.floor(ageS / 3600)}h`} ago`;
+  return `Historical usage · ${age}`;
 }

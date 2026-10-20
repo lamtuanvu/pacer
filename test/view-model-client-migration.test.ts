@@ -29,7 +29,7 @@ test("a null planner still means a current service",()=>{
 });
 test("equivalent read-model and older service data: the TUI renders board fields",()=>{
  const s=current();s.tasks=[];s.attention=[];s.executors=s.executors!.slice(0,2);
- s.accounts=[{name:"claude-code",agent:"claude-code",source:"default",usedPct:63,pacePct:77,resetsAt:s.planner!.resetsAt,window:"weekly",verdict:"BEHIND",signedIn:true,executors:["claude-code"]},...s.accounts!];
+ s.accounts=[{name:"claude-code",agent:"claude-code",source:"default",usedPct:63,pacePct:77,resetsAt:s.planner!.resetsAt,window:"weekly",verdict:"BEHIND",signedIn:true,executors:["claude-code"],spendUsdWeek:null,capUsdWeek:null},...s.accounts!];
  const legacy={...fixture,tasks:[],attention:[],strategies:s.strategies,mode:s.mode,
   budget:{generatedAt:s.at,strategy:"current",planner:"claude-code",mode:"normal",providers:[plannerProvider(s)!,rankedProviders(s)[0]!],ranked:[{id:"codex#team@devbox",verdict:"BEHIND"}]},
   console:{pid:1,startedAt:1,heartbeatAt:s.at,handle:null,paneKey:null,version:s.service!.version},alerts:[]};
