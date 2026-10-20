@@ -34,6 +34,7 @@ export interface AccountStatus {
   remoteHost?: string;
   capturedAt: number | null;
   runners: string[];
+  spendUsd: number | null;
 }
 
 export interface Status {
@@ -93,8 +94,11 @@ export async function computeStatus(
     const windows = usageWindows.map(w => evaluateWindow(w, ctx.now, profile, th));
     const live = windows.filter(w => !w.stale);
     const binding = bindingWindow(live) ?? bindingWindow(windows);
-    const verdict: Verdict = account.usage === "unmetered" && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
-    const endpoint = opts.cacheOnly ? (account.connection ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
+    // Nothing to pace against: unmetered usage, or metered usage with no token budget and no dollar cap (spend is
+    // still reported). Such accounts are available rather than unknown, so routing does not rank them last.
+    const unlimited = account.usage === "unmetered" || account.usage === "metered" && account.weeklyUsd === null && account.weeklyTokens === null;
+    const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
+    const endpoint = opts.cacheOnly ? (account.connection || account.source === "opencode" ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
     return { account, runners, reading: fresh, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested" };
   }));
@@ -137,6 +141,7 @@ export async function computeStatus(
       resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
       stale: reading.stale, runners: runners.map(r => r.name),
       source: reading.source ?? null, capturedAt: reading.capturedAt,
+      spendUsd: reading.spendUsd ?? null,
       ...(reading.remoteHost ? { remoteHost: reading.remoteHost } : {}),
     })),
     providers,

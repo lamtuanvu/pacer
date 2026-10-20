@@ -1,6 +1,6 @@
 import type { Model } from "./accounts";
 export type Step = 1 | 2 | 3 | 4;
-export const agents = [{ id: "claude-code", name: "Claude Code", tagline: "Anthropic · weekly + 5h limits" }, { id: "codex", name: "Codex", tagline: "OpenAI · weekly limit" }, { id: "cursor", name: "Cursor", tagline: "Monthly requests" }, { id: "agy", name: "Antigravity", tagline: "No limit reported" }, { id: "opencode", name: "Model endpoint (OpenCode)", tagline: "Any API endpoint · BytePlus, local" }];
+export const agents = [{ id: "claude-code", name: "Claude Code", tagline: "Anthropic · weekly + 5h limits" }, { id: "codex", name: "Codex", tagline: "OpenAI · weekly limit" }, { id: "cursor", name: "Cursor", tagline: "Monthly requests" }, { id: "agy", name: "Antigravity", tagline: "No limit reported" }, { id: "opencode", name: "Model endpoint (OpenCode)", tagline: "Providers you use in OpenCode, local models, or a URL" }];
 export const blankWizard = { agent: "claude-code", account: "", name: "", base_url: "", key_source: "file", env_var: "", models: "[]", usage: "unmetered" };
 export type WizardDraft = typeof blankWizard;
 export const nextStep = (step: Step, agent: string): Step => step === 2 && agent !== "opencode" ? 4 : Math.min(4, step + 1) as Step;

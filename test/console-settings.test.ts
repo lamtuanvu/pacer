@@ -50,7 +50,7 @@ test('fixed Orca link command prompts for label-safe identity and writes the lin
 });
 test('interactive endpoint add collects usage settings for the shared validator',async()=>{
  const {accountCmd}=await import('../src/commands/accounts');const h=harness();
- const answers=['endpoint','metered-api','http://endpoint.invalid/v1','','1','metered','1M','y'];
+ const answers=['endpoint','1','metered-api','http://endpoint.invalid/v1','','1','metered','1M','y'];
  const questions:string[]=[];let hidden=0,discovered=0,tested=0;
  const key='sk-console-endpoint-private';
  // Exercise an in-memory keychain, never the real user's store.
@@ -61,7 +61,13 @@ test('interactive endpoint add collects usage settings for the shared validator'
  const r=await accountCmd(['add'],h.ctx,{
   prompt:async question=>{questions.push(question);expect(answers.length).toBeGreaterThan(0);return answers.shift()!;},
   promptSecret:async question=>{expect(question).toContain('hidden');hidden++;return key;},
-  print:()=>{},fetch:async(url,init)=>{discovered++;expect(String(url)).toBe('http://endpoint.invalid/v1/models');expect((init!.headers as Record<string,string>).Authorization).toBe(`Bearer ${key}`);return Response.json({data:[{id:'model-a',context_length:128000,max_output_tokens:16000}]});},
+  print:()=>{},
+  // Rejects the OpenCode-picker's catalog and local-probe lookups (models.dev, 127.0.0.1:11434/1234) before
+  // the endpoint-under-test assertions below, so picker detection never trips them or inflates `discovered`.
+  fetch:async(url,init)=>{
+   if(/models\.dev|127\.0\.0\.1:(11434|1234)/.test(String(url)))throw Error('blocked in tests');
+   discovered++;expect(String(url)).toBe('http://endpoint.invalid/v1/models');expect((init!.headers as Record<string,string>).Authorization).toBe(`Bearer ${key}`);return Response.json({data:[{id:'model-a',context_length:128000,max_output_tokens:16000}]});
+  },
   spawn:async spec=>{tested++;expect(spec.env.PACER_KEY_METERED_API).toBe(key);writeFileSync(join(spec.cwd,'hello.txt'),'ok');return {code:0,stdout:'',stderr:'',timedOut:false};},
  });
  expect(r.code).toBe(0);expect(r.out).toContain('Ready: opencode#metered-api');
