@@ -178,7 +178,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       readOtaRecord(id); // Refuse changed lease before every build stage.
       const directory = join(build, index === 0 ? "baseline" : "candidate"), source = join(directory, "source"), release = join(directory, "release", version);
       mkdirSync(release, { recursive: true, mode: 0o700 });
-      for (const script of ["plugin:build", "app:build"]) await run([process.execPath, "run", script], source);
+      await run([process.execPath, "run", "app:build"], source);
       await run(fixtureCompileCommand(source, join(release, assetFile(target)), version, policy), source);
       writeRelease(join(directory, "release"), version, [target]);
       await run([process.execPath, cli, "build", "--bundles", "app", "--no-sign", "--features", "ota-fixture", "--", "--offline", "--locked"], join(source, "desktop"));
