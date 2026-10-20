@@ -295,7 +295,7 @@ test("concurrent identical briefs launch only one executor unless forced",async(
  let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});
  d.runAttempt=async()=>{d.calls.push("codex");await gate;return outcomeFor("codex",0);};
  const first=runTask(ctx,a.id,d);
- await Bun.sleep(10);
+ for(let i=0;i<400&&!d.calls.length;i++)await Bun.sleep(5);
  const second=await runTask(ctx,b.id,d);
  expect(second.state).toBe("failed");expect(second.result?.report).toContain("already active");expect(d.calls).toEqual(["codex"]);
  const forced=newTask(ctx);updateTask(ctx,forced.id,t=>{t.force=true;});

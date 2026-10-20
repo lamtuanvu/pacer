@@ -38,6 +38,7 @@ test("prepareChangelog keeps history and moves all Unreleased content into the d
   expect(() => prepareChangelog(changelog, "0.1.0", "2026-10-13")).toThrow("already contains");
 });
 
+const tauriConf = '{\n  "productName": "pacer",\n  "version": "0.1.0",\n  "bundle": { "targets": ["app"], "macOS": { "minimumSystemVersion": "11.0" } }\n}\n';
 function fixture(): string {
   const root = tmpDir();
   mkdirSync(join(root, "scripts"));
@@ -45,7 +46,7 @@ function fixture(): string {
   mkdirSync(desktop, { recursive: true });
   writeFileSync(join(desktop, "Cargo.toml"), cargo);
   writeFileSync(join(desktop, "Cargo.lock"), lock);
-  writeFileSync(join(desktop, "tauri.conf.json"), JSON.stringify({ productName: "pacer", version: "0.1.0" }));
+  writeFileSync(join(desktop, "tauri.conf.json"), tauriConf);
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "0.1.0", scripts: { "plugin:build": "bun scripts/plugin.ts", "app:build": "bun scripts/app.ts" } }));
   writeFileSync(join(root, "scripts", "plugin.ts"), 'await Bun.write("built-version", (await Bun.file("package.json").json()).version);');
   writeFileSync(join(root, "scripts", "app.ts"), 'await Bun.write("app-built-version", (await Bun.file("package.json").json()).version);');
@@ -59,7 +60,8 @@ test("prepareRelease updates package, desktop and changelog before rebuilding pl
   await prepareRelease(root, "0.2.0");
   expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version).toBe("0.2.0");
   const desktop = join(root, "desktop", "src-tauri");
-  expect(JSON.parse(readFileSync(join(desktop, "tauri.conf.json"), "utf8"))).toEqual({ productName: "pacer", version: "0.2.0" });
+  // Only the version string changes; the hand-formatted layout is kept.
+  expect(readFileSync(join(desktop, "tauri.conf.json"), "utf8")).toBe(tauriConf.replace('"version": "0.1.0"', '"version": "0.2.0"'));
   expect(readFileSync(join(desktop, "Cargo.toml"), "utf8")).toBe(cargo.replace('version = "0.1.0"', 'version = "0.2.0"'));
   expect(readFileSync(join(desktop, "Cargo.lock"), "utf8")).toBe(lock.replace('name = "pacer-desktop"\nversion = "0.1.0"', 'name = "pacer-desktop"\nversion = "0.2.0"'));
   expect(JSON.parse(readFileSync(join(root, "orca-marketplace.json"), "utf8")).plugins[0].source.ref).toBe("orca-plugin-v0.2.0");
