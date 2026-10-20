@@ -25,8 +25,8 @@ pacer runner add claude-code#work
 pacer config set planner claude-code#work
 ```
 
-A pacer-managed account uses a new folder under `~/.pacer/accounts/<name>`,
-created with permissions 0700. Choose another new folder with `--home <dir>`.
+A pacer-managed account uses a new folder, `~/.<kind>-<name>` (for example
+`~/.claude-work` or `~/.codex-work`), created with permissions 0700. Choose another new folder with `--home <dir>`.
 Claude starts with `CLAUDE_CONFIG_DIR` pointing at that folder; run `/login`,
 then exit to return to pacer. Codex runs `codex login` with `CODEX_HOME` set.
 The login process inherits your terminal. `--no-login` configures the account
