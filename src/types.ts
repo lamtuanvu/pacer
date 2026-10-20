@@ -16,6 +16,9 @@ export interface UsageWindow {
 }
 
 export interface UsageReading {
+  evidence?: import("./evidence/types").AccountEvidence;
+  availability?: { state: "ready" | "unavailable" | "unknown"; reason: string; validUntil: number | null };
+  spending?: import("./evidence/types").SpendingSignals;
   windows: UsageWindow[];
   capturedAt: number | null;
   stale: boolean;
