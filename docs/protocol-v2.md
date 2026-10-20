@@ -706,6 +706,7 @@ Params JSON Schema:
       "items": {
         "type": "string",
         "enum": [
+          "plugin_state",
           "task_started",
           "task_settled",
           "verdict",
