@@ -36,7 +36,7 @@ const SETTINGS_OPS: Record<keyof SettingsData, [string, Record<string, unknown>]
   strategies: ["strategy.list", {}], update: ["update.check", {}], notifications: ["notifications.get", {}],
 };
 /** Ops whose success changes settings resources. */
-const SETTINGS_MUTATIONS = /^(config\.set|runner\.|account\.|routing\.set|project\.strategy\.(set|remove)|strategy\.(use|save|remove)|notifications\.set|update\.|plugin\.install|host\.set)/;
+const SETTINGS_MUTATIONS = /^(config\.set|runner\.|account\.|routing\.set|project\.strategy\.(set|remove)|strategy\.(use|save|remove)|notifications\.set|update\.|host\.set)/;
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export class Dashboard {

@@ -17,7 +17,7 @@ export const SECTIONS: { id: string; label: string; needs: (keyof SettingsData)[
   { id: "routing", label: "Routing", needs: ["routing"] },
   { id: "projects", label: "Project strategies", needs: ["projects"] },
   { id: "strategies", label: "Strategies", needs: ["strategies"] },
-  { id: "updates", label: "Updates & plugin", needs: ["update", "config"] },
+  { id: "updates", label: "Updates", needs: ["update", "config"] },
   { id: "notifications", label: "Notifications", needs: ["notifications"] },
   { id: "appearance", label: "Appearance", needs: [] },
 ];
@@ -330,11 +330,6 @@ const updates: Build = (ctx, width) => {
     const toggle = set(ctx, "Update checks", "update_check", !configured);
     items.push({ id: "update:daily", primary: toggle, actions: [], keys: {} });
     rows.push({ item: "update:daily", line: field(ctx, width, "Check for updates", [span(configured ? "On" : "Off", { bold: true })], "once a day, in the background") });
-  }
-  const plugin = opAct(ctx, "Install Orca panel", "plugin.install", {});
-  if (plugin) {
-    items.push({ id: "update:plugin", primary: plugin, actions: [], keys: {} });
-    rows.push({ item: "update:plugin", line: field(ctx, width, "Orca plugin", [span("Install Orca panel", { fg: "secondary" })]) });
   }
   return { rows, items };
 };

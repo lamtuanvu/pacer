@@ -271,7 +271,7 @@ Two panes: sections on the left (24 columns), the section on the right. Sections
 | Routing | `routing.get` | "Rule 1 · tests, docs → codex, cursor", "Everything else → …". `Enter` edit executor order; `n` add rule (before the catch-all); `x` remove rule → `routing.set` |
 | Project strategies | `project.strategy.list`, `snapshot.repos` | "acme/api → codex, cursor" or "Using global strategy". `Enter` edit order → `project.strategy.set {repo, executors, expect_rev}`; `x` use global → `project.strategy.remove`; conflict copy from the app |
 | Strategies | `strategy.list` | Name, summary, Active / `Enter` Use → `strategy.use`; `n` New from a brief → `strategy.build {brief}` |
-| Updates & plugin | `update.check` | "Version 0.3.1 · Up to date"; `Enter` Check now (`force`); `u` Update and restart (confirm) → `update.apply`; daily check on/off → `config.set update_check`; Install Orca panel → `plugin.install` |
+| Updates | `update.check` | "Version 0.3.1 · Up to date"; `Enter` Check now (`force`); `u` Update and restart (confirm) → `update.apply`; daily check on/off → `config.set update_check` |
 | Notifications | `notifications.get` | Off / Important / All → `notifications.set` |
 | Appearance | terminal detection | Color (truecolor/256/16/none), theme (dark/light), glyphs, motion, plain mode. `Enter` cycles System/Light/Dark **for this session**; the environment variables that persist each choice are listed |
 
@@ -339,7 +339,7 @@ src/dashboard/
 - Settings controller tests run against the in-process API client on a temporary `PACER_HOME`.
 - Controller tests (`test/dashboard-controller.test.ts`): Enter on a running row never sends `task.stop`, and every destructive or consequential action (stop, remove account/executor/rule, use the global strategy, update and restart, service install, accept) confirms before any op is sent.
 - `test/dashboard-imports.test.ts` fails when `src/dashboard` imports a module for its values outside the dashboard, the view model, the API client and a short named allowlist (ARCH-1).
-- Cross-surface status tests (`test/dashboard-panel-semantics.test.ts`) keep TUI and Orca panel glyph/label/tone parity.
+- Cross-surface status tests (`test/dashboard-panel-semantics.test.ts`) keep TUI glyph/label/tone parity.
 - Live validation (CT-11): `bun run live up --seed ui`, drive every screen in tmux at 120×40, capture each into evidence, and record verdicts.
 
 ## Coverage
