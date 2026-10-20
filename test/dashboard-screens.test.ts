@@ -11,6 +11,7 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { DashData, SettingsData, TaskDetail } from "../src/dashboard/screens/types";
 import { initialState, reduceKey, type ScreenId, type UiState } from "../src/dashboard/state";
 import { SECTIONS } from "../src/dashboard/screens/settings";
+import { updateState, type UpdateState } from "../src/dashboard/screens/common";
 
 const snapshot = () => structuredClone(fixture) as unknown as ClientSnapshot;
 const detail = taskGet as unknown as TaskDetail;
@@ -240,5 +241,37 @@ describe("help overlay fits the terminal", () => {
     const text = frame("home", 120, 40, { state: { overlay: { kind: "help" } } });
     for (const key of ["1-4 / Tab Shift-Tab", "R / Ctrl-R", "PgUp PgDn"]) expect(text).toContain(key);
     expect(text).not.toContain("1-5");
+  });
+});
+
+describe("footer update state agrees with Settings", () => {
+  const footer = (update: UpdateState | undefined, width = 120) => {
+    const s = snapshot();
+    return renderDashboard(s, width, 40, s.at, { theme: PLAIN_THEME, version: "0.0.0-test", ...(update ? { update } : {}) }).split("\n").at(-1)!;
+  };
+  test("each state has its own words; an unchecked version claims nothing", () => {
+    expect(footer("available")).toContain("pacer 0.0.0-test · update available");
+    expect(footer("current")).toContain("pacer 0.0.0-test · up to date");
+    expect(footer("disabled")).toContain("pacer 0.0.0-test · update checks off");
+    expect(footer("failed")).toContain("pacer 0.0.0-test · update check failed");
+    for (const text of [footer(undefined), footer("unchecked")]) {
+      expect(text).toContain("pacer 0.0.0-test");
+      expect(text).not.toContain("up to date");
+    }
+    expect(footer("disabled", 80)).toContain("update checks off");
+  });
+  test("updateState reads the same update.check result Settings shows", () => {
+    expect(updateState(undefined)).toBe("unchecked");
+    expect(updateState({ current: "1", latest: null, available: false, disabled: true })).toBe("disabled");
+    expect(updateState({ current: "1", latest: null, available: false, error: "offline" })).toBe("failed");
+    expect(updateState({ current: "1", latest: "2", available: true })).toBe("available");
+    expect(updateState({ current: "1", latest: "1", available: false })).toBe("current");
+    expect(updateState({ current: "1", latest: null, available: false })).toBe("unchecked");
+    const d = data();
+    d.settings!.update = { value: { current: "0.3.1", latest: null, available: false, disabled: true } };
+    const s = snapshot();
+    const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state: { screen: "settings", section: "updates", focus: "detail" }, update: updateState(d.settings!.update.value) });
+    expect(text).toContain("Update checking disabled");
+    expect(text.split("\n").at(-1)).toContain("update checks off");
   });
 });

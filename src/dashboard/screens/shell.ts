@@ -7,8 +7,8 @@ import { modeWords, paceStatus, type StatusTone } from "../../view-model/words";
 import { clock } from "../../view-model/time";
 import { box, clip, fit, glyph, heading, lineWidth, meter, pad, paint, rule, span, statusSpans, toneRole, wrap, type Line, type PaintRow } from "../frame";
 import { SCREEN_LABELS, selectedItem, type Item, type Overlay, type ScreenId, type UiState } from "../state";
-import type { TerminalTheme } from "../theme";
-import { MARK } from "./common";
+import type { Style, TerminalTheme } from "../theme";
+import { MARK, type UpdateState } from "./common";
 import { homeScreen } from "./home";
 import { reviewScreen } from "./review";
 import { sessionsScreen } from "./sessions";
@@ -26,7 +26,7 @@ export interface FrameInput {
   ops?: readonly string[];
   data: DashData;
   version: string;
-  update?: "available" | "current";
+  update?: UpdateState;
   /** live/local: the last read succeeded; offline: it failed after an earlier success. */
   connection: "live" | "local" | "connecting" | "offline";
   /** When the last successful read finished (seconds). Shown while offline. */
@@ -193,10 +193,17 @@ function keyBar(input: FrameInput, item: Item | undefined, view: ScreenView, scr
   }
   for (const hint of view.hints ?? []) { const [key, ...label] = hint.split(" "); add(key!, label.join(" ")); }
   const help: Line = [span("?", { bold: true }), span(" help", { fg: "secondary" })];
-  const update = input.update === "available" ? span("update available", { fg: "warn", bold: true }) : span("up to date", { fg: "muted" });
-  const right: Line = width < 100
-    ? [input.update === "available" ? update : span(`pacer ${input.version}`, { fg: "muted" })]
-    : [span(`pacer ${input.version}`, { fg: "muted" }), span(` ${glyph(theme, "·")} `, { fg: "muted" }), update];
+  // Only a known state is claimed; before a check the footer shows the version alone.
+  const words: Partial<Record<UpdateState, [string, Style]>> = {
+    available: ["update available", { fg: "warn", bold: true }], current: ["up to date", { fg: "muted" }],
+    disabled: ["update checks off", { fg: "muted" }], failed: ["update check failed", { fg: "warn" }],
+  };
+  const known = input.update ? words[input.update] : undefined;
+  const version = span(`pacer ${input.version}`, { fg: "muted" });
+  // Narrow terminals keep one item: the version, unless there is something to notice.
+  const right: Line = !known ? [version]
+    : width >= 100 ? [version, span(` ${glyph(theme, "·")} `, { fg: "muted" }), span(known[0], known[1])]
+    : input.update === "current" ? [version] : [span(known[0], known[1])];
   // Drop whole hints from the end, never the first (the primary) or "? help", so no key is shown cut in half.
   const room = width - lineWidth(right) - 2, join = (list: Line[]) => list.flatMap((g, i) => i ? [span("  "), ...g] : g);
   while (groups.length > 1 && lineWidth(join([...groups, help])) > room) groups.splice(groups.length - 1, 1);

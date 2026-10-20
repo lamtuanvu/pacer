@@ -2,6 +2,7 @@ import { StringDecoder } from "node:string_decoder";
 import { attachDirectory, attachSession } from "../session/attach";
 import { pacerArgv } from "../install/self";
 import { currentVersion } from "../update/version";
+import { updateState } from "./screens/common";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { dashboardClient } from "./client";
@@ -57,7 +58,8 @@ export async function runDashboard(args: string[], ctx: Ctx): Promise<Result> {
     client, theme, version: currentVersion(), cwd: process.cwd(), write,
     now: () => Date.now() / 1000,
     size: () => ({ width: options.width ?? process.stdout.columns ?? 100, height: options.once ? 200 : process.stdout.rows ?? 24 }),
-    update: () => { const u = dash.data.settings.update?.value; return u?.available ? "available" : u ? "current" : undefined; },
+    // The environment switch is known before Settings reads update.check; Settings shows the same "off".
+    update: () => ctx.env.PACER_NO_UPDATE_CHECK ? "disabled" : updateState(dash.data.settings.update?.value),
   });
   dash.state = { ...dash.state, screen: options.screen };
 

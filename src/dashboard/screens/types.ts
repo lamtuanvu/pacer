@@ -29,7 +29,7 @@ export interface SettingsData {
   routing?: Resource<{ rules: { kinds?: string[]; executors: string[] }[]; available: string[] }>;
   projects?: Resource<ProjectStrategy[]>;
   strategies?: Resource<{ name: string; active: boolean; summary: string; description?: string }[]>;
-  update?: Resource<{ current: string; latest: string | null; available: boolean; error?: string; disabled?: boolean }>;
+  update?: Resource<UpdateInfo>;
   notifications?: Resource<{ level: string }>;
 }
 export interface SettingsAccount {
@@ -85,3 +85,6 @@ export interface ScreenView {
   /** Settings resources this view shows. */
   settingsNeeds?: (keyof SettingsData)[];
 }
+
+/** The `update.check` result. */
+export interface UpdateInfo { current: string; latest: string | null; available: boolean; error?: string; disabled?: boolean }

@@ -5,7 +5,7 @@ import { clock } from "../../view-model/time";
 import { glyph, span, type Line } from "../frame";
 import type { Act, ScreenId } from "../state";
 import type { TerminalTheme } from "../theme";
-import type { Row, ScreenCtx } from "./types";
+import type { Row, ScreenCtx, UpdateInfo } from "./types";
 
 export const GAP = 2;
 /** The selection gutter at the start of every list row. */
@@ -49,3 +49,10 @@ export function serviceAct(ctx: ScreenCtx, action: Action, subject?: string): Ac
 export const opAct = (ctx: ScreenCtx, label: string, op: string, params: Record<string, unknown>, extra: Partial<Act> = {}): Act | undefined =>
   ctx.supports(op) ? { label, effect: { type: "action", action: { label, op, params } }, ...extra } : undefined;
 export const defined = <T>(values: (T | undefined | false | null)[]): T[] => values.filter((v): v is T => !!v);
+
+/** One reading of `update.check` for the footer and Settings › Updates, so they never disagree (UI-10). */
+export type UpdateState = "available" | "current" | "disabled" | "failed" | "unchecked";
+export function updateState(u: UpdateInfo | undefined): UpdateState {
+  if (!u) return "unchecked";
+  return u.error ? "failed" : u.disabled ? "disabled" : u.available ? "available" : u.latest ? "current" : "unchecked";
+}

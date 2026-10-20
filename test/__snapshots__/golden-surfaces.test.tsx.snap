@@ -54,7 +54,7 @@ exports[`golden tui 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  x dismiss  . actions (3)  f repo scope  d delegate  ? help                      pacer 0.3.0 · up to date"
+ ⏎ Run checks  x dismiss  . actions (3)  f repo scope  d delegate  ? help                                   pacer 0.3.0"
 `;
 
 exports[`golden line120 1`] = `"▬┃ Claude Code 63%·77  ▸2  ⚑4"`;

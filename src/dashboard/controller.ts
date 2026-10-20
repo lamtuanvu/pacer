@@ -11,6 +11,7 @@ import { KINDS, scopedReviewQueue } from "./screens/review";
 import type { DashData, Resource, SettingsData, TaskDetail } from "./screens/types";
 import { initialState, reduceKey, type Act, type Effect, type ScreenId, type UiState } from "./state";
 import type { TerminalTheme } from "./theme";
+import type { UpdateState } from "./screens/common";
 
 export interface ControllerDeps {
   client: ApiClient;
@@ -23,7 +24,7 @@ export interface ControllerDeps {
   /** The directory a delegation defaults to. */
   cwd: string;
   /** Update state from the shared cached check, read without network. */
-  update?(): "available" | "current" | undefined;
+  update?(): UpdateState | undefined;
   /** Hand the terminal to a viewer for a builtin session. */
   attachHere?(id: string): Promise<void>;
   /** Hand the terminal to a pacer CLI command (account add, runner add) and resume afterwards. */

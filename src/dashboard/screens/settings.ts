@@ -4,7 +4,7 @@ import { capacityNote } from "../../view-model/capacity";
 import { executorLabel, executorStatus, type Status } from "../../view-model/words";
 import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line } from "../frame";
 import type { Act, Item } from "../state";
-import { blank, defined, empty, executorName, GAP, MARK, opAct, time } from "./common";
+import { blank, defined, empty, executorName, GAP, MARK, opAct, time, updateState } from "./common";
 import { errorRows } from "./review";
 import type { Resource, Row, ScreenCtx, ScreenView, SettingsData } from "./types";
 
@@ -314,7 +314,7 @@ const updates: Build = (ctx, width) => {
     return { rows: pending.map(r => ({ ...r, item: "update:check" })), items };
   }
   const u = resource!.value!;
-  const state = u.error ? "Update check failed" : u.disabled ? "Update checking disabled" : u.available ? `Update available: ${u.latest}` : u.latest ? "Up to date" : "Not checked";
+  const state = { failed: "Update check failed", disabled: "Update checking disabled", available: `Update available: ${u.latest}`, current: "Up to date", unchecked: "Not checked" }[updateState(u)];
   items.push({ id: "update:check", primary: check, actions: [], keys: {} });
   rows.push({ item: "update:check", line: field(ctx, width, "Version", [span(u.current, { bold: true }), span(`  ${state}`, { fg: u.available ? "warn" : u.error ? "bad" : "secondary" })], "⏎ check now") });
   const apply = u.available ? opAct(ctx, "Update and restart", "update.apply", {}, { confirm: { title: "Update pacer and restart the service?", yes: "Update and restart" } }) : undefined;
