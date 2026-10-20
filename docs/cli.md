@@ -305,6 +305,7 @@ pacer account list [--json]
 pacer account add
 pacer account add <claude|codex> <name> [--home <dir>] [--no-login]
 pacer account add <claude|codex> <name> --orca <id>
+pacer account add opencode <provider> [--model <id>] [--cap-usd <n>] [--name <name>] [--no-test]
 pacer account add endpoint <name> --usage <quota|metered|unmetered> [--quota-source arkcli] [--weekly-tokens <n>]
 pacer account add endpoint <name> --base-url <url> --key <keychain|file|env:VAR|none> --models <id,...> --usage <quota|metered|unmetered> [--context <n>] [--output <n>] [--quota-source arkcli] [--weekly-tokens <n>] [--no-test]
 pacer account models <name> [--refresh]
@@ -319,8 +320,12 @@ pacer config set <key> <value>
 pacer config migrate
 ```
 
-Interactive `account add` offers **Model endpoint (OpenCode)**: URL, hidden key,
-model discovery/selection, limits, usage and an optional test. The explicit
+Interactive `account add` offers **Model endpoint (OpenCode)**: it lists providers
+already signed in to OpenCode, local model servers, a catalog search (OpenCode
+stores the key) and **Enter a URL yourself** (URL, hidden key, model
+discovery/selection, limits, usage and an optional test). `account add opencode
+<provider>` adds a signed-in provider in one command, using the recommended model
+unless `--model` is given; `--cap-usd` sets a weekly dollar cap. The explicit
 connection form creates the provider and runner automatically and tests by
 default; `--no-test` leaves it Not tested. Only a passing test reports Ready.
 For `--key keychain` or `file`, read the key from stdin; `env:VAR` refers to an
