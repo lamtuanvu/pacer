@@ -6,7 +6,7 @@ import { superviseTasks } from "./tasks/api";
 import { drainQueue } from "./tasks/drain";
 import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
-import { resolveRepoInput } from "./core/repos";
+import { registeredRepo, resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
@@ -23,7 +23,7 @@ import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { isExecutorSession } from "./install/role";
 import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
@@ -58,7 +58,7 @@ const USAGE = `usage: pacer <command>
   status [--line | --json | --hook <planner>]   budget status (default: text report)
     --line [--width N] [--no-color] [--json]     compact local status; columns default to COLUMNS or 80
   pause <for> | resume                          pause or resume delegation
-  route [kind] [--repo <path-or-key>] [--json]                          executors pacer would use, in order
+  route [kind] [--repo <path-or-key>] [--json]                          executors pacer would use, in order (default repo: current directory)
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
@@ -200,14 +200,22 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
   }
 }
 
+function currentRepoKey(ctx: Ctx): string | undefined {
+  try { return registeredRepo(ctx, realpathSync(process.cwd()))?.key; }
+  catch { return undefined; }
+}
+
 async function route(args: string[], ctx: Ctx): Promise<Result> {
   const { opts, pos } = parseFlags(args, ["json"]);
   try {
     if (opts.repo === true) throw new Error("--repo requires a path or repository key");
+    // Like delegate, default to the repository in the current directory, but
+    // only when it is already registered: a read never probes Git or registers it.
+    const repo = str(opts.repo) ?? currentRepoKey(ctx);
     const client = await connectTaskClient(ctx);
     let r: Awaited<ReturnType<typeof core.routing.route>>;
     try {
-      const params = { kind: pos[0], repo: str(opts.repo) };
+      const params = { kind: pos[0], repo };
       r = client.kind === "inprocess" ? await callOp(ctx, "routing.route", params) as typeof r : await client.call("routing.route", params);
     }
     finally { client.close(); }
