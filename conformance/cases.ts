@@ -17,6 +17,8 @@ type Info = { id: string; state: string; pid: number | null; error: string | nul
 type Report = { id: string; ok: boolean; state: string; served: string[]; pid: number | null; restarts: number; error: string | null; needs: string | null };
 const listed = async (h: HostSession) => Object.fromEntries(((await h.call<{ plugins: Info[] }>("plugin.list")).plugins).map(p => [p.id, p]));
 const doctor = async (h: HostSession, id: string) => (await h.call<{ reports: Report[] }>("plugin.doctor", { id })).reports[0]!;
+/** Events arrive through a polled subscription, so wait for them instead of checking once. */
+const eventually = async (seen: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!seen() && Date.now() < end) await Bun.sleep(50); return seen(); };
 const codeOf = async (p: Promise<unknown>) => { try { await p; return "no error"; } catch (e) { return e instanceof HostError ? e.code : String(e); } };
 
 export const CASES: ConformanceCase[] = [
@@ -67,7 +69,7 @@ export const CASES: ConformanceCase[] = [
     assert(new Set(pids).size === 3, "each restart is a new process");
     const failing = await doctor(h, "fx-crasher");
     assert(!failing.ok && failing.state === "failing" && failing.restarts === 3 && /3 failures within a minute/.test(failing.error ?? ""), `three crashes within a minute mark the plugin failing (got ${failing.state}: ${failing.error})`);
-    assert(h.events.some(e => e.type === "plugin" && (e.data as { state: string }).state === "failing"), "a plugin event announces the failing state");
+    assert(await eventually(() => h.events.some(e => e.type === "plugin" && (e.data as { state: string }).state === "failing")), "a plugin event announces the failing state");
     const after = await h.call<{ state: string }>("plugin.enable", { id: "fx-crasher", grant: true });
     assert(after.state === "idle", "enable clears failing");
     assert((await doctor(h, "fx-crasher")).ok, "the plugin runs again after enable");
