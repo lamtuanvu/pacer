@@ -58,14 +58,19 @@ test("Orca links sanitized ids and labels and reports missing home as usage-only
 });
 for(const [command,args] of [
   ['account',['rm','personal']], ['account',['rm','codex']], ['account',['add','claude','Bad/Name','--no-login']],
-  ['account',['add','cursor','work','--no-login']], ['account',['add','endpoint','bad','--usage','metered']],
-  ['account',['add','endpoint','bad','--usage','quota']], ['account',['add','claude','personal','--no-login']],
+  ['account',['add','cursor','work','--no-login']], ['account',['add','endpoint','bad','--usage','quota']], ['account',['add','claude','personal','--no-login']],
   ['runner',['rm','claude-code']], ['runner',['add','codex#personal']], ['runner',['add','codex@remote']],
   ['runner',['add','opencode#spare']], ['runner',['add','invented']], ['account',['rm','missing']], ['runner',['rm','missing']],
 ] as const) test(`refuses ${command} ${args.join(' ')} without changing bytes`,async()=>{
   const ctx=commandCtx(); const p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
   const r=await (command==='account'?accountCmd:runnerCmd)([...args],ctx);
   expect(r.code).not.toBe(0); expect(readFileSync(p,'utf8')).toBe(before);
+});
+test('account add endpoint with metered usage and no budget tracks spend without pacing', async()=>{
+  const ctx=commandCtx();
+  const r=await accountCmd(['add','endpoint','meter','--usage','metered'],ctx);
+  expect(r.code).toBe(0);
+  expect(loadStrategy(ctx).accounts.meter).toMatchObject({kind:'endpoint',usage:'metered',weeklyTokens:null,weeklyUsd:null});
 });
 test('last runner refusal is byte identical',async()=>{
   const ctx=commandCtx(); const p=join(ctx.pacerHome,'strategy.yaml');
