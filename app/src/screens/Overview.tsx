@@ -25,7 +25,7 @@ import { keys } from "../keys/instance";
 import { activeRepo, NarrowContext, useNarrow } from "../shell/narrow";
 import { withQuery, type RouteQuery } from "../router";
 import { ActionButton } from "./ActionButton";
-import { BulkReview, ReviewCheckbox } from "./review/BulkReview";
+
 import { QuickDelegate } from "./QuickDelegate";
 import { repoChoices, RepoFilter } from "./RepoFilter";
 import { useQuery, useTaskContext } from "./task-shared";
@@ -39,19 +39,19 @@ function attentionTitle(item: AttentionItem, snapshot: ClientSnapshot): string {
   return task?.fullTitle ?? (item.title === task?.goal ? displayTitle(task) : item.title);
 }
 
-function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean }) {
+export function NeedsYou({ snapshot, scope, runner, now, query, narrow, standalone = false }: { standalone?: boolean; snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean }) {
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);
   const otherRepos = others > 0 ? <TextAction className="pc-text-action" href={withQuery("#/", { ...query, repo: "" })}>+{others} in other repos</TextAction> : null;
-  const reviewQueue = <TextAction className="pc-text-action" href={withQuery("#/review", { ...query, repo: scope.repo ?? query.repo })}>Open review queue</TextAction>;
-  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><SectionHeading id="needs-you">Needs you</SectionHeading>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{narrow && otherRepos ? otherRepos : reviewQueue}</div>
-    <BulkReview key={scope.repo ?? "all"} snapshot={snapshot} repo={scope.repo} runner={runner}>
+  const reviewQueue = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>All attention</TextAction>;
+  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><SectionHeading id="needs-you">{standalone ? "Decisions and problems" : "Needs you"}</SectionHeading>{!standalone && items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{standalone ? otherRepos : narrow && otherRepos ? otherRepos : reviewQueue}</div>
+    <div>
     {items.map(item => { const status = attentionStatus(item, snapshot.tasks); return <ListRow key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${status.tone === "bad" ? " pc-attn--bad" : ""}`}
-      leading={<><ReviewCheckbox item={item} /><span className={`pc-status--${status.tone}`}><StatusGlyph status={status} />{status.label}</span>{item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}</>}
+      leading={<><span className={`pc-status--${status.tone}`}><StatusGlyph status={status} />{status.label}</span>{item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}</>}
       content={<><div className="pc-attn__title"><span className="pc-ellipsis grow" title={attentionTitle(item, snapshot)}>{attentionTitle(item, snapshot)}</span>{item.repo && <code className="pc-repo-chip" title={item.repo.label}>{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></>}
-      actions={item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} />)}
+      actions={item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action.op === "task.answer" ? {label:action.label,op:"ui.open",params:{view:"task",id:item.taskId}} : action} confirmDone={gone(item)} />)}
     />; })}
-    </BulkReview>
-    {!items.length && <EmptyState title="Nothing needs you." />}
+    </div>
+    {!items.length && <EmptyState title="Nothing needs your attention" description={<TextAction href={withQuery("#/tasks",query)}>View Tasks</TextAction>} />}
     {narrow && otherRepos ? reviewQueue : otherRepos}
   </section>;
 }
@@ -177,7 +177,7 @@ export function Overview({ query }: { query: RouteQuery }) {
     const selected = () => current.current.snapshot?.attention?.find(a => a.id === (document.activeElement?.closest("[data-attention-id]") as HTMLElement)?.dataset.attentionId);
     const actions: Record<string, () => void> = {
       j: () => move(1), k: () => move(-1), Enter: () => { const active = document.activeElement as HTMLElement; (active?.tagName === "BUTTON" ? active as HTMLButtonElement : active?.closest("[data-attention-id]")?.querySelector("button"))?.click(); },
-      v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/review/${encodeURIComponent(item.taskId)}` : "#/review", current.current.query); },
+      v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/review/${encodeURIComponent(item.taskId)}` : "#/needs-you", current.current.query); },
       x: () => { const item = selected(); if (item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
     };
     const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "overview", run: actions[key] ?? (() => {
@@ -189,4 +189,10 @@ export function Overview({ query }: { query: RouteQuery }) {
   }, [runner, state.features.ops]);
   if (!state.snapshot) return null;
   return <OverviewView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} activity={activity} ops={state.features.ops} quickDelegate={<QuickDelegate filterRepo={query.repo} />} />;
+}
+
+export function NeedsYouPage({query}:{query:RouteQuery}) {
+ const {state}=useTaskContext(),runner=useActions();
+ if(!state.snapshot)return null;
+ return <><RepoFilter snapshot={state.snapshot} query={query}/><NeedsYou snapshot={state.snapshot} scope={{repo:query.repo||null}} runner={runner} now={Date.now()/1000} query={query} narrow={false} standalone/></>;
 }

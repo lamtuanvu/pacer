@@ -88,3 +88,16 @@ Component tests establish native attributes, disabled/busy behavior, label/help/
 This migration consolidates the shared-foundation inventory from #174 while preserving #134's semantic status, title, time, containment and one-action requirements. Product-specific remaining work in #134 is complete only when its own observed acceptance criteria and visual evidence pass; architectural reuse alone does not close it.
 
 The canonical Disclosure supports `pc-disclosure--wrap` for multi-part summaries, wrapping title, status and evidence within the container. Diagnostics uses this variant with `pc-ellipsis` and a full title attribute for long identities. Native disclosure keyboard and open/closed semantics remain unchanged; no new upstream adaptation is introduced.
+
+### Task result composition
+
+TaskResult composes canonical SectionHeading, StatusPill, Disclosure, Field,
+TextArea and Button controls. It orders result, checks and changes, delivery and
+next actions before collapsed transcript and technical details. Explicit review
+requests expose verdict controls; ordinary completion keeps them in an optional
+disclosure. Failed checks expose recovery controls. The layout uses existing
+spacing tokens and stacks its columns below 900px. No new upstream component or
+primitive appearance is introduced. Production consumers: Tasks detail and
+legacy task/review deep links. Existing session viewing remains available for
+active tasks. Standard disclosure keyboard behavior, field labels, busy states
+and polite result announcements apply.

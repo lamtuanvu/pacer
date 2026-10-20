@@ -12,7 +12,7 @@ export interface TaskSummary {
   resolved: string | null; placement?: { mode?: string; why?: string } | null;
 }
 export const kinds = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
-export const taskHref = (id: string) => `#/sessions/${encodeURIComponent(id)}`;
+export const taskHref = (id: string) => `#/tasks/${encodeURIComponent(id)}`;
 /** A queued snapshot must not regress a task already running or complete. */
 export function mergeTask(task: TaskSummary, live?: TaskData): TaskSummary {
   return {...task, ...(live ? {state: (live.state === "queued" && task.state === "running") || (activeTask(live.state) && !activeTask(task.state)) ? task.state : live.state, reviewRequest: live.reviewRequest ?? task.reviewRequest, acceptanceState: live.acceptanceState ?? task.acceptanceState, review: live.review ?? task.review, resolved: live.resolved ?? task.resolved, goal: live.goal || task.goal} : {})};

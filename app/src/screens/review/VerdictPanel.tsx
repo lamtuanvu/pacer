@@ -27,20 +27,20 @@ export function handleNoteKey(
   }
 }
 export interface VerdictPanelProps {
-  task: TaskDetail; note: string; kind: string; executor: string;
+  recovery?: boolean; task: TaskDetail; note: string; kind: string; executor: string;
   noteFor: "reject" | "send_back" | null; pending: boolean;
   onNote: (s: string) => void; onKind: (s: string) => void; onExecutor: (s: string) => void;
   onOpenNote: (v: "reject" | "send_back") => void; onCancel: () => void; onSubmit: (v: Verdict["verdict"]) => void;
   noteRef?: RefObject<HTMLTextAreaElement>; retryRef?: RefObject<HTMLSelectElement>;
 }
-export function VerdictPanel({ task, note, kind, executor, noteFor, pending, onNote, onKind, onExecutor, onOpenNote, onCancel, onSubmit, noteRef, retryRef }: VerdictPanelProps) {
+export function VerdictPanel({ recovery = false, task, note, kind, executor, noteFor, pending, onNote, onKind, onExecutor, onOpenNote, onCancel, onSubmit, noteRef, retryRef }: VerdictPanelProps) {
   const verdict = noteFor ?? (executor ? "retry" : "accept");
   return <>
-    <SectionHeading>Your verdict</SectionHeading>
-    <Button variant="primary" disabled={pending} onClick={() => onSubmit("accept")}>Accept and bring back</Button>
+    <SectionHeading>{recovery ? "Continue work" : "Your verdict"}</SectionHeading>
+    {!recovery && <Button variant="primary" disabled={pending} onClick={() => onSubmit("accept")}>Mark accepted</Button>}
     <p className="muted">Accept records the verdict; you merge the branch.</p>
-    <div className="pc-verdict-pair"><Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>
-    <Button variant="danger" disabled={pending} onClick={() => onOpenNote("reject")}>Reject</Button></div>
+    <div className="pc-verdict-pair">{(task.executor || task.attempts.at(-1)?.executor) && <Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>}
+    <Button variant="danger" disabled={pending} onClick={() => onOpenNote("reject")}>Reject result</Button></div>
     <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><Select className="pc-select" id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
         <option value="">Choose an executor</option>
         {task.retryOptions.map(option => <option key={option.id} value={option.id} disabled={option.state !== "ready"}>{executorLabel(option.id)} · {reasonCopy(option.reason)}</option>)}

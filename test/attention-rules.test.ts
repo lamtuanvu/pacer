@@ -142,3 +142,9 @@ test("ahead-of-pace advice stays on the planner without inflating attention coun
   expect(actionable.counts.byRepo[failed.repo.key]?.attention).toBe(1);
  }
 });
+
+test("review counts count decisions, not failing requested tasks",()=>{
+ const t={...task("partial"),reviewRequest:{note:"Inspect",at:ctx.now}};
+ const items=deriveTaskItems({...input(),tasks:[t]});
+ expect(buildCounts([t],[],input().setup,[],items)).toMatchObject({attention:1,problems:1,review:0});
+});

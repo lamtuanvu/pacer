@@ -1,3 +1,4 @@
+import { counts as snapshotCounts } from "../../../src/view-model/selectors";
 import { TextAction } from "../ds/Button";
 import { LoadingState } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
@@ -25,7 +26,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const narrow = useNarrow(route.query);
   const context = useContext(TaskContext), Panel = context ? SettingsPanelData : SettingsPanel;
   if (state.sessionEnded) return <main className="session-ended"><Mark /><h1>Session ended.</h1><p>Run <code>pacer open</code>.</p></main>;
-  const counts = state.snapshot?.counts ?? null;
+  const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}`}>

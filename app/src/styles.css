@@ -333,3 +333,10 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-cap.pc-list-row{display:grid}.pc-cap.pc-list-row .pc-pill{white-space:normal}
 .pc-panel{position:sticky;top:0;max-height:100vh;overflow:auto;align-self:flex-start}
 .pc-control-with-reason{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-1)}
+
+/* Task results compose existing sections and DS controls. */
+.pc-task-result { max-width: 100%; }
+.pc-task-result__heading { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.pc-task-result__columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: var(--space-6); }
+.pc-task-result__columns > * { min-width: 0; }
+@media (max-width: 900px) { .pc-task-result__columns { grid-template-columns: minmax(0, 1fr); } }

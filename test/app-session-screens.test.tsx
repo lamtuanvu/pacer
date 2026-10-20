@@ -27,7 +27,7 @@ test('Session board preserves layout, copy, service actions and metadata',()=>{c
 test('Orca host offers Open in Orca and no terminal control',()=>{const html=renderToString(<Session data={{...data,session:{...data.session!,host:'orca'}}}/>);expect(html).toContain('This session runs in Orca');expect(html).toContain('Open in Orca');expect(html).not.toContain('Take control');});
 test('none host renders escaped plain log; tabs render their resources',()=>{expect(renderToString(<Session data={{...data,session:{...data.session!,host:'none'},log:{data:'<script>bad</script>'}}}/>)).toContain('&lt;script>');expect(renderToString(<Session data={data} initialTab="brief"/>)).toContain('Split the store;');expect(renderToString(<Session data={data} initialTab="changes"/>)).toContain('diff --git');});
 test('loading, errors and empty resources are explicit',()=>{expect(renderToString(<Session loading/>)).toContain('Loading session');expect(renderToString(<Session error="Offline"/>)).toContain('Offline');expect(renderToString(<Session/>)).toContain('Session not found');const html=renderToString(<Session data={{...data,timeline:{error:'Timeline unavailable'},doneWhen:{},brief:{loading:true}}} initialTab="brief"/>);expect(html).toContain('Timeline unavailable');expect(html).toContain('No done-when command');expect(html).toContain('Loading brief');});
-test('Sessions list shows running plus recently ended Replay and section states',()=>{const html=renderToString(<SessionsList running={{data:[data]}} recent={{data:[{...data,id:'t-ended',state:'done'}]}}/>);expect(html).toContain('Running');expect(html).toContain('Recently ended');expect(html).toContain('Replay');expect(html).toContain('#/sessions/t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
+test('Sessions list shows running plus recently ended Replay and section states',()=>{const html=renderToString(<SessionsList running={{data:[data]}} recent={{data:[{...data,id:'t-ended',state:'done'}]}}/>);expect(html).toContain('Running');expect(html).toContain('Completed');expect(html).toContain('View result');expect(html).toContain('#/tasks/t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
 
 test('read-only terminal exposes size, accessible status and screen reader toggle; control capability gates take',async()=>{
  const { TerminalView }=await import('../app/src/term/term');
@@ -75,11 +75,11 @@ test('ended Sessions rows show their state once and retain a known diffstat at e
  for (const narrow of [false, true]) {
   const ended = { ...data, state: 'done', phase: undefined, changesSummary: undefined };
   const html = renderToString(<div className={narrow ? 'pc-app--narrow' : 'pc-app'}><SessionsList recent={{data:[ended]}}/></div>);
-  expect(html.match(/>Waiting for review</g)).toHaveLength(1);
+  expect(html.match(/pc-pill--good[^>]*>[\s\S]*?Completed<\/span>/g)).toHaveLength(1);
   expect(html).not.toContain('Changes and output pending');
   const withDiff = renderToString(<SessionsList recent={{data:[{...ended,changesSummary:'3 files · +12 −4'}]}}/>);
   expect(withDiff).toContain('3 files · +12 −4');
-  expect(withDiff.match(/>Waiting for review</g)).toHaveLength(1);
+  expect(withDiff.match(/pc-pill--good[^>]*>[\s\S]*?Completed<\/span>/g)).toHaveLength(1);
  }
 });
 
@@ -139,8 +139,8 @@ test('ended headless sessions show their outcome and Review or Retry without liv
   expect(html).toContain('>Retry</button>');
   for (const text of ['Take over','Stop and retry','>Stop<','Changes and output pending','Testing · 14m',">Driving<",'Starting interactive session','Stale takeover error']) expect(html).not.toContain(text);
   if (['done','partial'].includes(state)) {
-   expect(html).toContain('Waiting for review');
-   expect(html).toContain('href="#/review/t-0415"');
+   expect(html).toContain(state==='done'?'Completed':'Incomplete');
+   expect(html).not.toContain('href="#/review/t-0415"');
   } else {
    expect(html).not.toContain('>Review</a>');
   }
@@ -167,9 +167,9 @@ test('running headless takeover occupies its own area outside the explanatory se
 test('ended row Replay link covers its row and preserves route query and accessible title', async () => {
  const html=renderToString(<SessionsList recent={{data:[{...data,id:'ended task',state:'done',title:'Finished task'}]}} query="repo=project"/>);
  expect(html).toContain('pc-row-destination');
- expect(html).toContain('aria-label="Replay Finished task"');
- expect(html).toContain('href="#/sessions/ended%20task?repo=project"');
- expect(html).toContain('>Replay</a>');
+ expect(html).toContain('aria-label="View result Finished task"');
+ expect(html).toContain('href="#/tasks/ended%20task?repo=project"');
+ expect(html).toContain('>View result</a>');
  const css=await Bun.file(new URL('../app/src/ds/components.css',import.meta.url)).text();
  expect(css).toMatch(/\.pc-row-destination::after\s*\{[^}]*position:absolute;inset:0/);
 });

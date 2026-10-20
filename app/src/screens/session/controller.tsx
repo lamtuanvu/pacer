@@ -1,3 +1,6 @@
+import { Button } from "../../ds/Button";
+import { RepoFilter } from "../RepoFilter";
+import type { ApiTask } from "../../../../src/api/read-model/types";
 import { reasonCopy, sessionTime, timelineCopy } from "../../../../src/view-model/copy";
 import { useDialogs } from "../../ds/useDialogs";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -16,15 +19,24 @@ import { takeoverSession, type TakeoverState } from "./takeover";
 import { SessionsList } from "./SessionsList";
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
- return {id:task.id,title:task.fullTitle ?? task.title,goal:task.goal,state:task.state,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
+ return {id:task.id,title:task.fullTitle ?? task.title,goal:task.goal,state:task.state,reviewRequest:task.reviewRequest,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
  phase:task.progress?.phase,elapsed:sessionTime(task,Date.now()/1000),
  changesSummary:task.progress?`${task.progress.files} files · ${task.progress.commits} commits`:undefined};
 }
 export function Sessions({query}:{query:RouteQuery}) {
  const {state}=useTaskContext(),snapshot=state.snapshot,runner=useActions();
- const scoped=snapshot?.tasks.filter(t=>!t.dismissed&&(!query.repo||t.repo?.key===query.repo));
+ const [cursor,setCursor]=useState<string>();
+ const [history,setHistory]=useState<ApiTask[]>([]);
+ const page=useQuery<{tasks:ApiTask[];next:string|null}>("task.list",{all:true,limit:20,...(cursor?{before:cursor}:{}),...(query.repo?{repo:query.repo}:{})});
+ useEffect(()=>{if(page.data)setHistory(previous=>{
+  const rows=cursor?[...previous,...page.data!.tasks]:page.data!.tasks;
+  return [...new Map(rows.map(t=>[t.id,t])).values()];
+ });},[page.data,cursor]);
+ const recent=history.map(t=>snapshot?.tasks.find(live=>live.id===t.id)??t).filter(t=>!['running','queued'].includes(t.state));
  const resource=(data:SessionData[]|undefined)=>({data,loading:!snapshot});
- return <SessionsList runner={runner} running={resource(snapshot?running(snapshot,{repo:query.repo}).map(sessionRow):undefined)} recent={resource(scoped?.filter(t=>!['running','queued'].includes(t.state)).sort((a,b)=>b.updatedAt-a.updatedAt).map(sessionRow))} query={withQuery('',query)}/>;
+ return <>{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<SessionsList runner={runner} running={resource(snapshot?running(snapshot,{repo:query.repo||null}).map(sessionRow):undefined)} recent={{data:recent.map(sessionRow),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
+ {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
+ {page.error&&<Button onClick={page.reload}>Try again</Button>}</>;
 }
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,
