@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, lstatSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { PLUGIN_FILES, PANEL_PLACEHOLDER, PLUGIN_VERSION } from "../../src/plugin/assets.generated";
 import { atomicWrite, checkout, launch, record, run, sandboxEnv, saveSession, shellQuote, type Session } from "./core";
@@ -37,6 +37,30 @@ export async function tui(session: Session, action: string, keys: string[], out?
   return result.stdout;
 }
 
+export function desktopExecutable(app: string): string {
+  if (app.endsWith(".app")) {
+    const binaries = join(app, "Contents/MacOS");
+    const names = readdirSync(binaries).filter(name => lstatSync(join(binaries, name)).isFile());
+    const info = join(app, "Contents/Info.plist");
+    const result = existsSync(info) && process.platform === "darwin"
+      ? Bun.spawnSync(["/usr/bin/plutil", "-extract", "CFBundleExecutable", "raw", "-o", "-", info])
+      : undefined;
+    if (result && result.exitCode !== 0) {
+      throw Error(`plutil failed reading desktop CFBundleExecutable: ${result.stderr.toString().trim() || result.stdout.toString().trim()}`);
+    }
+    const name = result?.stdout.toString().trim();
+    if (name) {
+      if (basename(name) !== name || !names.includes(name)) throw Error("Invalid CFBundleExecutable in desktop bundle");
+      app = join(binaries, name);
+    } else {
+      if (names.length !== 1) throw Error("Pass the desktop executable with --app (bundle has multiple executables)");
+      app = join(binaries, names[0]);
+    }
+  }
+  if (!existsSync(app)) throw Error(`Desktop executable does not exist: ${app}`);
+  return app;
+}
+
 export function desktop(session: Session, requested?: string): string {
   if (process.platform !== "darwin") throw Error("Desktop launch requires macOS; record desktop as UNVERIFIED");
   let app = requested ? resolve(requested) : undefined;
@@ -45,13 +69,7 @@ export function desktop(session: Session, requested?: string): string {
     app = existsSync(bundles) ? readdirSync(bundles).filter(name => name.endsWith(".app")).map(name => join(bundles, name))[0] : undefined;
   }
   if (!app) throw Error("No built desktop app; build it or pass --app <path>, otherwise record UNVERIFIED");
-  if (app.endsWith(".app")) {
-    const binaries = join(app, "Contents/MacOS");
-    const names = readdirSync(binaries);
-    if (names.length !== 1) throw Error("Pass the desktop executable with --app (bundle has multiple executables)");
-    app = join(binaries, names[0]);
-  }
-  if (!existsSync(app)) throw Error(`Desktop executable does not exist: ${app}`);
+  app = desktopExecutable(app);
   // Desktop asks a login shell for PATH. Keep that lookup inside the guard even
   // when the real user's login startup files replace PATH.
   const shell = join(session.root, "bin/login-shell");

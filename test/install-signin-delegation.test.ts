@@ -154,9 +154,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       // asynchronous setup redirect finish before reload starts a navigation;
       // WebKit otherwise cancels reload when location.replace wins the race.
       await page.waitForURL(url => url.pathname === "/app/" && url.hash === "#/setup");
-      await page.getByRole("region", { name: "Required", exact: true }).waitFor();
+      await page.getByRole("list", { name: "Setup steps", exact: true }).waitFor();
       expect((await page.reload())?.status()).toBe(200);
-      await page.getByRole("region", { name: "Required", exact: true }).waitFor();
+      await page.getByRole("list", { name: "Setup steps", exact: true }).waitFor();
 
       const { result: task } = await browserFetch(page, "/v3/ops/task.delegate", {
         repo: s.repo, goal: "Create takeover-change.txt", acceptance: "test -f takeover-change.txt",

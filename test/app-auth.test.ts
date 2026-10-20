@@ -56,7 +56,11 @@ test("open prints a working single-use URL and serves the protected app and hell
   expect((await fetch(url + "/v2/hello", { headers })).status).toBe(200);
   expect((await fetch(url + "/app/tasks/one", { headers })).status).toBe(200);
   expect((await fetch(url + "/app/missing.js", { headers })).status).toBe(404);
-  expect(await (await fetch(url + "/app/app.js", { headers })).text()).toContain("/v2/hello");
+  // The protected app (entry plus the chunks it imports) still calls hello.
+  const appJs = await (await fetch(url + "/app/app.js", { headers })).text();
+  const chunks = [...appJs.matchAll(/from"\.\/(chunk-[\w-]+\.js)"/g)].map(m => m[1]);
+  const served = [appJs, ...await Promise.all(chunks.map(async c => (await fetch(url + "/app/" + c, { headers })).text()))].join("\n");
+  expect(served).toContain("/v2/hello");
   expect((await fetch(url + "/state", { headers })).status).toBe(401);
   const reused = await fetch(link, { redirect: "manual" });
   expect(reused.status).toBe(403);

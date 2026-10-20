@@ -68,6 +68,9 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
   }} type="checkbox" aria-checked={mixed ? 'mixed' : props['aria-checked']} className={classes('pc-checkbox__input', `pc-control--${density}`, className)} />;
   return label ? <label className="pc-checkbox">{control}<span>{label}{help && <small className="pc-control-help">{help}</small>}</span></label> : control;
 });
+export function Radio({ className, ...props }: InputProps) {
+  return <input {...props} type="radio" className={classes('pc-radio', className)} />;
+}
 export const Switch = forwardRef<HTMLInputElement, CheckboxProps>(function Switch(props, ref) {
   return <Checkbox {...props} ref={ref} role="switch" className={classes('pc-switch', props.className)} />;
 });

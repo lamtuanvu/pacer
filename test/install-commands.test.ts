@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
 import { loadStrategy } from "../src/config/strategy";
@@ -185,6 +185,7 @@ import { uninstallAll } from "../src/install/uninstall-all";
 import { readManifest, writeManifest } from "../src/install/manifest";
 import { PLUGIN_RECORD } from "../src/link/paths";
 import { MARKER, servicePath } from "../src/service";
+import { createTask, updateTask } from "../src/tasks/store";
 
 function allFixture() {
   const ctx = fakeCtx();
@@ -193,6 +194,181 @@ function allFixture() {
   ctx.env.PACER_BIN = binary;
   return { ctx, binary };
 }
+
+const appPathBlock = '# >>> pacer >>>\nexport PATH="$HOME/.local/bin:$PATH"\n# <<< pacer <<<\n';
+
+test.each(["running", "queued"] as const)("uninstall --all refuses a %s task before confirmation or changes", async state => {
+  const { ctx, binary } = allFixture();
+  const goal = "Preserve delegated work while uninstall is requested from another session";
+  const task = createTask(ctx, { brief: { goal, repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = state; if (state === "running") t.runnerPid = process.pid; });
+  const unit = servicePath(ctx, "linux");
+  mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
+  writeFileSync(unit, `# ${MARKER}\n`);
+  const rc = join(ctx.home, ".zshrc");
+  writeFileSync(rc, appPathBlock);
+  const before = readFileSync(join(ctx.pacerHome, "tasks", `${task.id}.json`), "utf8");
+  const effects: string[] = [];
+  const result = await uninstallAll(["--all", "--binary"], ctx, {
+    tty: true, platform: "linux", print: () => {},
+    confirm: async () => { effects.push("confirm"); return true; },
+    service: () => ({ uninstall: async () => { effects.push("service"); } }),
+  });
+  expect(result.code).toBe(2);
+  expect(result.err).toContain(task.id);
+  expect(result.err).toContain(state);
+  expect(result.err).toContain(goal.slice(0, 59) + "…");
+  expect(result.err).not.toContain(goal);
+  expect(result.err).toContain("Stop them first (pacer stop <id>), wait for them, or rerun with --force.");
+  expect(effects).toEqual([]);
+  expect(readFileSync(join(ctx.pacerHome, "tasks", `${task.id}.json`), "utf8")).toBe(before);
+  expect(readFileSync(rc, "utf8")).toBe(appPathBlock);
+  expect(existsSync(unit)).toBe(true);
+  expect(existsSync(binary)).toBe(true);
+});
+
+test("uninstall --all JSON lists all blocking tasks and checks recorded supervisor liveness", async () => {
+  const { ctx } = allFixture();
+  const active = createTask(ctx, { brief: { goal: "Still writing", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, active.id, t => { t.state = "running"; t.runnerPid = process.pid; });
+  const stale = createTask(ctx, { brief: { goal: "Recoverable task", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, stale.id, t => { t.state = "running"; t.runnerPid = 2147483647; });
+  for (let i = 1; i <= 21; i++) {
+    const done = createTask({ ...ctx, now: ctx.now + i }, { brief: { goal: "Finished", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    updateTask(ctx, done.id, t => { t.state = "done"; });
+  }
+  const result = await main(["uninstall", "--all", "--yes", "--json"], ctx);
+  expect(result.code).toBe(2);
+  const output = JSON.parse(result.out);
+  expect(output.blocked_by_tasks).toHaveLength(2);
+  expect(output.blocked_by_tasks).toEqual(expect.arrayContaining([
+    { id: active.id, state: "running", goal: "Still writing", runner_pid: process.pid, runner_alive: true },
+    { id: stale.id, state: "running", goal: "Recoverable task", runner_pid: 2147483647, runner_alive: false },
+  ]));
+  expect(output.results).toEqual([]);
+  expect(existsSync(ctx.pacerHome)).toBe(true);
+});
+
+test.each([false, true])("uninstall --all --force proceeds with a task warning (json=%s)", async json => {
+  const { ctx } = allFixture();
+  const task = createTask(ctx, { brief: { goal: "Delegated work", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.runnerPid = process.pid; });
+  const result = await main(["uninstall", "--all", "--yes", "--force", ...(json ? ["--json"] : [])], ctx);
+  expect(result.code).toBe(0);
+  expect(existsSync(ctx.pacerHome)).toBe(false);
+  const warning = json ? JSON.parse(result.out).warning : result.out;
+  expect(warning).toContain(task.id);
+  expect(warning).toContain("running");
+  expect(warning).toContain("Delegated work");
+  if (!json) expect(warning).toContain("warning:");
+});
+
+test("uninstall --all proceeds when tasks are only done, failed or accepted", async () => {
+  const { ctx } = allFixture();
+  for (const state of ["done", "failed", "accepted"] as const) {
+    const task = createTask(ctx, { brief: { goal: state, repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    updateTask(ctx, task.id, t => {
+      t.state = state === "accepted" ? "done" : state;
+      if (state === "accepted") t.review = { accepted: true, kind: null, note: null, at: ctx.now };
+    });
+  }
+  const result = await main(["uninstall", "--all", "--yes"], ctx);
+  expect(result.code).toBe(0);
+  expect(existsSync(ctx.pacerHome)).toBe(false);
+});
+
+test("uninstall --all lists app cleanup in confirmation and JSON without changing files", async () => {
+  const { ctx } = allFixture();
+  const rc = join(ctx.home, ".zshrc");
+  writeFileSync(rc, appPathBlock);
+  const link = join(ctx.home, ".local/bin/pacer");
+  mkdirSync(join(ctx.home, ".local/bin"), { recursive: true });
+  symlinkSync(join(ctx.home, "x.app/Contents/MacOS/pacer"), link);
+  for (const json of [false, true]) {
+    const result = await uninstallAll(["--all", ...(json ? ["--json"] : [])], ctx, { tty: false });
+    expect(result.code).toBe(2);
+    expect(result.out).toContain("Remove the pacer PATH line from ~/.zshrc");
+    expect(result.out).toContain("Remove the ~/.local/bin/pacer link to the pacer app");
+    if (json) expect(JSON.parse(result.out).plan.map((step: { kind: string }) => step.kind)).toEqual(["path-block", "app-link", "home", "binary"]);
+  }
+  expect(readFileSync(rc, "utf8")).toBe(appPathBlock);
+  expect(lstatSync(link).isSymbolicLink()).toBe(true);
+});
+
+test("uninstall --all atomically removes both PATH blocks and the app link after service", async () => {
+  const { ctx, binary } = allFixture();
+  const link = join(ctx.home, ".local/bin/pacer");
+  const bundled = join(ctx.home, "x.app/Contents/MacOS/pacer");
+  mkdirSync(join(ctx.home, "x.app/Contents/MacOS"), { recursive: true });
+  writeFileSync(bundled, "bundled binary");
+  mkdirSync(join(ctx.home, ".local/bin"), { recursive: true });
+  symlinkSync(bundled, link);
+  for (const name of [".zshrc", ".bashrc"]) {
+    const path = join(ctx.home, name);
+    writeFileSync(path, `before\n${appPathBlock}after\n`);
+    chmodSync(path, 0o640);
+    linkSync(path, path + ".original");
+  }
+  const unit = servicePath(ctx, "linux");
+  mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
+  writeFileSync(unit, MARKER);
+  const result = await uninstallAll(["--all", "--yes", "--json"], ctx, {
+    platform: "linux",
+    service: () => ({ async uninstall() {
+      expect(readFileSync(join(ctx.home, ".zshrc"), "utf8")).toContain(appPathBlock);
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    } }),
+    removeHome: () => {
+      expect(existsSync(link)).toBe(false);
+      expect(readFileSync(join(ctx.home, ".zshrc"), "utf8")).toBe("before\nafter\n");
+    },
+  });
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.out).results.map((step: { kind: string }) => step.kind)).toEqual(["service", "path-block", "path-block", "app-link", "home"]);
+  for (const name of [".zshrc", ".bashrc"]) {
+    expect(readFileSync(join(ctx.home, name), "utf8")).toBe("before\nafter\n");
+    expect(statSync(join(ctx.home, name)).mode & 0o777).toBe(0o640);
+    expect(readFileSync(join(ctx.home, name + ".original"), "utf8")).toBe(`before\n${appPathBlock}after\n`);
+  }
+  expect(readdirSync(ctx.home).filter(name => name.includes(".tmp"))).toEqual([]);
+  expect(existsSync(link)).toBe(false);
+  expect(readFileSync(bundled, "utf8")).toBe("bundled binary");
+  expect(existsSync(binary)).toBe(true);
+});
+
+test("uninstall --all skips symlinked and unwritable rc files and unrelated terminal binaries", async () => {
+  for (const kind of ["regular", "foreign-link"]) {
+    const { ctx, binary } = allFixture();
+    const original = join(ctx.home, "profile");
+    writeFileSync(original, appPathBlock);
+    symlinkSync(original, join(ctx.home, ".zshrc"));
+    writeFileSync(join(ctx.home, ".bashrc"), appPathBlock);
+    chmodSync(join(ctx.home, ".bashrc"), 0o444);
+    const link = join(ctx.home, ".local/bin/pacer");
+    mkdirSync(join(ctx.home, ".local/bin"), { recursive: true });
+    if (kind === "regular") writeFileSync(link, "keep");
+    else symlinkSync(binary, link);
+    const result = await uninstallAll(["--all", "--yes", "--json"], ctx);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.out).results.map((step: { kind: string }) => step.kind)).toEqual(["home"]);
+    expect(lstatSync(join(ctx.home, ".zshrc")).isSymbolicLink()).toBe(true);
+    expect(readFileSync(original, "utf8")).toBe(appPathBlock);
+    expect(readFileSync(join(ctx.home, ".bashrc"), "utf8")).toBe(appPathBlock);
+    expect(existsSync(link)).toBe(true);
+  }
+});
+
+test("uninstall --all --binary succeeds when the selected binary is the app link", async () => {
+  const { ctx } = allFixture();
+  const link = join(ctx.home, ".local/bin/pacer");
+  mkdirSync(join(ctx.home, ".local/bin"), { recursive: true });
+  symlinkSync(join(ctx.home, "x.app/Contents/MacOS/pacer"), link);
+  ctx.env.PACER_BIN = link;
+  const result = await uninstallAll(["--all", "--yes", "--binary", "--json"], ctx);
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.out).results.map((step: { kind: string }) => step.kind)).toEqual(["app-link", "home", "binary"]);
+  expect(() => lstatSync(link)).toThrow();
+});
 
 test("uninstall --all prints the full plan and refuses non-TTY without --yes", async () => {
   const { ctx, binary } = allFixture();

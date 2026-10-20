@@ -24,8 +24,13 @@ jobs:
           echo "RUSTUP_TOOLCHAIN=$(rustup show active-toolchain | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
       - name: Install desktop CLI
         run: bun install --frozen-lockfile
+      - name: Install pacer CLI dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+      - name: Stage bundled pacer CLI
+        run: ./scripts/stage-cli.sh
       - name: Test offline
         run: cargo test --offline --locked --manifest-path src-tauri/Cargo.toml -- --include-ignored
       - name: Build unsigned app offline
@@ -72,8 +77,13 @@ jobs:
           echo "RUSTUP_TOOLCHAIN=$(rustup show active-toolchain | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
       - name: Install desktop CLI
         run: bun install --frozen-lockfile
+      - name: Install pacer CLI dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+      - name: Stage bundled pacer CLI
+        run: ./scripts/stage-cli.sh
       - name: Test offline
         run: cargo test --offline --locked --manifest-path src-tauri/Cargo.toml -- --include-ignored
       - name: Build unsigned Linux bundles
