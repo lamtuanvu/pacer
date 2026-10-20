@@ -2,6 +2,7 @@ import {expect, test} from "bun:test";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {loadStrategy} from "../src/config/strategy";
+import {CoreError} from "../src/core/errors";
 import {addOpencodeAccount, connectProvider, setupModels, suggestName} from "../src/core/opencode-setup";
 import {parseCatalog} from "../src/endpoints/catalog";
 import {testEndpoint} from "../src/endpoints/test-task";
@@ -36,6 +37,22 @@ test("adds a provider account with no key, a runner and a routing entry, then te
 test("refuses a provider OpenCode is not signed in to", async () => {
   const {ctx} = setup([]);
   await expect(addOpencodeAccount(ctx, {provider: "deepseek", model: "deepseek-chat", test: false}, {catalog})).rejects.toThrow("run opencode auth login deepseek");
+});
+
+// The only CoreError with a hint that addOpencodeAccount's callees can produce (applyEdit's
+// "Check the strategy values and retry.") is unreachable here: addOpencodeAccount validates its
+// own preview before calling edit(), so by the time edit() runs the change is already known-valid.
+// So this instead confirms the catch no longer discards a nested CoreError's identity/code using
+// the "already exists" path, which is reachable.
+test("keeps the CoreError's identity and code when the account name already exists", async () => {
+  const {ctx} = setup();
+  await addOpencodeAccount(ctx, {provider: "openrouter", model: "qwen/qwen3-coder", name: "openrouter", test: false}, {catalog});
+  let caught: unknown;
+  try {
+    await addOpencodeAccount(ctx, {provider: "openrouter", model: "z-ai/glm-5.3", name: "openrouter", test: false}, {catalog});
+  } catch (e) { caught = e; }
+  expect(caught).toBeInstanceOf(CoreError);
+  expect((caught as CoreError).code).toBe("invalid_input");
 });
 
 test("suggestName avoids taken names", async () => {

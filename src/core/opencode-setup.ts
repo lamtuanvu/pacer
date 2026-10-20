@@ -79,7 +79,8 @@ export async function addOpencodeAccount(ctx: Ctx, input: OpencodeAccountInput, 
     const updated = loadStrategy(ctx);
     return { account: updated.accounts[name], runner: updated.runners[id] as RunnerCfg, ...state };
   } catch (e) {
-    throw new CoreError(e instanceof CoreError ? e.code : "invalid_input", e instanceof Error ? e.message : String(e));
+    if (e instanceof CoreError) throw e;
+    throw new CoreError("invalid_input", e instanceof Error ? e.message : String(e));
   }
 }
 
