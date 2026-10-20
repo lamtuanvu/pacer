@@ -5,7 +5,7 @@ export type AgentGlyph = "claude" | "openai" | "cursor" | "antigravity" | "byted
 export interface AgentInfo { name: string; glyph: AgentGlyph | null; color: string | "ink"; tile: "tint" | "page-hairline"; monogram: string }
 
 const AGENTS: Record<AgentId, Omit<AgentInfo, "monogram">> = {
-  "claude-code": { name: "Claude", glyph: "claude", color: "#D97757", tile: "tint" },
+  "claude-code": { name: "Claude Code", glyph: "claude", color: "#D97757", tile: "tint" },
   codex: { name: "Codex", glyph: "openai", color: "ink", tile: "page-hairline" },
   cursor: { name: "Cursor", glyph: "cursor", color: "ink", tile: "tint" },
   agy: { name: "Antigravity", glyph: "antigravity", color: "#4285F4", tile: "tint" },

@@ -1,4 +1,6 @@
-export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string; action?:string; agent?:string }
+import { PLANNERS } from "../config/strategy";
+
+export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string; action?:string; agent?:string; options?:string[] }
 export interface SetupChecklist { checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
 export interface SetupFacts {
  version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean; live:boolean;
@@ -26,7 +28,9 @@ export function setupChecklist(f:SetupFacts, checkedAt:number):SetupChecklist {
  const plannerAgent=f.planner?.split(/[#@]/)[0];
  const items:SetupItem[]=[
   item("binary","pacer",true,!!f.version,f.version??undefined,"pacer init",undefined,f.errors?.binary),
-  item("planner","Planner",true,!!f.planner&&f.signedIn!==false,f.planner?`${f.planner}${f.signedIn===false?" · signed out":""}`:"Choose a planner",f.planner?f.loginCommand:"pacer init",undefined,f.errors?.strategy),
+  f.planner
+   ? item("planner","Planner",true,f.signedIn!==false,`${f.planner}${f.signedIn===false?" · signed out":""}`,f.loginCommand,undefined,f.errors?.strategy)
+   : {...item("planner","Planner",true,false,"Choose which agent plans your work","pacer init","setup.init"),options:PLANNERS.filter(id=>f.agents.some(a=>a.id===id&&a.cliInstalled))},
   item("service","Background service",true,f.service.installed&&f.service.running,undefined,"pacer service install","service.install",f.errors?.service),
   {...item("connect","Connect planner",true,!!f.planner&&f.connected!==false,f.connected!==false?"Connected":"Integration missing or changed","pacer init","agent.connect",f.errors?.connect),...(plannerAgent?{agent:plannerAgent,installed:f.agents.find(a=>a.id===plannerAgent)?.cliInstalled??false}:{})},
   item("link","Link",true,f.link,undefined,"pacer init",undefined,f.errors?.link),

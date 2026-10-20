@@ -42,3 +42,18 @@ test("worker polls incomplete setup at 5 seconds, complete at 60 and does not re
  request="force";await timers.advance(5000);expect(checked.at(-1)).toBe(80000);expect(writes).toHaveLength(2);
  await plugin.deactivate();
 });
+
+test("missing strategy offers only installed planner CLIs with plain detail", () => {
+ const checklist = setupChecklist({...facts, planner:null, errors:{strategy:"No strategy at /private/example/strategy.yaml"}, agents:[
+  {id:"claude-code",name:"Claude Code",installed:false,cliInstalled:true},
+  {id:"codex",name:"Codex",installed:true,cliInstalled:false},
+  {id:"cursor",name:"Cursor",installed:false,cliInstalled:true},
+  {id:"opencode",name:"OpenCode",installed:false,cliInstalled:true},
+  {id:"agy",name:"Other",installed:true,cliInstalled:true},
+ ]}, 10);
+ expect(checklist.items.find(i=>i.id==="planner")).toMatchObject({status:"pending",detail:"Choose which agent plans your work",action:"setup.init",command:"pacer init",options:["claude-code","cursor","opencode"]});
+ expect(checklist.items.find(i=>i.id==="link")).toBeDefined();
+});
+test("missing strategy with no installed planners has no choices", () => {
+ expect(setupChecklist({...facts,planner:null,agents:[]},10).items.find(i=>i.id==="planner")).toMatchObject({options:[],detail:"Choose which agent plans your work"});
+});

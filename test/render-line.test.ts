@@ -5,8 +5,8 @@ import { lineFields, renderLine } from "../src/render/line";
 const snapshot = () => structuredClone(fixture) as ClientSnapshot;
 const rgb = (s: string, hex: string) => `\x1b[38;2;${hex.match(/../g)!.map(x => parseInt(x, 16)).join(";")}m${s}\x1b[0m`;
 for (const [width, plain, colored] of [
-  [120, "▬┃ Claude 63%·77  ▸2  ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} ${rgb("Claude", "D97757")} 63%·77  ${rgb("▸2", "93c5fd")}  ${rgb("⚑4", "fcd34d")}`],
-  [60, "▬┃ Claude 63%·77  ▸2  ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} ${rgb("Claude", "D97757")} 63%·77  ${rgb("▸2", "93c5fd")}  ${rgb("⚑4", "fcd34d")}`],
+  [120, "▬┃ Claude Code 63%·77  ▸2  ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} ${rgb("Claude Code", "D97757")} 63%·77  ${rgb("▸2", "93c5fd")}  ${rgb("⚑4", "fcd34d")}`],
+  [60, "▬┃ Claude Code 63%·77  ▸2  ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} ${rgb("Claude Code", "D97757")} 63%·77  ${rgb("▸2", "93c5fd")}  ${rgb("⚑4", "fcd34d")}`],
   [40, "▬┃ 63%·77 ▸2 ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} 63%·77 ${rgb("▸2", "93c5fd")} ${rgb("⚑4", "fcd34d")}`],
   [20, "▬┃63 ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")}63 ${rgb("⚑4", "fcd34d")}`],
 ] as const) {
@@ -22,8 +22,8 @@ test("offline and unknown usage", () => {
 });
 test("mode only when non-normal; needs hidden at zero", () => {
   const s = snapshot(); s.planner!.mode = "relaxed"; s.counts!.attention = 0;
-  expect(renderLine(s, { color: false, width: 120 })).toBe("▬┃ Claude 63%·77  ▸2  relaxed");
-  expect(renderLine(s, { color: false, width: 60 })).toBe("▬┃ Claude 63%·77  ▸2");
+  expect(renderLine(s, { color: false, width: 120 })).toBe("▬┃ Claude Code 63%·77  ▸2  relaxed");
+  expect(renderLine(s, { color: false, width: 60 })).toBe("▬┃ Claude Code 63%·77  ▸2");
 });
 test("ahead and out use service verdicts and colour only the tick", () => {
   const s = snapshot(); s.planner!.verdict = "ahead";
@@ -34,7 +34,7 @@ test("ahead and out use service verdicts and colour only the tick", () => {
   expect(renderLine(s, { color: false })).toContain("out · back");
 });
 test("JSON fields preserve snapshot counts and planner values", () => {
-  expect(lineFields(snapshot())).toEqual({ online: true, planner: "Claude", agent: "claude-code", usedPct: 63, pacePct: 77, verdict: "behind", resetsAt: 1800259200, running: 2, attention: 4, mode: "normal" });
+  expect(lineFields(snapshot())).toEqual({ online: true, planner: "Claude Code", agent: "claude-code", usedPct: 63, pacePct: 77, verdict: "behind", resetsAt: 1800259200, running: 2, attention: 4, mode: "normal" });
 });
 test("Codex uses its shared identity and invalid counts stay unknown", () => {
   const s = snapshot(); s.planner!.agent = "codex";

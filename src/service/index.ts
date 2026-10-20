@@ -6,6 +6,7 @@ import { readManifest, writeManifest } from "../install/manifest";
 import { isDevArgv, pacerArgv } from "../install/self";
 import { runInstall } from "../install/txn";
 import { DEFAULT_PORT } from "../serve/http";
+import { CoreError } from "../core/errors";
 
 export const LABEL = "com.pacer.serve";
 export const MARKER = "Managed by pacer service";
@@ -15,7 +16,7 @@ export interface ServiceStatus {
   lastExitCode: number | null; healthy: boolean; plistPath: string; binaryPath: string | null; binaryMatches: boolean;
 }
 export interface ServiceBackend {
-  install(): Promise<string[]>; uninstall(): Promise<void>; status(timeoutMs?: number): Promise<ServiceStatus>;
+  install(options?: { replace?: boolean }): Promise<string[]>; uninstall(): Promise<void>; status(timeoutMs?: number): Promise<ServiceStatus>;
   restart(): Promise<void>; logsPath(): string;
 }
 export interface ServiceDeps {
@@ -105,6 +106,38 @@ export function parseSystemd(text: string) {
     pid: Number(data.MainPID) > 0 ? Number(data.MainPID) : null,
     lastExitCode: /^-?\d+$/.test(data.ExecMainStatus ?? "") ? Number(data.ExecMainStatus) : null };
 }
+/** Match the desktop shell: only the job's own top-level environment owns it. */
+function serviceOwner(text: string, mac: boolean, defaultHome: string) {
+  const env = new Map<string, string>();
+  if (mac) {
+    let inside = false;
+    for (const line of text.split(/\r?\n/)) {
+      if (!inside) { inside = line === "\tenvironment = {"; continue; }
+      if (line.trim() === "}") break;
+      const entry = line.trim(), at = entry.indexOf(" => ");
+      if (at !== -1) env.set(entry.slice(0, at), entry.slice(at + 4));
+    }
+  } else {
+    const line = text.split(/\r?\n/).find(l => l.startsWith("Environment="))?.slice(12) ?? "";
+    let word = "", quoted = false, escaped = false;
+    const add = () => {
+      const at = word.indexOf("=");
+      if (at !== -1) env.set(word.slice(0, at), word.slice(at + 1));
+      word = "";
+    };
+    for (const c of line) {
+      if (escaped) { word += c; escaped = false; }
+      else if (c === "\\") escaped = true;
+      else if (c === '"') quoted = !quoted;
+      else if (c === " " && !quoted) add();
+      else word += c;
+    }
+    add();
+  }
+  const value = env.get("PACER_PORT") ?? "";
+  const port = /^\+?\d+$/.test(value) && Number(value) <= 65535 ? Number(value) : DEFAULT_PORT;
+  return { home: env.get("PACER_HOME") ?? defaultHome, port };
+}
 async function healthInfo(ctx: Ctx, deps: ServiceDeps = {}): Promise<{ok: boolean; pid: number | null}> {
   try {
     const r = await (deps.fetch ?? fetch)(`http://127.0.0.1:${deps.port ?? Number(ctx.env.PACER_PORT ?? DEFAULT_PORT)}/health`, { signal: AbortSignal.timeout(deps.healthTimeoutMs ?? 750) });
@@ -149,8 +182,18 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
   }
   const backend: ServiceBackend = {
     logsPath: () => join(ctx.pacerHome, "logs/serve.log"),
-    async install() {
+    async install(options = {}) {
       validateServiceArgv(ctx, argv);
+      const probe = await ctx.run(mac ? ["launchctl", "print", target] : system("show", "pacer-serve.service", "--property=Environment"), 10000);
+      if (probe.code === 0) {
+        const owner = serviceOwner(probe.stdout, mac, join(ctx.home, ".pacer"));
+        const port = deps.port ?? Number(ctx.env.PACER_PORT ?? DEFAULT_PORT);
+        if (!options.replace && (!sameBinary(owner.home, ctx.pacerHome) || owner.port !== port)) {
+          throw new CoreError("conflict", `Another pacer (PACER_HOME ${owner.home}, port ${owner.port}) owns the login service. Stop it with "pacer service uninstall" from that pacer, or rerun with --replace.`);
+        }
+      } else if (!/not loaded|could not find (?:specified )?service|no such process|not found|does not exist/i.test(probe.stderr + probe.stdout)) {
+        throw new CoreError("not_allowed", `Could not inspect the login service: ${probe.stderr || probe.stdout || `exit ${probe.code}`}`);
+      }
       const old = readText(path);
       let activated = false;
       try {

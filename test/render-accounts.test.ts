@@ -38,7 +38,7 @@ test("account-form status identifies each runner and its agent/account",async()=
  expect(renderText(st)).toContain("Codex (team): weekly 34%");
  expect(renderText(st)).toContain("BytePlus: local, unmetered OK");
  expect(renderText(st)).toMatchSnapshot();
- expect(renderLine(st, { color: false })).toContain("Claude 34%");
+ expect(renderLine(st, { color: false })).toContain("Claude Code 34%");
  expect(renderLine(st).split("\n")).toHaveLength(1);
 });
 test("account metadata survives the link and appears in dashboard and panel",async()=>{

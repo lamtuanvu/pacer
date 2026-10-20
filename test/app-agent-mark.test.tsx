@@ -33,7 +33,7 @@ test("unknown agents get a two-letter monogram on ink", () => {
 });
 
 test("aliases resolve", () => {
-  expect(agentInfo("claude").name).toBe("Claude");
+  expect(agentInfo("claude").name).toBe("Claude Code");
   expect(agentInfo("antigravity").name).toBe("Antigravity");
   expect(agentInfo("local").name).toBe("Local model");
 });

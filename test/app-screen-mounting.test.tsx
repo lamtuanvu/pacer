@@ -64,4 +64,4 @@ test('session adapter feeds the real brief, acceptance and timeline',()=>{
  expect(sessionRow(task).repo).toBe(task.repo.label);
 });
 
-test("Setup mounts its own screen", () => { expect(html("#/setup")).toContain("Checking setup"); });
+test("Setup mounts its own screen, loaded as its own chunk", () => { expect(html("#/setup")).toContain("Loading Setup"); });

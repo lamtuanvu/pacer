@@ -7,7 +7,8 @@ import { PLANNERS, validateStrategy } from "../config/strategy";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
-import { backupPath } from "./fsx";
+import { backupPath, readText } from "./fsx";
+import { readJson } from "../fsutil";
 import { migrateStrategy, migrationLines } from "../config/migrate";
 
 const BINS = ["claude", "codex", "cursor-agent", "cursor", "agy", "opencode", "arkcli", "ollama", "lms", "orca"] as const;
@@ -25,13 +26,31 @@ export async function detect(ctx: Ctx): Promise<Detection> {
   const d: Detection = { clis, ollamaModel: null, lmstudioModel: null };
   if (clis.ollama) {
     try {
-      const r = await ctx.run(["ollama", "list"], 5000);
-      if (r.code === 0) d.ollamaModel = r.stdout.trim().split(/\r?\n/).slice(1).find((line) => line.trim())?.trim().split(/\s+/)[0] ?? null;
+      // `ollama list` can launch Ollama.app when its server is stopped. Query
+      // the running server directly so discovery never starts an application.
+      const host = ctx.env.OLLAMA_HOST?.trim() || "http://127.0.0.1:11434";
+      const url = new URL(host.includes("://") ? host : `http://${host}`);
+      if (!host.includes("://") && !url.port) url.port = "11434";
+      url.pathname = "/api/tags";
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: "error" });
+      if (response.ok) {
+        const body: unknown = await response.json();
+        if (isObj(body) && Array.isArray(body.models)) {
+          d.ollamaModel = body.models.find(m => isObj(m) && typeof m.name === "string" && m.name.length > 0)?.name ?? null;
+        }
+      } else await response.body?.cancel();
     } catch { /* An unavailable local server does not prevent CLI discovery. */ }
   }
   if (clis.lms) {
     try {
-      const r = await ctx.run(["lms", "ls", "--json"], 5000);
+      // lms auto-starts its app when no port is supplied. An explicit port
+      // connects only to an existing server; never retry without that guard.
+      const legacyHome = join(ctx.home, ".cache", "lm-studio");
+      const home = readText(join(ctx.home, ".lmstudio-home-pointer"))?.trim()
+        || (existsSync(legacyHome) ? legacyHome : join(ctx.home, ".lmstudio"));
+      const info = readJson<{ port?: unknown }>(ctx.env.LMS_API_SERVER_INFO_PATH || join(home, ".internal", "http-server.json"));
+      const port = typeof info?.port === "number" && Number.isInteger(info.port) && info.port > 0 && info.port <= 65535 ? info.port : 41343;
+      const r = await ctx.run(["lms", "ls", "--json", "--port", String(port)], 5000);
       if (r.code === 0) {
         const models: unknown = JSON.parse(r.stdout);
         if (Array.isArray(models)) {

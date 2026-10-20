@@ -6,13 +6,13 @@ import { listJobs } from "../src/jobs/registry";
 
 test("detects installed CLIs and versions using only --version with a five second timeout", async () => {
   const calls: string[][] = [];
-  const ctx = fakeCtx({ which: bin => bin === "opencode" || bin === "cursor-agent" ? null : `/bin/${bin}`, run: async (argv, timeout, options) => {
+  const ctx = fakeCtx({ which: bin => bin === "opencode" ? null : `/bin/${bin}`, run: async (argv, timeout, options) => {
     calls.push(argv); expect(timeout).toBe(5000); expect(options?.env).toEqual({});
     return { code: 0, stdout: argv[0] === "/bin/codex" ? "codex-cli 0.52.0\n" : "v2.4", stderr: "" };
   } });
   const result = await detectAgents(ctx);
   expect(result.find(a => a.agent === "codex")).toMatchObject({ found: true, version: "0.52.0", path: "/bin/codex" });
-  expect(result.find(a => a.agent === "cursor")).toMatchObject({ found: true, version: "2.4", path: "/bin/cursor" });
+  expect(result.find(a => a.agent === "cursor")).toMatchObject({ found: true, version: "2.4", path: "/bin/cursor-agent" });
   expect(result.find(a => a.agent === "opencode")).toMatchObject({ found: false, version: null, path: null, install_hint: "brew install opencode" });
   expect(calls.every(argv => argv.length === 2 && argv[1] === "--version")).toBe(true);
   expect(calls).toHaveLength(3);
