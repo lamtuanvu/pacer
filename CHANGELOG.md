@@ -34,6 +34,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - The desktop app's "Another pacer is running" page names the ports when only the port differs and shows how to free the service (`pacer service uninstall`); on Linux without systemd or a CLI it shows the install page instead of a stuck sign-in (#194).
 - `pacer service install` refuses to replace another pacer's login service (`--replace` overrides); `uninstall --all` refuses while delegated tasks run (`--force` overrides) and removes the app's link and PATH line; `pacer update` points to the app when its CLI came with the app.
 
+### Changed
+
+- `pacer dashboard` is redesigned on the shared design system: Home, Review, Sessions, Settings and Setup screens mirror the app, statuses are glyph plus label, colors follow the design tokens for dark and light terminals, destructive actions confirm, and `--plain` and `--once` print screen-reader-friendly or single frames. The dashboard now reads and writes only through the API.
+
 ## [0.3.1] - 2026-10-19
 
 ### Fixed
