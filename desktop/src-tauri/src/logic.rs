@@ -221,6 +221,9 @@ pub struct Diagnosis {
     pub on_path: Option<bool>,
     pub installed: Option<String>,
     pub version: Option<String>,
+    pub port: Option<u16>,
+    #[serde(rename = "appPort")]
+    pub app_port: Option<u16>,
 }
 pub fn diagnosis(page: &'static str, path: Option<String>) -> Diagnosis {
     Diagnosis {
@@ -231,6 +234,8 @@ pub fn diagnosis(page: &'static str, path: Option<String>) -> Diagnosis {
         on_path: None,
         installed: None,
         version: None,
+        port: None,
+        app_port: None,
     }
 }
 /// Track an unavailable interval independently of individual retry attempts.
@@ -514,15 +519,61 @@ pub fn job_owner(env: &[(String, String)], default_home: &str) -> (String, u16) 
     (home, port)
 }
 
+pub fn same_path(a: &Path, b: &Path) -> bool {
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    canonical(a) == canonical(b)
+}
+
+/// The pacer home and port a service job serves.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JobOwner {
+    pub home: String,
+    pub port: u16,
+}
+
+/// The job's owner when it serves another pacer than this shell: a different home, or the same
+/// home on a different port. `None` when the job is this shell's own.
+pub fn foreign_owner(env: &[(String, String)], default_home: &str, home: &Path, port: u16) -> Option<JobOwner> {
+    let (owner, owner_port) = job_owner(env, default_home);
+    (!same_path(Path::new(&owner), home) || owner_port != port).then_some(JobOwner {
+        home: owner,
+        port: owner_port,
+    })
+}
+
+/// The "foreign" page names the other pacer's folder, plus both ports when only the port differs.
+pub fn foreign_diagnosis(owner: &JobOwner, home: &Path, port: u16, user_home: &str) -> Diagnosis {
+    let port_only = same_path(Path::new(&owner.home), home);
+    Diagnosis {
+        port: port_only.then_some(owner.port),
+        app_port: port_only.then_some(port),
+        ..diagnosis("foreign", Some(display_home(&owner.home, user_home)))
+    }
+}
+
 /// The one page a lifecycle pass shows. It follows the state, not this pass's action, so the
-/// window doesn't fall back to "starting" on the `Wait` passes between gated actions.
-pub fn shell_page(permission: bool, action: RecoveryAction, job: JobState, cli_found: bool) -> &'static str {
+/// window doesn't fall back to "starting" on the `Wait` passes between gated actions. On Linux an
+/// unknown job (no usable systemctl) behind a refused or silent port is started with
+/// `pacer serve`, so it needs a CLI too. Other probes keep their own pages.
+pub fn shell_page(
+    permission: bool,
+    action: RecoveryAction,
+    health: HealthProbe,
+    job: JobState,
+    cli_found: bool,
+    macos: bool,
+) -> &'static str {
+    let unknown_linux_job = !macos
+        && job == JobState::Unknown
+        && matches!(health, HealthProbe::Refused | HealthProbe::NoAnswer);
     if permission {
         "permission"
     } else if action == RecoveryAction::Foreign {
         "foreign"
     } else if !cli_found
-        && (job == JobState::NotLoaded || matches!(action, RecoveryAction::Install | RecoveryAction::Connect))
+        && (job == JobState::NotLoaded
+            || unknown_linux_job
+            || matches!(action, RecoveryAction::Install | RecoveryAction::Connect))
     {
         "install"
     } else {
@@ -1625,6 +1676,55 @@ mod tests {
         assert_eq!(job_owner(&env, "/Users/u/.pacer").1, 4317);
     }
     #[test]
+    fn a_job_is_foreign_when_its_home_or_port_differs() {
+        let env = |home: &str, port: Option<&str>| {
+            let mut env = vec![("PACER_HOME".to_owned(), home.to_owned())];
+            env.extend(port.map(|port| ("PACER_PORT".to_owned(), port.to_owned())));
+            env
+        };
+        let ours = Path::new("/Users/u/.pacer");
+        assert_eq!(foreign_owner(&env("/Users/u/.pacer", None), "/Users/u/.pacer", ours, 4317), None);
+        assert_eq!(foreign_owner(&[], "/Users/u/.pacer", ours, 4317), None);
+        assert_eq!(
+            foreign_owner(&env("/Users/u/work", None), "/Users/u/.pacer", ours, 4317),
+            Some(JobOwner { home: "/Users/u/work".to_owned(), port: 4317 })
+        );
+        // Same home, different port: still another pacer.
+        assert_eq!(
+            foreign_owner(&env("/Users/u/.pacer", Some("5000")), "/Users/u/.pacer", ours, 4317),
+            Some(JobOwner { home: "/Users/u/.pacer".to_owned(), port: 5000 })
+        );
+        assert_eq!(foreign_owner(&env("/Users/u/.pacer", Some("5000")), "/Users/u/.pacer", ours, 5000), None);
+    }
+    #[test]
+    fn a_symlinked_home_is_the_same_pacer() {
+        let root = std::env::temp_dir().join(format!("pacer-foreign-{}", std::process::id()));
+        let real = root.join("real");
+        let link = root.join("link");
+        std::fs::create_dir_all(&real).unwrap();
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let env = vec![("PACER_HOME".to_owned(), link.to_string_lossy().into_owned())];
+        assert_eq!(foreign_owner(&env, "/unused", &real, 4317), None);
+        // Port-only detection still works through the symlink.
+        let owner = JobOwner { home: link.to_string_lossy().into_owned(), port: 5000 };
+        assert_eq!(foreign_diagnosis(&owner, &real, 4317, "").port, Some(5000));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn foreign_page_names_the_port_only_when_the_folder_matches() {
+        let ours = Path::new("/Users/u/.pacer");
+        let other_port = JobOwner { home: "/Users/u/.pacer".to_owned(), port: 5000 };
+        let detail = foreign_diagnosis(&other_port, ours, 4317, "/Users/u");
+        assert_eq!(detail.page, "foreign");
+        assert_eq!(detail.path.as_deref(), Some("~/.pacer"));
+        assert_eq!((detail.port, detail.app_port), (Some(5000), Some(4317)));
+        let other_home = JobOwner { home: "/Users/u/work".to_owned(), port: 5000 };
+        let detail = foreign_diagnosis(&other_home, ours, 4317, "/Users/u");
+        assert_eq!(detail.path.as_deref(), Some("~/work"));
+        assert_eq!((detail.port, detail.app_port), (None, None));
+    }
+    #[test]
     fn unconfirmed_or_foreign_jobs_are_not_managed() {
         assert!(!may_manage_job(JobState::Foreign, true));
         assert!(!may_manage_job(JobState::Foreign, false));
@@ -1654,24 +1754,44 @@ mod tests {
     fn one_page_per_pass_explains_a_missing_cli() {
         use RecoveryAction::*;
         let none = JobState::NotLoaded;
-        assert_eq!(shell_page(false, Install, none, false), "install");
-        // The Wait passes between gated installs keep the page.
-        assert_eq!(shell_page(false, Wait, none, false), "install");
-        assert_eq!(shell_page(false, Connect, JobState::Unknown, false), "install");
-        assert_eq!(shell_page(false, Install, none, true), "starting");
-        assert_eq!(shell_page(false, Connect, JobState::Unknown, true), "starting");
-        assert_eq!(shell_page(false, Wait, JobState::Running, false), "starting");
-        assert_eq!(shell_page(false, Start, JobState::Stopped, false), "starting");
-        assert_eq!(shell_page(false, RecoveryAction::Foreign, JobState::Foreign, true), "foreign");
-        assert_eq!(shell_page(true, Install, none, false), "permission");
-        assert_eq!(shell_page(true, RecoveryAction::Foreign, JobState::Foreign, false), "permission");
+        for macos in [true, false] {
+            assert_eq!(shell_page(false, Install, HealthProbe::Refused, none, false, macos), "install");
+            // The Wait passes between gated installs keep the page.
+            assert_eq!(shell_page(false, Wait, HealthProbe::Refused, none, false, macos), "install");
+            assert_eq!(shell_page(false, Connect, HealthProbe::Ready, JobState::Unknown, false, macos), "install");
+            assert_eq!(shell_page(false, Install, HealthProbe::Refused, none, true, macos), "starting");
+            assert_eq!(shell_page(false, Connect, HealthProbe::Ready, JobState::Unknown, true, macos), "starting");
+            assert_eq!(shell_page(false, Start, HealthProbe::Refused, JobState::Unknown, true, macos), "starting");
+            assert_eq!(shell_page(false, Wait, HealthProbe::Refused, JobState::Running, false, macos), "starting");
+            assert_eq!(shell_page(false, Start, HealthProbe::Refused, JobState::Stopped, false, macos), "starting");
+            assert_eq!(shell_page(false, RecoveryAction::Foreign, HealthProbe::Refused, JobState::Foreign, true, macos), "foreign");
+            assert_eq!(shell_page(true, Install, HealthProbe::Refused, none, false, macos), "permission");
+            assert_eq!(shell_page(true, RecoveryAction::Foreign, HealthProbe::Refused, JobState::Foreign, false, macos), "permission");
+        }
+        // macOS never starts an unconfirmed job, so the page stays "starting" until the job is known.
+        assert_eq!(shell_page(false, Start, HealthProbe::Refused, JobState::Unknown, false, true), "starting");
+        // Linux would start `pacer serve` for an unknown job, which needs a CLI.
+        assert_eq!(shell_page(false, Start, HealthProbe::Refused, JobState::Unknown, false, false), "install");
+        assert_eq!(shell_page(false, Wait, HealthProbe::Refused, JobState::Unknown, false, false), "install");
+        assert_eq!(shell_page(false, Wait, HealthProbe::NoAnswer, JobState::Unknown, false, false), "install");
+        // The job isn't queried for other probes; their pages stay (protocol, unreachable).
+        assert_eq!(shell_page(false, Protocol, HealthProbe::Invalid, JobState::Unknown, false, false), "starting");
+        assert_eq!(shell_page(false, Wait, HealthProbe::Unreachable, JobState::Unknown, false, false), "starting");
+    }
+    #[test]
+    fn linux_without_systemd_or_cli_shows_install_instead_of_stuck() {
+        let mut state = Lifecycle::default();
+        for now in 0..70 {
+            let action = state.step(now, HealthProbe::Refused, JobState::Unknown, false);
+            assert_eq!(shell_page(false, action, HealthProbe::Refused, JobState::Unknown, false, false), "install", "{now}");
+        }
     }
     #[test]
     fn missing_cli_page_holds_across_gated_install_passes() {
         let mut state = Lifecycle::default();
         for now in 0..70 {
             let action = state.step(now, HealthProbe::Refused, JobState::NotLoaded, false);
-            assert_eq!(shell_page(false, action, JobState::NotLoaded, false), "install", "{now}");
+            assert_eq!(shell_page(false, action, HealthProbe::Refused, JobState::NotLoaded, false, true), "install", "{now}");
         }
     }
     #[test]

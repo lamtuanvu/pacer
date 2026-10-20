@@ -1,4 +1,4 @@
-use crate::{link, logic, profile, tray_model::TrayModel, Shell};
+use crate::{link, logic, logic::same_path, profile, tray_model::TrayModel, Shell};
 use futures_util::StreamExt;
 use reqwest::{Client, Url};
 use serde_json::Value;
@@ -16,11 +16,6 @@ fn pacer_home() -> PathBuf {
         .unwrap_or_else(|| {
             PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".pacer")
         })
-}
-
-fn same_path(a: &Path, b: &Path) -> bool {
-    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    canonical(a) == canonical(b)
 }
 
 fn executable(path: &Path) -> bool {
@@ -84,11 +79,14 @@ fn recreate_link(home: &Path, bundled: &Path, config: &Path) -> Result<(), Strin
 // Inspect the loaded job, not a plist that may have changed since launchd loaded it.
 #[cfg(any(target_os = "macos", test))]
 fn loaded_job_matches(text: &str, binary: &Path, home: &Path, port: u16, default_home: &Path) -> bool {
-    let (owner, owner_port) = logic::job_owner(
+    if logic::foreign_owner(
         &logic::launchd_environment(text),
         &default_home.to_string_lossy(),
-    );
-    if owner_port != port || !same_path(Path::new(&owner), home) {
+        home,
+        port,
+    )
+    .is_some()
+    {
         return false;
     }
     let mut lines = text.lines().skip_while(|line| *line != "\targuments = {");
@@ -1025,15 +1023,25 @@ pub async fn run(app: AppHandle) {
             desktop_log!("pacer lifecycle: {reason}");
             previous = reason;
         }
-        let page = logic::shell_page(permission, action, job, cli.is_some());
-        let detail = match page {
-            "permission" => waiting,
-            "foreign" => owner.map(|owner| {
-                logic::display_home(&owner, &std::env::var("HOME").unwrap_or_default())
-            }),
-            _ => None,
+        let page = logic::shell_page(
+            permission,
+            action,
+            probe,
+            job,
+            cli.is_some(),
+            cfg!(target_os = "macos"),
+        );
+        let detail = match (page, &owner) {
+            ("permission", _) => logic::diagnosis(page, waiting),
+            ("foreign", Some(owner)) => logic::foreign_diagnosis(
+                owner,
+                &pacer_home(),
+                service_port(),
+                &std::env::var("HOME").unwrap_or_default(),
+            ),
+            _ => logic::diagnosis(page, None),
         };
-        crate::diagnostic_recovery(&app, &logic::diagnosis(page, detail));
+        crate::diagnostic_recovery(&app, &detail);
         if matches!(page, "install" | "foreign") || (permission && cli.is_none()) {
             // Nothing this shell may do: no CLI to install with, or the job serves another pacer.
             continue;
@@ -1600,12 +1608,11 @@ fn launchctl_args(action: &str) -> Vec<String> {
     }
     logic::launchctl_args(unsafe { getuid() }, action)
 }
-async fn job_state(home: &Path, port: u16) -> (logic::JobState, Option<String>) {
+async fn job_state(home: &Path, port: u16) -> (logic::JobState, Option<logic::JobOwner>) {
     use logic::JobState;
     let default_home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".pacer");
-    let owned = |env: &[(String, String)]| -> Option<String> {
-        let (owner, owner_port) = logic::job_owner(env, &default_home.to_string_lossy());
-        (!same_path(Path::new(&owner), home) || owner_port != port).then_some(owner)
+    let owned = |env: &[(String, String)]| {
+        logic::foreign_owner(env, &default_home.to_string_lossy(), home, port)
     };
     #[cfg(target_os = "macos")]
     {
