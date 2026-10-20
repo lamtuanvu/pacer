@@ -45,7 +45,9 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
   for (const a of input.accounts) if (a.signedIn === false && input.executors.some(e=>e.account===a.name && e.enabled)) {
     add("account_signin",a.name,`Sign in to ${executorName(a.agent)}`,"Account is signed out",[{label:"Sign in",op:"account.signin",params:{name:a.name}},...input.executors.filter(e=>e.account===a.name&&e.enabled&&e.rank!=="planner").map(e=>({label:"Disable",op:"runner.set",params:{id:e.id,enabled:false}}))],{account:a.name});
   }
-  for (const e of input.executors) if (e.enabled && e.rank!=="planner" && (e.state==="down"||e.lastCheck?.passed===false&&e.state!=="checking")) {
+  // A signed-out account already raises account_signin for its executors.
+  const signedOut=new Set(input.accounts.filter(a=>a.signedIn===false).map(a=>a.name));
+  for (const e of input.executors) if (e.enabled && e.rank!=="planner" && !signedOut.has(e.account) && (e.state==="down"||e.lastCheck?.passed===false&&e.state!=="checking")) {
     add("executor_down",e.id,`${displayName(e.id)} needs attention`,"Executor is not working",[open("Open settings",{view:"settings",section:"executors"}),{label:"Disable",op:"runner.set",params:{id:e.id,enabled:false}}],{executor:e.id,...(e.host?{host:e.host}:{})});
   }
   for(const h of input.hosts??[])if(h.state==="down"&&input.executors.some(e=>e.host===h.alias&&e.enabled)){

@@ -78,10 +78,10 @@ test("wizard and delegate controls have wrapping labels", () => {
  }
 });
 test("accounts capitalize guidance and simplify default-folder sign-in commands", () => {
- const rows=accountsModel([{name:"personal",kind:"claude",folder:"/fixture/.claude",signin_command:"CLAUDE_CONFIG_DIR='/fixture/.claude' claude\n# Then run /login to sign in."},{name:"work",kind:"codex",folder:"/fixture/.codex-work",signin_command:"CODEX_HOME='/fixture/.codex-work' codex login"}], [{account:"personal",capturedAt:1,stale:true,hint:"run codex login"}]);
+ const rows=accountsModel([{name:"personal",kind:"claude",signedIn:false,folder:"/fixture/.claude",signin_command:"CLAUDE_CONFIG_DIR='/fixture/.claude' claude\n# Then run /login to sign in."},{name:"work",kind:"codex",signedIn:false,folder:"/fixture/.codex-work",signin_command:"CODEX_HOME='/fixture/.codex-work' codex login"}], [{account:"personal",capturedAt:1,stale:true,hint:"run codex login"}]);
  expect(rows[0]?.signin).toBe("claude\n# Then run /login to sign in.");
  expect(rows[1]?.signin).toContain("CODEX_HOME");
- expect(accountsModel([{name:"default",kind:"codex",folder:"/fixture/.codex",signin_command:"CODEX_HOME=fixture codex login"}],[])[0]?.signin).toBe("codex login");
+ expect(accountsModel([{name:"default",kind:"codex",signedIn:false,folder:"/fixture/.codex",signin_command:"CODEX_HOME=fixture codex login"}],[])[0]?.signin).toBe("codex login");
  expect(rows[0]?.freshness).toStartWith("Stale since");
  expect(rows[0]?.hint).toBe("Run codex login");
 

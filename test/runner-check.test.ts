@@ -90,6 +90,8 @@ test("readiness uses real account and limits readers and the shared launcher", a
   const ctx = setup(), sessions = join(ctx.home, "team/sessions");
   mkdirSync(sessions, {recursive: true});
   writeFileSync(join(sessions, "rollout-test.jsonl"), JSON.stringify({rate_limits: {primary: {used_percent: 3, window_minutes: 10080}}}) + "\n");
+  // Signed in: the login indicator only checks that Codex wrote its auth file.
+  writeFileSync(join(ctx.home, "team/auth.json"), "{}");
   let repo = "";
   const job = await checkRunner(ctx, "codex#team", {runTestTask: (ctx, id) => runTestTask(ctx, id, {spawn: async spec => {
     repo = spec.cwd;

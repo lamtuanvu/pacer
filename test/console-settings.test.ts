@@ -50,7 +50,7 @@ test('fixed Orca link command prompts for label-safe identity and writes the lin
 });
 test('interactive endpoint add collects usage settings for the shared validator',async()=>{
  const {accountCmd}=await import('../src/commands/accounts');const h=harness();
- const answers=['endpoint','metered-api','http://endpoint.invalid/v1','1','metered','1M','y'];
+ const answers=['endpoint','metered-api','http://endpoint.invalid/v1','','1','metered','1M','y'];
  const questions:string[]=[];let hidden=0,discovered=0,tested=0;
  const key='sk-console-endpoint-private';
  // Exercise an in-memory keychain, never the real user's store.

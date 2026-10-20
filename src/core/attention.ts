@@ -20,7 +20,7 @@ async function raisedItems(ctx: Ctx) {
   const [status,context]=await Promise.all([computeStatus({...ctx,readOnly:true},strategy),readModelContext(ctx)]);
   const tasks=snapshotTasks(ctx,listActiveAndRecentTasks(ctx).map(t=>taskRecordStatus(ctx,t)));
   const executors=buildExecutors(status,strategy,tasks,ctx.now);
-  const accounts=buildAccounts(status,strategy).map(a=>({...a,signedIn:context.accounts.find(row=>row.name===a.name)?.signedIn??null}));
+  const accounts=buildAccounts(status,strategy,ctx);
   return deriveItems({now:ctx.now,tasks,executors,accounts,planner:buildPlanner(status),setup:buildSetup(context.setup),update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)});
 }
 export async function dismiss(ctx: Ctx, id: string) {

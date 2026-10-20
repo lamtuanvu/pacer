@@ -14,7 +14,9 @@ export function commandCtx() {
 test("account list JSON and CLI dispatch show identities, sources and runners", async () => {
   const ctx=commandCtx(); const r=await main(["account","list","--json"],ctx);
   expect(r.code).toBe(0); const a=JSON.parse(r.out);
-  expect(a.find((x:any)=>x.name==='personal')).toMatchObject({kind:'claude',source:'default',runners:['claude-code'],signedIn:null});
+  // No ~/.claude.json login in the test home, so the default account is signed out.
+  expect(a.find((x:any)=>x.name==='personal')).toMatchObject({kind:'claude',source:'default',runners:['claude-code'],signedIn:false});
+  expect(a.find((x:any)=>x.name==='spare')).toMatchObject({kind:'endpoint',signedIn:null});
 });
 for (const kind of ['claude','codex']) test(`${kind} add creates private home and uses injected interactive login`, async()=>{
   const ctx=commandCtx(); const calls:any[]=[];

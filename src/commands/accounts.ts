@@ -14,7 +14,7 @@ import { table } from "../render/table";
 
 import * as endpoints from "../core/endpoints";
 import {deleteKey} from "../endpoints/keys";
-import {redactEndpointError, type EndpointState} from "../endpoints/state";
+import {redactEndpointMessage, type EndpointState} from "../endpoints/state";
 import type {DiscoveredModel, DiscoveryResult} from "../endpoints/models";
 
 export interface AccountDeps extends endpoints.EndpointDeps {
@@ -27,6 +27,27 @@ export interface AccountDeps extends endpoints.EndpointDeps {
 }
 const ok = (out: string): Result => ({code: 0, out, err: ""});
 const fail = (e: unknown): Result => ({code: 2, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}`});
+const NAME = /^[a-z0-9][a-z0-9-]*$/;
+// Array.forEach would also pass the index and array to console.log.
+function printLines(lines: string[], print?: (line: string) => void): void {
+  for (const line of lines) (print ?? console.log)(line);
+}
+/** A closed input stream ends the wizard instead of re-asking forever. */
+function answered(read: (question: string) => Promise<string>, what: string) {
+  return async (question: string) => {
+    const answer = await read(question);
+    if (typeof answer !== "string") throw Error(`${what} cancelled: no input`);
+    return answer.trim();
+  };
+}
+/** Validate a field where it is entered, so a later save cannot fail for it and earlier answers are kept. */
+async function askUntil<T>(ask: (question: string) => Promise<string>, print: (line: string) => void, question: string, parse: (answer: string) => T | Error): Promise<T> {
+  for (;;) {
+    const value = parse(await ask(question));
+    if (!(value instanceof Error)) return value;
+    print(value.message);
+  }
+}
 export function commandArgs(args: string[], values: string[], booleans: string[]) {
   const pos: string[] = [], flags: Record<string, string | true> = {};
   for (let i = 0; i < args.length; i++) {
@@ -63,10 +84,14 @@ async function loginAgent(ctx: Ctx, argv: string[], env: Record<string,string>):
 export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {}): Promise<Result> {
   try {
     if(args[0]==="add" && (args.length===1 || (args.length===2 && args[1]==="--orca"))) {
-      const ask=deps.prompt ?? promptArgument;
-      const selected=await ask("What do you want to add? 1. Claude Code account  2. Codex account  3. Model endpoint (OpenCode)");
-      const kind=({'1':'claude','2':'codex','3':'endpoint'} as Record<string,string>)[selected] ?? selected;
-      const name=await ask("Name (lowercase, e.g. terastorai)");
+      const ask=answered(deps.prompt ?? promptArgument,'account setup'), print=deps.print ?? console.log;
+      const kinds: Record<string,string>={'1':'claude','2':'codex','3':'endpoint',claude:'claude',codex:'codex',endpoint:'endpoint'};
+      const kind=await askUntil(ask,print,"What do you want to add? 1. Claude Code account  2. Codex account  3. Model endpoint (OpenCode)",
+        answer=>kinds[answer] ?? Error('Choose 1, 2 or 3.'));
+      const taken=loadStrategy(ctx).accounts;
+      const name=await askUntil(ask,print,"Name (lowercase, e.g. terastorai)",answer=>
+        !NAME.test(answer) ? Error('Use lowercase letters, digits and hyphens, starting with a letter or digit.')
+          : taken[answer] ? Error(`Account ${answer} already exists; use pacer account edit ${answer} to change it.`) : answer);
       if(kind==='endpoint' && args[1]!=="--orca") return await endpointWizard(ctx,name,deps);
       const options=args[1]==="--orca" ? ["--orca",await ask("Orca account id")] : [];
       return accountCmd(["add",kind,name,...options],ctx,deps);
@@ -81,7 +106,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
     if (["add", "edit", "rm"].includes(verb) || (verb === "models" && flags.refresh)) {
       const ensured=ensureAccounts(ctx);
       s=ensured.strategy;
-      if (ensured.migrated) migrationLines(strategyPath(ctx),ensured.migrated).forEach(deps.print ?? console.log);
+      if (ensured.migrated) printLines(migrationLines(strategyPath(ctx),ensured.migrated),deps.print);
     }
     if (verb === 'test' && pos.length===1) return ok(endpointMessage(pos[0],await endpoints.testEndpoint(ctx,pos[0],deps)));
     if (verb === 'models' && pos.length===1) {
@@ -149,7 +174,7 @@ export async function runnerCmd(args: string[], ctx: Ctx, deps: Pick<AccountDeps
     const s=loadStrategy(ctx);
     if(verb==='list' && !pos.length) return ok(flags.json ? JSON.stringify(Object.values(s.runners),null,2) : table(['RUNNER','ACCOUNT','MODEL'],Object.values(s.runners).map(r=>[r.id,r.account,r.model ?? 'default model'])));
     const migration=ensureAccounts(ctx).migrated;
-    if (migration) migrationLines(strategyPath(ctx),migration).forEach(deps.print ?? console.log);
+    if (migration) printLines(migrationLines(strategyPath(ctx),migration),deps.print);
     if(pos.length!==1) throw Error('a runner id is required');
     const parsed=parseRunnerId(pos[0]); if(!parsed) throw Error('invalid runner id');
     if(verb==='add') {
@@ -181,13 +206,13 @@ function endpointMessage(name: string, state: EndpointState, added=false): strin
     (state.state==='not_working' ? `\nRetry: pacer account test ${name}` : '')+
     (added ? '\nRouting: added to the end of the default rule. Move it in the app’s Executors screen.' : '');
 }
-function positiveLimit(value: string | true | undefined, fallback: number): number {
+function positiveLimit(value: string | true | undefined, fallback: number, message='model limits must be positive integers'): number {
   const n=value===undefined || value==='' ? fallback : parseSize(value);
-  if (!n || !Number.isSafeInteger(n) || n<=0) throw Error('model limits must be positive integers');
+  if (!n || !Number.isSafeInteger(n) || n<=0) throw Error(message);
   return n;
 }
 async function chooseModels(result: DiscoveryResult, deps: AccountDeps): Promise<EndpointModel[]> {
-  const ask=deps.prompt ?? promptArgument, print=deps.print ?? console.log;
+  const ask=answered(deps.prompt ?? promptArgument,'endpoint setup'), print=deps.print ?? console.log;
   let selected: DiscoveredModel[];
   if (result.listed && result.models.length) {
     result.models.forEach((m,i)=>print(`${i+1}. ${m.id}${m.context ? ` · ${m.context} context` : ''}`));
@@ -216,24 +241,37 @@ async function chooseModels(result: DiscoveryResult, deps: AccountDeps): Promise
   }
   return selected.map(m=>({...m,context:m.context ?? context,output:m.output ?? output,tools:m.tools ?? true}));
 }
-async function usagePrompts(ask: (q: string)=>Promise<string>, current?: string) {
-  const usage=(await ask(`Usage (quota, metered, unmetered)${current ? ` [${current}]` : ''}`)) || current || '';
-  if (!['quota','metered','unmetered'].includes(usage)) throw Error('usage must be quota, metered or unmetered');
-  const weekly_tokens=usage==='metered'?positiveLimit(await ask('Weekly token budget'),0):undefined;
-  const quota_source=usage==='quota'?await ask('Quota source (arkcli)'):undefined;
+async function usagePrompts(ctx: Ctx, ask: (q: string)=>Promise<string>, print: (line: string)=>void, current?: {usage?: string; weeklyTokens?: number | null}) {
+  const usage=await askUntil(ask,print,`Usage (quota, metered, unmetered)${current?.usage ? ` [${current.usage}]` : ''}`,answer=>{
+    const value=answer || current?.usage || '';
+    return ['quota','metered','unmetered'].includes(value) ? value : Error('Usage must be quota, metered or unmetered.');
+  });
+  const budget=current?.weeklyTokens ?? undefined;
+  const weekly_tokens=usage!=='metered' ? undefined : await askUntil(ask,print,`Weekly token budget (e.g. 50M)${budget ? ` [${budget}]` : ''}`,answer=>{
+    if (!answer && budget) return budget;
+    const n=answer ? parseSize(answer) : null;
+    return n && Number.isSafeInteger(n) && n>0 ? n : Error('Enter a positive weekly token budget, for example 50M or 2000000.');
+  });
+  // arkcli is the only quota reader, so a blank answer selects it.
+  const quota_source=usage!=='quota' ? undefined : await askUntil(ask,print,'Quota source [arkcli]',answer=>
+    !answer || answer==='arkcli' ? 'arkcli' : Error('Quota source must be arkcli, the only supported quota reader.'));
+  if (quota_source==='arkcli' && !ctx.which('arkcli')) print('Note: arkcli is not on PATH, so usage for this account will show as unknown until it is installed.');
   return {usage,weekly_tokens,quota_source};
 }
+const KEY_SOURCE=/^(keychain|file|none|env:[A-Za-z_][A-Za-z0-9_]*)$/;
+function parseKeySource(answer: string, fallback: KeySource): KeySource | Error {
+  const value=answer || fallback;
+  if (!KEY_SOURCE.test(value)) return Error('Key storage must be keychain, file, env:VAR or none.');
+  if (value==='keychain' && process.platform!=='darwin') return Error('Keychain storage is only available on macOS; choose file, env:VAR or none.');
+  return value as KeySource;
+}
 async function endpointWizard(ctx: Ctx, name: string, deps: AccountDeps, editing=false): Promise<Result> {
-  const existing=loadStrategy(ctx).accounts[name], readAnswer=deps.prompt ?? promptArgument, print=deps.print ?? console.log;
-  const ask=async (question: string) => {
-    const answer=await readAnswer(question);
-    if (typeof answer!=='string') throw Error('endpoint setup cancelled: no input');
-    return answer;
-  };
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw Error('invalid endpoint name');
+  const existing=loadStrategy(ctx).accounts[name], print=deps.print ?? console.log;
+  const ask=answered(deps.prompt ?? promptArgument,'endpoint setup');
+  if (!NAME.test(name)) throw Error('invalid endpoint name');
   if (!editing && existing) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
   const migration=ensureAccounts(ctx).migrated;
-  if (migration) migrationLines(strategyPath(ctx),migration).forEach(print);
+  if (migration) printLines(migrationLines(strategyPath(ctx),migration),print);
   const adopting=editing && !existing?.connection;
   let external: ReturnType<typeof endpoints.externalEndpoint> | undefined;
   if (adopting) {
@@ -242,16 +280,22 @@ async function endpointWizard(ctx: Ctx, name: string, deps: AccountDeps, editing
     if (!/^y(?:es)?$/i.test(await ask('Adopt this provider? [y/N]'))) throw Error('adoption cancelled');
   }
   let base_url=existing?.connection?.base_url ?? external?.base_url ?? '';
-  let key_source: KeySource=process.platform==='darwin'?'keychain':'file';
+  const platformSource: KeySource=process.platform==='darwin'?'keychain':'file';
+  let key_source: KeySource=platformSource;
   let key: string | undefined;
+  let sourceAsked=false;
   const promptKey=async () => {
-    if (editing) {
-      key_source=((await ask('Key source (keychain, file, env:VAR, none)')) || existing?.connection?.key || key_source) as KeySource;
+    // Ask where to keep the key once; a refused key only asks for the key again,
+    // unless the key is not entered here (env:VAR or none).
+    if (!sourceAsked || key_source==='none' || key_source.startsWith('env:')) {
+      const fallback=(editing ? existing?.connection?.key : undefined) ?? platformSource;
+      key_source=await askUntil(ask,print,`Key storage (keychain, file, env:VAR, none) [${fallback}]`,answer=>parseKeySource(answer,fallback));
+      sourceAsked=true;
+      if (key_source.startsWith('env:') && !ctx.env[key_source.slice(4)]) print(`Note: ${key_source.slice(4)} is not set in pacer's environment; the endpoint will show Key missing until it is.`);
       if (key_source==='none' || key_source.startsWith('env:')) {key=undefined;return;}
     }
     key=await (deps.promptSecret ?? hiddenKey)('API key (hidden, empty for none)');
     if (!key) key_source='none';
-    else if (key_source==='none' || key_source.startsWith('env:')) key_source=process.platform==='darwin'?'keychain':'file';
   };
   let keyAsked=false;
   let models: EndpointModel[];
@@ -276,13 +320,13 @@ async function endpointWizard(ctx: Ctx, name: string, deps: AccountDeps, editing
     }
     models=await chooseModels(discovery!,deps);
   }
-  const usage=await usagePrompts(ask,existing?.usage);
+  const usage=await usagePrompts(ctx,ask,print,existing);
   const test=!/^n(?:o)?$/i.test(await ask('Test with a short task now? Uses a few hundred tokens. [Y/n]'));
   const input={name,base_url,key_source,key,models,...usage,test};
   try {
     const result=await (adopting ? endpoints.adoptEndpoint : editing ? endpoints.editEndpoint : endpoints.addEndpoint)(ctx,input,deps);
     return ok(endpointMessage(name,result,!editing));
-  } catch(e) {throw Error(redactEndpointError(e instanceof Error?e.message:String(e),[key ?? '']));}
+  } catch(e) {throw Error(redactEndpointMessage(e instanceof Error?e.message:String(e),[key ?? '']));}
 }
 async function endpointFlags(name: string, flags: Record<string,string|true>, deps: AccountDeps, editing=false): Promise<endpoints.EndpointEdit> {
   if (flags.home || flags.orca || flags['no-login']) throw Error('endpoint accounts do not have a home or login');
@@ -296,5 +340,5 @@ async function endpointFlags(name: string, flags: Record<string,string|true>, de
   const models=typeof flags.models==='string'?flags.models.split(',').map(id=>({id:id.trim(),context:positiveLimit(flags.context,128000),output:positiveLimit(flags.output,16000),tools:true})):undefined;
   return {name,...(typeof flags['base-url']==='string'?{base_url:flags['base-url']}:{}),...(key_source?{key_source}:{}),...(key!==undefined?{key}:{}),
     ...(models?{models}:{}),...(typeof flags.usage==='string'?{usage:flags.usage}:{}),
-    ...(flags['weekly-tokens']?{weekly_tokens:positiveLimit(flags['weekly-tokens'],0)}:{}),...(typeof flags['quota-source']==='string'?{quota_source:flags['quota-source']}:{}),test:editing?false:!flags['no-test']};
+    ...(flags['weekly-tokens']?{weekly_tokens:positiveLimit(flags['weekly-tokens'],0,'--weekly-tokens must be a positive token budget, e.g. 50M')}:{}),...(typeof flags['quota-source']==='string'?{quota_source:flags['quota-source']}:{}),test:editing?false:!flags['no-test']};
 }

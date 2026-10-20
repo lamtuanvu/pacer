@@ -349,6 +349,25 @@ test("requested executor limit falls back without trying it twice", async () => 
   expect(d.calls).toEqual(["cursor", "codex"]);
   expect(r.state).toBe("done");
   expect(r.result?.report).toContain("requested cursor unavailable (limit); ran on codex");
+  expect(r.executorFallback).toEqual({ requested: "cursor", reason: "limit", executor: "codex" });
+});
+
+test("an unavailable requested executor is recorded as a fallback in task data, JSON and CLI output", async () => {
+  const ctx = fakeCtx();
+  const d = deps({ codex: outcomeFor("codex", 0) }, status({ cursor: { signedOutReason: "signed out — run cursor-agent login" } }));
+  const r = await runTask(ctx, newTask(ctx, { requestedExecutor: "cursor" }).id, d);
+  expect(d.calls).toEqual(["codex"]);
+  expect(r.executorFallback).toEqual({ requested: "cursor", reason: "signed out — run cursor-agent login", executor: "codex" });
+  const { summarizeTask } = await import("../src/tasks/api");
+  expect(summarizeTask(r)).toMatchObject({ requested_executor: "cursor", executor_fallback: { requested: "cursor", reason: "signed out — run cursor-agent login", executor: "codex" } });
+  const { main } = await import("../src/cli");
+  const shown = await main(["tasks", r.id], ctx);
+  expect(shown.out).toContain("requested cursor, ran on codex: signed out — run cursor-agent login");
+  const listed = await main(["tasks"], ctx);
+  expect(listed.out.split("\n").find(line => line.startsWith(r.id))).toContain("requested cursor");
+  // A requested executor that ran has no fallback.
+  const direct = await runTask(ctx, newTask(ctx, { requestedExecutor: "codex" }).id, deps({ codex: outcomeFor("codex", 0) }));
+  expect(direct.executorFallback).toBeUndefined();
 });
 
 for (const files of ["", "(no changes)", "(not a git repository)"]) test(`nonzero exit without work stays failed: ${files}`, async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
 import { fakeCtx, gitRepo, realRun, withLoginIndicators } from "./helpers";
@@ -42,4 +42,32 @@ test("CLI reports a racing edit without retrying the mutation", async () => {
   }));
   expect(result.code).toBe(2); expect(result.err).toContain("Reload before retrying");
   expect(calls).toEqual(["project.strategy.get", "project.strategy.set"]); expect(closed).toBe(true);
+});
+test("bare route uses the policy of the registered repository in the current directory", async () => {
+  const ctx = setup(), before = process.cwd();
+  await main(["project", "strategy", "set", "--repo", ctx.home, "--executors", "cursor"], ctx);
+  const nested = join(ctx.home, "src", "deep"); mkdirSync(nested, { recursive: true });
+  const other = gitRepo();
+  try {
+    for (const dir of [ctx.home, nested]) {
+      process.chdir(dir);
+      const r = JSON.parse((await main(["route", "--json"], ctx)).out);
+      expect(r.policy).toMatchObject({ source: "project", rev: 1 });
+      expect(r.ranked.map((e: { id: string }) => e.id)).toEqual(["cursor"]);
+      expect((await main(["route"], ctx)).out).toContain("Project order");
+    }
+    // An unregistered repository is not probed or registered by a read: global routing.
+    process.chdir(other);
+    const registry = join(ctx.pacerHome, "state", "repos.json");
+    const known = readFileSync(registry, "utf8");
+    expect(JSON.parse((await main(["route", "--json"], ctx)).out)).not.toHaveProperty("policy");
+    expect(readFileSync(registry, "utf8")).toBe(known);
+  } finally { process.chdir(before); }
+});
+test("empty --executors explains how to use the global strategy", async () => {
+  const ctx = setup();
+  const r = await main(["project", "strategy", "set", "--repo", ctx.home, "--executors", ""], ctx);
+  expect(r.code).toBe(2);
+  expect(r.err).not.toContain("unknown option or missing value");
+  expect(r.err).toContain("pacer project strategy remove");
 });

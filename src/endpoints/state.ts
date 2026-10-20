@@ -31,12 +31,27 @@ export function writeEndpointState(ctx: Ctx, name: string, state: EndpointState)
   } finally { rmSync(temp, {force: true}); }
 }
 
-/** Redact before selecting a line so multiline credentials cannot leak fragments. */
-export function redactEndpointError(text: string, secrets: string[] = []): string {
+function redactSecrets(text: string, secrets: string[]): string {
   for (const secret of secrets.filter(Boolean).sort((a,b) => b.length - a.length)) text = text.split(secret).join("[redacted]");
   return text.replace(/authorization\s*[:=]\s*[^\r\n]*/gi, "Authorization: [redacted]")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
     .replace(/\b(?:sk|pk|api[_-]?key|token)[_-][A-Za-z0-9_-]+/gi, "[redacted]")
-    .replace(/((?:api[_-]?key|access[_-]?token|password)\s*[=:]\s*)[^\s,;]+/gi, "$1[redacted]")
-    .split(/\r?\n/)[0].slice(0, 500);
+    .replace(/((?:api[_-]?key|access[_-]?token|password)\s*[=:]\s*)[^\s,;]+/gi, "$1[redacted]");
+}
+
+/**
+ * One-line form for stored or displayed details (test failures, check results,
+ * executor reasons). Redact before selecting a line so multiline credentials
+ * cannot leak fragments.
+ */
+export function redactEndpointError(text: string, secrets: string[] = []): string {
+  return redactSecrets(text, secrets).split(/\r?\n/)[0].slice(0, 500);
+}
+
+/**
+ * Full form for an error returned to the person who made the request, such as
+ * a strategy validation error whose reasons follow its first line.
+ */
+export function redactEndpointMessage(text: string, secrets: string[] = []): string {
+  return redactSecrets(text, secrets).slice(0, 4000);
 }

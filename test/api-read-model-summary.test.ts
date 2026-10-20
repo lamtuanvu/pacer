@@ -75,13 +75,18 @@ test("snapshot wires pause, hold, auth failure, readiness and disabled rows",asy
  const ctx=fakeCtx(),{s,st}=capacityFixture();
  writeJsonAtomic(join(ctx.pacerHome,"state/pause.json"),{until:ctx.now+60,reason:"break",by:null});
  writeJsonAtomic(join(ctx.pacerHome,"state/auth-failed.json"),{[s.runners.codex!.account]:ctx.now});
- writeJsonAtomic(join(ctx.pacerHome,"state/runner-checks.json"),{codex:{at:ctx.now,passed:false,detail:"failed sk-private-test-token person@example.test"}});
+ // Status applies the shared sign-in check (usage/signin.ts); this is its result for the recorded failure.
+ st.providers.find(p=>p.id==="codex")!.signedOutReason="signed out — authentication failed; run codex login";
+ writeJsonAtomic(join(ctx.pacerHome,"state/runner-checks.json"),{codex:{at:ctx.now,passed:false,detail:"failed sk-private-test-token person@example.test"},cursor:{at:ctx.now,passed:false,detail:"failed"}});
  st.modeHold={mode:"normal",until:ctx.now+60};
  const model=()=>buildReadModel(ctx,{status:st,strategy:s,tasks:[],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
  expect(model()).toMatchObject({pause:{until:ctx.now+60},planner:{modeHeldUntil:ctx.now+60}});
  expect(model().accounts.find(a=>a.name===s.runners.codex!.account)?.signedIn).toBe(false);
- expect(model().executors.find(e=>e.id==="codex")).toMatchObject({state:"failing",lastCheck:{passed:false}});
- expect(model().attention.some(a=>a.id==="executor_down:codex")).toBe(true);
+ expect(model().executors.find(e=>e.id==="codex")).toMatchObject({state:"down",reason:"signed out — authentication failed; run codex login",lastCheck:{passed:false}});
+ expect(model().attention.some(a=>a.id===`account_signin:${s.runners.codex!.account}`)).toBe(true);
+ expect(model().attention.some(a=>a.id==="executor_down:codex")).toBe(false);
+ expect(model().executors.find(e=>e.id==="cursor")).toMatchObject({state:"failing",lastCheck:{passed:false}});
+ expect(model().attention.some(a=>a.id==="executor_down:cursor")).toBe(true);
  expect(JSON.stringify(model())).not.toContain("sk-private-test-token");
  const unregister=registerJobDaemon(ctx);let release!:()=>void;
  try{

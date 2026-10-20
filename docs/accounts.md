@@ -25,8 +25,8 @@ pacer runner add claude-code#work
 pacer config set planner claude-code#work
 ```
 
-A pacer-managed account uses a new folder under `~/.pacer/accounts/<name>`,
-created with permissions 0700. Choose another new folder with `--home <dir>`.
+A pacer-managed account uses a new folder, `~/.<kind>-<name>` (for example
+`~/.claude-work` or `~/.codex-work`), created with permissions 0700. Choose another new folder with `--home <dir>`.
 Claude starts with `CLAUDE_CONFIG_DIR` pointing at that folder; run `/login`,
 then exit to return to pacer. Codex runs `codex login` with `CODEX_HOME` set.
 The login process inherits your terminal. `--no-login` configures the account
@@ -55,11 +55,20 @@ reporting but cannot execute tasks or become an installed planner.
 ## Endpoint accounts (OpenCode)
 
 Run `pacer account add` and choose **Model endpoint (OpenCode)**. Enter a name,
-an HTTP(S) base URL and a hidden API key (leave it empty for a local server with
-no key). pacer discovers models through `/models`, lets you choose which to use,
+an HTTP(S) base URL, where to keep the key (`keychain`, `file`, `env:VAR` or
+`none`; blank picks Keychain on macOS and a file elsewhere) and, for Keychain or
+file storage, a hidden API key (leave it empty for a local server with no key).
+pacer discovers models through `/models`, lets you choose which to use,
 and asks for context and output limits when the server does not provide them
 (defaults: 128K context and 16K output). Choose quota, metered or unmetered usage,
-then accept the optional test task.
+then accept the optional test task. Metered usage asks for a weekly token budget
+(for example `50M`). Quota usage reads its quota with `arkcli`, the only supported
+quota source, so a blank answer selects it; pacer warns when `arkcli` is not on
+`PATH`, because the account's usage stays unknown until it is installed.
+
+Each answer is checked when you enter it. An invalid kind, name, key storage,
+usage, budget or quota source is explained and asked again without losing earlier
+answers. If saving still fails, the full reason is shown.
 
 If the URL is unreachable, pacer asks you to check it and try again. A 401/403
 asks for the key again; a server without `/models` allows manual model ids.
@@ -119,7 +128,7 @@ optional detail and last test time (`checked_at`).
 | State | Meaning |
 | --- | --- |
 | Ready (`ready`) | Last test task passed |
-| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit |
+| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit. Routing still uses the runner; the Executors screen, Overview and tray show it as Not tested, not Ready |
 | Not working (`not_working`) | Test failed; reason is recorded and routing excludes the runner |
 | Key missing (`key_missing`) | Stored key or environment variable is absent; routing excludes the runner |
 | External OpenCode provider (`external`) | Legacy endpoint without a managed connection |
@@ -180,9 +189,34 @@ pacer account rm acme
 ```
 
 Account JSON includes kind, source, folder or Orca id, usage settings and
-`usageReading`, runner ids, `runnable`, and `signedIn`. Native sign-in state is
-`null` because pacer does not inspect credentials; a linked Orca identity is
-reported as signed in. Runner JSON includes id, agent, account, host and model.
+`usageReading`, runner ids, `runnable`, and `signedIn`. Runner JSON includes id,
+agent, account, host and model.
+
+### Sign-in state
+
+`signedIn` is the account's local sign-in on this machine. One check supplies it
+to `account list`, routing (`pacer route`), the Executors and Accounts screens,
+account attention and `runner.check`:
+
+| Account | `signedIn` |
+| --- | --- |
+| Claude, Codex or Cursor with a local runner or no runners | `true` when the agent's own config shows a login, otherwise `false`; also `false` after an authentication failure recorded since that login |
+| Used only by remote runners | `false` after a recorded authentication failure, otherwise `null` (the login lives on the host) |
+| Orca account whose folder is missing | `true` for a linked Orca identity, otherwise `null` |
+| Endpoint | `null`: endpoints use keys, so their endpoint state (Ready, Not tested, Not working, Key missing) is shown instead |
+
+The login check never reads credentials. It looks for an `oauthAccount` entry in
+Claude's `.claude.json`, the presence of Codex's `auth.json`, or Cursor's
+`authInfo`, in the account's folder, or for the agent's API key variable in
+pacer's environment. A recorded authentication failure stops counting once the
+agent rewrites that file, for example after you log in again.
+
+A signed-out executor is excluded from routing with the reason
+`signed out — <fix>`, shown as Unavailable with that reason in the Executors
+table, and raises one **Sign in** attention item for its account. `signin_command`
+and the app's **Fix sign-in** appear only for a native account that is signed out.
+The planner's own runner is not excluded this way; setup reports a signed-out
+planner instead.
 
 Account removal is refused while the planner or any runner uses the account.
 Runner removal is refused for the planner and the last runner; successful

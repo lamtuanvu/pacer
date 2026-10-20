@@ -15,6 +15,12 @@ export async function projectStrategyCmd(args: string[], ctx: Ctx, connect: (ctx
   try {
     const [section, verb, ...rest] = args;
     if (section !== "strategy" || !["list", "show", "set", "remove"].includes(verb)) throw Error(usage);
+    // An empty list is not a way to restore the global strategy; say what is.
+    const listed = rest.indexOf("--executors");
+    if (verb === "set" && listed >= 0 && rest[listed + 1] !== undefined && !rest[listed + 1].startsWith("--") && !rest[listed + 1].split(",").some(id => id.trim())) {
+      const repo = rest.indexOf("--repo") >= 0 ? rest[rest.indexOf("--repo") + 1] : undefined;
+      throw Error(`--executors needs at least one executor id. To use the global strategy for this repository, run: pacer project strategy remove --repo ${repo && !repo.startsWith("--") ? JSON.stringify(repo) : "<path-or-key>"}`);
+    }
     const { pos, flags } = commandArgs(rest, ["repo", "executors"], ["json"]);
     if (pos.length || (verb !== "list" && typeof flags.repo !== "string") || (verb === "set" && typeof flags.executors !== "string")) throw Error(usage);
     client = await connect(ctx);

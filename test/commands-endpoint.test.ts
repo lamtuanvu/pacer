@@ -43,7 +43,7 @@ function server(status: number | number[] = 200) {
 for (const transport of ['injected','server']) test(`interactive endpoint add reaches Ready (${transport})`, async () => {
   const ctx=setup(), api=transport==='server'?server():null;
   try {
-    const s=script(["3","work",api?.url.toString() ?? "http://test.invalid/v1","1","unmetered","y"],api?{}:{fetch:async()=>Response.json({data:[{id:"model-a",context_length:262144,max_output_tokens:32768}]})});
+    const s=script(["3","work",api?.url.toString() ?? "http://test.invalid/v1","","1","unmetered","y"],api?{}:{fetch:async()=>Response.json({data:[{id:"model-a",context_length:262144,max_output_tokens:32768}]})});
     const result=await accountCmd(["add"],ctx,s.deps);
     expect(result.code).toBe(0); expect(result.out).toContain("Ready: opencode#work");
     expect(loadStrategy(ctx).runners["opencode#work"].model).toBe("pacer-work/model-a");
@@ -55,7 +55,7 @@ for (const transport of ['injected','server']) test(`interactive endpoint add re
 for (const transport of ['injected','server']) test(`401 re-asks for a hidden key before saving (${transport})`,async()=>{
   const ctx=setup(),api=transport==='server'?server([401,200]):null; let attempts=0, prompts=0;
   try {
-  const s=script(["endpoint","work",api?.url.toString() ?? "https://test.invalid/v1","1","unmetered","n"],{
+  const s=script(["endpoint","work",api?.url.toString() ?? "https://test.invalid/v1","","1","unmetered","n"],{
     promptSecret:async()=>{prompts++; return secret;},
     ...(api?{}:{fetch:async()=>{attempts++;return Response.json({data:[{id:"m",context_length:100,max_output_tokens:50}]},{status:attempts===1?401:200});}}),
   });
@@ -66,7 +66,7 @@ for (const transport of ['injected','server']) test(`401 re-asks for a hidden ke
 for (const transport of ['injected','server']) test(`missing models supports manual ids (${transport})`,async()=>{
   const ctx=setup(),api=transport==='server'?server(404):null;
   try {
-    const s=script(["endpoint","work",api?.url.toString() ?? "http://test.invalid/v1","manual-a,manual-b","128K","16K","unmetered","n"],api?{}:{fetch:async()=>new Response('',{status:404})});
+    const s=script(["endpoint","work",api?.url.toString() ?? "http://test.invalid/v1","","manual-a,manual-b","128K","16K","unmetered","n"],api?{}:{fetch:async()=>new Response('',{status:404})});
     const result=await accountCmd(["add"],ctx,s.deps);
     expect(result.code).toBe(0);expect(result.out).toContain("Not tested");
     expect(loadStrategy(ctx).accounts.work.connection!.models).toEqual(["manual-a","manual-b"].map(id=>({id,context:128000,output:16000,tools:true})));
@@ -120,7 +120,7 @@ test("refresh changes selected models and adopt projects only external provider 
 
 test("invalid and unreachable URLs re-ask before saving any account",async()=>{
   const ctx=setup();let requests=0, hidden=0;
-  const s=script(['endpoint','work','file:///invalid','http://offline.invalid/v1','http://working.invalid/v1','1','unmetered','n'],{
+  const s=script(['endpoint','work','file:///invalid','http://offline.invalid/v1','','http://working.invalid/v1','1','unmetered','n'],{
     promptSecret:async()=>{hidden++;return secret;},
     fetch:async()=>{
       requests++;
@@ -215,7 +215,7 @@ proc=subprocess.Popen(['bun','-e',sys.argv[1]],stdin=slave,stdout=slave,stderr=s
 os.close(slave)
 output=b''
 try:
- for answer in ['endpoint','terminal-api','http://test.invalid/v1','${secret}','1','unmetered','n']:
+ for answer in ['endpoint','terminal-api','http://test.invalid/v1','','${secret}','1','unmetered','n']:
   marker=len(output);deadline=time.time()+3
   while b'> ' not in output[marker:]:
    if time.time()>deadline:raise RuntimeError('terminal prompt timed out')

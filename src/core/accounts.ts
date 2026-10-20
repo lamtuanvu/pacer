@@ -8,6 +8,7 @@ import { accountFolder } from "../install/role";
 import { shq } from "../install/fsx";
 import { readOrcaAccounts } from "../orca/accounts";
 import { readAuthFailures } from "../usage/auth";
+import { accountSignIn } from "../usage/signin";
 import { openInTerminal, type TerminalDeps, type TerminalOptions } from "../terminal/open";
 import { readAccountUsage } from "../usage";
 import { CoreError, toCoreError } from "./errors";
@@ -92,16 +93,21 @@ export async function list(ctx: Ctx) {
     const identity = a.orcaAccount && (a.kind === "claude" || a.kind === "codex") ? orca?.[a.kind].find(v=>v.id===a.orcaAccount) : undefined;
     const folder = accountFolder(ctx,a);
     const usageReading = await readAccountUsage({...ctx,readOnly:true},a,runners);
+    // Read after the usage reading, which can record or clear an authentication failure.
+    const failures = readAuthFailures(ctx);
     // Keep listing order stable when declarations precede inferred runners.
     return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), executors:runners.map(r=>r.id).sort(),
       ...(s.planner.account === a.name ? {locked: "Planner — can't remove"} : runners.length ? {locked: `In use by ${runners.length} executor(s)`} : {}),
-      signedIn: Object.hasOwn(readAuthFailures(ctx), a.name) ? false : identity ? true : null,
+      // Remote runners sign in on their host, so a remote-only account keeps only a recorded failure.
+      // An Orca identity whose folder is missing cannot be checked locally; Orca reports it as signed in.
+      signedIn: (runners.length && runners.every(r => r.host !== null) ? Object.hasOwn(failures, a.name) ? false : null
+        : accountSignIn(ctx, a, failures).signedIn) ?? (identity ? true : null),
       runnable: a.source !== "orca" || folder !== null, usageReading, ...await endpointRow(ctx, a)};
   }));
   return rows.map(row => {
     const native = row.kind === "claude" || row.kind === "codex";
     const folder = row.folder ?? (row.kind === "codex" ? join(ctx.home, ".codex") : join(ctx.home, ".claude"));
-    const signin = native && row.signedIn !== true
+    const signin = native && row.signedIn === false
       ? `${row.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${shq(folder)} ${row.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` : undefined;
     // Runner ids are validated identifiers; their @host suffix is not an email.
     return {...publicValue({...row, ...(signin ? {signin_command: signin} : {})}), runners: row.runners, executors: row.executors};
