@@ -158,13 +158,16 @@ export class Dashboard {
 
   /** Handle one key. Resolves "quit" when the dashboard should close. */
   async key(key: string): Promise<"quit" | void> {
-    const input = this.input(), { view, ctx } = screenView(input);
+    const input = this.input(), { view, ctx, screen } = screenView(input);
     if (key === "d" && !this.state.overlay && this.supports("task.delegate")) { this.delegate(); this.draw(); return; }
-    const result = reduceKey(this.state, key, {
+    // Setup can be shown in place of the requested screen. Keys select and act on the rows shown, while the
+    // requested screen is kept so finishing setup returns to it.
+    const shown = { ...this.state, screen };
+    const result = reduceKey(shown, key, {
       items: view.items, tabs: tabs(this.snapshot), sections: view.sections, page: Math.max(1, ctx.height - 2), wide: ctx.wide,
       hasDetail: !!view.detail, repos: (this.snapshot.repos ?? []).map(r => r.key), supports: this.supports, ...(view.initial ? { initial: view.initial } : {}),
     });
-    this.state = result.state;
+    this.state = result.state.screen === screen && screen !== this.state.screen ? { ...result.state, screen: this.state.screen } : result.state;
     if (result.quit) return "quit";
     if (result.refresh) { this.invalidateSettings(); this.data.details.clear(); await this.refresh(); this.report("Refreshed", "good"); return; }
     this.loadNeeds();

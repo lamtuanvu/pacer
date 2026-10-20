@@ -349,3 +349,20 @@ test("the fallback warning is still shown on the first local frame after a slow 
   dash.draw();
   expect(frames.at(-1)!).not.toContain("pacer serve unavailable");
 });
+
+test("on the Setup screen shown in place of Home, j moves the visible selection and Enter acts on that row", async () => {
+  const s = structuredClone(fixture) as unknown as ClientSnapshot;
+  const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, live: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [], excluded: [] } }, s.at);
+  s.setup = { ...checklist, open: checklist.items.filter(i => i.status !== "done").length };
+  const t = setup({ snapshot: s, ops: SETTINGS_OPS_ALL });
+  await t.dash.refresh();
+  expect(t.dash.state.screen).toBe("home");
+  const selectedRow = () => t.last().split("\n").find(line => line.startsWith(" ›")) ?? "";
+  expect(selectedRow()).toContain("Background service");
+  await t.keys("j");
+  expect(selectedRow()).toContain("Connect planner");
+  await t.keys("k", "enter");
+  expect(t.dash.state.overlay).toMatchObject({ kind: "confirm", title: "Run pacer in the background at login?" });
+  await t.keys("n");
+  expect(t.dash.state.screen).toBe("home");
+});
