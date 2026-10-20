@@ -222,6 +222,9 @@ name = "pacer-fixtures"
 version = "0.0.0"
 dependencies = [
  "pacer-plugin",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

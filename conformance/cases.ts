@@ -21,6 +21,64 @@ const doctor = async (h: HostSession, id: string) => (await h.call<{ reports: Re
 const eventually = async (seen: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!seen() && Date.now() < end) await Bun.sleep(50); return seen(); };
 const codeOf = async (p: Promise<unknown>) => { try { await p; return "no error"; } catch (e) { return e instanceof HostError ? e.code : String(e); } };
 
+function lifecycleCases(rust: boolean): ConformanceCase[] {
+  const names = rust
+    ? { good: "rust-good", slow: "rust-slow", crasher: "rust-crasher" } as const
+    : { good: "good", slow: "slow", crasher: "crasher" } as const;
+  const ids = { good: `fx-${names.good}`, slow: `fx-${names.slow}`, crasher: `fx-${names.crasher}`, claims: rust ? "fx-rust-claims" : "fx-claims" };
+  const cases: ConformanceCase[] = [
+    { name: "handshake checks identity, protocol major and served points", async run(t) {
+      if (rust) t.install(names.good, { manifest: { id: ids.claims }, fixture: { claimContributes: ["diagnostic", "usage"] } });
+      else t.install("claims");
+      t.install(names.good, { manifest: { version: "9.9.9" } });
+      const h = await t.host();
+      await h.call("plugin.enable", { id: ids.claims, grant: true });
+      const r = await doctor(h, ids.claims);
+      assert(r.ok && r.served.join() === "diagnostic", `a claimed point the manifest lacks is not served (got ${r.served.join()})`);
+      assert((await listed(h))[ids.good]?.version === "9.9.9", "the listing shows the manifest version");
+    } },
+    { name: "lazy start: list starts nothing, doctor starts the process", async run(t) {
+      t.install(names.good);
+      const h = await t.host();
+      await h.call("plugin.enable", { id: ids.good, grant: true });
+      assert((await listed(h))[ids.good]?.pid === null, "no pid before the first call");
+      const r = await doctor(h, ids.good);
+      assert(r.ok && r.pid !== null && alive(r.pid), "doctor starts the plugin and reports its pid");
+      assert((await listed(h))[ids.good]?.state === "ready", "the plugin is ready after the first call");
+    } },
+    { name: "deadline: plugin_timeout, the process survives, a later ping works", async run(t) {
+      t.install(names.slow);
+      const h = await t.host();
+      await h.call("plugin.enable", { id: ids.slow, grant: true });
+      const t0 = Date.now(), first = await doctor(h, ids.slow);
+      assert(!first.ok && /^plugin_timeout/.test(first.error ?? ""), `the slow ping reports plugin_timeout (got ${first.error})`);
+      assert(Date.now() - t0 >= 4500 && Date.now() - t0 < 8000, "the deadline is about 5 s");
+      assert(first.pid !== null && alive(first.pid), "the process survives a timeout");
+      const second = await doctor(h, ids.slow);
+      assert(second.ok && second.pid === first.pid, "a later ping on the same process works");
+    } },
+    { name: "crash and backoff: restarts, then failing after three crashes, enable clears", async run(t) {
+      t.install(names.crasher);
+      const h = await t.host();
+      await h.call("plugin.enable", { id: ids.crasher, grant: true });
+      const pids: number[] = [];
+      for (let i = 0; i < 3; i++) { const r = await doctor(h, ids.crasher); assert(r.ok, `ping ${i + 1} works before the crash`); pids.push(r.pid!); await t.sleep(250); }
+      assert(new Set(pids).size === 3, "each restart is a new process");
+      const failing = await doctor(h, ids.crasher);
+      assert(!failing.ok && failing.state === "failing" && failing.restarts === 3 && /3 failures within a minute/.test(failing.error ?? ""), `three crashes within a minute mark the plugin failing (got ${failing.state}: ${failing.error})`);
+      assert(await eventually(() => h.events.some(e => e.type === "plugin" && (e.data as { state: string }).state === "failing")), "a plugin event announces the failing state");
+      const states = h.events
+        .filter(e => e.type === "plugin" && (e.data as { id: string }).id === ids.crasher)
+        .map(e => (e.data as { state: string }).state);
+      assert(states.at(-1) === "failing", "the last event for the crashed plugin is failing");
+      const after = await h.call<{ state: string }>("plugin.enable", { id: ids.crasher, grant: true });
+      assert(after.state === "idle", "enable clears failing");
+      assert((await doctor(h, ids.crasher)).ok, "the plugin runs again after enable");
+    } },
+  ];
+  return cases.map(c => ({ ...c, name: c.name + (rust ? " (rust)" : "") }));
+}
+
 export const CASES: ConformanceCase[] = [
   { name: "discovery and listing", async run(t) {
     for (const f of ["good", "old-protocol", "bad-manifest", "mismatch"] as const) t.install(f);
@@ -32,52 +90,8 @@ export const CASES: ConformanceCase[] = [
     assert(await codeOf(h.call("plugin.enable", { id: "fx-old", grant: true })) === "plugin_refused", "enable on a refused plugin returns plugin_refused");
     assert(await codeOf(h.call("plugin.doctor", { id: "nope" })) === "unknown_plugin", "unknown ids return unknown_plugin");
   } },
-  { name: "handshake checks identity, protocol major and served points", async run(t) {
-    t.install("claims"); t.install("good", { manifest: { version: "9.9.9" } });
-    const h = await t.host();
-    await h.call("plugin.enable", { id: "fx-claims", grant: true });
-    const r = await doctor(h, "fx-claims");
-    assert(r.ok && r.served.join() === "diagnostic", `a claimed point the manifest lacks is not served (got ${r.served.join()})`);
-    assert((await listed(h))["fx-good"]?.version === "9.9.9", "the listing shows the manifest version");
-  } },
-  { name: "lazy start: list starts nothing, doctor starts the process", async run(t) {
-    t.install("good");
-    const h = await t.host();
-    await h.call("plugin.enable", { id: "fx-good", grant: true });
-    assert((await listed(h))["fx-good"]?.pid === null, "no pid before the first call");
-    const r = await doctor(h, "fx-good");
-    assert(r.ok && r.pid !== null && alive(r.pid), "doctor starts the plugin and reports its pid");
-    assert((await listed(h))["fx-good"]?.state === "ready", "the plugin is ready after the first call");
-  } },
-  { name: "deadline: plugin_timeout, the process survives, a later ping works", async run(t) {
-    t.install("slow");
-    const h = await t.host();
-    await h.call("plugin.enable", { id: "fx-slow", grant: true });
-    const t0 = Date.now(), first = await doctor(h, "fx-slow");
-    assert(!first.ok && /^plugin_timeout/.test(first.error ?? ""), `the slow ping reports plugin_timeout (got ${first.error})`);
-    assert(Date.now() - t0 >= 4500 && Date.now() - t0 < 8000, "the deadline is about 5 s");
-    assert(first.pid !== null && alive(first.pid), "the process survives a timeout");
-    const second = await doctor(h, "fx-slow");
-    assert(second.ok && second.pid === first.pid, "a later ping on the same process works");
-  } },
-  { name: "crash and backoff: restarts, then failing after three crashes, enable clears", async run(t) {
-    t.install("crasher");
-    const h = await t.host();
-    await h.call("plugin.enable", { id: "fx-crasher", grant: true });
-    const pids: number[] = [];
-    for (let i = 0; i < 3; i++) { const r = await doctor(h, "fx-crasher"); assert(r.ok, `ping ${i + 1} works before the crash`); pids.push(r.pid!); await t.sleep(250); }
-    assert(new Set(pids).size === 3, "each restart is a new process");
-    const failing = await doctor(h, "fx-crasher");
-    assert(!failing.ok && failing.state === "failing" && failing.restarts === 3 && /3 failures within a minute/.test(failing.error ?? ""), `three crashes within a minute mark the plugin failing (got ${failing.state}: ${failing.error})`);
-    assert(await eventually(() => h.events.some(e => e.type === "plugin" && (e.data as { state: string }).state === "failing")), "a plugin event announces the failing state");
-    const states = h.events
-      .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-crasher")
-      .map(e => (e.data as { state: string }).state);
-    assert(states.at(-1) === "failing", "the last event for the crashed plugin is failing");
-    const after = await h.call<{ state: string }>("plugin.enable", { id: "fx-crasher", grant: true });
-    assert(after.state === "idle", "enable clears failing");
-    assert((await doctor(h, "fx-crasher")).ok, "the plugin runs again after enable");
-  } },
+  ...lifecycleCases(false),
+  ...lifecycleCases(true),
   { name: "capability denial: undeclared calls are refused, declared ones answer", async run(t) {
     t.install("good"); t.install("undeclared"); t.install("over-privileged");
     writeFileSync(join(t.home, ".pacer", "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  config:\n    fx-good: { region: eu }\n");
