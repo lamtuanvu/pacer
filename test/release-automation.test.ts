@@ -15,8 +15,10 @@ test("Prepare release is a manual, main-only, token-gated button with one releas
   expect(prepare.permissions).toEqual({});
   expect(prepare.concurrency?.group).toBe("release");
   const job = prepare.jobs.prepare!;
-  expect(job.permissions).toEqual({ contents: "read" });
+  expect(job.permissions).toEqual({ contents: "read", actions: "write" });
   expect(job.env?.GH_TOKEN).toBe("${{ secrets.RELEASE_TOKEN }}");
+  // The PAT cannot dispatch workflows without the Actions permission; the job token can.
+  expect(job.steps.find(s => s.name === "Dry-run the release on the PR branch")?.env?.GH_TOKEN).toBe("${{ github.token }}");
   const names = job.steps.map(s => s.name ?? s.uses ?? s.run);
   // Order matters: the dry run must pass before auto-merge is turned on.
   const at = (name: string) => names.findIndex(n => n === name);

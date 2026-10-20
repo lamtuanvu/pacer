@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      actions: write # dispatch and watch the dry run; workflow_dispatch from GITHUB_TOKEN does start runs
     env:
       BUMP: ${{ inputs.bump }}
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
@@ -84,6 +85,8 @@ jobs:
       - name: Dry-run the release on the PR branch
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          # RELEASE_TOKEN has no Actions permission; GitHub starts runs for GITHUB_TOKEN dispatches.
+          GH_TOKEN: ${{ github.token }}
         run: |
           branch="release/v$VERSION"
           before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
