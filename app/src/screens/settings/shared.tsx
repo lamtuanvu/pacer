@@ -24,12 +24,16 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
 export function Section({id,title,detail,actions,children}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren}) {
  return <section id={id} className="u3-section"><div className="u3-heading"><div><SectionHeading>{title}</SectionHeading>{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>{children}</section>;
 }
+export function resourceRevision(op: string, invalidations: Record<string, number>): string {
+ // update.check itself publishes an update event; reacting to it creates a request loop.
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => op !== "update.check" || area !== "update"));
+}
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
  const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[revision,reload]=useState(0);
- const serialized=JSON.stringify(params),invalidations=JSON.stringify(state.invalidations);
+ const serialized=JSON.stringify(params),invalidations=resourceRevision(op,state.invalidations);
  useEffect(()=>{let active=true;setLoading(true);setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active)setData(r);},e=>{if(active)setError(e);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
- return {data,error,loading,reload:()=>reload(v=>v+1)};
+ return {data,error,loading,setData,reload:()=>reload(v=>v+1)};
 }
 export function ResourceState({resource,empty,children}:{resource:{data:unknown;loading:boolean;error:unknown;reload:()=>void};empty?:string;children:ComponentChildren}) {
  if(resource.error)return <><ErrorMessage error={resource.error}/><Button onClick={resource.reload}>Try again</Button></>;
@@ -62,7 +66,7 @@ export function useOperation(onDone?:()=>void) {
   },op,params);setResult(r);await done?.(r.data);if(!r.jobId)onDone?.();return r;}
   catch(e){setError(e);}finally{pending.current=false;setBusy(false);}
  }
- return {busy:busy||job?.state==='running',error,result,job,run};
+ return {busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};
 }
 export function JobProgress({job}:{job:Job}) {
  return <div className="u3-progress" role="status" aria-live="polite"><TextRow label="Check progress" value={jobKindCopy(job.kind)} meta={jobStateCopy(job.state)} /><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{jobStateCopy(step.state)}</span> {step.name}{step.detail&&<span className="u3-muted"> · {step.detail}</span>}</li>)}</ul>{job.error&&<><p>{job.error.message}</p>{job.error.hint&&<p>{job.error.hint}</p>}</>}</div>;
