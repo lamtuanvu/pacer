@@ -20,8 +20,8 @@ depending on your login shell. It is off by default. Continue to the web app's
 step-by-step **Setup** to choose a planner, connect agents, choose an executor and
 try a task. An existing CLI offers **Use the app's pacer** or **Keep mine**.
 
-The same release includes `pacer-<version>-linux-x64-unsigned.AppImage`
-and `pacer-<version>-linux-<x64|arm64>-unsigned.deb` (no arm64 AppImage yet), with the CLI bundled and the
+The same release includes `pacer-<version>-linux-<x64|arm64>-unsigned.AppImage`
+and `pacer-<version>-linux-<x64|arm64>-unsigned.deb`, with the CLI bundled and the
 same consent flow. For terminal and servers, use the
 [standalone installer](../docs/install.md#terminal-and-servers).
 
@@ -93,7 +93,7 @@ On Ubuntu 24.04, install the build dependencies:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential curl wget file libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+sudo apt-get install -y build-essential curl wget file libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf squashfs-tools
 bun install --frozen-lockfile
 (cd .. && bun install --frozen-lockfile)
 ./scripts/stage-cli.sh
@@ -101,8 +101,12 @@ cd src-tauri
 cargo check --offline
 cargo test --offline
 cd ..
-CARGO_NET_OFFLINE=true bunx --no-install tauri build --bundles appimage,deb --no-sign
+CARGO_NET_OFFLINE=true ./scripts/build-linux-bundles.sh ../dist/pacer
 ```
+
+Use the script rather than `tauri build --bundles appimage` directly: it builds
+the AppImage around a placeholder and repacks it with the real CLI (#217).
+
 
 Fetch locked crates with `cargo fetch --locked` in `src-tauri` before the offline
 steps if they are not cached. Linux targets are configured in
@@ -122,8 +126,10 @@ artifact; no release or signing is performed by that manual workflow.
 The release workflow uses the same native Linux runners, stages the matching CLI
 artifact, builds with `--target <triple> --bundles <list> --no-sign`, and
 publishes versioned `-unsigned.AppImage` and `-unsigned.deb` downloads with
-checksums and provenance. Linux arm64 builds only the `.deb`: linuxdeploy's
-patchelf step corrupts the bundled arm64 CLI, so that AppImage is skipped.
+checksums and provenance. On Linux both workflows run
+`scripts/build-linux-bundles.sh`: linuxdeploy's patchelf step corrupts
+Bun-compiled binaries, so the AppImage is built around a placeholder CLI and
+`scripts/repack-appimage.sh` puts the real one back, checking that it runs.
 
 Icons are generated from `design/assets/pacer-mark.svg` with `bunx tauri icon`.
 `ui/tray.svg` uses the same geometry in monochrome for the macOS template icon.
