@@ -117,3 +117,75 @@ test("post-sign native transport failure or incompatible result prevents notariz
     expect(f.calls.some(a => a.includes("notarytool") || a[0] === "/usr/bin/tar" || a.includes("signer"))).toBe(false);
   }
 });
+
+const CERT = "2C5405FB6D2906AE2049D59B9DF5D42661997922";
+function selfFixture(bridgeTeamId: string | null = null) {
+  const f = fixture();
+  const config = { signer: "self" as const, certSha1: CERT, bridgeTeamId, keychain: f.config.keychain, signerKey: f.config.signerKey, publicKey: f.config.publicKey };
+  const run = async (argv: string[]) => {
+    if (argv[1] !== "--pacer-identity") return f.run(argv);
+    const id = JSON.parse(await f.run(argv));
+    return JSON.stringify({ ...id, appleTeamId: bridgeTeamId, signingCertSha1: CERT, signer: bridgeTeamId ? "both" : "self" });
+  };
+  return { ...f, config, run };
+}
+test("self-signed release signs every component with the pinned certificate, without runtime, timestamp or notarization", async () => {
+  const f = selfFixture();
+  await signStagedDesktop({ root: "/fixture/root", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, f.run);
+  const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign"));
+  expect(signs.map(a => a.at(-1))).toEqual([join(f.app, "Contents/Frameworks/libpacer-native.dylib"), join(f.app, "Contents/Resources/pacer"), join(f.app, "Contents/Resources/pacer-update-helper"), f.app]);
+  for (const sign of signs) {
+    expect(sign[sign.indexOf("--sign") + 1]).toBe(CERT);
+    expect(sign).toContain("--timestamp=none");
+    expect(sign.join(" ")).not.toContain("runtime");
+    expect(sign).not.toContain("--entitlements");
+  }
+  const checks = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.some(x => x.startsWith("-R=")));
+  expect(checks.map(a => a.find(x => x.startsWith("-R=")))).toEqual([
+    `-R=identifier "dev.pacer.desktop.native-shim" and certificate leaf = H"${CERT}"`,
+    `-R=identifier "dev.pacer.cli" and certificate leaf = H"${CERT}"`,
+    `-R=identifier "dev.pacer.desktop.update-helper" and certificate leaf = H"${CERT}"`,
+    `-R=identifier "dev.pacer.desktop" and certificate leaf = H"${CERT}"`,
+  ]);
+  const commands = f.calls.map(a => a.join(" ")).join("\n");
+  for (const forbidden of ["notarytool", "stapler", "spctl"]) expect(commands).not.toContain(forbidden);
+  expect(commands).toContain("--pacer-native-transport-test");
+  expect(f.calls.some(a => a[0] === "/usr/bin/tar")).toBe(true);
+  expect(f.calls.some(a => a.includes("signer") && a.includes("--app-version"))).toBe(true);
+});
+test("self-signed release refuses a binary compiled with another pin or an unexpected bridge team", async () => {
+  for (const reason of ["cert", "team", "missing"]) {
+    const f = selfFixture();
+    await expect(signStagedDesktop({ root: "/fixture", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, async argv => {
+      const value = await f.run(argv);
+      if (argv[1] !== "--pacer-identity") return value;
+      const id = JSON.parse(value);
+      if (reason === "cert") id.signingCertSha1 = "A".repeat(40);
+      if (reason === "team") id.appleTeamId = "ABCDE12345";
+      if (reason === "missing" && id.role === "cli") id.signingCertSha1 = null;
+      return JSON.stringify(id);
+    })).rejects.toThrow("trust");
+    expect(f.calls.some(a => a.includes("--sign"))).toBe(false);
+  }
+});
+test("bridge release is signed with the certificate and verified against either signer", async () => {
+  const f = selfFixture("ABCDE12345");
+  await signStagedDesktop({ root: "/fixture", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, f.run);
+  const check = f.calls.find(a => a.includes("-R=" + `identifier "dev.pacer.cli" and ((anchor apple generic and certificate leaf[subject.OU] = "ABCDE12345") or certificate leaf = H"${CERT}")`));
+  expect(check).toBeDefined();
+});
+test("Apple signing refuses a binary that also pins a self-signed certificate", async () => {
+  const f = fixture();
+  await expect(signStagedDesktop({ root: "/fixture", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, async argv => {
+    const value = await f.run(argv);
+    return argv[1] === "--pacer-identity" ? JSON.stringify({ ...JSON.parse(value), signingCertSha1: CERT }) : value;
+  })).rejects.toThrow("trust");
+});
+test("signing configuration selects the self signer only without an Apple signing identity", () => {
+  const base = { PACER_SIGNING_KEYCHAIN: "/k", TAURI_SIGNING_PRIVATE_KEY_PATH: "/s", PACER_OTA_PUBLIC_KEY: "key" };
+  expect(signingConfig({ ...base, PACER_SIGNING_CERT_SHA1: CERT })).toMatchObject({ signer: "self", certSha1: CERT, bridgeTeamId: null });
+  expect(signingConfig({ ...base, PACER_SIGNING_CERT_SHA1: CERT, PACER_APPLE_TEAM_ID: "ABCDE12345" })).toMatchObject({ signer: "self", bridgeTeamId: "ABCDE12345" });
+  expect(() => signingConfig({ ...base, PACER_SIGNING_CERT_SHA1: CERT, PACER_APPLE_SIGNING_IDENTITY: "a".repeat(40) })).toThrow();
+  expect(() => signingConfig({ ...base, PACER_SIGNING_CERT_SHA1: CERT.toLowerCase() })).toThrow();
+  expect(() => signingConfig({ PACER_SIGNING_CERT_SHA1: CERT })).toThrow("configured");
+});

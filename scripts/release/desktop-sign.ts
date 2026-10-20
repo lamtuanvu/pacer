@@ -4,9 +4,21 @@ import { join, resolve } from "node:path";
 import { command } from "./desktop-verify";
 import { desktopAssetName, stableVersion, digest, type DesktopArch } from "./desktop-feed";
 import { stageDesktopPackage, verifyNativeLibrary } from "./desktop";
+import { signerRequirement } from "../../src/update/desktop/signer-requirement";
 
-interface SigningConfig { teamId: string; identity: string; keychain: string; notaryKey: string; notaryKeyId: string; notaryIssuer: string; signerKey: string; publicKey: string }
+interface AppleSigning { signer?: "apple"; teamId: string; identity: string; keychain: string; notaryKey: string; notaryKeyId: string; notaryIssuer: string; signerKey: string; publicKey: string }
+/** Interim signer: the project's self-signed certificate. A bridge release also compiles a Team ID. */
+interface SelfSigning { signer: "self"; certSha1: string; bridgeTeamId: string | null; keychain: string; signerKey: string; publicKey: string }
+export type SigningConfig = AppleSigning | SelfSigning;
 export function signingConfig(env: NodeJS.ProcessEnv = process.env): SigningConfig {
+  if (env.PACER_SIGNING_CERT_SHA1) {
+    if (env.PACER_APPLE_SIGNING_IDENTITY) throw Error("Choose one signing identity: Apple or the interim certificate");
+    const names = ["PACER_SIGNING_KEYCHAIN", "TAURI_SIGNING_PRIVATE_KEY_PATH", "PACER_OTA_PUBLIC_KEY"] as const;
+    if (names.some(name => !env[name])) throw Error("Interim signing credentials are not configured");
+    const certSha1 = env.PACER_SIGNING_CERT_SHA1, bridgeTeamId = env.PACER_APPLE_TEAM_ID || null;
+    if (!/^[0-9A-F]{40}$/.test(certSha1) || (bridgeTeamId && !/^[A-Z0-9]{10}$/.test(bridgeTeamId))) throw Error("Invalid interim signing identity");
+    return { signer: "self", certSha1, bridgeTeamId, keychain: env.PACER_SIGNING_KEYCHAIN!, signerKey: env.TAURI_SIGNING_PRIVATE_KEY_PATH!, publicKey: env.PACER_OTA_PUBLIC_KEY! };
+  }
   const names = ["PACER_APPLE_TEAM_ID", "PACER_APPLE_SIGNING_IDENTITY", "PACER_SIGNING_KEYCHAIN", "PACER_NOTARY_KEY_PATH", "PACER_NOTARY_KEY_ID", "PACER_NOTARY_ISSUER", "TAURI_SIGNING_PRIVATE_KEY_PATH", "PACER_OTA_PUBLIC_KEY"] as const;
   if (names.some(name => !env[name])) throw Error("Production signing credentials are not configured");
   const [teamId, identity, keychain, notaryKey, notaryKeyId, notaryIssuer, signerKey, publicKey] = names.map(n => env[n]!);
@@ -18,7 +30,8 @@ type Run = (argv: string[], timeout?: number) => Promise<string>;
 export async function signStagedDesktop(o: { root: string; stage: string; out: string; version: string; arch: DesktopArch; config: SigningConfig }, run: Run = command): Promise<string> {
   stableVersion(o.version);
   const app = join(o.stage, "pacer.app"), resources = join(app, "Contents/Resources"), c = o.config;
-  for (const path of [c.keychain, c.notaryKey, c.signerKey]) {
+  const self = c.signer === "self" ? c : null, apple = c.signer === "self" ? null : c;
+  for (const path of [c.keychain, c.signerKey, ...(apple ? [apple.notaryKey] : [])]) {
     const stat = lstatSync(path);
     if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)) throw Error("Signing inputs require private regular files");
   }
@@ -32,17 +45,26 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   for (const [binary, role] of [[join(app, "Contents/MacOS/pacer"), "desktop"], [join(resources, "pacer-update-helper"), "update-helper"], [join(resources, "pacer"), "cli"]]) {
     const identity = JSON.parse(await run([binary, "--pacer-identity"]));
     if (identity.fixture !== false || identity.role !== role || identity.version !== o.version || identity.arch !== o.arch || identity.bundleId !== (role === "cli" ? "dev.pacer.cli" : "dev.pacer.desktop")) throw Error("Production signing requires production component identity");
-    if (identity.otaMode !== "production" || identity.appleTeamId !== c.teamId || (role !== "cli" && identity.updaterKeySha256 !== digest(Buffer.from(c.publicKey)))) throw Error("Production signing requires matching compiled trust");
+    const pinned = self
+      ? identity.signingCertSha1 === self.certSha1 && (identity.appleTeamId ?? null) === self.bridgeTeamId
+      : identity.appleTeamId === apple!.teamId && (identity.signingCertSha1 ?? null) === null;
+    if (identity.otaMode !== "production" || !pinned || (role !== "cli" && identity.updaterKeySha256 !== digest(Buffer.from(c.publicKey)))) throw Error("Production signing requires matching compiled trust");
   }
   writeFileSync(metadataPath, JSON.stringify({ ...metadata, fixture: false }, null, 2) + "\n");
   const entitlements = join(o.stage, "cli-entitlements.plist");
   // Bun JSC requires allow-jit. Native transport uses the signed same-Team dylib;
   // runtime C compilation is forbidden. Library validation stays enabled.
   writeFileSync(entitlements, '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>\n', { mode: 0o600 });
-  for (const [path, identifier, extra] of [[shim, "dev.pacer.desktop.native-shim", []], [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlements]], [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []], [app, "dev.pacer.desktop", []]] as const) {
-    await run(["/usr/bin/codesign", "--force", "--sign", c.identity, "--keychain", c.keychain, "--identifier", identifier, "--options", "runtime", "--timestamp", ...extra, path], 120_000);
+  const components = [[shim, "dev.pacer.desktop.native-shim", []], [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlements]], [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []], [app, "dev.pacer.desktop", []]] as const;
+  for (const [path, identifier, extra] of components) {
+    // Library validation refuses a dylib whose self-signed certificate has no Team ID,
+    // so interim builds omit hardened runtime (and its JIT entitlement) instead of
+    // disabling validation. Apple's timestamp service accepts only Apple certificates.
+    if (self) await run(["/usr/bin/codesign", "--force", "--sign", self.certSha1, "--keychain", c.keychain, "--identifier", identifier, "--timestamp=none", path], 120_000);
+    else await run(["/usr/bin/codesign", "--force", "--sign", apple!.identity, "--keychain", c.keychain, "--identifier", identifier, "--options", "runtime", "--timestamp", ...extra, path], 120_000);
   }
   await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
+  if (self) for (const [path, identifier] of components) await run(["/usr/bin/codesign", "--verify", "--strict", `-R=${signerRequirement(identifier, { appleTeamId: self.bridgeTeamId, signingCertSha1: self.certSha1 })}`, path]);
   // Smoke only native runner executables, after their final signatures.
   for (const binary of [join(resources, "pacer"), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) await run([binary, "--version"]);
   // Exercise the signed native transport under the final hardened signature on each native CI runner.
@@ -50,13 +72,15 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   if (transport.schema !== 1 || transport.role !== "cli" || transport.version !== o.version || transport.arch !== o.arch || transport.nativeTransportAbi !== 1 || transport.transport !== "unix-audit-token" || transport.verified !== true) throw Error("Signed native transport validation failed");
   const helper = JSON.parse(await run([join(resources, "pacer-update-helper"), "--pacer-helper-runtime-test"]));
   if (helper.schema !== 1 || helper.role !== "update-helper" || helper.version !== o.version || helper.arch !== o.arch || helper.runtime !== "tauri-updater" || helper.verified !== true) throw Error("Signed native helper runtime validation failed");
-  const upload = join(o.stage, "notarization.zip");
-  await run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, upload], 120_000);
-  const receipt = JSON.parse(await run(["/usr/bin/xcrun", "notarytool", "submit", upload, "--key", c.notaryKey, "--key-id", c.notaryKeyId, "--issuer", c.notaryIssuer, "--wait", "--output-format", "json"], 1_800_000));
-  if (receipt.status !== "Accepted" || typeof receipt.id !== "string" || !receipt.id) throw Error("Apple notarization was not accepted");
-  await run(["/usr/bin/xcrun", "stapler", "staple", app], 120_000);
-  await run(["/usr/bin/xcrun", "stapler", "validate", app]);
-  await run(["/usr/sbin/spctl", "--assess", "--type", "execute", app]);
+  if (apple) {
+    const upload = join(o.stage, "notarization.zip");
+    await run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, upload], 120_000);
+    const receipt = JSON.parse(await run(["/usr/bin/xcrun", "notarytool", "submit", upload, "--key", apple.notaryKey, "--key-id", apple.notaryKeyId, "--issuer", apple.notaryIssuer, "--wait", "--output-format", "json"], 1_800_000));
+    if (receipt.status !== "Accepted" || typeof receipt.id !== "string" || !receipt.id) throw Error("Apple notarization was not accepted");
+    await run(["/usr/bin/xcrun", "stapler", "staple", app], 120_000);
+    await run(["/usr/bin/xcrun", "stapler", "validate", app]);
+    await run(["/usr/sbin/spctl", "--assess", "--type", "execute", app]);
+  }
   mkdirSync(o.out, { recursive: true });
   const artifact = join(o.out, desktopAssetName(o.version, o.arch));
   if (existsSync(artifact) || existsSync(artifact + ".sig")) throw Error("Refusing to overwrite a desktop artifact");
