@@ -145,14 +145,18 @@ test("migration notices print one line per console.log call", async () => {
 });
 
 // Discovered models whose names are blank pass the wizard's questions and fail only at save.
-const blankNames = async () => Response.json({data: [
-  {id: "model-a", display_name: " ", context_length: 128000, max_output_tokens: 16000},
-  {id: "model-b", display_name: "  ", context_length: 128000, max_output_tokens: 16000},
-]});
+// Only the entered URL answers, so the provider picker finds no local servers.
+const blankNames = async (input: string | URL | Request) => {
+  if (!String(input instanceof Request ? input.url : input).startsWith("http://localhost/")) throw new Error("connection refused");
+  return Response.json({data: [
+    {id: "model-a", display_name: " ", context_length: 128000, max_output_tokens: 16000},
+    {id: "model-b", display_name: "  ", context_length: 128000, max_output_tokens: 16000},
+  ]});
+};
 
 test("interactive endpoint save shows every line of a validation error", async () => {
   const ctx = setup();
-  const s = script(["3", "work", "http://localhost/v1", "none", "1,2", "unmetered", "n"], {fetch: blankNames});
+  const s = script(["3", "1", "work", "http://localhost/v1", "none", "1,2", "unmetered", "n"], {fetch: blankNames});
   const result = await accountCmd(["add"], ctx, s.deps);
   expect(result.code).not.toBe(0);
   expect(result.err).toContain("invalid strategy");
