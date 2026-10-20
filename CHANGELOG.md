@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- One-click releases: **Prepare release** picks the next version from commit titles, opens the release PR, dry-runs it and auto-merges it; **Release tag** then tags and publishes. Release PRs that change only version strings no longer need a UI evidence manifest.
+
 ### Changed
 
 - `pacer dashboard` is redesigned on the shared design system: Home, Review, Sessions, Settings and Setup screens mirror the app, statuses are glyph plus label, colors follow the design tokens for dark and light terminals, destructive actions confirm, and `--plain` and `--once` print screen-reader-friendly or single frames. The dashboard now reads and writes only through the API.
