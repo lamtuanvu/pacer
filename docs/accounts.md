@@ -55,11 +55,20 @@ reporting but cannot execute tasks or become an installed planner.
 ## Endpoint accounts (OpenCode)
 
 Run `pacer account add` and choose **Model endpoint (OpenCode)**. Enter a name,
-an HTTP(S) base URL and a hidden API key (leave it empty for a local server with
-no key). pacer discovers models through `/models`, lets you choose which to use,
+an HTTP(S) base URL, where to keep the key (`keychain`, `file`, `env:VAR` or
+`none`; blank picks Keychain on macOS and a file elsewhere) and, for Keychain or
+file storage, a hidden API key (leave it empty for a local server with no key).
+pacer discovers models through `/models`, lets you choose which to use,
 and asks for context and output limits when the server does not provide them
 (defaults: 128K context and 16K output). Choose quota, metered or unmetered usage,
-then accept the optional test task.
+then accept the optional test task. Metered usage asks for a weekly token budget
+(for example `50M`). Quota usage reads its quota with `arkcli`, the only supported
+quota source, so a blank answer selects it; pacer warns when `arkcli` is not on
+`PATH`, because the account's usage stays unknown until it is installed.
+
+Each answer is checked when you enter it. An invalid kind, name, key storage,
+usage, budget or quota source is explained and asked again without losing earlier
+answers. If saving still fails, the full reason is shown.
 
 If the URL is unreachable, pacer asks you to check it and try again. A 401/403
 asks for the key again; a server without `/models` allows manual model ids.
