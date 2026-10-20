@@ -12,29 +12,29 @@ Executor preference: codex#team > opencode#byteplus
 Pace clock: calendar (not enough activity history yet)"
 `;
 
-exports[`account metadata survives the link and appears in the dashboard 1`] = `
-"▬┃ pacer  [RELAXED]  strategy default  local · —                                                                                       ● live 12:00:00
-Claude Code planner  week [#######---------|---] 34% used · pace 84%
-Behind pace · -50 pts · 1 active-h · resets 13:00
-→ 50 pts under pace — spend it.
-NEEDS YOU ?
-  (none)
+exports[`account metadata survives the link and appears in dashboard and panel 1`] = `
+" ▬┃ pacer   [ Home ]  Review  Sessions  Settings                                                                   All repos · Relaxed · ● live 12:00
+ Claude planner  ━━━━━━━─────────┃───  34% used · pace 84%  ↓ Behind pace  1 active-h · resets 13:00
+ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   50 pts under pace — spend it.
 
-WHO RUNS NEXT ?
-  #  EXECUTOR      ACCOUNT   WINDOW USED | PACE           USED  STATUS          RESETS           SLOTS
-> P  Claude Code   plan      week   [######---------|--]  34%   Expiring soon   13:00            0/1
-  1  BytePlus      byteplus  —      unmetered             —     Available       —                0/1
-  2  Codex         team      week   [######-----------|]  34%   Expiring soon   13:00            0/1
+   NEEDS YOU  0
+   Nothing needs you.
 
-RUNNING ? · QUEUED ?
-  (none)
-  TASK                                            EXECUTOR      PHASE       TIME    CHANGES            OUTPUT
+   RUNNING  0
+   Nothing running. Delegate a task, or ask your planner to.
 
-DONE TODAY ?
-  (none)
+   CAPACITY  3 executors
+   #   EXECUTOR                    STATUS                 PACE                                                            USAGE           USED  TASKS
+ › P   Claude Code                 ✓ Ready                Behind pace                                                     ━━━━━──────┃──   34%    0/1
+   1   BytePlus                    ✓ Ready                On pace · unmetered                                             unmetered          —    0/1
+   2   Codex · team                ✓ Ready          next  Expiring soon                                                   ━━━━━────────┃   34%    0/1
 
-
+   DONE TODAY  0
+   Nothing finished yet today.
 
 
-j/k select  ⏎ action  d delegate  x dismiss  b block  s strategy  , settings  r refresh  ? help                                    v0.2.3 · up to date"
+ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+ ⏎ Open in Settings  f repo scope  d delegate  ? help                                                                        pacer 0.2.3 · up to date"
 `;

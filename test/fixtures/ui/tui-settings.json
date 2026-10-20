@@ -1,0 +1,49 @@
+{
+  "config": {
+    "value": {
+      "keys": {
+        "planner": { "value": "claude-code", "source": "default" },
+        "pacing.policy": { "value": "priority", "source": "default" },
+        "pacing.planner_reserve": { "value": 10, "source": "default" },
+        "pacing.accounts": { "value": "fill", "source": "strategy.yaml" },
+        "pacing.fill_threshold": { "value": 80, "source": "strategy.yaml" },
+        "execution.local_max_tasks": { "value": 2, "source": "default" },
+        "update_check": { "value": true, "source": "default" }
+      },
+      "planners": ["claude-code", "codex#team"]
+    }
+  },
+  "accounts": {
+    "value": [
+      { "name": "team", "kind": "codex", "source": "folder", "executors": ["codex#team@devbox"], "locked": "In use by 1 executor(s)", "signedIn": true },
+      { "name": "spare", "kind": "claude", "source": "folder", "executors": [], "signedIn": false }
+    ]
+  },
+  "routing": {
+    "value": {
+      "rules": [
+        { "kinds": ["tests", "docs"], "executors": ["codex#team@devbox", "cursor"] },
+        { "executors": ["codex#team@devbox", "cursor", "agy"] }
+      ],
+      "available": ["codex#team@devbox", "cursor", "agy", "local"]
+    }
+  },
+  "projects": {
+    "value": [
+      {
+        "repo": { "key": "github.com/acme/api", "label": "acme/api" },
+        "rev": 2,
+        "executors": ["codex#team@devbox"],
+        "available": [{ "id": "codex#team@devbox", "reference": "codex#team@devbox", "label": "Codex · team · devbox" }]
+      }
+    ]
+  },
+  "strategies": {
+    "value": [
+      { "name": "default", "active": true, "summary": "Codex first, Cursor next" },
+      { "name": "frugal", "active": false, "summary": "Local model first" }
+    ]
+  },
+  "update": { "value": { "current": "0.3.1", "latest": "0.3.2", "available": true } },
+  "notifications": { "value": { "level": "important" } }
+}

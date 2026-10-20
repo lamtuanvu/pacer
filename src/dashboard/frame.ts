@@ -47,15 +47,15 @@ const ellipsisFor = (theme?: TerminalTheme) => theme && !theme.unicode ? "..." :
 /** Clip a styled line to a width, keeping span styles. */
 export function fit(line: Line, width: number, theme?: TerminalTheme): Line {
   if (lineWidth(line) <= width) return line;
+  // The line overflows: keep whole spans while a cell remains for the ellipsis, then clip the next one.
   const out: Line = [];
   let remaining = width;
-  for (let i = 0; i < line.length && remaining > 0; i++) {
-    const s = line[i]!, size = cellWidth(s.text);
-    const rest = line.slice(i + 1).reduce((n, x) => n + cellWidth(x.text), 0);
-    if (size <= remaining && size + rest <= remaining) { out.push(s); remaining -= size; continue; }
-    const text = clip(s.text, remaining, ellipsisFor(theme));
+  for (const s of line) {
+    if (remaining <= 0) break;
+    const size = cellWidth(s.text);
+    if (size < remaining) { out.push(s); remaining -= size; continue; }
+    const text = clip(s.text.padEnd(s.text.length + 1, " "), remaining, ellipsisFor(theme));
     out.push({ ...s, text });
-    remaining -= cellWidth(text);
     break;
   }
   return out;
@@ -93,7 +93,7 @@ export function flex(total: number, specs: ({ fixed: number } | { weight: number
 
 const ASCII: Record<string, string> = {
   "✓": "+", "✕": "x", "▶": ">", "…": "~", "■": "=", "◐": "o", "↓": "v", "↑": "^", "∞": "*", "●": "*", "○": "o",
-  "›": ">", "·": "-", "→": "->", "━": "#", "─": "-", "┃": "|", "│": "|", "▬┃": "=|",
+  "›": ">", "‹": "<", "·": "-", "→": "->", "⏎": "Enter", "━": "#", "─": "-", "┃": "|", "│": "|", "▬┃": "=|",
 };
 /** A Unicode glyph, or its ASCII stand-in. Labels always accompany glyphs, so the stand-ins only aid scanning. */
 export const glyph = (theme: TerminalTheme, g: string) => theme.unicode ? g : ASCII[g] ?? g;
@@ -105,10 +105,10 @@ export function statusSpans(theme: TerminalTheme, status: Status, extra: Style =
   return theme.plain ? [span(status.label, style)] : [span(`${glyph(theme, status.glyph)} ${status.label}`, style)];
 }
 /** The one section-heading style: uppercase label in muted bold, then its count (UI-9). */
-export function heading(theme: TerminalTheme, label: string, count?: string | number, note?: string): Line {
+export function heading(theme: TerminalTheme, label: string, count?: string | number, note?: string, separator = true): Line {
   const out: Line = [span(label.toUpperCase(), { fg: "muted", bold: true })];
   if (count !== undefined) out.push(span("  "), span(String(count), { fg: "ink", bold: true }));
-  if (note) out.push(span(` ${glyph(theme, "·")} ${note}`, { fg: "muted" }));
+  if (note) out.push(span(separator ? ` ${glyph(theme, "·")} ${note}` : ` ${note}`, { fg: "muted" }));
   return out;
 }
 export const rule = (theme: TerminalTheme, width: number): Line => [span(glyph(theme, "─").repeat(Math.max(0, width)), { fg: "line" })];
@@ -148,13 +148,40 @@ export function meter(theme: TerminalTheme, used: number | null, pace: number | 
   return out;
 }
 
+/** Width-preserving, so layout computed before painting still holds. */
+const TRANSLIT: [RegExp, string][] = [[/·/g, "-"], [/…/g, "."], [/[—–]/g, "-"], [/→/g, ">"], [/×/g, "x"], [/›/g, ">"], [/⏎/g, "#"], [/[“”]/g, '"'], [/[‘’]/g, "'"]];
+/** ASCII terminals get ASCII text, including punctuation from shared copy. */
+export function ascii(text: string): string {
+  let out = text;
+  for (const [pattern, replacement] of TRANSLIT) out = out.replace(pattern, replacement);
+  return out;
+}
+
 /** Turn rows into terminal text. Selected rows are padded so the selection background spans the row. */
 export function paint(theme: TerminalTheme, rows: PaintRow[], width: number): string {
   return rows.map(({ line, selected }) => {
+    if (!theme.unicode) line = line.map(s => ({ ...s, text: ascii(s.text) }));
     const fitted = selected ? pad(line, width, theme) : fit(line, width, theme);
     return fitted.map(s => {
       const { open, close } = sgr(theme, { ...s.style, ...(selected ? { selected: true } : {}) });
       return open ? `${open}${s.text}${close}` : s.text;
     }).join("");
   }).join("\n");
+}
+
+/** Word-wrap prose to a width. A token wider than the line is clipped, never broken mid-token (UI-11). */
+export function wrap(text: string, width: number, maxLines = Infinity): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.split(/\r?\n/)) {
+    let line = "";
+    for (const word of safeText(paragraph).split(/\s+/).filter(Boolean)) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (cellWidth(candidate) <= width) { line = candidate; continue; }
+      if (line) lines.push(line);
+      line = cellWidth(word) > width ? clip(word, width) : word;
+    }
+    lines.push(line);
+  }
+  if (lines.length <= maxLines) return lines;
+  return [...lines.slice(0, maxLines - 1), clip(lines.slice(maxLines - 1).join(" "), width)];
 }
