@@ -48,7 +48,8 @@ export class Dashboard {
   private readAt: number | undefined;
   theme: TerminalTheme;
   data: { details: Map<string, Resource<TaskDetail> & { stamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
-  private message?: { text: string; tone: StatusTone; until: number };
+  /** `untilRead` keeps the message until the next successful read, then for the usual 5 s. */
+  private message?: { text: string; tone: StatusTone; until: number; untilRead?: boolean };
   private frame = 0;
   private loading = 0;
   private inFlight?: Promise<void>;
@@ -69,6 +70,12 @@ export class Dashboard {
   report(text: string, tone: StatusTone = "info") {
     const line = text.split(/\r?\n/).filter(Boolean).join(" · ");
     this.message = { text: line, tone, until: this.deps.now() + 5 };
+    this.draw();
+  }
+  /** The service stopped answering and reads moved to the local client. The local read can be slow, so the
+   * warning lasts until that read has drawn its first frame. */
+  fallback() {
+    this.message = { text: "pacer serve unavailable; working locally", tone: "warn", until: Infinity, untilRead: true };
     this.draw();
   }
   reportError(error: unknown) {
@@ -106,6 +113,7 @@ export class Dashboard {
         this.snapshot = result.snapshot as ClientSnapshot;
         this.connection = this.deps.client.kind === "http" ? "live" : "local";
         this.readAt = this.deps.now();
+        if (this.message?.untilRead) this.message = { ...this.message, until: this.readAt + 5, untilRead: false };
         this.loadNeeds();
         this.draw();
       })

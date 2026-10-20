@@ -8,6 +8,7 @@ import { setupChecklist } from "../src/setup/checklist";
 import { ApiError, type ApiClient } from "../src/api/client";
 import { callOp } from "../src/api/ops";
 import { Dashboard } from "../src/dashboard/controller";
+import { withFallback } from "../src/dashboard/data";
 import { PLAIN_THEME } from "../src/dashboard/theme";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { fakeCtx } from "./helpers";
@@ -328,4 +329,23 @@ test("installing the service from Setup asks for consent first", async () => {
   expect(t.ops().map(x => x.op)).not.toContain("service.install");
   await t.keys("y");
   expect(t.ops().filter(x => x.op === "service.install")).toEqual([{ op: "service.install", params: { consent: true } }]);
+});
+
+test("the fallback warning is still shown on the first local frame after a slow local read", async () => {
+  const s = structuredClone(fixture) as unknown as ClientSnapshot;
+  let clock = s.at;
+  const base = setup({ snapshot: s, now: () => clock }).dash.deps.client;
+  const primary: ApiClient = { ...base, kind: "http", snapshot: async () => { throw new Error("connect ECONNREFUSED"); }, hello: async () => { throw new Error("connect ECONNREFUSED"); } };
+  const local: ApiClient = { ...base, kind: "inprocess", snapshot: async () => { clock += 8; return { protocol: "3.0.0", seq: 1, snapshot: s }; } };
+  const frames: string[] = [];
+  let dash!: Dashboard;
+  const client = withFallback(primary, () => local, () => dash.fallback());
+  dash = new Dashboard({ client, theme: PLAIN_THEME, version: "0.0.0-test", cwd: "/tmp/repo", timeZone: "UTC", now: () => clock, size: () => ({ width: 120, height: 40 }), write: f => frames.push(f) });
+  await dash.refresh();
+  const first = frames.at(-1)!;
+  expect(first.split("\n")[0]).toContain("○ local");
+  expect(first).toContain("pacer serve unavailable; working locally");
+  clock += 6;
+  dash.draw();
+  expect(frames.at(-1)!).not.toContain("pacer serve unavailable");
 });

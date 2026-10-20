@@ -46,7 +46,7 @@ export async function runDashboard(args: string[], ctx: Ctx): Promise<Result> {
   const theme = detectTheme(ctx.env, options.once ? false : process.stdout.isTTY === true, { plain: options.plain });
   const primary = await dashboardClient(ctx), localClient = await dashboardClient(ctx, true);
   let dash!: Dashboard;
-  const client = withFallback(primary, () => localClient, () => dash.report("pacer serve unavailable; working locally", "warn"));
+  const client = withFallback(primary, () => localClient, () => dash.fallback());
   let closed = false, suspended = false;
   const write = (frame: string) => {
     if (closed || suspended || options.once) return;
