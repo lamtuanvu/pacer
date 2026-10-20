@@ -33,11 +33,12 @@ export function configProviders(ctx: Ctx): { id: string; name: string }[] {
     return Object.entries(config.provider).map(([id, p]) => ({ id, name: isObj(p) && typeof p.name === "string" ? p.name : id }));
   } catch { return []; }
 }
-export async function opencodeModelIds(ctx: Ctx, provider: string): Promise<string[]> {
+/** null means OpenCode could not list models (not installed, failed or timed out), not "no models". */
+export async function opencodeModelIds(ctx: Ctx, provider: string): Promise<string[] | null> {
   // "opencode models <provider>" rejects a positional provider argument (verified against the real CLI),
   // so all models are listed and filtered by the "<provider>/" prefix.
-  const r = await ctx.run(["opencode", "models"], 30000);
-  if (r.code !== 0) return [];
+  const r = await ctx.run(["opencode", "models"], 90000);
+  if (r.code !== 0 || (r as any).timedOut) return null;
   const prefix = `${provider}/`;
   return r.stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith(prefix)).map(l => l.slice(prefix.length));
 }

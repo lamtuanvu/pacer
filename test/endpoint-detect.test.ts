@@ -58,3 +58,8 @@ test("opencode model ids are read for one provider", async () => {
   const {ctx} = ctxWith({"opencode models": {code: 0, stdout: "openrouter/qwen/qwen3-coder\nopenrouter/z-ai/glm-5.3\nanthropic/claude-opus-4-5\n"}});
   expect(await opencodeModelIds(ctx, "openrouter")).toEqual(["qwen/qwen3-coder", "z-ai/glm-5.3"]);
 });
+
+test("failed opencode model listing returns null, not empty array", async () => {
+  const {ctx} = ctxWith({"opencode models": {code: 1, stdout: ""}});
+  expect(await opencodeModelIds(ctx, "openrouter")).toBeNull();
+});
