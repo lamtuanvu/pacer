@@ -266,3 +266,6 @@ a.pc-btn{text-decoration:none}
 
 /* Shortcuts inside actions share the action foreground and surface. */
 .pc-btn .pc-kbd{background:transparent;border-color:currentColor;color:inherit}
+
+.pc-disclosure--wrap{min-width:0;max-width:100%}
+.pc-disclosure--wrap>summary{flex-wrap:wrap}

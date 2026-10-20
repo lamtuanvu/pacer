@@ -1,3 +1,4 @@
+import { runDoctor } from "../install/doctor";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
@@ -105,4 +106,10 @@ export function onboardingSkip(ctx:Ctx) {
     writeFileSync(tmp,"",{flag:"wx",mode:0o600});renameSync(tmp,path);
     return {skipped:true};
   }catch(e){throw toCoreError(e);}finally{rmSync(tmp,{force:true});}
+}
+
+/** Read diagnostics and run fixed isolated handler fixtures; never repair installations. */
+export async function doctor(ctx: Ctx) {
+  try { return { checkedAt: ctx.now, checks: await runDoctor(ctx) }; }
+  catch (e) { throw toCoreError(e); }
 }

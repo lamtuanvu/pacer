@@ -1,3 +1,4 @@
+import { claudeHookChecks, claudeHooksApplicable, probeClaudeHandlers } from "./doctor-hooks";
 import { removableVolumeChecks } from "./removable-volume";
 import { executorCliCheck } from "./cli-check";
 import { serviceBackend, type ServiceStatus } from "../service";
@@ -10,6 +11,9 @@ import type { ActivityProfile } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
 import type { Ctx } from "../types";
 import { loginIndicator } from "./login";
+import { accountFolder } from "./role";
+import { formatRunnerId, runnerDefaults } from "../config/runner-id";
+import type { RunnerCfg } from "../config/accounts";
 import { executorsFor } from "../engine/rank";
 import { readText, sha256 } from "./fsx";
 import { piecesPresent, readManifest, type FileChange } from "./manifest";
@@ -19,6 +23,7 @@ export interface Check {
   level: "ok" | "warn" | "fail" | "info";
   detail: string;
   fix?: string;
+  evidence?: "configured" | "tested" | "unverified";
 }
 
 export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status>; service?: () => Promise<ServiceStatus> } = {}): Promise<Check[]> {
@@ -38,7 +43,7 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       return runner && !(runner.agent === strategy!.planner.agent && runner.account === strategy!.planner.account);
     })) checks.push({ name: "Executor", level: "warn", detail: "no executor configured",
       fix: "install an executor CLI such as codex, then run pacer init" });
-    const logins = new Set<string>();
+
     for (const cfg of Object.values(strategy.providers)) {
       const bin = binaryFor(cfg);
       const installed = ctx.which(bin) !== null;
@@ -46,12 +51,15 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
         detail: installed ? `${bin} installed` : `${bin} missing`,
         ...(!installed ? { fix: `install ${bin} or remove providers.${cfg.id}` } : {}) });
       if(installed && cfg.id !== strategy.planner.agent)checks.push(await executorCliCheck(ctx,cfg));
-      logins.add(cfg.via === "opencode" ? "opencode" : cfg.id);
-      if (cfg.quotaSource === "arkcli") logins.add("arkcli");
+
     }
-    // OpenCode may be the planner without being a provider itself.
-    logins.add(strategy.planner.agent);
-    for (const id of logins) checks.push(loginCheck(ctx, id));
+    const logins = new Map<string, RunnerCfg>();
+    for (const runner of Object.values(strategy.runners)) logins.set(runner.id, runner);
+    const plannerId = formatRunnerId({...strategy.planner, host: null}, runnerDefaults(strategy.accounts));
+    if (!logins.has(plannerId)) logins.set(plannerId, { ...strategy.planner, id: plannerId, name: plannerId, host: null, model: null });
+    for (const runner of logins.values()) checks.push(loginCheck(ctx, runner, strategy));
+    if (Object.values(strategy.providers).some(cfg => cfg.quotaSource === "arkcli"))
+      checks.push({ name: "Login arkcli", level: "info", evidence: "unverified", detail: "login not cheaply checkable" });
 
     try {
       const status = deps.status ? await deps.status(ctx) : await computeStatus(ctx, strategy);
@@ -70,6 +78,10 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     }
   }
 
+  if (claudeHooksApplicable(ctx, strategy)) {
+    checks.push(...claudeHookChecks(ctx, strategy));
+    checks.push(await probeClaudeHandlers());
+  }
   checks.push(...await removableVolumeChecks(ctx));
   checks.push(await linkLatencyCheck(ctx));
 
@@ -106,7 +118,7 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       for(const skill of record.files.filter(f=>f.path.endsWith("/skills/pacer/SKILL.md")))checks.push({name:`Skill ${record.planner}`,level:fileIntact(skill)?"ok":"warn",detail:skill.path,...(!fileIntact(skill)?{fix:`pacer install ${record.planner}`}:{})});
       const broken = record.files.filter(file => !fileIntact(file));
       checks.push({ name: `Install ${record.planner}`, level: broken.length ? "warn" : "ok",
-        detail: broken.length ? `missing or changed: ${broken.map(file => file.path).join(", ")}` : "installed files intact",
+        detail: broken.length ? `missing or changed: ${broken.map(file => file.path).join(", ")}` : "installed files intact (configuration only; runtime unverified)",
         ...(broken.length ? { fix: record.planner === "service" ? "pacer service install" : `pacer install ${record.planner}` } : {}) });
     }
   } catch (e) {
@@ -128,11 +140,23 @@ function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function loginCheck(ctx: Ctx, id: string): Check {
-  const indicator = loginIndicator(ctx, id);
-  if (!indicator) return { name: `Login ${id}`, level: "info", detail: "login not cheaply checkable" };
+function loginCheck(ctx: Ctx, runner: RunnerCfg, strategy: Strategy): Check {
+  const name = `Login ${runner.id}`;
+  const account = strategy.accounts[runner.account];
+  const folder = account ? accountFolder(ctx, account) : null;
+  if (runner.host || !account || account.kind === "endpoint" || (account.source !== "default" && !folder))
+    return { name, level: "info", evidence: "unverified", detail: "Account login is unverified: remote, endpoint or unresolved account folder." };
+  // Inspect the declared account, not the service's launch overrides or another account's API key.
+  const env = {...ctx.env};
+  delete env.CLAUDE_CONFIG_DIR;
+  delete env.CODEX_HOME;
+  if (account.source !== "default") {
+    for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "CURSOR_API_KEY"]) delete env[key];
+  }
+  const indicator = loginIndicator({...ctx, env}, runner.agent, folder ?? undefined);
+  if (!indicator) return { name, level: "info", evidence: "unverified", detail: "login not cheaply checkable" };
   const { loggedIn, fix } = indicator;
-  return { name: `Login ${id}`, level: loggedIn ? "ok" : "warn",
+  return { name, level: loggedIn ? "ok" : "warn",
     detail: loggedIn ? "login indicator present" : "no login indicator", ...(!loggedIn ? { fix } : {}) };
 }
 

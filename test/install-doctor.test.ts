@@ -74,7 +74,7 @@ test("doctor fixture covers ok, warn, fail and info with usage and legacy fixes"
   expect(find(checks, "Login claude-code").level).toBe("ok");
   expect(find(checks, "Login codex")).toMatchObject({ level: "warn", fix: "codex login" });
   expect(find(checks, "Login cursor").level).toBe("ok");
-  expect(find(checks, "Login opencode").level).toBe("ok");
+  expect(find(checks, "Login opencode#byteplus")).toMatchObject({level:"info",evidence:"unverified"});
   expect(find(checks, "Login arkcli").level).toBe("info");
   expect(find(checks, "Login agy").level).toBe("info");
   expect(find(checks, "Usage claude-code")).toMatchObject({ level: "warn", fix: "pacer install claude-code, then use Claude Code once" });
@@ -109,7 +109,7 @@ test("cheap login indicators use fixture files and ctx env only", async () => {
   let checks = await runDoctor(ctx, { status: async () => status() });
   expect(find(checks, "Login claude-code").fix).toBe("run claude and log in");
   expect(find(checks, "Login cursor").fix).toBe("cursor-agent login");
-  expect(find(checks, "Login opencode").fix).toBe("opencode auth login");
+  expect(find(checks, "Login opencode#byteplus").evidence).toBe("unverified");
   ctx.env.ANTHROPIC_API_KEY = "test-key";
   put(join(ctx.home, ".codex/auth.json"), "{}");
   checks = await runDoctor(ctx, { status: async () => status() });
@@ -181,4 +181,57 @@ test("doctor checks executor launch flags from cached five-second CLI help",asyn
   expect(checks.find(c=>c.name==="CLI codex")?.level).toBe("ok");
   expect(checks.find(c=>c.name==="CLI agy")?.detail).toContain("--dangerously-skip-permissions");await runDoctor(ctx,{status:async()=>status(),service:async()=>({installed:false,running:false,healthy:false,binaryMatches:false}) as any});
   expect(calls.filter(a=>a[0]==="codex")).toHaveLength(2);
+});
+
+for (const agent of ['claude-code', 'codex']) {
+  test(`doctor checks selected named ${agent} login independently of default and override homes`, async () => {
+    for (const namedLoggedIn of [false, true]) {
+      const ctx = fakeCtx({which:()=>null});
+      const kind = agent === 'claude-code' ? 'claude' : 'codex';
+      const folder = join(ctx.home, 'work');
+      put(join(ctx.pacerHome, 'strategy.yaml'), `planner: ${agent}#work\naccounts:\n  work: {kind: ${kind}, source: external, home: ${folder}}\nrunners:\n  ${agent}#work: {}\nrouting:\n  - default: [${agent}#work]\n`);
+      const loginFile = agent === 'claude-code' ? '.claude.json' : 'auth.json';
+      const content = agent === 'claude-code' ? '{"oauthAccount":{}}' : '{}';
+      if (namedLoggedIn) put(join(folder, loginFile), content);
+      else put(agent === 'claude-code' ? join(ctx.home, loginFile) : join(ctx.home, '.codex', loginFile), content);
+      const override = join(ctx.home, 'other');
+      put(join(override, loginFile), content);
+      ctx.env[agent === 'claude-code' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME'] = override;
+      ctx.env[agent === 'claude-code' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'] = 'other-account';
+      const checks = await runDoctor(ctx, {status:async()=>status()});
+      expect(find(checks, `Login ${agent}#work`).level).toBe(namedLoggedIn ? 'ok' : 'warn');
+      expect(checks.some(c=>c.name === `Login ${agent}`)).toBe(false);
+    }
+  });
+}
+
+test('non-Claude planners skip optional Claude diagnostics unless an integration is registered', async () => {
+  const ctx = fakeCtx({which:()=>null});
+  put(join(ctx.pacerHome, 'strategy.yaml'), 'planner: codex\nproviders:\n  codex: {usage: quota}\nrouting:\n  - default: [codex]\n');
+  let checks = await runDoctor(ctx, {status:async()=>status()});
+  expect(checks.some(c=>c.name.startsWith('Claude '))).toBe(false);
+  record(ctx, 'claude-code', []);
+  checks = await runDoctor(ctx, {status:async()=>status()});
+  expect(find(checks, 'Claude hook configuration')).toMatchObject({level:'info',evidence:'unverified'});
+  expect(checks.some(c=>c.name==='Claude config folder')).toBe(false);
+});
+
+test('default account login ignores a different service config home', async () => {
+  const ctx = fixture();
+  ctx.env.CLAUDE_CONFIG_DIR = join(ctx.home, 'other-claude');
+  ctx.env.CODEX_HOME = join(ctx.home, 'other-codex');
+  put(join(ctx.env.CLAUDE_CONFIG_DIR, '.claude.json'), '{"oauthAccount":{}}');
+  put(join(ctx.env.CODEX_HOME, 'auth.json'), '{}');
+  const checks = await runDoctor(ctx, {status:async()=>status()});
+  expect(find(checks, 'Login claude-code').level).toBe('warn');
+  expect(find(checks, 'Login codex').level).toBe('warn');
+});
+
+test('unresolved Orca login remains unverified despite default sign-in', async () => {
+  const ctx = fakeCtx({which:()=>null});
+  put(join(ctx.pacerHome, 'strategy.yaml'), 'planner: claude-code#work\naccounts:\n  work: {kind: claude, source: orca, orca_account: unavailable}\nrunners:\n  claude-code#work: {}\nrouting:\n  - default: [claude-code#work]\n');
+  put(join(ctx.home, '.claude.json'), '{"oauthAccount":{}}');
+  const checks = await runDoctor(ctx, {status:async()=>status()});
+  expect(find(checks, 'Login claude-code#work')).toMatchObject({level:'info',evidence:'unverified'});
+  expect(checks.some(c=>c.name==='Login claude-code')).toBe(false);
 });
