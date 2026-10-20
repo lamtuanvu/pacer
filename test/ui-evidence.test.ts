@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkUiPullRequest, checkUiEvidence } from "../scripts/ui-check-evidence";
+import { checkUiPullRequest, checkUiEvidence, versionOnlyUiChange } from "../scripts/ui-check-evidence";
 import { parse } from "yaml";
 
 const base = "a".repeat(40), head = "b".repeat(40);
@@ -63,6 +63,37 @@ describe("UI PR evidence manifest", () => {
         writeEvent(body(incomplete), draft, "ready_for_review");
         expect(checkUiPullRequest(event, root).length).toBeGreaterThan(0);
       }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("a release bump that changes only version strings needs no manifest; any other UI line still does", () => {
+    const root = mkdtempSync(join(tmpdir(), "pacer-ui-version-"));
+    const git = (...args: string[]) => {
+      const result = Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", `core.hooksPath=${root}/no-hooks`, ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+      if (result.exitCode) throw Error(result.stderr.toString());
+      return result.stdout.toString().trim();
+    };
+    const assets = "src/app/assets.generated.ts", tauri = "desktop/src-tauri/tauri.conf.json";
+    const write = (version: string, extra = "") => {
+      mkdirSync(join(root, "src/app"), { recursive: true }); mkdirSync(join(root, "desktop/src-tauri"), { recursive: true });
+      writeFileSync(join(root, assets), `// Generated.\nexport const APP_VERSION = "${version}";\nexport const APP_FILES = [];${extra}\n`);
+      writeFileSync(join(root, tauri), `{\n  "productName": "pacer",\n  "version": "${version}",\n  "identifier": "dev.pacer"\n}\n`);
+      writeFileSync(join(root, "package.json"), `{ "version": "${version}" }\n`);
+    };
+    try {
+      git("init", "--quiet"); write("0.4.0"); git("add", "--all"); git("commit", "-m", "test: base");
+      const base = git("rev-parse", "HEAD");
+      write("0.5.0"); git("add", "--all"); git("commit", "-m", "chore: release 0.5.0");
+      const bump = git("rev-parse", "HEAD"), files = [assets, tauri, "package.json"], event = join(root, "event.json");
+      expect(versionOnlyUiChange(files, base, bump, root)).toBe(true);
+      writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: base }, head: { sha: bump }, body: "" } }));
+      expect(checkUiPullRequest(event, root)).toEqual([]);
+      write("0.5.0", "\nexport const BANNER = \"new\";"); git("add", "--all"); git("commit", "-m", "feat: sneak a UI change in");
+      const mixed = git("rev-parse", "HEAD");
+      expect(versionOnlyUiChange(files, base, mixed, root)).toBe(false);
+      writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: base }, head: { sha: mixed }, body: "" } }));
+      expect(checkUiPullRequest(event, root).some(v => v.rule === "UI-24")).toBe(true);
+      expect(versionOnlyUiChange(["package.json"], base, bump, root)).toBe(false);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

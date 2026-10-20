@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- One-click releases: **Prepare release** picks the next version from commit titles, opens the release PR, dry-runs it and auto-merges it; **Release tag** then tags and publishes. Release PRs that change only version strings no longer need a UI evidence manifest.
 - Settings Diagnostics runs doctor checks with repair guidance, distinguishes configured integrations from fixture-tested handlers and unverified Claude invocation, and flags disabled or incomplete Claude hooks.
 
 ### Changed

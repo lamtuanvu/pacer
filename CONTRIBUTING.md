@@ -30,30 +30,36 @@ Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through
 
 ## Releasing
 
-Start from an up-to-date checkout of `main`. Prepare a stable version greater than the current version:
+Keep `CHANGELOG.md` Unreleased up to date in each PR. To release, open **Actions → Prepare release → Run workflow** on `main` and pick a bump:
 
-```sh
-bun run release:prepare <x.y.z>
-bun run typecheck
-bun run test
-```
+- `auto` (default) reads the commit titles since the last tag: a breaking change (`feat!:` or any `type!:`) bumps the minor version during 0.x and the major version from 1.0; `feat` bumps the minor version; `fix`, `perf` and `revert` bump the patch version. `docs`, `test`, `chore`, `ci` and similar titles alone don't release anything.
+- `patch`, `minor` or `major` forces that bump.
 
-The preparation script updates `package.json` and the desktop app versions, rebuilds the pacer app assets, and moves the Unreleased changelog content into a dated release section while leaving a fresh empty Unreleased section. Review and include the generated app files. Submit a PR with a DCO-signed commit titled `chore: release x.y.z`; merge it before tagging the resulting `main` commit. Validate the prepared version through a dry run before releasing:
+The workflow then does the rest:
 
-```sh
-gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
-```
+1. `scripts/release/next-version.ts` picks the version and refuses an empty Unreleased section.
+2. `bun run release:prepare <version>` updates `package.json`, the desktop app versions and the embedded app assets, and moves Unreleased into a dated section.
+3. It commits `chore: release <version>` (DCO-signed) on `release/v<version>` and opens the PR. CI runs the full suite; the PR needs no UI evidence manifest because its only UI-scoped changes are version strings, which CI checks.
+4. It runs the release dry run on that branch: every platform builds, npm publishes with `--dry-run` and the Homebrew formula is checked, with nothing published.
+5. When the dry run passes, it turns on auto-merge. If the dry run fails, it comments on the PR and stops; fix `main`, close the PR, delete the branch and run it again.
+6. When the PR merges, **Release tag** tags the merge commit `v<version>` and the tag runs `release.yml`, which publishes.
 
-The dry run builds all platforms, prints metadata and release notes, runs npm publication with `--dry-run`, and validates the generated Homebrew formula with `ruby -c`. It does not publish or push remotely. A dispatch with `dry_run=false` is rejected; tags are the only release trigger.
+Only one release runs at a time, and a version whose tag already exists is never re-tagged.
 
-After reviewing the dry run, tag the merged commit:
+### One-time setup: `RELEASE_TOKEN`
 
-```sh
-git commit -s -m "chore: release x.y.z"
-# After the PR is merged and your checkout is updated:
-git tag -s vX.Y.Z -m "pacer X.Y.Z" # or -a for an annotated tag
-git push origin vX.Y.Z
-```
+GitHub doesn't run workflows for pushes and PRs made with the built-in `GITHUB_TOKEN`, so the release PR and tag use a fine-grained personal access token:
+
+1. GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token.
+2. Resource owner: `lamtuanvu`; repository access: only `lamtuanvu/pacer`; pick an expiry.
+3. Repository permissions: **Contents**, **Pull requests** and **Workflows**: Read and write. Metadata stays Read.
+4. Save it as the repository secret `RELEASE_TOKEN` (Settings → Secrets and variables → Actions), or run `gh secret set RELEASE_TOKEN -R lamtuanvu/pacer` and paste it.
+
+Renew it before it expires; Prepare release and Release tag fail with a clear error without it.
+
+### Manual fallback
+
+Without the token, release by hand: `bun run release:prepare <x.y.z>`, a DCO-signed PR titled `chore: release x.y.z`, `gh workflow run release.yml -f version=<x.y.z> -f dry_run=true`, then after merging tag the merge commit with `git tag -a vX.Y.Z -m "pacer X.Y.Z"` and `git push origin vX.Y.Z`. If you merge a `chore: release` PR by hand while the token is set, Release tag still tags it. A dispatch of `release.yml` with `dry_run=false` is rejected; tags are the only release trigger.
 
 The tag must match `v` plus the package version. The release workflow verifies the tag, typechecks and tests, then builds macOS and Linux binaries for arm64 and x64 on their respective runners. Each runner smoke-tests its native binary. The publish job writes SHA256SUMS, manifest.json and latest.json, attests all four binaries, extracts the version's changelog notes, and uploads the seven flat assets to GitHub Releases. Workflow artifacts expire after one day. Stable releases become latest; versions containing `-` are marked prerelease and do not become latest.
 

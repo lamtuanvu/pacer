@@ -1,0 +1,49 @@
+name: Release tag
+
+# When a release PR from release-prepare.yml lands, tag its merge commit. The
+# tag is pushed with RELEASE_TOKEN so it starts release.yml, which publishes.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: "startsWith(github.event.head_commit.message, 'chore: release ')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      SUBJECT: ${{ github.event.head_commit.message }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Tag the release commit
+        run: |
+          set -eu
+          test -n "$GH_TOKEN" || { echo "::error::Add a RELEASE_TOKEN secret (see CONTRIBUTING.md, Releasing)"; exit 1; }
+          version=$(jq -r .version package.json)
+          subject=$(printf '%s\n' "$SUBJECT" | head -n 1)
+          # Squash merges append "(#123)"; anything else is not a release PR.
+          printf '%s\n' "$subject" | grep -Eq "^chore: release ${version//./\\.}( \(#[0-9]+\))?$" \
+            || { echo "Head commit '$subject' does not release package.json $version; nothing to tag"; exit 0; }
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::$tag already exists; tags are never moved"; exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$tag" "$GITHUB_SHA" -m "pacer $version"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraheader=$auth" push origin "refs/tags/$tag"
+          echo "Tagged $tag at $GITHUB_SHA; release.yml publishes it." >> "$GITHUB_STEP_SUMMARY"
