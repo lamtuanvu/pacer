@@ -63,3 +63,23 @@ test("hex to xterm-256 picks the nearest cube or grey entry", () => {
   expect(hexTo256("#ff0000")).toBe(196);
   expect(hexTo256("#808080")).toBe(244);
 });
+
+test("text on the selected row keeps at least 4.5:1 contrast in both appearances (UI-2)", () => {
+  const lum = ([r, g, b]: number[]) => {
+    const c = [r!, g!, b!].map(v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+  };
+  const ratio = (a: number[], b: number[]) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x! + 0.05) / (y! + 0.05); };
+  const failures: string[] = [];
+  for (const appearance of ["light", "dark"] as const) {
+    const theme = detectTheme({ COLORTERM: "truecolor", PACER_THEME: appearance }, true);
+    for (const role of ["ink", "secondary", "muted", "good", "warn", "bad", "info", "focus"] as Role[]) {
+      const open = sgr(theme, { fg: role, selected: true }).open;
+      const fg = open.match(/38;2;(\d+);(\d+);(\d+)/)?.slice(1).map(Number), bg = open.match(/48;2;(\d+);(\d+);(\d+)/)?.slice(1).map(Number);
+      if (!fg || !bg) continue;
+      const r = ratio(fg, bg);
+      if (r < 4.5) failures.push(`${appearance} ${role} ${r.toFixed(2)}:1`);
+    }
+  }
+  expect(failures).toEqual([]);
+});

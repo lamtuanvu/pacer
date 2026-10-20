@@ -79,7 +79,9 @@ export function sgr(theme: TerminalTheme, style: Style): { open: string; close: 
     if (style.selected) open += "\x1b[7m";
   } else {
     const agent = style.agent ? agentToken(style.agent) : undefined;
-    const fg = agent ? tokenHex(agent, theme.appearance) : style.fg ? tokenHex(ROLE_TOKENS[style.fg], theme.appearance) : undefined;
+    // Muted ink on the selection surface falls below 4.5:1 in light mode, so selected rows use secondary (UI-2).
+    const role = style.selected && style.fg === "muted" ? "secondary" : style.fg;
+    const fg = agent ? tokenHex(agent, theme.appearance) : role ? tokenHex(ROLE_TOKENS[role], theme.appearance) : undefined;
     if (fg) open += colorCode(theme, fg, "fg");
     if (style.selected) open += colorCode(theme, tokenHex(SELECTION_TOKEN, theme.appearance)!, "bg");
   }
