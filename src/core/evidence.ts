@@ -1,0 +1,53 @@
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import type { AccountCfg } from "../config/accounts";
+import type { AccountEvidence, EvidenceScope, ReconciledEvidence } from "../evidence/types";
+import { emptyEvidence, reconcileEvidence } from "../engine/evidence";
+import { readJson } from "../fsutil";
+import type { Ctx } from "../types";
+import { withLock } from "./lock";
+
+export interface EvidenceSnapshot { version: 1; revision: number; identity: string; evidence: ReconciledEvidence }
+export function accountEvidenceScope(account: AccountCfg): EvidenceScope {
+  const identity = createHash("sha256").update(JSON.stringify([account.name, account.kind, account.source,
+    account.home, account.orcaAccount, account.usageSource, account.quotaSource,
+    account.connection?.base_url, account.connection?.key])).digest("hex");
+  return { account: account.name, identity };
+}
+function evidencePath(ctx: Ctx, scope: EvidenceScope): string {
+  if (!/^[a-f0-9]{64}$/.test(scope.identity)) throw Error("invalid evidence identity");
+  return join(ctx.pacerHome, "state/evidence", `${scope.identity}.json`);
+}
+export function readEvidence(ctx: Ctx, scope: EvidenceScope): EvidenceSnapshot {
+  const empty: EvidenceSnapshot = { version: 1, revision: 0, identity: scope.identity, evidence: { facts: emptyEvidence(), conflicts: [] } };
+  const saved = readJson<EvidenceSnapshot>(evidencePath(ctx, scope));
+  if (!saved || saved.version !== 1 || saved.identity !== scope.identity || !Number.isSafeInteger(saved.revision)
+    || saved.revision < 0 || !saved.evidence || !Array.isArray(saved.evidence.conflicts)) return empty;
+  const facts = saved.evidence.facts;
+  if (!facts || ![facts.availability, facts.budget, facts.spending].every(values => Array.isArray(values)
+    && values.every(f => f && typeof f.id === "string" && f.scope?.identity === scope.identity
+      && f.scope?.account === scope.account && typeof f.source === "string" && typeof f.reason === "string"
+      && (f.observedAt === null || Number.isFinite(f.observedAt)) && (f.validUntil === null || Number.isFinite(f.validUntil))))) return empty;
+  return saved;
+}
+export const evidenceRevision = (ctx: Ctx, scope: EvidenceScope): number => readEvidence(ctx, scope).revision;
+export async function mergeEvidence(ctx: Ctx, scope: EvidenceScope, incoming: AccountEvidence): Promise<EvidenceSnapshot> {
+  const merge = async () => {
+    const previous = readEvidence(ctx, scope);
+    const evidence = reconcileEvidence(previous.evidence.facts, incoming, ctx.now);
+    if (JSON.stringify(evidence) === JSON.stringify(previous.evidence)) return previous;
+    const next: EvidenceSnapshot = { version: 1, revision: previous.revision + 1, identity: scope.identity, evidence };
+    if (!ctx.readOnly) {
+      const dir = join(ctx.pacerHome, "state/evidence");
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const path = evidencePath(ctx, scope), temp = `${path}.${randomUUID()}.tmp`;
+      try {
+        writeFileSync(temp, JSON.stringify(next), { flag: "wx", mode: 0o600 });
+        renameSync(temp, path);
+      } finally { try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } }
+    }
+    return next;
+  };
+  return ctx.readOnly ? merge() : withLock(ctx, `evidence-${scope.identity}`, merge);
+}
