@@ -8,7 +8,7 @@ import { executorLabel, taskStatus, type Status } from "../../view-model/words";
 import type { ClientTask } from "../../view-model/snapshot";
 import { box, cols, flex, glyph, heading, span, statusSpans, wrap, type Line, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
-import { blank, defined, empty, GAP, MARK, time, wrapAfter, wrapLines } from "./common";
+import { blank, defined, empty, GAP, MARK, time, wrapLines } from "./common";
 import type { Resource, Row, ScreenCtx, ScreenView, TaskDetail } from "./types";
 
 export const KINDS = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
@@ -101,7 +101,12 @@ function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskD
   const ran = d?.startedAt && d.endedAt ? `ran ${elapsed(d.endedAt - d.startedAt)}` : task?.attemptStartedAt ? `ran ${elapsed(task.updatedAt - task.attemptStartedAt)}` : "";
   const branch = d?.branch ? `${d.branch}${d.base ? ` ${glyph(theme, "→")} ${d.base}` : ""}` : "";
   const dot = ` ${glyph(theme, "·")} `;
-  rows.push(...wrapAfter([...statusSpans(theme, status), span(dot, { fg: "secondary" })], [executorLabel(executor), ran, branch].filter(Boolean).join(dot), width, { fg: "secondary" }));
+  /** A status, then its facts after a separator, wrapped; no separator when there are no facts. */
+  const facts = (status: Line, parts: (string | null | undefined)[], room: number): Line[] => {
+    const text = parts.filter(Boolean).join(dot);
+    return text ? wrapLines([...status, span(dot, { fg: "secondary" })], text, room, { fg: "secondary" }) : [status];
+  };
+  rows.push(...facts(statusSpans(theme, status), [executorLabel(executor), ran, branch], width).map(line => ({ line })));
   const finished = d?.endedAt ?? task?.updatedAt;
   rows.push({ line: [span([a.repo?.label ?? task?.repo?.label, finished ? `finished ${time(ctx, finished)}` : ""].filter(Boolean).join(` ${glyph(theme, "·")} `), { fg: "muted" })] });
   if (resource?.loading && !d) return [...rows, blank(), loadingRow(ctx, "Loading task…")];
@@ -116,7 +121,7 @@ function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskD
   rows.push(blank());
   const acc = d.acceptance ?? (task as { acceptance?: TaskDetail["acceptance"] } | undefined)?.acceptance;
   const doneWhen: Line[] = acc?.cmd
-    ? [[span(acc.cmd)], ...wrapLines([...statusSpans(theme, ACCEPTANCE[acc.state ?? ""] ?? { label: "No done-when command", tone: "neutral", glyph: "?" }), span(dot, { fg: "secondary" })], [acc.summary, acc.durationS != null ? `checks ran ${acc.durationS} s` : "", acc.machine ? `run by pacer on ${acc.machine}` : ""].filter(Boolean).join(dot), width - 4, { fg: "secondary" })]
+    ? [[span(acc.cmd)], ...facts(statusSpans(theme, ACCEPTANCE[acc.state ?? ""] ?? { label: "No done-when command", tone: "neutral", glyph: "?" }), [acc.summary, acc.durationS != null ? `checks ran ${acc.durationS} s` : "", acc.machine ? `run by pacer on ${acc.machine}` : ""], width - 4)]
     : [[span("No done-when command", { fg: "muted" })]];
   rows.push(...box(theme, "Done when", doneWhen, width).map(line => ({ line })));
 

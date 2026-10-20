@@ -341,3 +341,11 @@ test("the Review detail wraps its status line and box prose at 120x40 and 80x24"
   const narrow = frame("review", 80, 24, { state: { focus: "detail" } }).split("\n").slice(3, -3);
   expect(narrow.filter(line => line.includes("…"))).toEqual([]);
 });
+
+test("Done when shows no dangling separator when the check has no extra facts", () => {
+  const d = { ...data(), details: new Map([["t-0412", { value: { ...detail, acceptance: { cmd: "bun test", state: "passed" } } as TaskDetail }]]) };
+  const s = snapshot();
+  const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state: { screen: "review" } });
+  const line = text.split("\n").find(l => l.includes("Tests passed"))!;
+  expect(line).not.toMatch(/Tests passed ·/);
+});
