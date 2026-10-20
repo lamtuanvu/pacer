@@ -13,7 +13,7 @@ use super::{
 };
 pub(crate) use adoption_native::NativeAdoptionPlatform;
 #[cfg(feature = "ota-fixture")]
-pub(crate) use fixture::fixture_jobs;
+pub(crate) use fixture::{fixture_attach, fixture_jobs};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -521,6 +521,60 @@ fn registration_transition(
     row["processes"] = serde_json::to_value(previous).map_err(|_| OtaError::Invalid)?;
     Ok(())
 }
+/// Fixture-only service adoption switches one label between at most two exact
+/// registration generations. The caller must prove the manager job is absent;
+/// every recorded incarnation must be in `exited`. The superseded generation is
+/// kept in append-only history, never discarded.
+fn registration_generation_switch(
+    record: &mut serde_json::Value,
+    label: &str,
+    path: &Path,
+    hash: &str,
+    exited: &[ProcessIdentity],
+) -> Result<(), OtaError> {
+    ensure(
+        hash.len() == 64
+            && hash
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+    )?;
+    let rows = record["registrations"]
+        .as_array_mut()
+        .ok_or(OtaError::Invalid)?;
+    ensure(rows.iter().filter(|row| row["label"] == label).count() == 1)?;
+    let row = rows
+        .iter_mut()
+        .find(|row| row["label"] == label)
+        .ok_or(OtaError::Identity)?;
+    ensure(row["path"].as_str() == path.to_str())?;
+    let state = row["state"].as_str().ok_or(OtaError::Invalid)?.to_owned();
+    let current = row["sha256"].as_str().ok_or(OtaError::Identity)?.to_owned();
+    ensure(matches!(state.as_str(), "intent" | "loaded" | "retired") && current != hash)?;
+    let processes: Vec<ProcessIdentity> =
+        serde_json::from_value(row["processes"].clone()).map_err(|_| OtaError::Invalid)?;
+    ensure(processes.len() <= 128 && processes.iter().all(|p| exited.contains(p)))?;
+    let mut generations: Vec<String> = match row.get("generations") {
+        None => vec![current.clone()],
+        Some(value) => serde_json::from_value(value.clone()).map_err(|_| OtaError::Invalid)?,
+    };
+    ensure(generations.len() <= 2 && generations.contains(&current))?;
+    if !generations.iter().any(|g| g == hash) {
+        ensure(generations.len() < 2)?;
+        generations.push(hash.to_owned());
+    }
+    let mut history: Vec<serde_json::Value> = match row.get("history") {
+        None => Vec::new(),
+        Some(value) => serde_json::from_value(value.clone()).map_err(|_| OtaError::Invalid)?,
+    };
+    ensure(history.len() < 16)?;
+    history.push(serde_json::json!({"sha256": current, "state": state, "processes": processes}));
+    row["generations"] = serde_json::to_value(generations).map_err(|_| OtaError::Invalid)?;
+    row["history"] = serde_json::Value::Array(history);
+    row["state"] = "retired".into();
+    row["sha256"] = hash.into();
+    row["processes"] = serde_json::json!([]);
+    Ok(())
+}
 impl OwnedJob {
     pub(crate) fn stage_fixture_registration(
         &self,
@@ -557,6 +611,43 @@ impl OwnedJob {
         let mut record: serde_json::Value =
             serde_json::from_slice(&before).map_err(|_| OtaError::Invalid)?;
         ensure(record["phase"] == "prepared" && record["nonce"] == policy.nonce)?;
+        if self.definition.label == policy.service_label {
+            let program = Path::new(&self.definition.arguments[0]);
+            ensure(
+                self.definition.arguments.len() == 2
+                    && self.definition.arguments[1] == "serve"
+                    && (program == policy.current_app.join("Contents/Resources/pacer")
+                        || program == policy.external_cli()),
+            )?;
+            let row = record["registrations"]
+                .as_array()
+                .ok_or(OtaError::Invalid)?
+                .iter()
+                .find(|row| row["label"] == self.definition.label)
+                .ok_or(OtaError::Identity)?;
+            if next == "intent"
+                && row["state"] != "reserved"
+                && row["sha256"].as_str() != Some(digest(bytes).as_str())
+            {
+                // Adoption replaces the service registration in place. Only a
+                // stopped job whose recorded incarnations all exited may switch.
+                ensure(copy_user_job(&self.definition.label)?.is_none())?;
+                let prior: Vec<ProcessIdentity> = serde_json::from_value(row["processes"].clone())
+                    .map_err(|_| OtaError::Invalid)?;
+                let mut gone = Vec::new();
+                for process in prior {
+                    ensure(original_process_gone(&process)?)?;
+                    gone.push(process);
+                }
+                registration_generation_switch(
+                    &mut record,
+                    &self.definition.label,
+                    &self.plist_path,
+                    &digest(bytes),
+                    &gone,
+                )?;
+            }
+        }
         let mut processes = Vec::new();
         let mut exited = Vec::new();
         if next == "loaded" {
@@ -1058,6 +1149,43 @@ mod tests {
                 .len(),
             1
         );
+    }
+    #[test]
+    fn fixture_service_switches_only_between_two_cataloged_generations_after_exit() {
+        let path = Path::new("/tmp/fixture.plist");
+        let (a, b, c) = ("a".repeat(64), "b".repeat(64), "c".repeat(64));
+        let process = ProcessIdentity {
+            pid: 123,
+            boot_id: "boot".into(),
+            birth: "1:2".into(),
+        };
+        let mut record = serde_json::json!({"registrations":[{"label":"fixture.service","path":"/tmp/fixture.plist","state":"loaded","sha256":a,"processes":[process]}]});
+        let before = record.clone();
+        // A live recorded incarnation blocks the switch.
+        assert!(registration_generation_switch(&mut record, "fixture.service", path, &b, &[]).is_err());
+        assert_eq!(record, before);
+        // A reserved row or unchanged hash is not a generation switch.
+        let mut reserved = serde_json::json!({"registrations":[{"label":"fixture.service","path":"/tmp/fixture.plist","state":"reserved","sha256":null,"processes":[]}]});
+        assert!(registration_generation_switch(&mut reserved, "fixture.service", path, &b, &[]).is_err());
+        assert!(registration_generation_switch(&mut record, "fixture.service", path, &a, std::slice::from_ref(&process)).is_err());
+        registration_generation_switch(&mut record, "fixture.service", path, &b, std::slice::from_ref(&process)).unwrap();
+        let row = &record["registrations"][0];
+        assert_eq!(row["state"], "retired");
+        assert_eq!(row["sha256"], b.as_str());
+        assert_eq!(row["processes"], serde_json::json!([]));
+        assert_eq!(row["generations"], serde_json::json!([a, b]));
+        assert_eq!(row["history"][0]["sha256"], a.as_str());
+        assert_eq!(row["history"][0]["processes"][0]["pid"], 123);
+        // The ordinary transition continues with the new generation.
+        registration_transition(&mut record, "fixture.service", path, &b, "intent", &[], &[]).unwrap();
+        // A third registration is never cataloged; returning to the first is.
+        let snapshot = record.clone();
+        assert!(registration_generation_switch(&mut record, "fixture.service", path, &c, &[]).is_err());
+        assert_eq!(record, snapshot);
+        registration_generation_switch(&mut record, "fixture.service", path, &a, &[]).unwrap();
+        assert_eq!(record["registrations"][0]["generations"], serde_json::json!([a, b]));
+        assert_eq!(record["registrations"][0]["history"].as_array().unwrap().len(), 2);
+        assert_eq!(record["registrations"][0]["history"][1]["state"], "intent");
     }
     #[test]
     fn unsupported_registration_is_refused() {
@@ -2281,7 +2409,7 @@ impl super::UpdatePlatform for NativePlatform {
     }
     fn wait_for_observation<'a>(&'a self) -> super::PlatformFuture<'a, ()> {
         Box::pin(async {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tokio::time::sleep(super::OBSERVATION_INTERVAL).await;
             Ok(())
         })
     }

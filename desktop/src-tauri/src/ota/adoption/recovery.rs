@@ -301,7 +301,14 @@ async fn readiness(
         if elapsed >= VERIFY_TIMEOUT_MS {
             return Err(OtaError::Timeout);
         }
-        match p.poll_readiness(m, branch, launch).await? {
+        // A freshly launched service may not accept the authenticated query
+        // yet. Absence of a response proves nothing: retry within the original
+        // awake deadline, never renew it.
+        let observation = match p.poll_readiness(m, branch, launch).await {
+            Err(OtaError::Io | OtaError::Unavailable) => AdoptionReadiness::Pending,
+            other => other?,
+        };
+        match observation {
             AdoptionReadiness::Ready(proof) => {
                 let after = p.awake_now()?;
                 require(
@@ -366,6 +373,9 @@ async fn restore(
 ) -> Result<RecoveryOutcome, OtaError> {
     require(j.authorization.is_some() && j.state != AdoptionState::Committed)?;
     j.state = AdoptionState::Restoring;
+    if j.restoration_cause.is_none() {
+        j.restoration_cause = Some(error.clone());
+    }
     j.error = Some(error);
     store.save(j)?;
     match restore_inner(store, j, m, p, a).await {
@@ -586,6 +596,8 @@ mod tests {
         fail_managed: bool,
         fail_original: bool,
         ready_at: u64,
+        unreachable_until: u64,
+        fail_restoring_stop: bool,
         interrupt_after: Option<AdoptionAction>,
         effects: Vec<(AdoptionAction, AdoptionEvidence)>,
     }
@@ -609,6 +621,8 @@ mod tests {
                     fail_managed: false,
                     fail_original: false,
                     ready_at: 0,
+                    unreachable_until: 0,
+                    fail_restoring_stop: false,
                     interrupt_after: None,
                     effects: vec![],
                 }),
@@ -734,6 +748,9 @@ mod tests {
                     AdoptionAction::ArmRecovery => w.armed = true,
                     AdoptionAction::StopService { process } => {
                         assert_eq!(w.service.as_ref(), Some(process));
+                        if w.fail_restoring_stop && journal.state == AdoptionState::Restoring {
+                            return Err(OtaError::Io);
+                        }
                         w.service = None;
                     }
                     AdoptionAction::SwitchRegistration { branch } => {
@@ -805,6 +822,13 @@ mod tests {
                     || (b == AdoptionBranch::Original && w.fail_original)
                 {
                     return Ok(AdoptionReadiness::Failed);
+                }
+                if w.clock < w.unreachable_until {
+                    return Err(if w.clock % 2 == 0 {
+                        OtaError::Io
+                    } else {
+                        OtaError::Unavailable
+                    });
                 }
                 if w.clock < w.ready_at {
                     return Ok(AdoptionReadiness::Pending);
@@ -944,6 +968,16 @@ mod tests {
                 ..
             }
         )));
+    }
+    #[tokio::test]
+    async fn startup_connection_failures_stay_pending_within_the_deadline() {
+        let (_t, store, p) = authorized().await;
+        p.world.borrow_mut().unreachable_until = 5;
+        assert_eq!(
+            execute_adoption(&store, &p).await.unwrap(),
+            RecoveryOutcome::Committed
+        );
+        assert!(p.world.borrow().clock >= 5);
     }
     #[tokio::test]
     async fn readiness_accepts_119999_but_refuses_exact_120000_awake_ms() {
@@ -1107,6 +1141,19 @@ mod tests {
                     .unwrap()
         );
         assert!(!p.world.borrow().reserved);
+    }
+    #[tokio::test]
+    async fn failed_restoration_keeps_the_error_that_started_it() {
+        let (_t, s, p) = authorized().await;
+        p.world.borrow_mut().fail_managed = true;
+        p.world.borrow_mut().fail_restoring_stop = true;
+        assert_eq!(
+            execute_adoption(&s, &p).await.unwrap(),
+            RecoveryOutcome::RecoveryFailed
+        );
+        let j = s.load().unwrap();
+        assert_eq!(j.error, Some(OtaError::Io));
+        assert_eq!(j.restoration_cause, Some(OtaError::RecoveryFailed));
     }
     #[tokio::test]
     async fn failed_managed_readiness_restores_original_registration_and_fresh_service() {

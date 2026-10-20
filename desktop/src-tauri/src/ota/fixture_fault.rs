@@ -16,6 +16,7 @@ pub enum Point {
     Installed,
     Restore,
     CandidateStartup,
+    AdoptionStartup,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -25,6 +26,9 @@ enum Scenario {
     HelperCrash,
     InterruptedInstall,
     RestoreFailure,
+    Adopt,
+    AdoptFailure,
+    Attached,
 }
 impl Scenario {
     fn points(self) -> &'static [Point] {
@@ -34,6 +38,8 @@ impl Scenario {
             Self::HelperCrash => &[Point::Authorized],
             Self::InterruptedInstall => &[Point::Installed],
             Self::RestoreFailure => &[Point::CandidateStartup, Point::Restore],
+            Self::Adopt | Self::Attached => &[],
+            Self::AdoptFailure => &[Point::AdoptionStartup],
         }
     }
 }
@@ -329,6 +335,24 @@ mod tests {
         let f = Fixture::new("upgrade", &[]);
         assert_eq!(f.consume(Point::Authorized, "0.2.3", true), Ok(false));
         assert_eq!(f.read()["exercise"]["transactionId"], "transaction-1");
+    }
+    #[test]
+    fn adoption_failure_fires_once_and_adopt_only_binds_its_transaction() {
+        let f = Fixture::new("adopt-failure", &["adoption-startup"]);
+        assert_eq!(f.consume(Point::AdoptionStartup, "0.2.3", true), Ok(true));
+        let after = f.read();
+        assert_eq!(after["exercise"]["transactionId"], "transaction-1");
+        assert_eq!(f.consume(Point::AdoptionStartup, "0.2.3", true), Ok(false));
+        assert_eq!(f.read(), after);
+        let f = Fixture::new("adopt", &[]);
+        assert_eq!(f.consume(Point::AdoptionStartup, "0.2.3", true), Ok(false));
+        assert_eq!(f.read()["exercise"]["transactionId"], "transaction-1");
+        let f = Fixture::new("attached", &[]);
+        assert_eq!(f.consume(Point::Authorized, "0.2.3", true), Ok(false));
+        let f = Fixture::new("adopt", &["adoption-startup"]);
+        let before = f.read();
+        assert!(f.consume(Point::AdoptionStartup, "0.2.3", true).is_err());
+        assert_eq!(f.read(), before);
     }
     #[test]
     fn candidate_failure_cannot_fire_in_rollback_shell() {

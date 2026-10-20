@@ -11,7 +11,7 @@ test("startup retry requires no exercise, no request, and every former participa
   expect(resumableStartup({ ...runtime, desktop: null }, null, () => true)).toBe(false);
   expect(resumableStartup({ ...runtime, request: { op: "desktop.update.check", requestId: "pending", paramsSha256: "a".repeat(64) } }, null, () => true)).toBe(false);
 });
-for (const [scenario, points] of Object.entries({ upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"], "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"] })) {
+for (const [scenario, points] of Object.entries({ upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"], "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"], adopt: [], "adopt-failure": ["adoption-startup"], attached: [] })) {
   test(`fixed ${scenario} fault points`, () => {
     const record = newExercise(scenario, driver, id);
     expect(record.faults.map(f => String(f.point))).toEqual(points);
@@ -21,7 +21,9 @@ for (const [scenario, points] of Object.entries({ upgrade: [], "startup-failure"
   });
 }
 test("unknown scenarios, malformed markers and foreign receipt transactions refuse", () => {
-  expect(() => newExercise("adopt", driver, id)).toThrow();
+  expect(() => newExercise("wrong-service", driver, id)).toThrow();
+  const adopt = newExercise("adopt", driver, id); (adopt.faults as any[]).push({ point: "adoption-startup", consumed: null });
+  expect(() => exerciseSchema.parse(adopt)).toThrow();
   for (const mutate of [
     (v: any) => delete v.transactionId,
     (v: any) => delete v.faults[0].consumed,

@@ -6,7 +6,7 @@ import { sameProcess, type ProcessIdentity } from "../../src/update/desktop/proc
 import { FIXTURE_UPDATE_OPS, type OtaExercise, type OtaRuntime } from "./ota-exercise-record";
 const base = z.object({ installationId: z.string().regex(/^[a-f0-9]{64}$/), requestId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/), expectRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
 /** A confirmed CAS rejection did not mutate state. Lost/uncertain responses never retry. */
-export async function retryFixtureRevision(attempt: () => Promise<void>, rejected: () => void, restartSession?: () => Promise<void>): Promise<void> {
+export async function retryFixtureRevision(attempt: () => Promise<void>, rejected: () => void, restartSession?: () => Promise<void>, awaitAdoptionOffer?: () => Promise<void>): Promise<void> {
   for (let count = 0; ; count++) {
     try { await attempt(); return; } catch (error) {
       if (!(error instanceof ApiError)) throw error;
@@ -14,10 +14,14 @@ export async function retryFixtureRevision(attempt: () => Promise<void>, rejecte
       // restart's native session check precedes request persistence. This
       // opt-in never applies to downloads, uncertain replies, or other refusals.
       const reconnect = restartSession && error.code === "not_allowed" && error.message === "Verified desktop update connection is unavailable";
-      if (!revision && !reconnect) throw error;
+      // An automatic check can start between the offer and the adopt request;
+      // the service refuses before persisting and asks for a fresh request.
+      const adoption = awaitAdoptionOffer && error.code === "conflict" && error.message === "Desktop service adoption changed";
+      if (!revision && !reconnect && !adoption) throw error;
       rejected();
       if (count === 4) throw error;
       if (reconnect) await restartSession!();
+      if (adoption) await awaitAdoptionOffer!();
     }
   }
 }

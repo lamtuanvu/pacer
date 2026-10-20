@@ -17,6 +17,19 @@ test("installation binding requires exact service executable, loaded incarnation
   for (const patch of [{ executable: "/foreign" }, { loaded: false }, { process: null }, { registrationSha256: "a".repeat(64) }, { label: "foreign" }]) expect(() => fixtureInstallation(state, { schema: 1, desktops: [], jobs: [{ ...job, ...patch }] }, "0.2.3")).toThrow();
 });
 
+test("fixture ownership follows the exact registered program", () => {
+  const registrationText = "external receipt", process = { pid: 43, bootId: "boot", birth: "birth" };
+  const job = { label: state.serviceLabel, state: "loaded" as const, loaded: true, process, executable: state.root + "/external/pacer", registrationText, registrationSha256: createHash("sha256").update(registrationText).digest("hex") };
+  const attached = fixtureInstallation(state, { schema: 1, desktops: [], jobs: [job] }, "0.2.3");
+  expect(attached.ownership).toBe("attached");
+  expect(attached.id).toBe(installationFingerprint(attached, job.executable, registrationText));
+  expect(() => fixtureInstallation(state, { schema: 1, desktops: [], jobs: [job] }, "0.2.3", "managed")).toThrow();
+  const managed = fixtureInstallation(state, { schema: 1, desktops: [], jobs: [{ ...job, executable: state.currentApp + "/Contents/Resources/pacer" }] }, "0.2.3", "managed");
+  expect(managed.ownership).toBe("managed");
+  expect(managed.id).not.toBe(attached.id);
+  expect(() => fixtureInstallation(state, { schema: 1, desktops: [], jobs: [{ ...job, executable: state.root + "/other/pacer" }] }, "0.2.3")).toThrow();
+});
+
 test("desktop fixture must prove compiled isolation before launch", () => {
   const identity = { schema: 1, role: "desktop", bundleId: "dev.pacer.desktop", version: "0.2.3", arch: "aarch64", fixture: true, otaMode: "fixture", fixturePolicySha256: createHash("sha256").update(JSON.stringify(otaFixturePolicy(state))).digest("hex"), updaterKeySha256: "b".repeat(64) };
   expect(() => validateFixtureIdentity(state, identity, "desktop", "0.2.3")).toThrow();

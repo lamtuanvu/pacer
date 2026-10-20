@@ -25,6 +25,15 @@ test("fixture retries only confirmed revision rejections and retains uncertain r
   await expect(retryFixtureRevision(async () => { attempts++; throw conflict; }, () => { cleared++; })).rejects.toBe(conflict);
   expect([attempts, cleared]).toEqual([5, 5]);
 });
+test("fixture retries a confirmed adoption conflict after waiting for a fresh offer", async () => {
+  const conflict = new ApiError("conflict", "Desktop service adoption changed");
+  let attempts = 0, cleared = 0, waits = 0;
+  await retryFixtureRevision(async () => { if (++attempts === 1) throw conflict; }, () => { cleared++; }, undefined, async () => { waits++; });
+  expect([attempts, cleared, waits]).toEqual([2, 1, 1]);
+  attempts = 0;
+  await expect(retryFixtureRevision(async () => { attempts++; throw conflict; }, () => {})).rejects.toBe(conflict);
+  expect(attempts).toBe(1);
+});
 function fixture() {
   const params = { installationId, requestId: "request-one", expectRevision: 3 };
   const request = fixtureRequest("desktop.update.check", params);
@@ -45,8 +54,9 @@ test("only exact recorded fixed request and live driver is admitted", () => {
 });
 test("request schemas exclude native authority and arbitrary operation parameters", () => {
   const p = fixture().params;
-  for (const [op, params] of [["service.install", p], ["desktop.update.adopt", p], ["desktop.update.restart", p], ["desktop.update.restart", { ...p, version: "0.2.4", clientId: "foreign" }], ["desktop.update.configure", { ...p, autoDownload: "yes" }]]) expect(() => fixtureRequest(op as string, params)).toThrow();
+  for (const [op, params] of [["service.install", p], ["desktop.update.adoptCancel", p], ["desktop.update.adopt", { ...p, target: "/tmp/pacer" }], ["desktop.update.restart", p], ["desktop.update.restart", { ...p, version: "0.2.4", clientId: "foreign" }], ["desktop.update.configure", { ...p, autoDownload: "yes" }]]) expect(() => fixtureRequest(op as string, params)).toThrow();
   expect(fixtureRequest("desktop.update.restart", { ...p, version: "0.2.4" }).requestId).toBe(p.requestId);
+  expect(fixtureRequest("desktop.update.adopt", p).op).toBe("desktop.update.adopt");
 });
 
 test("proxy fixture gate refuses missing leases and unsupported writes before native inspection", async () => {

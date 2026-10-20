@@ -316,6 +316,12 @@ pub struct PreparedReceipt {
 // has its own transport binding and never changes the stored authorization.
 pub type Authorization = InstallAuthorization;
 
+/// Each observation of the service is a fresh authenticated connection, and the
+/// service verifies its own signature and every pacer process synchronously for
+/// it. Polling faster starves the service's event loop, so its health probe fails
+/// and clients drop. Deadlines are measured separately and are unaffected.
+pub(crate) const OBSERVATION_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
 pub(crate) fn required_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<Option<T>, D::Error> {

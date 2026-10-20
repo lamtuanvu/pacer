@@ -166,6 +166,10 @@ impl FixturePolicy {
         }
         Ok(())
     }
+    /// The only external service executable a fixture lease may register.
+    pub fn external_cli(&self) -> PathBuf {
+        self.root.join("external/pacer")
+    }
     pub fn permits_path(&self, path: &Path) -> bool {
         if self.validate_live().is_err() {
             return false;

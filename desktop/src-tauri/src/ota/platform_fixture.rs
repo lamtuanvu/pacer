@@ -211,16 +211,12 @@ pub(crate) async fn fixture_jobs(
         let definition = JobDefinition::from_plist(&bytes)?;
         ensure(definition.label == *label)?;
         if label == &policy.service_label {
+            let program = Path::new(definition.arguments.first().ok_or(OtaError::Invalid)?);
             ensure(
-                definition.arguments
-                    == vec![
-                        policy
-                            .current_app
-                            .join("Contents/Resources/pacer")
-                            .to_string_lossy()
-                            .into_owned(),
-                        "serve".into(),
-                    ],
+                definition.arguments.len() == 2
+                    && definition.arguments[1] == "serve"
+                    && (program == policy.current_app.join("Contents/Resources/pacer")
+                        || program == policy.external_cli()),
             )?;
             ensure(
                 definition.environment.get("PACER_HOME").map(String::as_str)
@@ -228,29 +224,7 @@ pub(crate) async fn fixture_jobs(
                     && definition.environment.get("PACER_PORT") == Some(&policy.port.to_string()),
             )?;
         } else {
-            ensure(definition.arguments.len() == 4 && definition.arguments[1] == "--ota-recover")?;
-            let id = &definition.arguments[2];
-            let tx = &definition.arguments[3];
-            ensure(
-                id.len() == 64
-                    && id
-                        .bytes()
-                        .all(|v| v.is_ascii_hexdigit() && !v.is_ascii_uppercase())
-                    && !tx.is_empty()
-                    && tx.len() <= 128
-                    && tx
-                        .bytes()
-                        .all(|v| v.is_ascii_alphanumeric() || matches!(v, b'-' | b'_')),
-            )?;
-            ensure(
-                Path::new(&definition.arguments[0])
-                    == policy
-                        .home
-                        .join("desktop-updates/native")
-                        .join(id)
-                        .join(tx)
-                        .join("pacer-update-helper"),
-            )?;
+            ensure(recovery_arguments_valid(&definition.arguments, &policy.home))?;
         }
         let job = OwnedJob {
             definition,
@@ -381,9 +355,107 @@ pub(crate) async fn fixture_jobs(
     })
 }
 
+/// Install the lease's one external service registration so Desktop starts
+/// attached. Fixed program, label and environment; never a caller-chosen path.
+#[cfg(feature = "ota-fixture")]
+pub(crate) async fn fixture_attach(trust: &ReleaseTrust) -> Result<FixtureJobsReport, OtaError> {
+    use crate::ota::{control, platform_fs::PrivateDir};
+    let policy = trust.fixture_policy().ok_or(OtaError::Unavailable)?;
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    let own = native::process_details(std::process::id())
+        .map_err(|_| OtaError::Identity)?
+        .ok_or(OtaError::Identity)?;
+    trust.verify_process(&own.identity, CodeRole::Helper)?;
+    let external = policy.external_cli();
+    ensure(policy.permits_path(&external))?;
+    trust.verify_static(&external, CodeRole::Cli)?;
+    {
+        let locks = PrivateDir::create(&policy.root.join("locks"))?;
+        let _ownership = locks.acquire_locks(&policy.current_app, &policy.home)?;
+        let desktop = policy.current_app.join("Contents/MacOS/pacer");
+        ensure(
+            control::native_process_inventory()?
+                .iter()
+                .all(|details| details.executable != desktop && details.executable != external),
+        )?;
+        let path = policy
+            .root
+            .join("registrations")
+            .join(format!("{}.plist", policy.service_label));
+        let root = PrivateDir::open(&policy.root)?;
+        let record: serde_json::Value = serde_json::from_slice(&root.read("record.json", 262144)?)
+            .map_err(|_| OtaError::Invalid)?;
+        ensure(record.get("exercise").is_none_or(serde_json::Value::is_null))?;
+        registration(&record, &policy.service_label, &path, None)?;
+        ensure(exact_absent(&path)? && copy_user_job(&policy.service_label)?.is_none())?;
+        let home = policy.home.to_string_lossy().into_owned();
+        let mut environment = BTreeMap::new();
+        environment.insert("HOME".into(), home.clone());
+        environment.insert("PACER_HOME".into(), home);
+        environment.insert("PACER_PORT".into(), policy.port.to_string());
+        environment.insert("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into());
+        let job = OwnedJob {
+            definition: JobDefinition {
+                label: policy.service_label.clone(),
+                arguments: vec![external.to_string_lossy().into_owned(), "serve".into()],
+                environment,
+                keep_alive: true,
+                run_at_load: true,
+            },
+            plist_path: path,
+            role: CodeRole::Cli,
+        };
+        let bytes = job.definition.to_plist()?;
+        job.stage_fixture_registration(trust, &bytes)?;
+        crate::ota::platform_fs::publish_registration(&job.plist_path, &bytes)?;
+        job.change(trust, JobChange::Bootstrap).await?;
+    }
+    fixture_jobs(trust, false).await
+}
+
+/// An update or adoption transaction's recovery job: its own helper copy, one
+/// recovery mode and the exact installation/transaction directory it serves.
+fn recovery_arguments_valid(arguments: &[String], home: &Path) -> bool {
+    let [program, mode, id, tx] = arguments else {
+        return false;
+    };
+    matches!(mode.as_str(), "--ota-recover" | "--ota-recover-adoption")
+        && id.len() == 64
+        && id
+            .bytes()
+            .all(|v| v.is_ascii_hexdigit() && !v.is_ascii_uppercase())
+        && !tx.is_empty()
+        && tx.len() <= 128
+        && tx
+            .bytes()
+            .all(|v| v.is_ascii_alphanumeric() || matches!(v, b'-' | b'_'))
+        && Path::new(program)
+            == home
+                .join("desktop-updates/native")
+                .join(id)
+                .join(tx)
+                .join("pacer-update-helper")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_job_accepts_update_and_adoption_modes_for_its_own_transaction_only() {
+        let home = Path::new("/fixture/home");
+        let id = "a".repeat(64);
+        let helper = format!("/fixture/home/desktop-updates/native/{id}/tx-1/pacer-update-helper");
+        let args = |mode: &str, program: &str| {
+            vec![program.to_string(), mode.to_string(), id.clone(), "tx-1".to_string()]
+        };
+        assert!(recovery_arguments_valid(&args("--ota-recover", &helper), home));
+        assert!(recovery_arguments_valid(&args("--ota-recover-adoption", &helper), home));
+        assert!(!recovery_arguments_valid(&args("--ota-pipe", &helper), home));
+        assert!(!recovery_arguments_valid(&args("--ota-recover", "/tmp/pacer-update-helper"), home));
+        let mut extra = args("--ota-recover", &helper);
+        extra.push("more".into());
+        assert!(!recovery_arguments_valid(&extra, home));
+    }
     #[test]
     fn diagnostic_binary_requires_private_executable_not_data_file_mode() {
         use std::os::unix::fs::{PermissionsExt,symlink};

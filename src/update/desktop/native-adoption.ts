@@ -203,6 +203,7 @@ const journalSchema = z
       .strict()
       .nullable(),
     error: z.unknown().nullable(),
+    restorationCause: z.unknown().nullable().default(null),
   })
   .strict();
 const grantSchema = z

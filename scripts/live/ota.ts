@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, constants, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, copyFileSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
@@ -17,7 +17,9 @@ const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const source = z.object({ path: z.string(), sha256: hash.nullable() }).strict();
 const buildIntent = z.object({ schema: z.literal(1), kind: z.literal("native-build"), buildRoot: z.string(), baselineVersion: z.literal("0.2.3"), candidateVersion: z.literal("0.2.4"), arch: z.enum(["aarch64", "x86_64"]), updaterKeySha256: hash }).strict();
 const incarnation = z.object({ pid: z.number().int().positive(), bootId: z.string().min(1).max(128), birth: z.string().min(1).max(128) }).strict();
-const registration = z.object({ label: z.string(), path: z.string(), state: z.enum(["reserved", "intent", "loaded", "retired"]), sha256: hash.nullable().default(null), processes: z.array(incarnation).max(128).default([]) }).strict()
+// generations/history are written only by the native ledger when adoption switches the service program.
+const registration = z.object({ label: z.string(), path: z.string(), state: z.enum(["reserved", "intent", "loaded", "retired"]), sha256: hash.nullable().default(null), processes: z.array(incarnation).max(128).default([]),
+  generations: z.array(hash).min(1).max(2).optional(), history: z.array(z.object({ sha256: hash, state: z.enum(["intent", "loaded", "retired"]), processes: z.array(incarnation).max(128) }).strict()).max(16).optional() }).strict()
   .refine(value => value.state === "reserved" ? value.sha256 === null && value.processes.length === 0 : value.sha256 !== null, "Invalid registration ownership");
 const schema = z.object({
   schema: z.literal(1), sessionId: z.string(), root: z.string(), ownerUid: z.number().int(), nonce: z.string().regex(/^[a-f0-9]{32}$/),
@@ -26,6 +28,7 @@ const schema = z.object({
   sources: z.tuple([source, source]), registrationBefore: hash.nullable(), registrations: z.tuple([registration, registration]),
   exercise: exerciseSchema.nullable().default(null), runtime: runtimeSchema.nullable().default(null), diagnostics: diagnosticSchema.nullable().default(null), diagnosticProcesses: z.array(incarnation).max(128).default([]), diagnosticsHistory: z.array(diagnosticSchema.extend({ path: z.string(), sourceSha256: hash }).strict()).max(3).default([]),
   processes: z.tuple([]), nativeFixture: buildIntent.nullable(), artifacts: z.array(z.object({ path: z.string(), sha256: hash }).strict()).max(2).default([]),
+  external: z.array(z.object({ path: z.string(), sha256: hash }).strict()).max(2).default([]),
 }).strict().refine(state => state.phase === "building" ? state.nativeFixture !== null && state.sources.every(source => source.sha256 === null) && state.artifacts.length === 0 : state.sources.every(source => source.sha256 !== null), "Source fingerprints are required outside building").refine(state => (!state.exercise && !state.runtime) || (state.phase === "prepared" || state.phase === "cleaned" && state.runtime?.state === "retired" && (!state.exercise || state.exercise.state === "complete")) && !!state.nativeFixture && !!state.runtime && (!state.exercise || sameProcess(state.exercise.driver, state.runtime.driver)), "Native exercise requires an exact runtime lease");
 export type OtaRecord = z.infer<typeof schema>;
 export function otaFixturePolicy(state: OtaRecord) {
@@ -38,7 +41,7 @@ export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterK
   const serviceLabel = `com.pacer.live.${nonce}.service`, recoveryLabel = `com.pacer.live.${nonce}.recovery`;
   const registration = (label: string): OtaRecord["registrations"][number] => ({ label, path: join(root, "registrations", `${label}.plist`), state: "reserved", sha256: null, processes: [] });
   const state: OtaRecord = { schema: 1, sessionId: id, root, nonce, ownerUid: uid(), phase: "building", pacerHome: join(session.root, "home"), port: session.port, innerPort: session.innerPort!, installationId: `ota-${nonce}`, currentApp: join(root, "current.app"), candidateApp: join(root, "candidate.app"), serviceLabel, recoveryLabel,
-    sources: [{ path: join(root, "build/baseline/pacer.app"), sha256: null }, { path: join(root, "build/candidate/pacer.app"), sha256: null }], registrationBefore: registrationDigest(options), registrations: [registration(serviceLabel), registration(recoveryLabel)], processes: [], nativeFixture, artifacts: [], exercise: null, runtime: null, diagnostics: null, diagnosticsHistory: [], diagnosticProcesses: [] };
+    sources: [{ path: join(root, "build/baseline/pacer.app"), sha256: null }, { path: join(root, "build/candidate/pacer.app"), sha256: null }], registrationBefore: registrationDigest(options), registrations: [registration(serviceLabel), registration(recoveryLabel)], processes: [], nativeFixture, artifacts: [], external: [], exercise: null, runtime: null, diagnostics: null, diagnosticsHistory: [], diagnosticProcesses: [] };
   mkdirSync(root, { mode: 0o700 });
   persist(session, state);
   for (const path of [nativeFixture.buildRoot, join(root, "registrations")]) mkdirSync(path, { mode: 0o700 });
@@ -55,6 +58,15 @@ export function finishOtaBuild(id: string, files: { archive: Buffer; feed: Buffe
     cpSync(state.sources[index].path, target, { recursive: true, dereference: false, verbatimSymlinks: true, errorOnExist: true, force: false });
     if (appDigest(target) !== state.sources[index].sha256) throw Error("Fixture copy changed");
   }
+  // One external standalone CLI (baseline bytes) for attached/adoption scenarios.
+  // A standalone CLI loads its native shim from its own directory.
+  mkdirSync(join(state.root, "external"), { mode: 0o700 });
+  for (const [from, name, mode] of [["Contents/Resources/pacer", "pacer", 0o700], ["Contents/Frameworks/libpacer-native.dylib", "libpacer-native.dylib", 0o700]] as const) {
+    const path = join(state.root, "external", name);
+    copyFileSync(join(state.sources[0].path, from), path, constants.COPYFILE_EXCL); chmodSync(path, mode);
+    state.external.push({ path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") });
+  }
+  syncDirectory(join(state.root, "external"));
   const entries = [[join(state.root, "feed"), "stable.json", files.feed], [join(state.root, "artifacts"), `desktop-pacer-0.2.4-darwin-${state.nativeFixture.arch}.app.tar.gz`, files.archive]] as const;
   for (const [directory, name, bytes] of entries) {
     mkdirSync(directory, { mode: 0o700 });
@@ -186,7 +198,8 @@ function registrationProgram(state: OtaRecord, label: string, text: string): str
       env.PACER_PORT !== undefined && env.PACER_PORT !== String(state.innerPort) || typeof value.KeepAlive !== "boolean" || typeof value.RunAtLoad !== "boolean" ||
       Object.keys(value).some(key => !["Label", "ProgramArguments", "EnvironmentVariables", "KeepAlive", "RunAtLoad", "ThrottleInterval", "ProcessType", "StandardOutPath", "StandardErrorPath"].includes(key))) throw Error("Fixture registration is not owned by this lease");
   const program = canonical(args[0] as string);
-  if (!inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
+  const external = state.external.length && label === state.serviceLabel && program === join(state.root, "external/pacer");
+  if (!external && !inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
   owned(program, "file");
   for (const key of ["StandardOutPath", "StandardErrorPath"]) if (value[key] !== undefined) throw Error("Fixture probes must use inherited null output");
   return program;
@@ -217,7 +230,7 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
     }
   } else for (const app of state.sources) if (sourceApp(app.path, session, options).sha256 !== app.sha256) throw Error("OTA source changed");
   for (const app of [state.currentApp, state.candidateApp]) if (present(app)) appDigest(app);
-  for (const name of readdirSync(root)) if (!["record.json", "current.app", "candidate.app", "registrations", "locks", ...(state.nativeFixture ? ["build", "feed", "artifacts"] : []), ...(state.diagnostics ? ["diagnostics"] : [])].includes(name)) throw Error("OTA contains unrecorded resources");
+  for (const name of readdirSync(root)) if (!["record.json", "current.app", "candidate.app", "registrations", "locks", ...(state.nativeFixture ? ["build", "feed", "artifacts", ...(state.external.length ? ["external"] : [])] : []), ...(state.diagnostics ? ["diagnostics"] : [])].includes(name)) throw Error("OTA contains unrecorded resources");
   if (state.diagnostics) {
     if (!state.nativeFixture || !["prepared", "cleaned"].includes(state.phase)) throw Error("Diagnostics require a finalized native fixture");
     validateDiagnosticFiles(join(root, "diagnostics"), state.diagnostics, createHash("sha256").update(JSON.stringify(otaFixturePolicy(state))).digest("hex"));
@@ -255,6 +268,17 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
   }
   if (state.nativeFixture && state.phase === "prepared" && (state.artifacts.length !== 2 || state.artifacts.some(asset => !present(asset.path)))) throw Error("Fixture artifacts missing");
   if (state.artifacts.some(asset => asset.path !== join(root, "feed/stable.json") && asset.path !== join(root, "artifacts", `desktop-pacer-0.2.4-darwin-${state.nativeFixture?.arch}.app.tar.gz`)) || new Set(state.artifacts.map(asset => asset.path)).size !== state.artifacts.length) throw Error("Invalid fixture artifact ledger");
+  const externalFiles = [join(root, "external/pacer"), join(root, "external/libpacer-native.dylib")];
+  if (state.external.length && (!state.nativeFixture || state.external.length !== 2 || state.external.some((file, index) => file.path !== externalFiles[index]))) throw Error("Invalid external service ledger");
+  if (present(join(root, "external"))) {
+    if (!state.external.length) throw Error("Unrecorded external service");
+    canonical(join(root, "external")); owned(join(root, "external"), "directory", true);
+    if (readdirSync(join(root, "external")).sort().join() !== "libpacer-native.dylib,pacer") throw Error("Unrecorded external service resource");
+    for (const file of state.external) {
+      canonical(file.path); owned(file.path, "file", true);
+      if (lstatSync(file.path).size > 512 * 1024 * 1024 || createHash("sha256").update(readFileSync(file.path)).digest("hex") !== file.sha256) throw Error("External service changed");
+    }
+  } else if (state.phase === "prepared" && state.external.length) throw Error("External service missing");
   const registrations = join(root, "registrations");
   if (present(registrations)) {
     canonical(registrations); owned(registrations, "directory", true);
@@ -279,7 +303,7 @@ export async function prepareOta(id: string, fromApp: string, toApp: string, opt
   const state: OtaRecord = { schema: 1, sessionId: id, root, ownerUid: uid(), nonce, phase: "preparing", pacerHome: join(session.root, "home"),
     port: session.port, innerPort: session.innerPort!, installationId: `ota-${nonce}`, currentApp: join(root, "current.app"), candidateApp: join(root, "candidate.app"),
     serviceLabel, recoveryLabel, sources, registrationBefore, registrations: [reserved(serviceLabel), reserved(recoveryLabel)],
-    processes: [], nativeFixture: null, artifacts: [], exercise: null, runtime: null, diagnostics: null, diagnosticsHistory: [], diagnosticProcesses: [] };
+    processes: [], nativeFixture: null, artifacts: [], external: [], exercise: null, runtime: null, diagnostics: null, diagnosticsHistory: [], diagnosticProcesses: [] };
   mkdirSync(root, { mode: 0o700 }); // Exclusive ownership; never overwrite a previous sandbox transaction.
   persist(session, state); // Record intent before any app copy or future registration.
   mkdirSync(join(root, "registrations"), { mode: 0o700 });
@@ -315,7 +339,7 @@ export async function cleanupOta(id: string, options: OtaOptions = {}): Promise<
   for (const app of [state.currentApp, state.candidateApp]) if (present(app)) rmSync(app, { recursive: true });
   const registrations = join(state.root, "registrations");
   if (present(registrations)) rmSync(registrations, { recursive: true });
-  for (const directory of ["feed", "artifacts"]) if (present(join(state.root, directory))) rmSync(join(state.root, directory), { recursive: true });
+  for (const directory of ["feed", "artifacts", "external"]) if (present(join(state.root, directory))) rmSync(join(state.root, directory), { recursive: true });
   unchanged(state, options); state.phase = "cleaned"; persist(session, state);
   });
   record(session, { kind: "note", behavior: "OTA fixture cleanup", surface: "harness", verdict: "PASS", text: "Only recorded disposable copies removed; source fingerprints and real registration bytes unchanged. No service-manager calls or native launches." });
@@ -326,7 +350,11 @@ export async function exerciseOta(id: string, scenario: string, options: OtaOpti
   if (state.phase !== "prepared") throw Error("OTA fixtures are not prepared");
   unchanged(state, options);
   if (state.nativeFixture) {
-    try { return await (await import("./ota-exercise")).runManagedExercise(id, scenario, options); }
+    try {
+      const { ATTACHED_SCENARIOS } = await import("./ota-exercise-record");
+      if ((ATTACHED_SCENARIOS as readonly string[]).includes(scenario)) return await (await import("./ota-adoption")).runAttachedExercise(id, scenario, options);
+      return await (await import("./ota-exercise")).runManagedExercise(id, scenario, options);
+    }
     catch (error) {
       record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop", verdict: "UNVERIFIED", text: error instanceof Error ? error.message : "Native exercise outcome not established; evidence retained" });
       throw error;

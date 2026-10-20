@@ -1683,7 +1683,7 @@ export function createNativePipeFactory(
   authority: DarwinAuthority,
 ): VerifiedPipeFactory {
   return {
-    capabilities: new Set(["check", "download", "install", "recover"]),
+    capabilities: new Set(["check", "download", "install", "recover", "adopt", "recover-adoption"]),
     async open(installationId, signal) {
       const session = native
         .sessions()

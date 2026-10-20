@@ -43,7 +43,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   const before = await inspectFixtureJobs(state);
   if (resuming) {
     if (before.desktops.length || before.jobs[1].loaded || before.jobs[1].state !== "reserved") throw Error("Startup has unexpected native participants");
-    fixtureInstallation(state, before, state.nativeFixture.baselineVersion);
+    fixtureInstallation(state, before, state.nativeFixture.baselineVersion, "managed");
     state = await resumeOtaStartup(id, state, options);
   } else {
     if (before.jobs.some(job => job.loaded || job.state !== "reserved")) throw Error("Fixture registration is already active or uncertain");
@@ -76,7 +76,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
     while (Date.now() < readyDeadline) {
       try {
         const jobs = await inspectFixtureJobs(readOtaRecord(id, options));
-        const installation = fixtureInstallation(state, jobs, state.nativeFixture!.baselineVersion);
+        const installation = fixtureInstallation(state, jobs, state.nativeFixture!.baselineVersion, "managed");
         const snapshot = await client.snapshot();
         const status = (snapshot.snapshot as unknown as SnapshotV3).desktopUpdates?.find(item => item.installationId === installation.id);
         if (status?.ownership === "managed" && status.current === state.nativeFixture!.baselineVersion && status.actions.includes("check")) { installationId = installation.id; break; }
@@ -190,7 +190,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
           verifyExerciseOutcome(scenario, installationId, tx, outcome?.phase, prepared, terminal);
           const jobs = await inspectFixtureJobs(readOtaRecord(id, options));
           verifyExerciseSurvivors(terminal, jobs, state.serviceLabel, state.recoveryLabel);
-          if (outcome?.current !== version || fixtureInstallation(state, jobs, version).id !== installationId) throw Error("Final managed installation differs from verified outcome");
+          if (outcome?.current !== version || fixtureInstallation(state, jobs, version, "managed").id !== installationId) throw Error("Final managed installation differs from verified outcome");
           survived = true; break;
         } catch { /* Cleanup may still hold the native lock; never turn missing participants into success. */ }
         await Bun.sleep(250);

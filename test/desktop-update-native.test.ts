@@ -932,3 +932,10 @@ test("unready candidate service cleanup requires the exact authorized managed la
   [steps[6],...steps.slice(0,6)],
  ]){f.fixture.journal.steps=changed;f.save();expect(read).toThrow();}
 });
+
+test("native helper factory advertises service adoption and its recovery", async () => {
+  const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
+  const ctx = fakeCtx();
+  const factory = createNativePipeFactory(() => ctx, { sessions: () => [], reverify: async () => {} }, {} as never);
+  expect([...factory.capabilities].sort()).toEqual(["adopt", "check", "download", "install", "recover", "recover-adoption"]);
+});

@@ -1,4 +1,5 @@
 /** macOS system-library trust root. No executable supplied by a peer is run. */
+import { fileIdentity, VerifiedOnce } from "./verification-cache";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import {
@@ -75,6 +76,11 @@ export type NativePeer = {
   role: NativeCodeRole;
 };
 export class DarwinAuthority {
+  // Native peers ask the service to re-verify itself on every frame. Signature
+  // evaluation is the costly part, so a verdict is reused only while its inputs
+  // provably remain the same: exact file identity, or exact process incarnation.
+  private staticVerified = new VerifiedOnce();
+  private processVerified = new VerifiedOnce();
   private cf;
   private sec;
   private sys;
@@ -190,6 +196,9 @@ export class DarwinAuthority {
   }
   private verifyStaticRole(path: string, role: NativeCodeRole | "native-shim"): void {
     if (this.fixture) fixturePermitsPath(this.fixture, path);
+    let key: string;
+    try { key = `${role}:${fileIdentity(path)}`; } catch { throw denied(); }
+    if (this.staticVerified.has(key)) return;
     this.check(role, (requirement, refs) => {
       const bytes = cstr(realpathSync(path));
       const url = this.cf.symbols.CFURLCreateFromFileSystemRepresentation(
@@ -216,6 +225,9 @@ export class DarwinAuthority {
       )
         throw denied();
     });
+    let after: string | null = null;
+    try { after = `${role}:${fileIdentity(path)}`; } catch { /* changed or removed: do not remember */ }
+    if (after === key) this.staticVerified.add(key);
   }
   verifyProcess(
     expected: ProcessIdentity,
@@ -230,6 +242,8 @@ export class DarwinAuthority {
     )
       throw denied();
     if (this.fixture) fixturePermitsPath(this.fixture, before.executable);
+    const key = [role, expected.pid, expected.bootId, expected.birth, before.executable].join(":");
+    if (this.processVerified.has(key)) return before;
     this.check(role, (requirement, refs) => {
       const pid = new Int32Array([expected.pid]);
       const number = this.cf.symbols.CFNumberCreate(null, 3, ptr(pid));
@@ -267,6 +281,7 @@ export class DarwinAuthority {
     });
     if (!sameProcess(before.process, processIdentity(expected.pid)))
       throw denied();
+    this.processVerified.add(key);
     return before;
   }
   verifyPeer(

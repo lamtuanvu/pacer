@@ -56,6 +56,9 @@ pub struct AdoptionJournal {
     pub unchanged_registration: Option<UnchangedRegistration>,
     #[serde(deserialize_with = "required_nullable")]
     pub error: Option<OtaError>,
+    /// The error that started restoration; `error` later holds any restoration failure.
+    #[serde(default)]
+    pub restoration_cause: Option<OtaError>,
 }
 pub struct AdoptionStore {
     directory: PrivateDir,
@@ -468,6 +471,7 @@ impl AdoptionStore {
             restoration_proof: None,
             unchanged_registration: None,
             error: None,
+            restoration_cause: None,
         };
         j.validate(&m, sha)?;
         self.directory.write_new(
@@ -572,6 +576,9 @@ impl AdoptionStore {
         )?;
         require(
             old.verification_proof.is_none() || old.verification_proof == j.verification_proof,
+        )?;
+        require(
+            old.restoration_cause.is_none() || old.restoration_cause == j.restoration_cause,
         )?;
         require(old.restoration_proof.is_none() || old.restoration_proof == j.restoration_proof)?;
         for (a, b) in old.steps.iter().zip(&j.steps) {

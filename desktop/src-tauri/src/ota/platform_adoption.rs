@@ -701,7 +701,11 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
             };
             self.verify_assets(&manifest)?;
             let recovery = self.recovery_job(&manifest)?;
-            ensure(recovery.observe(&self.trust)?.is_none())?;
+            // The recovery registration is written later; observe() would read it.
+            ensure(
+                copy_user_job(&recovery.definition.label)?.is_none()
+                    && !disabled_state(&recovery.definition.label).await?,
+            )?;
             self.assets
                 .write_new("recovery.plist", &recovery.definition.to_plist()?)?;
             Ok(VerifiedAdoptionPreparation {
@@ -1025,6 +1029,16 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
                 return Ok(AdoptionReadiness::Pending);
             };
             ensure(p == launch.process)?;
+            #[cfg(feature = "ota-fixture")]
+            if branch == control::AdoptionBranch::Managed
+                && crate::ota::fixture_fault::consume(
+                    crate::ota::fixture_fault::Point::AdoptionStartup,
+                    &m.binding.installation_id,
+                    m.transaction_id(),
+                )?
+            {
+                return Ok(AdoptionReadiness::Failed);
+            }
             Ok(
                 match control::query_adoption_readiness(
                     &self.endpoint(&p, &e),
@@ -1044,7 +1058,7 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
     }
     fn wait_for_observation<'a>(&'a self) -> PlatformFuture<'a, ()> {
         Box::pin(async {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tokio::time::sleep(ota::OBSERVATION_INTERVAL).await;
             Ok(())
         })
     }

@@ -229,11 +229,19 @@ test("native build reserves exact immutable intent before compilation and finali
   expect(() => reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options)).toThrow();
   await expect(exerciseOta(f.session.id, "upgrade", f.options)).rejects.toThrow();
   for (const source of state.sources) {
-    mkdirSync(join(source.path, "Contents/MacOS"), { recursive: true });
+    for (const dir of ["MacOS", "Resources", "Frameworks"]) mkdirSync(join(source.path, "Contents", dir), { recursive: true });
     writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
+    writeFileSync(join(source.path, "Contents/Resources/pacer"), "fixture cli");
+    writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "fixture shim");
   }
   const archive = Buffer.from("fixture archive"), feed = Buffer.from("fixture feed");
   finishOtaBuild(f.session.id, { archive, feed }, f.options);
+  const staged = readOtaRecord(f.session.id, f.options);
+  expect(staged.external.map(file => file.path)).toEqual([join(staged.root, "external/pacer"), join(staged.root, "external/libpacer-native.dylib")]);
+  writeFileSync(join(staged.root, "external/extra"), "unrecorded");
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow();
+  rmSync(join(staged.root, "external/extra"));
+  readOtaRecord(f.session.id, f.options);
   const ready = readOtaRecord(f.session.id, f.options);
   expect(ready.phase).toBe("prepared");
   expect(ready.sources.every(source => source.sha256?.length === 64)).toBe(true);
@@ -316,8 +324,10 @@ test("driver ledger CAS preserves native transaction consumption and rejects ano
   const { newExercise } = await import("../scripts/live/ota-exercise-record");
   const f = fixture(), build = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options);
   for (const source of build.sources) {
-    mkdirSync(join(source.path, "Contents/MacOS"), { recursive: true });
+    for (const dir of ["MacOS", "Resources", "Frameworks"]) mkdirSync(join(source.path, "Contents", dir), { recursive: true });
     writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
+    writeFileSync(join(source.path, "Contents/Resources/pacer"), "fixture cli");
+    writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "fixture shim");
   }
   finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options);
   const initial = readOtaRecord(f.session.id, f.options), driver = ownProcessIdentity()!;
@@ -337,8 +347,10 @@ test("fixed cleanup diagnostic ledger binds files once without launching process
   const digest = (text: string) => createHash("sha256").update(text).digest("hex");
   const f = fixture(), build = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options);
   for (const source of build.sources) {
-    mkdirSync(join(source.path, "Contents/MacOS"), { recursive: true });
+    for (const dir of ["MacOS", "Resources", "Frameworks"]) mkdirSync(join(source.path, "Contents", dir), { recursive: true });
     writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
+    writeFileSync(join(source.path, "Contents/Resources/pacer"), "fixture cli");
+    writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "fixture shim");
   }
   finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options);
   const initial = readOtaRecord(f.session.id, f.options), path = join(initial.root, "record.json");

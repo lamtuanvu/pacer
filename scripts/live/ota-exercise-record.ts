@@ -2,16 +2,20 @@ import { z } from "zod";
 
 export const fixtureProcessSchema = z.object({ pid: z.number().int().positive(), bootId: z.string().min(1).max(128), birth: z.string().min(1).max(128) }).strict();
 export const MANAGED_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure"] as const;
+/** Scenarios that start Desktop attached to the lease's one external service. */
+export const ATTACHED_SCENARIOS = ["adopt", "adopt-failure", "attached"] as const;
+export const NATIVE_SCENARIOS = [...MANAGED_SCENARIOS, ...ATTACHED_SCENARIOS] as const;
 const points = {
   upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"],
   "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"],
+  adopt: [], "adopt-failure": ["adoption-startup"], attached: [],
 } as const;
 const transaction = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const exerciseSchema = z.object({
-  schema: z.literal(1), scenario: z.enum(MANAGED_SCENARIOS), state: z.enum(["armed", "running", "complete", "failed"]),
+  schema: z.literal(1), scenario: z.enum(NATIVE_SCENARIOS), state: z.enum(["armed", "running", "complete", "failed"]),
   driver: fixtureProcessSchema, installationId: z.string().regex(/^[a-f0-9]{64}$/), transactionId: transaction.nullable(),
   faults: z.array(z.object({
-    point: z.enum(["authorized", "installed", "restore", "candidate-startup"]),
+    point: z.enum(["authorized", "installed", "restore", "candidate-startup", "adoption-startup"]),
     consumed: z.object({ process: fixtureProcessSchema, transactionId: transaction }).strict().nullable(),
   }).strict()).max(2),
 }).strict().superRefine((value, context) => {
@@ -24,11 +28,11 @@ export const exerciseSchema = z.object({
 });
 export type OtaExercise = z.infer<typeof exerciseSchema>;
 export function newExercise(scenario: string, driver: z.infer<typeof fixtureProcessSchema>, installationId: string): OtaExercise {
-  const selected = z.enum(MANAGED_SCENARIOS).parse(scenario);
+  const selected = z.enum(NATIVE_SCENARIOS).parse(scenario);
   return exerciseSchema.parse({ schema: 1, scenario: selected, state: "armed", driver, installationId, transactionId: null, faults: points[selected].map(point => ({ point, consumed: null })) });
 }
 
-export const FIXTURE_UPDATE_OPS = ["desktop.update.check", "desktop.update.download", "desktop.update.restart", "desktop.update.cancel", "desktop.update.configure"] as const;
+export const FIXTURE_UPDATE_OPS = ["desktop.update.check", "desktop.update.download", "desktop.update.restart", "desktop.update.cancel", "desktop.update.configure", "desktop.update.adopt"] as const;
 export const runtimeSchema = z.object({
   schema: z.literal(1), driver: fixtureProcessSchema, sourceService: fixtureProcessSchema,
   desktop: fixtureProcessSchema.nullable(), state: z.enum(["starting", "managed", "retired"]),

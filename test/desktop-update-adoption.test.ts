@@ -722,3 +722,14 @@ test("adoption lifecycle and registration intents may repeat only on distinct bo
  }
  (f.journal.steps as any[])=[step({kind:"release-reservation"},"boot-one"),step({kind:"release-reservation"},"boot-two")];f.save();expect(read).toThrow();
 });
+test("native adoption journal carries the error that started restoration", async () => {
+  const { readNativeAdoption } = await import(
+    "../src/update/desktop/native-adoption"
+  );
+  const f = await nativeFixture();
+  (f.journal as any).restorationCause = "recovery-failed";
+  f.save();
+  expect(
+    readNativeAdoption(f.ctx, "attached", f.record.transactionId).digest,
+  ).toBe(f.digest);
+});

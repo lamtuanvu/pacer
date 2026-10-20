@@ -15,7 +15,9 @@ fn main() {
             println!("{identity}");
         }
         #[cfg(all(target_os = "macos", feature = "ota-fixture"))]
-        Some("--ota-fixture-inspect") | Some("--ota-fixture-retire") => {
+        Some("--ota-fixture-inspect")
+        | Some("--ota-fixture-retire")
+        | Some("--ota-fixture-attach") => {
             let result = (|| {
                 if std::env::args().len() != 2 {
                     return Err(pacer_desktop::ota::OtaError::Invalid);
@@ -24,9 +26,14 @@ fn main() {
                     .enable_all()
                     .build()
                     .map_err(|_| pacer_desktop::ota::OtaError::Unavailable)?;
-                runtime.block_on(pacer_desktop::ota::helper::fixture_jobs(
-                    std::env::args().nth(1).as_deref() == Some("--ota-fixture-retire"),
-                ))
+                match std::env::args().nth(1).as_deref() {
+                    Some("--ota-fixture-attach") => {
+                        runtime.block_on(pacer_desktop::ota::helper::fixture_attach())
+                    }
+                    mode => runtime.block_on(pacer_desktop::ota::helper::fixture_jobs(
+                        mode == Some("--ota-fixture-retire"),
+                    )),
+                }
             })();
             match result {
                 Ok(report) => println!("{report}"),

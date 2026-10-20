@@ -315,6 +315,28 @@ pub fn match_readiness(
 mod tests {
     use super::*;
     #[test]
+    fn handshake_retries_only_transient_refusals_within_its_deadline() {
+        let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut calls = 0;
+        let ok = retry_handshake(later, || {}, || {
+            calls += 1;
+            if calls < 3 { Err(OtaError::Io) } else { Ok(calls) }
+        });
+        assert_eq!((ok, calls), (Ok(3), 3));
+        calls = 0;
+        let refused: Result<(), _> = retry_handshake(later, || {}, || {
+            calls += 1;
+            Err(OtaError::Identity)
+        });
+        assert_eq!((refused, calls), (Err(OtaError::Identity), 1));
+        calls = 0;
+        let expired: Result<(), _> = retry_handshake(std::time::Instant::now(), || {}, || {
+            calls += 1;
+            Err(if calls == 1 { OtaError::Unavailable } else { OtaError::Io })
+        });
+        assert_eq!((expired, calls), (Err(OtaError::Unavailable), 1));
+    }
+    #[test]
     fn shutdown_requires_receipt_for_the_exact_pending_effect() {
         let receipt =
             serde_json::json!({"schema":1,"kind":"effect-accepted","effectId":"shutdown-one"});
@@ -712,7 +734,33 @@ fn authenticate_service(
     role: &str,
     ticket: Option<&LaunchTicket>,
 ) -> Result<(UnixStream, ControlSession), OtaError> {
-    authenticate_service_adoption(endpoint, trust, role, ticket, None)
+    if role != "helper" {
+        return authenticate_service_adoption(endpoint, trust, role, ticket, None);
+    }
+    retry_handshake(
+        std::time::Instant::now() + HANDSHAKE_RETRY,
+        || std::thread::sleep(super::OBSERVATION_INTERVAL),
+        || authenticate_service_adoption(endpoint, trust, role, ticket, None),
+    )
+}
+const HANDSHAKE_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
+/// The service refuses a hello while it cannot account for every pacer process,
+/// such as the desktop's short-lived sign-in CLI. That refusal precedes any
+/// request frame, so a bounded retry never repeats an effect; a lasting refusal
+/// still fails once the deadline passes.
+fn retry_handshake<T>(
+    deadline: std::time::Instant,
+    pause: impl Fn(),
+    mut attempt: impl FnMut() -> Result<T, OtaError>,
+) -> Result<T, OtaError> {
+    loop {
+        match attempt() {
+            Err(OtaError::Io | OtaError::Unavailable) if std::time::Instant::now() < deadline => {
+                pause()
+            }
+            other => return other,
+        }
+    }
 }
 fn authenticate_service_adoption(
     endpoint: &ServiceEndpoint<'_>,

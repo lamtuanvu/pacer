@@ -16,12 +16,17 @@ export function validateFixtureIdentity(state: OtaRecord, value: unknown, role: 
   if (role === "desktop" && identity.fixtureIsolationProtocol !== 1) throw Error("Fixture shell lacks compiled isolation proof");
   if (role !== "cli" && identity.updaterKeySha256 !== state.nativeFixture!.updaterKeySha256) throw Error("Fixture updater key differs from its lease");
 }
-export function fixtureInstallation(state: OtaRecord, observed: unknown, version: string): Installation {
+/** The lease's only external service program; Desktop sees it as attached. */
+export const fixtureExternalCli = (state: Pick<OtaRecord, "root">) => join(state.root, "external/pacer");
+/** Ownership follows the exact registered program: the bundled CLI is managed, the lease's external CLI is attached. */
+export function fixtureInstallation(state: OtaRecord, observed: unknown, version: string, ownership?: Installation["ownership"]): Installation {
   const report = jobsSchema.parse(observed), service = report.jobs.find(job => job.label === state.serviceLabel);
-  const binary = join(state.currentApp, "Contents/Resources/pacer");
-  if (!service || report.jobs.filter(job => job.label === state.serviceLabel).length !== 1 || !service.loaded || service.state !== "loaded" || !service.process || service.executable !== binary || !service.registrationText || digest(service.registrationText) !== service.registrationSha256) throw Error("Exact managed fixture service is not proven");
-  const identity: Omit<Installation, "id" | "version"> = { appPath: state.currentApp, bundleId: "dev.pacer.desktop", ownerUid: state.ownerUid, arch: state.nativeFixture!.arch, pacerHome: state.pacerHome, port: state.innerPort, serviceLabel: state.serviceLabel, ownership: "managed" };
-  return { ...identity, id: installationFingerprint(identity, binary, service.registrationText), version };
+  const bundled = join(state.currentApp, "Contents/Resources/pacer"), external = fixtureExternalCli(state);
+  if (!service || report.jobs.filter(job => job.label === state.serviceLabel).length !== 1 || !service.loaded || service.state !== "loaded" || !service.process || (service.executable !== bundled && service.executable !== external) || !service.registrationText || digest(service.registrationText) !== service.registrationSha256) throw Error("Exact fixture service is not proven");
+  const actual = service.executable === bundled ? "managed" as const : "attached" as const;
+  if (ownership && ownership !== actual) throw Error(`Fixture service is ${actual}, not ${ownership}`);
+  const identity: Omit<Installation, "id" | "version"> = { appPath: state.currentApp, bundleId: "dev.pacer.desktop", ownerUid: state.ownerUid, arch: state.nativeFixture!.arch, pacerHome: state.pacerHome, port: state.innerPort, serviceLabel: state.serviceLabel, ownership: actual };
+  return { ...identity, id: installationFingerprint(identity, service.executable, service.registrationText), version };
 }
 export function fixtureEnvironment(state: OtaRecord): Record<string, string> {
   return { HOME: state.pacerHome, PACER_HOME: state.pacerHome, PACER_PORT: String(state.innerPort), PATH: "/usr/bin:/bin:/usr/sbin:/sbin" };
@@ -61,6 +66,18 @@ export async function inspectFixtureJobs(state: OtaRecord, retire = false): Prom
   validateFixtureIdentity(state, identity, "helper", identity.version);
   const report = jobsSchema.parse(JSON.parse(await run(state, [helper, retire ? "--ota-fixture-retire" : "--ota-fixture-inspect"])));
   if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel || report.jobs[1].label !== state.recoveryLabel) throw Error("Fixture inspector returned foreign jobs");
+  return report;
+}
+
+/** Install the lease's fixed external service registration through the compiled helper. */
+export async function attachFixtureService(state: OtaRecord): Promise<FixtureJobs> {
+  knownFixtureBytes(state);
+  await run(state, ["/usr/bin/codesign", "--verify", "--deep", "--strict", state.currentApp]);
+  await run(state, ["/usr/bin/codesign", "--verify", "--strict", fixtureExternalCli(state)]);
+  const helper = join(state.currentApp, "Contents/Resources/pacer-update-helper");
+  validateFixtureIdentity(state, JSON.parse(await run(state, [helper, "--pacer-identity"])), "helper", state.nativeFixture!.baselineVersion);
+  const report = jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-attach"])));
+  if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel || report.jobs[1].label !== state.recoveryLabel) throw Error("Fixture attach returned foreign jobs");
   return report;
 }
 
