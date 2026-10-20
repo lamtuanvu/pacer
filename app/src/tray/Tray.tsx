@@ -105,6 +105,8 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         { n: model.waiting, label: "waiting", route: "/sessions?filter=waiting" },
         { n: model.done, label: "done today", route: "/sessions?filter=done" },
       ].map(cell => <TextAction key={cell.label} className="tray-count" href={appHref(cell.route)} onClick={navigate(cell.route)}><b className={!cell.n ? "tray-muted" : cell.warn ? "tray-idle" : undefined}>{cell.n}</b><span>{cell.label}</span></TextAction>)}</nav>
+      {/* Update status sits above the fold: it can need action before the task lists. */}
+      {model.update && <TextAction className="tray-waiting" href={appHref(model.update.route)} onClick={navigate(model.update.route)}><StatusGlyph status={model.update}/><span className="tray-grow">{model.update.label}</span><span aria-hidden="true">›</span></TextAction>}
       {model.attention.length ? <section className="tray-section" aria-label="Needs you"><SectionHeading className="tray-attention-heading">Needs you</SectionHeading>
         {model.attention.slice(0, 3).map(item => {
           const action = primaryAction(item.actions);
@@ -127,7 +129,6 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         {model.active.length > 3 && <TextAction className="tray-more" href={appHref("/sessions")} onClick={navigate("/sessions")}>+{model.active.length - 3} more in the app</TextAction>}
       </section>}
       {model.waiting > 0 && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></TextAction>}
-      {model.update && <TextAction className="tray-waiting" href={appHref(model.update.route)} onClick={navigate(model.update.route)}><StatusGlyph status={model.update}/><span className="tray-grow">{model.update.label}</span><span aria-hidden="true">›</span></TextAction>}
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
         const readiness = !executor.enabled ? executorStatus("disabled") : value === "off" && executor.state === "ready" ? executorStatus("blocked") : executorRowStatus(executor);
