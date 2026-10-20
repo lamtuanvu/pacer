@@ -1,4 +1,5 @@
 import { mkdtempSync, lstatSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { signerRequirement, type SignerPins } from "../../src/update/desktop/signer-requirement";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -34,19 +35,30 @@ export async function inspectDesktopArchive<T>(bytes: Uint8Array, inspect: (app:
     return await inspect(app);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
-export async function verifyProductionArchive(bytes: Uint8Array, arch: DesktopArch, teamId: string): Promise<BundleMetadata> {
-  if (process.platform !== "darwin") throw Error("Apple signature/notarization verification requires macOS");
+const SIGNED_COMPONENTS = [["Contents/MacOS/pacer", "dev.pacer.desktop"], ["Contents/Resources/pacer", "dev.pacer.cli"], ["Contents/Resources/pacer-update-helper", "dev.pacer.desktop.update-helper"], ["Contents/Frameworks/libpacer-native.dylib", "dev.pacer.desktop.native-shim"]] as const;
+/**
+ * Signature checks for one extracted app. Any compiled certificate pin means the
+ * archive is an interim (or bridge) release: each component must satisfy the
+ * exact designated requirement, and there is no notarization to validate.
+ * Developer ID releases keep stapler and Gatekeeper assessment.
+ */
+export function signedAppChecks(app: string, pins: SignerPins): string[][] {
+  const checks: string[][] = [["/usr/bin/codesign", "--verify", "--deep", "--strict", app]];
+  for (const [file, identifier] of SIGNED_COMPONENTS) checks.push(["/usr/bin/codesign", "--verify", "--strict", `-R=${signerRequirement(identifier, pins)}`, join(app, file)]);
+  if (!pins.signingCertSha1) checks.push(["/usr/bin/xcrun", "stapler", "validate", app], ["/usr/sbin/spctl", "--assess", "--type", "execute", app]);
+  return checks;
+}
+export async function verifyProductionArchive(bytes: Uint8Array, arch: DesktopArch, pins: SignerPins): Promise<BundleMetadata> {
+  if (process.platform !== "darwin") throw Error("Signature verification requires macOS");
   return inspectDesktopArchive(bytes, async app => {
-    await command(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
-    for (const [file, identifier] of [["Contents/MacOS/pacer", "dev.pacer.desktop"], ["Contents/Resources/pacer", "dev.pacer.cli"], ["Contents/Resources/pacer-update-helper", "dev.pacer.desktop.update-helper"], ["Contents/Frameworks/libpacer-native.dylib", "dev.pacer.desktop.native-shim"]]) {
-      const binary = join(app, file);
-      (file.endsWith(".dylib") ? verifyNativeLibrary : verifyDesktopExecutable)(readFileSync(binary), arch);
-      await command(["/usr/bin/codesign", "--verify", "--strict", binary]);
-      const identity = await command(["/usr/bin/codesign", "-d", "--verbose=4", binary]);
-      if (!identity.split("\n").includes(`TeamIdentifier=${teamId}`) || !identity.split("\n").includes(`Identifier=${identifier}`) || !identity.includes("Authority=Developer ID Application:")) throw Error("Apple signing identity mismatch");
+    for (const [file] of SIGNED_COMPONENTS) (file.endsWith(".dylib") ? verifyNativeLibrary : verifyDesktopExecutable)(readFileSync(join(app, file)), arch);
+    for (const check of signedAppChecks(app, pins)) await command(check);
+    if (!pins.signingCertSha1) {
+      for (const [file, identifier] of SIGNED_COMPONENTS) {
+        const identity = await command(["/usr/bin/codesign", "-d", "--verbose=4", join(app, file)]);
+        if (!identity.split("\n").includes(`TeamIdentifier=${pins.appleTeamId}`) || !identity.split("\n").includes(`Identifier=${identifier}`) || !identity.includes("Authority=Developer ID Application:")) throw Error("Apple signing identity mismatch");
+      }
     }
-    await command(["/usr/bin/xcrun", "stapler", "validate", app]);
-    await command(["/usr/sbin/spctl", "--assess", "--type", "execute", app]);
     const metadata = JSON.parse(readFileSync(join(app, "Contents/Resources/pacer-release.json"), "utf8")) as BundleMetadata;
     if (metadata.nativeTransportAbi !== 1) throw Error("Signed native transport ABI mismatch");
     const info = parsePlistDictionary(readFileSync(join(app, "Contents/Info.plist"), "utf8"));

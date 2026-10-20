@@ -25,7 +25,7 @@ function fixture() {
     writeFileSync(join(dir, name), bytes); writeFileSync(join(dir, name + ".sig"), signing.signature(bytes));
   }
   const options: DesktopReleaseOptions = {
-    mode: "fixture", publicKey: signing.publicKey, teamId: "FIXTURE123",
+    mode: "fixture", publicKey: signing.publicKey, pins: { appleTeamId: "FIXTURE123" },
     verifyArchive: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true }),
   };
   let promotions = 0;
@@ -134,4 +134,24 @@ test("feed text limits match the native private wire in UTF8 bytes", async () =>
   const raw = Buffer.from(readFileSync(signature, "utf8"), "base64").toString().replace("untrusted comment: fixture", "untrusted comment: " + "x".repeat(6000));
   writeFileSync(signature, Buffer.from(raw).toString("base64"));
   await expect(buildDesktopFeed(f.dir, "1.2.3", f.options)).rejects.toThrow();
+});
+
+test("release validation requires a valid signer pin before reading any asset", async () => {
+  const f = fixture();
+  for (const pins of [{}, { appleTeamId: "bad" }, { signingCertSha1: "a".repeat(40) }])
+    await expect(buildDesktopFeed(f.dir, "1.2.3", { ...f.options, pins })).rejects.toThrow("trust inputs");
+  expect(await buildDesktopFeed(f.dir, "1.2.3", { ...f.options, pins: { signingCertSha1: "A".repeat(40) } })).toContain("darwin-aarch64");
+});
+test("interim archives are verified by certificate requirement, Developer ID archives by notarization", async () => {
+  const { signedAppChecks } = await import("../scripts/release/desktop-verify");
+  const cert = "2C5405FB6D2906AE2049D59B9DF5D42661997922";
+  const self = signedAppChecks("/a/pacer.app", { signingCertSha1: cert }).map(a => a.join(" "));
+  expect(self).toContain(`/usr/bin/codesign --verify --strict -R=identifier "dev.pacer.cli" and certificate leaf = H"${cert}" /a/pacer.app/Contents/Resources/pacer`);
+  expect(self.join("\n")).not.toMatch(/stapler|spctl/);
+  const apple = signedAppChecks("/a/pacer.app", { appleTeamId: "ABCDE12345" }).map(a => a.join(" "));
+  expect(apple).toContain("/usr/bin/xcrun stapler validate /a/pacer.app");
+  expect(apple).toContain("/usr/sbin/spctl --assess --type execute /a/pacer.app");
+  const bridge = signedAppChecks("/a/pacer.app", { appleTeamId: "ABCDE12345", signingCertSha1: cert }).map(a => a.join(" "));
+  expect(bridge.join("\n")).not.toMatch(/stapler|spctl/);
+  expect(bridge.some(c => c.includes("or certificate leaf"))).toBe(true);
 });

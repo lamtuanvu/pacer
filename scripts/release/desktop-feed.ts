@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { compareVersions } from "../../src/update/version";
 import { verifyProductionArchive } from "./desktop-verify";
+import { validSignerPins, type SignerPins } from "../../src/update/desktop/signer-requirement";
 
 export const DESKTOP_FEED_URL = "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json";
 export const DESKTOP_ARCHES = ["aarch64", "x86_64"] as const;
@@ -12,7 +13,8 @@ export type BundleMetadata = { schema: number; version: string; arch: string; bu
 export interface DesktopReleaseOptions {
   mode: "production" | "fixture";
   publicKey: string;
-  teamId: string;
+  /** Compiled signer pins the archives must satisfy (Team ID, interim certificate, or both). */
+  pins: SignerPins;
   /** Only explicit fixture mode may replace macOS validation. Production always uses the actual OS verifier. */
   verifyArchive?: (bytes: Uint8Array, arch: DesktopArch) => Promise<BundleMetadata>;
 }
@@ -54,13 +56,13 @@ function input(path: string, max = 512 * 1024 * 1024): Buffer {
 }
 const releaseSchema = z.object({ schema: z.literal(1), version: z.string(), notes: z.string().refine(text => Buffer.byteLength(text, "utf8") <= 32768, "Desktop notes exceed native wire limit"), pub_date: z.iso.datetime() }).strict();
 function productionOptions(): DesktopReleaseOptions {
-  const publicKey = process.env.PACER_OTA_PUBLIC_KEY, teamId = process.env.PACER_APPLE_TEAM_ID;
-  if (!publicKey || !teamId || !/^[A-Z0-9]{10}$/.test(teamId)) throw Error("Production desktop trust inputs are not configured");
-  return { mode: "production", publicKey, teamId };
+  const publicKey = process.env.PACER_OTA_PUBLIC_KEY, pins = { appleTeamId: process.env.PACER_APPLE_TEAM_ID || null, signingCertSha1: process.env.PACER_SIGNING_CERT_SHA1 || null };
+  if (!publicKey || !validSignerPins(pins)) throw Error("Production desktop trust inputs are not configured");
+  return { mode: "production", publicKey, pins };
 }
 async function validate(releaseDir: string, version: string, options: DesktopReleaseOptions) {
   stableVersion(version);
-  if (!options.publicKey || !/^[A-Z0-9]{10}$/.test(options.teamId)) throw Error("Invalid desktop trust inputs");
+  if (!options.publicKey || !validSignerPins(options.pins)) throw Error("Invalid desktop trust inputs");
   if (options.mode === "production" && options.verifyArchive) throw Error("Production desktop validation cannot use a fixture verifier");
   const manifestName = `desktop-release-${version}.json`, manifestBytes = input(join(releaseDir, manifestName), 128 * 1024);
   const manifest = releaseSchema.parse(JSON.parse(manifestBytes.toString("utf8")));
@@ -71,7 +73,7 @@ async function validate(releaseDir: string, version: string, options: DesktopRel
     const name = desktopAssetName(version, arch), bytes = input(join(releaseDir, name)), signatureBytes = input(join(releaseDir, name + ".sig"), 8193), signature = signatureBytes.toString("utf8").trim();
     if (signature.length > 8192) throw Error("Desktop signature exceeds native wire limit");
     verifyUpdateSignature(bytes, signature, options.publicKey, version);
-    const metadata = options.mode === "fixture" ? await options.verifyArchive?.(bytes, arch) : await verifyProductionArchive(bytes, arch, options.teamId);
+    const metadata = options.mode === "fixture" ? await options.verifyArchive?.(bytes, arch) : await verifyProductionArchive(bytes, arch, options.pins);
     if (!metadata || metadata.schema !== 1 || metadata.version !== version || metadata.arch !== arch || metadata.bundleId !== "dev.pacer.desktop" ||
         metadata.protocolMajors.length !== 1 || metadata.protocolMajors[0] !== 3 || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || !metadata.rollbackCompatible || metadata.fixture !== (options.mode === "fixture")) throw Error("Signed desktop metadata/identity mismatch");
     platforms[`darwin-${arch}`] = { url: `https://github.com/lamtuanvu/pacer/releases/download/v${version}/${name}`, signature, sha256: digest(bytes), bundleId: metadata.bundleId, protocolMajors: metadata.protocolMajors, admissionProtocol: 1, rollbackCompatible: true };

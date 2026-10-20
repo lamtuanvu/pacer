@@ -30,7 +30,7 @@ export async function fixtureFeedDryRun(root: string) {
       await Bun.write(artifact, await archive.blob());
       await signer(["signer", "sign", "--private-key-path", key, "--password", "disposable-fixture", "--app-version", version, artifact]);
     }
-    const options: DesktopReleaseOptions = { mode: "fixture", publicKey, teamId: "FIXTURE123", verifyArchive: async bytes => {
+    const options: DesktopReleaseOptions = { mode: "fixture", publicKey, pins: { appleTeamId: "FIXTURE123" }, verifyArchive: async bytes => {
       const file = (await new Bun.Archive(gunzipSync(bytes)).files()).get("pacer.app/Contents/Resources/pacer-release.json");
       if (!file) throw Error("Missing fixture metadata");
       return JSON.parse(await file.text());
