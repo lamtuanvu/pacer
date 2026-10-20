@@ -104,3 +104,13 @@ test("every task, session, executor and pace state has a complete descriptor", a
   expect(taskStatus({state:'running',progress:{phase:'idle'}})).toEqual(sessionStatus('idle'));
   for (const getter of [sessionStatus, executorStatus, paceStatus]) expect(getter('future_state').tone).toBe('neutral');
 });
+
+test("executor warnings distinguish task history from a failed readiness check", async () => {
+  const { executorRowStatus } = await import("../src/view-model/words");
+  expect(executorRowStatus({ state: "failing", recentFailures: 6, lastCheck: { passed: true } }))
+    .toEqual({ label: "Recent task failures", tone: "warn", glyph: "!" });
+  expect(executorRowStatus({ state: "failing", recentFailures: 6, lastCheck: { passed: false } }).label)
+    .toBe("Failing");
+  expect(executorRowStatus({ state: "failing", recentFailures: 2 }).label).toBe("Recent task failures");
+  expect(executorRowStatus({ state: "ready", recentFailures: 1, lastCheck: { passed: true } }).label).toBe("Ready");
+});

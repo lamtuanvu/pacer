@@ -85,7 +85,10 @@ const endpointStates: Record<string, Status> = {
   external: status("External provider", "neutral", "■"),
 };
 /** An executor row's label: a ready but not-tested endpoint reads "Not tested", like its account. */
-export function executorRowStatus(row: { state: string; untested?: boolean }): Status {
+export function executorRowStatus(row: { state: string; untested?: boolean; recentFailures?: number; lastCheck?: { passed: boolean } | null }): Status {
+  if (row.state === "failing" && row.lastCheck?.passed !== false && (row.recentFailures ?? 0) >= 2) {
+    return status("Recent task failures", "warn", "!");
+  }
   return row.state === "ready" && row.untested ? endpointStates.not_tested! : executorStatus(row.state);
 }
 export interface AccountStateInput { kind?: string; signedIn?: boolean | null; state?: string | { state?: string } }
