@@ -45,7 +45,11 @@ at its published API port (or its standard internal port, 41343). Otherwise the
 tool is still detected by path, but its local model is left unset and can be
 configured later.
 Ask your planner for work in your repository — it delegates through pacer.
-Use `pacer open` to watch and `pacer doctor` to check the installation.
+Use `pacer open` to watch and `pacer doctor` to check the installation. In the app, open **Settings → Diagnostics → Run checks** for the same results and suggested repairs. Checks do not change agent installations.
+
+Diagnostics distinguishes **Configured** settings, **Tested working · fixture** handler behavior, and **Unverified** host invocation. The fixed Claude handler probes use isolated synthetic state; they never execute command strings from settings. They test Agent/Task denial, exploration/direct-edit allowance and session-context JSON. They do not prove that an installed command launches or that Claude fires it. Inspect `/hooks`, disabled hooks, project settings and launch overrides in the intended Claude account, then use a new session’s debug output to confirm invocation. The delegation guard covers Agent and Task subagents; normal direct edits are outside its scope. `PACER=off`, executor sessions, another selected planner, relaxed mode, unknown usage and no available executor can allow subagent calls.
+
+The selected planner account determines the settings folder inspected. When another planner is selected, installed Claude integrations remain unverified with informational guidance to select the intended Claude account before checking its settings. A service `CLAUDE_CONFIG_DIR` mismatch is reported; the service cannot infer a separately launched Claude session’s environment. Preview a reconnect before repairing configuration, and use the named `claude-code#account` target when repairing a named account. Existing unrelated hooks remain owned by their original installer.
 
 ## Setup with pacer init
 
