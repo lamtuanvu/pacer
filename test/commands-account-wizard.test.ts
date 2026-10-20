@@ -133,3 +133,28 @@ test("migration notices print one line per console.log call", async () => {
   expect(calls.some(call => String(call[0]).startsWith("Backup:"))).toBe(true);
   for (const call of calls) expect(call).toHaveLength(1);
 });
+
+// Discovered models whose names are blank pass the wizard's questions and fail only at save.
+const blankNames = async () => Response.json({data: [
+  {id: "model-a", display_name: " ", context_length: 128000, max_output_tokens: 16000},
+  {id: "model-b", display_name: "  ", context_length: 128000, max_output_tokens: 16000},
+]});
+
+test("interactive endpoint save shows every line of a validation error", async () => {
+  const ctx = setup();
+  const s = script(["3", "work", "http://localhost/v1", "none", "1,2", "unmetered", "n"], {fetch: blankNames});
+  const result = await accountCmd(["add"], ctx, s.deps);
+  expect(result.code).not.toBe(0);
+  expect(result.err).toContain("invalid strategy");
+  expect(result.err).toContain("models.0.name must be non-empty");
+  expect(result.err).toContain("models.1.name must be non-empty");
+});
+
+test("endpoint API operations return every line of a validation error", async () => {
+  const ctx = setup();
+  const {callOp} = await import("../src/api/ops");
+  const models = [{id: "model-a", name: " ", context: 128000, output: 16000, tools: true}, {id: "model-b", name: "  ", context: 128000, output: 16000, tools: true}];
+  const error = await callOp(ctx, "account.add", {kind: "endpoint", name: "work", base_url: "http://localhost/v1", key_source: "none", models, usage: "unmetered", test: false}).then(() => null, (e: Error) => e);
+  expect(error?.message).toContain("models.0.name must be non-empty");
+  expect(error?.message).toContain("models.1.name must be non-empty");
+});
