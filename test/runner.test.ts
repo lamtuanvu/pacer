@@ -97,9 +97,9 @@ test("requested executor is used alone; unavailable requested executor explains 
   expect(r.result?.executor).toBe("agy");
   const exhausted = deps({ cursor: outcomeFor("cursor", 0) }, status({ codex: { verdict: "EXHAUSTED" } }));
   const r2 = await runTask(ctx, newTask(ctx, { requestedExecutor: "codex" }).id, exhausted);
-  expect(exhausted.calls).toEqual(["cursor"]);
-  expect(r2.result).toMatchObject({ status: "done", executor: "cursor" });
-  expect(r2.result?.report).toContain("requested codex unavailable (exhausted); ran on cursor");
+  expect(exhausted.calls).toEqual([]);
+  expect(r2.state).toBe("failed");
+  expect(r2.result?.report).toContain('requested executor "codex" is unavailable (exhausted)');
 });
 
 test("no executor available at all reports the exclusions; the planner is never used", async () => {
@@ -336,6 +336,12 @@ for (const unavailable of ["blocked", "broken", "not in the routing list"] as co
   const requestedExecutor = unavailable === "not in the routing list" ? "missing" : "cursor";
   const d = deps({ codex: outcomeFor("codex", 0) }, status({ cursor: unavailable === "blocked" ? { blockedReason: "manual" } : { brokenReason: "bad CLI" } }));
   const r = await runTask(ctx, newTask(ctx, { requestedExecutor }).id, d);
+  if (unavailable === "blocked") {
+    expect(d.calls).toEqual([]);
+    expect(r.state).toBe("failed");
+    expect(r.result?.report).toContain("Blocked by you");
+    return;
+  }
   expect(d.calls).toEqual(["codex"]);
   expect(r.state).toBe("done");
   expect(r.result?.report).toContain(`requested ${requestedExecutor} unavailable (`);
@@ -392,7 +398,7 @@ test("timed out executor with changes stays failed", async () => {
   const bin = tmpDir(); writeFileSync(join(bin, "cursor-agent"), "#!/bin/sh\necho 'error: unknown option --force' >&2\nexit 2\n"); chmodSync(join(bin, "cursor-agent"), 0o755);
   const ctx = fakeCtx({ run: realRun, env: { PATH: `${bin}:${process.env.PATH}` } }), repo = gitRepo();
   writeFileSync(join(repo, "planner-wip.txt"), "planner changes stay in the original repo");
-  const t = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: "cursor", timeoutS: 30 });
+  const t = createTask(ctx, { brief: { goal: "g", repo, worktreeBase: "head" }, kind: null, requestedExecutor: "cursor", timeoutS: 30 });
   const done = await runTask(ctx, t.id, { ...deps({}), runAttempt, computeStatus: async () => status({ codex: { installed: false }, agy: { installed: false } }) });
   expect(done.attempts[0].brokenReason).toContain("unknown option");
  });

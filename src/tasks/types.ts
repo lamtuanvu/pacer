@@ -17,6 +17,7 @@ export interface Brief {
   feedback?: string;
   qa?: { q: string; a: string }[];
   base?: string;
+  worktreeBase?: "default" | "head";
 }
 
 export interface RoutingNote {
@@ -125,6 +126,7 @@ export interface TaskRecord {
   resolved?: string;
   resolutionCheckedAt?: number;
   baseBranch?: string;
+  baseSha?: string;
   placement?: TaskPlacement;
   worktree?: string;
   id: string;

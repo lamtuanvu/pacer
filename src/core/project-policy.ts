@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import { resolveRepo, resolveRepoInput } from "./repos";
+import { resolveRepoInput } from "./repos";
 import type { Strategy } from "../config/strategy";
 import { projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { resolveProjectSelection, type ProjectSelection } from "../engine/project-routing";
@@ -19,7 +19,7 @@ export function requireProjectExecutor(selection: ProjectSelection | undefined, 
 /** Stored task identity is authoritative; inconclusive new probes must fail closed. */
 export async function resolvePolicyRepo(ctx: Ctx, path: string) {
   const strict = Object.values(readProjectStrategies(ctx).projects).some(p => p.executors !== null);
-  const repo = await resolveRepo(ctx, path, strict);
+  const repo = await resolveRepoInput(ctx, path, strict);
   requirePolicyIdentity(ctx, repo);
   return repo;
 }
