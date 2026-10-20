@@ -230,3 +230,7 @@ clears the mark. Account attention offers **Sign in** and **Disable** for enable
 executors using that account. The planner cannot be disabled or removed, and
 accounts referenced by executors show why they cannot be removed. After opening
 sign-in, the service checks usage every 15 seconds for up to ten minutes.
+
+## Eligibility evidence
+
+Account evidence is stored by account source identity. Replacing an account home or source does not reuse its previous evidence. Availability, quota and spending signals have separate timestamps. See [execution eligibility](executors.md#execution-eligibility-and-evidence) for freshness and recovery rules.

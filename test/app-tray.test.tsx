@@ -1,3 +1,4 @@
+import { eligibility } from "./fixtures/eligibility";
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { emptySnapshot } from "../src/link/envelope";
@@ -14,14 +15,14 @@ import { fakeCtx } from "./helpers";
 
 function fixture(): ClientSnapshot {
   const task = (i: number): ClientTask & { title: string } => ({ id: `task-${i}`, title: `Fix retry ${i}`, goal: `A long detailed goal ${"with many words ".repeat(12)}`, state: "running", executor: "codex", backend: null, worktree: null, updatedAt: 100, attemptStartedAt: 100, progress: { phase: i === 1 ? "idle" : "testing", lastOutputAt: 200, files: 1, commits: 0, logBytes: 10 } });
-  const executor: ExecutorRow = { id: "codex#team", agent: "codex", account: "team", host: null, model: null, rank: 1, enabled: true, state: "busy", tone: "info", sub: "Working", usedPct: 41, pacePct: 58, slots: { used: 1, max: 2 }, lastCheck: null, recentFailures: 0, next: true };
+  const executor: ExecutorRow = { eligibility: eligibility(), id: "codex#team", agent: "codex", account: "team", host: null, model: null, rank: 1, enabled: true, state: "busy", tone: "info", sub: "Working", usedPct: 41, pacePct: 58, slots: { used: 1, max: 2 }, lastCheck: null, recentFailures: 0, next: true };
   return {
     ...emptySnapshot(), at: 1000,
     planner: { runner: "gemini", agent: "gemini", usedPct: 63, pacePct: 77, deltaPts: -14, verdict: "behind", activeHoursLeft: 5, resetsAt: 2000, window: "week", stale: false, advice: "Available", mode: "normal" },
     tasks: [0, 1].map<ClientTask>(i => ({ ...task(i), repo: { key: "pacer", label: "pacer", path: "$HOME/pacer" } })).concat(Array.from({ length: 14 }, (_, i) => ({ ...task(i + 5), title: i ? `Queued task ${i}` : "Review screen", state: "queued", queue: { reason: "no_slot" as const, since: 100, position: i + 1 } }))),
     today: { since: 0, done: 3, accepted: 0, rejected: 0, failed: 0, byRepo: {} },
     attention: [0, 1, 2, 3, 4].map(i => ({ id: `attention-${i}`, kind: i === 1 ? "question" : i === 2 ? "review" : "failed", severity: "problem", repo: { key: "pacer", label: "pacer", path: "$HOME/pacer" }, taskId: `task-${i}`, title: `Attention ${i}`, detail: `Failed twice ${i}`, raisedAt: i, since: i, notify: "all", actions: [{ label: i === 1 ? "Answer" : i === 2 ? "Review" : "Retry", ...(i === 0 ? { style: "primary" as const } : {}), op: "task.retry", params: { id: `task-${i}`, executor: "codex" } }, { label: "See error", op: "ui.open", params: { view: "task", id: `task-${i}` } }] })),
-    executors: [executor, { ...executor, id: "cursor", agent: "cursor", state: "down", tone: "bad", usedPct: 92, pacePct: null }],
+    executors: [executor, { ...executor, id: "cursor", agent: "cursor", eligibility: { ...eligibility("ineligible"), reasons: [{ code: "unavailable", evidenceIds: [] }] }, state: "down", tone: "bad", usedPct: 92, pacePct: null }],
     strategies: [{ name: "default", active: true, summary: "Default", description: "" }, "weekend"],
     pause: null,
     // The tray must ignore stale budget-provider usage for executors.
@@ -270,7 +271,7 @@ test("Needs-you reasons show the shared status once and preserve distinct eviden
 
 test("unknown capacity never reads free or shows a ready glyph; unavailable capacity stays dimmed", () => {
   const base = fixture().executors![0]!;
-  const unknown: ExecutorRow = { ...base, id: "opencode#byteplus", agent: "opencode", account: "byteplus", state: "ready", tone: "good", sub: "Usage unknown", usedPct: null, pacePct: null, paceReason: "no limit reported", slots: { used: 0, max: 1 } };
+  const unknown: ExecutorRow = { ...base, eligibility: undefined, id: "opencode#byteplus", agent: "opencode", account: "byteplus", state: "ready", tone: "good", sub: "Usage unknown", usedPct: null, pacePct: null, paceReason: "no limit reported", slots: { used: 0, max: 1 } };
   for (const slots of [{ used: 0, max: 1 }, { used: 1, max: 1 }]) {
     const row = { ...unknown, slots };
     expect(executorValue(row)).toBe("?");

@@ -2,6 +2,17 @@ import type { EligibilityDecision, EligibilityInput } from "../evidence/types";
 import { appliesTo, currentEvidence, evidenceDeadline } from "./evidence";
 import { EXHAUSTED_PCT } from "./verdict";
 
+/** Routing may learn a host or user restriction after the account snapshot. */
+export function restrictEligibility(decision: EligibilityDecision | undefined, code?: string): EligibilityDecision {
+  const current = decision ?? {
+    state: "uncertain", reasons: [{ code: "evidence_missing", evidenceIds: [] }],
+    evaluatedAt: 0, validUntil: null, evidenceAgeS: null,
+    availability: "unknown", budget: "unknown", spendingRisk: "unknown",
+  } satisfies EligibilityDecision;
+  if (!code) return current;
+  return { ...current, state: "ineligible", reasons: [...current.reasons.filter(r => r.code !== code), { code, evidenceIds: [] }] };
+}
+
 /** Execution permission is independent of pacing and never inferred from UNKNOWN. */
 export function evaluateEligibility(input: EligibilityInput): EligibilityDecision {
   const { now, scope, usage, allowPaid } = input;
@@ -19,7 +30,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityDecisio
   const noBudgetRequired = usage === "reactive" || usage === "unmetered";
   const unknownBudget = !noBudgetRequired && (!budget.length || liveBudget.length !== budget.length || liveBudget.some(f => f.value.usedPct === null));
   const deadlines = [...availability.map(f => f.validUntil), ...budget.map(evidenceDeadline)].filter((v): v is number => v !== null && v > now);
-  const times = all.map(f => f.observedAt).filter((v): v is number => v !== null && v <= now);
+  const times = all.filter(f => f.source !== "configuration").map(f => f.observedAt).filter((v): v is number => v !== null && v <= now);
   const decision: EligibilityDecision = {
     state: "eligible", reasons: [], evaluatedAt: now,
     validUntil: deadlines.length ? Math.min(...deadlines) : null,

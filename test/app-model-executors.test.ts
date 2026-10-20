@@ -4,7 +4,7 @@ test("executor states describe verified readiness and overrides", () => {
   const runner = { id: "opencode#local", state: "ok" as const, until: null, reason: null };
   expect(executorStatus(runner).label).toBe("Not tested");
   expect(executorStatus(runner, { name: "local", kind: "endpoint" }).label).toBe("External OpenCode provider");
-  expect(executorStatus(runner, { name: "local", kind: "endpoint", state: "ready" }).label).toBe("Ready");
+  expect(executorStatus(runner, { name: "local", kind: "endpoint", state: "ready" }).label).toBe("Eligibility unknown");
   expect(executorStatus({ ...runner, state: "blocked" }).label).toBe("Blocked until unblocked");
   expect(executorStatus({ ...runner, state: "exhausted", until: 100 }).label).toContain("Limited until");
   expect(executorStatus({ ...runner, state: "broken", reason: "key refused" }).detail).toBe("key refused");

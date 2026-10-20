@@ -74,7 +74,7 @@ test("pump alerts once when a new strategy appears and includes header author",a
 test("preview and saved YAML use identical indented blocks and a final newline",async()=>{
  const ctx=await setup(), draft={from:"default",set:{"pacing.planner_reserve":25}};
  const result=await s.preview(ctx,draft);
- const expected="planner: claude-code\nproviders: \n  claude-code: \n    usage: reactive\n  codex: \n    usage: reactive\n  agy: \n    usage: reactive\npacing: \n  order: \n    - codex\n    - agy\n  planner_reserve: 25\nrouting: \n  - default: \n      - codex\n      - agy\n";
+ const expected="planner: claude-code\nproviders:\n  claude-code:\n    usage: reactive\n  codex:\n    usage: reactive\n  agy:\n    usage: reactive\npacing:\n  order:\n    - codex\n    - agy\n  planner_reserve: 25\nrouting:\n  - default:\n      - codex\n      - agy\n";
  expect(result.yaml).toBe(expected);
  s.save(ctx,"block",draft,"approved");
  expect(s.show(ctx,"block").yaml.split("\n").slice(2).join("\n")).toBe(expected);

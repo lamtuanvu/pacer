@@ -104,7 +104,7 @@ test("missing Orca falls back to native Claude and reactive Cursor", async () =>
   }, "/strategy");
   const st = await computeStatus(ctx, s, {profile: null});
   expect(st.accounts.find(a => a.name === "claude-code")?.usedPct).toBe(37);
-  expect(st.accounts.find(a => a.name === "cursor")?.usedPct).toBe(0);
+  expect(st.accounts.find(a => a.name === "cursor")?.usedPct).toBeNull();
 });
 
 test("Orca parsing exposes safe ids and labels without email fields or values", async () => {
@@ -181,7 +181,7 @@ test("Orca command failures and malformed output fall back without leaking stdou
     expect(await readOrcaAccounts(ctx)).toBeNull();
     const st = await computeStatus(ctx, orcaStrategy(), {profile: null});
     expect(JSON.stringify(st)).not.toContain("synthetic@example.invalid");
-    expect(st.accounts.find(a => a.name === "cursor")?.usedPct).toBe(0);
+    expect(st.accounts.find(a => a.name === "cursor")?.usedPct).toBeNull();
   }
 });
 

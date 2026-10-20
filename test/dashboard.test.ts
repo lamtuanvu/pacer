@@ -11,7 +11,7 @@ function snapshot():ClientSnapshot { return structuredClone(fixture) as unknown 
 test("dashboard fixture at 80 and 120 columns",()=>{
  for(const width of [80,120]){
   const text=renderDashboard(snapshot(),width,50,fixture.at,{selected:0,noColor:true,repo:"acme/api",branch:"main",version:"0.2.3",ops:["host.check","host.set","task.retry","task.review"]});
-  expect(text).toMatchSnapshot();
+  expect(text.split("\n").map(line=>line.trimEnd()).join("\n")).toMatchSnapshot();
   expect(text.split("\n").every(line=>line.length<=width)).toBe(true);
  }
 });
@@ -96,7 +96,7 @@ test("board rows keep actions, columns, idle tone and responsive done layout",()
   expect(needs).toHaveLength(4);
   expect(needs[0]).toContain("[⏎ run checks] [2 pause host]");
   expect(needs[2]).toContain("Codex ·");
-  const capacity=lines.slice(lines.indexOf("WHO RUNS NEXT 4")+2,lines.indexOf("RUNNING 2 · QUEUED 1")).filter(Boolean);
+  const capacity=lines.slice(lines.indexOf("WHO RUNS NEXT 4")+2,lines.indexOf("RUNNING 2 · QUEUED 1")).filter(Boolean).filter((_,i)=>i%2===0);
   expect(capacity).toHaveLength(s.executors!.length);
   expect(capacity[1]).toContain("team");expect(capacity[1]).toContain("week");
   expect(capacity[1]).toContain("3%");expect(capacity[1]).toContain("1/3");

@@ -63,7 +63,7 @@ const line20 = renderLine(snapshot, { width: 20, color: false });
 const surfaces = { app, tray, "panel this repo": panelScope(panelRepo, "here"), "panel all repos": panelScope(panelAll, "all"), tui };
 
 for (const [name, output] of Object.entries({ app, tray, panelRepo, panelAll, tui, line120, line20 })) {
-  test(`golden ${name}`, () => expect(output).toMatchSnapshot());
+  test(`golden ${name}`, () => expect(name === "tui" ? output.split("\n").map(line => line.trimEnd()).join("\n") : output).toMatchSnapshot());
 }
 
 test("golden --line --json fields use the fixture through the local link", async () => {

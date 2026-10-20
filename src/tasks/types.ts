@@ -20,6 +20,8 @@ export interface Brief {
 }
 
 export interface RoutingNote {
+  eligibility?: import("../evidence/types").EligibilityDecision;
+  fallback?: "uncertain";
   policy?: { source: "project"; repoKey: string; rev: number; executors: string[] };
   kind: string | null;
   kindSource: "brief" | "classifier";

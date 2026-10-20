@@ -60,6 +60,25 @@ test("no logs is an error reading, not an exception", async () => {
   expect(r.error).toContain("Codex");
 });
 
+test("a future quota event cannot hide an earlier valid event in the same log", async () => {
+  const ctx = fakeCtx({ now: 1791640000 });
+  await rollout(ctx.home, "10", "future", [
+    line({ used_percent: 20, window_minutes: 300 }, null, "2026-10-10T12:00:00Z"),
+    line({ used_percent: 100, window_minutes: 300 }, null, "2027-10-10T12:00:00Z"),
+  ], ctx.now);
+  expect((await readCodex(ctx)).windows[0]?.usedPct).toBe(20);
+});
+
+test("equal-time quota conflicts within a log survive as alternative observations", async () => {
+  const ctx = fakeCtx({ now: 1791640000 });
+  await rollout(ctx.home, "10", "conflict", [
+    line({ used_percent: 20, window_minutes: 300 }),
+    line({ used_percent: 40, window_minutes: 300 }),
+  ], ctx.now);
+  const reading = await readCodex(ctx);
+  expect([reading.windows[0]?.usedPct, ...reading.alternatives!.map(r => r.windows[0]?.usedPct)].sort()).toEqual([20, 40]);
+});
+
 test("out-of-order events and unrelated file writes do not renew quota evidence", async () => {
   const ctx = fakeCtx({ now: 1791640000 });
   await rollout(ctx.home, "10", "order", [

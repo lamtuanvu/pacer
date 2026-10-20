@@ -95,6 +95,8 @@ The snapshot preserves `v`, `seq`, `at`, `budget`, `mode`, `tasks`, `alerts`, `c
 | `repos` | Known repositories ordered by last use: `{ key, label, path }`, with canonical host/owner/repo or local hash key and main-checkout path |
 | `setup` | Complete flag, count of required items open, and items with id, title, status and required flag |
 
+Executor, account and planner rows add optional `eligibility`: `{ state, reasons, evaluatedAt, validUntil, evidenceAgeS, availability, budget, spendingRisk }`. `state` is `eligible`, `uncertain` or `ineligible`; reasons contain stable `code` and `evidenceIds`. Missing fields on older services mean unknown eligibility. Timestamps are Unix seconds; a null deadline or age means unavailable, not fresh evidence. These fields do not change the protocol major.
+`routing.route` includes eligibility on ranked and excluded candidates, an `uncertain` subset and `fallback: "uncertain"` on automatic fallback candidates. Eligible choices precede uncertain ones within global and project routing. Attempts preserve the launch decision and fallback in `routing`. Preflight refreshes supported sources and checks evidence/configuration again before dispatch. Pacing verdicts and legacy state enums are not execution permission. Credits alone do not permit paid execution; `spendingRisk: "unknown"` does not mean no paid usage.
 Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Parallel tasks use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with a shared execution.local_max_tasks limit (default 2). Tasks wait with queue { reason, since, position, limit?, capacity? }; no_slot waits add limit (`executor`, `machine` or `host`) and capacity `{used,max}` at the last scheduling check. Paused waits omit these capacity fields. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
 
 Repository identity and existence reads use an in-memory cache. New paths can initially use their absolute unresolved identity until an async probe completes. Registry probes refresh at most once a minute; timeouts retain the last known value, and only confirmed missing repos without active or recent tasks are hidden. Task resolution uses bounded async filesystem and git reads, so stalled volumes do not block snapshots or event replay.
@@ -1661,7 +1663,7 @@ Params JSON Schema:
 
 ### `routing.route`
 
-Rank executors for an optional task kind.
+Rank confirmed eligible executors before labelled uncertain fallbacks for an optional task kind.
 
 Params JSON Schema:
 

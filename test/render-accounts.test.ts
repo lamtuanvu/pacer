@@ -1,3 +1,4 @@
+import { restrictEligibility } from "../src/engine/eligibility";
 import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -35,8 +36,8 @@ function boardSnapshot(st:Status, strategy:Strategy) {
 }
 test("account-form status identifies each runner and its agent/account",async()=>{
  const st=await status();
- expect(renderText(st)).toContain("Codex (team): weekly 34%");
- expect(renderText(st)).toContain("BytePlus: local, unmetered OK");
+ expect(renderText(st)).toContain("Codex (team): Eligible · Execution permitted · observed 0s ago · weekly 34%");
+ expect(renderText(st)).toContain("BytePlus: Eligible · Execution permitted");
  expect(renderText(st)).toMatchSnapshot();
  expect(renderLine(st, { color: false })).toContain("Claude Code 34%");
  expect(renderLine(st).split("\n")).toHaveLength(1);
@@ -59,11 +60,11 @@ test("panel runner commands accept account ids and still refuse unsafe executor 
 });
 test("usage-only accounts keep their measured budget in unavailable rows",async()=>{
  const st=await status(),p=st.providers.find(p=>p.id==="codex#team")!;
- p.unavailableReason="account folder not found";
+ p.unavailableReason="account folder not found"; p.eligibility=restrictEligibility(p.eligibility,"unavailable");
  const s=parseSnapshot({...emptySnapshot(),budget:toBudget(st)})!;
  expect(rankedProviders(s).map(p=>p.id)).not.toContain("Codex (team)");
  expect(mutedProviders(s).find(p=>p.id==="codex#team")).toMatchObject({usedPct:34,account:"team",unavailableReason:"account folder not found"});
- expect(renderText(st)).toContain("usage-only · account folder not found · weekly 34%");
+ expect(renderText(st)).toContain("Unavailable · Executor is unavailable · observed 0s ago · weekly 34%");
  expect(headline({...s.budget!.providers.find(p=>p.id==="codex#team")!,verdict:"AHEAD"})).toStartWith("Codex (team) is ahead");
 });
 test("shared accounts group runner rows without changing executor preference",async()=>{
@@ -90,11 +91,11 @@ test("shared accounts group runner rows without changing executor preference",as
 });
 test("legacy strategies keep existing status and link presentation",async()=>{
  const ctx=fakeCtx(),st=await computeStatus(ctx,validateStrategy({planner:"claude-code",providers:{local:{via:"opencode",model:"api/code",usage:"unmetered"}}},"test"),{profile:null});
- expect(renderText(st)).toContain("- Local: local, unmetered OK");
+ expect(renderText(st)).toContain("- Local: Eligible · Execution permitted");
  expect(renderText(st)).not.toContain("Account ");
  expect(toBudget(st).providers[0]).not.toHaveProperty("account");
  st.providers[0].unavailableReason="account folder not found";
- expect(renderText(st)).toContain("- Local: local, unmetered OK");
+ expect(renderText(st)).toContain("- Local: Eligible · Execution permitted");
  expect(toBudget(st).providers[0]).not.toHaveProperty("unavailableReason");
 });
 test("list commands use aligned labeled columns and JSON retains its shape",async()=>{
@@ -120,10 +121,10 @@ test("starter text preserves provider names and main route format", async () => 
  mkdirSync(ctx.pacerHome,{recursive:true});
  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),Bun.YAML.stringify(starter));
  const logs=join(ctx.home,".codex","sessions");mkdirSync(logs,{recursive:true});
- writeFileSync(join(logs,"rollout-test.jsonl"),JSON.stringify({rate_limits:{primary:{used_percent:19,window_minutes:10080,resets_at:ctx.now+604800*0.82}}}));
+ writeFileSync(join(logs,"rollout-test.jsonl"),JSON.stringify({timestamp:new Date(ctx.now*1000).toISOString(),rate_limits:{primary:{used_percent:19,window_minutes:10080,resets_at:ctx.now+604800*0.82}}}));
  const st=await computeStatus(ctx,validateStrategy(starter,"test"),{profile:null});
- expect(renderText(st)).toContain("- BytePlus: local, unmetered OK");
- expect(renderText(st)).toContain("- Local: local, unmetered OK");
+ expect(renderText(st)).toContain("- BytePlus: Eligible · Execution permitted");
+ expect(renderText(st)).toContain("- Local: Eligible · Execution permitted");
  expect(renderLine(st)).not.toContain("BytePlus");
  expect(renderLine(st)).not.toContain("Local");
  const snapshot=boardSnapshot(st,validateStrategy(starter,"test"));
@@ -132,7 +133,7 @@ test("starter text preserves provider names and main route format", async () => 
  expect(providerLabel(snapshot.budget.providers.find(p=>p.id==="opencode#byteplus")!)).toBe("BytePlus");
  const route=await main(["route"],ctx);
  expect(route.code).toBe(0);
- expect(route.out.split("\n").slice(0,4)).toEqual(["1. codex (Codex): on pace, used 19% / pace 18%","2. opencode#byteplus (BytePlus): ok","3. opencode#local (Local): ok","4. agy (Antigravity): ok, used 0%"]);
+ expect(route.out.split("\n").slice(0,4)).toEqual(["1. codex (Codex): on pace, used 19% / pace 18%","2. opencode#byteplus (BytePlus): ok","3. opencode#local (Local): ok","4. agy (Antigravity): ok"]);
  expect(route.out).not.toContain("Account ");
  expect(JSON.parse((await main(["route","--json"],ctx)).out).ranked[1].id).toBe("opencode#byteplus");
 });

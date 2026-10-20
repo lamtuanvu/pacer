@@ -1,3 +1,4 @@
+import { accountEvidenceScope } from "../src/evidence/scope";
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -5,7 +6,7 @@ import { stringify } from "yaml";
 import { main } from "../src/cli";
 import { loadStrategy } from "../src/config/strategy";
 import { check } from "../src/remote/hosts";
-import { probeCodexUsage } from "../src/remote/usage";
+import { cachedRemoteUsage, probeCodexUsage } from "../src/remote/usage";
 import { readAccountUsage } from "../src/usage";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 
@@ -44,7 +45,7 @@ test("probe parses the fake host session and caches the reading", async () => {
   expect(reading).toMatchObject({ capturedAt: ctx.now - 20, source: "session-log", remoteHost: "box", windows: [
     { name: "5h", usedPct: 45, resetsAt: ctx.now - 20 + 3600 }, { name: "weekly", usedPct: 20 },
   ] });
-  expect(JSON.parse(readFileSync(join(ctx.pacerHome, "cache", "remote-usage", "codex.json"), "utf8"))).toEqual({ reading, at: ctx.now });
+  expect(JSON.parse(readFileSync(join(ctx.pacerHome, "cache", "remote-usage", "codex.json"), "utf8"))).toEqual({ version: 2, identity: accountEvidenceScope(s.accounts.codex).identity, sourceIdentity: JSON.stringify([host.alias, host.ssh, null]), reading, at: ctx.now });
 });
 
 test("probe uses the declared remote account home", async () => {
@@ -99,3 +100,15 @@ test("host check probes Codex accounts", async () => {
   await check(ctx, "box");
   expect(await read()).toMatchObject({ remoteHost: "box", windows: [{ usedPct: 40 }, {}] });
 });
+
+ test("changed remote account home invalidates cached observations and nested alternatives", async () => {
+  const { ctx, home, s, host } = fixture();
+  session(join(home, ".codex"), ctx.now - 10, 70);
+  session(join(home, ".codex"), ctx.now - 20, 50, "rollout-other.jsonl");
+  await probeCodexUsage(ctx, host, s.accounts.codex);
+  const changed = { ...host, accounts: { ...host.accounts, codex: { home: "~/.replacement" } } };
+  const cached = cachedRemoteUsage(ctx, s.accounts.codex, { box: changed });
+  expect(cached?.capturedAt).toBeNull();
+  expect(cached?.alternatives).toBeUndefined();
+  expect(accountEvidenceScope(s.accounts.codex, { box: changed }).identity).not.toBe(accountEvidenceScope(s.accounts.codex, { box: host }).identity);
+ });

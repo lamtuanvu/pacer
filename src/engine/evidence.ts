@@ -17,6 +17,7 @@ export function observationValid(fact: Evidence<unknown>, now: number): boolean 
 }
 export function evidenceDeadline(fact: Evidence<UsageWindow>): number | null {
   if (fact.observedAt === null) return null;
+  if (fact.source === "configuration") return fact.validUntil ?? fact.value.resetsAt;
   const age = fact.value.lengthS <= 6 * 3600 ? 7200 : 86400;
   return Math.min(fact.observedAt + age, fact.validUntil ?? Infinity, fact.value.resetsAt ?? Infinity);
 }
@@ -47,7 +48,39 @@ export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEv
       if (unique.length > 1) conflicts.push(...unique.map(f => f.id));
       (facts[kind] as Evidence<unknown>[]).push(...unique);
     }
-    facts[kind].sort((a, b) => a.id.localeCompare(b.id));
   }
-  return { facts, conflicts: conflicts.sort() };
+  const measured = facts.budget.filter(f => f.source !== "execution" && f.source !== "configuration" && f.value.name !== "limit");
+  if (measured.length && measured.every(f => currentEvidence(f, now, evidenceDeadline(f)) && f.value.usedPct !== null && f.value.usedPct < 97)) {
+    facts.budget = facts.budget.filter(f => f.source !== "execution" || f.value.name !== "limit"
+      || !measured.every(sample => sample.observedAt! > (f.observedAt ?? Infinity) && appliesTo(sample, f.scope)));
+  }
+  return { facts, conflicts: conflicts.filter(id => [...facts.availability, ...facts.budget, ...facts.spending].some(f => f.id === id)).sort() };
+}
+
+/** Adapter facts are normalized without deciding whether a launch is allowed. */
+export function readingEvidence(scope: EvidenceScope, reading: import("../types").UsageReading,
+  usage: import("../types").UsageKind): AccountEvidence {
+  if (reading.evidence) return reading.evidence;
+  const facts = emptyEvidence();
+  const source = reading.source ?? "session-log";
+  const contract = usage === "reactive" || usage === "unmetered";
+  for (const window of reading.windows) {
+    if (contract && window.name === "limit" && window.usedPct === 0) continue;
+    facts.budget.push(evidenceFact(scope, source, reading.capturedAt, null, "quota_observed", window));
+  }
+  const availability = reading.availability;
+  if (availability) facts.availability.push(evidenceFact(scope, source, reading.capturedAt, availability.validUntil, availability.reason, availability.state));
+  else if (contract) facts.availability.push(evidenceFact(scope, "configuration", 0, null, "measurement_contract", "ready"));
+  else if (facts.budget.length && !reading.error && !reading.stale) {
+    const deadlines = facts.budget.map(evidenceDeadline).filter((at): at is number => at !== null);
+    facts.availability.push(evidenceFact(scope, source, reading.capturedAt,
+      deadlines.length ? Math.min(...deadlines) : null, "usage_observed", "ready"));
+  }
+  if (reading.spending) facts.spending.push(evidenceFact(scope, source, reading.capturedAt,
+    reading.capturedAt === null ? null : reading.capturedAt + 7200, "spending_observed", reading.spending));
+  for (const alternative of reading.alternatives ?? []) {
+    const other = readingEvidence(scope, alternative, usage);
+    facts.availability.push(...other.availability); facts.budget.push(...other.budget); facts.spending.push(...other.spending);
+  }
+  return facts;
 }

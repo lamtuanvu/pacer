@@ -1,3 +1,4 @@
+import { exhaustedEligibility } from "./fixtures/eligibility";
 import { expect, test } from "bun:test";
 import { validateStrategy, POLICIES } from "../src/config/strategy";
 import { rankExecutors, type ProviderStatus } from "../src/engine/rank";
@@ -13,12 +14,12 @@ for (const policy of POLICIES) test(`project order replaces global ${policy} ran
   expect(rankExecutors(null, s, st, project).ranked[0].id).toBe("cursor");
 });
 test("project hard exclusions never append healthy global runners", () => {
-  const s = strategy(), st = statuses(); st.cursor.verdict = "EXHAUSTED";
+  const s = strategy(), st = statuses(); st.cursor.verdict = "EXHAUSTED"; st.cursor.eligibility = exhaustedEligibility();
   expect(rankExecutors(null, s, st, project).ranked.map(e => e.id)).toEqual(["codex"]);
   st.codex.blockedReason = "manual";
   const result = rankExecutors(null, s, st, project);
   expect(result.ranked).toEqual([]);
-  expect(result.excluded.map(e => e.reason)).toEqual(["exhausted", "Blocked by you"]);
+  expect(result.excluded.map(e => e.reason)).toEqual(["Budget exhausted; paid execution is not allowed", "Blocked by you"]);
   expect(rankExecutors(null, s, st, { ...project, executors: ["codex#removed@local"] }).reason).toBe("no executor configured");
 });
 test("project eligibility retains planner, disabled, installation and paid overflow checks", () => {

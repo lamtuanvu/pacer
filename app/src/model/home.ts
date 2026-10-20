@@ -3,8 +3,8 @@ import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import { activeTask, needsReview, taskHref } from "./tasks";
 import { executorLabel, taskStatus, toneFor, verdictWords, type Tone } from "../../../src/view-model/words";
 import type { Account } from "./accounts";
-export interface Runner { id: string; state: "ok" | "blocked" | "broken" | "exhausted"; until: number | null; reason: string | null }
-export interface Routing { policy?: {source:"project";repoKey:string;rev:number;executors:string[]}; ranked: { id: string; verdict: string; reason: string }[]; excluded: { id: string; reason: string }[] }
+export interface Runner { eligibility?: import("../../../src/evidence/types").EligibilityDecision; id: string; state: "ok" | "blocked" | "broken" | "exhausted"; until: number | null; reason: string | null }
+export interface Routing { policy?: {source:"project";repoKey:string;rev:number;executors:string[]}; ranked: { id: string; verdict: string; reason: string; eligibility?: import("../../../src/evidence/types").EligibilityDecision }[]; excluded: { id: string; reason: string }[] }
 const plannerLabel = (verdict: string) => { const words = verdictWords(verdict); return words === "Available" ? "On pace" : words === "Unknown" ? "Usage unknown" : words; };
 export function homeModel(snapshot: ClientSnapshot, runners: Runner[], accounts: Account[] = []) {
   // A 2.x service sends the planner meter; the v1 budget is the fallback for an older one and goes away in 3.0.

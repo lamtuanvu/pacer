@@ -74,7 +74,7 @@ test("planner reserve and mode apply to its account even without a matching runn
   expect(result.providers[0].binding?.pace).toBe(40);
   expect(result.providers[1].binding?.pace).toBe(50);
   expect(result.mode).toBe("strict");
-  expect(result.executors.excluded).toContainEqual({ id: "claude-code#work", reason: "planner", account: "work" });
+  expect(result.executors.excluded).toContainEqual(expect.objectContaining({ id: "claude-code#work", reason: "planner", account: "work" }));
   expect(result.executors.ranked.map(r => r.id)).toEqual(["claude-code"]);
 });
 
@@ -92,7 +92,7 @@ routing:
     executors: [codex, local]
   - default: [codex, cursor, agy, byteplus, local]
 `;
-test("starter route JSON retains its pre-accounts output, including after migration", async () => {
+test("starter route JSON exposes labelled fallbacks and remains stable through migration", async () => {
   const ctx = withLoginIndicators(fakeCtx({ now })); mkdirSync(ctx.pacerHome, { recursive: true });
   const path = join(ctx.pacerHome, "strategy.yaml"); writeFileSync(path, starter);
   const strip = (value: unknown): unknown => Array.isArray(value) ? value.map(strip) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "account").map(([k, v]) => [k, strip(v)])) : value;
@@ -155,7 +155,7 @@ test("paid overflow is controlled by the shared account", async () => {
   expect(result.executors.ranked.map(r => r.id)).toContain("opencode#a");
 });
 
-test("an old exhausted short window still binds over a fresh weekly window", async () => {
+test("an expired exhausted short window leaves eligibility uncertain despite a fresh weekly window", async () => {
   const now = 2_000_000, ctx = fakeCtx({ now });
   const r: UsageReading = { windows: [
     { name: "weekly", usedPct: 40, resetsAt: now + 3 * 86400, lengthS: 7 * 86400, paced: true },
@@ -163,22 +163,22 @@ test("an old exhausted short window still binds over a fresh weekly window", asy
   ], capturedAt: now - 3 * 3600, stale: false, source: "status-line" };
   const st = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["plan", r]]) });
   const acct = st.accounts.find(a => a.name === "plan")!;
-  expect(acct.verdict).toBe("EXHAUSTED");
-  expect(acct).toMatchObject({ source: "status-line", capturedAt: now - 3 * 3600, stale: false });
+  expect(acct.eligibility?.state).toBe("uncertain");
+  expect(acct).toMatchObject({ source: "status-line", capturedAt: now - 3 * 3600, stale: true });
   const provider = st.providers.find(p => p.account === "plan")!;
-  expect(provider.stale).toBe(false);
-  expect(provider.verdict).toBe("EXHAUSTED");
-  expect(provider.windows.map(w => [w.name, w.stale])).toEqual([["weekly", false], ["5h", false]]);
+  expect(provider.stale).toBe(true);
+  expect(provider.eligibility?.state).toBe("uncertain");
+  expect(provider.windows.map(w => [w.name, w.stale])).toEqual([["weekly", false], ["5h", true]]);
 });
 
-test("an old exhausted weekly snapshot still blocks the account until reset", async () => {
+test("an expired exhausted weekly snapshot is historical and uncertain", async () => {
   const now = 2_000_000, ctx = fakeCtx({ now });
   const r: UsageReading = { windows: [
     { name: "weekly", usedPct: 99, resetsAt: now + 3 * 86400, lengthS: 7 * 86400, paced: true },
   ], capturedAt: now - 25 * 3600, stale: false, source: "session-log" };
   const st = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["plan", r]]) });
-  expect(st.accounts.find(a => a.name === "plan")!).toMatchObject({ verdict: "EXHAUSTED", stale: false, usedPct: 99 });
-  expect(st.providers.find(p => p.account === "plan")!).toMatchObject({ verdict: "EXHAUSTED", stale: false });
+  expect(st.accounts.find(a => a.name === "plan")!).toMatchObject({ verdict: "UNKNOWN", stale: true, usedPct: 99 });
+  expect(st.providers.find(p => p.account === "plan")!).toMatchObject({ verdict: "UNKNOWN", stale: true });
 });
 
 test("a limit mark beats staleness", async () => {
@@ -242,7 +242,7 @@ test("reactive and metered accounts never query Orca for usage", async () => {
   }, "test");
   const st = await computeStatus(ctx, s, { profile: null });
   for (const name of ["cursor", "agy", "legacy"]) {
-    expect(st.accounts.find(a => a.name === name)).toMatchObject({ source: "reactive", usedPct: 0 });
+    expect(st.accounts.find(a => a.name === name)).toMatchObject({ source: "reactive", usedPct: null });
   }
   expect(st.accounts.find(a => a.name === "metered")).toMatchObject({ source: "metered", usedPct: 15 });
   expect(calls.map(argv => argv[0])).toEqual(["opencode"]);

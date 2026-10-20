@@ -223,3 +223,7 @@ Edits take effect at the next attempt reservation, including queued tasks and
 fallback attempts. They do not interrupt an already reserved attempt. Concurrent
 edits return a conflict instead of overwriting changes; reload and review before
 saving again. Invalid or unreadable policy data blocks new routing until repaired.
+
+## Eligibility evidence
+
+`allow_paid` is execution permission, separate from credit balance and quota observations. Routing preserves pacing or project order within the eligible and uncertain groups, and automatically permits labelled uncertain fallbacks after eligible choices. See [execution eligibility](executors.md#execution-eligibility-and-evidence).

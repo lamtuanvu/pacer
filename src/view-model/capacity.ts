@@ -1,3 +1,4 @@
+import { eligibilityPresentation } from "./eligibility";
 import { paceStatus } from "./words";
 import type { ExecutorRow } from "../api/read-model/types";
 import type { ClientSnapshot, ClientTask } from "./snapshot";
@@ -19,7 +20,12 @@ export function queueWait(task: ClientTask, snapshot: ClientSnapshot): string {
 
 /** Read pace from its authoritative account/planner verdict, never executor readiness or a percentage threshold. */
 export function executorPace(executor: ExecutorRow, snapshot: ClientSnapshot) {
+  if (executor.stale && executor.usedPct !== null) return { ...paceStatus("unknown"), label: "Historical usage" };
   const planner = snapshot.planner;
   const verdict = planner?.runner === executor.id ? planner.verdict : snapshot.accounts?.find(a => a.executors.includes(executor.id) || a.name === executor.account)?.verdict;
   return paceStatus(verdict ?? "unknown");
+}
+
+export function executorEligibility(executor: ExecutorRow, now: number) {
+  return eligibilityPresentation(executor.eligibility, now);
 }

@@ -1,3 +1,4 @@
+import { eligibilityPresentation } from "../view-model/eligibility";
 import { setupHints } from "./setup";
 import { setupText, type SetupChecklist } from "../setup/checklist";
 import type { ClientSnapshot } from "../view-model/snapshot";
@@ -106,16 +107,18 @@ export function renderDashboard(s:ClientSnapshot,width:number,height:number,now:
     const r=card.executor!,account=s.accounts?.find(a=>a.executors.includes(r.id));
     const unavailable=!r.enabled||["down","blocked","disabled","exhausted","failing","checking"].includes(r.state);
     const planner=r.rank==="planner"?p:null;
-    const status=unavailable?r.state:account?verdictWords(account.verdict):planner?verdictWords(planner.verdict):verdictWords(r.paceReason==="unmetered"?"UNMETERED":"unknown");
+    const assessment=eligibilityPresentation(r.eligibility,now);
+    const status=assessment.label;
     const parts=columns([r.rank==="planner"?"P":String(r.rank),shortExecutor(r.id),r.account===r.agent?"—":r.account,
      windowName(account?.window??planner?.window),r.paceReason==="unmetered"?"unmetered":budgetBar(r.usedPct,r.pacePct,wide?18:6),
      r.usedPct===null?"—":`${Math.round(r.usedPct)}%`,status,
      (account?.resetsAt??planner?.resetsAt)!=null?clock((account?.resetsAt??planner?.resetsAt)!,now,"UTC"):"—",`${r.slots.used}/${r.slots.max}`],unavailable);
     // Give unavailable rows room for the service's reason without hiding identity or slots.
     if(unavailable){
-     const prefix=parts.slice(0,3),tail=field(`${r.state} · ${r.reason??r.sub}`,sizes.slice(3,8).reduce((a,b)=>a+b,0),"muted");
+     const prefix=parts.slice(0,3),tail=field(`${assessment.label} · ${r.reason??r.sub}`,sizes.slice(3,8).reduce((a,b)=>a+b,0),"muted");
      body.push(selectedRow([...prefix,tail,parts[8]!],card,true));
     }else body.push(selectedRow(parts,card));
+    body.push(row(`    ${assessment.label}${r.stale?" · Historical usage":""} · ${assessment.detail}${assessment.age?` · ${assessment.age}`:""}`));
    }
   } else if(group.title==="NEEDS YOU") {
    for(const card of group.cards) {

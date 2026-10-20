@@ -1,3 +1,8 @@
+import { readAuthFailures } from "../usage/auth";
+import type { EligibilityDecision, EvidenceScope, ReconciledEvidence } from "../evidence/types";
+import { accountEvidenceScope, mergeEvidence } from "../core/evidence";
+import { currentEvidence, evidenceDeadline, evidenceFact, readingEvidence } from "./evidence";
+import { evaluateEligibility } from "./eligibility";
 import { statusTimer } from "../usage/trace";
 import { loginIndicator } from "../install/login";
 import { resolve } from "node:path";
@@ -16,12 +21,14 @@ import { isCalendar } from "../pace/clock";
 import type { Ctx, UsageReading, UsageSource, Verdict } from "../types";
 import { markFreshness } from "../usage/freshness";
 import { readAccountUsage } from "../usage/index";
-import { limitWindow } from "../usage/reactive";
+import { limitObservation } from "../usage/reactive";
 import { type Mode, plannerMode } from "./mode";
 import { type Excluded, type ProviderStatus, type RankedExecutor, rankExecutors } from "./rank";
 import { bindingWindow, evaluateWindow } from "./verdict";
 
 export interface AccountStatus {
+  eligibility?: EligibilityDecision;
+  evidence?: ReconciledEvidence;
   name: string;
   kind: AccountCfg["kind"];
   verdict: Verdict;
@@ -60,7 +67,7 @@ export function binaryFor(cfg: ProviderCfg): string {
 export { displayName } from "../render/accounts";
 
 export async function computeStatus(
-  ctx: Ctx, s: Strategy, opts: { cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
+  ctx: Ctx, s: Strategy, opts: { cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; refreshAccounts?: readonly string[] } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
   const trace = statusTimer(ctx);
   const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
@@ -74,7 +81,7 @@ export async function computeStatus(
     const runners = Object.values(s.runners).filter(r => r.account === account.name);
     const key = JSON.stringify({ account, models: [...new Set(runners.map(r => r.model))] });
     const reading = opts.readings?.get(account.name) ?? opts.readings?.get(key)
-      ?? await readAccountUsage(ctx, account, runners, false, opts.cacheOnly).catch((e): UsageReading => ({
+      ?? await readAccountUsage(ctx, account, runners, opts.refreshAccounts?.includes(account.name) ?? false, opts.cacheOnly, s.hosts).catch((e): UsageReading => ({
         windows: [], capturedAt: null, stale: false, error: String(e),
       }));
     opts.readings?.set(key, reading);
@@ -85,30 +92,46 @@ export async function computeStatus(
     };
     // Account marks constrain all runners; retain support for older runner marks.
     const limits = [account.name, ...runners.map(r => r.name)].flatMap(id => {
-      const limit = limitWindow(ctx, id); return limit ? [limit] : [];
+      const observation = limitObservation(ctx, id); return observation ? [observation] : [];
     });
-    const limit = limits.sort((a, b) => (b.resetsAt ?? 0) - (a.resetsAt ?? 0))[0];
+    const usage = reading.source === "reactive" ? "reactive" : account.usage;
     const fresh = markFreshness(reading, ctx.now);
-    const usageWindows = limit ? [...fresh.windows.filter(w => w.name !== "limit"), { ...limit, stale: false }] : fresh.windows;
+    const scope = accountEvidenceScope(account, s.hosts);
+    const incoming = readingEvidence(scope, reading, usage);
+    const authFailureAt = readAuthFailures(ctx)[account.name];
+    if (authFailureAt !== undefined) incoming.availability.push(evidenceFact(scope, "execution", authFailureAt, authFailureAt + 7200, "authentication_failed", "unavailable"));
+    for (const limit of limits) incoming.budget.push(evidenceFact(scope, limit.manual ? "configuration" : "execution", limit.observedAt,
+      limit.until, "quota_failure", { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: 21600, paced: false }));
+    const snapshot = await mergeEvidence(ctx, scope, incoming);
+    const usageWindows = snapshot.evidence.facts.budget.map(f => ({ ...f.value,
+      stale: f.value.stale || !currentEvidence(f, ctx.now, evidenceDeadline(f)) }));
     const windows = usageWindows.map(w => evaluateWindow(w, ctx.now, profile, th));
     const live = windows.filter(w => !w.stale);
     const binding = bindingWindow(live) ?? bindingWindow(windows);
-    const verdict: Verdict = account.usage === "unmetered" && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
+    const bindingFact = snapshot.evidence.facts.budget.find(f => f.value.name === binding?.name);
+    const reconciledReading = { ...fresh, windows: usageWindows,
+      stale: usageWindows.some(w => w.stale),
+      ...(bindingFact ? { capturedAt: bindingFact.observedAt,
+        ...(!["execution", "configuration"].includes(bindingFact.source) ? { source: bindingFact.source as UsageSource } : {}) } : {}),
+    };
+    const verdict: Verdict = (usage === "unmetered" || usage === "reactive") && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     const endpoint = opts.cacheOnly ? (account.connection ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
-    return { account, runners, reading: fresh, windows, binding, verdict, endpointReason };
+    const eligibility = evaluateEligibility({ now: ctx.now, scope, usage, allowPaid: account.allowPaid,
+      evidence: snapshot.evidence, restrictions: [] });
+    return { account, runners, reading: reconciledReading, windows, binding, verdict, endpointReason, scope, snapshot, eligibility, usage };
   }));
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
-    const { account, reading, windows, binding, verdict, endpointReason } = byAccount[runner.account];
+    const { account, reading, windows, binding, verdict, endpointReason, scope, snapshot, usage } = byAccount[runner.account];
     const folder = account.home ? resolve(account.home.replace(/^~(?=\/|$)/, ctx.home))
       : account.source === "orca" && (account.kind === "claude" || account.kind === "codex")
         ? orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ?? undefined : undefined;
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
     const login = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? loginIndicator(ctx, runner.agent, folder) : null;
-    return {
-      id: runner.name, account: account.name, usage: account.usage, windows, binding, verdict,
+    const provider: ProviderStatus = {
+      id: runner.name, account: account.name, usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
       ...(login && !login.loggedIn ? { signedOutReason: `signed out — ${login.fix.startsWith("run ") ? login.fix : `run ${login.fix}`}` } : {}),
@@ -118,7 +141,20 @@ export async function computeStatus(
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
       ...(broken[runner.name] ? { brokenReason: broken[runner.name].reason } : {}),
       ...(reading.error ? { error: reading.error } : {}),
+      evidenceScope: scope, evidenceRevision: snapshot.revision,
     };
+    const restrictions: { code: string; evidenceIds: string[] }[] = [];
+    if (runner.enabled === false) restrictions.push({ code: "disabled", evidenceIds: [] });
+    if (!provider.installed) restrictions.push({ code: "not_installed", evidenceIds: [] });
+    for (const [field, code] of [["unavailableReason", "unavailable"], ["signedOutReason", "signed_out"], ["blockedReason", "blocked"], ["brokenReason", "broken"]] as const) {
+      if (provider[field]) restrictions.push({ code, evidenceIds: [] });
+    }
+    provider.eligibility = evaluateEligibility({ now: ctx.now, scope: { ...scope, runner: runner.name, ...(runner.model ? { model: runner.model } : {}), ...(runner.host ? { host: runner.host } : {}) },
+      usage, allowPaid: account.allowPaid, evidence: snapshot.evidence, restrictions });
+    if ((reading.error || reading.stale) && provider.eligibility.state === "eligible") {
+      provider.eligibility = { ...provider.eligibility, state: "uncertain", reasons: [{ code: "refresh_failed", evidenceIds: [] }] };
+    }
+    return provider;
   });
   const byId = Object.fromEntries(providers.map(p => [p.id, p]));
   const planner = byAccount[s.planner.account];
@@ -132,8 +168,8 @@ export async function computeStatus(
     disabled: (ctx.env.PACER ?? "").toLowerCase() === "off",
     calendarPace: isCalendar(profile),
     ...(warnings.length ? { warnings } : {}),
-    accounts: budgets.map(({ account, runners, binding, verdict, reading }) => ({
-      name: account.name, kind: account.kind, verdict,
+    accounts: budgets.map(({ account, runners, binding, verdict, reading, eligibility, snapshot }) => ({
+      name: account.name, kind: account.kind, verdict, eligibility, evidence: snapshot.evidence,
       usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
       resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
       stale: reading.stale, runners: runners.map(r => r.name),

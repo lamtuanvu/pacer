@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { evaluateEligibility } from "../src/engine/eligibility";
-import { emptyEvidence, evidenceFact, reconcileEvidence } from "../src/engine/evidence";
+import { emptyEvidence, evidenceFact, readingEvidence, reconcileEvidence } from "../src/engine/evidence";
 import type { AccountEvidence, EvidenceScope } from "../src/evidence/types";
 
 const now = 1_000_000;
@@ -99,4 +99,16 @@ test("older or future incoming events cannot replace a known newer observation",
   for (const at of [now - 600, now + 1]) {
     expect(reconcileEvidence(facts(5), facts(100, at), now).facts.budget[0].value.usedPct).toBe(5);
   }
+});
+
+test("measurement contracts have no invented observation age", () => {
+  const evidence = readingEvidence(scope, { windows: [], capturedAt: null, stale: false, source: "reactive" }, "reactive");
+  expect(decide(evidence, { usage: "reactive" }).evidenceAgeS).toBeNull();
+});
+
+test("an adapter-declared incomplete window cannot establish available budget", () => {
+  const evidence = readingEvidence(scope, { capturedAt: now, stale: false, windows: [{
+    name: "5h", usedPct: 10, resetsAt: now + 3600, lengthS: 18000, paced: false, stale: true,
+  }] }, "quota");
+  expect(decide(evidence).state).toBe("uncertain");
 });

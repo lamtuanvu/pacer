@@ -10,18 +10,18 @@ export interface Cached<T> { value: T | null; capturedAt: number | null; stale: 
  * maxStaleS is returned flagged stale; beyond that the error is returned.
  */
 export async function cachedFetch<T>(
-  ctx: Ctx, key: string, ttlS: number, maxStaleS: number, fetcher: () => Promise<T>,
+  ctx: Ctx, key: string, ttlS: number, maxStaleS: number, fetcher: () => Promise<T>, options: { refresh?: boolean } = {},
 ): Promise<Cached<T>> {
   const path = join(ctx.pacerHome, "cache", `${key}.json`);
   const hit = readJson<{ capturedAt: number; value: T }>(path);
-  if (hit && ctx.now - hit.capturedAt < ttlS) return { value: hit.value, capturedAt: hit.capturedAt, stale: false };
+  if (!options.refresh && hit && ctx.now >= hit.capturedAt && ctx.now - hit.capturedAt < ttlS) return { value: hit.value, capturedAt: hit.capturedAt, stale: false };
   try {
     const value = await fetcher();
     if (!ctx.readOnly) writeJsonAtomic(path, { capturedAt: ctx.now, value });
     return { value, capturedAt: ctx.now, stale: false };
   } catch (e) {
     const error = (e as Error).message;
-    if (hit && ctx.now - hit.capturedAt < maxStaleS) {
+    if (hit && ctx.now >= hit.capturedAt && ctx.now - hit.capturedAt < maxStaleS) {
       return { value: hit.value, capturedAt: hit.capturedAt, stale: true, error };
     }
     return { value: null, capturedAt: null, stale: false, error };

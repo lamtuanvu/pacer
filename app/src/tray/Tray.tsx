@@ -17,7 +17,7 @@ import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
 import { StatusPill } from "../ds/StatusPill";
 import { StatusGlyph } from "../ds/StatusGlyph";
-import { executorPace } from "../../../src/view-model/capacity";
+import { executorPace, executorEligibility } from "../../../src/view-model/capacity";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
 import { actionRoute, executorValue, primaryAction, shortTitle, trayModel } from "./model";
@@ -129,9 +129,9 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       {model.waiting > 0 && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></TextAction>}
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
-        const readiness = executorStatus(!executor.enabled ? "disabled" : value === "off" && executor.state === "ready" ? "blocked" : executor.state);
+        const readiness = executorEligibility(executor, snapshot.at);
         const valueStatus = value === "?" ? paceStatus("unknown") : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
-        const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
+        const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${readiness.detail}${readiness.age ? ` · ${readiness.age}` : ""} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
         return <TextAction className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><StatusGlyph status={value === "?" ? valueStatus : readiness} /></span><span className={`pc-status--${valueStatus.tone}`}>{value}</span></TextAction>;
       })}</section>
     </>}

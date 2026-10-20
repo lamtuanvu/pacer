@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { statSync, readdirSync } from "node:fs";
+import { statSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { accountEvidenceScope, mergeEvidence, readEvidence } from "../src/core/evidence";
 import { emptyEvidence, evidenceFact } from "../src/engine/evidence";
@@ -33,5 +33,15 @@ test("readonly reconciliation does not persist new observations", async () => {
   const ctx = { ...fakeCtx(), readOnly: true }, scope = accountEvidenceScope(account());
   const result = await mergeEvidence(ctx, scope, { ...emptyEvidence(), availability: [evidenceFact(scope, "execution", ctx.now, ctx.now + 600, "execution_success", "ready")] });
   expect(result.evidence.facts.availability).toHaveLength(1);
+  expect(readEvidence(ctx, scope).revision).toBe(0);
+});
+
+test("corrupt persisted fact values are discarded instead of becoming eligibility evidence", async () => {
+  const ctx = fakeCtx(), scope = accountEvidenceScope(account());
+  const saved = await mergeEvidence(ctx, scope, { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "session-log", ctx.now, null, "quota", { name: "5h", usedPct: 10, resetsAt: null, lengthS: 18000, paced: false }),
+  ] });
+  (saved.evidence.facts.budget[0] as { value: unknown }).value = null;
+  writeFileSync(join(ctx.pacerHome, "state/evidence", `${scope.identity}.json`), JSON.stringify(saved));
   expect(readEvidence(ctx, scope).revision).toBe(0);
 });

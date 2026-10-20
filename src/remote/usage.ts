@@ -1,3 +1,4 @@
+import { accountEvidenceScope } from "../evidence/scope";
 import { join } from "node:path";
 import type { AccountCfg } from "../config/accounts";
 import type { HostCfg } from "../config/hosts";
@@ -8,13 +9,17 @@ import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
 
 const cachePath = (ctx: Ctx, account: string) => join(ctx.pacerHome, "cache", "remote-usage", `${account}.json`);
+const origin = (host: HostCfg, account: AccountCfg) => JSON.stringify([host.alias, host.ssh, host.accounts[account.name]?.home ?? null]);
 
 /** Cache reads never contact hosts, and a missing or damaged cache is no data. */
-export function cachedRemoteUsage(ctx: Ctx, account: string): UsageReading | null {
+export function cachedRemoteUsage(ctx: Ctx, account: AccountCfg, hosts?: Record<string, HostCfg>): UsageReading | null {
   try {
-    const { reading } = readJson<{ reading: UsageReading }>(cachePath(ctx, account)) ?? {};
+    const { reading, version, identity, sourceIdentity } = readJson<{ reading: UsageReading; version?: number; identity?: string; sourceIdentity?: string }>(cachePath(ctx, account.name)) ?? {};
+    const host = reading?.remoteHost && hosts?.[reading.remoteHost];
+    const sameSource = !hosts || !!host && sourceIdentity === origin(host, account);
     return reading && Number.isFinite(reading.capturedAt) && Array.isArray(reading.windows)
-      && typeof reading.remoteHost === "string" ? reading : null;
+      && typeof reading.remoteHost === "string" ? version === 2 && sameSource && identity === accountEvidenceScope(account).identity
+        ? reading : { ...reading, alternatives: undefined, capturedAt: null, stale: true } : null;
   } catch { return null; }
 }
 
@@ -30,10 +35,13 @@ export async function probeCodexUsage(ctx: Ctx, host: HostCfg, account: AccountC
     }).filter(value => value.observedAt !== null && value.observedAt <= ctx.now)
       .sort((a, b) => b.observedAt! - a.observedAt!);
     if (!observations.length) return null;
-    const reading: UsageReading = { ...readingFromObservation(observations[0]), remoteHost: host.alias };
-    const previous = cachedRemoteUsage(ctx, account.name);
+    const reading: UsageReading = { ...readingFromObservation(observations[0]), remoteHost: host.alias,
+      alternatives: observations.slice(1).map(readingFromObservation) };
+    const cached = cachedRemoteUsage(ctx, account);
+    const previous = cached?.remoteHost === host.alias ? cachedRemoteUsage(ctx, account, { [host.alias]: host }) : cached;
     if (!ctx.readOnly && (previous?.capturedAt == null || reading.capturedAt! > previous.capturedAt)) {
-      writeJsonAtomic(cachePath(ctx, account.name), { reading, at: ctx.now });
+      writeJsonAtomic(cachePath(ctx, account.name), { version: 2, identity: accountEvidenceScope(account).identity,
+        sourceIdentity: origin(host, account), reading, at: ctx.now });
     }
     return reading;
   } catch { return null; }

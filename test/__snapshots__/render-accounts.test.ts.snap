@@ -2,11 +2,11 @@
 
 exports[`account-form status identifies each runner and its agent/account 1`] = `
 "Account plan
-- Claude: weekly 34% (pace 84%, 1 active-h left) EXPIRING
+- Claude: Eligible · Execution permitted · observed 0s ago · weekly 34% (pace 84%, 1 active-h left) EXPIRING
 Account byteplus
-- BytePlus: local, unmetered OK
+- BytePlus: Eligible · Execution permitted
 Account team
-- Codex (team): weekly 34% (pace 99%, 1 active-h left) EXPIRING
+- Codex (team): Eligible · Execution permitted · observed 0s ago · weekly 34% (pace 99%, 1 active-h left) EXPIRING
 Mode: RELAXED - Claude is BEHIND pace or its window resets soon with quota unused. Claude may do small and medium edits itself; still delegate bulk or mechanical work.
 Executor preference: codex#team > opencode#byteplus
 Pace clock: calendar (not enough activity history yet)"
@@ -22,9 +22,12 @@ NEEDS YOU ?
 
 WHO RUNS NEXT ?
   #  EXECUTOR      ACCOUNT   WINDOW USED | PACE           USED  STATUS          RESETS           SLOTS
-> P  Claude Code   plan      week   [######---------|--]  34%   Expiring soon   13:00            0/1
-  1  BytePlus      byteplus  —      unmetered             —     Available       —                0/1
-  2  Codex         team      week   [######-----------|]  34%   Expiring soon   13:00            0/1
+> P  Claude Code   plan      week   [######---------|--]  34%   Eligible        13:00            0/1
+    Eligible · Execution permitted · observed 0s ago
+  1  BytePlus      byteplus  —      unmetered             —     Eligible        —                0/1
+    Eligible · Execution permitted
+  2  Codex         team      week   [######-----------|]  34%   Eligible        13:00            0/1
+    Eligible · Execution permitted · observed 0s ago
 
 RUNNING ? · QUEUED ?
   (none)
@@ -32,9 +35,6 @@ RUNNING ? · QUEUED ?
 
 DONE TODAY ?
   (none)
-
-
-
 
 j/k select  ⏎ action  d delegate  x dismiss  b block  s strategy  , settings  r refresh  ? help                                    v0.2.3 · up to date"
 `;

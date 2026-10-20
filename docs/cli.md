@@ -383,3 +383,7 @@ planner window resets (seven days if unknown); `mode.release {}` ends the hold.
 Use `pacer executor set <id> --enabled false --model <model> --max-tasks 2` to
 change executor settings. Executor readiness, host checks and updates expose
 shared progress through `job.get`, `job.list` and `job.cancel` when cancellable.
+
+## Eligibility evidence
+
+Status and routing expose the same eligibility decision used at launch. `route --json` adds `eligibility` on candidates and exclusions, `fallback: "uncertain"` on fallback candidates, and an `uncertain` subset. Human output labels uncertainty and shows historical quota without inventing a reset. See [execution eligibility](executors.md#execution-eligibility-and-evidence).
