@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.7.0 | Updated: 2026-10-20
+Status: Amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.8.0 | Updated: 2026-10-20
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -40,11 +40,14 @@ External constraints:
 | P10 | Contributions are signed off under the DCO and use Conventional Commit PR titles. PRs are squash-merged. | all PRs | [CONTRIBUTING.md](../CONTRIBUTING.md), `.github/workflows/pr-title.yml` | Established |
 | P11 | Generated artifacts (protocol docs, embedded app assets, design tokens) are committed fresh, and tests fail when they are stale. | `scripts/`, `src/app/assets.generated.ts`, `docs/protocol*.md` | CONTRIBUTING.md, `test/api-protocol-doc.test.ts` | Established |
 | P12 | Durable architectural choices are recorded in `docs/decisions/`. | design changes | [GOVERNANCE.md](../GOVERNANCE.md) | Established |
+| P13 | The host is minimal. Every capability a plugin could provide is a plugin against the versioned plugin protocol; bundled reference plugins are the open implementations, and the host never falls back to a built-in once an adapter is extracted. | `src/plugins/`, `plugins/`, adapters | [ADR plugin-host-and-rust-strangler](../docs/decisions/2026-10-19-plugin-host-and-rust-strangler.md) D1–D2 | Established |
+| P14 | The plugin protocol is versioned under the same compatibility rule as the client protocol (P4) and generated from zod schemas with a freshness test (P11). | `src/plugins/protocol.ts`, `docs/plugin-protocol*.{md,json}` | same ADR | Established |
+| P15 | The host never checks entitlements. A commercial plugin verifies its own license and reports status through `entitlement.report`; `tier` is informational. | `src/plugins/` | same ADR D3–D4 | Established |
 
 ## Scoped conventions and ownership
 
 Canonical rule and reviewer index: [.project/context.md](context.md).
-The maintainer owns every path (`* @lamtuanvu`). The dependency direction is: clients → API (`src/api`) → core (`src/core`, `src/engine`, `src/tasks`, …) → adapters (`src/exec`, `src/remote`, `src/usage`). Adapters do not import clients.
+The maintainer owns every path (`* @lamtuanvu`). The dependency direction is: clients → API (`src/api`) → host core (`src/core`, `src/engine`, `src/tasks`, …) → plugin protocol (`src/plugins`) → plugins (`plugins/`, installed plugins). Adapters not yet extracted stay under the core until their sub-project moves them.
 
 ## Validation and review agreements
 
@@ -98,7 +101,7 @@ Decision history: [.project/decisions.md](decisions.md)
 
 See "Open decisions" in [decisions.md](decisions.md). In short:
 - ADR file naming.
-- Lint, format and Rust CI.
+- Lint and format; Rust CI (required from milestone M1 of the plugin system).
 - A target release for removing `/v2`.
 - Which additional review evidence, beyond the proposed mandatory UI/QA evidence, should become required (OD-6).
 - Cleanup of stale docs and ADRs.
