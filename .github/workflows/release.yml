@@ -352,7 +352,6 @@ jobs:
       PACER_APPLE_TEAM_ID: ${{ vars.PACER_APPLE_TEAM_ID }}
       # Interim signer until a Developer ID exists (docs/specs/2026-10-20-interim-self-signed-ota-design.md).
       PACER_SIGNING_CERT_SHA1: ${{ vars.PACER_SIGNING_CERT_SHA1 }}
-      PACER_SIGNING_CLEANUP_RECORD: ${{ runner.temp }}/pacer-desktop-sign.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -388,6 +387,8 @@ jobs:
           cp desktop/src-tauri/target/release/pacer-update-helper "dist/desktop-cli/$VERSION/pacer-update-helper"
       - name: Sign complete app (Developer ID builds also notarize and staple) and version-sign final artifact
         env:
+          # The runner context is unavailable in job-level env; both credential steps set it.
+          PACER_SIGNING_CLEANUP_RECORD: ${{ runner.temp }}/pacer-desktop-sign.json
           PACER_SELF_SIGNING_CERTIFICATE_BASE64: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}
           PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}
           PACER_APPLE_SIGNING_IDENTITY: ${{ vars.PACER_APPLE_SIGNING_IDENTITY }}
@@ -401,6 +402,8 @@ jobs:
         run: bun scripts/release/desktop-credentials.ts "dist/desktop-cli/$VERSION" "$ARCH" dist/desktop-assets
       - name: Clean ephemeral signing credentials
         if: always()
+        env:
+          PACER_SIGNING_CLEANUP_RECORD: ${{ runner.temp }}/pacer-desktop-sign.json
         run: bun scripts/release/desktop-credentials.ts --cleanup
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
