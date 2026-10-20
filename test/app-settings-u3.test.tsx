@@ -152,3 +152,9 @@ test('settings pages leave their page title to the shell and inline links are un
  expect(render(<RemoteHosts/>, emptyState)).not.toContain('>Remote hosts</h2>');
  expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toMatch(/<a(?=[^>]*class="pc-inline-link")(?=[^>]*href="#\/settings\/hosts")[^>]*>Add a host\.<\/a>/);
 });
+
+test('Executors copy matches routing: a failed check does not skip an executor',()=>{
+ const html=render(<SettingsGeneral initialData={settings}/>);
+ expect(html).not.toContain('skipped until it passes again');
+ expect(html).toContain('A failed check marks the executor Failing and raises attention; routing keeps using it. Disable it to skip it.');
+});

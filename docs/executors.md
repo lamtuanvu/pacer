@@ -75,6 +75,13 @@ check. A usage reader error still fails it. The row shows `checking` while
 running and `lastCheck` after completion; a failed check shows `failing` and
 executor attention.
 
+A failed check does not by itself remove an executor from routing: the check
+reports readiness and asks for attention, while routing excludes executors only
+for the reasons `pacer route` lists (disabled, blocked, broken, not installed,
+signed out, out of quota, an endpoint that is Not working or has its key missing).
+A check can lead to one of those, for example a failed endpoint test task marks
+it Not working. To stop using an executor whose check failed, disable it.
+
 Capacity rows use the configured executor limit and report `full` when the
 executor, host or shared local machine limit is reached, naming the binding limit.
 Tasks try the next eligible executor or wait for capacity.

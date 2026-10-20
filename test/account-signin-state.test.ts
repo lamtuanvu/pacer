@@ -109,3 +109,13 @@ test("account status vocabulary: endpoint state for endpoints, sign-in for nativ
   expect(accountNeedsSignIn({kind: "claude", signedIn: null})).toBe(false);
   expect(accountNeedsSignIn({kind: "claude", signedIn: false})).toBe(true);
 });
+
+test("decision: a failed runner check keeps the executor in routing (attention only)", async () => {
+  const {ctx} = setup();
+  mkdirSync(join(ctx.pacerHome, "state"), {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "state", "runner-checks.json"), JSON.stringify({"claude-code#work": {at: ctx.now, passed: false, detail: "Test task failed"}}));
+  const s = loadStrategy(ctx), st = await computeStatus(ctx, s);
+  expect(st.executors.ranked.some(e => e.id === "claude-code#work")).toBe(true);
+  const rows = buildExecutors(st, s, [], ctx.now, ctx);
+  expect(rows.find(r => r.id === "claude-code#work")!.state).toBe("failing");
+});
