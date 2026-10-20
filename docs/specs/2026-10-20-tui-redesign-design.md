@@ -107,7 +107,7 @@ row 1          planner strip (every screen, as the app's TopBar)
 row 2          rule (line)
 rows 3..h-3    screen body: section headings, tables, panes, dialogs overlay here
 row h-2        message line (result of the last action, 5 s) or prompt
-row h-1        key bar for the current selection · version and update state
+row h-1        key bar for the current selection · version and update state (update available, up to date, update checks off, update check failed, or the version alone before a check; the same reading as Settings › Updates)
 ```
 
 - Body width = terminal width − 4 (2-column gutters), capped at 160.
@@ -235,6 +235,7 @@ Data: `reviewQueue` (attention items of kind `review`, oldest first, scoped by r
 - Accept asks `Accept "<title>"? Records the verdict; you merge the branch. (y/n)`. Send back and Reject open a required note prompt ("Add a note first." when empty). Retry lists `retryOptions` with state `ready` only; others are shown with their reason and cannot be chosen (UI-13).
 - After a verdict the message reads "Accepted · next: <title>" or "Accepted · review queue is clear", as in the app.
 - States: "Loading task…" (spinner unless no motion), "Review queue is clear" + today's counts, "Already reviewed", removed worktree "Changes unavailable · the worktree was removed after the task finished".
+- Queue rows show the status glyph and label (UI-2), so plain mode still names the state. The detail wraps its prose and boxes; the golden frame in `test/__snapshots__/dashboard-screens.test.ts.snap` is authoritative where it differs from the mockup above.
 - Narrow: the queue fills the screen; `Enter` opens the detail full-screen with the same key bar; `Esc` returns.
 
 ### Sessions
@@ -281,14 +282,14 @@ Narrow: the section list fills the screen; `Enter` opens a section; `Esc` return
 
 ### Setup
 
-Shown instead of Home/Review/Sessions while `setup.complete` is false, and as tab 5 while `setup.ready` is false. Copy follows the app: "pacer works once the required steps are done. The rest makes it useful.", sections REQUIRED and RECOMMENDED, rows "✓ Done", "✕ Failed", "! Needs you". The first open required step is the primary. Actions: Install service (consent dialog), Connect planner (`agent.preview` files and undo, consent), Add executor (hands the terminal to `pacer runner add`), Try a delegation (`onboarding.try`), Skip (`onboarding.skip`), Copy-only steps show their command.
+Shown instead of Home/Review/Sessions while `setup.complete` is false, and as tab 5 while `setup.ready` is false. Copy follows the app: "pacer works once the required steps are done. The rest makes it useful.", sections REQUIRED and RECOMMENDED, rows "✓ Done", "✕ Failed", "! Needs you". The first open required step is the primary. Actions: Install service (consent dialog), Connect planner (`agent.preview` files and undo, consent), Add executor (hands the terminal to `pacer runner add`), Try a delegation (`onboarding.try`), Skip (`x`, `onboarding.skip`), Copy-only steps show their command.
 
 ### Dialogs, help and delegate
 
 - **Confirm**: a closed box centered in the body with the question, consequences and `y confirm · n cancel`.
 - **Prompt**: a closed box with a label, an input line, help, and validation errors in `bad` with a glyph.
 - **Actions menu** (`.`): numbered actions for the selected row; unavailable ones are omitted.
-- **Help** (`?`): grouped like the app's CommandHelp ("Anywhere", the current screen), listing only keys whose operations are offered.
+- **Help** (`?`): grouped like the app's CommandHelp ("Anywhere", the current screen), listing only keys whose operations are offered. It fits the body height and scrolls (`j`/`k`, arrows, `PgUp`/`PgDn`) with "↑/↓ N more" markers.
 - **Delegate** (`d`): Goal → Repo (defaults to the current repo or scope) → Work type (optional, from the app's kind list); `task.delegate {…, source: "ui"}`; the result reads "Delegated · <task id> queued".
 
 ### Loading, empty and error states
@@ -367,7 +368,7 @@ src/dashboard/
 | TD-3 | Refresh moves from `r` to `R`/`Ctrl-R`; Review's `r` is reject, as in the app. |
 | TD-4 | Setup becomes a screen with rows instead of single-letter keys. |
 | TD-5 | Settings reads and writes only through API ops; interactive account/runner wizards run as child CLI processes. |
-| TD-6 | Destructive actions confirm; `Enter` never stops a task. |
+| TD-6 | Destructive actions confirm; `Enter` never stops a task. The TUI asks before every accept or reject verdict, stop, removal, update and danger-style action whichever screen or menu offers it; submitting a note prompt counts as the confirmation. |
 | TD-7 | `--plain` and `--once` are added to `pacer dashboard` for screen readers and scripting. |
 
 ## Open questions
