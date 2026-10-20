@@ -90,7 +90,7 @@ const USAGE = `usage: pacer <command>
   limits check [--json]                          where each account's usage comes from, its age and freshness
   mcp                                            run the MCP server on stdio
   api --stdio                                    client protocol v2 on stdio (JSON-RPC)
-  serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
+  serve [--port <n>] [--internal]                local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
   account list [--json] | add <kind> <name> [options] | rm <name> [--delete-home]
   runner list [--json] | add <agent#account> [--model <m>] | rm <agent#account>
@@ -509,8 +509,18 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     }
     case "serve": {
       if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
-      const { opts } = parseFlags(rest, []);
+      const { opts } = parseFlags(rest, ["internal"]);
+      const internal = opts.internal === true;
+      const internalToken = ctx.env.PACER_INTERNAL_TOKEN;
+      if (internal && (!internalToken || internalToken.length < 32)) {
+        return { code: 2, out: "", err: "pacer serve --internal requires PACER_INTERNAL_TOKEN in the environment (at least 32 characters)" };
+      }
       try {
+        if (internal) {
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! } });
+          process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
+          return { code: 0, out: "", err: "", keepAlive: true };
+        }
         const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });
         return { code: 0, out: `pacer serve listening on http://127.0.0.1:${s.port} (token: ${ctx.pacerHome}/token)`, err: "", keepAlive: true };
       } catch (e) {
