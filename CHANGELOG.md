@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-20
+
 ### Added
 
 - One-click releases: **Prepare release** picks the next version from commit titles, opens the release PR, dry-runs it and auto-merges it; **Release tag** then tags and publishes. Release PRs that change only version strings no longer need a UI evidence manifest.
