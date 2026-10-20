@@ -26,7 +26,7 @@ cargo xtask loc
 cargo xtask deps
 ```
 
-Follow the Rust code rules in [.project/rules/rust.md](.project/rules/rust.md) and the crate structure and size rules in [.project/rules/rust-crates.md](.project/rules/rust-crates.md).
+Follow the Rust code rules in [.project/rules/rust.md](.project/rules/rust.md) and the crate structure and size rules in [.project/rules/rust-crates.md](.project/rules/rust-crates.md). The front door (`cargo run -p pacer`) execs the bun-compiled core for commands that are not yet native; to run it against the source core instead, point `PACER_CORE_ARGV` at it, e.g. `PACER_CORE_ARGV='["bun","<repo>/src/cli.ts"]' cargo run -p pacer -- <command>`.
 
 Discuss significant changes in an issue first. Keep pull requests focused, explain the behavior changed, link relevant issues and describe validation. Use a Conventional Commit PR title, for example `fix: handle missing usage readings` or `docs: clarify executor setup`. PRs are squash merged; the PR title becomes the commit on `main`.
 

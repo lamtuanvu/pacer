@@ -28,6 +28,11 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `npm/launcher/` | npm launcher that picks the platform package |
 | `scripts/` | Release, protocol-doc, e2e, QA, brand and design-system sync scripts |
 | `test/` | Flat `bun:test` suite (`<area>-<topic>.test.ts`), `fixtures/`, `__snapshots__/`; `test/setup.ts` isolates `HOME`/`PACER_HOME` |
+| `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
+| `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
+| `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
+| `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
+| `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 
 Dependency direction: clients → `src/api` → core → adapters. Source: [ADR clients-over-local-service](../docs/decisions/2026-10-16-clients-over-local-service.md).
 

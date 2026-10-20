@@ -148,6 +148,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Local builds produce a Rust front door `dist/pacer` next to the bun-compiled `dist/pacer-core`.
 - App links now point directly to Overview, Review, Sessions and Settings. Retired UI routes fall back to Overview; old screens and route redirects have been removed.
 
 ### Added
