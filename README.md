@@ -64,7 +64,7 @@ From a source checkout, use Bun 1.4.2 or newer:
 bun install --frozen-lockfile
 bun run build
 mkdir -p "$HOME/.local/bin"
-cp dist/pacer "$HOME/.local/bin/pacer"
+cp dist/pacer dist/pacer-core "$HOME/.local/bin/"
 export PATH="$HOME/.local/bin:$PATH"
 pacer --version
 ```

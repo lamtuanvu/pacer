@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { compileTarget } from "./release/build";
 import { hostTarget } from "../src/update/manifest";
@@ -39,7 +39,16 @@ export async function buildLocal(root: string): Promise<void> {
   if (!target) throw Error(`unsupported build host: ${process.platform}-${process.arch}`);
   const version = localBuildVersion(root);
   mkdirSync(join(root, "dist"), { recursive: true });
-  await compileTarget({ root, target, version, outfile: join(root, "dist", "pacer") });
+  await compileTarget({ root, target, version, outfile: join(root, "dist", "pacer-core") });
+  // The Rust front door execs dist/pacer-core as its sibling; without cargo we ship only the core.
+  try {
+    const result = Bun.spawnSync(["cargo", "build", "--release", "-p", "pacer"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode !== 0) throw Error(`cargo build failed (exit ${result.exitCode}):\n${result.stderr.toString().trim()}`);
+    copyFileSync(join(root, "target", "release", "pacer"), join(root, "dist", "pacer"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    console.log("rust front door skipped: cargo is not on PATH; built dist/pacer-core only");
+  }
 }
 
 if (import.meta.main) await buildLocal(resolve(import.meta.dir, ".."));

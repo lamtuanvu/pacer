@@ -10,7 +10,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 
 | Path | Component |
 |------|-----------|
-| `src/cli.ts`, `src/commands/` | CLI dispatcher and subcommands. Compiled into a single `dist/pacer` binary. |
+| `src/cli.ts`, `src/commands/` | CLI dispatcher and subcommands. Compiled into the bun CLI `dist/pacer-core`; the Rust front door `dist/pacer` execs it when a command is not yet native. |
 | `src/api/` | Versioned protocol (`protocol.ts`, now 3.0.0), operation registry (`ops.ts`), HTTP and stdio JSON-RPC transports, `v2-compat` adapter, read model |
 | `src/serve/`, `src/service/` | The local service: HTTP/SSE/WebSocket, app auth and panel. Installed under launchd or as a systemd user unit. |
 | `src/core/`, `src/engine/`, `src/tasks/`, `src/strategy/`, `src/config/` | Domain core: ranking, slots, verdicts, tasks, strategy and config. `CoreError` lives in `src/core/errors.ts`. |
