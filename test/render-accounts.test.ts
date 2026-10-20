@@ -13,10 +13,8 @@ import { buildExecutors, buildAccounts, buildPlanner } from "../src/api/read-mod
 import type { Status } from "../src/engine/status";
 import type { Strategy } from "../src/config/strategy";
 import { renderDashboard } from "../src/dashboard/render";
-import { overview } from "../orca-plugin/src/panel/overview";
-import { renderPanel } from "../orca-plugin/src/panel";
 import { main } from "../src/cli";
-import { headline, rankedProviders, mutedProviders, providerLabel } from "../orca-plugin/src/panel/model";
+import { headline, rankedProviders, mutedProviders, providerLabel } from "../src/view-model/panel";
 import { runnerLabel, renderRoute } from "../src/render/accounts";
 import { fakeCtx } from "./helpers";
 
@@ -28,7 +26,7 @@ async function status() {
  const reading={windows:[{name:"weekly",usedPct:34,resetsAt:ctx.now+3600,lengthS:604800,paced:true}],capturedAt:ctx.now,stale:false};
  return computeStatus(ctx,validateStrategy(raw,"test"),{profile:null,readings:new Map([["plan",reading],["team",reading]])});
 }
-// Current dashboards consume the service read model, while the panel still accepts old budgets.
+// Current dashboards consume the service read model.
 function boardSnapshot(st:Status, strategy:Strategy) {
  return {...emptySnapshot(),at:st.generatedAt,budget:toBudget(st),
   planner:buildPlanner(st),executors:buildExecutors(st,strategy,[],st.generatedAt),
@@ -42,21 +40,13 @@ test("account-form status identifies each runner and its agent/account",async()=
  expect(renderLine(st, { color: false })).toContain("Claude Code 34%");
  expect(renderLine(st).split("\n")).toHaveLength(1);
 });
-test("account metadata survives the link and appears in dashboard and panel",async()=>{
+test("account metadata survives the link and appears in the dashboard",async()=>{
  const st=await status(), s=parseSnapshot({...emptySnapshot(),budget:toBudget(st)})!;
  const board=boardSnapshot(st,validateStrategy(raw,"test"));
  expect(s.budget!.providers.find(p=>p.id==="codex#team")).toMatchObject({account:"team",agent:"codex",usedPct:34});
  expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true})).toMatch(/Codex\s+team\s+week.*34%/);
  expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true,version:"0.2.3"}).split("\n").map(line=>line.trimEnd()).join("\n")).toMatchSnapshot();
  expect(renderDashboard(board,150,24,st.generatedAt,{selected:0,noColor:true}).split("\n")[1]).toContain("Claude");
- const html=overview(s,st.generatedAt,true,{},{});
- expect(html).toContain("Claude");
- expect(renderPanel(s,{nowS:st.generatedAt,transport:null,reachable:true})).toContain("<strong>team</strong>");
-});
-test("panel runner commands accept account ids and still refuse unsafe executor text",()=>{
- const context={branch:"feature",displayName:"Feature",terminals:[{id:"terminal"}]};
- for(const id of ["codex#team","opencode#byteplus","claude-code#work"]) {
- }
 });
 test("usage-only accounts keep their measured budget in unavailable rows",async()=>{
  const st=await status(),p=st.providers.find(p=>p.id==="codex#team")!;

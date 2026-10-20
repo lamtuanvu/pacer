@@ -4,17 +4,26 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-### Added
-
-- Per-project executor allowlists with strict priority order, persistent policies, revision-checked API and CLI configuration, and a Routing settings editor (#190).
-- The desktop app ships its own CLI, shows Welcome and one consent screen before it changes anything, links `pacer` into `~/.local/bin` and can add an opt-in PATH line; recovery pages each offer one action; unsigned desktop downloads are published with each release.
-- Setup walks through five steps with an inline connection preview, executor priority controls, and first-task progress and review.
-
 ### Fixed
 
 - Executor eligibility now uses timestamped availability and budget evidence across routing, guards and launch checks. Confirmed eligible choices come before automatically permitted, labelled uncertain fallbacks; expired quota remains historical and credits do not override paid-execution policy (#213).
 
+## [0.4.0] - 2026-10-20
+
+### Added
+
+- Per-project executor allowlists with strict priority order, persistent policies, revision-checked API and CLI configuration, and a Routing settings editor (#190).
+- The desktop app ships its own CLI, shows Welcome and one consent screen before it changes anything, links `pacer` into `~/.local/bin` and can add an opt-in PATH line; recovery pages each offer one action; unsigned desktop downloads are published with each release. Linux arm64 ships as `.deb` only for now: the AppImage tool corrupts its bundled CLI.
+- Setup walks through five steps with an inline connection preview, executor priority controls, and first-task progress and review.
+
+### Removed
+
+- The Orca plugin: its panel, worker, marketplace manifest, `orca-plugin` branch and tag publishing, `pacer link status|probe`, the `pacer init` live-panel step and the "Orca panel" setup item. Use the desktop app or `pacer open`. Running delegated work in Orca worktrees is unchanged. `pacer plugin uninstall` and `uninstall --all` remove an earlier install; other `pacer plugin` subcommands exit 2. Protocol 3 keeps the `plugin.install` op, which now fails with `not_allowed`, `update.check` returns `plugin: null`, and `version.get` no longer includes its optional `plugin` field; the op and the null field go with the next protocol major.
+
+### Fixed
+
 - Setup discovery avoids IDE launchers and local-model app startup, so selecting a planner does not launch another app over the pacer window.
+- The desktop app's "Another pacer is running" page names the ports when only the port differs and shows how to free the service (`pacer service uninstall`); on Linux without systemd or a CLI it shows the install page instead of a stuck sign-in (#194).
 - `pacer service install` refuses to replace another pacer's login service (`--replace` overrides); `uninstall --all` refuses while delegated tasks run (`--force` overrides) and removes the app's link and PATH line; `pacer update` points to the app when its CLI came with the app.
 
 ## [0.3.1] - 2026-10-19

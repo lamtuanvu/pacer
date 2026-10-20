@@ -103,10 +103,6 @@ function readPackageVersion(root: string): string {
 export async function buildRelease(o: BuildOptions): Promise<{ dir: string; manifest: Manifest }> {
   const version = o.version ?? readPackageVersion(o.root);
   if (!isVersion(version)) throw new Error(`invalid version "${version}" (expected MAJOR.MINOR.PATCH[-PRERELEASE])`);
-  const assets = join(o.root, "src", "plugin", "assets.generated.ts");
-  if (o.version === undefined && existsSync(assets) && !readFileSync(assets, "utf8").includes(`PLUGIN_VERSION = ${JSON.stringify(version)};`)) {
-    throw new Error(`the bundled Orca plugin assets are not built for ${version}; run bun run plugin:build first`);
-  }
   const appAssets = join(o.root, "src", "app", "assets.generated.ts");
   if (o.version === undefined && existsSync(appAssets) && !readFileSync(appAssets, "utf8").includes(`APP_VERSION = ${JSON.stringify(version)};`)) {
     throw new Error(`the bundled app assets are not built for ${version}; run bun run app:build first`);

@@ -5,7 +5,6 @@ import { validateStrategy } from "../src/config/strategy";
 import { parseOutboxEvent } from "../src/link/envelope";
 import { taskData } from "../src/link/pump";
 import { summarizeTask } from "../src/mcp/server";
-import { placementLine } from "../orca-plugin/src/panel/overview";
 import { fakeCtx, tmpDir } from "./helpers";
 const s=validateStrategy({planner:"claude-code",providers:{"claude-code":{},codex:{}}},"/x");
 const brief={goal:"fix it",repo:"/repo"};
@@ -32,11 +31,11 @@ test("delegate validates and stores placement before spawning",()=>{
  for(const worktree of ["current","new","auto"] as const){const t=delegate(ctx,{brief:b,worktree,worktree_reason:"x".repeat(200)},()=>undefined,s);expect(t.placement).toEqual({requested:worktree,reason:"x".repeat(200)});}
  expect(delegate(ctx,{brief:b},()=>undefined,s).placement).toEqual({requested:"auto"});
 });
-test("resolved placement propagates through status, link and escaped panel text",()=>{
+test("resolved placement propagates through status and link",()=>{
  const t={rev:1,id:"t",state:"running",createdAt:1,kind:null,requestedExecutor:null,timeoutS:60,brief,attempts:[],worktree:"/new/path",placement:{requested:"new",mode:"new",why:"agent: <risky>"}} as TaskRecord;
  const d=taskData(t);expect(summarizeTask(t).placement).toMatchObject({mode:"new",why:"agent: <risky>"});expect(d.worktree).toBe("/new/path");
  const parsed=parseOutboxEvent({type:"task",data:d});expect(parsed).toMatchObject({data:{placement:{mode:"new",why:"agent: <risky>"}}});
- expect(placementLine(d)).toContain('class="muted"');expect(placementLine(d)).toContain("new worktree /new/path (agent: &lt;risky&gt;)");
+
  for(const placement of [{mode:"invalid",why:"x"},{mode:"new",why:42},null])expect(parseOutboxEvent({type:"task",data:{...d,placement}})).not.toHaveProperty("data.placement");
  expect(parseOutboxEvent({type:"task",data:{...d,placement:{mode:"current",why:"x".repeat(500)}}})).toMatchObject({data:{placement:{mode:"current",why:"x".repeat(240)}}});
 });

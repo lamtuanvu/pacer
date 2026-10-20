@@ -122,7 +122,8 @@ jobs:
             target: aarch64-unknown-linux-gnu
             platform: linux-arm64
             cli_artifact: binaries-ubuntu-latest
-            bundles: appimage,deb
+            # linuxdeploy's patchelf corrupts the bundled arm64 CLI, so no AppImage until that is fixed.
+            bundles: deb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -165,6 +166,8 @@ jobs:
           BUNDLES: ${{ matrix.bundles }}
         run: bunx --no-install tauri build --target "$TARGET" --bundles "$BUNDLES" --no-sign
       - name: Collect unsigned desktop bundles
+        env:
+          BUNDLES: ${{ matrix.bundles }}
         run: |
           bundle="desktop/src-tauri/target/$TARGET/release/bundle"
           mkdir -p dist/desktop
@@ -173,7 +176,9 @@ jobs:
               cp "$bundle"/dmg/*.dmg "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.dmg"
               ;;
             linux-*)
-              cp "$bundle"/appimage/*.AppImage "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.AppImage"
+              case ",$BUNDLES," in
+                *,appimage,*) cp "$bundle"/appimage/*.AppImage "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.AppImage" ;;
+              esac
               cp "$bundle"/deb/*.deb "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.deb"
               ;;
             *) exit 1 ;;
@@ -231,7 +236,6 @@ jobs:
         run: |
           sha256sum dist/release/"$VERSION"/* dist/release/latest.json
           cat release-notes.md
-          echo "Plugin tag: orca-plugin-v$VERSION"
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         if: env.DRY_RUN != 'true'
         with:
@@ -251,52 +255,6 @@ jobs:
             dist/release/"$version"/pacer-* \
             dist/release/"$version"/SHA256SUMS \
             dist/release/"$version"/manifest.json dist/release/latest.json
-      - name: Publish Orca plugin bundle
-        env:
-          GH_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
-        run: |
-          set -euo pipefail
-          version="$VERSION"
-          tag="orca-plugin-v$version"
-          test "$(bun -p 'require("./orca-plugin/dist/orca-plugin.json").version')" = "$version"
-          test "$(bun -p 'require("./orca-marketplace.json").plugins.find(p => p.id === "lamtuanvu.pacer").source.ref')" = "$tag"
-          bundle="$PWD/orca-plugin/dist"
-          license="$PWD/LICENSE"
-          notice="$PWD/NOTICE"
-          if test "$DRY_RUN" = true; then
-            dry_remote=$(mktemp -d)
-            git init --bare "$dry_remote"
-            repository="$dry_remote"
-          else
-            repository="https://github.com/$GITHUB_REPOSITORY.git"
-          fi
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${GH_TOKEN:-}" | base64 | tr -d '\n')"
-          git_auth() { git -c "http.extraheader=$auth" "$@"; }
-          # A fresh repo keeps the release checkout and its untracked artifacts intact.
-          publish_dir=$(mktemp -d)
-          trap 'command rm -rf "$publish_dir" "${dry_remote:-}"' EXIT
-          git init "$publish_dir"
-          cd "$publish_dir"
-          git remote add origin "$repository"
-          existing_tag=$(git_auth ls-remote --tags origin "refs/tags/$tag")
-          test -z "$existing_tag"
-          existing_branch=$(git_auth ls-remote --heads origin refs/heads/orca-plugin)
-          if test -n "$existing_branch"; then
-            git_auth fetch --no-tags origin refs/heads/orca-plugin
-            git checkout -b orca-plugin FETCH_HEAD
-            git rm -r --ignore-unmatch .
-          else
-            git checkout --orphan orca-plugin
-          fi
-          cp -R "$bundle/." .
-          cp "$license" "$notice" .
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .
-          git commit -s -m "release: orca plugin $version"
-          git tag -a "$tag" -m "pacer Orca plugin $version"
-          # Atomic, non-forced push: a concurrent release cannot move either ref.
-          git_auth push --atomic origin refs/heads/orca-plugin "refs/tags/$tag"
 
   npm:
     needs: [verify, publish]

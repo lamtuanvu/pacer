@@ -3,8 +3,8 @@ import { PLANNERS } from "../config/strategy";
 export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string; action?:string; agent?:string; options?:string[] }
 export interface SetupChecklist { checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
 export interface SetupFacts {
- version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean; live:boolean;
- signedIn?:boolean; loginCommand?:string; connected?:boolean; orcaInstalled?:boolean;
+ version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean;
+ signedIn?:boolean; loginCommand?:string; connected?:boolean;
  executors?:{ranked:{id:string}[];excluded:{id:string;reason:string}[]}; verdict?:string; reviewed?:boolean; skipped?:boolean;
  agents:{id:string;name:string;installed:boolean;cliInstalled?:boolean}[]; errors?:Partial<Record<"binary"|"strategy"|"service"|"link"|"connect",string>>;
 }
@@ -37,7 +37,6 @@ export function setupChecklist(f:SetupFacts, checkedAt:number):SetupChecklist {
   item("executor","Executor",false,false),
   item("usage","Budget data",false,!!f.verdict&&f.verdict!=="UNKNOWN",`Start a session in ${f.planner??"your planner"} once`),
   item("first","First delegation",false,!!f.reviewed||!!f.skipped,f.skipped?"Skipped":undefined,undefined,"onboarding.try"),
-  ...(f.orcaInstalled?[item("live","Orca panel",false,f.live,undefined,"pacer init")]:[]),
   ...f.agents.filter(a=>a.id!==plannerAgent).map(a=>({...item(`agent:${a.id}`,a.name,false,a.installed,a.installed?"Connected":"Optional · not connected","pacer init","agent.connect"),agent:a.id,...(a.cliInstalled!==undefined?{installed:a.cliInstalled}:{})}))];
  return updateChecklist({checkedAt,complete:false,ready:false,items},f);
 }

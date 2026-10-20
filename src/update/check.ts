@@ -58,22 +58,8 @@ export async function checkForUpdate(ctx: CheckCtx, options: { force?: boolean; 
   } catch { /* A check must never break the command, even on a read-only home. */ }
   return result;
 }
-export interface PluginVersionStatus { version: string; mode: "live" | "bootstrap"; source: "worker" | "managed"; hint?: string }
-export const pluginUpdateHint = (mode: "live" | "bootstrap") => mode === "live"
-  ? "Run: pacer plugin install, then turn pacer off and on in Orca Settings > Plugins."
-  : "Orca Settings > Plugins > Refresh, then Update plugin.";
-export function installedPlugin(ctx: Pick<Ctx, "pacerHome">, current = currentVersion()): PluginVersionStatus | null {
-  for (const [file, source] of [["plugin-version.json", "worker"], ["orca-plugin/.pacer-managed", "managed"]] as const) try {
-    const data = JSON.parse(readFileSync(join(ctx.pacerHome, file), "utf8"));
-    if (!isVersion(data.version)) continue;
-    const mode = source === "managed" || data.mode === "live" ? "live" : "bootstrap";
-    return { version: data.version, mode, source, ...(isVersion(current) && compareVersions(current, data.version) > 0 ? { hint: pluginUpdateHint(mode) } : {}) };
-  } catch {}
-  return null;
-}
 export async function checkUpdateReport(ctx: Ctx, json = false, options: Parameters<typeof checkForUpdate>[1] = {}) {
   const check = await checkForUpdate(ctx, { ...options, force: true });
-  const plugin = installedPlugin(ctx, options.current);
-  const data = { current: options.current ?? currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin, ...(check?.error ? { error: check.error } : {}), ...(!check ? { disabled: true } : {}) };
-  return { code: 0, err: "", out: json ? JSON.stringify(data) : [`Current: pacer ${data.current}`, `Latest: ${data.latest ?? "unknown"}`, data.available ? `update available: ${data.current} -> ${data.latest}. Run: pacer update` : check?.error ? `Update check failed: ${check.error}` : !check ? "Update checking disabled" : "No update available", plugin ? `Orca plugin: ${plugin.version} (${plugin.mode})${plugin.hint ? `. CLI is newer. ${plugin.hint}` : ""}` : "Orca plugin: unknown"].join("\n") };
+  const data = { current: options.current ?? currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? { error: check.error } : {}), ...(!check ? { disabled: true } : {}) };
+  return { code: 0, err: "", out: json ? JSON.stringify(data) : [`Current: pacer ${data.current}`, `Latest: ${data.latest ?? "unknown"}`, data.available ? `update available: ${data.current} -> ${data.latest}. Run: pacer update` : check?.error ? `Update check failed: ${check.error}` : !check ? "Update checking disabled" : "No update available"].join("\n") };
 }

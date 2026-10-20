@@ -3,8 +3,7 @@ import { emptySnapshot, parseSnapshot, type TaskData } from "../src/link/envelop
 import { taskData, pumpOnce } from "../src/link/pump";
 import { writeJsonAtomic } from "../src/fsutil";
 import { latestPath } from "../src/link/paths";
-import { attentionGroups, attentionText, unavailableDetail } from "../orca-plugin/src/panel/model";
-import { renderStatusPage } from "../orca-plugin/src/panel";
+import { attentionGroups, attentionText, unavailableDetail } from "../src/view-model/panel";
 import { createTask } from "../src/tasks/store";
 import { superviseTask } from "../src/tasks/api";
 import { fakeCtx } from "./helpers";
@@ -46,21 +45,17 @@ test("broken executor detail identifies why it is unavailable",()=>{
   expect(unavailableDetail({id:"agy",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false,brokenReason:"bad argv"},1000)).toBe("Not working · bad argv");
 });
 
-test("an active retry clears original attention and appears in Running",()=>{
+test("an active retry clears original attention",()=>{
  const s=emptySnapshot();s.tasks=[failure("old",{retriedBy:"new"}),failure("new",{state:"running",retryOf:"old",executor:"codex",attemptStartedAt:1100})];
  expect(attentionGroups(s,1200)).toEqual([]);
- const html=renderStatusPage(s,{nowS:1200,reachable:true,transport:"http"});expect(html).toContain("<h2>Running</h2>");expect(html).toContain("Codex");expect(html).toContain("new");
 });
 
-test("partial work appears on the status page for review with worktree",()=>{
+test("partial work needs review on its executor",()=>{
  const s=emptySnapshot();
  s.budget={generatedAt:1000,strategy:"default",planner:"claude-code",mode:"normal",providers:[{id:"codex",verdict:"OK",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false}],ranked:[{id:"codex",verdict:"OK"}]};
  s.tasks=[failure("review",{state:"partial",worktree:"/work/review"})];
  const groups=attentionGroups(s,1200);expect(groups).toHaveLength(1);
  expect(attentionText(groups[0],1200)).toBe("Needs review on Antigravity");
- const html=renderStatusPage(s,{nowS:1200,reachable:true,transport:"http"});
- expect(html).toContain("<h2>Waiting for review</h2>");expect(html).toContain("/work/review");
- expect(html).toContain("pacer review &lt;id&gt;");expect(html).not.toContain("data-command");
 });
 
 for(const state of ["partial","failed","limit","stopped"] as const) test(`retry ending ${state} keeps original hidden and chain count`,()=>{

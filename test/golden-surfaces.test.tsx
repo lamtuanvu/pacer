@@ -15,7 +15,6 @@ import { createApi } from "../app/src/data/api";
 import { Tray } from "../app/src/tray/Tray";
 import { createTrayIpc } from "../app/src/tray/ipc";
 import { shortTitle } from "../app/src/tray/model";
-import { renderStatusPage } from "../orca-plugin/src/panel";
 import { renderDashboard } from "../src/dashboard/render";
 import { renderLine } from "../src/render/line";
 import { main } from "../src/cli";
@@ -53,16 +52,12 @@ const frozenNow = spyOn(Date, "now").mockReturnValue(snapshot.at * 1000);
 let app: string;
 try { app = renderToString(<TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={runner}><Overview query={{ repo: null, scope: null }} /></ActionContext.Provider></TaskContext.Provider>); } finally { frozenNow.mockRestore(); }
 const tray = renderToString(<Tray snapshot={snapshot} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
-const panelRepo = renderStatusPage(snapshot, { nowS: snapshot.at, reachable: true, transport: null, repo: snapshot.repos![0]! });
-const panelAll = renderStatusPage(snapshot, { nowS: snapshot.at, reachable: true, transport: null, repo: null });
-// Both CSS-only scopes are shipped in the panel HTML. Compare each visible scope separately.
-const panelScope = (html: string, scope: "all" | "here") => html.split(`id="${scope === "all" ? "all-repos" : "this-repo"}"`)[1]!.split(scope === "all" ? '<div id="this-repo"' : "<footer>")[0]!;
 const tui = renderDashboard(snapshot, 120, 50, snapshot.at, { selected: 0, noColor: true, version: "0.3.0" });
 const line120 = renderLine(snapshot, { width: 120, color: false });
 const line20 = renderLine(snapshot, { width: 20, color: false });
-const surfaces = { app, tray, "panel this repo": panelScope(panelRepo, "here"), "panel all repos": panelScope(panelAll, "all"), tui };
+const surfaces = { app, tray, tui };
 
-for (const [name, output] of Object.entries({ app, tray, panelRepo, panelAll, tui, line120, line20 })) {
+for (const [name, output] of Object.entries({ app, tray, tui, line120, line20 })) {
   test(`golden ${name}`, () => expect(name === "tui" ? output.split("\n").map(line => line.trimEnd()).join("\n") : output).toMatchSnapshot());
 }
 
@@ -86,11 +81,6 @@ test("cross-surface counts use service totals and repo totals", () => {
   expect(text.app).toContain(`needs you ${c.attention} `);
   expect(text.app).toContain(`done today ${today.done} · ${today.accepted} accepted`);
   expect(text.tray).toContain(`${c.attention} needs you ${c.running} running ${c.queued} waiting ${today.done} done today`);
-  expect(text["panel all repos"]).toMatch(new RegExp(`needs you ${c.attention} .*running ${c.running} .*done today ${today.done}\\b`));
-  const repo = snapshot.repos![0]!.key, scoped = c.byRepo[repo]!;
-  // Global attention (the host outage) also appears in this repo.
-  const global = snapshot.attention!.filter(item => !item.repo).length;
-  expect(text["panel this repo"]).toMatch(new RegExp(`needs you ${scoped.attention + global} .*running ${scoped.running} .*done today ${today.byRepo[repo]}\\b`));
   expect(text.tui).toContain(`needs you ${c.attention}`);
   expect(text.tui).toContain(`running ${c.running} · queued ${c.queued}`);
   expect(text.tui).toContain(`done today ${today.done}`);
@@ -104,7 +94,7 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
     const text = strip(output);
     // Only the tray and TUI boards print a planner verdict beside the meter.
     if (name === "tray" || name === "tui") expect(text).toContain(verdictWords(snapshot.planner!.verdict));
-    const tasks = running(snapshot, { repo: name === "panel this repo" ? snapshot.repos![0]!.key : null });
+    const tasks = running(snapshot, { repo: null });
     for (const task of tasks.filter(task => task.state === "running" && task.progress)) {
       const phase = phaseWords(task.progress!.phase);
       expect(text).toContain(phase);
@@ -116,13 +106,12 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
   for (const line of [line120, line20]) expect(strip(line)).not.toMatch(/\b(?:ON_PACE|BEHIND|needs_input|on_pace)\b/);
   const advice = snapshot.planner!.advice;
   expect(app).toContain(`class="pc-planner-strip__advice">${advice}</span>`);
-  expect(panelRepo).toContain(`<small>${advice}</small>`);
 });
 
 const headings = (output: string) => [...output.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map(match => strip(match[1]!));
 
-test("panel order is Needs you, Running, Capacity, Done today; the TUI follows the Terminal board", () => {
-  for (const [name, output] of Object.entries({ "panel this repo": surfaces["panel this repo"], "panel all repos": surfaces["panel all repos"], tui })) {
+test("the TUI follows the Terminal board order", () => {
+  for (const [name, output] of Object.entries({ tui })) {
     // Ignore summary counters: compare section headings, with the TUI's capacity label.
     const labels = name === "tui" ? output.split("\n").filter(line => /^(NEEDS YOU|RUNNING|WHO RUNS NEXT|DONE TODAY)\b/.test(line)).join(" ")
       : headings(output).join(" ");
@@ -152,7 +141,7 @@ test("tray orders Needs you, Running, executors with done today only in counts",
 
 test("cross-surface Needs-you short titles preserve service order", () => {
   for (const [name, output] of Object.entries(surfaces)) {
-    const items = needsYou(snapshot, { repo: name === "panel this repo" ? snapshot.repos![0]!.key : null }).slice(0, name === "tray" ? 3 : undefined);
+    const items = needsYou(snapshot, { repo: null }).slice(0, name === "tray" ? 3 : undefined);
     const attention = name === "tui" ? output.split("NEEDS YOU")[1]!.split("RUNNING")[0]! : output.slice(output.indexOf(name === "app" ? 'aria-labelledby="needs-you"' : 'aria-label="Needs you"')).split("</section>")[0]!;
     const text = strip(attention), positions = items.map(item => text.indexOf(shortTitle(item)));
     expect(positions.every(at => at >= 0)).toBe(true);

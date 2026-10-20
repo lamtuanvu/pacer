@@ -19,8 +19,9 @@ pacer does not handle their credentials.
 If another pacer CLI is found, choose **Use the app's pacer** or **Keep mine**.
 The app does not silently overwrite an existing terminal command.
 
-Linux downloads are `pacer-<version>-linux-<x64|arm64>-unsigned.AppImage` and
-`pacer-<version>-linux-<x64|arm64>-unsigned.deb` on the same release page.
+Linux downloads are `pacer-<version>-linux-x64-unsigned.AppImage` and
+`pacer-<version>-linux-<x64|arm64>-unsigned.deb` on the same release page
+(arm64 has no AppImage yet).
 Choose the matching architecture. Make the AppImage executable and launch it,
 or install the `.deb` with `sudo apt install ./<downloaded-file>.deb` and run
 `pacer-desktop`. Linux uses the same consent and Setup flow. See the
@@ -46,19 +47,7 @@ configured later.
 Ask your planner for work in your repository — it delegates through pacer.
 Use `pacer open` to watch and `pacer doctor` to check the installation.
 
-## Orca plugin (optional)
-
-The Orca marketplace plugin can also bootstrap pacer in the background.
-
-In Orca Settings → Plugins, add `https://github.com/lamtuanvu/pacer.git`, then
-install **pacer** (`lamtuanvu.pacer`) and grant its capabilities. The versioned
-bundle is `https://github.com/lamtuanvu/pacer.git#orca-plugin-v0.2.3`.
-The worker installs a checksum-verified binary and keeps older binaries updated to
-its version. It never downgrades. Once per Orca launch it opens a terminal titled
-**pacer** in the focused worktree: `pacer init` if strategy or login service setup
-is missing, otherwise `pacer dashboard`. If nothing is focused, it checks again
-every 30 seconds without reserving a terminal. Closing the tab does not reopen it;
-run `pacer init` or `pacer dashboard` manually.
+## Setup with pacer init
 
 `pacer init` is the complete setup command. It runs these steps in order:
 
@@ -71,33 +60,15 @@ run `pacer init` or `pacer dashboard` manually.
 3. Install the login service if missing.
 4. Show each unconnected agent's files and undo command, then ask y/N separately.
    No agent configuration changes without consent; no MCP servers are added.
-5. If Orca is installed, prepare `~/.pacer/orca-plugin`. Add that folder in Orca
-   **Settings > Plugins > Development > Add folder**, then enable pacer. Init
-   prints the path, copies it on macOS when pbcopy is available, and waits up to
-   five minutes for the live heartbeat. Enter or Ctrl-C skips this wait; finish
-   later with `pacer init`.
-6. Print a summary and open the dashboard in an interactive terminal, unless
+5. Print a summary and open the dashboard in an interactive terminal, unless
    `--no-dashboard` is supplied.
 
 Rerunning init skips completed steps. `--yes` consents to all detected agents;
-`--agents claude-code,codex` limits agent selection. Non-TTY runs do not prompt,
-wait or open a dashboard; they set up strategy/service, and connect agents only
+`--agents claude-code,codex` limits agent selection. Non-TTY runs do not prompt
+or open a dashboard; they set up strategy/service, and connect agents only
 with `--yes` or `--agents`. `--json` returns a machine summary without prompts.
-`pacer setup` remains an alias of `pacer init`.
-
-Only development-folder panels refresh live. Once that panel is running, the
-marketplace worker becomes dormant and sends one notification per version:
-“pacer now runs from its live panel. You can uninstall the marketplace copy in
-Orca Settings > Plugins.” Pacer never edits Orca settings or disables a plugin.
-`pacer plugin status` reports both copies. Undo an agent with
+`pacer setup` remains an alias of `pacer init`. Undo an agent with
 `pacer uninstall <agent>`.
-
-Set **releaseBase** in the plugin settings for a private or unpublished release
-folder. It accepts HTTPS, `file://`, or HTTP on `127.0.0.1`/`localhost`, with
-`PACER_RELEASE_BASE` as fallback. The layout is `latest.json`,
-`<version>/SHA256SUMS`, and `<version>/pacer-<os>-<arch>`. Failures show a manual
-`pacer init` command and use bounded retries. Before a plugin release, run the
-[real-Orca harness](testing/orca-e2e.md).
 
 ## From source
 
@@ -190,26 +161,15 @@ pacer status --json
 
 `install` adds the pacer skill and planner policy/hooks with tracked backups. MCP is optional: use `pacer install claude-code --mcp` to register the stdio server, or `--no-mcp` to remove an existing entry. A plain reinstall leaves an existing MCP entry unchanged. Restart an MCP client after updating. `pacer uninstall <planner>` reverses the integration while preserving later user edits.
 
-For local Orca development, run `pacer plugin install` and add the printed managed directory in Settings > Plugins; see the [plugin guide](../orca-plugin/README.md). `pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
+`pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
 
-On standalone `pacer serve` startup, managed plugin assets are compared with the
-bundled assets by content hash. Unchanged assets need no refresh, even when the
-service and plugin versions differ. When assets change, the service repairs them
-and adds one reload reminder in Needs you. Turn pacer off and on in Orca Settings
-> Plugins, then dismiss the reminder with Done. Dismissal survives service restarts.
-Orca currently exposes no plugin reload API or CLI command.
-
-Update availability is checked on plugin startup and every six hours, with one
-notification per new version. Marketplace: Orca Settings > Plugins > Refresh,
-then Update plugin. Development folder: use the live panel's Updates card or
-`pacer update`, then turn pacer off and on in Orca Settings > Plugins; if only the
-plugin is behind the CLI, run `pacer plugin install` first. `pacer update --check
---json` reports versions without installing. Disable checks with
+`pacer update --check --json` reports versions without installing. Disable checks with
 `PACER_NO_UPDATE_CHECK=1` or top-level `update_check: false` in the active strategy.
 Checks only GET `latest.json`, time out after three seconds, and cache in
-`~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours. The static marketplace
-panel has no update buttons or host calls, and the worker never installs a newer
-release than the version shipped with its plugin.
+`~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours.
+`PACER_RELEASE_BASE` selects a private or unpublished release folder (HTTPS,
+`file://`, or HTTP on `127.0.0.1`/`localhost`) laid out as `latest.json`,
+`<version>/SHA256SUMS` and `<version>/pacer-<os>-<arch>`.
 
 ## Pause delegation
 
@@ -225,13 +185,16 @@ pacer uninstall --all
 ```
 
 It lists everything it will remove (agent integrations, restoring their backups;
-the login service; the Orca plugin registration; `~/.pacer` or `PACER_HOME`), asks
+the login service; a leftover Orca plugin; `~/.pacer` or `PACER_HOME`), asks
 once, then removes it. For an app install it also removes the app's terminal
 link and only the marked PATH block it added, preserving other shell settings.
 Move the app to the Trash afterward. Add `--binary` to delete a standalone pacer
-binary too, and `--yes` to skip the question in scripts. Remove any pacer development-folder entry from
-Orca Settings > Plugins yourself. To disconnect a single agent, use
+binary too, and `--yes` to skip the question in scripts. To disconnect a single agent, use
 `pacer uninstall <agent>`.
+
+pacer no longer ships an Orca plugin. If an earlier version installed it, run
+`pacer plugin uninstall` (or `pacer uninstall --all`), then remove pacer from
+Orca Settings > Plugins.
 
 ## Desktop app updates on macOS
 

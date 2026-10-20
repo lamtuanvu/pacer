@@ -10,7 +10,7 @@ bun run test
 
 The test script pins `TZ=Asia/Ho_Chi_Minh` because some tests depend on local dates and active-hour bins. Use `bun run test` for the consistent timezone.
 
-When changing `orca-plugin/`, also run `bun run plugin:build` and include its generated assets. A test checks that the committed plugin bundle and embedded CLI assets are fresh. Re-run tests after rebuilding.
+When changing `app/`, also run `bun run app:build` and include its generated assets. A test checks that the embedded app assets are fresh. Re-run tests after rebuilding.
 
 Discuss significant changes in an issue first. Keep pull requests focused, explain the behavior changed, link relevant issues and describe validation. Use a Conventional Commit PR title, for example `fix: handle missing usage readings` or `docs: clarify executor setup`. PRs are squash merged; the PR title becomes the commit on `main`.
 
@@ -38,13 +38,13 @@ bun run typecheck
 bun run test
 ```
 
-The preparation script updates `package.json` and the marketplace ref in `orca-marketplace.json` to `orca-plugin-v<x.y.z>`, rebuilds the bundled Orca plugin and pacer app assets, and moves the Unreleased changelog content into a dated release section while leaving a fresh empty Unreleased section. Review and include the generated plugin and app files. Submit a PR with a DCO-signed commit titled `chore: release x.y.z`; merge it before tagging the resulting `main` commit. Validate the prepared version through a dry run before releasing:
+The preparation script updates `package.json` and the desktop app versions, rebuilds the pacer app assets, and moves the Unreleased changelog content into a dated release section while leaving a fresh empty Unreleased section. Review and include the generated app files. Submit a PR with a DCO-signed commit titled `chore: release x.y.z`; merge it before tagging the resulting `main` commit. Validate the prepared version through a dry run before releasing:
 
 ```sh
 gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
 ```
 
-The dry run builds all platforms, prints metadata and release notes, tests plugin publishing in a local bare repository, runs npm publication with `--dry-run`, and validates the generated Homebrew formula with `ruby -c`. It does not publish or push remotely. A dispatch with `dry_run=false` is rejected; tags are the only release trigger.
+The dry run builds all platforms, prints metadata and release notes, runs npm publication with `--dry-run`, and validates the generated Homebrew formula with `ruby -c`. It does not publish or push remotely. A dispatch with `dry_run=false` is rejected; tags are the only release trigger.
 
 After reviewing the dry run, tag the merged commit:
 
@@ -55,7 +55,7 @@ git tag -s vX.Y.Z -m "pacer X.Y.Z" # or -a for an annotated tag
 git push origin vX.Y.Z
 ```
 
-The tag must match `v` plus the package version. The release workflow verifies the tag, typechecks and tests, then builds macOS and Linux binaries for arm64 and x64 on their respective runners. Each runner smoke-tests its native binary. The publish job writes SHA256SUMS, manifest.json and latest.json, attests all four binaries, extracts the version's changelog notes, and uploads the seven flat assets to GitHub Releases. After creating the GitHub release, the publish job replaces the `orca-plugin` branch tree with the bundled plugin plus LICENSE and NOTICE, preserving the branch history, and creates an annotated `orca-plugin-v<x.y.z>` tag. The plugin manifest sits at that branch and tag's repository root so Orca can install it from GitHub. Existing plugin tags cause a failure and are never moved; pushes use the job token without force. Workflow artifacts expire after one day. Stable releases become latest; versions containing `-` are marked prerelease and do not become latest.
+The tag must match `v` plus the package version. The release workflow verifies the tag, typechecks and tests, then builds macOS and Linux binaries for arm64 and x64 on their respective runners. Each runner smoke-tests its native binary. The publish job writes SHA256SUMS, manifest.json and latest.json, attests all four binaries, extracts the version's changelog notes, and uploads the seven flat assets to GitHub Releases. Workflow artifacts expire after one day. Stable releases become latest; versions containing `-` are marked prerelease and do not become latest.
 
 After the GitHub release is created, the npm job publishes all five packages using trusted publishing, skipping versions already published. Enable the repository variable `NPM_TRUSTED_PUBLISHING=true` only after the one-time npm bootstrap and trusted-publisher setup. The Homebrew job updates `lamtuanvu/homebrew-tap` on stable releases when the `HOMEBREW_TAP_TOKEN` secret is set, and skips unchanged formulas. See [distribution](docs/distribution.md) for setup.
 

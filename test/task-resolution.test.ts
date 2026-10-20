@@ -8,7 +8,6 @@ import { createTask, updateTask, readTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir, realRun } from "./helpers";
 import { taskData, pumpOnce } from "../src/link/pump";
 import { emptySnapshot, parseOutboxEvent } from "../src/link/envelope";
-import { attentionGroups } from "../orca-plugin/src/panel/model";
 
 function setup(){const ctx=fakeCtx({run:realRun}),repo=tmpDir(),worker=join(ctx.home,"worker");
  const git=(...a:string[])=>execFileSync("git",["-C",repo,...a],{stdio:"pipe"});
@@ -20,7 +19,7 @@ test("unlanded diff stays visible; tracked and untracked bytes clear when base c
  const {ctx,repo,worker,git,task}=setup();writeFileSync(join(worker,"tracked"),"changed\n");writeFileSync(join(worker,"new"),"new\n");
  expect(await resolutionReason(ctx,task)).toBeNull();writeFileSync(join(repo,"tracked"),"changed\n");writeFileSync(join(repo,"new"),"new\n");git("add",".");git("commit","-m","landed");
  expect(await resolutionReason(ctx,task)).toBe("already on main");const resolved=await resolveTask(ctx,task);expect(readTask(ctx,task.id)?.resolved).toBe("already on main");
- const s=emptySnapshot();s.tasks=[taskData(resolved)];expect(attentionGroups(s,ctx.now)).toEqual([]);
+ expect(taskData(resolved)).toMatchObject({resolved:"already on main"});
 });
 test("worker commits and deleted files are compared; differing untracked content prevents resolution",async()=>{
  const {ctx,repo,worker,git,task}=setup();execFileSync("git",["-C",worker,"rm","tracked"]);execFileSync("git",["-C",worker,"commit","-m","delete"]);

@@ -4,7 +4,6 @@ import { loadStrategy, type Strategy } from "../config/strategy";
 import { AGENT_BINS, agentPlans } from "../install/detection";
 import { serviceBackend } from "../service";
 import { currentVersion } from "../update/version";
-import { readLiveHeartbeat } from "../plugin/live";
 import type { Ctx } from "../types";
 import { setupChecklist, setupText, updateChecklist, type SetupChecklist, type SetupFacts } from "./checklist";
 import { loginIndicator } from "../install/login";
@@ -76,7 +75,6 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
   status=cached&&ctx.now>=cached.at&&ctx.now-cached.at<60?cached.status:await computeStatus({...ctx,readOnly:true},strategy,{cacheOnly:true});
  }
  return setupChecklist({version:currentVersion(),planner:strategy?formatRunnerId({...strategy.planner,host:null},runnerDefaults(strategy.accounts)):planner,signedIn:login?login.loggedIn:true,loginCommand:login?.fix,connected,service,link,
-  live:!!readLiveHeartbeat(ctx.pacerHome),orcaInstalled:!!(ctx.env.ORCA_CLI_COMMAND||ctx.which("orca")||existsSync("/Applications/Orca.app/Contents/Resources/bin/orca")),
   ...statusFacts(status),reviewed:anyReviewed(ctx),skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),agents,errors},ctx.now);
 }
 export async function checkSetupCommand(ctx:Ctx):Promise<string> {

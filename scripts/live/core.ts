@@ -19,7 +19,6 @@ export interface Session {
   seed?: "ui";
   stopped?: boolean;
   desktopPid?: number;
-  orcaPid?: number;
 }
 export interface Evidence {
   at: string;
@@ -253,7 +252,7 @@ export async function down(session: Session, keep = false): Promise<void> {
       if (result.code) throw Error(result.stderr);
     }
   }
-  for (const pid of [session.desktopPid, session.orcaPid]) if (pid) stopProcess(pid);
+  for (const pid of [session.desktopPid]) if (pid) stopProcess(pid);
   session.stopped = true;
   saveSession(session);
   record(session, { kind: "note", text: "Sandbox stopped" });

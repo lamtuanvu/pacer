@@ -20,14 +20,13 @@ depending on your login shell. It is off by default. Continue to the web app's
 step-by-step **Setup** to choose a planner, connect agents, choose an executor and
 try a task. An existing CLI offers **Use the app's pacer** or **Keep mine**.
 
-The same release includes `pacer-<version>-linux-<x64|arm64>-unsigned.AppImage`
-and `pacer-<version>-linux-<x64|arm64>-unsigned.deb`, with the CLI bundled and the
+The same release includes `pacer-<version>-linux-x64-unsigned.AppImage`
+and `pacer-<version>-linux-<x64|arm64>-unsigned.deb` (no arm64 AppImage yet), with the CLI bundled and the
 same consent flow. For terminal and servers, use the
 [standalone installer](../docs/install.md#terminal-and-servers).
 
 Run `pacer uninstall --all` to remove everything setup added, including the
-terminal link and the marked PATH block. Move the app to the Trash afterward;
-remove any development-folder plugin entry in Orca Settings yourself.
+terminal link and the marked PATH block. Move the app to the Trash afterward.
 
 ## Build
 
@@ -121,9 +120,10 @@ artifacts on native Ubuntu x86_64 and arm64 runners. The arm64 job requires
 `ubuntu-24.04-arm` runner availability. Each architecture uploads its own
 artifact; no release or signing is performed by that manual workflow.
 The release workflow uses the same native Linux runners, stages the matching CLI
-artifact, builds with `--target <triple> --bundles appimage,deb --no-sign`, and
+artifact, builds with `--target <triple> --bundles <list> --no-sign`, and
 publishes versioned `-unsigned.AppImage` and `-unsigned.deb` downloads with
-checksums and provenance.
+checksums and provenance. Linux arm64 builds only the `.deb`: linuxdeploy's
+patchelf step corrupts the bundled arm64 CLI, so that AppImage is skipped.
 
 Icons are generated from `design/assets/pacer-mark.svg` with `bunx tauri icon`.
 `ui/tray.svg` uses the same geometry in monochrome for the macOS template icon.

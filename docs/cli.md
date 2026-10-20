@@ -13,9 +13,8 @@ while preserving later user edits. `pacer doctor` reports skill integrity.
 MCP is optional: `pacer install <planner> --mcp` registers it. A default reinstall
 leaves an existing pacer MCP entry unchanged; `--no-mcp` explicitly removes it.
 `pacer update` replaces the binary and refreshes every installed planner’s skill, policy and hooks
-with the new binary, preserving each planner’s MCP choice. It also refreshes the managed Orca
-plugin folder when installed; turn pacer off and on in Orca Settings > Plugins to load it.
-`--no-reinstall` skips both refreshes;
+with the new binary, preserving each planner’s MCP choice.
+`--no-reinstall` skips the refresh;
 `--check` only checks, and `--to <version>` forces replacement and refresh even at the same version.
 Refresh failures warn and do not stop other integrations or fail the update.
 
@@ -120,8 +119,8 @@ short action error.
 ## Setup
 
 `pacer init [--planner <id>] [--yes] [--agents a,b] [--no-dashboard] [--json]`
-sets up planner selection, strategy, login service, agent integrations and the
-Orca live panel in order. `pacer setup` is an alias. Planner choices are
+sets up planner selection, strategy, login service and agent integrations in
+order. `pacer setup` is an alias. Planner choices are
 claude-code, codex, cursor and opencode. With several detected planners, a TTY
 shows a numbered choice defaulting to the current strategy's planner. Explicit
 `--planner` skips the question. With no CLIs, init creates a valid starter using
@@ -135,11 +134,7 @@ integration with `pacer uninstall <agent>`.
 
 Non-TTY runs set up strategy and service without prompts. Agents connect only
 with `--yes` or `--agents`; `--json` returns the summary as data. Non-TTY runs
-never wait or launch the dashboard. On a TTY, init prepares the managed Orca
-folder when Orca is installed, prints its path and guides you to Settings >
-Plugins > Development > Add folder. It waits up to five minutes for the live
-heartbeat; Enter or Ctrl-C skips with `Finish later with: pacer init`. Setup then
-prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
+never launch the dashboard. Setup then prints a summary and opens the dashboard unless `--no-dashboard` is supplied.
 
 Before opening the dashboard, interactive init offers a first delegation when
 an executor is ranked and no task has been reviewed or the exercise skipped:
@@ -165,13 +160,13 @@ with `pacer uninstall --all` as part of `PACER_HOME` cleanup.
 
 `pacer uninstall --all [--yes] [--binary] [--json]` prints a complete removal
 plan from the install manifest, including each connected agent and its account
-folder, the installed login service, Orca plugin registration, `PACER_HOME`,
-and the binary path. In a terminal it asks once: `Remove all of this? [y/N]`.
+folder, the installed login service, a leftover Orca plugin from an earlier
+pacer, `PACER_HOME`, and the binary path. In a terminal it asks once: `Remove all of this? [y/N]`.
 Without a terminal, pass `--yes`; otherwise it prints the plan and exits 2.
 
 Removal runs in order: agent integrations (using their recorded undo operations
-and restoring backups), service, plugin, then all of `PACER_HOME`. Orca may still
-require removing the development plugin path in Settings; the command prints that
+and restoring backups), service, plugin, then all of `PACER_HOME`. For a leftover
+plugin, remove pacer from Orca Settings > Plugins yourself; the command prints that
 instruction. It continues after individual failures, reports each step as `ok` or
 `failed`, and exits 1 if any step failed. Review the plan carefully: `PACER_HOME`
 contains configuration, history and account data. Paths resolving to your home
@@ -182,6 +177,11 @@ to delete the shared Bun/Node runtime; use an installed pacer binary for that
 option. If the binary is inside `PACER_HOME`, removal requires `--binary`.
 `--json` returns `{plan, results}`; prompts and errors use stderr.
 Existing `pacer uninstall <planner>` remains available for a single integration.
+
+pacer no longer ships an Orca plugin. `pacer plugin uninstall` removes one that an
+earlier version installed: its files, its install record and pacer's keys in Orca's
+plugin storage. Every other `pacer plugin` subcommand exits 2 and points to the
+desktop app or `pacer open`.
 
 ## pacer open
 
@@ -202,8 +202,7 @@ background service; `pacer serve` runs it in the foreground). If it is down,
 
 ## Terminal dashboard
 
-`pacer dashboard` opens a full-screen live budget and task dashboard. Marketplace
-Orca installs open it in the **pacer** terminal tab after setup. It uses the v2
+`pacer dashboard` opens a full-screen live budget and task dashboard. It uses the v2
 API and connects to `pacer serve` when it runs; without it, the dashboard works
 in-process. It refreshes on events and every two seconds, with status computation
 in the background so network requests never block the display. An interactive
@@ -224,7 +223,7 @@ Ctrl-C, SIGTERM and errors restore the normal screen, cursor and input mode.
 ### Update checks
 
 `pacer update --check [--json]` checks `latest.json` and reports the current CLI,
-latest release, availability, and installed Orca plugin version and update instructions.
+latest release and availability.
 It exits successfully even when offline and never installs anything. Checks time out
 after three seconds; failures are recorded in `~/.pacer/update-check.json`.
 The shared check caches results for 24 hours; explicit checks force a refresh.
@@ -236,23 +235,14 @@ strategy YAML to disable checks (including explicit checks). No telemetry is sen
 the only release request is a GET of `latest.json`. `PACER_RELEASE_BASE`, including
 `file://` bases, works as it does for `pacer update`.
 
-The live panel shows versions and update availability, with `pacer update` as
-selectable text. Run it in a terminal to update. In the dashboard, `c`
-checks immediately and `u` asks `Run pacer update? (y/n)` before updating; Escape or
-`n` cancels. After an update, turn pacer off and on in Orca Settings > Plugins.
-Marketplace plugins check on startup and every six hours, notifying once per new
-version: use Orca Settings > Plugins > Refresh, then Update plugin. Live plugins
-show the panel Update instruction. The worker also warns if the CLI is newer than
-the running plugin. These checks never install a newer release automatically;
-bootstrap installation still only installs/updates the CLI version shipped with
-that plugin.
+In the dashboard, `c` checks immediately and `u` asks `Run pacer update? (y/n)`
+before updating; Escape or `n` cancels. These checks never install a newer release
+automatically.
 
 ## Console retirement
 
 `pacer console` and its command lines were removed in protocol 3.0. Use
-`pacer dashboard` for terminal actions or `pacer open` for the app. The Orca
-panel reads the API and delivers service notifications; **pacer: Open** points
-to the app. `pacer link status|probe` checks the outbox and versioned service.
+`pacer dashboard` for terminal actions or `pacer open` for the app.
 
 ## Remote hosts
 
