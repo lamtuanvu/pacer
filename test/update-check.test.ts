@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { checkForUpdate, installedPlugin, updateLine, UPDATE_CACHE_S } from "../src/update/check";
+import { checkForUpdate, updateLine, UPDATE_CACHE_S } from "../src/update/check";
 import { compareVersions } from "../src/update/version";
 import { main } from "../src/cli";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -48,12 +48,11 @@ test("network, malformed metadata, timeout and cache-write failures do not throw
  expect(JSON.parse(readFileSync(join(ctx.pacerHome,"update-check.json"),"utf8"))).toHaveProperty("error");
  expect((await checkForUpdate({...ctx,pacerHome:"/dev/null"},{fetch:async()=>response("1.0.0")}))?.latest).toBe("1.0.0");
 });
-test("CLI check only needs latest.json, accepts file bases, always succeeds offline and reports plugin",async()=>{
+test("CLI check only needs latest.json, accepts file bases, always succeeds offline and reports no plugin",async()=>{
  const ctx=fakeCtx(),root=tmpDir();writeFileSync(join(root,"latest.json"),JSON.stringify({version:"99.0.0"}));ctx.env.PACER_RELEASE_BASE=pathToFileURL(root).href;
  mkdirSync(join(ctx.pacerHome,"orca-plugin"),{recursive:true});writeFileSync(join(ctx.pacerHome,"orca-plugin/.pacer-managed"),JSON.stringify({version:"0.0.1"}));
- const result=await main(["update","--check","--json"],ctx);expect(result.code).toBe(0);expect(JSON.parse(result.out)).toMatchObject({latest:"99.0.0",available:true,plugin:{version:"0.0.1",mode:"live"}});
- expect(installedPlugin(ctx)?.hint).toContain("pacer plugin install");
- writeFileSync(join(ctx.pacerHome,"plugin-version.json"),JSON.stringify({version:"0.0.2",mode:"bootstrap"}));expect(installedPlugin(ctx)?.hint).toContain("Refresh, then Update plugin");
+ const result=await main(["update","--check","--json"],ctx);expect(result.code).toBe(0);expect(JSON.parse(result.out)).toMatchObject({latest:"99.0.0",available:true,plugin:null});
+ expect((await main(["update","--check"],ctx)).out).not.toContain("Orca plugin");
  ctx.env.PACER_RELEASE_BASE=pathToFileURL(join(root,"missing")).href;expect((await main(["update","--check"],ctx)).code).toBe(0);
 });
 test("status appends cached update line only to text reports and respects opt-out",async()=>{

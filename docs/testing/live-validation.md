@@ -40,11 +40,11 @@ eval "$(bun run live env --id my-change)"
 
 Use those exports in a dedicated shell so later work does not inherit the sandbox. The guarded `pacer` stays first on `PATH`, and `PACER_BIN` points at it. Each guarded call reapplies sandbox env, including calls made by child tools. Do not bypass the wrapper or override the sandbox coordinates.
 
-The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin install|set`, `account add|rm|login`, `host setup`, `orca`, and `open` without `--print`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
+The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall`, `account add|rm|login`, `host setup`, `orca`, and `open` without `--print`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
 
 ## D8: service operation guard
 
-Every network client (CLI/API, web/tray, TUI, desktop and isolated Orca worker) uses the public proxy port. Do not call `innerPort` directly. The proxy forwards `/app/` assets, cookies and Set-Cookie, SSE chunks and session WebSocket text/binary frames. It rewrites Host to the inner loopback authority and rewrites Origin only when it matches the public loopback origin; foreign and missing Origins remain unchanged for normal upstream rejection. Authentication and `X-Pacer-Client: app` checks still apply.
+Every network client (CLI/API, web/tray, TUI and desktop) uses the public proxy port. Do not call `innerPort` directly. The proxy forwards `/app/` assets, cookies and Set-Cookie, SSE chunks and session WebSocket text/binary frames. It rewrites Host to the inner loopback authority and rewrites Origin only when it matches the public loopback origin; foreign and missing Origins remain unchanged for normal upstream rejection. Authentication and `X-Pacer-Client: app` checks still apply.
 
 Refused operations return HTTP **403** with the protocol error shape `{ "error": { "code": "forbidden", "message": "Live validation D8: <op> changes the real user environment" } }`. Every refusal appends a note to `evidence/log.jsonl`, visible in the report as UNVERIFIED. No request bodies, keys or cookies are recorded in those notes.
 
@@ -77,7 +77,7 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `service.*` | all service operations except service.status can change the real login service |
 <!-- /D8 policy -->
 
-`setup.init` is **allowed**: `setup.init` in `src/core/setup.ts` creates only `PACER_HOME/strategy.yaml`, or calls `config.set` with `integrations: "skip"`. Detection reads installed tools; it does not install integrations. `plugin.install` is allowed because `setup.pluginInstall` installs only under `PACER_HOME` and never edits Orca settings. Endpoint provider config regeneration itself is under `PACER_HOME/opencode`; account edit/adopt remain refused because their key paths can use the real Keychain. `host.add`, account mapping and repo mapping are conservatively refused even though their immediate config edits are sandbox-local: they enable later work on real hosts. Read-only operations and sandbox state changes remain available. Real delegation is still cooperative: use only the disposable repository and do not register outside repos or add remote runners. This filter is not isolation for arbitrary executor code.
+`setup.init` is **allowed**: `setup.init` in `src/core/setup.ts` creates only `PACER_HOME/strategy.yaml`, or calls `config.set` with `integrations: "skip"`. Detection reads installed tools; it does not install integrations. Endpoint provider config regeneration itself is under `PACER_HOME/opencode`; account edit/adopt remain refused because their key paths can use the real Keychain. `host.add`, account mapping and repo mapping are conservatively refused even though their immediate config edits are sandbox-local: they enable later work on real hosts. Read-only operations and sandbox state changes remain available. Real delegation is still cooperative: use only the disposable repository and do not register outside repos or add remote runners. This filter is not isolation for arbitrary executor code.
 
 ## Select the affected surfaces
 
@@ -88,7 +88,6 @@ Write down each changed behavior and its expected result before exercising it. I
 | `src/api/`, `src/serve/` | CLI/API operations against the sandbox service, plus web behavior that consumes them |
 | `app/` | Web app and tray popover through browser MCP; inspect relevant desktop tray integration when affected |
 | `src/dashboard/`, `src/render/` | TUI in tmux; inspect text layout, navigation and changed actions |
-| `orca-plugin/` | Isolated Orca panel; rendered live HTML in a browser is the fallback, with host integration UNVERIFIED |
 | `desktop/` | Built desktop app through computer-use, including affected window/tray behavior |
 | `src/exec/`, `src/supervisor/`, `src/tasks/`, `src/remote/` | Real delegation into the disposable sandbox repo, wait for completion, inspect result and record review |
 | Other runtime paths, including `scripts/live/` | Exercise the changed commands and all surfaces that consume the behavior |
@@ -155,19 +154,6 @@ bun run live desktop --id my-change --app <path>
 ```
 
 The default is the built app under `desktop/src-tauri/target/release/bundle/macos/`. The harness launches the executable directly with sandbox env, bypassing app-instance reuse by the OS launcher. A sandbox shell shim preserves the guarded PATH during desktop's login-shell discovery. Drive the new window with computer-use, confirm its service origin matches the sandbox port, and inspect changed window/tray behavior. Launch success alone is not a PASS. Missing builds, platform support or computer-use access mean UNVERIFIED.
-
-### Orca
-
-```sh
-# Optional: point at the installed Orca Electron executable, not the Orca CLI.
-PACER_LIVE_ORCA_BINARY=<executable> bun run live orca --id my-change
-# Fallback when isolated Orca cannot be launched:
-bun run live orca --id my-change --print
-```
-
-The harness prepares a sandbox-owned copy of the plugin. It uses `PACER_ORCA_USER_DATA` plus Electron's `--user-data-dir` for the separate instance, with safety-bin wrappers shadowing service managers. The copied worker overrides host settings reads to select the sandbox port and `PACER_HOME`; defaults must never connect it to the user's service. In the **isolated instance only**, enable plugins in Settings > Plugins, add the printed development folder and enable pacer. Do not modify the user's real Orca profile. Confirm the instance is isolated before continuing; use `--print` if it is not.
-
-`--print` waits for the running sandbox service to render its live panel, then saves `evidence/orca-panel.html`. Open it with browser MCP and inspect it at sidebar width and in the affected themes. This verifies rendered content; Orca host IPC, notifications and refresh integration remain UNVERIFIED. A failed isolated launch requires the fallback or an explicit UNVERIFIED note; it is never silently counted as success. See also [Orca e2e](orca-e2e.md).
 
 ## Record and report evidence
 

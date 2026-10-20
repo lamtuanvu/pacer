@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 export interface UiEvidenceViolation { rule: string; message: string }
 
-const uiPath = /^(?:app\/(?:src\/.*\.(?:[jt]sx?|css|json|html|svg|png)|tokens-gen\.ts|build\.ts)|src\/app\/assets\.generated\.ts|src\/(?:dashboard|render|view-model)\/.*\.(?:ts|tsx)|orca-plugin\/src\/panel(?:\/.*)?\.ts|desktop\/(?:ui\/.*\.(?:html|css|[jt]sx?|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)|src-tauri\/(?:src\/.*\.rs|icons\/.*\.(?:svg|png|jpe?g|gif|webp|ico|icns)|tauri(?:\.[a-z-]+)?\.conf\.json)))$/s;
+const uiPath = /^(?:app\/(?:src\/.*\.(?:[jt]sx?|css|json|html|svg|png)|tokens-gen\.ts|build\.ts)|src\/app\/assets\.generated\.ts|src\/(?:dashboard|render|view-model)\/.*\.(?:ts|tsx)|desktop\/(?:ui\/.*\.(?:html|css|[jt]sx?|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)|src-tauri\/(?:src\/.*\.rs|icons\/.*\.(?:svg|png|jpe?g|gif|webp|ico|icns)|tauri(?:\.[a-z-]+)?\.conf\.json)))$/s;
 const sha = /^[a-f0-9]{40}$/;
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
 

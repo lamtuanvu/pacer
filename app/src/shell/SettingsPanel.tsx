@@ -14,7 +14,7 @@ export function SettingsPanel({ route, counts, snapshot, badges = {} }: { route:
     <TextAction className={`pc-panel__item${on ? " on" : ""}`} href={withQuery(href, route.query)} aria-current={on ? "page" : undefined}>{label}{badge !== "" && <span className={`pc-rail__badge pc-rail__badge--${tone}`} aria-label={String(badge)}>{badge}</span>}</TextAction>;
   return <aside className="pc-panel" aria-label="Settings">
     {item("#/settings", "General", route.name === "settings" && !route.section)}
-    {([['planner','Planner & pacing'],['accounts','Accounts'],['executors','Executors'],['hosts','Remote hosts'],['routing','Routing'],['strategies','Strategies'],['updates','Updates & plugin'],['notifications','Notifications'],['appearance','Appearance']] as const).map(([section,label])=>item(`#/settings/${section}`,label,section==='hosts'?route.name==='hosts':route.name==='settings'&&route.section===section,section==='hosts'?(hosts ? `${hosts} needs setup` : ''):badges[section] ?? '',section==='hosts'?'warn':section==='executors'?'bad':'neutral'))}
+    {([['planner','Planner & pacing'],['accounts','Accounts'],['executors','Executors'],['hosts','Remote hosts'],['routing','Routing'],['strategies','Strategies'],['updates','Updates'],['notifications','Notifications'],['appearance','Appearance']] as const).map(([section,label])=>item(`#/settings/${section}`,label,section==='hosts'?route.name==='hosts':route.name==='settings'&&route.section===section,section==='hosts'?(hosts ? `${hosts} needs setup` : ''):badges[section] ?? '',section==='hosts'?'warn':section==='executors'?'bad':'neutral'))}
     {item("#/settings/add-executor", "Add executor", route.name === "add-executor")}
   </aside>;
 }

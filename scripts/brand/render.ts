@@ -3,8 +3,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { renderPanel } from "../../orca-plugin/src/panel";
-import { emptySnapshot, type LinkSnapshot, type ProviderLine } from "../../src/link/envelope";
 
 const root = resolve(import.meta.dir, "../..");
 const assets = join(root, ".github/assets");
@@ -14,22 +12,6 @@ const chrome = process.env.CHROME_BIN ?? (process.platform === "darwin"
   : "google-chrome");
 const scratch = await mkdtemp(join(tmpdir(), "pacer-brand-"));
 const font = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
-const now = 1_800_000_000;
-const provider = (id: string, verdict: string, usedPct: number, pacePct: number): ProviderLine => ({
-  id, verdict, usedPct, pacePct, resetsAt: now + 4 * 86400 + 20 * 3600, window: "weekly", stale: false,
-});
-const snapshot: LinkSnapshot = {
-  ...emptySnapshot(), at: now, seq: 1, strategies: ["default", "save-planner"],
-  budget: {generatedAt: now, strategy: "default", planner: "claude-code", mode: "normal",
-    providers: [provider("claude-code", "ON_PACE", 30, 28), provider("agy", "BEHIND", 12, 40),
-      provider("codex", "AHEAD", 64, 42), provider("cursor", "EXHAUSTED", 100, 35)],
-    ranked: [{id: "agy", verdict: "BEHIND"}, {id: "codex", verdict: "AHEAD"}]},
-  console: {handle: "term_demo", paneKey: null, pid: 1, startedAt: now - 600, heartbeatAt: now},
-  tasks: [
-    {id: "demo-running", state: "running", goal: "Fix flaky retry test in the payments client", executor: "agy", backend: "orca", worktree: "acme/api", updatedAt: now - 180, attemptStartedAt: now - 180, runnerAlive: true, terminalPresent: true},
-    {id: "demo-review", state: "partial", goal: "Add a regression test for the cache key", executor: "codex", backend: "orca", worktree: "acme/api-cache", updatedAt: now - 60, terminalPresent: true},
-  ],
-};
 function mark(dark: boolean) {
   return `<rect x="4" y="20" width="40" height="8" rx="4" fill="${dark ? "#52525B" : "#E4E4E7"}"/><rect x="4" y="20" width="22" height="8" rx="4" fill="${dark ? "#FFFFFF" : "#18181B"}"/><rect x="29" y="12" width="4" height="24" rx="2" fill="${dark ? "#A3E635" : "#65A30D"}"/>`;
 }
@@ -59,19 +41,6 @@ try {
   const socialPath = join(assets, "social-preview.html");
   await writeFile(socialPath, social);
   await capture(socialPath, join(assets, "social-preview.png"), 1280, 640, 1);
-  for (const dark of [false, true]) {
-    const theme = dark
-      ? "--background:#18181B;--foreground:#FAFAFA;--muted:#27272A;--muted-foreground:#A1A1AA;--border:#3F3F46;--card:#18181B;--primary:#FAFAFA"
-      : "--background:#FFFFFF;--foreground:#18181B;--muted:#F4F4F5;--muted-foreground:#71717A;--border:#E4E4E7;--card:#FAFAFA;--primary:#18181B";
-    let html = renderPanel(snapshot, {nowS: now, transport: "http", reachable: true, autoConsole: false});
-    // Keep plugin CSS intact; provide only variables normally supplied by Orca.
-    html = html.replace("</head>", `<style>:root{${theme};--radius:10px;--app-font-family:${font};color-scheme:${dark ? "dark" : "light"}}html,body{width:360px}</style></head>`);
-    // Freeze the demo clock to keep age labels stable. No host API is simulated.
-    html = html.replace("<head>", `<head><script>Date.now=()=>${now * 1000};</script>`);
-    const source = join(scratch, `panel-${dark ? "dark" : "light"}.html`);
-    await writeFile(source, html);
-    await capture(source, join(assets, `panel-${dark ? "dark" : "light"}.png`), 360, 900, 2, dark);
-  }
 } finally {
   await rm(scratch, {recursive: true, force: true});
 }

@@ -1,8 +1,6 @@
 import { expect, test, spyOn } from "bun:test";
 import { startServer } from "../src/serve/http";
 import { fakeCtx } from "./helpers";
-import { emptySnapshot } from "../src/link/envelope";
-import { renderStatusPage } from "../orca-plugin/src/panel";
 
 test("retired bearer routes return 404", async () => {
  const ctx = fakeCtx();
@@ -19,20 +17,3 @@ test("retired bearer routes return 404", async () => {
  } finally { stop?.();listener.mockRestore(); }
 });
 
-test("panel without API offers plugin update command", () => {
- const page = renderStatusPage(emptySnapshot(), {nowS:1,reachable:false,transport:null});
- expect(page).toContain("Update the pacer plugin");
- expect(page).toContain("pacer update");
-});
-
-test("plugin bundle has no link storage reads or retired transports", async () => {
- const worker = await Bun.file("orca-plugin/dist/worker.mjs").text();
- expect(/storage\.get[\s\S]{0,40}key:\s*["']link["']/.test(worker)).toBe(false);
- for (const name of ["bridgeTransport", "channelTransport", "httpTransport"]) expect(worker).not.toContain(name);
-});
-
-test("API update notice survives a completed bootstrap state",()=>{
- const page=renderStatusPage(emptySnapshot(),{nowS:1,reachable:false,transport:null,bootstrap:{install:{status:"done"},start:{status:"done"},agents:[]}});
- expect(page).toContain("Update the pacer plugin");
- expect(page).toContain("pacer update");
-});

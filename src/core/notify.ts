@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
-import { pluginInstalled, writePluginSetting } from "../link/bridge";
 import { pluginDataDir } from "../link/paths";
 import type { Ctx } from "../types";
 import { CoreError, toCoreError } from "./errors";
@@ -22,7 +21,6 @@ export function setLevel(ctx: Ctx, level: NotificationLevel) {
   try {
     const file=join(ctx.pacerHome,"settings.json");
     writeJsonAtomic(file,{...readJson<Record<string,unknown>>(file),notifications:level});
-    if(pluginInstalled(ctx)) writePluginSetting(ctx,"notifications",level);
     return {level};
   } catch(e) { throw toCoreError(e); }
 }

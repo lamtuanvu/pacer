@@ -59,10 +59,9 @@ export class DashboardSettings {
   add('Updates','check-updates','Check for updates',()=>this.deps.command({cmd:'check-updates'}));
   add('Updates','update','Update',async()=>{if(/^y(?:es)?$/i.test(await this.ask('Run pacer update? y/N')))await this.deps.command({cmd:'update'});});
   const check=new StrategyDoc(readFileSync(strategyPath(this.ctx),'utf8')).getIn(['update_check'])!==false;
-  add('Plugin','update-check',`Update checks: ${check?'on':'off'}`,()=>this.set('update_check',String(!check)));
-  add('Plugin','plugin-info','Notifications and automatic console: Orca plugin settings');
+  add('Updates','update-check',`Update checks: ${check?'on':'off'}`,()=>this.set('update_check',String(!check)));
   for(const host of snapshot?.hosts??[])add('Hosts',`host-${host.alias}`,`${host.alias} · ${host.running}/${host.maxTasks} tasks · ${host.executors.join(', ')||'No executors'} · Enter check`,()=>this.deps.command({label:'Run host checks',op:'host.check',params:{alias:host.alias}}));
-  const sectionOrder=['Planner & pacing','Executors','Accounts','Runners','Routing','Hosts','Strategies','Updates','Plugin'];
+  const sectionOrder=['Planner & pacing','Executors','Accounts','Runners','Routing','Hosts','Strategies','Updates'];
   for(const row of rows){if(['Planner','Pacing'].includes(row.section))row.section='Planner & pacing';if(row.id==='routing')row.section='Routing';}
   rows.sort((a,b)=>sectionOrder.indexOf(a.section)-sectionOrder.indexOf(b.section));
   const supports=(op:string)=>!this.deps.ops||this.deps.ops().includes(op);
