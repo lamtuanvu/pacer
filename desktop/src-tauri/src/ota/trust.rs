@@ -43,6 +43,13 @@ pub fn build_identity() -> serde_json::Value {
         "fixturePolicySha256":if cfg!(feature="ota-fixture") { option_env!("PACER_OTA_FIXTURE_POLICY").map(|policy|format!("{:x}",Sha256::digest(policy.as_bytes()))) } else { None },
     })
 }
+/// Fixture trust is identifier-only, plus the lease's disposable certificate when it pins one.
+fn fixture_requirement(identifier: &str, cert: Option<&str>) -> String {
+    match cert {
+        Some(cert) => format!("identifier \"{identifier}\" and certificate leaf = H\"{cert}\""),
+        None => format!("identifier \"{identifier}\""),
+    }
+}
 fn signer_kind(team: Option<&str>, cert: Option<&str>) -> Option<&'static str> {
     match (team, cert) {
         (Some(_), Some(_)) => Some("both"),
@@ -150,8 +157,8 @@ impl ReleaseTrust {
         self.static_requirement(role.identifier())
     }
     fn static_requirement(&self, identifier: &str) -> String {
-        if self.fixture.is_some() {
-            return format!("identifier \"{}\"", identifier);
+        if let Some(fixture) = &self.fixture {
+            return fixture_requirement(identifier, fixture.signing_cert_sha1.as_deref());
         }
         let apple = self.team_id.as_ref().map(|team| {
             format!("anchor apple generic and certificate leaf[subject.OU] = \"{team}\"")
@@ -333,6 +340,14 @@ mod tests {
         assert!(ReleaseTrust::from_production(&public_key(), None, None).is_err());
     }
     #[test]
+    fn fixture_requirement_adds_the_leases_certificate_pin_only_when_present() {
+        assert_eq!(fixture_requirement(CLI_ID, None), "identifier \"dev.pacer.cli\"");
+        assert_eq!(
+            fixture_requirement(CLI_ID, Some(CERT)),
+            format!("identifier \"dev.pacer.cli\" and certificate leaf = H\"{CERT}\"")
+        );
+    }
+    #[test]
     fn bridge_trust_accepts_either_signer_for_the_same_role() {
         let trust =
             ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), Some(CERT)).unwrap();
@@ -479,6 +494,7 @@ mod tests {
             service_label: format!("com.pacer.live.{}.service", "b".repeat(32)),
             recovery_label: format!("com.pacer.live.{}.recovery", "b".repeat(32)),
             uid: unsafe { libc::geteuid() },
+            signing_cert_sha1: None,
         };
         std::fs::write(root.join("record.json"),serde_json::to_vec(&serde_json::json!({"schema":1,"phase":"prepared","root":root,"nonce":policy.nonce,"pacerHome":home,"innerPort":policy.port,"currentApp":policy.current_app,"serviceLabel":policy.service_label,"recoveryLabel":policy.recovery_label,"ownerUid":policy.uid})).unwrap()).unwrap();
         std::fs::set_permissions(

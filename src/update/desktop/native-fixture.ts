@@ -24,6 +24,7 @@ const schema = z
     serviceLabel: z.string(),
     recoveryLabel: z.string(),
     uid: z.number().int().nonnegative(),
+    signingCertSha1: z.string().regex(/^[0-9A-F]{40}$/).optional(),
   })
   .strict();
 export type NativeFixture = z.infer<typeof schema>;

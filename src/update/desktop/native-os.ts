@@ -173,8 +173,9 @@ export class DarwinAuthority {
     const refs: (Pointer | bigint)[] = [];
     try {
       const identifier = role === "native-shim" ? "dev.pacer.desktop.native-shim" : identifiers[role];
+      // Fixture trust mirrors trust.rs: identifier-only, plus the lease's disposable certificate when pinned.
       const requirement = this.fixture
-        ? `identifier "${identifier}"`
+        ? `identifier "${identifier}"${this.fixture.signingCertSha1 ? ` and certificate leaf = H"${this.fixture.signingCertSha1}"` : ""}`
         : signerRequirement(identifier, this.pins);
       const text = this.cf.symbols.CFStringCreateWithCString(
         null,

@@ -259,6 +259,7 @@ mod tests {
                 service_label: format!("com.pacer.live.{nonce}.service"),
                 recovery_label: format!("com.pacer.live.{nonce}.recovery"),
                 uid: unsafe { libc::getuid() },
+                signing_cert_sha1: None,
             };
             let driver = ProcessIdentity {
                 pid: 123,

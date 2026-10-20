@@ -77,6 +77,24 @@ test("fixture signing seals the native library before executable and app signatu
   expect(refused).toHaveLength(1);
 });
 
+test("certificate-signed fixtures use the disposable identity for every component", async () => {
+  const { signFixtureBundle } = await import("../scripts/live/ota-build");
+  const calls: string[][] = [], signer = { sha1: "2C5405FB6D2906AE2049D59B9DF5D42661997922", keychain: "/fixture/signer.keychain-db" };
+  await signFixtureBundle("/fixture/pacer.app", "/fixture/entitlements.plist", async argv => { calls.push(argv); return ""; }, signer);
+  const signs = calls.filter(argv => argv.includes("--sign"));
+  expect(signs).toHaveLength(4);
+  for (const argv of signs) {
+    expect(argv[argv.indexOf("--sign") + 1]).toBe(signer.sha1);
+    expect(argv[argv.indexOf("--keychain") + 1]).toBe(signer.keychain);
+    expect(argv).toContain("--timestamp=none");
+  }
+});
+test("fixture lease carries the disposable certificate pin only for certificate-signed builds", async () => {
+  const { otaFixturePolicy } = await import("../scripts/live/ota");
+  const base = { root: "/r/.work/live/x/ota", nonce: "a".repeat(32), pacerHome: "/r/.work/live/x/home", innerPort: 7000, currentApp: "/r/.work/live/x/ota/current.app", serviceLabel: "s", recoveryLabel: "r", ownerUid: 501 };
+  expect(otaFixturePolicy({ ...base, nativeFixture: { updaterKeySha256: "a".repeat(64) } } as any)).not.toHaveProperty("signingCertSha1");
+  expect(otaFixturePolicy({ ...base, nativeFixture: { updaterKeySha256: "a".repeat(64), signingCertSha1: "A".repeat(40) } } as any).signingCertSha1).toBe("A".repeat(40));
+});
 test("fixture transport smoke requires actual verified ABI/version/architecture receipt", async () => {
   const module = await import("../scripts/live/ota-build");
   expect(typeof (module as any).assertFixtureTransport).toBe("function");

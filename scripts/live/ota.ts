@@ -15,7 +15,7 @@ export interface OtaOptions { base?: string; sourceRoot?: string; realHome?: str
 export const OTA_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "adopt", "adopt-failure", "attached", "wrong-service", "watcher-race", "active-work", "invalid-signature", "corrupt-archive", "wrong-architecture", "incompatible", "offline"] as const;
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const source = z.object({ path: z.string(), sha256: hash.nullable() }).strict();
-const buildIntent = z.object({ schema: z.literal(1), kind: z.literal("native-build"), buildRoot: z.string(), baselineVersion: z.literal("0.2.3"), candidateVersion: z.literal("0.2.4"), arch: z.enum(["aarch64", "x86_64"]), updaterKeySha256: hash }).strict();
+const buildIntent = z.object({ schema: z.literal(1), kind: z.literal("native-build"), buildRoot: z.string(), baselineVersion: z.literal("0.2.3"), candidateVersion: z.literal("0.2.4"), arch: z.enum(["aarch64", "x86_64"]), updaterKeySha256: hash, signingCertSha1: z.string().regex(/^[0-9A-F]{40}$/).optional() }).strict();
 const incarnation = z.object({ pid: z.number().int().positive(), bootId: z.string().min(1).max(128), birth: z.string().min(1).max(128) }).strict();
 // generations/history are written only by the native ledger when adoption switches the service program.
 const registration = z.object({ label: z.string(), path: z.string(), state: z.enum(["reserved", "intent", "loaded", "retired"]), sha256: hash.nullable().default(null), processes: z.array(incarnation).max(128).default([]),
@@ -32,12 +32,13 @@ const schema = z.object({
 }).strict().refine(state => state.phase === "building" ? state.nativeFixture !== null && state.sources.every(source => source.sha256 === null) && state.artifacts.length === 0 : state.sources.every(source => source.sha256 !== null), "Source fingerprints are required outside building").refine(state => (!state.exercise && !state.runtime) || (state.phase === "prepared" || state.phase === "cleaned" && state.runtime?.state === "retired" && (!state.exercise || state.exercise.state === "complete")) && !!state.nativeFixture && !!state.runtime && (!state.exercise || sameProcess(state.exercise.driver, state.runtime.driver)), "Native exercise requires an exact runtime lease");
 export type OtaRecord = z.infer<typeof schema>;
 export function otaFixturePolicy(state: OtaRecord) {
-  return { schema: 1 as const, root: state.root, nonce: state.nonce, home: state.pacerHome, port: state.innerPort, currentApp: state.currentApp, serviceLabel: state.serviceLabel, recoveryLabel: state.recoveryLabel, uid: state.ownerUid };
+  const cert = state.nativeFixture?.signingCertSha1;
+  return { schema: 1 as const, root: state.root, nonce: state.nonce, home: state.pacerHome, port: state.innerPort, currentApp: state.currentApp, serviceLabel: state.serviceLabel, recoveryLabel: state.recoveryLabel, uid: state.ownerUid, ...(cert ? { signingCertSha1: cert } : {}) };
 }
 /** Reserve compile coordinates only. A building lease grants no runtime capability. */
-export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterKeySha256: string, options: OtaOptions = {}): OtaRecord {
+export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterKeySha256: string, options: OtaOptions = {}, signingCertSha1?: string): OtaRecord {
   const session = sessionFor(id, options), root = join(session.root, "ota"), nonce = randomBytes(16).toString("hex");
-  const nativeFixture = buildIntent.parse({ schema: 1, kind: "native-build", buildRoot: join(root, "build"), baselineVersion: "0.2.3", candidateVersion: "0.2.4", arch, updaterKeySha256 });
+  const nativeFixture = buildIntent.parse({ schema: 1, kind: "native-build", buildRoot: join(root, "build"), baselineVersion: "0.2.3", candidateVersion: "0.2.4", arch, updaterKeySha256, ...(signingCertSha1 ? { signingCertSha1 } : {}) });
   const serviceLabel = `com.pacer.live.${nonce}.service`, recoveryLabel = `com.pacer.live.${nonce}.recovery`;
   const registration = (label: string): OtaRecord["registrations"][number] => ({ label, path: join(root, "registrations", `${label}.plist`), state: "reserved", sha256: null, processes: [] });
   const state: OtaRecord = { schema: 1, sessionId: id, root, nonce, ownerUid: uid(), phase: "building", pacerHome: join(session.root, "home"), port: session.port, innerPort: session.innerPort!, installationId: `ota-${nonce}`, currentApp: join(root, "current.app"), candidateApp: join(root, "candidate.app"), serviceLabel, recoveryLabel,
@@ -401,6 +402,8 @@ export function recordOtaDiagnostics(id: string, descriptor: FixtureDiagnostics,
   const session = sessionFor(id, options);
   withOtaLedgerLock(join(session.root, "ota"), () => {
     const state = readOtaRecord(id, options);
+    // Cleanup diagnostics are signed ad hoc after the build; a certificate-pinned lease would refuse them.
+    if (state.nativeFixture?.signingCertSha1) throw Error("Cleanup diagnostics are unavailable for certificate-signed fixtures");
     if (state.phase !== "prepared" || !state.nativeFixture || state.diagnostics || state.exercise || state.runtime?.state !== "starting" || state.runtime.request !== null) throw Error("Diagnostics require an unresolved, never-armed native startup");
     const stage = join(state.nativeFixture.buildRoot, "diagnostics/stage");
     const expected = diagnosticSchema.parse(descriptor);

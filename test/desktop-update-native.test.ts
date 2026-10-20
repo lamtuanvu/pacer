@@ -572,7 +572,11 @@ test("fixture native trust is compile-only and rejects production or mismatched 
     uid: 501,
   };
   expect(parseNativeFixture(JSON.stringify(policy))).toEqual(policy);
+  const pinned = { ...policy, signingCertSha1: "2C5405FB6D2906AE2049D59B9DF5D42661997922" };
+  expect(parseNativeFixture(JSON.stringify(pinned))).toEqual(pinned);
   for (const patch of [
+    { signingCertSha1: "2c5405fb6d2906ae2049d59b9df5d42661997922" },
+    { signingCertSha1: "" },
     { root: "/Applications" },
     { home: "/tmp/different" },
     { port: 4317 },

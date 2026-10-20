@@ -1,6 +1,6 @@
 /** Explicit native fixture builder. No production credential or service-manager path. */
 import { chmodSync, constants, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { checkout } from "./core";
@@ -80,20 +80,36 @@ export function assertFixtureTransport(value: unknown, version: string, arch: De
   if (!receipt || receipt.schema !== 1 || receipt.role !== "cli" || receipt.version !== version || receipt.arch !== arch || receipt.nativeTransportAbi !== 1 || receipt.transport !== "unix-audit-token" || receipt.verified !== true) throw Error("Fixture signed native transport validation failed");
 }
 
+export type FixtureSigner = { sha1: string; keychain: string };
 /** Sign nested native code before sealing the app envelope. A refusal stops the sequence. */
-export async function signFixtureBundle(app: string, entitlement: string, run: (argv: string[]) => Promise<string>): Promise<void> {
+export async function signFixtureBundle(app: string, entitlement: string, run: (argv: string[]) => Promise<string>, signer?: FixtureSigner): Promise<void> {
   const resources = join(app, "Contents/Resources");
+  const identity = signer ? ["--sign", signer.sha1, "--keychain", signer.keychain, "--timestamp=none"] : ["--sign", "-"];
   for (const [file, identifier, extra] of [
     [join(app, "Contents/Frameworks/libpacer-native.dylib"), "dev.pacer.desktop.native-shim", []],
     [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlement]],
     [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []],
     [app, "dev.pacer.desktop", []],
-  ] as const) await run(["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifier, ...extra, file]);
+  ] as const) await run(["/usr/bin/codesign", "--force", ...identity, "--identifier", identifier, ...extra, file]);
   await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
+}
+/** Disposable code-signing identity in a private keychain; it mirrors an interim release certificate. */
+async function createFixtureSigner(directory: string, run: (argv: string[], cwd?: string, quiet?: boolean) => Promise<string>): Promise<FixtureSigner> {
+  const p = (name: string) => join(directory, name), keychain = p("fixture-signer.keychain-db"), password = randomBytes(16).toString("hex");
+  writeFileSync(p("signer.cnf"), "[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=pacer live fixture signing\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n", { mode: 0o600 });
+  await run(["/usr/bin/openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "7", "-keyout", p("signer.key"), "-out", p("signer.pem"), "-config", p("signer.cnf")], directory, true);
+  await run(["/usr/bin/openssl", "pkcs12", "-export", "-inkey", p("signer.key"), "-in", p("signer.pem"), "-out", p("signer.p12"), "-passout", `pass:${password}`], directory, true);
+  await run(["/usr/bin/security", "create-keychain", "-p", password, keychain], directory, true);
+  await run(["/usr/bin/security", "unlock-keychain", "-p", password, keychain], directory, true);
+  await run(["/usr/bin/security", "import", p("signer.p12"), "-k", keychain, "-P", password, "-T", "/usr/bin/codesign"], directory, true);
+  await run(["/usr/bin/security", "set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", password, keychain], directory, true);
+  const sha1 = (await run(["/usr/bin/openssl", "x509", "-noout", "-fingerprint", "-sha1", "-in", p("signer.pem")], directory, true)).trim().split("=").at(-1)!.replaceAll(":", "").toUpperCase();
+  if (!/^[0-9A-F]{40}$/.test(sha1)) throw Error("Fixture signer fingerprint unavailable");
+  return { sha1, keychain };
 }
 
 /** This entry point accepts only a harness session ID. All commands, versions and outputs are fixed. */
-export async function buildOtaFixtures(id: string): Promise<void> {
+export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc"): Promise<void> {
   if (process.platform !== "darwin") throw Error("Native fixtures require macOS");
   const target = hostTarget(); if (!target || target.os !== "darwin") throw Error("Unsupported fixture host");
   const arch: DesktopArch = target.arch === "arm64" ? "aarch64" : "x86_64";
@@ -107,6 +123,7 @@ export async function buildOtaFixtures(id: string): Promise<void> {
   const temporary = mkdtempSync(join(session.root, ".ota-key-")); chmodSync(temporary, 0o700);
   const cli = join(checkout, "desktop/node_modules/@tauri-apps/cli/tauri.js"), key = join(temporary, "fixture.key");
   let environment: Record<string, string | undefined> = { PATH: process.env.PATH, HOME: temporary, CI: "true", COPYFILE_DISABLE: "1" };
+  let signer: FixtureSigner | undefined;
   async function run(argv: string[], cwd = checkout, quiet = false): Promise<string> {
     const child = Bun.spawn(argv, { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: environment });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -118,7 +135,9 @@ export async function buildOtaFixtures(id: string): Promise<void> {
     if ((await run([process.execPath, cli, "--version"], checkout, true)).trim() !== "tauri-cli 2.12.3") throw Error("Pinned Tauri signer is unavailable");
     await run([process.execPath, cli, "signer", "generate", "--ci", "--password", "disposable-fixture", "--write-keys", key], checkout, true);
     chmodSync(key, 0o600);
-    const publicKey = readFileSync(key + ".pub", "utf8").trim(), state = reserveOtaBuild(id, arch, digest(Buffer.from(publicKey))), policy = otaFixturePolicy(state);
+    // The certificate pin is compiled into the lease, so its identity must exist before any build.
+    signer = signerMode === "cert" ? await createFixtureSigner(temporary, run) : undefined;
+    const publicKey = readFileSync(key + ".pub", "utf8").trim(), state = reserveOtaBuild(id, arch, digest(Buffer.from(publicKey)), {}, signer?.sha1), policy = otaFixturePolicy(state);
     const build = state.nativeFixture!.buildRoot, home = join(build, "home"), targetDir = join(build, "target"); mkdirSync(home, { mode: 0o700 });
     // An optional local Cargo seed avoids recompiling unchanged dependencies.
     // Each build receives an independent copy; Cargo rechecks source/env inputs,
@@ -162,7 +181,7 @@ export async function buildOtaFixtures(id: string): Promise<void> {
       assertFixtureBundlePlist(readFileSync(join(app, "Contents/Info.plist"), "utf8"));
       const metadataPath = join(resources, "pacer-release.json"), metadata = JSON.parse(readFileSync(metadataPath, "utf8")); metadata.fixture = true; writeFileSync(metadataPath, JSON.stringify(metadata) + "\n");
       const entitlement = join(directory, "cli-entitlements.plist"); writeFileSync(entitlement, '<plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>', { mode: 0o600 });
-      await signFixtureBundle(app, entitlement, argv => run(argv));
+      await signFixtureBundle(app, entitlement, argv => run(argv), signer);
       for (const binary of [join(resources, "pacer"), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) {
         verifyDesktopExecutable(readFileSync(binary), arch);
         const identity = JSON.parse(await run([binary, "--pacer-identity"]));
@@ -188,5 +207,8 @@ export async function buildOtaFixtures(id: string): Promise<void> {
       const helper = JSON.parse(await run([join(state.sources[index].path, "Contents/Resources/pacer-update-helper"), "--pacer-helper-runtime-test"]));
       if (helper.schema !== 1 || helper.role !== "update-helper" || helper.version !== version || helper.arch !== arch || helper.runtime !== "tauri-updater" || helper.verified !== true) throw Error("Fixture native helper runtime validation failed");
     }
-  } finally { rmSync(temporary, { recursive: true, force: true }); }
+  } finally {
+    if (signer) Bun.spawnSync(["/usr/bin/security", "delete-keychain", signer.keychain]);
+    rmSync(temporary, { recursive: true, force: true });
+  }
 }

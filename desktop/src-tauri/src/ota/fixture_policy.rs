@@ -14,6 +14,10 @@ pub struct FixturePolicy {
     pub service_label: String,
     pub recovery_label: String,
     pub uid: u32,
+    /// Disposable certificate the harness signed this lease's fixtures with.
+    /// When present, fixture trust also pins it, like a production interim build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signing_cert_sha1: Option<String>,
 }
 impl FixturePolicy {
     pub fn parse(text: &str) -> Result<Self, ()> {
@@ -51,6 +55,12 @@ impl FixturePolicy {
             || policy.current_app != policy.root.join("current.app")
             || policy.service_label != format!("com.pacer.live.{}.service", policy.nonce)
             || policy.recovery_label != format!("com.pacer.live.{}.recovery", policy.nonce)
+            || policy.signing_cert_sha1.as_ref().is_some_and(|cert| {
+                cert.len() != 40
+                    || !cert
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
+            })
         {
             return Err(());
         }
@@ -207,6 +217,7 @@ mod tests {
             service_label: format!("com.pacer.live.{nonce}.service"),
             recovery_label: format!("com.pacer.live.{nonce}.recovery"),
             uid: unsafe { libc::getuid() },
+            signing_cert_sha1: None,
         };
         std::fs::write(root.join("record.json"),serde_json::to_vec(&serde_json::json!({"schema":1,"phase":"prepared","root":root,"nonce":nonce,"pacerHome":home,"innerPort":7433,"currentApp":policy.current_app,"serviceLabel":policy.service_label,"recoveryLabel":policy.recovery_label,"ownerUid":policy.uid})).unwrap()).unwrap();
         std::fs::set_permissions(
@@ -215,6 +226,20 @@ mod tests {
         )
         .unwrap();
         (temp, policy)
+    }
+    #[test]
+    fn lease_may_pin_its_disposable_signing_certificate() {
+        let (_temp, mut policy) = fixture();
+        policy.signing_cert_sha1 = Some("2C5405FB6D2906AE2049D59B9DF5D42661997922".into());
+        let text = serde_json::to_string(&policy).unwrap();
+        assert!(text.contains("\"signingCertSha1\""));
+        assert_eq!(FixturePolicy::parse(&text).unwrap(), policy);
+        for bad in ["2c5405fb6d2906ae2049d59b9df5d42661997922", "2C54", ""] {
+            policy.signing_cert_sha1 = Some(bad.into());
+            assert!(FixturePolicy::parse(&serde_json::to_string(&policy).unwrap()).is_err());
+        }
+        policy.signing_cert_sha1 = None;
+        assert!(!serde_json::to_string(&policy).unwrap().contains("signingCertSha1"));
     }
     #[test]
     fn lease_is_bound_to_private_live_harness_resources() {
