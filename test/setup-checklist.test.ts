@@ -9,10 +9,11 @@ test("required checks gate readiness; optional agents do not",()=>{
  for(const patch of [{version:null},{planner:null},{service:{installed:true,running:false}},{link:false}]) expect(setupChecklist({...facts,...patch},10).complete).toBe(false);
  expect(setupKey(ready)).toBe(setupKey(setupChecklist(facts,70)));
 });
-test("dashboard puts the same incomplete checklist above budgets",()=>{
- const html=renderDashboard(emptySnapshot(),100,30,10,{selected:0,setup:setupChecklist({...facts,link:false},10)});
- expect(html).toContain("Setup");expect(html).toContain("Link");expect(html).toContain("pacer init");
- expect(html.indexOf("Setup")).toBeLessThan(html.indexOf("Planner"));
+test("dashboard shows the same incomplete checklist instead of work screens",()=>{
+ const checklist=setupChecklist({...facts,link:false},10);
+ const text=renderDashboard({...emptySnapshot(),setup:{...checklist,open:1}},100,30,10,{selected:0});
+ expect(text).toContain("[ Setup ]");expect(text).toContain("Link");expect(text).toContain("pacer init");
+ expect(text).toContain("REQUIRED");expect(text).not.toContain("NEEDS YOU");
 });
 
 test("missing strategy offers only installed planner CLIs with plain detail", () => {

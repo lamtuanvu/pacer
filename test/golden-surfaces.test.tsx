@@ -82,7 +82,7 @@ test("cross-surface counts use service totals and repo totals", () => {
   expect(text.app).toContain(`done today ${today.done} · ${today.accepted} accepted`);
   expect(text.tray).toContain(`${c.attention} needs you ${c.running} running ${c.queued} waiting ${today.done} done today`);
   expect(text.tui).toContain(`needs you ${c.attention}`);
-  expect(text.tui).toContain(`running ${c.running} · queued ${c.queued}`);
+  expect(text.tui).toContain(`running ${c.running} · ${c.queued} queued`);
   expect(text.tui).toContain(`done today ${today.done}`);
   expect(line120).toContain(`▸${c.running}`);
   for (const line of [line120, line20]) { expect(line).toContain(`⚑${c.attention}`); expect(line).not.toContain("\x1b"); }
@@ -110,13 +110,12 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
 
 const headings = (output: string) => [...output.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map(match => strip(match[1]!));
 
-test("the TUI follows the Terminal board order", () => {
+test("the TUI order is Needs you, Running, Capacity, Done today", () => {
   for (const [name, output] of Object.entries({ tui })) {
     // Ignore summary counters: compare section headings, with the TUI's capacity label.
-    const labels = name === "tui" ? output.split("\n").filter(line => /^(NEEDS YOU|RUNNING|WHO RUNS NEXT|DONE TODAY)\b/.test(line)).join(" ")
+    const labels = name === "tui" ? output.split("\n").map(line => line.trim()).filter(line => /^(NEEDS YOU|RUNNING|CAPACITY|DONE TODAY)\b/.test(line)).join(" ")
       : headings(output).join(" ");
-    // The Terminal board puts WHO RUNS NEXT before RUNNING.
-    const words = name === "tui" ? ["needs you", "who runs next", "running", "done today"] : ["needs you", "running", "capacity", "done today"];
+    const words = ["needs you", "running", "capacity", "done today"];
     const positions = words.map(word => labels.toLowerCase().indexOf(word));
     expect(positions.every(at => at >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
