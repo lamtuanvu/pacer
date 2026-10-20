@@ -4,9 +4,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- Linux arm64 gets an AppImage again. AppImages now bundle the CLI untouched: linuxdeploy's patchelf step corrupted Bun-compiled binaries, so they are repacked after bundling and the bundled CLI is checked before release (#217).
+- Settings Diagnostics runs doctor checks with repair guidance, distinguishes configured integrations from fixture-tested handlers and unverified Claude invocation, and flags disabled or incomplete Claude hooks.
 
 ### Changed
 
@@ -14,6 +14,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Linux arm64 gets an AppImage again. AppImages now bundle the CLI untouched: linuxdeploy's patchelf step corrupted Bun-compiled binaries, so they are repacked after bundling and the bundled CLI is checked before release (#217).
 - The interactive account and endpoint setup checks each answer as it is entered and asks again instead of aborting: kind, name, key storage, usage, weekly token budget (with a budget-specific message) and quota source. A blank quota source selects `arkcli` instead of saving an empty value, with a warning when `arkcli` is not on `PATH`. Endpoint setup now asks where to keep the key on add as well as edit (Keychain on macOS and a file elsewhere by default). Endpoint save errors show their full reason instead of only the first line, and migration notices no longer print array indexes.
 - Account sign-in state now has one source, the local login indicator plus recorded authentication failures, shared by `account list`, routing, the Executors and Accounts screens, attention and `runner.check`. `account list` reports `signedIn: true/false` for native accounts instead of always `null`; a signed-out executor shows as Unavailable with its reason instead of Ready; the Accounts screen shows endpoint state (Ready, Not tested, Not working, Key missing) for endpoints and offers **Fix sign-in** only for signed-out native accounts.
 - `runner.check` no longer fails a signed-in Claude or Codex account that has no usage reading yet: **Signed in** uses the sign-in state rather than usage, and **Usage readable** is skipped with the reason, so the test task runs.

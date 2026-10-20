@@ -1,7 +1,7 @@
 import { PLANNERS } from "../config/strategy";
 
 export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string; action?:string; agent?:string; options?:string[] }
-export interface SetupChecklist { checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
+export interface SetupChecklist { integration?: {configuration:"configured"|"unverified";invocation:"unverified"}; checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
 export interface SetupFacts {
  version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean;
  signedIn?:boolean; loginCommand?:string; connected?:boolean;
