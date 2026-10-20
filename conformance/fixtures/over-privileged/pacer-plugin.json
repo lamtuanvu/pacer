@@ -1,0 +1,1 @@
+{"id":"fx-over","version":"1.0.0","publisher":"pacer-conformance","host":"^1","entry":"main.ts","capabilities":[{"name":"net.http","scopes":["example.com"]}]}
