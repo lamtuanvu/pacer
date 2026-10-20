@@ -34,7 +34,7 @@ Done means:
   on macOS and Linux, and imports no host code.
 - `docs/plugin-protocol.md` and `docs/plugin-protocol.schema.json` are generated and
   freshness-tested.
-- The ADR and constitution 0.3.0 are in the same PR.
+- The ADR and constitution 0.4.0 are in the same PR.
 - A fresh install behaves exactly as before.
 
 ## Non-goals
@@ -281,7 +281,7 @@ event.
   (minimal host; one contract, two transports; open core by tier; no entitlement checks
   in the host; strangler milestones; Rust CI required from M1), consequences, open
   questions.
-- Constitution 0.3.0 with P13 (minimal host: every capability a plugin could provide
+- Constitution 0.4.0 with P13 (minimal host: every capability a plugin could provide
   is a plugin), P14 (the plugin protocol is versioned under P4's rule) and P15 (the host
   never checks entitlements). The dependency direction becomes clients → API → host
   core → plugin protocol → plugins. A decisions.md entry records the bump, and OD-3

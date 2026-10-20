@@ -66,6 +66,7 @@ There is no lint or format command; `.editorconfig` is the only style config.
 | UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25) | Established (spec), plus proposals |
 | Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
 | Repository hygiene & docs | all tracked files, commits, PRs, `docs/**` | [rules/repository.md](rules/repository.md) | Established, plus proposals |
+| Rust crate structure & size | `Cargo.toml`, `crates/**`, `plugins-rs/**`, `xtask/**` | [rules/rust-crates.md](rules/rust-crates.md) (CRATE-1 to CRATE-11) | Established |
 
 ## Reviewer index
 
@@ -73,7 +74,7 @@ The human approver for every merge is @lamtuanvu. Amendment 0.4.0 proposes requi
 
 | Reviewer | Triggers | Definition | Role and gate |
 |----------|----------|------------|---------------|
-| Architecture | New surface or capability; changes across `src/api` ↔ core ↔ clients; new ADR | [reviewers/architecture.md](reviewers/architecture.md) | Advisory |
+| Architecture | New surface or capability; changes across `src/api` ↔ core ↔ clients; new ADR; a new Rust crate, a crate dependency, or a crate past 8,000 LOC (CRATE-1) | [reviewers/architecture.md](reviewers/architecture.md) | Advisory |
 | Protocol compatibility | `src/api/**`, `src/serve/**`, `docs/protocol*.md`, client API reads | [reviewers/protocol-compat.md](reviewers/protocol-compat.md) | Advisory |
 | Security | Paths in the security rule; new subprocess, network, file-permission or secret handling | [reviewers/security.md](reviewers/security.md) | Advisory |
 | QA & tests | Any behavior change in `src/`, `app/` or `desktop/` | [reviewers/qa.md](reviewers/qa.md) | Advisory; UI-affecting changes require a report under amendment 0.4.0 |

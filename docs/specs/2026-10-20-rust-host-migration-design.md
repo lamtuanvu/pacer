@@ -58,7 +58,7 @@ All shared state is files under `$PACER_HOME`: task JSON, `strategy.yaml` and na
 | Atomic write | Temporary file in the same directory, then `rename`; JSON files end with a newline |
 | Modes | Secrets 0600, directories holding secrets 0700 (SEC-7) |
 
-Rust implements the same rules in `crates/core/src/{lock,fsutil}.rs`. A cross-runtime test runs a Bun writer and a Rust writer incrementing one counter file under one lock name for a fixed number of iterations and asserts no lost update.
+Rust implements the same rules in `crates/foundation/src/{lock,fsutil}.rs`. A cross-runtime test runs a Bun writer and a Rust writer incrementing one counter file under one lock name for a fixed number of iterations and asserts no lost update.
 
 ### 0.3 Reverse bridge (from M2)
 
@@ -72,22 +72,28 @@ Every move ships a parity suite: the same request sequence runs against the Type
 
 ### 1.1 Workspace
 
+The workspace is many small crates in layers, not one large core crate, because rustc rebuilds a whole crate and everything above it on any edit. Sizes, layers and allowed heavy dependencies are project rules: [.project/rules/rust-crates.md](../../.project/rules/rust-crates.md) (CRATE-1 to CRATE-11). M1 creates the crates it needs:
+
 ```
-Cargo.toml                 workspace: crates/*, exclude desktop/src-tauri
-rust-toolchain.toml        pinned stable, rustfmt, clippy
-crates/protocol            generated types for both protocols (checked in)
-crates/core                ctx, fsutil, lock, errors (grows in M2)
-crates/host                bin "pacer": front door, transports, later everything
-crates/plugin-sdk          lib "pacer-plugin": Rust plugin SDK
-crates/fixtures            Rust conformance fixture plugins
-xtask                      code generation and release helpers (cargo xtask)
+Cargo.toml                   workspace: crates/*, plugins-rs/*, xtask; exclude desktop/src-tauri
+rust-toolchain.toml          pinned stable, rustfmt, clippy
+xtask/crates.toml            crate layers, budgets and allowed heavy dependencies
+crates/client-protocol       pacer-client-protocol: generated client-protocol types (checked in)
+crates/plugin-protocol       pacer-plugin-protocol: generated plugin-protocol types (checked in)
+crates/foundation            pacer-foundation: ctx, file rules, lock, CoreError, op registry types
+crates/server                pacer-server: api --stdio, serve, forwarding, later the op registry and bridge
+crates/cli                   pacer-cli: argv dispatch, core exec, status line, self-repair
+crates/pacer                 pacer: the binary, start-up and dispatch only
+crates/plugin-sdk            pacer-plugin: Rust plugin SDK
+crates/fixtures              pacer-fixtures: Rust conformance fixture plugins
+xtask                        code generation, loc and deps checks, goldens (cargo xtask)
 ```
 
-The desktop crate stays outside the workspace in M1 to keep Tauri's dependency tree out of the host build. It may join later and reuse `crates/protocol`.
+M2 adds one crate per domain as each move lands (§2.3). The desktop crate stays outside the workspace in M1 to keep Tauri's dependency tree out of the host build. It may join later and reuse `pacer-client-protocol`.
 
 ### 1.2 Generated protocol types
 
-`docs/plugin-protocol.schema.json` exists from M0. M1 adds `docs/protocol.schema.json`, emitted from the client-protocol zod by `scripts/protocol-doc.ts`. `cargo xtask gen` runs typify on both and writes `crates/protocol/src/{client,plugin}.rs`. Staleness fails in both test suites (P11): `bun test` regenerates the schemas and compares; `cargo test -p pacer-protocol` regenerates the Rust and compares.
+`docs/plugin-protocol.schema.json` exists from M0. M1 adds `docs/protocol.schema.json`, emitted from the client-protocol zod by `scripts/protocol-doc.ts`. `cargo xtask gen` runs typify on each and writes `crates/client-protocol/src/generated.rs` and `crates/plugin-protocol/src/generated.rs`. Staleness fails in both test suites (P11): `bun test` regenerates the schemas and compares; `cargo test -p pacer-client-protocol -p pacer-plugin-protocol` regenerates the Rust and compares.
 
 ### 1.3 Front-door CLI
 
@@ -117,7 +123,7 @@ The child is supervised: restart with backoff (1 s doubling to 30 s), `502` with
 
 ### 1.6 Rust plugin SDK
 
-`pacer-plugin` mirrors `@pacer/plugin`: `serve(handlers)`, typed handlers per extension point from `crates/protocol`, a `Host` capability client, `PluginError`, progress notifications, and `testing::Harness` that drives a plugin in process. `crates/fixtures` builds `rust-good` (the `good` fixture's behavior), which the conformance suite runs against the host.
+`pacer-plugin` mirrors `@pacer/plugin`: `serve(handlers)`, typed handlers per extension point from `pacer-plugin-protocol` (the SDK never depends on the client-protocol types), a `Host` capability client, `PluginError`, progress notifications, and `testing::Harness` that drives a plugin in process. `crates/fixtures` builds `rust-good` (the `good` fixture's behavior), which the conformance suite runs against the host.
 
 ### 1.7 Release and update
 
@@ -138,7 +144,7 @@ The child is supervised: restart with backoff (1 s doubling to 30 s), `502` with
 
 | # | Plan | Becomes native |
 |---|---|---|
-| 1 | Foundations | `crates/core` ctx, fsutil and lock parity, `CoreError` and status mapping, the op dispatcher with zod-equivalent validation from generated types, the parity harness, the reverse-bridge server |
+| 1 | Foundations | `pacer-foundation` ctx, fsutil and lock parity, `CoreError` and status mapping, the op dispatcher with zod-equivalent validation from generated types, the parity harness, the reverse-bridge server |
 | 2 | Config | `strategy.yaml` parse, validate, edit and migrate; ops `config.*`, `notifications.*`, `routing.get/set`, `runner.set/reorder/remove/add` (config parts), `repo.*`, `host.add/get/set/remove/suggest/repo.map`, `strategy.list/show/use/save/remove/preview` |
 | 3 | Store, activity, events | Task store and ids, activity log, outbox and reducer; ops `task.get/list/dismiss/log/diff`, `activity.list`; `/v3/events` SSE and stdio `subscribe` natively from the outbox |
 | 4 | Plugin host | Registry, processes, every capability, `plugin.*` ops, surfaces; bridge `_host.plugin.call` and `_host.plugin.find` for TypeScript consumers; conformance against Rust natively |
@@ -156,7 +162,22 @@ A port plan names its TypeScript reference files. The Rust code reproduces their
 
 ### 2.3 Crate layout growth
 
-`crates/core` holds domain modules by area (`config`, `tasks`, `activity`, `events`, `engine`, `plugins`, `sessions`, `setup`, `service`, `update`), mirroring `src/`. `crates/host` holds transports (`stdio`, `http`, `ws`, `mcp`), the CLI and the TUI. Dependency direction stays clients → API → host core → plugin protocol → plugins (ARCH-12), checked by a `cargo xtask deps` test.
+Each M2 plan creates the domain crate it moves, so no crate grows past the CRATE-1 budget and an edit in one domain rebuilds only that domain and the crates above it:
+
+| Plan | New crate | Layer |
+|---|---|---|
+| 2 | `pacer-store` (outbox and activity, which config changes publish to) and `pacer-config` | 2, 3 |
+| 3 | extends `pacer-store` with the task store | 2 |
+| 4 | `pacer-plugin-host` | 4 |
+| 5 | `pacer-engine` | 5 |
+| 6 | `pacer-lifecycle` | 6 |
+| 7 | `pacer-sessions` | 3 |
+| 8 | `pacer-read-model` | 7 |
+| 9 | `pacer-install`, `pacer-update`, `pacer-tui` (API client) | 5, 6, 8 |
+| M3 plan 1 | `pacer-bundled` | 8 |
+| M3 plan 3 | `pacer-wasm-host` (feature `wasm`) | 5 |
+
+Each domain crate exports its native operations; `pacer-server` assembles the registry and owns every transport; `pacer-cli` owns the commands; the `pacer` binary only dispatches. Dependency direction stays clients → API → host core → plugin protocol → plugins (ARCH-12). `cargo xtask deps` enforces the layers and heavy-dependency placement, and `cargo xtask loc` enforces the size budgets, both in CI.
 
 ## 3. M3: runtime-free, then wasm
 
@@ -196,8 +217,9 @@ This closes the M0 executor deviation (in-process spawn under scope `*` and `env
 
 - ADR `docs/decisions/2026-10-20-rust-front-door-and-coexistence.md` (M1) records the coexistence contract.
 - OD-3 resolved at M1 plan 1: Rust fmt, clippy and test required on PRs; dependabot gains cargo.
+- Crate structure and size rules CRATE-1 to CRATE-11 in `.project/rules/rust-crates.md` (constitution 0.3.0, added with this design).
 - New rule area `.project/rules/rust.md` (M1 plan 1): error handling, no `unwrap` outside tests, argv-only process spawn (SEC-5), file modes (SEC-7), `cargo xtask` for generation.
-- ARCH-12 gains the crate dependency check in M2 plan 1.
+- ARCH-12 gains the crate dependency check (`cargo xtask deps`, CRATE-4) in M1 plan 1.
 - M3 plan 2 amends the constitution: P11 generation source moves from zod to the Rust types only if the zod sources are deleted with `src/`; the plan decides which source stays authoritative (default: keep zod in `packages/protocol-schema/` as the schema source for docs and the TypeScript SDK).
 
 ## Risks
@@ -207,9 +229,9 @@ This closes the M0 executor deviation (in-process spawn under scope `*` and `env
 - The bridge release must reach users before M1. Self-repair covers users who skip it, at the cost of a network fetch on first run.
 - Two binaries double signing and notarization work in M1 and M2.
 - One maintainer carries both runtimes for M1 and M2; the parity suite is what keeps two implementations from drifting.
-- Generated Rust types from JSON Schema may be awkward for unions; `crates/protocol` may hand-write a thin layer over generated types, with the staleness test still on the generated part.
+- Generated Rust types from JSON Schema may be awkward for unions; the protocol crates may hand-write a thin layer over generated types, with the staleness test still on the generated part.
 
 ## Open questions
 
-- Whether the desktop app moves into the workspace and replaces its HTTP client types with `crates/protocol` (cheap after M1; not required).
+- Whether the desktop app moves into the workspace and replaces its HTTP client types with `pacer-client-protocol` (cheap after M1; not required).
 - Whether `/v2` is removed (OD-4) before M2 plan 8, which would remove a port.
