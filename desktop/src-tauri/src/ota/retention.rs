@@ -329,7 +329,7 @@ mod tests {
             "untrusted comment: test\n{}\n",
             base64.encode(packet)
         ));
-        let trust = super::super::trust::ReleaseTrust::from_production(&key, "TEST000000").unwrap();
+        let trust = super::super::trust::ReleaseTrust::from_production(&key, Some("TEST000000"), None).unwrap();
         prune_superseded(&home, &manifests[1], &trust).unwrap();
         assert!(!installation.path.join("old/old.app").exists());
         assert!(!installation.path.join("old/candidate.tar.gz").exists());

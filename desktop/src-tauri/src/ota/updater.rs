@@ -573,7 +573,7 @@ mod tests {
             ownership: super::super::wire::Ownership::Managed,
             version: "0.2.3".into(),
         };
-        let trust = super::super::trust::ReleaseTrust::from_production(&key, "ABCDE12345").unwrap();
+        let trust = super::super::trust::ReleaseTrust::from_production(&key, Some("ABCDE12345"), None).unwrap();
         let updater = NativeUpdater::new(app.handle(), trust, target).unwrap();
         let mut candidate = candidate();
         candidate.version = "2.0.0".into();

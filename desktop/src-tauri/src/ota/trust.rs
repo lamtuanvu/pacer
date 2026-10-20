@@ -27,13 +27,29 @@ pub fn build_identity() -> serde_json::Value {
     } else {
         None
     };
+    let cert = cfg!(feature = "ota-production")
+        .then_some(option_env!("PACER_SIGNING_CERT_SHA1"))
+        .flatten();
+    let signer = cfg!(feature = "ota-production")
+        .then(|| signer_kind(team, cert))
+        .flatten();
     serde_json::json!({
         "fixture":cfg!(feature="ota-fixture"),
         "otaMode":if cfg!(feature="ota-production") {"production"} else if cfg!(feature="ota-fixture") {"fixture"} else {"disabled"},
         "appleTeamId":team,
+        "signingCertSha1":cert,
+        "signer":signer,
         "updaterKeySha256":key.map(|key|format!("{:x}",Sha256::digest(key.as_bytes()))),
         "fixturePolicySha256":if cfg!(feature="ota-fixture") { option_env!("PACER_OTA_FIXTURE_POLICY").map(|policy|format!("{:x}",Sha256::digest(policy.as_bytes()))) } else { None },
     })
+}
+fn signer_kind(team: Option<&str>, cert: Option<&str>) -> Option<&'static str> {
+    match (team, cert) {
+        (Some(_), Some(_)) => Some("both"),
+        (Some(_), None) => Some("apple"),
+        (None, Some(_)) => Some("self"),
+        (None, None) => None,
+    }
 }
 #[derive(Clone, Copy, Debug)]
 pub enum CodeRole {
@@ -53,7 +69,8 @@ impl CodeRole {
 #[derive(Clone, Debug)]
 pub struct ReleaseTrust {
     public_key: String,
-    team_id: String,
+    team_id: Option<String>,
+    cert_sha1: Option<String>,
     fixture: Option<super::fixture_policy::FixturePolicy>,
 }
 #[derive(Clone, Debug)]
@@ -70,7 +87,12 @@ impl ReleaseTrust {
     pub fn configured() -> Option<Self> {
         #[cfg(feature = "ota-production")]
         {
-            Self::from_production(env!("PACER_OTA_PUBLIC_KEY"), env!("PACER_APPLE_TEAM_ID")).ok()
+            Self::from_production(
+                env!("PACER_OTA_PUBLIC_KEY"),
+                option_env!("PACER_APPLE_TEAM_ID"),
+                option_env!("PACER_SIGNING_CERT_SHA1"),
+            )
+            .ok()
         }
         #[cfg(all(feature = "ota-fixture", not(feature = "ota-production")))]
         {
@@ -85,11 +107,17 @@ impl ReleaseTrust {
             None
         }
     }
-    pub(crate) fn from_production(public_key: &str, team_id: &str) -> Result<Self, OtaError> {
-        trust_config::validate(public_key, team_id).map_err(|_| OtaError::Invalid)?;
+    pub(crate) fn from_production(
+        public_key: &str,
+        team_id: Option<&str>,
+        cert_sha1: Option<&str>,
+    ) -> Result<Self, OtaError> {
+        trust_config::validate_key(public_key).map_err(|_| OtaError::Invalid)?;
+        trust_config::validate_signers(team_id, cert_sha1).map_err(|_| OtaError::Invalid)?;
         Ok(Self {
             public_key: public_key.into(),
-            team_id: team_id.into(),
+            team_id: team_id.map(Into::into),
+            cert_sha1: cert_sha1.map(Into::into),
             fixture: None,
         })
     }
@@ -101,7 +129,8 @@ impl ReleaseTrust {
         fixture.validate_live().map_err(|_| OtaError::Identity)?;
         Ok(Self {
             public_key: public_key.into(),
-            team_id: String::new(),
+            team_id: None,
+            cert_sha1: None,
             fixture: Some(fixture),
         })
     }
@@ -111,8 +140,11 @@ impl ReleaseTrust {
     pub fn public_key(&self) -> &str {
         &self.public_key
     }
-    pub fn team_id(&self) -> &str {
-        &self.team_id
+    pub fn team_id(&self) -> Option<&str> {
+        self.team_id.as_deref()
+    }
+    pub fn signer(&self) -> Option<&'static str> {
+        signer_kind(self.team_id.as_deref(), self.cert_sha1.as_deref())
     }
     pub fn requirement(&self, role: CodeRole) -> String {
         self.static_requirement(role.identifier())
@@ -121,10 +153,27 @@ impl ReleaseTrust {
         if self.fixture.is_some() {
             return format!("identifier \"{}\"", identifier);
         }
-        format!(
-            "anchor apple generic and identifier \"{}\" and certificate leaf[subject.OU] = \"{}\"",
-            identifier, self.team_id
-        )
+        let apple = self.team_id.as_ref().map(|team| {
+            format!("anchor apple generic and certificate leaf[subject.OU] = \"{team}\"")
+        });
+        let own = self
+            .cert_sha1
+            .as_ref()
+            .map(|cert| format!("certificate leaf = H\"{cert}\""));
+        match (apple, own) {
+            // Unchanged Developer ID form; it is equivalent to the grouped form.
+            (Some(_), None) => format!(
+                "anchor apple generic and identifier \"{}\" and certificate leaf[subject.OU] = \"{}\"",
+                identifier,
+                self.team_id.as_deref().unwrap_or_default()
+            ),
+            (None, Some(own)) => format!("identifier \"{identifier}\" and {own}"),
+            (Some(apple), Some(own)) => {
+                format!("identifier \"{identifier}\" and (({apple}) or {own})")
+            }
+            // from_production requires a pin, so production trust never reaches this.
+            (None, None) => format!("identifier \"{identifier}\" and never"),
+        }
     }
     #[cfg(target_os = "macos")]
     pub fn verify_static(&self, path: &Path, role: CodeRole) -> Result<(), OtaError> {
@@ -253,18 +302,50 @@ mod tests {
     }
     #[test]
     fn production_trust_requires_a_real_key_packet_and_exact_team_format() {
-        let trust = ReleaseTrust::from_production(&public_key(), "ABCDE12345").unwrap();
-        assert_eq!(trust.team_id(), "ABCDE12345");
+        let trust = ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None).unwrap();
+        assert_eq!(trust.team_id(), Some("ABCDE12345"));
+        assert_eq!(trust.signer(), Some("apple"));
         for team in ["", "*", "ABCDE12345\" or true", "abcde12345", "ABCDE123456"] {
-            assert!(ReleaseTrust::from_production(&public_key(), team).is_err());
+            assert!(ReleaseTrust::from_production(&public_key(), Some(team), None).is_err());
         }
         for key in ["", "garbage", "dW50cnVzdGVkIGNvbW1lbnQ6IG5vIGtleQ=="] {
-            assert!(ReleaseTrust::from_production(key, "ABCDE12345").is_err());
+            assert!(ReleaseTrust::from_production(key, Some("ABCDE12345"), None).is_err());
         }
+    }
+    const CERT: &str = "2C5405FB6D2906AE2049D59B9DF5D42661997922";
+    #[test]
+    fn self_signed_trust_pins_the_exact_certificate_and_refuses_malformed_pins() {
+        let trust = ReleaseTrust::from_production(&public_key(), None, Some(CERT)).unwrap();
+        assert_eq!(trust.signer(), Some("self"));
+        assert_eq!(
+            trust.requirement(CodeRole::Cli),
+            format!("identifier \"dev.pacer.cli\" and certificate leaf = H\"{CERT}\"")
+        );
+        for cert in [
+            "",
+            &CERT[..39],
+            "2c5405fb6d2906ae2049d59b9df5d42661997922",
+            "2C5405FB6D2906AE2049D59B9DF5D4266199792\"",
+            "2C5405FB6D2906AE2049D59B9DF5D4266199792G",
+        ] {
+            assert!(ReleaseTrust::from_production(&public_key(), None, Some(cert)).is_err());
+        }
+        assert!(ReleaseTrust::from_production(&public_key(), None, None).is_err());
+    }
+    #[test]
+    fn bridge_trust_accepts_either_signer_for_the_same_role() {
+        let trust =
+            ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), Some(CERT)).unwrap();
+        assert_eq!(trust.signer(), Some("both"));
+        assert_eq!(
+            trust.requirement(CodeRole::Helper),
+            format!("identifier \"dev.pacer.desktop.update-helper\" and ((anchor apple generic and certificate leaf[subject.OU] = \"ABCDE12345\") or certificate leaf = H\"{CERT}\")")
+        );
+        assert!(ReleaseTrust::from_production(&public_key(), Some("bad"), Some(CERT)).is_err());
     }
     #[test]
     fn signing_requirements_bind_vendor_and_component_role() {
-        let trust = ReleaseTrust::from_production(&public_key(), "ABCDE12345").unwrap();
+        let trust = ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None).unwrap();
         assert_eq!(trust.requirement(CodeRole::Helper), "anchor apple generic and identifier \"dev.pacer.desktop.update-helper\" and certificate leaf[subject.OU] = \"ABCDE12345\"");
         assert_ne!(
             trust.requirement(CodeRole::Desktop),
@@ -276,10 +357,91 @@ mod tests {
     fn ordinary_build_has_no_production_trust() {
         assert!(ReleaseTrust::configured().is_none());
     }
+    /// Disposable self-signed code-signing identity in a private keychain.
+    #[cfg(target_os = "macos")]
+    struct SelfSigner {
+        dir: tempfile::TempDir,
+        keychain: std::path::PathBuf,
+        sha1: String,
+    }
+    #[cfg(target_os = "macos")]
+    impl SelfSigner {
+        fn new() -> Option<Self> {
+            use std::process::Command;
+            let ok = |c: &mut Command| c.output().ok().filter(|o| o.status.success());
+            let dir = tempfile::tempdir().ok()?;
+            let p = |name: &str| dir.path().join(name);
+            std::fs::write(
+                p("cs.cnf"),
+                "[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=pacer trust test\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n",
+            )
+            .ok()?;
+            ok(Command::new("openssl").args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2"]).arg("-keyout").arg(p("key.pem")).arg("-out").arg(p("cert.pem")).arg("-config").arg(p("cs.cnf")))?;
+            ok(Command::new("openssl").args(["pkcs12", "-export", "-legacy", "-passout", "pass:test"]).arg("-inkey").arg(p("key.pem")).arg("-in").arg(p("cert.pem")).arg("-out").arg(p("id.p12")))
+                .or_else(|| ok(Command::new("openssl").args(["pkcs12", "-export", "-passout", "pass:test"]).arg("-inkey").arg(p("key.pem")).arg("-in").arg(p("cert.pem")).arg("-out").arg(p("id.p12"))))?;
+            let keychain = p("test.keychain-db");
+            ok(Command::new("security").args(["create-keychain", "-p", "test"]).arg(&keychain))?;
+            let mut signer = Self { dir, keychain, sha1: String::new() };
+            ok(Command::new("security").args(["unlock-keychain", "-p", "test"]).arg(&signer.keychain))?;
+            ok(Command::new("security").arg("import").arg(signer.dir.path().join("id.p12")).arg("-k").arg(&signer.keychain).args(["-P", "test", "-T", "/usr/bin/codesign"]))?;
+            ok(Command::new("security").args(["set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", "test"]).arg(&signer.keychain))?;
+            let fingerprint = ok(Command::new("openssl").args(["x509", "-noout", "-fingerprint", "-sha1", "-in"]).arg(signer.dir.path().join("cert.pem")))?;
+            let text = String::from_utf8(fingerprint.stdout).ok()?;
+            signer.sha1 = text.trim().rsplit('=').next()?.replace(':', "");
+            Some(signer)
+        }
+        fn sign(&self, file: &Path, identifier: &str) -> bool {
+            std::process::Command::new("/usr/bin/codesign")
+                .args(["--force", "--timestamp=none", "--sign", &self.sha1, "--keychain"])
+                .arg(&self.keychain)
+                .args(["--identifier", identifier])
+                .arg(file)
+                .output()
+                .is_ok_and(|o| o.status.success())
+        }
+    }
+    #[cfg(target_os = "macos")]
+    impl Drop for SelfSigner {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("security")
+                .arg("delete-keychain")
+                .arg(&self.keychain)
+                .output();
+        }
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn self_signed_pin_accepts_only_code_signed_by_the_pinned_certificate() {
+        let Some(signer) = SelfSigner::new() else {
+            eprintln!("skipped: openssl or security unavailable");
+            return;
+        };
+        let pinned = signer.dir.path().join("pinned");
+        std::fs::copy("/usr/bin/true", &pinned).unwrap();
+        assert!(signer.sign(&pinned, CLI_ID));
+        let trust = ReleaseTrust::from_production(&public_key(), None, Some(&signer.sha1)).unwrap();
+        assert!(trust.verify_static(&pinned, CodeRole::Cli).is_ok());
+        assert!(trust.verify_static(&pinned, CodeRole::Helper).is_err());
+        let other = ReleaseTrust::from_production(&public_key(), None, Some(CERT)).unwrap();
+        assert!(other.verify_static(&pinned, CodeRole::Cli).is_err());
+        let bridge =
+            ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), Some(&signer.sha1)).unwrap();
+        assert!(bridge.verify_static(&pinned, CodeRole::Cli).is_ok());
+        let impostor = signer.dir.path().join("impostor");
+        std::fs::copy("/usr/bin/true", &impostor).unwrap();
+        assert!(std::process::Command::new("/usr/bin/codesign")
+            .args(["--force", "--sign", "-", "--identifier", CLI_ID])
+            .arg(&impostor)
+            .output()
+            .unwrap()
+            .status
+            .success());
+        assert!(trust.verify_static(&impostor, CodeRole::Cli).is_err());
+    }
     #[cfg(target_os = "macos")]
     #[test]
     fn native_validation_refuses_unrelated_code_and_wrong_process_birth() {
-        let trust = ReleaseTrust::from_production(&public_key(), "ABCDE12345").unwrap();
+        let trust = ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None).unwrap();
         assert!(trust
             .verify_static(Path::new("/usr/bin/true"), CodeRole::Cli)
             .is_err());
@@ -350,7 +512,7 @@ mod tests {
         for role in [CodeRole::Desktop, CodeRole::Cli, CodeRole::Helper] {
             assert!(trust.verify_static(&shim, role).is_err());
         }
-        assert!(ReleaseTrust::from_production(&public_key(), "ABCDE12345")
+        assert!(ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None)
             .unwrap()
             .verify_native_shim(&shim)
             .is_err());
@@ -359,7 +521,7 @@ mod tests {
         assert!(trust
             .verify_static(Path::new("/bin/sleep"), CodeRole::Helper)
             .is_err());
-        assert!(ReleaseTrust::from_production(&public_key(), "ABCDE12345")
+        assert!(ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None)
             .unwrap()
             .verify_static(&binary, CodeRole::Helper)
             .is_err());

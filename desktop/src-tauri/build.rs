@@ -7,6 +7,7 @@ mod trust_config;
 fn main() {
     println!("cargo:rerun-if-env-changed=PACER_OTA_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=PACER_APPLE_TEAM_ID");
+    println!("cargo:rerun-if-env-changed=PACER_SIGNING_CERT_SHA1");
     println!("cargo:rerun-if-env-changed=PACER_OTA_FIXTURE_POLICY");
     let production = std::env::var_os("CARGO_FEATURE_OTA_PRODUCTION").is_some();
     let fixture = std::env::var_os("CARGO_FEATURE_OTA_FIXTURE").is_some();
@@ -22,11 +23,20 @@ fn main() {
         );
         let key = std::env::var("PACER_OTA_PUBLIC_KEY")
             .expect("Production OTA requires PACER_OTA_PUBLIC_KEY");
-        let team = std::env::var("PACER_APPLE_TEAM_ID")
-            .expect("Production OTA requires PACER_APPLE_TEAM_ID");
-        trust_config::validate(&key, &team).expect("Invalid public OTA key or Apple Team ID");
+        let pin = |name| std::env::var(name).ok().filter(|v: &String| !v.is_empty());
+        let team = pin("PACER_APPLE_TEAM_ID");
+        let cert = pin("PACER_SIGNING_CERT_SHA1");
+        trust_config::validate_key(&key).expect("Invalid public OTA key");
+        trust_config::validate_signers(team.as_deref(), cert.as_deref()).expect(
+            "Production OTA requires a valid PACER_APPLE_TEAM_ID and/or PACER_SIGNING_CERT_SHA1",
+        );
         println!("cargo:rustc-env=PACER_OTA_PUBLIC_KEY={key}");
-        println!("cargo:rustc-env=PACER_APPLE_TEAM_ID={team}");
+        if let Some(team) = team {
+            println!("cargo:rustc-env=PACER_APPLE_TEAM_ID={team}");
+        }
+        if let Some(cert) = cert {
+            println!("cargo:rustc-env=PACER_SIGNING_CERT_SHA1={cert}");
+        }
     }
     if fixture {
         assert_eq!(
