@@ -16,12 +16,19 @@ fn run() -> Result<(), Box<dyn Error>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or("missing workspace root")?;
-    let policy = deps::Policy::from_toml(&fs::read_to_string(root.join("xtask/crates.toml"))?)?;
     let args: Vec<_> = env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("gen") {
+        return match args.as_slice() {
+            [_] => xtask::r#gen::run(false).map_err(Into::into),
+            [_, flag] if flag == "--check" => xtask::r#gen::run(true).map_err(Into::into),
+            _ => Err("usage: cargo xtask gen [--check]".into()),
+        };
+    }
+    let policy = deps::Policy::from_toml(&fs::read_to_string(root.join("xtask/crates.toml"))?)?;
     let check = match args.as_slice() {
         [command] if command == "loc" || command == "deps" => false,
         [command, flag] if command == "loc" && flag == "--check" => true,
-        _ => return Err("usage: cargo xtask loc [--check] | deps".into()),
+        _ => return Err("usage: cargo xtask gen [--check] | loc [--check] | deps".into()),
     };
     let metadata = deps::metadata(root)?;
     if args[0] == "deps" {

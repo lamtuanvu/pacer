@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { bundleDefs } from "./schema-bundle";
 import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, PLUGIN_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema } from "../src/plugins/protocol";
 
 const json = (s: z.ZodTypeAny) => JSON.stringify(z.toJSONSchema(s), null, 2);
@@ -43,7 +44,7 @@ export function renderPluginProtocolDoc(): string {
 export function pluginProtocolSchema(): unknown {
   const defs: Record<string, unknown> = { manifest: z.toJSONSchema(manifestSchema), helloParams: z.toJSONSchema(helloParams), helloResult: z.toJSONSchema(helloResult) };
   for (const [name, d] of [...Object.entries(EXTENSION_METHODS), ...Object.entries(CAPABILITY_METHODS)]) { defs[`${name}.params`] = z.toJSONSchema(d.params); defs[`${name}.result`] = z.toJSONSchema(d.result); }
-  return { $schema: "https://json-schema.org/draft/2020-12/schema", title: `pacer plugin protocol ${PLUGIN_PROTOCOL_VERSION}`, $defs: defs };
+  return { $schema: "https://json-schema.org/draft/2020-12/schema", title: `pacer plugin protocol ${PLUGIN_PROTOCOL_VERSION}`, version: PLUGIN_PROTOCOL_VERSION, $defs: bundleDefs(defs) };
 }
 
 if (import.meta.main) {

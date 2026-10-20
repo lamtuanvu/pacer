@@ -1,2 +1,3 @@
-//! pacer-plugin-protocol workspace library.
-pub const VERSION: &str = "0.0.0";
+//! Types for the pacer plugin protocol, generated from JSON Schema.
+mod generated;
+pub use generated::*;
