@@ -18,6 +18,7 @@ export type ApiEventV3 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type
 
 const STATUS: Record<ApiErrorCode, number> = {
   invalid_input: 400, not_allowed: 403, unknown_task: 404, unknown_executor: 404, unknown_op: 404, conflict: 409, too_large: 413, internal: 500,
+  plugin_timeout: 504, plugin_unavailable: 503, plugin_refused: 422, capability_denied: 403, unknown_plugin: 404,
 };
 export const httpStatus = (code: ApiErrorCode): number => STATUS[code] ?? 500;
 
