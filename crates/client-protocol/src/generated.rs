@@ -2557,6 +2557,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountTestParamsName {
 ///      "items": {
 ///        "type": "string",
 ///        "enum": [
+///          "plugin_state",
 ///          "task_started",
 ///          "task_settled",
 ///          "verdict",
@@ -2705,6 +2706,7 @@ impl<'de> ::serde::Deserialize<'de> for ActivityListParamsBefore {
 ///{
 ///  "type": "string",
 ///  "enum": [
+///    "plugin_state",
 ///    "task_started",
 ///    "task_settled",
 ///    "verdict",
@@ -2733,6 +2735,8 @@ impl<'de> ::serde::Deserialize<'de> for ActivityListParamsBefore {
     PartialOrd,
 )]
 pub enum ActivityListParamsKindsItem {
+    #[serde(rename = "plugin_state")]
+    PluginState,
     #[serde(rename = "task_started")]
     TaskStarted,
     #[serde(rename = "task_settled")]
@@ -2764,6 +2768,7 @@ impl ::std::convert::From<&Self> for ActivityListParamsKindsItem {
 impl ::std::fmt::Display for ActivityListParamsKindsItem {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
+            Self::PluginState => f.write_str("plugin_state"),
             Self::TaskStarted => f.write_str("task_started"),
             Self::TaskSettled => f.write_str("task_settled"),
             Self::Verdict => f.write_str("verdict"),
@@ -2782,6 +2787,7 @@ impl ::std::str::FromStr for ActivityListParamsKindsItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
+            "plugin_state" => Ok(Self::PluginState),
             "task_started" => Ok(Self::TaskStarted),
             "task_settled" => Ok(Self::TaskSettled),
             "verdict" => Ok(Self::Verdict),
@@ -7254,6 +7260,337 @@ impl ::std::convert::From<::serde_json::Value> for PacerClientProtocol {
         Self(value)
     }
 }
+///`PluginDisableParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PluginDisableParams {
+    pub id: PluginDisableParamsId,
+}
+impl ::std::convert::From<&PluginDisableParams> for PluginDisableParams {
+    fn from(value: &PluginDisableParams) -> Self {
+        value.clone()
+    }
+}
+///`PluginDisableParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PluginDisableParamsId(::std::string::String);
+impl ::std::ops::Deref for PluginDisableParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PluginDisableParamsId> for ::std::string::String {
+    fn from(value: PluginDisableParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<&PluginDisableParamsId> for PluginDisableParamsId {
+    fn from(value: &PluginDisableParamsId) -> Self {
+        value.clone()
+    }
+}
+impl ::std::str::FromStr for PluginDisableParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^[a-z0-9][a-z0-9-]{1,63}$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]{1,63}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PluginDisableParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for PluginDisableParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PluginDisableParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PluginDisableParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PluginDoctorParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PluginDoctorParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<PluginDoctorParamsId>,
+}
+impl ::std::convert::From<&PluginDoctorParams> for PluginDoctorParams {
+    fn from(value: &PluginDoctorParams) -> Self {
+        value.clone()
+    }
+}
+impl ::std::default::Default for PluginDoctorParams {
+    fn default() -> Self {
+        Self {
+            id: Default::default(),
+        }
+    }
+}
+///`PluginDoctorParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PluginDoctorParamsId(::std::string::String);
+impl ::std::ops::Deref for PluginDoctorParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PluginDoctorParamsId> for ::std::string::String {
+    fn from(value: PluginDoctorParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<&PluginDoctorParamsId> for PluginDoctorParamsId {
+    fn from(value: &PluginDoctorParamsId) -> Self {
+        value.clone()
+    }
+}
+impl ::std::str::FromStr for PluginDoctorParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^[a-z0-9][a-z0-9-]{1,63}$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]{1,63}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PluginDoctorParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for PluginDoctorParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PluginDoctorParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PluginDoctorParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PluginEnableParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id"
+///  ],
+///  "properties": {
+///    "grant": {
+///      "type": "boolean"
+///    },
+///    "id": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PluginEnableParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub grant: ::std::option::Option<bool>,
+    pub id: PluginEnableParamsId,
+}
+impl ::std::convert::From<&PluginEnableParams> for PluginEnableParams {
+    fn from(value: &PluginEnableParams) -> Self {
+        value.clone()
+    }
+}
+///`PluginEnableParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PluginEnableParamsId(::std::string::String);
+impl ::std::ops::Deref for PluginEnableParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PluginEnableParamsId> for ::std::string::String {
+    fn from(value: PluginEnableParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<&PluginEnableParamsId> for PluginEnableParamsId {
+    fn from(value: &PluginEnableParamsId) -> Self {
+        value.clone()
+    }
+}
+impl ::std::str::FromStr for PluginEnableParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^[a-z0-9][a-z0-9-]{1,63}$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]{1,63}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PluginEnableParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for PluginEnableParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PluginEnableParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PluginEnableParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`PluginInstallParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7276,6 +7613,137 @@ impl ::std::convert::From<&PluginInstallParams> for PluginInstallParams {
 impl ::std::default::Default for PluginInstallParams {
     fn default() -> Self {
         Self {}
+    }
+}
+///`PluginListParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PluginListParams {}
+impl ::std::convert::From<&PluginListParams> for PluginListParams {
+    fn from(value: &PluginListParams) -> Self {
+        value.clone()
+    }
+}
+impl ::std::default::Default for PluginListParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`PluginRemoveParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PluginRemoveParams {
+    pub id: PluginRemoveParamsId,
+}
+impl ::std::convert::From<&PluginRemoveParams> for PluginRemoveParams {
+    fn from(value: &PluginRemoveParams) -> Self {
+        value.clone()
+    }
+}
+///`PluginRemoveParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PluginRemoveParamsId(::std::string::String);
+impl ::std::ops::Deref for PluginRemoveParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PluginRemoveParamsId> for ::std::string::String {
+    fn from(value: PluginRemoveParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<&PluginRemoveParamsId> for PluginRemoveParamsId {
+    fn from(value: &PluginRemoveParamsId) -> Self {
+        value.clone()
+    }
+}
+impl ::std::str::FromStr for PluginRemoveParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^[a-z0-9][a-z0-9-]{1,63}$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]{1,63}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PluginRemoveParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for PluginRemoveParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PluginRemoveParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PluginRemoveParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`RepoAddParams`

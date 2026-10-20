@@ -398,6 +398,7 @@
           "items": {
             "type": "string",
             "enum": [
+              "plugin_state",
               "task_started",
               "task_settled",
               "verdict",
@@ -984,9 +985,66 @@
       "properties": {},
       "additionalProperties": false
     },
+    "PluginDisableParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "PluginDoctorParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PluginEnableParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+        },
+        "grant": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
     "PluginInstallParams": {
       "type": "object",
       "properties": {},
+      "additionalProperties": false
+    },
+    "PluginListParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "PluginRemoveParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+        }
+      },
+      "required": [
+        "id"
+      ],
       "additionalProperties": false
     },
     "RepoAddParams": {
