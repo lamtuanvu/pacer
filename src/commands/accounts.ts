@@ -13,9 +13,13 @@ import type { Result } from "./types";
 import { table } from "../render/table";
 
 import * as endpoints from "../core/endpoints";
+import * as setup from "../core/opencode-setup";
 import {deleteKey} from "../endpoints/keys";
 import {redactEndpointMessage, type EndpointState} from "../endpoints/state";
 import type {DiscoveredModel, DiscoveryResult} from "../endpoints/models";
+import type {Candidate, Detection} from "../endpoints/detect";
+import {spendCopy} from "../view-model/copy";
+import {filterModelIds, idChoice, type ModelChoice, type UsageClass} from "../endpoints/recommend";
 
 export interface AccountDeps extends endpoints.EndpointDeps {
   promptSecret?: (question: string) => Promise<string>;
@@ -88,20 +92,19 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       const kinds: Record<string,string>={'1':'claude','2':'codex','3':'endpoint',claude:'claude',codex:'codex',endpoint:'endpoint'};
       const kind=await askUntil(ask,print,"What do you want to add? 1. Claude Code account  2. Codex account  3. Model endpoint (OpenCode)",
         answer=>kinds[answer] ?? Error('Choose 1, 2 or 3.'));
-      const taken=loadStrategy(ctx).accounts;
-      const name=await askUntil(ask,print,"Name (lowercase, e.g. terastorai)",answer=>
-        !NAME.test(answer) ? Error('Use lowercase letters, digits and hyphens, starting with a letter or digit.')
-          : taken[answer] ? Error(`Account ${answer} already exists; use pacer account edit ${answer} to change it.`) : answer);
-      if(kind==='endpoint' && args[1]!=="--orca") return await endpointWizard(ctx,name,deps);
+      if(kind==='endpoint' && args[1]!=="--orca") return await opencodePicker(ctx,deps);
+      const name=await nameQuestion(ctx,ask,print);
       const options=args[1]==="--orca" ? ["--orca",await ask("Orca account id")] : [];
       return accountCmd(["add",kind,name,...options],ctx,deps);
     }
     const [verb, ...rest] = args;
-    const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
+    const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output","cap-usd","model","name"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
+    const opencodeAdd = verb === "add" && pos[0] === "opencode" && pos.length === 2;
+    if (!opencodeAdd && (flags.model !== undefined || flags.name !== undefined || flags["cap-usd"] !== undefined)) throw Error("--model, --name and --cap-usd are only supported by pacer account add opencode <provider>");
     let s = loadStrategy(ctx);
     if (verb === "list" && !pos.length) {
       const rows = await accounts.list(ctx);
-      return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
+      return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${spendCopy(a.usageReading.spendUsd, a.weeklyUsd) ?? (a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage)}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
     }
     if (["add", "edit", "rm"].includes(verb) || (verb === "models" && flags.refresh)) {
       const ensured=ensureAccounts(ctx);
@@ -126,6 +129,26 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       const input=await endpointFlags(pos[0],flags,deps,true);
       const result=await endpoints.editEndpoint(ctx,input,deps);
       return ok(endpointMessage(pos[0],result));
+    }
+    if (verb==='add' && pos[0]==='opencode' && pos.length===2) {
+      const provider=pos[1];
+      // AccountDeps.login takes (argv, env) for the claude/codex CLI login flow; SetupDeps.login
+      // takes (argv) for `opencode auth login`. The two are unrelated, so drop the former before
+      // forwarding deps into opencode-setup, instead of widening SetupDeps to match.
+      const {login: _login, ...setupDeps} = deps;
+      const cap=flags['cap-usd']===undefined ? undefined : Number(flags['cap-usd']);
+      if (cap!==undefined && !(Number.isFinite(cap) && cap>0)) throw Error('--cap-usd must be a positive number of dollars, e.g. 10');
+      // For providers the catalog cannot classify; otherwise the catalog sets the usage type.
+      const usage=flags.usage===undefined ? undefined : String(flags.usage);
+      if (usage!==undefined && !['quota','metered','unmetered'].includes(usage)) throw Error('--usage must be quota, metered or unmetered');
+      let model: string | undefined = typeof flags.model==='string' ? flags.model : undefined;
+      if (!model) {
+        const models=await setup.setupModels(ctx,{provider,group:'signed_in'},setupDeps);
+        model=models.pick?.id;
+        if (!model) throw Error(models.note ? `${models.note} Or pass --model <id>.` : `no usable model found for ${provider}; pass --model <id>`);
+      }
+      const result=await setup.addOpencodeAccount(ctx,{provider,model,name:typeof flags.name==='string'?flags.name:undefined,cap_usd:cap,...(usage ? {usage: usage as 'quota'|'metered'|'unmetered'} : {}),test:!flags['no-test']},setupDeps);
+      return ok(opencodeMessage(result.account.name,provider,model,result,cap));
     }
     if (verb==='add' && pos[0]==='endpoint' && pos.length===2 && (['base-url','key','models','context','output','no-test'].some(k=>flags[k]))) {
       if (s.accounts[pos[1]]) throw Error(`account ${pos[1]} already exists; use pacer account edit ${pos[1]}`);
@@ -158,7 +181,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       if (removeKey) await deleteKey(ctx,name,stored!);
       return ok(`Removed account ${name}.\n${diff}`);
     }
-    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | models <name> [--refresh] | test <name> | edit <name> | rm <name> [--delete-home] [--delete-key]');
+    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | add opencode <provider> [--model <id>] [--cap-usd <n>] [--usage <quota|metered|unmetered>] [--name <n>] [--no-test] | models <name> [--refresh] | test <name> | edit <name> | rm <name> [--delete-home] [--delete-key]');
   } catch(e) {return fail(e);}
 }
 
@@ -206,6 +229,9 @@ function endpointMessage(name: string, state: EndpointState, added=false): strin
     (state.state==='not_working' ? `\nRetry: pacer account test ${name}` : '')+
     (added ? '\nRouting: added to the end of the default rule. Move it in the app’s Executors screen.' : '');
 }
+function opencodeMessage(name: string, provider: string, model: string, state: EndpointState, cap?: number): string {
+  return endpointMessage(name, state, true).replace(`opencode#${name}`, `opencode#${name} (${provider}/${model})${cap ? ` · cap $${cap}/week` : ''}`);
+}
 function positiveLimit(value: string | true | undefined, fallback: number, message='model limits must be positive integers'): number {
   const n=value===undefined || value==='' ? fallback : parseSize(value);
   if (!n || !Number.isSafeInteger(n) || n<=0) throw Error(message);
@@ -214,17 +240,22 @@ function positiveLimit(value: string | true | undefined, fallback: number, messa
 async function chooseModels(result: DiscoveryResult, deps: AccountDeps): Promise<EndpointModel[]> {
   const ask=answered(deps.prompt ?? promptArgument,'endpoint setup'), print=deps.print ?? console.log;
   let selected: DiscoveredModel[];
-  if (result.listed && result.models.length) {
-    result.models.forEach((m,i)=>print(`${i+1}. ${m.id}${m.context ? ` · ${m.context} context` : ''}`));
+  // Embedding, image and speech models cannot run an executor; hide them, as the provider picker does.
+  const usable=new Set(filterModelIds(result.listed ? result.models.map(m=>m.id) : []));
+  const shown=result.listed ? result.models.filter(m=>usable.has(m.id)) : [];
+  const hidden=result.listed ? result.models.length-shown.length : 0;
+  if (hidden && shown.length) print(`Hid ${hidden} ${hidden===1 ? 'model' : 'models'} that cannot run an executor (embeddings, images or speech).`);
+  if (result.listed && shown.length) {
+    shown.forEach((m,i)=>print(`${i+1}. ${m.id}${m.context ? ` · ${m.context} context` : ''}`));
     for (;;) {
       const choices=(await ask('Models to use (e.g. 1,3)')).split(',').map(n=>Number(n.trim()));
-      if (choices.length && choices.every(n=>Number.isInteger(n) && n>=1 && n<=result.models.length)) {
-        selected=[...new Set(choices)].map(n=>result.models[n-1]);break;
+      if (choices.length && choices.every(n=>Number.isInteger(n) && n>=1 && n<=shown.length)) {
+        selected=[...new Set(choices)].map(n=>shown[n-1]);break;
       }
       print('Choose model numbers from the list.');
     }
   } else {
-    print(result.listed ? "This endpoint doesn't list models. Enter model ids." : result.detail);
+    print(!result.listed ? result.detail : result.models.length ? "None of this endpoint's models can run an executor. Enter model ids." : "This endpoint doesn't list models. Enter model ids.");
     const ids=await ask('Model ids (comma separated)');
     selected=[...new Set(ids.split(',').map(id=>id.trim()).filter(Boolean))].map(id=>({id}));
     if (!selected.length) throw Error('at least one model id is required');
@@ -242,14 +273,14 @@ async function chooseModels(result: DiscoveryResult, deps: AccountDeps): Promise
   return selected.map(m=>({...m,context:m.context ?? context,output:m.output ?? output,tools:m.tools ?? true}));
 }
 async function usagePrompts(ctx: Ctx, ask: (q: string)=>Promise<string>, print: (line: string)=>void, current?: {usage?: string; weeklyTokens?: number | null}) {
-  const usage=await askUntil(ask,print,`Usage (quota, metered, unmetered)${current?.usage ? ` [${current.usage}]` : ''}`,answer=>{
+  const usage=await askUntil(ask,print,`Usage — quota (a plan with limits), metered (pay per token), unmetered (free/local)${current?.usage ? ` [${current.usage}]` : ''}`,answer=>{
     const value=answer || current?.usage || '';
     return ['quota','metered','unmetered'].includes(value) ? value : Error('Usage must be quota, metered or unmetered.');
   });
   const budget=current?.weeklyTokens ?? undefined;
-  const weekly_tokens=usage!=='metered' ? undefined : await askUntil(ask,print,`Weekly token budget (e.g. 50M)${budget ? ` [${budget}]` : ''}`,answer=>{
-    if (!answer && budget) return budget;
-    const n=answer ? parseSize(answer) : null;
+  const weekly_tokens=usage!=='metered' ? undefined : await askUntil(ask,print,`Weekly token budget (e.g. 50M, Enter for none)${budget ? ` [${budget}]` : ''}`,answer=>{
+    if (!answer) return budget;
+    const n=parseSize(answer);
     return n && Number.isSafeInteger(n) && n>0 ? n : Error('Enter a positive weekly token budget, for example 50M or 2000000.');
   });
   // arkcli is the only quota reader, so a blank answer selects it.
@@ -257,6 +288,149 @@ async function usagePrompts(ctx: Ctx, ask: (q: string)=>Promise<string>, print: 
     !answer || answer==='arkcli' ? 'arkcli' : Error('Quota source must be arkcli, the only supported quota reader.'));
   if (quota_source==='arkcli' && !ctx.which('arkcli')) print('Note: arkcli is not on PATH, so usage for this account will show as unknown until it is installed.');
   return {usage,weekly_tokens,quota_source};
+}
+/** The free-form account name prompt shared by the claude/codex kinds and the picker's "Enter a URL yourself" path. */
+function nameQuestion(ctx: Ctx, ask: (q: string)=>Promise<string>, print: (line: string)=>void): Promise<string> {
+  const taken=loadStrategy(ctx).accounts;
+  return askUntil(ask,print,"Name (lowercase, e.g. terastorai)",answer=>
+    !NAME.test(answer) ? Error('Use lowercase letters, digits and hyphens, starting with a letter or digit.')
+      : taken[answer] ? Error(`Account ${answer} already exists; use pacer account edit ${answer} to change it.`) : answer);
+}
+/** The name prompt for a detected provider or local server, defaulting to the suggested name on Enter. */
+function providerNameQuestion(ctx: Ctx, ask: (q: string)=>Promise<string>, print: (line: string)=>void, suggested: string): Promise<string> {
+  const taken=loadStrategy(ctx).accounts;
+  return askUntil(ask,print,`Name [${suggested}]`,answer=>{
+    const value=answer || suggested;
+    return !NAME.test(value) ? Error('Use lowercase letters, digits and hyphens, starting with a letter or digit.')
+      : taken[value] ? Error(`Account ${value} already exists; use pacer account edit ${value} to change it.`) : value;
+  });
+}
+function modelFacts(m: ModelChoice): string {
+  const parts=[m.tools ? 'tools' : 'no tools', `${Math.round(m.context/1000)}K context`];
+  if (m.costIn!==null && m.costOut!==null) parts.push(`$${m.costIn}/$${m.costOut} per M`);
+  return parts.join(', ');
+}
+function usageLabel(u: UsageClass): string {
+  if (u.usage==='unmetered') return 'unmetered · free';
+  if (u.usage==='quota') return `quota${u.quota_source ? ` · ${u.quota_source}` : ''}`;
+  return `metered · prices ${u.known ? 'known' : 'unknown'}`;
+}
+function candidateLabel(c: Candidate): string {
+  const base=c.group==='local'
+    ? `${c.name} (${(c.base_url ?? '').replace(/^https?:\/\//,'').replace(/\/v1$/,'')})   ${c.models ?? 0} ${(c.models ?? 0)===1 ? 'model' : 'models'} · free`
+    : `${c.name}  ${usageLabel(c.usage)}`;
+  return c.added ? `${base} · added as ${c.added}` : base;
+}
+type MenuItem = {kind:'candidate'; c: Candidate} | {kind:'search'; candidates: Candidate[]} | {kind:'url'};
+/** Numbers candidates and the fixed entries in the order the spec's terminal mockup shows them. */
+function buildMenu(detection: Detection): {items: MenuItem[]; lines: string[]} {
+  const items: MenuItem[]=[], lines: string[]=[];
+  let n=0;
+  const section=(header: string, cands: Candidate[]) => {
+    if (!cands.length) return;
+    lines.push(`  ${header}`);
+    for (const c of cands) { n++; items.push({kind:'candidate',c}); lines.push(`    ${n}. ${candidateLabel(c)}`); }
+  };
+  section('Already signed in to OpenCode', detection.candidates.filter(c=>c.group==='signed_in'));
+  section('Running on this machine', detection.candidates.filter(c=>c.group==='local'));
+  const catalogCandidates=detection.candidates.filter(c=>c.group==='catalog');
+  if (catalogCandidates.length) {
+    lines.push('  Connect a provider (OpenCode stores the key)');
+    n++; items.push({kind:'search',candidates:catalogCandidates});
+    lines.push(`    ${n}. Search ${catalogCandidates.length} providers…      e.g. deepseek, byteplus, zhipu`);
+  }
+  n++; items.push({kind:'url'});
+  lines.push(`  ${n}. Enter a URL yourself`);
+  return {items,lines};
+}
+/** Reads a 1-based list selection, re-asking on anything that isn't a number in range. */
+async function chooseNumber<T>(ask: (q: string)=>Promise<string>, print: (line: string)=>void, items: T[]): Promise<T> {
+  return askUntil(ask,print,'',answer=>{
+    const n=Number(answer);
+    return Number.isInteger(n) && n>=1 && n<=items.length ? items[n-1] : Error('Choose a number from the list.');
+  });
+}
+/** Steps 4: accept the recommendation, search others, or (no pick) enter a model id. */
+async function pickModel(ask: (q: string)=>Promise<string>, print: (line: string)=>void, result: setup.SetupModelsResult): Promise<ModelChoice> {
+  if (!result.pick) {
+    print(result.note ?? 'No model here can run an executor, so there is nothing to recommend. Enter a model id.');
+    const id=await askUntil(ask,print,'Model id',answer=>answer.trim() ? answer.trim() : Error('A model id is required.'));
+    return idChoice(id);
+  }
+  let pick=result.pick, rest=result.rest;
+  for (;;) {
+    const answer=await ask(`Model: ${pick.id} (${modelFacts(pick)})  [Enter to accept, / to search ${rest.length} others]`);
+    if (!answer) return pick;
+    if (answer==='/') {
+      const query=(await ask('Search models')).toLowerCase();
+      const all=[pick,...rest];
+      const matches=all.filter(m=>m.id.toLowerCase().includes(query) || (m.name ?? '').toLowerCase().includes(query));
+      if (!matches.length) { print('No matching models.'); continue; }
+      printLines(matches.map((m,i)=>`${i+1}. ${m.id}${m.name && m.name!==m.id ? ` (${m.name})` : ''}`),print);
+      const chosen=await chooseNumber(ask,print,matches);
+      pick=chosen; rest=all.filter(m=>m.id!==chosen.id);
+      continue;
+    }
+    print('Press Enter to accept, or / to search.');
+  }
+}
+/** Steps 4-10 once a provider (signed in, newly connected, or local) and its base URL (local only) are known. */
+async function setupFromProvider(ctx: Ctx, ask: (q: string)=>Promise<string>, print: (line: string)=>void, group: 'signed_in'|'local', provider: string, base_url: string | undefined, setupDeps: setup.SetupDeps, deps: AccountDeps): Promise<Result> {
+  const result=await setup.setupModels(ctx,{provider,group,base_url},setupDeps);
+  const pick=await pickModel(ask,print,result);
+  let usageKind=result.usage.usage;
+  if (!result.usage.known) {
+    usageKind=await askUntil(ask,print,'Usage — quota (a plan with limits), metered (pay per token), unmetered (free/local) [metered]',answer=>{
+      const value=answer || 'metered';
+      return ['quota','metered','unmetered'].includes(value) ? value as UsageClass['usage'] : Error('Usage must be quota, metered or unmetered.');
+    });
+  }
+  const cap=usageKind!=='metered' ? undefined : await askUntil<number|undefined>(ask,print,'Weekly spend cap in $ (Enter for no cap)',answer=>{
+    if (!answer) return undefined;
+    const n=Number(answer.replace(/^\$/,''));
+    return Number.isFinite(n) && n>0 ? n : Error('Enter a positive dollar amount, for example 10, or leave it blank.');
+  });
+  const name=await providerNameQuestion(ctx,ask,print,setup.suggestName(ctx,provider));
+  const test=!/^n(?:o)?$/i.test(await ask('Test with a short task now? Uses about 2K tokens. [Y/n]'));
+  if (group==='local') {
+    const result2=await endpoints.addEndpoint(ctx,{name,base_url:base_url!,key_source:'none',models:[pick],usage:'unmetered',test},deps);
+    return ok(endpointMessage(name,result2,true));
+  }
+  const result2=await setup.addOpencodeAccount(ctx,{provider,model:pick.id,name,cap_usd:cap,usage:usageKind,test},setupDeps);
+  return ok(opencodeMessage(result2.account.name,provider,pick.id,result2,cap));
+}
+/** The "Model endpoint (OpenCode)" picker: steps 1-3 (detect, menu, connect), then setupFromProvider or the URL fallback. */
+async function opencodePicker(ctx: Ctx, deps: AccountDeps): Promise<Result> {
+  const ask=answered(deps.prompt ?? promptArgument,'account setup'), print=deps.print ?? console.log;
+  const {login,...rest}=deps;
+  const setupDeps: setup.SetupDeps={...rest, login: login ? (argv: string[])=>login(argv,{}) : undefined};
+
+  print('Looking for models you can use…');
+  const detection=await setup.setupCandidates(ctx,setupDeps);
+  printLines(detection.notes,print);
+
+  for (;;) {
+    const {items,lines}=buildMenu(detection);
+    printLines(lines,print);
+    const item=await chooseNumber(ask,print,items);
+    if (item.kind==='candidate') {
+      if (item.c.added) { print(`Already added as ${item.c.added}; use pacer account edit ${item.c.added}`); continue; }
+      return await setupFromProvider(ctx,ask,print,item.c.group as 'signed_in'|'local',item.c.provider,item.c.base_url,setupDeps,deps);
+    }
+    if (item.kind==='search') {
+      const query=(await ask('Search providers (e.g. deepseek)')).toLowerCase();
+      const matches=item.candidates.filter(c=>c.provider.toLowerCase().includes(query) || c.name.toLowerCase().includes(query)).slice(0,10);
+      if (!matches.length) { print('No matching providers.'); continue; }
+      printLines(matches.map((c,i)=>`${i+1}. ${candidateLabel(c)}`),print);
+      const chosen=await chooseNumber(ask,print,matches);
+      if (chosen.added) { print(`Already added as ${chosen.added}; use pacer account edit ${chosen.added}`); continue; }
+      const connected=await setup.connectProvider(ctx,chosen.provider,setupDeps);
+      if (!connected) { print(`OpenCode did not finish signing in to ${chosen.provider}.`); continue; }
+      return await setupFromProvider(ctx,ask,print,'signed_in',chosen.provider,undefined,setupDeps,deps);
+    }
+    const name=await nameQuestion(ctx,ask,print);
+    return await endpointWizard(ctx,name,deps);
+  }
 }
 const KEY_SOURCE=/^(keychain|file|none|env:[A-Za-z_][A-Za-z0-9_]*)$/;
 function parseKeySource(answer: string, fallback: KeySource): KeySource | Error {

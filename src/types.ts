@@ -22,6 +22,7 @@ export interface UsageReading {
   source?: UsageSource;
   remoteHost?: string;
   error?: string;
+  spendUsd?: number; // 7-day spend for the account's model, from opencode stats
 }
 
 export interface RunResult { timedOut?: boolean; code: number; stdout: string; stderr: string }

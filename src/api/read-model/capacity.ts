@@ -71,7 +71,7 @@ export function buildAccounts(st: Status,s: Strategy,ctx?: Ctx): AccountSummary[
  const failures=ctx?readAuthFailures(ctx):{};
  return Object.values(s.accounts).map(a=>{
   const runners=Object.values(s.runners).filter(r=>r.account===a.name),p=st.providers.find(p=>p.account===a.name||runners.some(r=>r.id===p.id)),status=st.accounts?.find(row=>row.name===a.name);
-  return {name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id)};
+  return {name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id),spendUsdWeek:status?.spendUsd??null,capUsdWeek:a.weeklyUsd};
  });
 }
 export function buildPlanner(st: Status): PlannerMeter | null {

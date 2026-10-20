@@ -34,12 +34,14 @@ export interface AccountCfg {
   name: string;
   model: string | null;
   kind: AccountKind;
-  source: "default" | "pacer" | "orca" | "endpoint";
+  source: "default" | "pacer" | "orca" | "endpoint" | "opencode";
   home: string | null;
   orcaAccount: string | null;
   usage: UsageKind;
   usageSource: "native" | "orca" | "arkcli" | "metered" | "reactive" | "unmetered";
   quotaSource: string | null;
+  provider: string | null;
+  weeklyUsd: number | null;
   weeklyTokens: number | null;
   cooldownS: number;
   allowPaid: boolean;
@@ -92,12 +94,14 @@ function accountCfg(name: string, c: Record<string, unknown>): AccountCfg {
   const kind = c.kind as AccountKind;
   const home = typeof c.home === "string" ? c.home : null;
   const orcaAccount = typeof c.orca_account === "string" ? c.orca_account : null;
-  const source = orcaAccount ? "orca" : home ? "pacer" : kind === "endpoint" ? "endpoint" : "default";
+  const source = orcaAccount ? "orca" : home ? "pacer" : kind === "endpoint" ? (c.source === "opencode" ? "opencode" : "endpoint") : "default";
   const usage = (c.usage ?? (kind === "claude" || kind === "codex" ? "quota" : kind === "endpoint" ? "metered" : "reactive")) as UsageKind;
   const quotaSource = typeof c.quota_source === "string" ? c.quota_source : null;
   const usageSource = (c.usage_source ?? (quotaSource === "arkcli" ? "arkcli" : usage === "quota" ? "native" : usage)) as AccountCfg["usageSource"];
   return {
     name, model: c.model === undefined ? null : String(c.model), kind, source, home, orcaAccount, usage, usageSource, quotaSource,
+    provider: typeof c.provider === "string" ? c.provider : null,
+    weeklyUsd: isObj(c.budget) && typeof c.budget.weekly_usd === "number" ? c.budget.weekly_usd : null,
     weeklyTokens: isObj(c.budget) ? parseSize(c.budget.weekly_tokens) : null,
     cooldownS: c.cooldown === undefined ? 6 * 3600 : parseDuration(c.cooldown) ?? 6 * 3600,
     allowPaid: c.allow_paid === true,
@@ -158,8 +162,22 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
     if (!["quota", "metered", "reactive", "unmetered"].includes(cfg.usage)) problems.push(`${at}: unknown usage kind`);
     if (!["native", "orca", "arkcli", "metered", "reactive", "unmetered"].includes(cfg.usageSource)) problems.push(`${at}: unknown usage_source`);
     if (["cursor", "agy"].includes(cfg.kind) && cfg.usage === "quota" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage is not available for ${cfg.kind}; use reactive`);
-    if (cfg.kind === "endpoint" && cfg.usage === "quota" && cfg.quotaSource !== "arkcli" && cfg.usageSource !== "orca") problems.push(`${at}: quota usage needs quota_source: arkcli`);
-    if (cfg.usage === "metered" && (cfg.weeklyTokens === null || !Number.isFinite(cfg.weeklyTokens) || cfg.weeklyTokens <= 0)) problems.push(`${at}: metered usage needs budget.weekly_tokens`);
+    // Only `source: opencode` means something; other source values (external, default, pacer, …) stay ignored on every
+    // account kind, as they were before, so existing strategies still load (additive change).
+    if (value.source === "opencode") {
+      if (cfg.kind !== "endpoint") problems.push(`${at}: source: opencode requires an endpoint account`);
+      else {
+        if (!cfg.provider || !/^[a-z0-9][a-z0-9._-]*$/.test(cfg.provider)) problems.push(`${at}: source: opencode needs provider (an OpenCode provider id)`);
+        if (value.connection !== undefined) problems.push(`${at}: source: opencode cannot have a connection`);
+      }
+    }
+    if (isObj(value.budget)) {
+      if (value.budget.weekly_usd !== undefined && value.budget.weekly_tokens !== undefined) problems.push(`${at}: budget cannot combine weekly_usd and weekly_tokens`);
+      if (value.budget.weekly_usd !== undefined && !(typeof value.budget.weekly_usd === "number" && Number.isFinite(value.budget.weekly_usd) && value.budget.weekly_usd > 0)) problems.push(`${at}: budget.weekly_usd must be a positive number`);
+    }
+    if (cfg.kind === "endpoint" && cfg.usage === "quota" && cfg.quotaSource !== "arkcli" && cfg.usageSource !== "orca" && cfg.source !== "opencode") problems.push(`${at}: quota usage needs quota_source: arkcli`);
+    if (cfg.usage === "metered" && cfg.kind !== "endpoint" && (cfg.weeklyTokens === null || !Number.isFinite(cfg.weeklyTokens) || cfg.weeklyTokens <= 0)) problems.push(`${at}: metered usage needs budget.weekly_tokens`);
+    if (cfg.usage === "metered" && cfg.kind === "endpoint" && isObj(value.budget) && value.budget.weekly_tokens !== undefined && (cfg.weeklyTokens === null || cfg.weeklyTokens <= 0)) problems.push(`${at}: budget.weekly_tokens must be a positive size such as 20M`);
     if (value.cooldown !== undefined && (parseDuration(value.cooldown) === null || !Number.isFinite(cfg.cooldownS) || cfg.cooldownS < 0)) problems.push(`${at}: cooldown must look like 30m, 6h or 2d`);
     accounts[name] = cfg;
   }
@@ -205,6 +223,7 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
       if (!cfg.connection.models.some(m => m.id === selected)) problems.push(`${at}: model must be selected from connection.models`);
       model = prefix + selected;
     }
+    if (cfg.source === "opencode" && cfg.provider && !(model ?? "").startsWith(`${cfg.provider}/`)) problems.push(`${at}: model must start with "${cfg.provider}/"`);
     if (Object.keys(c).length) {
       if (declarations.has(id) && declarations.get(id) !== model) problems.push(`${at}: conflicting model declarations for ${id}`);
       declarations.set(id, model);

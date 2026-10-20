@@ -1,0 +1,5 @@
+{"cost": 133.37, "models": [
+  {"model": {"id": "z-ai/glm-5.3", "providerID": "openrouter", "variant": "default"}, "tokens": {"input": 1000, "output": 200, "reasoning": 50, "cache": {"read": 9000, "write": 0}}, "cost": 45.75},
+  {"model": {"id": "z-ai/glm-5.3", "providerID": "openrouter", "variant": "high"}, "tokens": {"input": 10, "output": 5, "reasoning": 0, "cache": {"read": 0, "write": 0}}, "cost": 0.25},
+  {"model": {"id": "anthropic/claude-sonnet-5.5", "providerID": "openrouter", "variant": "default"}, "tokens": {"input": 7, "output": 9, "reasoning": 0, "cache": {"read": 0, "write": 0}}, "cost": 87.37}
+]}

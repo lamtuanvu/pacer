@@ -17,7 +17,7 @@ export async function runnerEnv(ctx: Ctx, runner: RunnerCfg): Promise<Record<str
     if (account.connection.key !== "none" && !key) throw Error(`Key missing for endpoint ${account.name}`);
     return {OPENCODE_CONFIG: writeOpencodeConfig(ctx), ...(key ? {[endpointKeyEnv(account.name)]: key} : {})};
   }
-  if (account.source === "default" || account.source === "endpoint") return {};
+  if (account.source === "default" || account.source === "endpoint" || account.source === "opencode") return {};
   if (account.kind !== "claude" && account.kind !== "codex") return {};
   const home = account.source === "orca" ? orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") : account.home?.replace(/^~(?=\/|$)/, ctx.home);
   if (!home) throw new Error(`account folder not found: ${runner.account}`);
