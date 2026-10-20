@@ -62,7 +62,7 @@ export async function pluginsCmd(args: string[], ctx: Ctx): Promise<Result> {
       case "doctor": {
         const { reports } = await callOp(ctx, "plugin.doctor", pos[0] ? { id: pos[0] } : {}) as { reports: Report[] };
         if (flags.json) return { code: 0, out: JSON.stringify({ reports }, null, 2), err: "" };
-        const lines = reports.map(r => `${r.id.padEnd(24)} ${r.ok ? "ok" : "FAIL"}  ${r.state}  protocol ${r.protocol.plugin ?? "?"} (host ${r.protocol.host})  serves ${r.served.join(", ") || "-"}  restarts ${r.restarts}${r.error ? `\n  ${r.error}${r.needs && !r.ok ? ` (needs host ${r.needs})` : ""}` : ""}`);
+        const lines = reports.map(r => `${r.id.padEnd(24)} ${r.ok ? "ok" : "FAIL"}  ${r.state}  protocol ${r.protocol.plugin ?? "?"} (host ${r.protocol.host})  serves ${r.served.join(", ") || "-"}  restarts ${r.restarts}${r.error ? `\n  ${r.error}${r.needs && r.state === "refused" && !r.error.includes("needs host") ? ` (needs host ${r.needs})` : ""}` : ""}`);
         return { code: reports.every(r => r.ok) ? 0 : 1, out: lines.join("\n") || "no plugins", err: "" };
       }
       default: return { code: 2, out: "", err: USAGE };

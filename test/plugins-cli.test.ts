@@ -39,3 +39,19 @@ test("list, enable --yes, doctor, disable and remove print readable lines and JS
   expect((await pluginsCmd(["run", "nope"], ctx)).err).toContain("no bundled plugin nope");
   await shutdownPlugins(ctx);
 }, 20000);
+
+test("doctor shows host requirements only for protocol refusals, without duplication", async () => {
+  const ctx = home();
+  installFixture("slow", join(ctx.pacerHome, "plugins"));
+  installFixture("old-protocol", join(ctx.pacerHome, "plugins"));
+  await pluginsCmd(["enable", "fx-slow", "--yes"], ctx);
+  const timeout = await pluginsCmd(["doctor", "fx-slow"], ctx);
+  expect(timeout.code).toBe(1);
+  expect(timeout.out).toContain("plugin_timeout");
+  expect(timeout.out).not.toContain("(needs host");
+  const refused = await pluginsCmd(["doctor", "fx-old"], ctx);
+  expect(refused.code).toBe(1);
+  expect(refused.out).toContain("refused");
+  expect(refused.out).toContain("needs host ^0");
+  expect(refused.out.match(/needs host/g)).toHaveLength(1);
+}, 20000);

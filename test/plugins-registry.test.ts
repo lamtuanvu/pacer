@@ -46,6 +46,29 @@ test("discovery lists installed plugins with their static states", async () => {
   expect(await codeOf(r.call(ctx, "nope", "diagnostic.ping", {}))).toBe("unknown_plugin");
 });
 
+test("shutdown drains a burst of plugin state events in transition order", async () => {
+  const ctx = home();
+  const dir = installFixture("good", join(ctx.pacerHome, "plugins"));
+  const path = join(dir, "pacer-plugin.json");
+  const manifest = JSON.parse(readFileSync(path, "utf8"));
+  const r = registry();
+  const expected = ["needs_grant"];
+  r.refresh(ctx);
+  for (let i = 0; i < 8; i++) {
+    writeFileSync(path, JSON.stringify({ ...manifest, host: "^0.0.0" }));
+    r.refresh(ctx);
+    expected.push("refused");
+    writeFileSync(path, JSON.stringify(manifest));
+    r.refresh(ctx);
+    expected.push("needs_grant");
+  }
+  await r.shutdown();
+  const states = eventsSince(ctx, 0, 3).events
+    .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-good")
+    .map(e => (e.data as { state: string }).state);
+  expect(states).toEqual(expected);
+});
+
 test("enable needs a grant once, then starts lazily, answers declared capabilities and logs", async () => {
   const ctx = home();
   installFixture("good", join(ctx.pacerHome, "plugins"));

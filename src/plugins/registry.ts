@@ -27,6 +27,7 @@ const ENABLED: ReadonlySet<PluginState> = new Set(["idle", "starting", "ready"])
 const CRASH_WINDOW_S = 60, CRASH_LIMIT = 3, MAX_BACKOFF_MS = 30_000, HELLO_DEADLINE_MS = 10_000;
 
 export class PluginRegistry {
+  private published: Promise<unknown> = Promise.resolve();
   private readonly entries = new Map<string, Entry>();
   private readonly sleep: (ms: number) => Promise<void>;
   constructor(private readonly deps: RegistryDeps) { this.sleep = deps.sleep ?? (ms => Bun.sleep(ms)); }
@@ -41,7 +42,7 @@ export class PluginRegistry {
   private setState(ctx: Ctx, e: Entry, state: PluginState, error: string | null = null): void {
     if (e.state === state && e.error === error) return;
     e.state = state; e.error = error;
-    void publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state, error } } }]);
+    this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state, error } } }])).catch(() => {});
     if (state === "failing") appendActivity(ctx, { kind: "plugin_state", level: "warn", text: `Plugin ${e.id} is failing · ${error ?? "unknown error"}` });
   }
 
@@ -230,5 +231,8 @@ export class PluginRegistry {
     }));
   }
 
-  async shutdown(): Promise<void> { await Promise.all([...this.entries.values()].map(e => this.stop(e))); }
+  async shutdown(): Promise<void> {
+    await Promise.all([...this.entries.values()].map(e => this.stop(e)));
+    await this.published;
+  }
 }

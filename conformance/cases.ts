@@ -70,6 +70,10 @@ export const CASES: ConformanceCase[] = [
     const failing = await doctor(h, "fx-crasher");
     assert(!failing.ok && failing.state === "failing" && failing.restarts === 3 && /3 failures within a minute/.test(failing.error ?? ""), `three crashes within a minute mark the plugin failing (got ${failing.state}: ${failing.error})`);
     assert(await eventually(() => h.events.some(e => e.type === "plugin" && (e.data as { state: string }).state === "failing")), "a plugin event announces the failing state");
+    const states = h.events
+      .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-crasher")
+      .map(e => (e.data as { state: string }).state);
+    assert(states.at(-1) === "failing", "the last event for the crashed plugin is failing");
     const after = await h.call<{ state: string }>("plugin.enable", { id: "fx-crasher", grant: true });
     assert(after.state === "idle", "enable clears failing");
     assert((await doctor(h, "fx-crasher")).ok, "the plugin runs again after enable");
