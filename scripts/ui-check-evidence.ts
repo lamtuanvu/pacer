@@ -47,6 +47,20 @@ export function checkUiEvidence(files: string[], body: string, base?: string, he
   return violations;
 }
 
+/** A version bump rewrites these lines and nothing else; it changes nothing a reviewer could see. */
+const versionLine = /^[+-][ \t]*(?:"version": "[0-9A-Za-z.+-]+",?|export const APP_VERSION = "[0-9A-Za-z.+-]+";)[ \t]*$/;
+
+/** True only when every changed line of every UI-scoped file is a version string (release PRs). */
+export function versionOnlyUiChange(files: string[], base: string, head: string, root = process.cwd()): boolean {
+  const ui = files.filter(path => uiPath.test(path));
+  if (!ui.length) return false;
+  const diff = Bun.spawnSync(["git", "diff", "--unified=0", "--no-color", "--no-ext-diff", base, head, "--", ...ui], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  if (diff.exitCode !== 0) return false;
+  const changed = diff.stdout.toString().split("\n").filter(line => /^[+-]/.test(line) && !/^(?:\+\+\+|---) /.test(line));
+  if (/^Binary files /m.test(diff.stdout.toString())) return false;
+  return changed.length > 0 && changed.every(line => versionLine.test(line));
+}
+
 /** Read GitHub's event file; validate SHAs before passing them as argv, never shell text. */
 export function checkUiPullRequest(eventPath: string, root = process.cwd()): UiEvidenceViolation[] {
   const event: unknown = JSON.parse(readFileSync(eventPath, "utf8"));
@@ -58,6 +72,7 @@ export function checkUiPullRequest(eventPath: string, root = process.cwd()): UiE
   const diff = Bun.spawnSync(["git", "diff", "--name-only", "-z", base, head, "--"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (diff.exitCode !== 0) return [{ rule: "UI-24", message: `Cannot inspect changed UI files; fetch the PR base/head history. git diff: ${diff.stderr.toString().trim()}` }];
   const files = diff.stdout.toString().split("\0").filter(Boolean);
+  if (versionOnlyUiChange(files, base, head, root)) return [];
   // Only GitHub's explicit draft boolean relaxes readiness, never report content.
   // CI runs again on ready_for_review; absent/malformed metadata stays strict.
   return checkUiEvidence(files, typeof pr.body === "string" ? pr.body : "", base, head, pr.draft === true);
