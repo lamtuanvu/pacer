@@ -1,6 +1,6 @@
 /** Fixed native fixture diagnostics. No caller-provided executable or manager argument. */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { appDigest, otaFixturePolicy, recordOtaDiagnosticProcess, type OtaRecord } from "./ota";
@@ -33,11 +33,17 @@ export function fixtureInstallation(state: OtaRecord, observed: unknown, version
  * A fixture models an installed user who already finished first-run setup: the desktop
  * only installs or restarts a service after recorded consent (desktop/src-tauri/src/client.rs).
  */
-export function seedFixtureConsent(state: Pick<OtaRecord, "pacerHome">): void {
+export function seedFixtureConsent(state: Pick<OtaRecord, "pacerHome" | "currentApp">): void {
   const dir = join(state.pacerHome, "Library/Application Support/dev.pacer.desktop"), file = join(dir, "consent.json");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  if (existsSync(file)) return;
-  writeFileSync(file, JSON.stringify({ at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), path: false, keep: false }), { mode: 0o600, flag: "wx" });
+  if (!existsSync(file)) writeFileSync(file, JSON.stringify({ at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), path: false, keep: false }), { mode: 0o600, flag: "wx" });
+  // Consent also linked the bundled CLI into ~/.local/bin; without it the desktop asks to relink.
+  const bin = join(state.pacerHome, ".local/bin"), link = join(bin, "pacer");
+  mkdirSync(bin, { recursive: true, mode: 0o700 });
+  if (!lstatExists(link)) symlinkSync(join(state.currentApp, "Contents/Resources/pacer"), link);
+}
+function lstatExists(path: string): boolean {
+  try { lstatSync(path); return true; } catch { return false; }
 }
 export function fixtureEnvironment(state: OtaRecord): Record<string, string> {
   return { HOME: state.pacerHome, PACER_HOME: state.pacerHome, PACER_PORT: String(state.innerPort), PATH: "/usr/bin:/bin:/usr/sbin:/sbin" };

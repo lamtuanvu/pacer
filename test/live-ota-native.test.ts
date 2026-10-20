@@ -42,10 +42,11 @@ test("fixtures model a user who already consented to first-run setup", async () 
   const { readFileSync, statSync, writeFileSync } = await import("node:fs");
   const { join } = await import("node:path");
   const home = tmpDir(), file = join(home, "Library/Application Support/dev.pacer.desktop/consent.json");
-  seedFixtureConsent({ pacerHome: home });
+  seedFixtureConsent({ pacerHome: home, currentApp: "/fixture/ota/current.app" });
   expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ path: false, keep: false });
+  expect((await import("node:fs")).readlinkSync(join(home, ".local/bin/pacer"))).toBe("/fixture/ota/current.app/Contents/Resources/pacer");
   expect(statSync(file).mode & 0o777).toBe(0o600);
   writeFileSync(file, JSON.stringify({ at: "x", path: false, keep: true }));
-  seedFixtureConsent({ pacerHome: home });
+  seedFixtureConsent({ pacerHome: home, currentApp: "/fixture/ota/current.app" });
   expect(JSON.parse(readFileSync(file, "utf8")).keep).toBe(true);
 });
