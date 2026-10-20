@@ -8,7 +8,7 @@ type RouteBase =
   | { name: "hosts"; alias?: string }
   ;
 export type Route = RouteBase & { query: RouteQuery };
-export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "routing", "strategies", "updates", "notifications", "appearance"] as const;
+export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "routing", "strategies", "updates", "notifications", "appearance", "diagnostics"] as const;
 
 /** Map service settings sections to Settings; setup item ids open Overview. */
 export function settingsPath(section: unknown): string {
