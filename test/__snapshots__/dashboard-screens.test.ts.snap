@@ -33,9 +33,9 @@ exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
    07:45  ✓ Completed           Add dark mode to the web header      acme/web      Cursor                              
    07:30  ✓ Completed           Fix flaky retry test in the paymen…  acme/api      Codex · team on devbox              
    03:00  ✓ Completed           Rename runner ids in docs            pacer         Codex · team on devbox              
+   ✓ Accepted
    02:00  ✓ Completed           Bump yaml to 2.8.2                   pacer         Local model                         
- 
- 
+   ✕ Rejected
  
  
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
                      Waiting: this executor is running 1 of 1
    
    CAPACITY  2/4 executors ready
- ↓ 13 more
+ ↓ 15 more
  ──────────────────────────────────────────────────────────────────────────────
  
  ⏎ Run checks  x dismiss  . actions (3)  f repo scope  ? help  pacer 0.0.0-test"
@@ -1207,9 +1207,9 @@ exports[`color, plain and ASCII renditions home in truecolor uses token colors 1
    \x1B[38;2;161;161;170m07:45\x1B[0m  \x1B[38;2;134;239;172m✓ Completed\x1B[0m           \x1B[1mAdd dark mode to the web header\x1B[0m      \x1B[38;2;161;161;170macme/web\x1B[0m      \x1B[38;2;161;161;170m● \x1B[0mCursor                  \x1B[38;2;161;161;170m\x1B[0m          
    \x1B[38;2;161;161;170m07:30\x1B[0m  \x1B[38;2;134;239;172m✓ Completed\x1B[0m           \x1B[1mFix flaky retry test in the paymen…\x1B[0m  \x1B[38;2;161;161;170macme/api\x1B[0m      \x1B[38;2;161;161;170m● \x1B[0mCodex · team on devbox  \x1B[38;2;161;161;170m\x1B[0m          
    \x1B[38;2;161;161;170m03:00\x1B[0m  \x1B[38;2;134;239;172m✓ Completed\x1B[0m           \x1B[1mRename runner ids in docs\x1B[0m            \x1B[38;2;161;161;170mpacer\x1B[0m         \x1B[38;2;161;161;170m● \x1B[0mCodex · team on devbox  \x1B[38;2;161;161;170m\x1B[0m          
+   \x1B[38;2;134;239;172m✓ Accepted\x1B[0m
    \x1B[38;2;161;161;170m02:00\x1B[0m  \x1B[38;2;134;239;172m✓ Completed\x1B[0m           \x1B[1mBump yaml to 2.8.2\x1B[0m                   \x1B[38;2;161;161;170mpacer\x1B[0m         \x1B[38;2;161;161;170m● \x1B[0mLocal model             \x1B[38;2;161;161;170m\x1B[0m          
- 
- 
+   \x1B[38;2;252;165;165m✕ Rejected\x1B[0m
  
  
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
@@ -1410,7 +1410,7 @@ exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
                      Waiting: this executor is running 1 of 1
    
    CAPACITY  2/4 executors ready
- v 13 more
+ v 15 more
  ------------------------------------------------------------------------------
  
  Enter Run checks  x dismiss  . actions (3)  ? help            pacer 0.0.0-test"

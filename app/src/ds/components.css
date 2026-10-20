@@ -269,3 +269,6 @@ a.pc-btn{text-decoration:none}
 
 .pc-disclosure--wrap{min-width:0;max-width:100%}
 .pc-disclosure--wrap>summary{flex-wrap:wrap}
+
+.pc-list-row--outlined,.pc-list-row--outlined:last-child{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
+.pc-list-row--bad{border-color:var(--bad-line);background:var(--bad-tint)}

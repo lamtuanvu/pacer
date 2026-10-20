@@ -387,3 +387,12 @@ test("Needs you includes problems and questions while successful work stays in T
  expect(text).toContain("Needs you");
  expect(text).not.toContain("Mark accepted");
 });
+
+test("requested failed-check and partial results never bind the accept key in Tasks",()=>{
+ for(const patch of [{state:'done',acceptanceState:'failed'},{state:'partial',acceptanceState:'none'}] as const){
+  const s=snapshot();
+  const t={...s.tasks.find(t=>t.id==='t-0412')!,...patch,reviewRequest:{note:'Check',at:s.at}};
+  const items=screenItems({...s,tasks:[t]},s.at,{state:{screen:'sessions'},data:data()});
+  expect(items.find(i=>i.id==='session:t-0412')?.keys.a).toBeUndefined();
+ }
+});

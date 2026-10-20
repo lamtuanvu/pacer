@@ -12,7 +12,7 @@ import { ago, clock, elapsed } from "../../../src/view-model/time";
 import { meterText } from "../../../src/view-model/format";
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
-import { attentionStatus, executorLabel, executorRowStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
+import { attentionStatus, executorLabel, executorRowStatus, paceStatus, taskStatus, taskOutcome } from "../../../src/view-model/words";
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import { AgentMark } from "../ds/AgentMark";
@@ -45,7 +45,7 @@ export function NeedsYou({ snapshot, scope, runner, now, query, narrow, standalo
   const reviewQueue = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>All attention</TextAction>;
   return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><SectionHeading id="needs-you">{standalone ? "Decisions and problems" : "Needs you"}</SectionHeading>{!standalone && items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{standalone ? otherRepos : narrow && otherRepos ? otherRepos : reviewQueue}</div>
     <div>
-    {items.map(item => { const status = attentionStatus(item, snapshot.tasks); return <ListRow key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${status.tone === "bad" ? " pc-attn--bad" : ""}`}
+    {items.map(item => { const status = attentionStatus(item, snapshot.tasks); return <ListRow key={item.id} tabIndex={0} data-attention-id={item.id} className="pc-attn" outlined tone={status.tone === "bad" ? "bad" : undefined}
       leading={<><span className={`pc-status--${status.tone}`}><StatusGlyph status={status} />{status.label}</span>{item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}</>}
       content={<><div className="pc-attn__title"><span className="pc-ellipsis grow" title={attentionTitle(item, snapshot)}>{attentionTitle(item, snapshot)}</span>{item.repo && <code className="pc-repo-chip" title={item.repo.label}>{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></>}
       actions={item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action.op === "task.answer" ? {label:action.label,op:"ui.open",params:{view:"task",id:item.taskId}} : action} confirmDone={gone(item)} />)}
@@ -105,7 +105,7 @@ function DoneToday({ snapshot, scope, now, query }: { snapshot: ClientSnapshot; 
   return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><SectionHeading id="done-today">Done today</SectionHeading>{today && <span className="muted">{done} · {accepted} accepted</span>}<span className="grow" /><TextAction className="pc-text-action" href={withQuery("#/sessions", query)}>All tasks</TextAction></div>
     {rows.map(t => <ListRow key={t.id} leading={<span className="muted pc-num">{clock(t.updatedAt, now)}</span>}
       content={<strong className="pc-ellipsis" title={displayTitle(t)}>{displayTitle(t)}</strong>}
-      meta={<><span>{t.repo?.label}</span><span>{executorLabel(t.executor)}</span><StatusPill status={taskStatus(t)} /></>}
+      meta={<><span>{t.repo?.label}</span><span>{executorLabel(t.executor)}</span><StatusPill status={taskStatus(t)} /><span>{taskOutcome(t).label}</span></>}
     />)}
     {!rows.length && <EmptyState title="Nothing finished yet today." />}
   </section>;

@@ -1,6 +1,6 @@
 /** Home: the app's Overview — Needs you, Running, Capacity, Done today, in that order. */
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, reviewQueue, running } from "../../view-model/selectors";
-import { attentionStatus, executorStatus, taskStatus } from "../../view-model/words";
+import { attentionStatus, executorStatus, taskStatus, taskOutcome } from "../../view-model/words";
 import { executorPace, queueWait } from "../../view-model/capacity";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
@@ -97,7 +97,11 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
   const done = doneToday(s, scope), today = s.today;
   rows.push({ line: heading(theme, "Done today", today?.done ?? done.length, today ? `${today.accepted} accepted` : undefined) });
   if (!done.length) rows.push(empty("Nothing finished yet today."));
-  for (const t of done) add(doneItem(ctx, t, reviewIds.has(t.id)), doneLine(ctx, t, width, wide));
+  for (const t of done) {
+    const item=doneItem(ctx,t,reviewIds.has(t.id));
+    add(item,doneLine(ctx,t,width,wide));
+    if(t.review)rows.push({item:item.id,cont:true,line:statusSpans(theme,taskOutcome(t))});
+  }
 
   return { list: rows, items, hints: ["f repo scope", "d delegate"] };
 }

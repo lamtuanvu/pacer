@@ -26,3 +26,21 @@ test("failed checks make recovery actions visible without asking for an acceptan
  expect(html).not.toContain("Optional verdict");
  expect(html).toContain("Send back");
 });
+
+test("failed and limited executions expose recovery without calling them complete",()=>{
+ for(const state of ['failed','limit'] as const){
+  const html=renderToString(<TaskResultView task={{...task,state,reviewRequest:undefined,acceptance:{...task.acceptance,state:'none'}}} verdict={<span>Retry</span>}/>);
+  expect(html).not.toContain('No acknowledgment required');
+  expect(html).not.toContain('Optional verdict');
+  expect(html).toContain('Retry');
+ }
+});
+
+test("changes show every file and explain an empty patch",async()=>{
+ const {ResultChanges}=await import('../app/src/screens/TaskResult');
+ const patch='diff --git a/first.txt b/first.txt\n--- a/first.txt\n+++ b/first.txt\n@@ -0,0 +1 @@\n+first\ndiff --git a/second.txt b/second.txt\n--- a/second.txt\n+++ b/second.txt\n@@ -0,0 +1 @@\n+second\n';
+ const html=renderToString(<ResultChanges patch={patch} untracked={[]} truncated={false}/>);
+ expect(html).toContain('+first');expect(html).toContain('+second');
+ const empty=renderToString(<ResultChanges patch="" untracked={[]} truncated={false}/>);
+ expect(empty).toContain('No changes recorded');expect(empty).not.toContain('<pre');
+});

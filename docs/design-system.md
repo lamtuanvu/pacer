@@ -101,3 +101,8 @@ primitive appearance is introduced. Production consumers: Tasks detail and
 legacy task/review deep links. Existing session viewing remains available for
 active tasks. Standard disclosure keyboard behavior, field labels, busy states
 and polite result announcements apply.
+
+ListRow also supports `outlined` for a standalone row with a closed border, and
+`tone="bad"` for a failure tint. Outline and tone belong to the shared component,
+including the last child; Needs you uses them for actionable rows. Existing
+list density, sibling action slots and keyboard behavior are unchanged.

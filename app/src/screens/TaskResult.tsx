@@ -13,6 +13,7 @@ import { withQuery, type RouteQuery } from "../router";
 import { SessionRoute } from "./session/controller";
 import { useQuery, useTaskContext } from "./task-shared";
 import { VerdictPanel } from "./review/VerdictPanel";
+import { parseDiff } from "../model/diff";
 import { Diff } from "./review/Diff";
 import type { Verdict } from "./review/model";
 
@@ -24,7 +25,7 @@ export function resultSummary(task: TaskDetail): string {
 export function TaskResultView({ task, verdict, changes, question, onChanges }: {
   task: TaskDetail; verdict?: ComponentChildren; changes?: ComponentChildren; question?: ComponentChildren; onChanges?: () => void;
 }) {
-  const problem = task.acceptance.state === "failed" || task.state === "partial";
+  const problem = task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state);
   const openReview = !!task.reviewRequest && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
   return <div className="pc-task-result">
     <div className="pc-task-result__heading"><SectionHeading>{task.fullTitle ?? task.title ?? task.goal}</SectionHeading><StatusPill status={taskStatus(task)} /></div>
@@ -41,11 +42,20 @@ export function TaskResultView({ task, verdict, changes, question, onChanges }: 
       <Disclosure className="pc-disclosure" summary="Technical routing and cost"><pre className="mono pc-code-scroll">{JSON.stringify({ routing: task.routing, cost: task.cost }, null, 2)}</pre></Disclosure>
     </article><aside>
       <section className="pc-card-section"><div className="pc-card-section__body"><SectionHeading>Next step</SectionHeading>
-        {question ?? (openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : "Inspect the incomplete work before continuing.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
+        {question ?? (openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
       </div></section>
       <section className="pc-section"><SectionHeading>Delivery</SectionHeading><p className="muted">Integration not recorded</p>{task.branch && <code className="pc-code-scroll">{task.branch}</code>}<p className="muted">Accepting records a verdict. Integrate changes separately.</p></section>
     </aside></div>
   </div>;
+}
+
+export function ResultChanges({patch,untracked,truncated,note}:{patch:string;untracked:string[];truncated:boolean;note?:string}) {
+  const files=parseDiff(patch);
+  return <>{note&&<p className="muted">{note}</p>}{files.map(file=><Diff key={file.path} path={file.path} patch={patch} binary={file.binary} truncated={truncated}/>)}
+    {!files.length&&patch&&<pre className="mono pc-code-scroll">{patch}</pre>}
+    {!patch&&!untracked.length&&<p className="muted">No changes recorded.</p>}
+    {untracked.length>0&&<><SectionHeading>Untracked files</SectionHeading><pre className="mono pc-code-scroll">{untracked.join("\n")}</pre></>}
+  </>;
 }
 
 function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => void }) {
@@ -81,7 +91,7 @@ function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => vo
     } finally { inFlight.current=false;setPending(false); }
   }
   const canReview = state.features.ops.has("task.review") && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
-  const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || task.state === "partial"} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
+  const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
     onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /> : undefined;
   const isQuestion = task.state === "needs_input" && task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
   const question = isQuestion ? <><p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!answer.trim()} onClick={async()=>{
@@ -89,7 +99,7 @@ function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => vo
     try { const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");reload(); }
     finally {inFlight.current=false;setPending(false);}
   }}>Send answer</Button></> : undefined;
-  return <><TaskResultView task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges ? <LoadingState label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <><Diff path="All changes" patch={changes.patch} truncated={changes.truncated} note={changes.note}/>{changes.untracked.length>0 && <p className="mono pc-code-scroll">Untracked: {changes.untracked.join(", ")}</p>}</> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
+  return <><TaskResultView task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges ? <LoadingState label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
 }
 export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const task = useQuery<TaskDetail>("task.get", {id});

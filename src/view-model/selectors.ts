@@ -30,7 +30,7 @@ function actionableItems(s: SnapshotV2): AttentionItem[] {
     detail:task.acceptanceState === "failed" ? "Acceptance checks failed" : "Execution is incomplete",
     actions:[{label:task.acceptanceState === "failed" ? "Inspect failures" : "Inspect incomplete work",op:"ui.open",params:{view:"task",id:task.id}}]}];
   }
-  return task.reviewRequest ? [item] : [];
+  return task.state !== "done" || task.reviewRequest ? [item] : [];
  });
 }
 
@@ -50,7 +50,7 @@ export const doneToday = (s: SnapshotV2, scope: Scope): TaskDataV2[] => cached(s
 /** The review queue is the review items, newest last. */
 export const reviewQueue = (s: SnapshotV2): AttentionItem[] => cached(s, "reviewQueue", () =>
   needsYou(s, {repo:null}).filter(a => a.kind === "review").sort((a, b) => a.raisedAt - b.raisedAt));
-export const counts = (s: SnapshotV2): Counts | null => cached(s, "counts", () => {
+export const counts = (s: SnapshotV2): Counts | null => {
  if (!s.counts || s.attention === undefined) return s.counts ?? null;
  const items = needsYou(s, {repo:null});
  const byRepo = Object.fromEntries(Object.entries(s.counts.byRepo).map(([key, value]) => [key, {...value, attention:0, review:0}]));
@@ -59,6 +59,6 @@ export const counts = (s: SnapshotV2): Counts | null => cached(s, "counts", () =
   c.attention++; if (item.kind === "review") c.review++;
  }
  return {...s.counts,attention:items.length,problems:items.filter(i=>i.severity!=="decide").length,review:items.filter(i=>i.kind==="review").length,byRepo};
-});
+};
 export const repos = (s: SnapshotV2): RepoRef[] => s.repos ?? [];
 export const plannerMeter = (s: SnapshotV2): PlannerMeter | null => s.planner ?? null;

@@ -72,3 +72,11 @@ test("legacy routine reviews do not inflate attention but failures stay visible"
  expect(needsYou(old,all).some(a=>a.kind==="failed")).toBe(true);
  expect(counts(old)?.attention).toBe(needsYou(old,all).length);
 });
+
+test("compatibility filtering retains nonroutine or unknown task states",()=>{
+ const item={...s.attention!.find(a=>a.kind==='review')!};
+ for(const state of ['failed','limit','needs_input','unknown-state']){
+  const task={...s.tasks.find(t=>t.id===item.taskId)!,state,reviewRequest:undefined};
+  expect(needsYou({...s,tasks:[task],attention:[item]},all)).toHaveLength(1);
+ }
+});

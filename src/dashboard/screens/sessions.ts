@@ -4,6 +4,7 @@ import { sessionTime, timelineCopy } from "../../view-model/copy";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
 import { executorLabel, taskStatus, taskOutcome } from "../../view-model/words";
+import type { AttentionItem } from "../../attention/types";
 import type { ClientTask } from "../../view-model/snapshot";
 import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
 import type { Act, Item } from "../state";
@@ -13,7 +14,7 @@ import type { Row, ScreenCtx, ScreenView } from "./types";
 
 const ACTIVE = new Set(["running", "queued"]);
 export const attachable = (ctx: ScreenCtx, t: ClientTask) => !!t.session && t.session.host !== "none" && ctx.supports("task.attach");
-const waitingForReview = (t: ClientTask) => !!t.reviewRequest && ["done", "partial"].includes(t.state) && !t.review && !t.dismissed && !t.resolved && !t.retriedBy;
+const waitingForReview = (t: ClientTask) => !!t.reviewRequest && t.state === "done" && t.acceptanceState !== "failed" && !t.review && !t.dismissed && !t.resolved && !t.retriedBy;
 
 export function recentlyEnded(ctx: Pick<ScreenCtx, "s" | "state" | "data">): ClientTask[] {
   const scope = ctx.state.scope;
@@ -30,7 +31,7 @@ export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
   const stop = active || t.state === "needs_input" ? opAct(ctx, "Stop", "task.stop", { id: t.id, ...rev }, { danger: true, confirm: { title: "Stop this session and its executor?", body: [displayTitle(t)], yes: "Stop" } }) : undefined;
   const review: Act | undefined = waitingForReview(t) ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
   const detail = ctx.data.details.get(t.id)?.value;
-  const verdictItem = !active && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as import("../../attention/types").AttentionItem,t,detail) : undefined;
+  const verdictItem = !active && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
   const dismiss = !active ? opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...rev }) : undefined;
   return {
     id: `session:${t.id}`, primary: watch ?? review,
@@ -90,7 +91,7 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
 }
 
 function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
-  if (!ACTIVE.has(t.state)) return reviewDetail(ctx,{taskId:t.id,title:displayTitle(t),kind:waitingForReview(t)?"review":"failed"} as import("../../attention/types").AttentionItem,ctx.data.details.get(t.id),width);
+  if (!ACTIVE.has(t.state)) return reviewDetail(ctx,{taskId:t.id,title:displayTitle(t),kind:waitingForReview(t)?"review":"failed"} as AttentionItem,ctx.data.details.get(t.id),width);
   const { theme, now } = ctx, resource = ctx.data.details.get(t.id), d = resource?.value;
   const dot = ` ${glyph(theme, "·")} `;
   const rows: Row[] = wrap(displayTitle(t), width, 2).map(line => ({ line: [span(line, { bold: true })] }));

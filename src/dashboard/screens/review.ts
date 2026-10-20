@@ -33,6 +33,7 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
   const verdict = (label: string, verdict: string, extra: Record<string, unknown> = {}) =>
     ({ type: "action" as const, action: { label, op: "task.review", params: { ...base, verdict, ...extra } } });
   if (!ctx.supports("task.review")) return { id: `review:${id}`, actions: [], keys: {} };
+  const acceptAllowed = a.kind === "review" && (task ?? detail)?.state === "done" && task?.acceptanceState !== "failed" && detail?.acceptance?.state !== "failed";
   const accept: Act = { label: "Mark accepted", effect: verdict("Accepted", "accept"), confirm: { title: `Accept "${title}"?`, body: ["Accept records the verdict; you merge the branch."], yes: "Accept" } };
   const note = (label: string, verdictName: string, title: string): Act => ({
     label, danger: verdictName === "reject",
@@ -47,8 +48,10 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
   } : undefined;
   const path: Act | undefined = detail?.worktree ? { label: "Show worktree path", effect: { type: "local", label: `Worktree: ${detail.worktree}`, run: () => {} } } : undefined;
   return {
-    id: `review:${id}`, actions: defined([sendBack, reject, retry, path]),
-    keys: { ...(a.kind === "review" ? {a:accept} : {}), s: sendBack, r: reject, ...(retry ? { t: retry } : {}), ...(path ? { o: path } : {}) },
+    id: `review:${id}`, actions: defined([
+      a.kind !== "review" && (task ?? detail)?.state === "done" && task?.acceptanceState !== "failed" && detail?.acceptance?.state !== "failed" ? {...accept,label:"Mark accepted (optional verdict)"} : undefined,
+      sendBack, reject, retry, path]),
+    keys: { ...(acceptAllowed ? {a:accept} : {}), s: sendBack, r: reject, ...(retry ? { t: retry } : {}), ...(path ? { o: path } : {}) },
   };
 }
 
