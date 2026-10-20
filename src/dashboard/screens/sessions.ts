@@ -5,7 +5,8 @@ import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
 import { executorLabel, taskStatus } from "../../view-model/words";
 import type { ClientTask } from "../../view-model/snapshot";
-import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
+import { cols, flex, glyph, heading, lineWidth, span, statusSpans, wrap, type Line } from "../frame";
+import type { Style } from "../theme";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, MARK, opAct, time } from "./common";
 import { errorRows } from "./review";
@@ -39,7 +40,8 @@ export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
 
 export function sessionsScreen(ctx: ScreenCtx): ScreenView {
   const { s, theme, now } = ctx, scope = { repo: ctx.state.scope };
-  const listWidth = ctx.wide ? 60 : ctx.width;
+  // As Review: the detail gets the larger share, so its prose is not clipped.
+  const listWidth = ctx.wide ? 46 : ctx.width;
   const list: Row[] = [], items: Item[] = [];
   const row = (t: ClientTask, timing: string) => {
     const item = sessionItem(ctx, t);
@@ -68,7 +70,7 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
     list, items, listWidth,
     detail: selected ? sessionDetail(ctx, selected, detailWidth) : [{ line: [span("Select a session.", { fg: "muted" })] }],
     needs: selected ? [selected.id] : [],
-    hints: ctx.wide || !items.length ? [] : [`${glyph(theme, "→")} details`],
+    hints: ctx.wide || !items.length || ctx.state.focus === "detail" ? [] : [`${glyph(theme, "→")} details`],
   };
 }
 
@@ -77,21 +79,21 @@ function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
   const dot = ` ${glyph(theme, "·")} `;
   const rows: Row[] = wrap(displayTitle(t), width, 2).map(line => ({ line: [span(line, { bold: true })] }));
   const started = d?.startedAt ?? t.attemptStartedAt;
-  rows.push({ line: [...statusSpans(theme, taskStatus(t)), span([executorLabel(t.executor), t.repo?.label, d?.branch, started ? `started ${time(ctx, started)}` : "Start time unknown"].filter(Boolean).map(x => dot + x).join(""), { fg: "secondary" })] });
+  rows.push(...wrapAfter([...statusSpans(theme, taskStatus(t)), span(dot, { fg: "secondary" })], [executorLabel(t.executor), t.repo?.label, d?.branch, started ? `started ${time(ctx, started)}` : "Start time unknown"].filter(Boolean).join(dot), width, { fg: "secondary" }));
   const progress = t.progress;
-  rows.push({ line: [span([sessionTime(t, now), progress ? `${progress.files} files · ${progress.commits} commits` : "", progress?.lastOutputAt != null ? (progress.phase === "idle" ? `idle ${elapsed(now - progress.lastOutputAt)}` : `output ${ago(progress.lastOutputAt, now)}`) : ""].filter(Boolean).join(dot), { fg: progress?.phase === "idle" ? "warn" : "muted" })] });
+  rows.push(...wrapAfter([], [sessionTime(t, now), progress ? `${progress.files} files · ${progress.commits} commits` : "", progress?.lastOutputAt != null ? (progress.phase === "idle" ? `idle ${elapsed(now - progress.lastOutputAt)}` : `output ${ago(progress.lastOutputAt, now)}`) : ""].filter(Boolean).join(dot), width, { fg: progress?.phase === "idle" ? "warn" : "muted" }));
 
   rows.push(blank(), { line: heading(theme, "Watch") });
   if (attachable(ctx, t)) {
     rows.push({ line: [span(glyph(theme, "⏎"), { bold: true }), span(" here   "), span("t", { bold: true }), span(" terminal window   "), span("m", { bold: true }), span(" tmux pane")] });
     rows.push({ line: [span(`pacer attach ${t.id}`, { fg: "secondary" })] });
-    rows.push({ line: [span("Any terminal, tmux or SSH session works. Everyone sees the same stream.", { fg: "muted" })] });
+    rows.push(...wrapAfter([], "Any terminal, tmux or SSH session works. Everyone sees the same stream.", width, { fg: "muted" }));
   } else rows.push(empty(t.session?.host === "none" || !t.session ? "This run is headless; its output is in the task log." : "Watching is not offered by this pacer service."));
 
   rows.push(blank(), { line: heading(theme, "Done when") });
   const acceptance = (d?.acceptance ?? (t as { acceptance?: { cmd?: string } }).acceptance);
   rows.push(acceptance?.cmd ? { line: [span(acceptance.cmd)] } : empty("No done-when command."));
-  if (acceptance?.cmd) rows.push({ line: [span("pacer runs it after the executor exits, then asks you to review.", { fg: "muted" })] });
+  if (acceptance?.cmd) rows.push(...wrapAfter([], "pacer runs it after the executor exits, then asks you to review.", width, { fg: "muted" }));
 
   rows.push(blank(), { line: heading(theme, "Timeline") });
   if (resource?.error && !d) rows.push(...errorRows(ctx, resource.error));
@@ -102,4 +104,11 @@ function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
     for (const entry of timeline.slice(-12)) rows.push({ line: [span(time(ctx, entry.at).padEnd(6), { fg: "muted" }), span(entry.text)] });
   }
   return rows;
+}
+
+/** `prefix` then `text`, wrapped at word boundaries to `width`; later lines start at the left edge. */
+function wrapAfter(prefix: Line, text: string, width: number, style: Style): Row[] {
+  const first = wrap(text, Math.max(8, width - lineWidth(prefix)));
+  const rest = first.slice(1).join(" ");
+  return [{ line: [...prefix, span(first[0] ?? "", style)] }, ...(rest ? wrap(rest, width).map(line => ({ line: [span(line, style)] })) : [])];
 }

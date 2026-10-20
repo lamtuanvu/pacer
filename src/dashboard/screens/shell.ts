@@ -215,8 +215,11 @@ export function renderFrame(input: FrameInput): string {
   const { theme } = input;
   const width = Math.max(1, Math.floor(input.width)), height = Math.max(1, Math.floor(input.height));
   if (width < MIN_WIDTH || height < MIN_HEIGHT) {
-    const text = clip(`Make the terminal at least ${MIN_WIDTH}×${MIN_HEIGHT} to use pacer dashboard. q quits.`, width, theme.unicode ? "…" : "...");
-    return paint(theme, Array.from({ length: height }, (_, i) => ({ line: i === Math.floor(height / 2) ? [span(text)] : [] })), width);
+    // Wrapped, not clipped, so "q quits" always shows; only a terminal too short for every line drops some.
+    const lines = [...wrap(`Make the terminal at least ${MIN_WIDTH}×${MIN_HEIGHT} to use pacer dashboard.`, width), "q quits."];
+    const shown = lines.length > height ? [...lines.slice(0, Math.max(0, height - 1)), "q quits."].slice(-height) : lines;
+    const top = Math.max(0, Math.floor((height - shown.length) / 2));
+    return paint(theme, Array.from({ length: height }, (_, i) => ({ line: i >= top && i < top + shown.length ? [span(clip(shown[i - top]!, width, theme.unicode ? "…" : "..."))] : [] })), width);
   }
   const { ctx, view, screen } = screenView(input);
   const inner = ctx.width, bodyHeight = ctx.height, state = input.state;

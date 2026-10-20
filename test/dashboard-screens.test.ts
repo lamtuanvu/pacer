@@ -275,3 +275,42 @@ describe("footer update state agrees with Settings", () => {
     expect(text.split("\n").at(-1)).toContain("update checks off");
   });
 });
+
+describe("prose wraps instead of clipping (UI-11, UI-13)", () => {
+  const body = (text: string) => text.split("\n").slice(3, -3);
+  for (const [width, height] of [[120, 40], [80, 24]] as const) {
+    for (const section of ["accounts", "executors", "hosts"]) {
+      test(`Settings › ${section} at ${width}x${height} shows every reason in full`, () => {
+        const text = frame("settings", width, height, { state: { section, focus: "detail" } });
+        bounded(text, width, height);
+        expect(body(text).filter(line => line.includes("…"))).toEqual([]);
+      });
+    }
+  }
+  test("Settings › Accounts keeps the disabled reason", () => {
+    expect(frame("settings", 80, 24, { state: { section: "accounts", focus: "detail" } }).replace(/\s+/g, " ")).toContain("In use by 1 executor(s)");
+  });
+  test("the Sessions detail gets the larger pane and wraps its facts at 120x40", () => {
+    const text = frame("sessions", 120, 40);
+    const right = body(text).map(line => line.split("│")[1] ?? "");
+    expect(right.filter(line => line.includes("…"))).toEqual([]);
+    const divider = text.split("\n")[4]!.indexOf("│");
+    expect(divider).toBeLessThan(60);
+    expect(text).toContain("then asks you to review.");
+  });
+  test("the narrow Sessions detail wraps and stops offering → details", () => {
+    const text = frame("sessions", 80, 24, { state: { focus: "detail" } });
+    bounded(text, 80, 24);
+    expect(body(text).filter(line => line.includes("…"))).toEqual([]);
+    expect(text.split("\n").at(-1)).not.toContain("→ details");
+    expect(frame("sessions", 80, 24).split("\n").at(-1)).toContain("→ details");
+  });
+  for (const [width, height] of [[59, 20], [40, 16], [20, 6]] as const) {
+    test(`the too-small message keeps "q quits" at ${width}x${height}`, () => {
+      const s = snapshot();
+      const text = renderDashboard(s, width, height, s.at, { theme: PLAIN_THEME });
+      bounded(text, width, height);
+      expect(text).toContain("q quits.");
+    });
+  }
+});

@@ -25,6 +25,9 @@ export const POLICIES: [string, string][] = [["priority", "Priority"], ["even", 
 const LEVELS: [string, string][] = [["off", "Off"], ["important", "Important"], ["all", "All"]];
 
 interface Section { rows: Row[]; items: Item[]; hints?: string[] }
+/** A row's second line is prose (reasons, usage, executors): wrap it, never clip it (UI-11, UI-13). */
+const prose = (item: string, text: string, width: number): Row[] =>
+  wrap(text, Math.max(10, width - MARK)).map(line => ({ item, cont: true, line: [span(line, { fg: "muted" })] }));
 type Build = (ctx: ScreenCtx, width: number) => Section;
 
 const set = (ctx: ScreenCtx, label: string, key: string, value: unknown, extra: Partial<Act> = {}) => opAct(ctx, label, "config.set", { key, value }, extra);
@@ -113,7 +116,7 @@ const accounts: Build = (ctx, width) => {
     ], GAP, ctx.theme) });
     const used = usage?.usedPct != null ? `${Math.round(usage.usedPct)}% of ${usage.window === "weekly" ? "week" : usage.window ?? "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}` : "Usage unknown";
     const users = a.executors ?? a.runners ?? [];
-    rows.push({ item: id, cont: true, line: [span(`${used} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, { fg: "muted" })] });
+    rows.push(...prose(id, `${used} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
   }
   rows.push(blank());
   for (const [id, act] of [["account-add", add], ["account-link", link]] as const) {
@@ -151,7 +154,7 @@ const executors: Build = (ctx, width) => {
       { content: statusSpans(ctx.theme, executorStatus(e.state)), width: w[2]! },
       { content: e.enabled ? "" : "off", width: w[3]!, style: { fg: "muted" } },
     ], GAP, ctx.theme) });
-    rows.push({ item: id, cont: true, line: [span(executorFacts(ctx, e), { fg: "muted" })] });
+    rows.push(...prose(id, executorFacts(ctx, e), width));
   }
   rows.push(blank());
   items.push({ id: "executor-add", primary: add, actions: [], keys: { a: add } });
@@ -199,9 +202,9 @@ const hosts: Build = (ctx, width) => {
       { content: statusSpans(ctx.theme, HOST[h.state] ?? HOST.unknown), width: w[1]! },
       { content: `${h.running} / ${h.maxTasks} busy`, width: w[2]!, align: "right", style: { fg: "secondary" } },
     ], GAP, ctx.theme) });
-    rows.push({ item: id, cont: true, line: [span(`${h.executors.length ? h.executors.map(x => executorLabel(x)).join(", ") : "No executors"} ${glyph(ctx.theme, "·")} ${h.repos} ${h.repos === 1 ? "repo" : "repos"}`, { fg: "muted" })] });
+    rows.push(...prose(id, `${h.executors.length ? h.executors.map(x => executorLabel(x)).join(", ") : "No executors"} ${glyph(ctx.theme, "·")} ${h.repos} ${h.repos === 1 ? "repo" : "repos"}`, width));
   }
-  rows.push(blank(), { line: [span("Add hosts, map repositories and clean up worktrees with pacer host, or in the app: pacer open settings.", { fg: "muted" })] });
+  rows.push(blank(), ...wrap("Add hosts, map repositories and clean up worktrees with pacer host, or in the app: pacer open settings.", width).map(text => ({ line: [span(text, { fg: "muted" })] })));
   return { rows, items };
 };
 
