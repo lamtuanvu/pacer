@@ -23,6 +23,7 @@ export function parseCatalog(raw: unknown): Record<string, CatalogProvider> {
     for (const [mid, m] of Object.entries(p.models)) {
       if (!isObj(m)) continue;
       const mod = isObj(m.modalities) ? m.modalities : {}, limit = isObj(m.limit) ? m.limit : {}, cost = isObj(m.cost) ? m.cost : {};
+      // A 0 limit means "not a text limit" (image/embedding models); null lets callers apply defaults.
       models.push({
         id: typeof m.id === "string" ? m.id : mid, name: typeof m.name === "string" ? m.name : mid, toolCall: m.tool_call === true,
         input: strings(mod.input), output: strings(mod.output), context: num(limit.context) || null, outputLimit: num(limit.output) || null,

@@ -42,3 +42,8 @@ test("no cache and no network returns null; readCachedCatalog never fetches", as
   writeFileSync(join(ctx.pacerHome, "cache", "models.json"), "{not json");
   expect(readCachedCatalog(ctx)).toBeNull();
 });
+
+test("a zero limit is treated as unknown so callers apply defaults", () => {
+  const m = parseCatalog(raw)["volcengine-coding-plan"].models.find(x => x.id === "doubao-embedding")!;
+  expect(m.outputLimit).toBeNull();
+});
