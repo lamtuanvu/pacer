@@ -26,6 +26,20 @@ pub fn main(argv: Vec<String>) -> i32 {
             let env = child_env(&env, &exe);
             if args.first().is_some_and(|a| a == "api") && args.iter().any(|a| a == "--stdio") {
                 pacer_server::run_stdio_blocking(core, env)
+            } else if args.first().is_some_and(|a| a == "serve") {
+                let value = args
+                    .windows(2)
+                    .find(|pair| pair[0] == "--port")
+                    .map(|pair| pair[1].clone())
+                    .or_else(|| env.get("PACER_PORT").cloned())
+                    .unwrap_or_else(|| "4317".into());
+                match value.parse::<u16>() {
+                    Ok(port) => pacer_server::run_serve_blocking(core, env, port),
+                    Err(_) => {
+                        eprintln!("pacer: invalid serve port: {value}");
+                        2
+                    }
+                }
             } else {
                 exec_core(&core, args, &env)
             }

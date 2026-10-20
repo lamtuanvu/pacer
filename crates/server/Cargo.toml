@@ -11,7 +11,12 @@ tokio.workspace = true
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
 
-axum = { version = "0.8", default-features = false }
+axum = { version = "0.8", features = ["ws"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+http-body-util = "0.1"
+tokio-tungstenite = "0.29"
+futures-util = "0.3"
 subtle = "2"
 sha2 = "0.10"
 hex = "0.4"

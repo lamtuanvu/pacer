@@ -84,7 +84,7 @@ fn missing_core_explains_itself() {
 fn exec_failure_explains_itself() {
     let o = pacer()
         .env("PACER_CORE_ARGV", "[\"/nonexistent/pacer-core\"]")
-        .arg("serve")
+        .arg("route")
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(1));
@@ -274,13 +274,7 @@ fn canonical_executable_sibling_and_pacer_bin_are_used() {
     fs::set_permissions(real.join("pacer-core"), fs::Permissions::from_mode(0o755)).unwrap();
     symlink(real.join("pacer"), links.join("pacer")).unwrap();
     let expected_bin = fs::canonicalize(real.join("pacer")).unwrap();
-    for args in [
-        vec![],
-        vec!["help"],
-        vec!["serve"],
-        vec!["api", "--stdio"],
-        vec!["version", "extra"],
-    ] {
+    for args in [vec![], vec!["help"], vec!["version", "extra"]] {
         let o = Command::new(links.join("pacer"))
             .env_remove("PACER_CORE_ARGV")
             .env_remove("PACER_BIN")
