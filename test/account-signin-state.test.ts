@@ -119,3 +119,19 @@ test("decision: a failed runner check keeps the executor in routing (attention o
   const rows = buildExecutors(st, s, [], ctx.now, ctx);
   expect(rows.find(r => r.id === "claude-code#work")!.state).toBe("failing");
 });
+
+test("routing excludes an executor whose authentication failed after its last login, and ranks it after a newer login", async () => {
+  const {ctx, work} = setup();
+  mkdirSync(join(ctx.pacerHome, "state"), {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "state", "auth-failed.json"), JSON.stringify({work: ctx.now}));
+  // The failure is newer than the login file: excluded with the authentication reason.
+  utimesSync(join(work, ".claude.json"), ctx.now - 600, ctx.now - 600);
+  let st = await computeStatus(ctx, loadStrategy(ctx));
+  expect(st.executors.excluded.find(e => e.id === "claude-code#work")?.reason).toBe("signed out — authentication failed; run claude and log in");
+  expect(st.executors.ranked.some(e => e.id === "claude-code#work")).toBe(false);
+  // Logging in again rewrites the login file after the failure: ranked again.
+  utimesSync(join(work, ".claude.json"), ctx.now + 60, ctx.now + 60);
+  st = await computeStatus(ctx, loadStrategy(ctx));
+  expect(st.executors.ranked.some(e => e.id === "claude-code#work")).toBe(true);
+  expect(st.executors.excluded.some(e => e.id === "claude-code#work")).toBe(false);
+});
