@@ -10,7 +10,7 @@ bun run test
 
 The test script pins `TZ=Asia/Ho_Chi_Minh` because some tests depend on local dates and active-hour bins. Use `bun run test` for the consistent timezone.
 
-When changing `app/`, also run `bun run app:build` and include its generated assets. A test checks that the embedded app assets are fresh. Re-run tests after rebuilding.
+When changing `app/`, also run `bun run app:build` and include its generated assets. Use the exact Bun version pinned in `.github/workflows/ci.yml` (currently 1.4.2) to generate and validate these assets: compiler output can differ between patch releases. A test checks that the embedded app assets are fresh. Re-run tests after rebuilding.
 
 Discuss significant changes in an issue first. Keep pull requests focused, explain the behavior changed, link relevant issues and describe validation. Use a Conventional Commit PR title, for example `fix: handle missing usage readings` or `docs: clarify executor setup`. PRs are squash merged; the PR title becomes the commit on `main`.
 
