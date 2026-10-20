@@ -10,6 +10,16 @@ export function prepareChangelog(text: string, version: string, date: string): s
   return text.replace(heading, `## [Unreleased]\n\n## [${version}] - ${date}`);
 }
 
+// Replace only the top-level version string so the hand-formatted config keeps its layout.
+function bumpJsonVersion(text: string, version: string): string {
+  const result = text.replace(/("version"\s*:\s*")[^"]*(")/, `$1${version}$2`);
+  const before = JSON.parse(text), after = JSON.parse(result);
+  if (after.version !== version || JSON.stringify({ ...after, version: before.version }) !== JSON.stringify(before)) {
+    throw new Error("tauri.conf.json must have a top-level version before any nested one");
+  }
+  return result;
+}
+
 function bumpCargoVersion(text: string, version: string, lockfile: boolean): string {
   let matches = 0;
   const result = text.split(/(?=^\[)/m).map(section => {
@@ -39,8 +49,7 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   if (!plugin) throw new Error("orca-marketplace.json has no lamtuanvu.pacer entry");
   const desktopPath = join(root, "desktop", "src-tauri");
   const tauriPath = join(desktopPath, "tauri.conf.json");
-  const tauri = JSON.parse(readFileSync(tauriPath, "utf8"));
-  tauri.version = version;
+  const tauri = bumpJsonVersion(readFileSync(tauriPath, "utf8"), version);
   const cargoPath = join(desktopPath, "Cargo.toml");
   const cargo = bumpCargoVersion(readFileSync(cargoPath, "utf8"), version, false);
   const lockPath = join(desktopPath, "Cargo.lock");
@@ -50,7 +59,7 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
   writeFileSync(changelogPath, changelog);
   writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`);
-  writeFileSync(tauriPath, `${JSON.stringify(tauri, null, 2)}\n`);
+  writeFileSync(tauriPath, tauri);
   writeFileSync(cargoPath, cargo);
   writeFileSync(lockPath, lock);
   const p = Bun.spawn([process.execPath, "run", "plugin:build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
