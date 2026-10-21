@@ -66,7 +66,7 @@ export async function main(argv: string[]): Promise<number> {
   if (command === "ota") {
     if (!id || positionals.length !== 1 || forwarded.length || flags.size) throw Error("usage: live ota build|prepare|exercise|cleanup --id <id>");
     const action = positionals[0];
-    const allowed = action === "prepare" ? ["--id", "--front-door", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : action === "build" ? ["--id", "--signer"] : ["--id"];
+    const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : action === "build" ? ["--id", "--signer"] : ["--id"];
     if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported OTA option");
     if (action === "prepare") {
       if (!options.has("--from-app") || !options.has("--to-app")) throw Error("OTA prepare requires --from-app and --to-app");
