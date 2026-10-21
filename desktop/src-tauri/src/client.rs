@@ -470,6 +470,34 @@ fn retry_native_connection<T>(
 
 type NativeSupervision = (PathBuf, PathBuf, u16, pacer_desktop::ota::trust::ReleaseTrust);
 
+/// Closes an unpublished native connection if its session future is cancelled.
+/// The blocking handshake owns this guard before handing its result to the runtime.
+struct PendingConnection<T> {
+    value: Option<T>,
+    close: fn(&T),
+}
+impl<T> PendingConnection<T> {
+    fn new(value: T, close: fn(&T)) -> Self {
+        Self { value: Some(value), close }
+    }
+    fn publish(mut self) -> T {
+        self.value.take().unwrap()
+    }
+}
+impl<T> Drop for PendingConnection<T> {
+    fn drop(&mut self) {
+        if let Some(value) = &self.value {
+            (self.close)(value);
+        }
+    }
+}
+impl<T> std::ops::Deref for PendingConnection<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.value.as_ref().unwrap()
+    }
+}
+
 /// One verified native connection attempt (bounded retries), off the async runtime.
 async fn connect_native(
     handle: AppHandle,
@@ -480,7 +508,7 @@ async fn connect_native(
     ticket: Option<pacer_desktop::ota::control::LaunchTicket>,
     adoption: Option<pacer_desktop::ota::control::AdoptionReconnectPlan>,
 ) -> Result<
-    Result<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>, pacer_desktop::ota::OtaError>,
+    Result<PendingConnection<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>>, pacer_desktop::ota::OtaError>,
     String,
 > {
     tauri::async_runtime::spawn_blocking(move || {
@@ -516,6 +544,7 @@ async fn connect_native(
                 adoption.as_ref(),
                 callback.clone(),
             )
+            .map(|native| PendingConnection::new(native, |native| native.close()))
         })
     })
     .await
@@ -565,13 +594,13 @@ async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision
                 // completed its own check, so only acknowledge after startup is ready.
                 let ready = shell.startup.lock().unwrap().is_ready();
                 let acknowledged = !ready || {
-                    let native = native.clone();
+                    let native = std::sync::Arc::clone(&native);
                     tauri::async_runtime::spawn_blocking(move || native.document_ready(None))
                         .await
                         .is_ok_and(|result| result.is_ok())
                 };
                 if acknowledged {
-                    if let Some(previous) = shell.native.lock().unwrap().replace(native) {
+                    if let Some(previous) = shell.native.lock().unwrap().replace(native.publish()) {
                         previous.close();
                     }
                     desktop_log!("pacer lifecycle: native update authority restored");
@@ -579,7 +608,8 @@ async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision
                     delay = Duration::from_secs(2);
                     continue;
                 }
-                native.close();
+                // Dropping the unpublished result closes it, including when this
+                // future is cancelled during document_ready above.
             }
             Ok(Err(error)) if !reported => {
                 desktop_log!("pacer lifecycle: native update authority unavailable; retrying: {error}");
@@ -672,7 +702,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                         }
                     }
                 }
-                *app.state::<Shell>().native.lock().unwrap() = Some(native);
+                *app.state::<Shell>().native.lock().unwrap() = Some(native.publish());
             }
             Err(error) if maintenance_launch => {
                 desktop_log!("pacer lifecycle: native maintenance verification failed: {error}");
@@ -1359,6 +1389,51 @@ pub async fn run(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cancelled_native_connect_closes_its_late_result() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (release, wait) = std::sync::mpsc::channel();
+        let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed = closed.clone();
+        let task = runtime.spawn_blocking(move || {
+            wait.recv().unwrap();
+            PendingConnection::new(observed, |closed| closed.store(true, Ordering::SeqCst))
+        });
+        drop(task);
+        release.send(()).unwrap();
+        drop(runtime);
+        assert!(closed.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn cancelled_native_readiness_closes_even_with_a_worker_reference() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker = closed.clone();
+        let (ready, waiting) = std::sync::mpsc::channel();
+        let task = runtime.spawn(async move {
+            let _pending = PendingConnection::new(closed, |closed| {
+                closed.store(true, Ordering::SeqCst)
+            });
+            ready.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        waiting.recv().unwrap();
+        task.abort();
+        assert!(runtime.block_on(task).unwrap_err().is_cancelled());
+        assert!(worker.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn published_native_connection_stays_open_for_the_session() {
+        let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let pending = PendingConnection::new(closed.clone(), |closed| {
+            closed.store(true, Ordering::SeqCst)
+        });
+        let native = pending.publish();
+        assert!(!native.load(Ordering::SeqCst));
+    }
+
     #[test]
     fn native_authority_reconnects_only_for_an_ordinary_signed_in_launch() {
         use super::native_reconnect_due as due;
