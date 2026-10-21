@@ -15,8 +15,12 @@ Executors (PACER_ROLE=executor) must complete their assigned task directly and m
 2. Run \`pacer route <kind> --json\` to choose an available executor.
 3. Write a brief JSON file, then run \`pacer delegate --brief-file brief.json --json\`.
    To avoid shell quoting, pipe the JSON to \`pacer delegate --brief-file - --json\`.
-4. Use the returned \`id\` with \`pacer wait <id> --json\` (default 600 seconds, max 3000).
-   Exit 2 means timeout; inspect state and wait again. \`pacer tasks <id> --json\` inspects progress.
+4. Use the returned \`id\` with \`pacer watch <id> --json\` to stream output and state changes until settled.
+   It emits one JSON event per line (default timeout 600 seconds, max 3000). Exit 0 means settled,
+   not necessarily successful; inspect the final state. Exit 2 means timeout or error; check the final event.
+   Watch again after a timeout; Ctrl-C stops watching without stopping the task.
+   Use \`pacer wait <id> --json\` for completion only, or \`pacer tasks <id> --json\` for a snapshot.
+   Use these commands instead of polling private task files or tailing executor logs.
 5. Review the diff and run acceptance yourself, then \`pacer review <id> --accept --json\`
    or \`pacer review <id> --reject --json\`; optionally correct \`--kind <kind>\`.
 
