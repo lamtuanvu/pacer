@@ -13,6 +13,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Native desktop buttons keep readable backgrounds when switching Light/Dark appearance instead of retaining the previous theme during a stuck background transition.
+- Settings > Updates distinguishes the native desktop app version from the connected service version, provides desktop download/replacement guidance, and labels the service-only update action explicitly. Failed update checks no longer appear as up to date.
+
 - Settings categories open separate pages with icon navigation and a proper gear icon. Forms use consistent compact sizing, bounded widths and aligned spacing; narrow layouts keep category navigation and focused controls visible.
 
 ## [0.5.0] - 2026-10-20

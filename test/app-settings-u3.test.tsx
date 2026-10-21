@@ -173,7 +173,7 @@ test('Settings and host executors share uncertainty; retained account usage is h
 test('Executors copy matches routing: a failed check does not skip an executor',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
- expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention; routing keeps using a Failing executor. Disable it to skip it.');
+ expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention. Recent task failures means two or more tasks failed in the past 24 hours; a passed check does not clear that history. Routing keeps using executors with either warning. Disable an executor to skip it.');
 });
 
 test('a not-tested endpoint executor reads Not tested, not Ready, in Executors',()=>{
@@ -215,4 +215,16 @@ test('historical endpoint usage keeps its weekly spend and cap', () => {
  const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
  expect(html).toContain('$3.20 of $5 this week');
  expect(html).toContain('Historical usage · Observation time unknown');
+});
+
+test('Updates identifies the service and preserves failed-check status', () => {
+ const html = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false}}}/>);
+ expect(html).toContain('Service 0.5.0 · Up to date');
+ expect(html).not.toContain('Desktop app');
+ const failed = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false,error:'offline'}}}/>);
+ expect(failed).toContain('Update check failed');
+ expect(failed).not.toContain('Up to date');
+ const available = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true}}}/>);
+ expect(available).toContain('Update service and restart');
+
 });
