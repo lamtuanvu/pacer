@@ -1,13 +1,16 @@
 #!/usr/bin/env bun
 /** Local release-pipeline exercise only. These data-only packages are never native OTA candidates. */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { buildDesktopFeed, DESKTOP_ARCHES, desktopAssetName, digest, publishDesktopRelease, type DesktopReleaseOptions } from "./desktop-feed";
 import { localFixturePublisher } from "./desktop-publisher";
 
 export async function fixtureFeedDryRun(root: string) {
-  root = resolve(root); mkdirSync(root, { mode: 0o700 });
+  root = resolve(root);
+  mkdirSync(dirname(root), { recursive: true, mode: 0o700 });
+  // Still require a new output directory; never reuse an existing fixture.
+  mkdirSync(root, { mode: 0o700 });
   const privateDir = join(root, "private"), release = join(root, "release"), version = "0.0.1", key = join(privateDir, "fixture.key");
   mkdirSync(privateDir, { mode: 0o700 }); mkdirSync(release, { mode: 0o700 });
   const cli = resolve(import.meta.dir, "../../desktop/node_modules/@tauri-apps/cli/tauri.js");
