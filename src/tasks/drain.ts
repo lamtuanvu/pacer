@@ -107,7 +107,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         if (projectRevision(readProjectStrategies(ctx), snapshot.repoKey) !== snapshot.rev) { policyChanged = true; return; }
         const current = readTask(ctx, task.id);
         if (current?.state !== "queued" || !current.queue || readPause(ctx)) return;
-        if (selection && !eligible.length) {
+        if (selection && !eligible.length && task.interactionMode !== "conversation") {
           updateTask(ctx, task.id, t => {
             t.state = "limit"; delete t.queue;
             const reasons = ranking.excluded.map(e => `${e.id}: ${e.reason}`).join(", ") || "no choices passed the routing filter";

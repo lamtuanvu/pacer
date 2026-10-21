@@ -73,6 +73,17 @@ test("conversation limit preserves agent identity without fallback", async () =>
   expect(result.result?.executor).toBe("codex");
 });
 
+test("conversation waits for its unavailable executor instead of switching accounts", async () => {
+  const ctx = fakeCtx(), task = newTask(ctx, {requestedExecutor: "codex"});
+  updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});
+  const d = deps({cursor: outcomeFor("cursor", 0)}, status({codex: {verdict: "EXHAUSTED"}}));
+  const result = await runTask(ctx, task.id, d);
+  expect(d.calls).toEqual([]);
+  expect(result.state).toBe("queued");
+  expect(result.requestedExecutor).toBe("codex");
+  expect(result.queue?.detail).toContain("exhausted");
+});
+
 test("first executor in priority order succeeds: done with verification", async () => {
   const ctx = fakeCtx();
   const t = newTask(ctx, { acceptance: "bun test" });

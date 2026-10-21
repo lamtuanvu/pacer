@@ -1,7 +1,7 @@
 /** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
-  | { name: "overview" | "loading" | "setup" }
+  | { name: "start" | "overview" | "loading" | "setup" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions"; id?: string }
   | { name: "settings"; section?: string }
@@ -30,15 +30,16 @@ function decode(part: string): string | null { try { return decodeURIComponent(p
 /**
  * setupComplete: true, false, or null while the first setup check is still in flight (screens wait rather than flash Setup).
  */
-export function resolveRoute(hash: string, setupComplete: boolean | null = true): Route | { redirect: string } {
+export function resolveRoute(hash: string, setupComplete: boolean | null = true, interactiveEntry = false): Route | { redirect: string } {
   const raw = hash.replace(/^#/, "") || "/";
   const [path = "/", search = ""] = raw.split("?");
   const params = new URLSearchParams(search);
   const query: RouteQuery = { repo: params.get("repo"), scope: params.get("scope") };
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
-  if (!settingsArea && setupComplete === null) return { name: "loading", query };
-  if (!settingsArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
+  const interactiveArea = interactiveEntry && (route.name === "start" || route.name === "sessions");
+  if (!settingsArea && !interactiveArea && setupComplete === null) return { name: "loading", query };
+  if (!settingsArea && !interactiveArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
   const legacy = /^\/(review|sessions)(?:\/(.*))?$/.exec(path);
   if (legacy) {
     const destination = legacy[2] !== undefined ? `/tasks/${legacy[2]}` : legacy[1] === "review" ? "/needs-you" : "/tasks";
@@ -48,7 +49,8 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true)
 }
 function match(path: string): RouteBase {
   if (path === "/setup") return { name: "setup" };
-  if (path === "/") return { name: "overview" };
+  if (path === "/") return { name: "start" };
+  if (path === "/overview") return { name: "overview" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/settings/hosts") return { name: "hosts" };
   if (path === "/settings/add-executor") return { name: "add-executor" };

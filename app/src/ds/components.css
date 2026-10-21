@@ -186,6 +186,7 @@ a.pc-btn{text-decoration:none}
 .pc-input{box-sizing:border-box;min-width:0;max-width:100%;min-height:var(--control-normal);padding:var(--space-2\.5);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);background:var(--surface-page);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-md)}
 .pc-field>.pc-input,.pc-field>.pc-select{width:100%}
 .pc-input:disabled,.pc-range:disabled{opacity:.5;cursor:not-allowed}
+.pc-input::file-selector-button{font:inherit;font-weight:var(--type-body-strong-weight);color:var(--ink);background:var(--surface-page);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-1) var(--space-2);margin-inline-end:var(--space-2);cursor:pointer}
 .pc-input[aria-invalid=true]{border-color:var(--bad-fg)}
 .pc-textarea{width:100%;min-height:var(--textarea-min);resize:vertical}
 .pc-input:focus-visible,.pc-range:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
@@ -313,3 +314,10 @@ a.pc-btn{text-decoration:none}
 .pc-prose code{font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);white-space:pre;overflow-wrap:normal;word-break:normal}
 .pc-prose p:has(code),.pc-prose li:has(code){overflow-x:auto}
 .pc-prose pre{max-width:100%;overflow:auto;margin:0;padding:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md)}
+.pc-attachments{display:flex;flex-direction:column;gap:var(--space-2);padding:0;margin:0;list-style:none}
+.pc-attachments>li{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md)}
+.pc-attachments img{width:var(--size-44);height:var(--size-44);object-fit:cover;border-radius:var(--radius-sm)}
+.pc-attachment-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-attachment-name small{display:block;color:var(--ink-muted);font-size:var(--type-caption-size)}
+.pc-attachment-picker{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3);color:var(--ink-secondary);font-size:var(--type-caption-size)}
+.pc-attachment-picker .pc-input{width:auto;max-width:100%}

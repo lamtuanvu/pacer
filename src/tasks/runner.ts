@@ -28,7 +28,7 @@ import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strateg
 import { type Excluded, rankExecutors, ruleFor } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
-import { selectBackend } from "../exec/backend";
+import { directBackend, selectBackend } from "../exec/backend";
 import { type AttemptOutcome, resumeAttempt } from "../exec/direct";
 import { killTree } from "../exec/process";
 import { exhaustUntil } from "../exec/limits";
@@ -237,6 +237,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           const ids = ranking.ranked.map(e => e.id);
           applicableIds = ids;
           const paused = readPause(ctx);
+          if (task.interactionMode === "conversation" && req && !ids.includes(req) && !full.has(req)) {
+            task = updateTask(ctx, id, t => {
+              t.state = "queued";
+              t.queue = {reason: "waiting_retry", detail: excluded.find(e => e.id === req)?.reason ?? "Selected executor is unavailable", since: initial.queue?.since ?? now, position: 1};
+              delete t.runnerPid; delete t.executor; delete t.attemptStartedAt;
+            });
+            return;
+          }
           const refusal = req && !tried.has(req) && excluded.find(e => e.id === req && /Blocked by you|exhausted/.test(e.reason));
           if (refusal) throw new Error(`requested executor "${req}" is unavailable (${refusal.reason})`);
           pick = requested && ids.includes(req!) ? req! : ids.find(e => !tried.has(e));
@@ -305,7 +313,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         updateTask(ctx, id, (t) => { t.childPid = pid; });
         if (stopped(ctx, id) && !resolveRunner(s, pick!)?.host) killTree(pid, "SIGTERM");
       };
-      const backend = resuming || deps.runAttempt ? null : await selectBackend(ctx, s, undefined, pick);
+      const backend = resuming || deps.runAttempt ? null : task.interactionMode === "conversation" ? directBackend : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       const account = resolveRunner(s, pick)?.account ?? pick;
       const usage = (st: Status | undefined): AttemptUsage => {

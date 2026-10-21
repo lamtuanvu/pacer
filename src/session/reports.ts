@@ -84,6 +84,11 @@ export function sessionTranscript(agent: string, sessionId: string, env: Record<
 export function agentHook(dir: string, input: unknown): void {
   if (!input || typeof input !== "object") return;
   const h = input as Record<string, unknown>;
+  if (typeof h.session_id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(h.session_id)) {
+    const temp = join(dir, `agent-session-id.${crypto.randomUUID()}.tmp`);
+    writeFileSync(temp, h.session_id, {mode: 0o600, flag: "wx"});
+    renameSync(temp, join(dir, "agent-session-id"));
+  }
   let text = typeof h.last_assistant_message === "string" ? h.last_assistant_message : "";
   if (!text && typeof h.transcript_path === "string") text = lastAssistantText(h.transcript_path);
   if (text) writeFileSync(join(dir, "transcript-report.md"), text.slice(-16000), {mode: 0o600});

@@ -58,6 +58,12 @@ test("conversation report does not prevent the next turn's activity hooks", () =
   expect(readReport(dir)?.status).toBe("needs-input");
 });
 
+test("agent hooks persist the native conversation identity for explicit resume", () => {
+  const dir = tmpDir();
+  agentHook(dir, {hook_event_name: "Stop", session_id: "native-session-123"});
+  expect(require("node:fs").readFileSync(join(dir, "agent-session-id"), "utf8")).toBe("native-session-123");
+});
+
 test("detached conversation host survives reports after its supervisor disconnects", async () => {
   const dir = tmpDir();
   const started = startRun({dir, argv: ["sleep", "30"], cwd: dir, env: {PATH: process.env.PATH},
@@ -107,4 +113,13 @@ test("conversation launches interactive per task with original request rather th
   expect(result.exec.stdout).not.toContain("--force");
   expect(result.exec.stdout).not.toContain("Executor contract");
   expect(readTask(ctx, task.id)?.run?.interactionMode).toBe("conversation");
+});
+
+test("an isolated conversation refuses git failure instead of running in the original checkout", async () => {
+  const ctx=fakeCtx(),task=createTask(ctx,{brief:{goal:"Work",repo:ctx.home},kind:null,requestedExecutor:"cursor",timeoutS:30});
+  updateTask(ctx,task.id,t=>{t.state="running";t.interactionMode="conversation";t.placement={requested:"new"};});
+  const strategy=validateStrategy({planner:"claude-code",providers:{cursor:{}}},ctx.home);
+  const result=await runAttempt(ctx,strategy.providers.cursor,readTask(ctx,task.id)!);
+  expect(result.exec.stderr).toContain("Cannot create an isolated conversation");
+  expect(readTask(ctx,task.id)?.run).toBeUndefined();
 });

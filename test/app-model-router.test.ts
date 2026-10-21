@@ -5,8 +5,9 @@ const q = { repo: null, scope: null };
 const route = (hash: string, setup: boolean | null = true) => resolveRoute(hash, setup) as Route;
 
 test("new routes resolve with their ids and sections", () => {
-  expect(route("#/")).toEqual({ name: "overview", query: q });
-  expect(route("")).toEqual({ name: "overview", query: q });
+  expect(route("#/")).toEqual({ name: "start", query: q });
+  expect(route("")).toEqual({ name: "start", query: q });
+  expect(route("#/overview")).toEqual({ name: "overview", query: q });
   expect(route("#/needs-you")).toEqual({ name: "review", query: q });
   expect(route("#/tasks/t-0412")).toEqual({ name: "sessions", id: "t-0412", query: q });
   expect(route("#/tasks")).toEqual({ name: "sessions", query: q });
@@ -23,7 +24,7 @@ test("unknown or malformed routes fall back to Overview", () => {
 });
 
 test("the repo filter and scope come from the query and survive", () => {
-  expect(route("#/?repo=github.com%2Facme%2Fapi")).toEqual({ name: "overview", query: { repo: "github.com/acme/api", scope: null } });
+  expect(route("#/?repo=github.com%2Facme%2Fapi")).toEqual({ name: "start", query: { repo: "github.com/acme/api", scope: null } });
   expect(route("#/tasks/t1?scope=repo:github.com/acme/api").query).toEqual({ repo: null, scope: "repo:github.com/acme/api" });
   expect(withQuery("#/review/t1", { repo: "github.com/acme/api", scope: null })).toBe("#/review/t1?repo=github.com%2Facme%2Fapi");
   expect(withQuery("#/", q)).toBe("#/");
@@ -42,6 +43,12 @@ test("incomplete setup redirects to Setup except within settings", () => {
   expect(route("#/settings", false).name).toBe("settings");
   expect(route("#/settings/hosts", false).name).toBe("hosts");
   expect(route("#/settings/add-executor", false).name).toBe("add-executor");
+});
+
+test("interactive entry and its sessions do not require planner integration setup", () => {
+  expect(resolveRoute("#/", false, true)).toEqual({name:"start",query:q});
+  expect(resolveRoute("#/tasks/one", false, true)).toEqual({name:"sessions",id:"one",query:q});
+  expect(resolveRoute("#/overview", false, true)).toEqual({redirect:"#/setup"});
 });
 
 test("while the first setup check is in flight, screens wait instead of flashing Setup", () => {

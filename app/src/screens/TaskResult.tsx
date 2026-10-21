@@ -105,6 +105,6 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const [showSession, setShowSession] = useState(false);
   const task = useQuery<TaskDetail>("task.get", {id});
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
-  if (["queued","running"].includes(task.data.state) || showSession) return <>{showSession && <Button variant="quiet" onClick={()=>setShowSession(false)}>Back to result</Button>}<SessionRoute id={id}/></>;
+  if (task.data.interactionMode === "conversation" || ["queued","running"].includes(task.data.state) || showSession) return <>{showSession && <Button variant="quiet" onClick={()=>setShowSession(false)}>Back to result</Button>}<SessionRoute id={id}/></>;
   return <><div className="row-actions"><ButtonLink href={withQuery("#/tasks",query)} size="sm">Back to Tasks</ButtonLink><Button variant="quiet" onClick={()=>setShowSession(true)}>Session details</Button></div><TaskResultLoaded key={id} task={task.data} reload={task.reload}/></>;
 }

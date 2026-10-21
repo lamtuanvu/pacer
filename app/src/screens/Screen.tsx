@@ -4,6 +4,7 @@ import { SetupContext } from "./setup/context";
 import type { Route } from '../router';
 import { TaskRoute } from "./TaskResult";
 import { Overview, NeedsYouPage } from "./Overview";
+import { LazyStartSession } from "./LazyStartSession";
 
 import { SettingsGeneral, RemoteHosts, HostDetail, AddExecutor } from "./settings/index";
 import { Sessions, SessionRoute } from "./session/controller";
@@ -11,6 +12,7 @@ import { Sessions, SessionRoute } from "./session/controller";
 export function Screen({route}:{route:Route}) {
  const { running } = useContext(SetupContext);
  switch(route.name) {
+ case 'start': return <LazyStartSession/>;
  case 'setup': return <LazySetup query={route.query}/>;
  case 'overview': return <Overview query={route.query}/>;
  case 'review': return <NeedsYouPage query={route.query}/>;

@@ -12,6 +12,8 @@ import type { DashData, Resource, SettingsData, TaskDetail, UpdateInfo } from ".
 import { initialState, reduceKey, type Act, type Effect, type ScreenId, type UiState } from "./state";
 import type { TerminalTheme } from "./theme";
 import { updateState, type UpdateState } from "./screens/common";
+import type { SessionPreparation } from "../session/capabilities";
+import { agentInfo } from "../view-model/agents";
 
 export interface ControllerDeps {
   client: ApiClient;
@@ -169,6 +171,14 @@ export class Dashboard {
   /** Handle one key. Resolves "quit" when the dashboard should close. */
   async key(key: string): Promise<"quit" | void> {
     const input = this.input(), { view, ctx, screen } = screenView(input);
+    if (key === "n" && !this.state.overlay && this.supports("session.create")) {
+      this.state = {...this.state, overlay: {kind: "prompt", value: "", spec: {
+        title: "Start an interactive session", label: "Request", required: "Describe what you want to work on.",
+        submit: request => ({type: "prompt", prompt: {title: "Start an interactive session", label: "Repository path", value: this.deps.cwd, required: "Choose a repository.",
+          submit: repo => ({type: "flow", name: "conversation-prepare", params: {request, repo}})}}),
+      }}};
+      this.draw(); return;
+    }
     if (key === "d" && !this.state.overlay && this.supports("task.delegate")) { this.delegate(); this.draw(); return; }
     // Setup can be shown in place of the requested screen. Keys select and act on the rows shown, while the
     // requested screen is kept so finishing setup returns to it.
@@ -266,6 +276,25 @@ export class Dashboard {
   }
 
   private async flow(name: string, params: Record<string, unknown>) {
+    if (name === "conversation-prepare") {
+      try {
+        const prepared = await this.deps.client.call<SessionPreparation>("session.prepare", {repo: params.repo});
+        const choices = prepared.executors.filter(e => e.available).map(e => ({label: `${agentInfo(e.agent).name} · ${e.account} · new from ${prepared.base}`,
+          effect: {type: "flow" as const, name: "conversation-create", params: {...params, executor: e.id, base: prepared.base}}}));
+        if (!choices.length) {this.report("No interactive executor is ready.", "warn"); return;}
+        this.state = {...this.state, overlay: {kind: "menu", title: "Choose agent and account", actions: choices, index: 0}};
+      } catch(error) {this.reportError(error);}
+      return;
+    }
+    if (name === "conversation-create") {
+      try {
+        const draft = await this.deps.client.call<{id:string}>("session.draft.create", {});
+        const result = await this.deps.client.call<{task_id:string}>("session.create", {request_id:crypto.randomUUID(),draftId:draft.id,request:params.request,repo:params.repo,executor:params.executor,workspace:{mode:"new",base:params.base},attachments:[]});
+        this.navigate("sessions", result.task_id);this.report(`Session ${result.task_id} started. Enter to open the terminal.`, "good");
+        await this.refresh();
+      } catch(error) {this.reportError(error);}
+      return;
+    }
     if (name === "appearance") {
       const t = this.theme, key = params.key;
       const depths = ["truecolor", "256", "16", "none"] as const;

@@ -34,14 +34,16 @@ test("the registry, hello and docs name the plugin operations and event", () => 
 test("list, enable with grant, doctor, disable and remove through the operations", async () => {
   const ctx = home();
   installFixture("good", join(ctx.pacerHome, "plugins"));
-  expect(await callOp(ctx, "plugin.list", {})).toMatchObject({ plugins: [{ id: "fx-good", state: "needs_grant" }] });
+  expect((await callOp(ctx, "plugin.list", {}) as {plugins:unknown[]}).plugins).toEqual(expect.arrayContaining([expect.objectContaining({id:"fx-good",state:"needs_grant"})]));
   expect(await callOp(ctx, "plugin.enable", { id: "fx-good" })).toMatchObject({ state: "needs_grant", needs: ["log", "config.get"] });
   expect(await callOp(ctx, "plugin.enable", { id: "fx-good", grant: true })).toEqual({ id: "fx-good", state: "idle" });
   const { reports } = await callOp(ctx, "plugin.doctor", { id: "fx-good" }) as { reports: { ok: boolean }[] };
   expect(reports[0]).toMatchObject({ ok: true });
   expect(await callOp(ctx, "plugin.disable", { id: "fx-good" })).toEqual({ id: "fx-good", state: "disabled" });
   expect(await callOp(ctx, "plugin.remove", { id: "fx-good" })).toEqual({ id: "fx-good", removed: true });
-  expect(await callOp(ctx, "plugin.list", {})).toEqual({ plugins: [] });
+  const remaining=(await callOp(ctx, "plugin.list", {}) as {plugins:{id:string;bundled:boolean}[]}).plugins;
+  expect(remaining.some(plugin=>plugin.id==="fx-good")).toBe(false);
+  expect(remaining.some(plugin=>plugin.bundled)).toBe(true);
   expect(await codeOf(callOp(ctx, "plugin.enable", { id: "fx-good" }))).toBe("unknown_plugin");
   expect(await codeOf(callOp(ctx, "plugin.enable", { id: "Bad" }))).toBe("invalid_input");
   await shutdownPlugins(ctx);

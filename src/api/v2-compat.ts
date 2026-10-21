@@ -24,6 +24,8 @@ export function v2Hello() {
  return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
 }
 
+for (const op of ["session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare"]) V3_ONLY_OPS.add(op);
+
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;
  return {generatedAt:s.at,strategy:s.strategies.flatMap(x=>typeof x!=='string'&&x.active?[x.name]:[])[0]??'default',planner:s.planner.runner,mode:s.planner.mode,
@@ -75,12 +77,14 @@ export function toV2OpResult(name:string,result:any):unknown {
 }
 export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):Promise<unknown> {
  if(V3_ONLY_OPS.has(name))throw new CoreError('unknown_op',`unknown operation "${name}"`,`${name} requires protocol 3`);
+ if(name==='client.register' && params && typeof params==='object')params=Object.fromEntries(Object.entries(params).filter(([key])=>key!=='capture'));
  return toV2OpResult(name,await callOp(ctx,name,v2Params(name,params),deps));
 }
 
 /** Keep the existing v2 document/schema check stable until the documentation task. */
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
+ delete (schemas['client.register'].params as {properties:Record<string,unknown>}).properties.capture;
  for(const op of V3_ONLY_OPS)delete schemas[op];
  schemas['task.list'].description="Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.";
  const review=schemas['task.review'].params as {properties:Record<string,unknown>;required:string[]};

@@ -8,6 +8,7 @@ export interface AgentSessionCapabilities {
 export interface AgentSessionPrepare extends AgentVersion {
   request: string; workspace: string; runDir: string; attachments: AttachmentRef[];
   permissionPolicy: "native"; model?: string; sessionId?: string;
+  attachmentDir?: string;
 }
 export interface AgentSessionLaunch { argv: string[]; cwd: string; stdin?: string }
 export interface AgentAttachmentInput extends AgentVersion {

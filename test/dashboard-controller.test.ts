@@ -47,6 +47,14 @@ function setup(options: { ops?: string[]; respond?: (op: string, params: Record<
   return { dash, calls, ops, frames, attached, handoffs, keys, last: () => frames.at(-1)!, s };
 }
 
+test("new interactive session prompts for a request and repository", async () => {
+  const t = setup({ops:[...ALL_OPS,"session.create","session.prepare","session.draft.create"]});
+  await t.dash.refresh();await t.keys("n");
+  expect(t.last()).toContain("Start an interactive session");
+  await t.keys(..."Talk", "enter");
+  expect(t.last()).toContain("Repository path");
+});
+
 test("Enter runs the selected row's primary service action with its exact params", async () => {
   const t = setup();
   await t.dash.refresh();

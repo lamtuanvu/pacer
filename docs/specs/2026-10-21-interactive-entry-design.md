@@ -16,6 +16,8 @@ Alternatives considered: a normalized chat client would require agent-specific s
 
 The initial application route presents a large request composer, attachment tray and Start session action. Repository and executor selectors sit beside or below the composer. Recent and active sessions remain reachable, with settings and budget information in secondary navigation.
 
+Interactive entry requires the reachable service and a ready interactive executor. It does not require installing planner hooks or completing delegation onboarding. Existing delegation setup remains available separately; unsupported or signed-out executors explain their own readiness requirements.
+
 The executor selector shows agent and account together, with readiness and available usage information. An automatic choice resolves to a named eligible interactive executor before launch. Routing filters by interactive and attachment capabilities. Once started, a conversation stays bound to that agent and account; budget exhaustion never silently moves it to another agent or account.
 
 The workspace selector defaults to New worktree. Show the resolved base branch, with a branch picker available before launch. Resolve the base through existing repository policy and worktree machinery; never label an unspecified base Current branch. Record the selected reference and resolved commit. Local uncommitted changes are not included in a new worktree.

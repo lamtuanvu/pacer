@@ -940,7 +940,7 @@ Params JSON Schema:
 
 ### `client.register`
 
-Register a client with an optional notifier lease; heartbeat every 30 seconds.
+Register a client with an optional notifier lease and desktop capture worker; heartbeat every 30 seconds.
 
 Params JSON Schema:
 

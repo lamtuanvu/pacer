@@ -116,6 +116,7 @@ export interface RunRef {
 export interface ReviewRequest { note: string; at: number }
 
 export interface TaskRecord {
+  sessionDraftId?: string;
   interactionMode?: InteractionMode;
   conversation?: ConversationState;
   reviewRequest?: ReviewRequest;
@@ -151,7 +152,7 @@ export interface TaskRecord {
   timeoutS: number;
   brief: Brief;
   state: TaskState;
-  queue?: { reason: "no_slot" | "paused" | "host_down" | "waiting_retry"; since: number; position: number; limit?: "executor" | "machine" | "host"; capacity?: {used: number; max: number} };
+  queue?: { reason: "no_slot" | "paused" | "host_down" | "waiting_retry"; detail?: string; since: number; position: number; limit?: "executor" | "machine" | "host"; capacity?: {used: number; max: number} };
   runnerPid?: number;
   executor?: string;
   backend?: string;

@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
 import { fakeCtx } from "./helpers";
 import { createDraft, storeAttachment, listAttachments, deleteAttachment, expireDraftAttachments } from "../src/attachments/store";
+import { retentionScheduler } from "../src/tasks/retention";
+
+test("the service retention tick removes expired private drafts", async () => {
+  const ctx = fakeCtx(), draftId = createDraft(ctx).id;
+  await storeAttachment(ctx, {draftId, batchId: "one", name: "private.txt", mime: "text/plain", body: body(3)});
+  await retentionScheduler().tick({...ctx, now: ctx.now + 86401});
+  expect(() => listAttachments(ctx, draftId)).toThrow();
+});
 
 function body(size: number) {
   return new ReadableStream<Uint8Array>({start(c) {c.enqueue(new Uint8Array(size)); c.close();}});

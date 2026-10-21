@@ -45,7 +45,7 @@ export async function fixtureFeedDryRun(root: string) {
     if ((await publisher.readFeed()).head !== first.head) throw Error("Fixture retry changed feed");
     const feed = await buildDesktopFeed(release, version, options);
     writeFileSync(join(root, "stable.json"), feed);
-    const report = { mode: "fixture", signatures: 2, immutableRetry: "PASS", cas: "PASS", feedSha256: digest(Buffer.from(feed)), production: "UNVERIFIED", native: "UNVERIFIED", detail: "Real Tauri signatures and local Git CAS; data-only archives, no Apple signing/notarization/native installation or remote publication" };
+    const report = { mode: "fixture", signatures: DESKTOP_ARCHES.length, immutableRetry: "PASS", cas: "PASS", feedSha256: digest(Buffer.from(feed)), production: "UNVERIFIED", native: "UNVERIFIED", detail: "Real Tauri signatures and local Git CAS; data-only archives, no Apple signing/notarization/native installation or remote publication" };
     writeFileSync(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
     return report;
   } finally { rmSync(privateDir, { recursive: true, force: true }); }

@@ -1,6 +1,8 @@
 import { withWork } from "../update/desktop/admission";
 import { conversationActivity } from "../session/conversation";
 import { prepareAgentSession } from "../plugins/agent-session";
+import { resolveAttachments } from "../attachments/claims";
+import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
 import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync } from "node:fs";
@@ -58,7 +60,16 @@ export function parseSessionHeader(header: string): string | undefined {
   return /(?:^|\n)\s*session id:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=\s|$)/i.exec(header)?.[1];
 }
 function discoverSession(ctx: Ctx, task: TaskRecord, run: RunRef) {
-  if (run.host || run.agentSession || (parseRunnerId(run.executor)?.agent ?? run.executor) !== "codex") return;
+  if (run.host || run.agentSession) return;
+  try {
+    const id = readFileSync(join(run.dir, "agent-session-id"), "utf8");
+    if (/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+      run.agentSession = {id, source: "lookup"};
+      updateTask(ctx, task.id, t => {if (t.run?.dir === run.dir) {t.run.agentSession = run.agentSession; if (t.conversation) t.conversation.agentSessionId = id;}});
+      return;
+    }
+  } catch { /* no identity hook yet */ }
+  if ((parseRunnerId(run.executor)?.agent ?? run.executor) !== "codex") return;
   try {
     const fd = openSync(join(run.dir, existsSync(join(run.dir, "session.json")) && !(existsSync(join(run.dir,"session.host")) && readFileSync(join(run.dir,"session.host"),"utf8").trim() === "none") ? "stdout" : "stderr"), "r");
     let header: string;
@@ -269,11 +280,20 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   let resolved = task.retryOf && task.worktree ? { mode: realpathSafe(task.worktree) === realpathSafe(task.brief.repo) ? "current" as const : "new" as const, why: "reuse original task worktree" } : resolvePlacement(task, ex.worktree, busy, !("error" in git) && git.dirty);
   let note = "", workdir = task.brief.repo, mode: "current" | "new" = resolved.mode;
   if (mode === "new" && "error" in git) {
+    if (conversation) {
+      const reason = `Cannot create an isolated conversation: ${git.error}`;
+      return outcome(cfg, startedAt, {code: 1, stdout: "", stderr: reason, timedOut: false}, log, reason);
+    }
     note = `ran in place: ${git.error}\n\n`; mode = "current"; resolved = { mode: "current", why: resolved.why };
   }
   if (mode === "current" && (busy || (resolved.why === "strategy default" && !("error" in git) && git.dirty))) {
     const reason = busy ? "another pacer task is running in the current worktree; in-place execution refused" : "current worktree has uncommitted changes";
     return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
+  }
+  if (mode === "current" && listTasksWhere(ctx, {states: ["queued", "running"]}).some(t =>
+    t.id !== task.id && t.interactionMode === "conversation" && t.placement?.requested === "current" && realpathSafe(t.brief.repo) === realpathSafe(workdir))) {
+    const reason = "Another conversation owns this checkout";
+    return outcome(cfg, startedAt, {code: 1, stdout: "", stderr: reason, timedOut: false}, log, reason);
   }
   if (mode === "new" && !("error" in git)) {
     // Retries and fallback attempts retain all committed and uncommitted work.
@@ -336,7 +356,8 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         request = `Read the request in ${JSON.stringify(path)} and continue this conversation.`;
       }
       launch = await prepareAgentSession(ctx, {agent: cfg.via === "opencode" ? "opencode" : agent, version: number, request,
-        workspace: workdir, runDir: rdir, attachments: [], permissionPolicy: "native", ...(cfg.model ? {model: cfg.model} : {})});
+        workspace: workdir, runDir: rdir, ...(task.sessionDraftId ? {attachmentDir: attachmentDirectory(ctx, task.sessionDraftId)} : {}), attachments: resolveAttachments(ctx, task.id), permissionPolicy: "native",
+        ...(task.conversation?.agentSessionId ? {sessionId: task.conversation.agentSessionId} : {}), ...(cfg.model ? {model: cfg.model} : {})});
     } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id);
     if (interactive) {
       const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;

@@ -533,6 +533,10 @@ Params:
       "type": "string",
       "minLength": 1
     },
+    "attachmentDir": {
+      "type": "string",
+      "minLength": 1
+    },
     "attachments": {
       "maxItems": 20,
       "type": "array",

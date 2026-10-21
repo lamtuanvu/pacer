@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Interactive start screen with agent/account selection, isolated worktrees, private file and screenshot uploads, and persistent native agent terminals. Conversations retain their selected executor, survive completed turns and window closure, and support explicit end/resume where the agent reports an identity.
+
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.
 - Native permission setup in desktop Diagnostics: a draggable hosting-app chip docks to System Settings, with a Finder alternative, cancellation and owned-window access verification.
 
