@@ -11,22 +11,17 @@ struct PermissionChipPlacement {
 /// Settings/visible rectangles use AppKit coordinates, including negative display origins.
 func permissionChipPlacement(settings: CGRect, visible: CGRect, preferred: CGSize) -> PermissionChipPlacement {
     let safe = visible.insetBy(dx: 8, dy: 8)
-    let size = CGSize(width: min(preferred.width, safe.width), height: min(preferred.height, safe.height))
-    let y = min(max(settings.maxY - size.height, safe.minY), safe.maxY - size.height)
-    let right = CGRect(x: settings.maxX + 12, y: y, width: size.width, height: size.height)
-    if safe.contains(right) { return PermissionChipPlacement(frame: right, compact: false) }
-    let left = CGRect(x: settings.minX - size.width - 12, y: y, width: size.width, height: size.height)
-    if safe.contains(left) { return PermissionChipPlacement(frame: left, compact: false) }
-    let above = CGRect(x: min(max(settings.minX, safe.minX), safe.maxX-size.width), y: settings.maxY+12, width:size.width, height:size.height)
-    if safe.contains(above) { return PermissionChipPlacement(frame: above, compact: false) }
-    let below = CGRect(x: above.minX, y: settings.minY-size.height-12, width:size.width, height:size.height)
-    if safe.contains(below) { return PermissionChipPlacement(frame: below, compact: false) }
-    // A maximized Settings window leaves no exterior slot. Stay over its top-left
-    // navigation/header area with a compact target rather than clipping off-screen.
-    let compact = CGSize(width: min(260, safe.width), height: min(104, safe.height))
-    let x = min(max(settings.minX + 12, safe.minX), safe.maxX-compact.width)
-    return PermissionChipPlacement(frame:CGRect(x:x,y:min(max(settings.maxY-compact.height-12,safe.minY),safe.maxY-compact.height),width:compact.width,height:compact.height),compact:true)
+    let inset: CGFloat = 14
+    let availableWidth=max(0,min(settings.width-inset*2,safe.width))
+    let size=CGSize(width:min(preferred.width,availableWidth),height:min(preferred.height,max(0,min(settings.height-inset*2,safe.height))))
+    let x=min(max(settings.maxX-size.width-inset,safe.minX),safe.maxX-size.width)
+    let y=min(max(settings.minY+44,safe.minY),safe.maxY-size.height)
+    return PermissionChipPlacement(frame:CGRect(origin:CGPoint(x:x,y:y),size:size),compact:size.width<360)
 }
+
+/// The chip follows the selected Settings window across focus changes and hides
+/// only when that window is no longer visible (minimized or on another Space).
+func permissionChipShouldShow(settingsOnScreen:Bool)->Bool { settingsOnScreen }
 
 /// The outer application owns embedded helpers; never offer an inner helper bundle.
 func permissionHostingBundlePath(_ executable: String) -> String? {
@@ -109,7 +104,7 @@ func permissionHostingBundle() -> URL? {
         NSBezierPath(roundedRect:bounds.insetBy(dx:0.5,dy:0.5),xRadius:9,yRadius:9).stroke()
         NSWorkspace.shared.icon(forFile:appURL.path).draw(in:NSRect(x:10,y:(bounds.height-36)/2,width:36,height:36))
         (appName as NSString).draw(in:NSRect(x:55,y:bounds.midY-1,width:bounds.width-65,height:20),withAttributes:[.font:NSFont.systemFont(ofSize:13,weight:.medium),.foregroundColor:NSColor.labelColor])
-        ("Inferred host · drag into list" as NSString).draw(in:NSRect(x:55,y:bounds.midY-18,width:bounds.width-65,height:17),withAttributes:[.font:NSFont.systemFont(ofSize:11),.foregroundColor:NSColor.labelColor])
+        ("Drag into the list above" as NSString).draw(in:NSRect(x:55,y:bounds.midY-18,width:bounds.width-65,height:17),withAttributes:[.font:NSFont.systemFont(ofSize:11),.foregroundColor:NSColor.secondaryLabelColor])
     }
     override func mouseDown(with event:NSEvent) {
         // Use the dedicated dragging pasteboard; never read or change the clipboard.
@@ -128,18 +123,16 @@ func permissionHostingBundle() -> URL? {
 }
 
 @MainActor final class PermissionChipController:NSObject,NSWindowDelegate {
-    let panel=PermissionSetupPanel(contentRect:NSRect(x:0,y:0,width:320,height:164),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
+    let panel=PermissionSetupPanel(contentRect:NSRect(x:0,y:0,width:440,height:70),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
     let appURL:URL
     let targetPID:pid_t
     let targetIdentity:String
     let launcherPID=getppid()
     let launcherIdentity=permissionProcessIdentity(getppid())
     let deadline:TimeInterval
-    let title=NSTextField(labelWithString:"Drag this app into the list")
-    let hint=NSTextField(labelWithString:"Then enable its switch in Settings")
     let drag:PermissionAppDragView
     let reveal=NSButton(title:"Show app",target:nil,action:nil)
-    let cancel=NSButton(title:"Cancel",target:nil,action:nil)
+    let cancel=NSButton(title:"×",target:nil,action:nil)
     var timer:Timer?
     var selectedSettingsPID:pid_t?
     var selectedWindow:UInt32?
@@ -163,23 +156,20 @@ func permissionHostingBundle() -> URL? {
         panel.title="Enable native validation"
         panel.backgroundColor = .windowBackgroundColor
         panel.contentView?.wantsLayer=true;panel.contentView?.layer?.cornerRadius=12
-        title.font = .systemFont(ofSize:13,weight:.medium)
-        hint.font = .systemFont(ofSize:11);hint.textColor = .labelColor
-        for view in [title,hint,drag,reveal,cancel] { panel.contentView?.addSubview(view) }
+        for view in [drag,reveal,cancel] { panel.contentView?.addSubview(view) }
         reveal.target=self;reveal.action=#selector(showApp);reveal.bezelStyle = .rounded
-        cancel.target=self;cancel.action=#selector(cancelSetup);cancel.bezelStyle = .rounded;cancel.keyEquivalent="\u{1b}"
+        cancel.target=self;cancel.action=#selector(cancelSetup);cancel.bezelStyle = .inline;cancel.isBordered=false;cancel.keyEquivalent="\u{1b}";cancel.toolTip="Dismiss"
         drag.draggingChanged={ [weak self] value in self?.isDragging=value }
         layout(compact:false)
     }
     func layout(compact:Bool) {
         self.compact=compact
-        title.isHidden=compact;hint.isHidden=compact
         let width=panel.frame.width,height=panel.frame.height
-        title.frame=NSRect(x:16,y:height-30,width:width-32,height:20)
-        hint.frame=NSRect(x:16,y:height-48,width:width-32,height:17)
-        drag.frame=NSRect(x:12,y:40,width:width-24,height:compact ? height-48:62)
-        reveal.frame=NSRect(x:12,y:7,width:90,height:28)
-        cancel.frame=NSRect(x:width-87,y:7,width:75,height:28)
+        let actionsWidth:CGFloat=compact ? 34:112
+        drag.frame=NSRect(x:8,y:8,width:max(120,width-actionsWidth-16),height:height-16)
+        reveal.isHidden=compact
+        reveal.frame=NSRect(x:width-108,y:(height-28)/2,width:76,height:28)
+        cancel.frame=NSRect(x:width-32,y:(height-28)/2,width:24,height:28)
     }
     @objc func showApp() { NSWorkspace.shared.activateFileViewerSelecting([appURL]) }
     @objc func cancelSetup() { finish("cancelled") }
@@ -205,8 +195,7 @@ func permissionHostingBundle() -> URL? {
         if permissionProcessIdentity(targetPID) != targetIdentity { finish("target_exited");return }
         ticks += 1
         if Date().timeIntervalSince1970-started>30 {
-            title.stringValue="Waiting for native access"
-            hint.stringValue="Check switch; save work before reopening"
+            panel.title="Waiting for native access"
         }
         if !isDragging && ticks % 5 == 0 && probeOwnedAccess() { finish("verified");return }
         guard !isDragging else { return }
@@ -236,10 +225,9 @@ func permissionHostingBundle() -> URL? {
             return
         }
         missingSince=nil;selectedWindow=window[kCGWindowNumber as String] as? UInt32
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == settings.processIdentifier else { panel.orderOut(nil);return }
         let frame=CGRect(x:cg.minX,y:primary.frame.maxY-cg.maxY,width:cg.width,height:cg.height)
         let display=NSScreen.screens.max { a,b in a.frame.intersection(frame).width*a.frame.intersection(frame).height < b.frame.intersection(frame).width*b.frame.intersection(frame).height } ?? primary
-        let placement=permissionChipPlacement(settings:frame,visible:display.visibleFrame,preferred:CGSize(width:320,height:164))
+        let placement=permissionChipPlacement(settings:frame,visible:display.visibleFrame,preferred:CGSize(width:440,height:70))
         if panel.frame != placement.frame { panel.setFrame(placement.frame,display:true,animate:false) }
         layout(compact:placement.compact)
         panel.orderFrontRegardless()

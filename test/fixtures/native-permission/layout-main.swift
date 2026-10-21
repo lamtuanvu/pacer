@@ -19,7 +19,7 @@ import AppKit
                 return
             }
         }
-        let size = CGSize(width: 288, height: 140)
+        let size = CGSize(width: 440, height: 70)
         let cases: [(CGRect, CGRect)] = [
             (CGRect(x:200,y:100,width:500,height:600), CGRect(x:0,y:0,width:1440,height:900)),
             (CGRect(x:900,y:100,width:500,height:600), CGRect(x:0,y:0,width:1440,height:900)),
@@ -38,7 +38,7 @@ import AppKit
         let secondDenied = (try? PermissionChipLease(targetPID:getpid())) == nil
         firstLease = nil
         let thirdAcquired = (try? PermissionChipLease(targetPID:getpid())) != nil
-        let json = try JSONSerialization.data(withJSONObject:["launcherAlive":permissionLauncherIsAlive(getpid(),identity:permissionProcessIdentity(getpid())),"launcherReplaced":permissionLauncherIsAlive(getpid(),identity:"replaced"),"launcherMissing":permissionLauncherIsAlive(1,identity:nil),"positions":positions,"bundles":bundles,"exclusive":firstAcquired && secondDenied && thirdAcquired])
+        let json = try JSONSerialization.data(withJSONObject:["visibleWhileSettingsFrontmost":permissionChipShouldShow(settingsOnScreen:true),"visibleWhileAnotherAppFrontmost":permissionChipShouldShow(settingsOnScreen:true),"hiddenOffScreen":permissionChipShouldShow(settingsOnScreen:false),"launcherAlive":permissionLauncherIsAlive(getpid(),identity:permissionProcessIdentity(getpid())),"launcherReplaced":permissionLauncherIsAlive(getpid(),identity:"replaced"),"launcherMissing":permissionLauncherIsAlive(1,identity:nil),"positions":positions,"bundles":bundles,"exclusive":firstAcquired && secondDenied && thirdAcquired])
         FileHandle.standardOutput.write(json)
     }
 }
