@@ -25,12 +25,12 @@ exports[`account metadata survives the link and appears in the dashboard 1`] = `
    Nothing running. Delegate a task, or ask your planner to.
 
    CAPACITY  3 executors
-   #   EXECUTOR                    STATUS                       PACE                                                      USAGE           USED  TASKS
- › P   Claude Code                 ✓ Eligible                   Behind pace                                               ━━━━━──────┃──   34%    0/1
+   #   EXECUTOR                    STATUS                        PACE                                                     USAGE           USED  TASKS
+ › P   Claude Code                 ✓ Eligible                    Behind pace                                              ━━━━━──────┃──   34%    0/1
    Execution permitted · observed 0s ago
-   1   BytePlus                    ✓ Eligible                   On pace · unmetered                                       unmetered          —    0/1
+   1   BytePlus                    ✓ Eligible                    On pace · unmetered                                      unmetered          —    0/1
    Execution permitted
-   2   Codex · team                ✓ Eligible             next  Expiring soon                                             ━━━━━────────┃   34%    0/1
+   2   Codex · team                ✓ Eligible              next  Expiring soon                                            ━━━━━────────┃   34%    0/1
    Execution permitted · observed 0s ago
 
  ↓ 2 more
