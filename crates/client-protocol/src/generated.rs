@@ -35,6 +35,478 @@ pub mod error {
 ///
 /// ```json
 ///{
+///  "anyOf": [
+///    {
+///      "type": "object",
+///      "required": [
+///        "kind",
+///        "model",
+///        "provider",
+///        "source"
+///      ],
+///      "properties": {
+///        "cap_usd": {
+///          "type": "number",
+///          "exclusiveMinimum": 0.0
+///        },
+///        "kind": {
+///          "type": "string",
+///          "const": "endpoint"
+///        },
+///        "model": {
+///          "type": "string",
+///          "minLength": 1
+///        },
+///        "name": {
+///          "type": "string",
+///          "maxLength": 128,
+///          "minLength": 1,
+///          "pattern": "^[a-z0-9][a-z0-9-]*$"
+///        },
+///        "provider": {
+///          "type": "string",
+///          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+///        },
+///        "source": {
+///          "type": "string",
+///          "const": "opencode"
+///        },
+///        "test": {
+///          "type": "boolean"
+///        },
+///        "usage": {
+///          "type": "string",
+///          "enum": [
+///            "quota",
+///            "metered",
+///            "unmetered"
+///          ]
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "oneOf": [
+///        {
+///          "type": "object",
+///          "required": [
+///            "kind",
+///            "name"
+///          ],
+///          "properties": {
+///            "home": {
+///              "type": "string",
+///              "minLength": 1
+///            },
+///            "kind": {
+///              "type": "string",
+///              "const": "claude"
+///            },
+///            "name": {
+///              "type": "string",
+///              "maxLength": 128,
+///              "minLength": 1
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        {
+///          "type": "object",
+///          "required": [
+///            "kind",
+///            "name"
+///          ],
+///          "properties": {
+///            "home": {
+///              "type": "string",
+///              "minLength": 1
+///            },
+///            "kind": {
+///              "type": "string",
+///              "const": "codex"
+///            },
+///            "name": {
+///              "type": "string",
+///              "maxLength": 128,
+///              "minLength": 1
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        {
+///          "type": "object",
+///          "required": [
+///            "base_url",
+///            "key_source",
+///            "kind",
+///            "models",
+///            "name",
+///            "usage"
+///          ],
+///          "properties": {
+///            "base_url": {
+///              "type": "string",
+///              "format": "uri"
+///            },
+///            "env_var": {
+///              "type": "string",
+///              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///            },
+///            "key": {
+///              "type": "string"
+///            },
+///            "key_source": {
+///              "type": "string",
+///              "enum": [
+///                "keychain",
+///                "file",
+///                "env",
+///                "none"
+///              ]
+///            },
+///            "kind": {
+///              "type": "string",
+///              "const": "endpoint"
+///            },
+///            "models": {
+///              "type": "array",
+///              "items": {
+///                "type": "object",
+///                "required": [
+///                  "context",
+///                  "id",
+///                  "output",
+///                  "tools"
+///                ],
+///                "properties": {
+///                  "context": {
+///                    "type": "integer",
+///                    "maximum": 9007199254740991.0,
+///                    "exclusiveMinimum": 0.0
+///                  },
+///                  "id": {
+///                    "type": "string",
+///                    "minLength": 1
+///                  },
+///                  "name": {
+///                    "type": "string"
+///                  },
+///                  "output": {
+///                    "type": "integer",
+///                    "maximum": 9007199254740991.0,
+///                    "exclusiveMinimum": 0.0
+///                  },
+///                  "tools": {
+///                    "type": "boolean"
+///                  }
+///                },
+///                "additionalProperties": false
+///              },
+///              "minItems": 1
+///            },
+///            "name": {
+///              "type": "string",
+///              "maxLength": 128,
+///              "minLength": 1
+///            },
+///            "quota_source": {
+///              "type": "string",
+///              "minLength": 1
+///            },
+///            "test": {
+///              "type": "boolean"
+///            },
+///            "usage": {
+///              "type": "string",
+///              "enum": [
+///                "quota",
+///                "metered",
+///                "unmetered"
+///              ]
+///            },
+///            "weekly_tokens": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "exclusiveMinimum": 0.0
+///            }
+///          },
+///          "additionalProperties": false
+///        }
+///      ]
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum AccountAddParams {
+    Variant0 {
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        cap_usd: ::std::option::Option<f64>,
+        kind: ::std::string::String,
+        model: AccountAddParamsVariant0Model,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        name: ::std::option::Option<AccountAddParamsVariant0Name>,
+        provider: AccountAddParamsVariant0Provider,
+        source: ::std::string::String,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        test: ::std::option::Option<bool>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        usage: ::std::option::Option<AccountAddParamsVariant0Usage>,
+    },
+    Variant1(AccountAddParamsVariant1),
+}
+impl ::std::convert::From<&Self> for AccountAddParams {
+    fn from(value: &AccountAddParams) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<AccountAddParamsVariant1> for AccountAddParams {
+    fn from(value: AccountAddParamsVariant1) -> Self {
+        Self::Variant1(value)
+    }
+}
+///`AccountAddParamsVariant0Model`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AccountAddParamsVariant0Model(::std::string::String);
+impl ::std::ops::Deref for AccountAddParamsVariant0Model {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AccountAddParamsVariant0Model> for ::std::string::String {
+    fn from(value: AccountAddParamsVariant0Model) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AccountAddParamsVariant0Model {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant0Model {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AccountAddParamsVariant0Model {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AccountAddParamsVariant0Name`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1,
+///  "pattern": "^[a-z0-9][a-z0-9-]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AccountAddParamsVariant0Name(::std::string::String);
+impl ::std::ops::Deref for AccountAddParamsVariant0Name {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AccountAddParamsVariant0Name> for ::std::string::String {
+    fn from(value: AccountAddParamsVariant0Name) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AccountAddParamsVariant0Name {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9-]*$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant0Name {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AccountAddParamsVariant0Name {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AccountAddParamsVariant0Provider`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9._-]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AccountAddParamsVariant0Provider(::std::string::String);
+impl ::std::ops::Deref for AccountAddParamsVariant0Provider {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AccountAddParamsVariant0Provider> for ::std::string::String {
+    fn from(value: AccountAddParamsVariant0Provider) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AccountAddParamsVariant0Provider {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9._-]*$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9._-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant0Provider {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AccountAddParamsVariant0Provider {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AccountAddParamsVariant0Usage`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "quota",
+///    "metered",
+///    "unmetered"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccountAddParamsVariant0Usage {
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "metered")]
+    Metered,
+    #[serde(rename = "unmetered")]
+    Unmetered,
+}
+impl ::std::convert::From<&Self> for AccountAddParamsVariant0Usage {
+    fn from(value: &AccountAddParamsVariant0Usage) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for AccountAddParamsVariant0Usage {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Quota => f.write_str("quota"),
+            Self::Metered => f.write_str("metered"),
+            Self::Unmetered => f.write_str("unmetered"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccountAddParamsVariant0Usage {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "quota" => Ok(Self::Quota),
+            "metered" => Ok(Self::Metered),
+            "unmetered" => Ok(Self::Unmetered),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant0Usage {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccountAddParamsVariant1`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
 ///  "oneOf": [
 ///    {
 ///      "type": "object",
@@ -187,44 +659,44 @@ pub mod error {
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(tag = "kind", deny_unknown_fields)]
-pub enum AccountAddParams {
+pub enum AccountAddParamsVariant1 {
     #[serde(rename = "claude")]
     Claude {
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-        home: ::std::option::Option<AccountAddParamsHome>,
-        name: AccountAddParamsName,
+        home: ::std::option::Option<AccountAddParamsVariant1Home>,
+        name: AccountAddParamsVariant1Name,
     },
     #[serde(rename = "codex")]
     Codex {
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-        home: ::std::option::Option<AccountAddParamsHome>,
-        name: AccountAddParamsName,
+        home: ::std::option::Option<AccountAddParamsVariant1Home>,
+        name: AccountAddParamsVariant1Name,
     },
     #[serde(rename = "endpoint")]
     Endpoint {
         base_url: ::std::string::String,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-        env_var: ::std::option::Option<AccountAddParamsEnvVar>,
+        env_var: ::std::option::Option<AccountAddParamsVariant1EnvVar>,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         key: ::std::option::Option<::std::string::String>,
-        key_source: AccountAddParamsKeySource,
-        models: ::std::vec::Vec<AccountAddParamsModelsItem>,
-        name: AccountAddParamsName,
+        key_source: AccountAddParamsVariant1KeySource,
+        models: ::std::vec::Vec<AccountAddParamsVariant1ModelsItem>,
+        name: AccountAddParamsVariant1Name,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-        quota_source: ::std::option::Option<AccountAddParamsQuotaSource>,
+        quota_source: ::std::option::Option<AccountAddParamsVariant1QuotaSource>,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         test: ::std::option::Option<bool>,
-        usage: AccountAddParamsUsage,
+        usage: AccountAddParamsVariant1Usage,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         weekly_tokens: ::std::option::Option<::std::num::NonZeroU64>,
     },
 }
-impl ::std::convert::From<&Self> for AccountAddParams {
-    fn from(value: &AccountAddParams) -> Self {
+impl ::std::convert::From<&Self> for AccountAddParamsVariant1 {
+    fn from(value: &AccountAddParamsVariant1) -> Self {
         value.clone()
     }
 }
-///`AccountAddParamsEnvVar`
+///`AccountAddParamsVariant1EnvVar`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -237,19 +709,19 @@ impl ::std::convert::From<&Self> for AccountAddParams {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct AccountAddParamsEnvVar(::std::string::String);
-impl ::std::ops::Deref for AccountAddParamsEnvVar {
+pub struct AccountAddParamsVariant1EnvVar(::std::string::String);
+impl ::std::ops::Deref for AccountAddParamsVariant1EnvVar {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<AccountAddParamsEnvVar> for ::std::string::String {
-    fn from(value: AccountAddParamsEnvVar) -> Self {
+impl ::std::convert::From<AccountAddParamsVariant1EnvVar> for ::std::string::String {
+    fn from(value: AccountAddParamsVariant1EnvVar) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for AccountAddParamsEnvVar {
+impl ::std::str::FromStr for AccountAddParamsVariant1EnvVar {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
@@ -262,13 +734,13 @@ impl ::std::str::FromStr for AccountAddParamsEnvVar {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for AccountAddParamsEnvVar {
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant1EnvVar {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for AccountAddParamsEnvVar {
+impl<'de> ::serde::Deserialize<'de> for AccountAddParamsVariant1EnvVar {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -280,7 +752,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsEnvVar {
             })
     }
 }
-///`AccountAddParamsHome`
+///`AccountAddParamsVariant1Home`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -293,19 +765,19 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsEnvVar {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct AccountAddParamsHome(::std::string::String);
-impl ::std::ops::Deref for AccountAddParamsHome {
+pub struct AccountAddParamsVariant1Home(::std::string::String);
+impl ::std::ops::Deref for AccountAddParamsVariant1Home {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<AccountAddParamsHome> for ::std::string::String {
-    fn from(value: AccountAddParamsHome) -> Self {
+impl ::std::convert::From<AccountAddParamsVariant1Home> for ::std::string::String {
+    fn from(value: AccountAddParamsVariant1Home) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for AccountAddParamsHome {
+impl ::std::str::FromStr for AccountAddParamsVariant1Home {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() < 1usize {
@@ -314,13 +786,13 @@ impl ::std::str::FromStr for AccountAddParamsHome {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for AccountAddParamsHome {
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant1Home {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for AccountAddParamsHome {
+impl<'de> ::serde::Deserialize<'de> for AccountAddParamsVariant1Home {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -332,7 +804,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsHome {
             })
     }
 }
-///`AccountAddParamsKeySource`
+///`AccountAddParamsVariant1KeySource`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -360,7 +832,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsHome {
     PartialEq,
     PartialOrd,
 )]
-pub enum AccountAddParamsKeySource {
+pub enum AccountAddParamsVariant1KeySource {
     #[serde(rename = "keychain")]
     Keychain,
     #[serde(rename = "file")]
@@ -370,12 +842,12 @@ pub enum AccountAddParamsKeySource {
     #[serde(rename = "none")]
     None,
 }
-impl ::std::convert::From<&Self> for AccountAddParamsKeySource {
-    fn from(value: &AccountAddParamsKeySource) -> Self {
+impl ::std::convert::From<&Self> for AccountAddParamsVariant1KeySource {
+    fn from(value: &AccountAddParamsVariant1KeySource) -> Self {
         value.clone()
     }
 }
-impl ::std::fmt::Display for AccountAddParamsKeySource {
+impl ::std::fmt::Display for AccountAddParamsVariant1KeySource {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Keychain => f.write_str("keychain"),
@@ -385,7 +857,7 @@ impl ::std::fmt::Display for AccountAddParamsKeySource {
         }
     }
 }
-impl ::std::str::FromStr for AccountAddParamsKeySource {
+impl ::std::str::FromStr for AccountAddParamsVariant1KeySource {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
@@ -397,13 +869,13 @@ impl ::std::str::FromStr for AccountAddParamsKeySource {
         }
     }
 }
-impl ::std::convert::TryFrom<&str> for AccountAddParamsKeySource {
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant1KeySource {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-///`AccountAddParamsModelsItem`
+///`AccountAddParamsVariant1ModelsItem`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -444,15 +916,15 @@ impl ::std::convert::TryFrom<&str> for AccountAddParamsKeySource {
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct AccountAddParamsModelsItem {
+pub struct AccountAddParamsVariant1ModelsItem {
     pub context: ::std::num::NonZeroU64,
-    pub id: AccountAddParamsModelsItemId,
+    pub id: AccountAddParamsVariant1ModelsItemId,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub name: ::std::option::Option<::std::string::String>,
     pub output: ::std::num::NonZeroU64,
     pub tools: bool,
 }
-///`AccountAddParamsModelsItemId`
+///`AccountAddParamsVariant1ModelsItemId`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -465,19 +937,19 @@ pub struct AccountAddParamsModelsItem {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct AccountAddParamsModelsItemId(::std::string::String);
-impl ::std::ops::Deref for AccountAddParamsModelsItemId {
+pub struct AccountAddParamsVariant1ModelsItemId(::std::string::String);
+impl ::std::ops::Deref for AccountAddParamsVariant1ModelsItemId {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<AccountAddParamsModelsItemId> for ::std::string::String {
-    fn from(value: AccountAddParamsModelsItemId) -> Self {
+impl ::std::convert::From<AccountAddParamsVariant1ModelsItemId> for ::std::string::String {
+    fn from(value: AccountAddParamsVariant1ModelsItemId) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for AccountAddParamsModelsItemId {
+impl ::std::str::FromStr for AccountAddParamsVariant1ModelsItemId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() < 1usize {
@@ -486,13 +958,13 @@ impl ::std::str::FromStr for AccountAddParamsModelsItemId {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for AccountAddParamsModelsItemId {
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant1ModelsItemId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for AccountAddParamsModelsItemId {
+impl<'de> ::serde::Deserialize<'de> for AccountAddParamsVariant1ModelsItemId {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -504,7 +976,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsModelsItemId {
             })
     }
 }
-///`AccountAddParamsName`
+///`AccountAddParamsVariant1Name`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -518,19 +990,19 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsModelsItemId {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct AccountAddParamsName(::std::string::String);
-impl ::std::ops::Deref for AccountAddParamsName {
+pub struct AccountAddParamsVariant1Name(::std::string::String);
+impl ::std::ops::Deref for AccountAddParamsVariant1Name {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<AccountAddParamsName> for ::std::string::String {
-    fn from(value: AccountAddParamsName) -> Self {
+impl ::std::convert::From<AccountAddParamsVariant1Name> for ::std::string::String {
+    fn from(value: AccountAddParamsVariant1Name) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for AccountAddParamsName {
+impl ::std::str::FromStr for AccountAddParamsVariant1Name {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
@@ -542,13 +1014,13 @@ impl ::std::str::FromStr for AccountAddParamsName {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for AccountAddParamsName {
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant1Name {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for AccountAddParamsName {
+impl<'de> ::serde::Deserialize<'de> for AccountAddParamsVariant1Name {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -560,7 +1032,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsName {
             })
     }
 }
-///`AccountAddParamsQuotaSource`
+///`AccountAddParamsVariant1QuotaSource`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -573,19 +1045,19 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsName {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct AccountAddParamsQuotaSource(::std::string::String);
-impl ::std::ops::Deref for AccountAddParamsQuotaSource {
+pub struct AccountAddParamsVariant1QuotaSource(::std::string::String);
+impl ::std::ops::Deref for AccountAddParamsVariant1QuotaSource {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<AccountAddParamsQuotaSource> for ::std::string::String {
-    fn from(value: AccountAddParamsQuotaSource) -> Self {
+impl ::std::convert::From<AccountAddParamsVariant1QuotaSource> for ::std::string::String {
+    fn from(value: AccountAddParamsVariant1QuotaSource) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for AccountAddParamsQuotaSource {
+impl ::std::str::FromStr for AccountAddParamsVariant1QuotaSource {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() < 1usize {
@@ -594,13 +1066,13 @@ impl ::std::str::FromStr for AccountAddParamsQuotaSource {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for AccountAddParamsQuotaSource {
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant1QuotaSource {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for AccountAddParamsQuotaSource {
+impl<'de> ::serde::Deserialize<'de> for AccountAddParamsVariant1QuotaSource {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -612,7 +1084,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsQuotaSource {
             })
     }
 }
-///`AccountAddParamsUsage`
+///`AccountAddParamsVariant1Usage`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -639,7 +1111,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountAddParamsQuotaSource {
     PartialEq,
     PartialOrd,
 )]
-pub enum AccountAddParamsUsage {
+pub enum AccountAddParamsVariant1Usage {
     #[serde(rename = "quota")]
     Quota,
     #[serde(rename = "metered")]
@@ -647,12 +1119,12 @@ pub enum AccountAddParamsUsage {
     #[serde(rename = "unmetered")]
     Unmetered,
 }
-impl ::std::convert::From<&Self> for AccountAddParamsUsage {
-    fn from(value: &AccountAddParamsUsage) -> Self {
+impl ::std::convert::From<&Self> for AccountAddParamsVariant1Usage {
+    fn from(value: &AccountAddParamsVariant1Usage) -> Self {
         value.clone()
     }
 }
-impl ::std::fmt::Display for AccountAddParamsUsage {
+impl ::std::fmt::Display for AccountAddParamsVariant1Usage {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Quota => f.write_str("quota"),
@@ -661,7 +1133,7 @@ impl ::std::fmt::Display for AccountAddParamsUsage {
         }
     }
 }
-impl ::std::str::FromStr for AccountAddParamsUsage {
+impl ::std::str::FromStr for AccountAddParamsVariant1Usage {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
@@ -672,7 +1144,7 @@ impl ::std::str::FromStr for AccountAddParamsUsage {
         }
     }
 }
-impl ::std::convert::TryFrom<&str> for AccountAddParamsUsage {
+impl ::std::convert::TryFrom<&str> for AccountAddParamsVariant1Usage {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
@@ -3397,6 +3869,7 @@ impl ::std::default::Default for ConfigGetParams {
 ///    "key": {
 ///      "type": "string",
 ///      "enum": [
+///        "task_retention_days",
 ///        "execution.local_max_tasks",
 ///        "planner",
 ///        "pacing.order",
@@ -3510,6 +3983,7 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///{
 ///  "type": "string",
 ///  "enum": [
+///    "task_retention_days",
 ///    "execution.local_max_tasks",
 ///    "planner",
 ///    "pacing.order",
@@ -3537,6 +4011,8 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
     PartialOrd,
 )]
 pub enum ConfigSetParamsKey {
+    #[serde(rename = "task_retention_days")]
+    TaskRetentionDays,
     #[serde(rename = "execution.local_max_tasks")]
     ExecutionLocalMaxTasks,
     #[serde(rename = "planner")]
@@ -3566,6 +4042,7 @@ impl ::std::convert::From<&Self> for ConfigSetParamsKey {
 impl ::std::fmt::Display for ConfigSetParamsKey {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
+            Self::TaskRetentionDays => f.write_str("task_retention_days"),
             Self::ExecutionLocalMaxTasks => f.write_str("execution.local_max_tasks"),
             Self::Planner => f.write_str("planner"),
             Self::PacingOrder => f.write_str("pacing.order"),
@@ -3583,6 +4060,7 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
+            "task_retention_days" => Ok(Self::TaskRetentionDays),
             "execution.local_max_tasks" => Ok(Self::ExecutionLocalMaxTasks),
             "planner" => Ok(Self::Planner),
             "pacing.order" => Ok(Self::PacingOrder),
@@ -3704,6 +4182,340 @@ pub struct DelegationResumeParams {}
 impl ::std::default::Default for DelegationResumeParams {
     fn default() -> Self {
         Self {}
+    }
+}
+///`DoctorRunParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DoctorRunParams {}
+impl ::std::default::Default for DoctorRunParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`ExecutorSetupCandidatesParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorSetupCandidatesParams {}
+impl ::std::default::Default for ExecutorSetupCandidatesParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`ExecutorSetupConnectParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "provider"
+///  ],
+///  "properties": {
+///    "key": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "provider": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorSetupConnectParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub key: ::std::option::Option<ExecutorSetupConnectParamsKey>,
+    pub provider: ExecutorSetupConnectParamsProvider,
+}
+///`ExecutorSetupConnectParamsKey`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorSetupConnectParamsKey(::std::string::String);
+impl ::std::ops::Deref for ExecutorSetupConnectParamsKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorSetupConnectParamsKey> for ::std::string::String {
+    fn from(value: ExecutorSetupConnectParamsKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorSetupConnectParamsKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorSetupConnectParamsKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorSetupConnectParamsKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ExecutorSetupConnectParamsProvider`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9._-]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorSetupConnectParamsProvider(::std::string::String);
+impl ::std::ops::Deref for ExecutorSetupConnectParamsProvider {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorSetupConnectParamsProvider> for ::std::string::String {
+    fn from(value: ExecutorSetupConnectParamsProvider) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorSetupConnectParamsProvider {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9._-]*$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9._-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorSetupConnectParamsProvider {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorSetupConnectParamsProvider {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ExecutorSetupModelsParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "group",
+///    "provider"
+///  ],
+///  "properties": {
+///    "base_url": {
+///      "type": "string",
+///      "format": "uri"
+///    },
+///    "group": {
+///      "type": "string",
+///      "enum": [
+///        "signed_in",
+///        "local",
+///        "catalog"
+///      ]
+///    },
+///    "provider": {
+///      "type": "string",
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorSetupModelsParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub base_url: ::std::option::Option<::std::string::String>,
+    pub group: ExecutorSetupModelsParamsGroup,
+    pub provider: ExecutorSetupModelsParamsProvider,
+}
+///`ExecutorSetupModelsParamsGroup`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "signed_in",
+///    "local",
+///    "catalog"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ExecutorSetupModelsParamsGroup {
+    #[serde(rename = "signed_in")]
+    SignedIn,
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "catalog")]
+    Catalog,
+}
+impl ::std::convert::From<&Self> for ExecutorSetupModelsParamsGroup {
+    fn from(value: &ExecutorSetupModelsParamsGroup) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ExecutorSetupModelsParamsGroup {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::SignedIn => f.write_str("signed_in"),
+            Self::Local => f.write_str("local"),
+            Self::Catalog => f.write_str("catalog"),
+        }
+    }
+}
+impl ::std::str::FromStr for ExecutorSetupModelsParamsGroup {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "signed_in" => Ok(Self::SignedIn),
+            "local" => Ok(Self::Local),
+            "catalog" => Ok(Self::Catalog),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorSetupModelsParamsGroup {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ExecutorSetupModelsParamsProvider`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorSetupModelsParamsProvider(::std::string::String);
+impl ::std::ops::Deref for ExecutorSetupModelsParamsProvider {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorSetupModelsParamsProvider> for ::std::string::String {
+    fn from(value: ExecutorSetupModelsParamsProvider) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorSetupModelsParamsProvider {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorSetupModelsParamsProvider {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorSetupModelsParamsProvider {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`Hello`
@@ -6146,6 +6958,352 @@ impl ::std::convert::TryFrom<&str> for PluginRemoveParamsId {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PluginRemoveParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectStrategyGetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "repo"
+///  ],
+///  "properties": {
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectStrategyGetParams {
+    pub repo: ProjectStrategyGetParamsRepo,
+}
+///`ProjectStrategyGetParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectStrategyGetParamsRepo(::std::string::String);
+impl ::std::ops::Deref for ProjectStrategyGetParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectStrategyGetParamsRepo> for ::std::string::String {
+    fn from(value: ProjectStrategyGetParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectStrategyGetParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectStrategyGetParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectStrategyGetParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectStrategyListParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectStrategyListParams {}
+impl ::std::default::Default for ProjectStrategyListParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`ProjectStrategyRemoveParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expect_rev",
+///    "repo"
+///  ],
+///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectStrategyRemoveParams {
+    pub expect_rev: i64,
+    pub repo: ProjectStrategyRemoveParamsRepo,
+}
+///`ProjectStrategyRemoveParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectStrategyRemoveParamsRepo(::std::string::String);
+impl ::std::ops::Deref for ProjectStrategyRemoveParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectStrategyRemoveParamsRepo> for ::std::string::String {
+    fn from(value: ProjectStrategyRemoveParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectStrategyRemoveParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectStrategyRemoveParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectStrategyRemoveParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectStrategySetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "executors",
+///    "expect_rev",
+///    "repo"
+///  ],
+///  "properties": {
+///    "executors": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 128,
+///        "minLength": 1
+///      },
+///      "minItems": 1
+///    },
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectStrategySetParams {
+    pub executors: ::std::vec::Vec<ProjectStrategySetParamsExecutorsItem>,
+    pub expect_rev: i64,
+    pub repo: ProjectStrategySetParamsRepo,
+}
+///`ProjectStrategySetParamsExecutorsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectStrategySetParamsExecutorsItem(::std::string::String);
+impl ::std::ops::Deref for ProjectStrategySetParamsExecutorsItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectStrategySetParamsExecutorsItem> for ::std::string::String {
+    fn from(value: ProjectStrategySetParamsExecutorsItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectStrategySetParamsExecutorsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectStrategySetParamsExecutorsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectStrategySetParamsExecutorsItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectStrategySetParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectStrategySetParamsRepo(::std::string::String);
+impl ::std::ops::Deref for ProjectStrategySetParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectStrategySetParamsRepo> for ::std::string::String {
+    fn from(value: ProjectStrategySetParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectStrategySetParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectStrategySetParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectStrategySetParamsRepo {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -10715,6 +11873,9 @@ impl<'de> ::serde::Deserialize<'de> for TaskGetParamsId {
 ///{
 ///  "type": "object",
 ///  "properties": {
+///    "all": {
+///      "type": "boolean"
+///    },
 ///    "before": {
 ///      "type": "string",
 ///      "maxLength": 128,
@@ -10763,6 +11924,8 @@ impl<'de> ::serde::Deserialize<'de> for TaskGetParamsId {
 #[serde(deny_unknown_fields)]
 pub struct TaskListParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub all: ::std::option::Option<bool>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub before: ::std::option::Option<TaskListParamsBefore>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub executor: ::std::option::Option<TaskListParamsExecutor>,
@@ -10778,6 +11941,7 @@ pub struct TaskListParams {
 impl ::std::default::Default for TaskListParams {
     fn default() -> Self {
         Self {
+            all: Default::default(),
             before: Default::default(),
             executor: Default::default(),
             limit: Default::default(),
@@ -11127,6 +12291,117 @@ impl ::std::convert::TryFrom<&str> for TaskLogParamsId {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for TaskLogParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`TaskPruneParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "dry_run": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TaskPruneParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub dry_run: ::std::option::Option<bool>,
+}
+impl ::std::default::Default for TaskPruneParams {
+    fn default() -> Self {
+        Self {
+            dry_run: Default::default(),
+        }
+    }
+}
+///`TaskRestoreParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TaskRestoreParams {
+    pub id: TaskRestoreParamsId,
+}
+///`TaskRestoreParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TaskRestoreParamsId(::std::string::String);
+impl ::std::ops::Deref for TaskRestoreParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TaskRestoreParamsId> for ::std::string::String {
+    fn from(value: TaskRestoreParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TaskRestoreParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskRestoreParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TaskRestoreParamsId {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
