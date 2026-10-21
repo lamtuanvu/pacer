@@ -232,3 +232,23 @@ A fixture baseline that failed before becoming ready has a separate constrained 
 ### Certificate-signed fixtures
 
 `bun run live ota build --id <id> --signer cert` signs both fixture versions with a disposable self-signed code-signing certificate instead of ad hoc signatures. The certificate's SHA-1 is compiled into the fixture lease, so every native check also pins it, as an interim release build pins the project certificate. The private keychain is deleted after the build. Use it to exercise the interim signer's requirement strings end to end (`upgrade`, `startup-failure`, `adopt`). Cleanup diagnostics for a failed startup are unavailable for certificate-signed fixtures. A disposable certificate is not evidence for the release certificate, CI signing, Gatekeeper or the first-install flow.
+
+## Agent control commands
+
+The harness exposes a single JSON contract for `web`, browser `tray`, `tui` and
+native `desktop` targets through `targets`, `inspect`, `act`, `wait`, `assert`,
+`capture`, `scenario` and `doctor`. Actions carry target generations and revisions;
+coordinate input additionally carries a recent capture ID. Delivered or uncertain
+actions attempt an automatic evidence capture and are never repeated implicitly.
+
+The ordinary desktop app registers an authenticated capture worker and reports its
+owned main/tray window IDs. Window captures may fall back to an explicitly labelled
+external capture; content captures never substitute a different surface.
+
+Native macOS input and VoiceOver checks require Accessibility and screen recording
+permission. `live doctor --surface desktop --request-accessibility --json`, or
+**Settings → Diagnostics → Enable native checks**, opens System Settings and a
+draggable hosting-app chip. The chip follows the selected Settings window without
+AX access, remains visible across focus changes, and verifies a read of the exact
+owned desktop window before setup succeeds. Missing native or speech evidence is
+reported as UNVERIFIED.

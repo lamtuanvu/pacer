@@ -1,5 +1,6 @@
 // unknown_op is an API-layer code carried by CoreError for surface mapping.
 export type CoreErrorCode = "unknown_op" | "unknown_task" | "invalid_input" | "unknown_executor" | "conflict" | "not_allowed"
+  | "not_found" | "too_large"
   | "plugin_timeout" | "plugin_unavailable" | "plugin_refused" | "capability_denied" | "unknown_plugin";
 
 /** The one error type core operations throw. Surfaces map `code` to exit codes, MCP errors or HTTP statuses. */

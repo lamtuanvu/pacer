@@ -390,3 +390,16 @@ Unsigned development builds and explicit `ota-fixture` builds cannot qualify for
 the production feed. The release-only fixture driver exercises real Tauri artifact
 signatures and local Git promotion using data-only packages; it does not exercise
 native installation or notarization.
+
+## Owned-window diagnostics
+
+Ordinary desktop builds register an authenticated capture worker for the main and
+tray windows. Window mode captures native window paint; content mode snapshots the
+WKWebView without window chrome. The live harness validates the exact process,
+window and application hash before retaining evidence.
+
+On macOS, **Settings → Diagnostics → Enable native checks** opens the relevant
+System Settings page and docks a compact draggable hosting-app chip at the bottom
+of its permission list. The chip follows that window and remains available while
+focus moves back to the agent. The helper reports success only after it can read an
+exact owned Pacer window; it never grants the permission or changes the OS toggle.

@@ -62,3 +62,12 @@ test('operations added after 2.8.0 stay out of the frozen 2.x surface',async()=>
  expect(v2OpJsonSchemas()['task.takeover']).toBeUndefined();
  await expect(callV2Op(fakeCtx(),'task.takeover',{id:'t-x'})).rejects.toMatchObject({code:'unknown_op'});
 });
+
+test('desktop capture stays on v3 and does not change v2 client registration',async()=>{
+ const {v2Hello,callV2Op,v2OpJsonSchemas}=await import('../src/api/v2-compat');
+ const {fakeCtx}=await import('./helpers');
+ expect(v2Hello().ops).not.toContain('desktop.capture.request');
+ expect((v2OpJsonSchemas()['client.register'].params as {properties:Record<string,unknown>}).properties).not.toHaveProperty('capture');
+ const registration=await callV2Op(fakeCtx(),'client.register',{kind:'desktop',version:'test',capture:true});
+ expect(registration).not.toHaveProperty('capture_worker');
+});

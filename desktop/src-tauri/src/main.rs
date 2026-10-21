@@ -4,11 +4,13 @@ macro_rules! desktop_log {
 }
 mod actions;
 mod approvals;
+mod capture;
 mod client;
 mod link;
 mod logging;
 mod logic;
 mod notifications;
+mod permission_setup;
 mod profile;
 mod tray_model;
 mod update_journal;
@@ -32,6 +34,14 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_notification::{Action, ActionType};
 use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
+
+#[tauri::command]
+async fn native_validation_setup(window: WebviewWindow, app: AppHandle) -> Result<permission_setup::SetupResult, String> {
+    authorized(&window, &app)?;
+    let result = permission_setup::request().await?;
+    authorized(&window, &app)?;
+    Ok(result)
+}
 
 struct Shell {
     #[cfg(feature = "ota-fixture")]
@@ -637,7 +647,8 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-notifyRoute")
                 .permission("allow-session-expired")
                 .permission("allow-session-ready")
-                .permission("allow-desktop-version"),
+                .permission("allow-desktop-version")
+                .permission("allow-native-validation-setup"),
         )
         .map_err(|e| e.to_string())?;
         app.add_capability(
@@ -935,6 +946,7 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
 }
 
 fn main() {
+    capture::initialize_build_identity();
     // Build smoke checks run before GUI initialization or service discovery.
     match std::env::args().nth(1).as_deref() {
         Some("--version") => {
@@ -1045,7 +1057,8 @@ fn main() {
             app_quit,
             session_expired,
             session_ready,
-            desktop_version
+            desktop_version,
+            native_validation_setup
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

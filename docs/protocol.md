@@ -43,6 +43,7 @@ HTTP route errors after authentication use `{ "error": { "code": "...", "message
 | `plugin_refused` | 422 |
 | `capability_denied` | 403 |
 | `unknown_plugin` | 404 |
+| `not_found` | 404 |
 
 Missing or invalid HTTP tokens return 401 with the plain-text body `unauthorized`. A wrong HTTP verb returns 405 with `invalid_input`.
 
@@ -1093,6 +1094,219 @@ Params JSON Schema:
 ### `delegation.resume`
 
 Resume delegation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.claim`
+
+Claim the next capture for the authenticated desktop worker; worker credential comes from client.register capture=true.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "worker_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "windows": {
+      "maxItems": 2,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "enum": [
+              "main",
+              "tray"
+            ]
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "pid": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "label",
+          "window_id",
+          "pid"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "client_id",
+    "worker_token"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.complete`
+
+Report a failed capture. Successful PNG bytes use the bounded authenticated image upload route.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "worker_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "error": {
+      "type": "string",
+      "enum": [
+        "permission_denied",
+        "window_unavailable",
+        "unsupported_platform",
+        "capture_failed",
+        "capture_timeout"
+      ]
+    }
+  },
+  "required": [
+    "request_id",
+    "worker_token",
+    "error"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.register`
+
+Renew a capture worker credential for an existing connected desktop instance after expiry or recovery.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "worker_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "client_id",
+    "worker_token"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.request`
+
+Request a capture of an owned desktop main or tray window; poll desktop.capture.result.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "window": {
+      "type": "string",
+      "enum": [
+        "main",
+        "tray"
+      ]
+    },
+    "mode": {
+      "default": "window",
+      "type": "string",
+      "enum": [
+        "window",
+        "content"
+      ]
+    },
+    "window_id": {
+      "type": "string",
+      "pattern": "^[0-9]{1,20}$"
+    }
+  },
+  "required": [
+    "client_id",
+    "window",
+    "mode"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.result`
+
+Read capture status/metadata; completed PNG is at /v3/desktop/capture/<request_id>/image with normal authentication.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.targets`
+
+List owned windows reported by connected authenticated desktop capture workers.
 
 Params JSON Schema:
 
@@ -3903,6 +4117,14 @@ TypeScript clients in this repository use `ApiClient` from `src/api/client.ts`. 
 The Orca plugin worker continues to read the compatibility v2 API over HTTP when `pacer serve` is running, otherwise through a `pacer api --stdio` child; it registers as a notifier and delivers targeted service notifications. If no API is available, the panel shows “Update the pacer plugin” with `pacer update`. Use `pacer open` or the TUI for actions.
 
 HTTP `subscribe` reconnects with `Last-Event-ID` to resume from the last seen event.
+
+## Desktop capture images
+
+Desktop clients enroll with `client.register` (`kind: desktop`, `capture: true`) and renew expired worker credentials through `desktop.capture.register` with their existing `worker_token` as instance proof. A public client ID alone cannot enroll or replace a worker. Proof is bound to the client instance and current service lifetime; a service restart requires fresh client registration. Workers claim queued requests with `desktop.capture.claim`.
+
+`POST /v3/desktop/capture/<request_id>/image` uploads PNG bytes after normal Host, bearer/cookie and Origin checks. Required headers are `X-Pacer-Capture-Worker`, `X-Pacer-Capture-Method`, `X-Pacer-Capture-Scale`, and `X-Pacer-Capture-Metadata` (JSON matching the capture metadata schema: method, scale, native window_id, pid, app_version, app_sha256, captured_at_ms, viewport_width and viewport_height). Metadata must identify the requested window and agree with decoded image geometry. Only one upload per claim may read at a time; duplicates return 409. Uploads expire after at most 10 seconds or the request deadline. PNGs are limited to 16 MiB compressed, 128 MiB decoded and 16384 pixels per dimension.
+
+`GET /v3/desktop/capture/<request_id>/image` downloads a completed PNG with `Cache-Control: no-store`; it uses the same normal authorization. Missing or expired images return `not_found` (404). Requests expire after 60 seconds; images expire after 30 seconds. Queue capacity is 16 and worker capacity is 64.
 
 ## Migration from 2.x
 

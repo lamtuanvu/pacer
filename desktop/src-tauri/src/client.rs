@@ -324,6 +324,10 @@ pub struct Session {
     service_version: Option<String>,
 }
 impl Session {
+    #[cfg(test)]
+    pub(crate) fn for_capture_test(client: Client, origin: String) -> Self {
+        Self { client, origin, service_version: None }
+    }
     pub async fn connect(cli: &Cli, auth: &Url) -> Result<Self, String> {
         // Use exactly the home passed to CLI discovery, including PACER_HOME overrides.
         let token = std::fs::read_to_string(cli.pacer_home.join("token"))
@@ -647,7 +651,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     {
         return Err("starting".into());
     }
-    let registration = session.op("client.register", &serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":true})).await?;
+    let registration = session.op("client.register", &serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":true,"capture":true})).await?;
     let client_id = registration["client_id"]
         .as_str()
         .ok_or("Missing client id")?
@@ -728,6 +732,14 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     let result = tokio::select! {
         result = listen(app, &session, &client_id, seq) => result,
         result = heartbeat(app, &session, &client_id) => result,
+        _ = async {
+            if let Some(token) = registration["capture_worker"].as_str() {
+                if crate::capture::worker(app, &session, &client_id, token).await.is_err() {
+                    desktop_log!("Desktop capture observer disconnected; normal service session remains active");
+                }
+            }
+            std::future::pending::<()>().await;
+        } => unreachable!(),
         _ = supervise_native(app, supervision) => Err("stopped".into()),
         _ = shell.expired.notified() => Err("sessionExpired".into()),
     };
