@@ -1,3 +1,4 @@
+import { beginWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
 import { resolvePolicyRepo } from "./project-policy";
 import { taskDiff, cleanTaskRuns } from "../tasks/diff";
 import { repoFs, cachedPath, withTimeout } from "./path-probe";
@@ -98,6 +99,7 @@ export async function ask(ctx: Ctx, id: string, text: string): Promise<TaskRecor
 }
 
 export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): TaskRecord {
+  const lease = input.admissionLease ?? beginWorkSync(ctx, { kind: "launch", id: "delegate", label: "Delegating task" });
   const create = () => {
     if (input.requestId) {
       const prior = listTasksWhere(ctx, { updatedSince: ctx.now - 600 }).find(t => t.requestId === input.requestId && ctx.now - t.createdAt >= 0 && ctx.now - t.createdAt <= 600);
@@ -107,14 +109,16 @@ export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = sp
       if (prior) return prior;
     }
     try {
-      const task = s ? apiDelegate(ctx, input, spawn, s) : apiDelegate(ctx, input, spawn);
+      const admitted = { ...input, admissionLease: lease };
+      const task = s ? apiDelegate(ctx, admitted, spawn, s) : apiDelegate(ctx, admitted, spawn);
       if (!input.retryOf) taskActivity(ctx, task, "task_started", `Delegated “${taskTitle(task)}” to ${executorName(task.executor ?? task.requestedExecutor)}`);
       return task;
     } catch (e) { throw toCoreError(e); }
   };
   // Delegate is synchronous for CLI/retry callers. This shares withLock's files;
   // hashing keeps arbitrary client request ids out of filesystem paths.
-  return input.requestId === undefined ? create() : withLockSync(ctx, `delegate-request-${createHash("sha256").update(input.requestId).digest("hex")}`, create);
+  try { return input.requestId === undefined ? create() : withLockSync(ctx, `delegate-request-${createHash("sha256").update(input.requestId).digest("hex")}`, create); }
+  finally { finishUnlaunchedWorkSync(ctx, lease); }
 }
 
 export async function wait(ctx: Ctx, id: string, timeoutS: number): Promise<TaskRecord> {
@@ -273,7 +277,8 @@ async function retryTask(
       answerBase = head.stdout.trim();
     }
   }
-  return withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
+  const lease = beginWorkSync(ctx, { kind: "launch", id, label: `Retrying task ${id}` });
+  try { return await withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
     checkRev(ctx, task, o.expectRev);
@@ -290,7 +295,7 @@ async function retryTask(
     const reuseWorktree = !answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined;
     const input: DelegateInput = {
       ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
-      repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
       ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
       ...(answering && (task.placement?.mode === "new" || task.run?.mode === "new") ? {worktree:"new" as const} : {}),
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
@@ -308,7 +313,7 @@ async function retryTask(
     const retried = readTask(ctx, next.id) ?? next;
     taskActivity(ctx, retried, "retry", `Delegated “${taskTitle(retried)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
     return { retry: retried, of };
-  }));
+  })); } finally { finishUnlaunchedWorkSync(ctx, lease); }
 }
 
 /** Re-delegate a brief; serializes with answers on the same task. */

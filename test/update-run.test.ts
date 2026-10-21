@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeRelease } from "../scripts/release/build";
 import { main } from "../src/cli";
+import { callOp } from "../src/api/ops";
+import { listJobs } from "../src/jobs/registry";
 import { releaseFetch } from "../src/update/fetch";
 import { type Platform, assetFile, hostPlatform } from "../src/update/manifest";
 import { type UpdateDeps, defaultUpdateDeps, parseUpdateArgs, runUpdate } from "../src/update/update";
@@ -298,7 +300,7 @@ test("Homebrew detection follows executable symlinks and honors configured prefi
   }
 });
 
-const appHint = "pacer came with the pacer app; update the app instead (download it again from https://github.com/lamtuanvu/pacer/releases/latest)";
+const appHint = "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
 
 for (const location of ["MacOS", "Resources"]) {
   for (const linked of [false, true]) {
@@ -403,4 +405,38 @@ test('update progress follows download, verification, replacement, refresh and r
  expect(events).toEqual([
   ['Download','running'],['Download','passed'],['Verify','running'],['Verify','passed'],['Replace','running'],['Replace','passed'],['Refresh integrations','running'],['Refresh integrations','passed'],['Restart','running','0.2.0']
  ]);
+});
+
+test("bundled CLI refuses direct and symlink self-updates before any side effect without install env", async () => {
+  const root = tmpDir(); release(root, "0.1.0");
+  const bundled = join(tmpDir(), "pacer.app/Contents/Resources/pacer");
+  mkdirSync(dirname(bundled), { recursive: true }); writeFileSync(bundled, script("0.1.0"));
+  const alias = join(tmpDir(), "pacer"); symlinkSync(bundled, alias);
+  for (const exec of [bundled, alias]) {
+    const calls: string[] = [];
+    const d = deps(root, exec, {
+      env: {}, fetch: async () => { calls.push("download"); throw Error("must not download"); },
+      migrateStrategy: () => { calls.push("strategy"); return []; },
+      refreshIntegrations: async () => { calls.push("integrations"); return []; },
+      restartService: async () => { calls.push("restart"); return true; },
+    });
+    const result = await runUpdate({ check: false }, d);
+    expect(result.code).toBe(2); expect(result.err).toContain("desktop"); expect(calls).toEqual([]);
+    expect(readFileSync(bundled, "utf8")).toBe(script("0.1.0"));
+    const checked = await runUpdate({ check: true }, deps(root, exec));
+    expect(checked.code).toBe(0); expect(checked.out).toContain("desktop");
+  }
+});
+
+
+test("update.apply refuses a bundled executable before creating a shared update job", async () => {
+  const ctx = fakeCtx(), bundled = join(tmpDir(), "pacer.app/Contents/Resources/pacer");
+  mkdirSync(dirname(bundled), { recursive: true }); writeFileSync(bundled, script("0.1.0"));
+  let calls = 0;
+  await expect(callOp(ctx, "update.apply", {}, {
+    update: { standalone: true, execPath: bundled },
+    runUpdate: async () => { calls++; return { code: 0, out: "", err: "" }; },
+  })).rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("desktop") });
+  expect(calls).toBe(0);
+  expect(listJobs(ctx)).toHaveLength(0);
 });

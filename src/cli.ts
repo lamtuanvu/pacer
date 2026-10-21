@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
+import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
+import { signerKind } from "./update/desktop/signer-requirement";
+import { currentVersion } from "./update/version";
 import { projectStrategyCmd } from "./commands/project-strategy";
 import { dashboardClient as connectTaskClient } from "./dashboard/client";
 import type { PruneResult } from "./tasks/retention";
@@ -332,7 +336,26 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
 
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
+  if (cmd === "--pacer-fixture-startup-cleanup" && compiledNativeFixture()) {
+    if (rest.length) return {code:2,out:"",err:"Fixture cleanup accepts no arguments"};
+    try {
+      const {reserveFixtureStartupCleanup}=await import("./update/desktop/native-fixture-cleanup");
+      return {code:0,out:JSON.stringify(await reserveFixtureStartupCleanup()),err:""};
+    } catch { return {code:2,out:"",err:"Fixture startup cleanup proof is unavailable"}; }
+  }
+  if (cmd === "--pacer-native-transport-test") {
+    if (rest.length) return {code:2,out:"",err:"Native transport smoke accepts no arguments"};
+    try {
+      const {nativeTransportSelfTest}=await import("./update/desktop/native-transport-test");
+      return {code:0,out:JSON.stringify(await nativeTransportSelfTest()),err:""};
+    } catch { return {code:2,out:"",err:"Verified native transport unavailable"}; }
+  }
   switch (cmd) {
+    case "--pacer-identity": {
+      if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-identity"};
+      const appleTeamId=compiledAppleTeamId(), signingCertSha1=compiledSigningCertSha1(), pins=compiledSignerPins();
+      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:"dev.pacer.cli",version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
+    }
     case "pause":
     case "resume": {
       if (rest.length !== (cmd === "pause" ? 1 : 0)) return {code: 2, out: "", err: `usage: pacer ${cmd === "pause" ? "pause <for>" : "resume"}`};

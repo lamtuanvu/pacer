@@ -1,3 +1,4 @@
+import { beginWorkSync, bindOrcaWorkSync, finishOrcaWorkSync, finishWorkSync, withWork } from "../update/desktop/admission";
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Ctx } from '../types';
@@ -29,12 +30,16 @@ export class BuiltinSessionHost implements SessionHost {
 export class OrcaSessionHost implements SessionHost {
  readonly id='orca';readonly capabilities={snapshot:false,control:false,record:false,resize:false};
  private client:OrcaClient;
- constructor(ctx:Ctx,private worker:OrcaWorkerEntry){this.client=new OrcaClient(ctx.run,ctx.env);}
+ private admission?:string;
+ constructor(private ctx:Ctx,private worker:OrcaWorkerEntry){this.client=new OrcaClient(ctx.run,ctx.env);}
  async start(spec:RunSpec & {worker?:WorkerStartOpts}):Promise<{pid:number}|{error:string}>{
   if(!spec.worker)return {error:'Orca sessions require the existing backend worker specification'};
-  const r=await this.client.workerStart(spec.worker);if(!r.ok)return {error:r.error.message};
+  this.admission=beginWorkSync(this.ctx,{kind:"session",id:this.worker.taskId,label:"Orca session"});
+  const r=await this.client.workerStart(spec.worker);if(!r.ok){if(r.error.code==="task_not_startable")finishWorkSync(this.ctx,this.admission);return {error:r.error.message};}
   if(!r.result.dispatchId)return {error:'Orca returned no dispatch id'};
-  this.worker.dispatchId=r.result.dispatchId;return {pid:0};
+  this.worker.dispatchId=r.result.dispatchId;
+  bindOrcaWorkSync(this.ctx,this.admission,{dispatchId:r.result.dispatchId,terminal:this.worker.terminal});
+  return {pid:0};
  }
  async read():Promise<RunState>{
   const r=await this.client.workerShow(this.worker.dispatchId);
@@ -42,7 +47,7 @@ export class OrcaSessionHost implements SessionHost {
   const state=r.result.worker?.state;const alive=!!state&&!['succeeded','failed','stopped','cancelled','released'].includes(state);
   return {pid:null,startedAt:this.worker.startedAt,exit:alive?null:state==='succeeded'?0:1,alive,stdoutBytes:0,stderrBytes:0,lastOutputAt:null};
  }
- async stop(_o:Parameters<RunIO['stop']>[0]){const r=await this.client.workerStop(this.worker.dispatchId);if(!r.ok)throw Error(r.error.message);return {code:143,killed:false};}
+ async stop(_o:Parameters<RunIO['stop']>[0]){const r=await this.client.workerStop(this.worker.dispatchId);if(!r.ok)throw Error(r.error.message);if(this.admission)finishOrcaWorkSync(this.ctx,this.admission,r);return {code:143,killed:false};}
  attachTarget():AttachTarget{return {kind:'orca',terminal:this.worker.terminal};}
 }
 export function sessionSocket(dir:string){try{return readFileSync(join(dir,'session.sock.path'),'utf8').trim();}catch{return join(dir,'session.sock');}}
@@ -84,6 +89,9 @@ export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTar
 }
 export function terminalSetting(ctx:Ctx):string|null{if(!hasDesktop(ctx))return null;try{const setting=loadStrategy(ctx).terminal?.open;return !setting||setting==='auto'?detectTerminal(ctx):setting;}catch{return detectTerminal(ctx);}}
 export async function openSession(ctx:Ctx,id:string,target:ViewerTarget):Promise<{opened:boolean;command?:string}>{
+ return withWork(ctx,{kind:"operation",id,label:"Opening session viewer"},()=>openSessionAdmitted(ctx,id,target));
+}
+async function openSessionAdmitted(ctx:Ctx,id:string,target:ViewerTarget):Promise<{opened:boolean;command?:string}>{
  const fallback={opened:false,command:attachCommand(id)};const info=await sessionInfo(ctx,id);
  if(!info.targets.includes(target)||target==='app'||target==='here')return fallback;
  try{

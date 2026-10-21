@@ -1,3 +1,5 @@
+import { desktopUpdateOps } from "./ops-desktop-update";
+import type { DesktopUpdateRuntime } from "../update/desktop/service";
 import { resolvePolicyRepoInput } from "../core/project-policy";
 import * as projectStrategies from "../core/project-strategies";
 import { pruneTasks, restoreTask } from "../tasks/retention";
@@ -49,6 +51,7 @@ import type { Ctx } from "../types";
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
+  desktopUpdates?: DesktopUpdateRuntime;
   onboardingRoute?: import("../onboarding/try").TryDeps["route"];
   snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
@@ -152,6 +155,7 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
 }
 
 export const OPS: Record<string, OpDef> = { ...sessionOps,
+  ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
     handler: ctx => projectStrategies.list(ctx),

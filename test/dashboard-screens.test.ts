@@ -435,6 +435,64 @@ describe("every Settings section wraps instead of clipping", () => {
   }
 });
 
+describe("desktop updates in Settings › Updates", () => {
+  test("show the desktop transaction and offer only advertised, confirmed actions", async () => {
+    const { desktopStatus } = await import("./fixtures/desktop-update/status");
+    const s = snapshot();
+    s.desktopUpdates = [desktopStatus({ phase: "ready", target: "0.2.4", actions: ["restart", "check", "configure"] })];
+    const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates", focus: "detail" } });
+    expect(text).toContain("0.2.3 → 0.2.4");
+    expect(text).toContain("Update ready");
+    expect(text).toContain("Download automatically");
+    const items = screenItems(s, s.at, { data: data(), state: { screen: "settings", section: "updates", focus: "detail" } });
+    const primary = items.find(item => item.id === "desktop:desktop-fixture")!.primary!;
+    expect(primary.confirm?.title).toContain("Restart to install 0.2.4");
+    expect(primary.effect).toMatchObject({ type: "action", action: { op: "desktop.update.restart", params: { installationId: "desktop-fixture", version: "0.2.4", expectRevision: 1 } } });
+    const limited = screenItems(s, s.at, { data: data(), ops: ["desktop.update.check"], state: { screen: "settings", section: "updates", focus: "detail" } });
+    expect(limited.find(item => item.id === "desktop:desktop-fixture")?.primary?.effect).toMatchObject({ action: { op: "desktop.update.check" } });
+  });
+});
+
+describe("desktop service adoption in the TUI", () => {
+  test("the confirmation and service rows show complete paths, service and port", async () => {
+    const { desktopStatus, adoptionStatus } = await import("./fixtures/desktop-update/status");
+    const { wrapPath } = await import("../src/dashboard/screens/settings");
+    const current = "/opt/homebrew/Cellar/pacer/0.2.3/libexec/bin/pacer-with-a-very-long-installation-directory-name/pacer";
+    const replacement = "/Applications/pacer.app/Contents/Resources/pacer";
+    const s = snapshot();
+    s.desktopUpdates = [desktopStatus({ ownership: "attached", actions: ["adopt"], adoption: adoptionStatus({ currentServiceExecutable: current, replacementServiceExecutable: replacement }) })];
+    const state = { screen: "settings" as const, section: "updates", focus: "detail" as const };
+    const text = renderDashboard(s, 80, 40, s.at, { theme: PLAIN_THEME, data: data(), state });
+    for (const line of wrapPath(current, 69)) expect(text).toContain(line);
+    // The first wrapped line must fit after "  Current: " without truncation.
+    expect(text).not.toMatch(/Current: [^\n]*…/);
+    const primary = screenItems(s, s.at, { data: data(), state }).find(item => item.id === "desktop:desktop-fixture")!.primary!;
+    expect(primary.confirm?.title).toBe("Use the desktop service?");
+    const body = primary.confirm!.body!.join("\n");
+    expect(body.replace(/\n\s*/g, "")).toContain(current);
+    expect(body).toContain(replacement);
+    expect(body).toMatch(/on port \d+/);
+    expect(wrapPath(current, 30).every(line => line.length <= 30)).toBe(true);
+    expect(wrapPath(current, 30).join("")).toBe(current);
+  });
+});
+test("the settings section list flags desktop update attention", async () => {
+  const { desktopStatus } = await import("./fixtures/desktop-update/status");
+  const s = snapshot();
+  s.desktopUpdates = [desktopStatus({ phase: "recovery-failed", actions: [] })];
+  const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates" } });
+  expect(text.split("\n").find(line => line.includes(" Updates"))).toContain("Updates failed");
+  s.desktopUpdates = [desktopStatus({ phase: "ready", target: "0.6.0", actions: ["restart"] })];
+  const waiting = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates" } });
+  expect(waiting.split("\n").find(line => line.includes(" Updates"))).toContain("Updates ready");
+  s.desktopUpdates = [desktopStatus({ phase: "restored", actions: [] })];
+  const restored = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates" } });
+  expect(restored.split("\n").find(line => line.includes(" Updates"))).toContain("Updates restored");
+  // No update action, no "u update" hint.
+  const idle = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates", focus: "detail" } });
+  expect(idle).not.toContain("u update");
+});
+
 test("Needs you includes problems and questions while successful work stays in Tasks",()=>{
  const s=snapshot();
  const items=screenItems(s,s.at,{state:{screen:"review"},data:data()});

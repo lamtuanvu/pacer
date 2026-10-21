@@ -29,7 +29,7 @@
 @media(max-width:700px){.u3-table-wrap{overflow:visible}.u3-table-wrap table{min-width:0;table-layout:fixed}.u3-table-wrap thead{display:none}.u3-table-wrap tbody,.u3-table-wrap tr{display:block}.u3-table-wrap tr{padding:var(--space-2);border-bottom:1px solid var(--line)}.u3-table-wrap td{display:block;border:0;overflow-wrap:anywhere}.u3-table-wrap td:first-child{font-weight:var(--type-body-strong-weight)}.u3-agent{flex-wrap:wrap}.u3-choices{grid-template-columns:minmax(0,1fr)}}
 .u3-reserve,.u3-fill{display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap}.u3-reserve input{flex:1;min-width:var(--size-80)}.u3-reserve output{font-weight:var(--type-body-strong-weight)}.u3-fill{font-size:var(--type-caption-size)}.u3-fill input{width:var(--size-64)}
 @media(max-width:700px){.u3-table-wrap td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);font-weight:var(--type-body-weight);margin-bottom:var(--space-1)}.u3-table-wrap td[data-label=Actions]::before{display:none}}
-.u3-nav-badge--bad{color:var(--bad-fg)}.u3-nav-badge--warn{color:var(--warn-fg)}
+.u3-nav-badge--bad{color:var(--bad-fg)}.u3-nav-badge--warn{color:var(--warn-fg)}.u3-nav-badge--info{color:var(--info-fg)}
 .u3-accounts-mode{display:flex;align-items:center;gap:var(--space-4);flex-wrap:wrap}.u3-fill:has(input:disabled){color:var(--ink-muted)}
 
 .pc-project-strategies { margin-top: var(--space-4); }
@@ -38,6 +38,12 @@
 .pc-project-row { padding-block: var(--space-3); border-bottom: 1px solid var(--line); }
 .pc-project-label { display: grid; gap: var(--space-1); margin-bottom: var(--space-2); }
 .pc-project-label strong { overflow-x: auto; white-space: nowrap; }
+.u3-desktop-update { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; padding-block: var(--space-4); }
+.u3-desktop-update + .u3-desktop-update { border-top: 1px solid var(--line); }
+.u3-release-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Service paths are long; the global code style keeps them on one line. */
+.u3-desktop-update code { white-space: pre-wrap; overflow-wrap: break-word; }
+.u3-desktop-update:focus-visible { outline: var(--stroke-focus) solid var(--focus); outline-offset: var(--stroke-focus); border-radius: var(--radius-sm); }
 
 /* Settings pages share a bounded canvas and one aligned label/control grammar. */
 .u3-settings{width:100%;max-width:var(--size-960);margin:0 auto;padding:var(--space-6);box-sizing:border-box}

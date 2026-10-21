@@ -34,8 +34,7 @@ test("desktop release builds every OS and architecture from the matching CLI art
   expect(desktop).toBeDefined();
   expect(desktop.needs).toEqual(["verify", "build"]);
   expect(desktop.strategy?.matrix.include).toEqual([
-    { runner: "macos-latest", target: "aarch64-apple-darwin", platform: "darwin-arm64", cli_artifact: "binaries-macos-latest", bundles: "dmg" },
-    { runner: "macos-latest", target: "x86_64-apple-darwin", platform: "darwin-x64", cli_artifact: "binaries-macos-latest", bundles: "dmg" },
+    // macOS ships only the signed, auto-updating app from desktop-build.
     { runner: "ubuntu-24.04", target: "x86_64-unknown-linux-gnu", platform: "linux-x64", cli_artifact: "binaries-ubuntu-latest", bundles: "appimage,deb" },
     { runner: "ubuntu-24.04-arm", target: "aarch64-unknown-linux-gnu", platform: "linux-arm64", cli_artifact: "binaries-ubuntu-latest", bundles: "appimage,deb" },
   ]);
@@ -56,8 +55,6 @@ test("desktop release builds every OS and architecture from the matching CLI art
 test("desktop bundle collection gives all downloads versioned unsigned names", () => {
   expect(jobs.desktop).toBeDefined();
   for (const [target, platform, bundles] of [
-    ["aarch64-apple-darwin", "darwin-arm64", ["dmg"]],
-    ["x86_64-apple-darwin", "darwin-x64", ["dmg"]],
     ["x86_64-unknown-linux-gnu", "linux-x64", ["appimage", "deb"]],
     ["aarch64-unknown-linux-gnu", "linux-arm64", ["appimage", "deb"]],
   ] as const) {
@@ -82,7 +79,7 @@ test("desktop bundle collection gives all downloads versioned unsigned names", (
 test("publish includes desktop downloads in checksums, provenance and release assets, including dry runs", () => {
   const publish = jobs.publish;
   expect(publish.needs).toContain("desktop");
-  const downloadIndex = publish.steps.findIndex(s => s.with?.pattern === "desktop-*");
+  const downloadIndex = publish.steps.findIndex(s => s.with?.pattern === "desktop-linux-*-unsigned");
   expect(downloadIndex).toBeGreaterThan(-1);
   const download = publish.steps[downloadIndex];
   expect(download.if).toBeUndefined();
@@ -94,8 +91,7 @@ test("publish includes desktop downloads in checksums, provenance and release as
   mkdirSync(dir, { recursive: true });
   const cliSum = `${"a".repeat(64)}  pacer-darwin-arm64\n`;
   writeFileSync(join(dir, "SHA256SUMS"), cliSum);
-  const files = ["pacer-1.2.3-darwin-arm64-unsigned.dmg", "pacer-1.2.3-darwin-x64-unsigned.dmg",
-    "pacer-1.2.3-linux-x64-unsigned.AppImage", "pacer-1.2.3-linux-x64-unsigned.deb",
+  const files = ["pacer-1.2.3-linux-x64-unsigned.AppImage", "pacer-1.2.3-linux-x64-unsigned.deb",
     "pacer-1.2.3-linux-arm64-unsigned.AppImage", "pacer-1.2.3-linux-arm64-unsigned.deb"];
   for (const file of files) writeFileSync(join(dir, file), file);
   expect(run(step("Add desktop checksums"), root, { VERSION: "1.2.3" }).exitCode).toBe(0);

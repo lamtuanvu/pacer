@@ -1,3 +1,4 @@
+import { withWork } from "../update/desktop/admission";
 import { repoFs, withTimeout } from "../core/path-probe";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -45,6 +46,9 @@ export function parseOpencodeSessions(text: string, taskId: string): string | un
   } catch { return undefined; }
 }
 export async function takeoverTask(ctx: Ctx, id: string, by?: string) {
+  return withWork(ctx, { kind: "operation", id, label: `Taking over task ${id}` }, () => takeoverTaskAdmitted(ctx, id, by));
+}
+async function takeoverTaskAdmitted(ctx: Ctx, id: string, by?: string) {
   validateTaskId(id);
   let task = readTask(ctx, id);
   if (!task) throw new CoreError("unknown_task", `unknown task ${id}`);

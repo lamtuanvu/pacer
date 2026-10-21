@@ -82,7 +82,9 @@ test("Starting pacer shows a subtle spinner that stops for reduced motion", asyn
   expect(html).toContain('id="spinner"');
   expect(css).toMatch(/\.spinner\s*\{[^}]*animation:\s*pacer-spin/);
   expect(css).toMatch(/prefers-reduced-motion:\s*reduce\)\s*\{\s*\.spinner\s*\{[^}]*animation:\s*none/);
-  expect(js).toContain("document.querySelector('#spinner').hidden = permission || Boolean(pages[detail.page]);");
+  // Progress pages (installing, rolling back) keep the spinner; the other pages stop it.
+  expect(js).toContain("document.querySelector('#spinner').hidden = permission || (Boolean(pages[detail.page]) && !progress.includes(detail.page));");
+  expect(js).toMatch(/progress\s*=\s*\[[^\]]*'installing'[^\]]*'rollingBack'/);
 });
 
 
@@ -219,4 +221,44 @@ test("relink offers recreation and a dismissal for this launch", () => {
   page.render({ page: "starting" });
   expect(page.element("#relink").hidden).toBe(true);
   expect(page.element("#spinner").hidden).toBe(false);
+});
+
+test("OTA fallback pages distinguish installation, rollback, restored and failed recovery without private errors", () => {
+  const copy = {
+    installing: "Installing update", rollingBack: "Restoring the previous version",
+    restored: "Previous version restored", recoveryFailed: "Recovery needs attention",
+  };
+  for (const [state, title] of Object.entries(copy)) {
+    const page = shell(`?state=${state}`); page.render({ page: state, error: "private-path-and-nonce" });
+    expect(page.element("h1").textContent).toBe(title);
+    expect(page.element("#message").textContent).not.toContain("private-path-and-nonce");
+    expect(page.element("#privacy").hidden).toBe(true); expect(page.element("#install-help").hidden).toBe(true);
+  }
+  expect(shell("?state=restored").element("#message").textContent).toBe("The update couldn't start. Your previous version has been restored.");
+  expect(shell("?state=recoveryFailed").element("#message").textContent).not.toContain("has been restored");
+  // The tray popover has no report button, so its text names where to report.
+  expect(shell("?state=recoveryFailed&compact=1").element("#message").textContent).toContain("report the problem at github.com/lamtuanvu/pacer/issues.");
+  expect(shell("?state=recoveryFailed").element("#message").textContent).not.toContain("github.com");
+});
+
+test("reduced motion keeps a visible static spinner arc and the report action is centred", async () => {
+  const css = await Bun.file("desktop/ui/shell.css").text();
+  expect(css).not.toMatch(/prefers-reduced-motion:\s*reduce\)\s*\{\s*\.spinner\s*\{[^}]*border-top-color/);
+  expect(css).toMatch(/\.actions--center\s*\{\s*justify-content:\s*center/);
+});
+
+test("fixture shell excludes the production global singleton socket before registering plugins",()=>{
+ const source=readFileSync(new URL("../desktop/src-tauri/src/main.rs",import.meta.url),"utf8");
+ expect(source).toMatch(/#\[cfg\(not\(feature\s*=\s*"ota-fixture"\)\)\]\s*let app = app\.plugin\(tauri_plugin_single_instance::init/);
+ expect(source).toContain('identity["fixtureIsolationProtocol"] = serde_json::json!(1)');
+});
+
+test("fixture shell isolates webview storage and excludes global OS integrations",()=>{
+ const source=readFileSync(new URL("../desktop/src-tauri/src/main.rs",import.meta.url),"utf8");
+ expect((source.match(/\.incognito\(cfg!\(feature\s*=\s*"ota-fixture"\)\)/g)??[])).toHaveLength(3);
+ expect(source).toMatch(/#\[cfg\(not\(feature\s*=\s*"ota-fixture"\)\)\]\s*let app = app\s*\.plugin\(tauri_plugin_deep_link/);
+ expect(source).toContain('fn launch_at_login(_app: &AppHandle, _enabled: bool)');
+ expect(source).toContain('Launch at login is unavailable in isolated fixtures');
+ expect(source).toMatch(/#\[cfg\(not\(feature\s*=\s*"ota-fixture"\)\)\]\s*\{\s*let links = handle.clone/);
+ expect(source).toContain('fn notify(_app: &AppHandle, _notification: notifications::Notification) {}');
 });

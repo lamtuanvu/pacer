@@ -3,7 +3,7 @@
 a.pc-btn{text-decoration:none}
 .pc-btn:hover{background:var(--surface-lane)}
 .pc-btn:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
-.pc-btn:disabled{opacity:.5;cursor:not-allowed}
+.pc-btn:disabled,.pc-btn[aria-disabled=true]{opacity:.5;cursor:not-allowed}
 .pc-btn--md{min-height:var(--control-normal);padding:0 var(--space-4);border-radius:var(--radius-lg)}
 .pc-btn--sm{min-height:var(--control-compact);padding:0 var(--space-3);font-size:var(--type-caption-size)}
 .pc-btn--primary{background:var(--ink);border-color:var(--ink);color:var(--ink-on-ink);font-weight:var(--type-body-strong-weight)}

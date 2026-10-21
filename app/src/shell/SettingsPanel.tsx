@@ -1,3 +1,4 @@
+import { desktopUpdateIndicator } from "../../../src/view-model/updates";
 import { SETTINGS_PAGES } from '../settings-pages';
 import { Icon, type IconName } from '../ds/icons';
 import { TextAction } from "../ds/Button";
@@ -11,14 +12,15 @@ import { withQuery, type Route } from "../router";
 export function SettingsPanel({ route, counts, snapshot, badges = {} }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null; badges?: Record<string, string | number> }) {
   const hosts = snapshot?.hosts ? snapshot.hosts.filter(host => host.state === "needs_setup").length : counts?.hostsWithProblems ?? 0;
   const down = snapshot?.executors?.filter(e => e.state === "down" || e.state === "failing").length ?? 0;
-  badges = { ...badges, ...(snapshot?.accounts ? {accounts:snapshot.accounts.length} : {}), executors:down ? `${down} down` : "" };
-  const item = (href: string, label: string, on: boolean, badge: string | number = "", tone = "neutral", icon: IconName = "settings") =>
-    <TextAction className={`pc-panel__item${on ? " on" : ""}`} href={withQuery(href, route.query)} aria-current={on ? "page" : undefined}><Icon name={icon}/>{label}{badge !== "" && <span className={`pc-rail__badge pc-rail__badge--${tone}`} aria-label={String(badge)}>{badge}</span>}</TextAction>;
+  const update = desktopUpdateIndicator(snapshot?.desktopUpdates);
+  badges = { ...badges, updates: update?.glyph ?? "", ...(snapshot?.accounts ? {accounts:snapshot.accounts.length} : {}), executors:down ? `${down} down` : "" };
+  const item = (href: string, label: string, on: boolean, badge: string | number = "", tone = "neutral", icon: IconName = "settings", badgeLabel = String(badge)) =>
+    <TextAction className={`pc-panel__item${on ? " on" : ""}`} href={withQuery(href, route.query)} aria-current={on ? "page" : undefined}><Icon name={icon}/>{label}{badge !== "" && <span className={`pc-rail__badge pc-rail__badge--${tone}`} aria-label={badgeLabel} title={badgeLabel}>{badge}</span>}</TextAction>;
   return <aside className="pc-panel" aria-label="Settings">
     {SETTINGS_PAGES.map(({ id, label, icon }) => {
       const on = id === 'hosts' ? route.name === 'hosts' : id === 'add-executor' ? route.name === 'add-executor' : route.name === 'settings' && (route.section ?? '') === id;
       const badge = id === 'hosts' ? (hosts ? `${hosts} needs setup` : '') : badges[id] ?? '';
-      return item(`#/settings${id ? `/${id}` : ''}`, label, on, badge, id === 'hosts' ? 'warn' : id === 'executors' ? 'bad' : 'neutral', icon);
+      return item(`#/settings${id ? `/${id}` : ''}`, label, on, badge, id === 'hosts' ? 'warn' : id === 'executors' ? 'bad' : id === 'updates' && update && ['bad', 'warn', 'info'].includes(update.tone) ? update.tone : 'neutral', icon, id === 'updates' ? update?.label : undefined);
     })}
   </aside>;
 }

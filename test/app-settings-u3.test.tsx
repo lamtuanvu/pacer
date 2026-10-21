@@ -1,3 +1,4 @@
+import { desktopStatus } from "./fixtures/desktop-update/status";
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { expect, test } from 'bun:test';
 import { clock } from "../src/view-model/format";
@@ -242,4 +243,21 @@ test('eligible executors retain recent task failures separately from their passe
  expect(failedCheck).toContain('Failing');
  expect(failedCheck).toContain('Failed');
  expect(failedCheck).not.toContain('Recent task failures');
+});
+
+test('paged Updates keeps OTA controls, service identity and navigation status together', () => {
+ const status = desktopStatus({current:'0.3.1',phase:'ready',target:'0.5.0',actions:['restart']});
+ const updated = {...state,connected:true,version:'0.4.0',features:{readModel:true,ops:new Set(['desktop.update.restart'])},snapshot:{...state.snapshot,desktopUpdates:[status]}};
+ const html=render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.4.0',latest:'0.5.0',available:true}}}/>,updated);
+ expect(html).toContain('pacer desktop · 0.3.1');
+ expect(html).toContain('Service 0.4.0');
+ expect(html).toContain('Restart to update');
+ expect(html).not.toContain('Update service and restart');
+ expect(html).not.toContain('Pacing policy');
+ const panel=renderToString(<SettingsPanel route={{name:'settings',section:'updates',query:{repo:null,scope:null}}} counts={null} snapshot={updated.snapshot}/>);
+ expect(panel).toContain('aria-label="Update ready"');
+ expect(panel).toContain('>↑</span>');
+ expect(panel).toContain('pc-rail__badge--info');
+ expect(panel).toContain('title="Update ready"');
+ expect(panel.match(/aria-current="page"/g)).toHaveLength(1);
 });

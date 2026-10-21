@@ -22,6 +22,9 @@ jobs:
         run: |
           rustup show active-toolchain
           echo "RUSTUP_TOOLCHAIN=$(rustup show active-toolchain | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+      - name: Install root dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
       - name: Install desktop CLI
         run: bun install --frozen-lockfile
       - name: Install pacer CLI dependencies
@@ -37,8 +40,22 @@ jobs:
         env:
           CARGO_NET_OFFLINE: 'true'
         run: bunx --no-install tauri build --bundles app --no-sign
-      - name: Archive app preserving bundle metadata
-        run: ditto -c -k --sequesterRsrc --keepParent src-tauri/target/release/bundle/macos/pacer.app pacer-macos-unsigned.zip
+      - name: Build update helper offline
+        run: cargo build --offline --locked --release --manifest-path src-tauri/Cargo.toml --bin pacer-update-helper
+      - name: Stage complete unsigned package
+        working-directory: .
+        run: |
+          bun run release --host
+          VERSION=$(bun -p 'require("./package.json").version')
+          RELEASE_DIR="dist/release/$VERSION"
+          cp -R desktop/src-tauri/target/release/bundle/macos/pacer.app "$RELEASE_DIR/pacer.app"
+          cp desktop/src-tauri/target/release/pacer-update-helper "$RELEASE_DIR/pacer-update-helper"
+          ARCH=$(uname -m)
+          if [ "$ARCH" = arm64 ]; then ARCH=aarch64; fi
+          STAGE=$(bun scripts/release/desktop.ts "$RELEASE_DIR" "$ARCH")
+          echo "STAGED_APP=$STAGE/pacer.app" >> "$GITHUB_ENV"
+      - name: Archive complete app preserving bundle metadata
+        run: ditto -c -k --sequesterRsrc --keepParent "$STAGED_APP" pacer-macos-unsigned.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pacer-macos-unsigned

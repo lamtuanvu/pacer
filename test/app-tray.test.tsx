@@ -159,13 +159,14 @@ test("primary op action posts the item's exact params with the app client header
   const prior = globalThis.fetch;
   let request: { url: string; init?: RequestInit } | undefined;
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).endsWith("/hello")) return Response.json({ protocol: "3.0.0", pacer: "0.2.3", ops: [], events: [] });
     request = { url: String(url), init };
     return Response.json({ result: {} });
   }) as typeof fetch;
   try {
     const item = fixture().attention![0]!;
     await performAction(item.actions[0]!, createApi(), ipc);
-    expect(request?.url).toBe("/v2/ops/task.retry");
+    expect(request?.url).toBe("/v3/ops/task.retry");
     expect(request?.init?.method).toBe("POST");
     expect(request?.init?.credentials).toBe("same-origin");
     expect(new Headers(request?.init?.headers).get("X-Pacer-Client")).toBe("app");
