@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Companion-aware bridge updater: validates and verifies `pacer-core` release assets, stages and smoke-tests both executables, installs the core first, and rolls it back if replacing `pacer` fails. Manifests without companions keep the existing single-binary behavior. The bridge remains a single Bun binary.
+
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.
 - Native permission setup in desktop Diagnostics: a draggable hosting-app chip docks to System Settings, with a Finder alternative, cancellation and owned-window access verification.
 

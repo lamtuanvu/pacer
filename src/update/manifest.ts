@@ -5,7 +5,8 @@ export type ReleaseOs = "darwin" | "linux";
 export type ReleaseArch = "arm64" | "x64";
 export interface Platform { os: ReleaseOs; arch: ReleaseArch }
 export interface Target extends Platform { bunTarget: string }
-export interface ReleaseAsset extends Platform { file: string; sha256: string; size: number }
+export interface Companion { name: "pacer-core"; file: string; sha256: string; size: number }
+export interface ReleaseAsset extends Platform { file: string; sha256: string; size: number; companions?: Companion[] }
 export interface Manifest { version: string; assets: ReleaseAsset[] }
 
 /** Release platforms, in manifest order. Names verified against Bun 1.4.2 Bun.Build.CompileTarget. */
@@ -18,6 +19,10 @@ export const TARGETS: Target[] = [
 
 export function assetFile(p: Platform): string {
   return `pacer-${p.os}-${p.arch}`;
+}
+
+export function companionFile(p: Platform): string {
+  return `pacer-core-${p.os}-${p.arch}`;
 }
 
 /** Maps Node-style platform/arch names to a release platform; null when there is no build for it. */
@@ -88,7 +93,21 @@ export function parseManifest(raw: unknown): Manifest {
       if (x.file !== file) p.push(`assets[${i}]: file must be "${file}" (got ${JSON.stringify(x.file ?? null)})`);
       if (!shaOk) p.push(`assets[${i}]: sha256 must be 64 lowercase hex characters`);
       if (!sizeOk) p.push(`assets[${i}]: size must be a positive integer`);
-      if (x.file === file && shaOk && sizeOk) assets.push({ os: plat.os, arch: plat.arch, file, sha256: x.sha256 as string, size: x.size as number });
+      const companions: Companion[] = [];
+      if (x.companions !== undefined) {
+        if (!Array.isArray(x.companions)) p.push(`assets[${i}].companions must be a list`);
+        else x.companions.forEach((value: unknown, j: number) => {
+          const c = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+          const location = `assets[${i}].companions[${j}]`;
+          if (c.name !== "pacer-core") p.push(`${location}: unknown companion name`);
+          if (c.file !== companionFile(plat)) p.push(`${location}: file must be "${companionFile(plat)}"`);
+          if (typeof c.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(c.sha256)) p.push(`${location}: sha256 must be 64 lowercase hex characters`);
+          if (typeof c.size !== "number" || !Number.isSafeInteger(c.size) || c.size <= 0) p.push(`${location}: size must be a positive integer`);
+          if (j > 0) p.push(`${location}: duplicate companion`);
+          companions.push(c as unknown as Companion);
+        });
+      }
+      if (x.file === file && shaOk && sizeOk) assets.push({ os: plat.os, arch: plat.arch, file, sha256: x.sha256 as string, size: x.size as number, ...(x.companions === undefined ? {} : { companions }) });
     });
   }
   if (p.length) throw new ReleaseError(`invalid manifest.json: ${p.join("; ")}`);
