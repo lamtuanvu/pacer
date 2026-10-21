@@ -58,7 +58,7 @@ test("missing Orca folder keeps usage visible but excludes the runner from routi
   const status = await computeStatus(ctx, s, {profile: null, readings});
   expect(status.accounts.find(a => a.name === "managed")).toBeDefined();
   expect(status.executors.ranked.some(r => r.id === "codex#managed")).toBe(false);
-  expect(status.executors.excluded).toContainEqual({id: "codex#managed", account: "managed", reason: "account folder not found"});
+  expect(status.executors.excluded).toContainEqual(expect.objectContaining({id: "codex#managed", account: "managed", reason: "account folder not found"}));
 });
 
 test.each([

@@ -27,8 +27,8 @@ export function v2Hello() {
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;
  return {generatedAt:s.at,strategy:s.strategies.flatMap(x=>typeof x!=='string'&&x.active?[x.name]:[])[0]??'default',planner:s.planner.runner,mode:s.planner.mode,
- providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {id:e.id,agent:e.agent,account:e.account,verdict:a?.verdict??'UNKNOWN',usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
- ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN'}))};
+ providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {...(e.eligibility?{eligibility:e.eligibility}:{}),id:e.id,agent:e.agent,account:e.account,verdict:a?.verdict??'UNKNOWN',usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
+ ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN'}))};
 }
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);

@@ -98,7 +98,10 @@ export async function probeClaudeHandlers(): Promise<Check> {
     const status: Status = { generatedAt: 0, strategy: "doctor-fixture", planner: "claude-code", mode: "normal", disabled: false,
       paused: null, modeHold: null, calendarPace: true,
       providers: [{ id: "claude-code", usage: "quota", windows: [], binding: null, verdict: "OK", installed: true, stale: false }],
-      executors: { ranked: [{ id: "codex", verdict: "OK", score: 1, reason: "fixture" }], excluded: [] } };
+      executors: { ranked: [{ id: "codex", verdict: "OK", score: 1, reason: "fixture", eligibility: {
+        state: "eligible", reasons: [], evaluatedAt: 0, validUntil: null, evidenceAgeS: null,
+        availability: "ready", budget: "permitted", spendingRisk: "unknown",
+      } }], excluded: [] } };
     const deps = { status: async () => status, hooks: defaultHooks };
     for (const tool_name of ["Agent", "Task"]) {
       const result = JSON.parse(await runGuard(ctx, "claude-code", JSON.stringify({ tool_name, tool_input: { subagent_type: "general-purpose", prompt: "Implement a fixture" } }), deps));
@@ -106,6 +109,11 @@ export async function probeClaudeHandlers(): Promise<Check> {
     }
     for (const payload of [{ tool_name: "Edit", tool_input: {} }, { tool_name: "Agent", tool_input: { subagent_type: "Explore" } }]) {
       if (await runGuard(ctx, "claude-code", JSON.stringify(payload), deps) !== "") throw Error("guard allow probe failed");
+    }
+    status.executors.ranked[0]!.eligibility = { ...status.executors.ranked[0]!.eligibility!,
+      state: "uncertain", budget: "unknown", reasons: [{ code: "budget_missing", evidenceIds: [] }] };
+    if (await runGuard(ctx, "claude-code", JSON.stringify({ tool_name: "Agent", tool_input: { subagent_type: "general-purpose" } }), deps) !== "") {
+      throw Error("uncertain alternative allow probe failed");
     }
     const session = JSON.parse(renderHook(status, "claude-code"));
     if (session.hookSpecificOutput?.hookEventName !== "SessionStart" || !session.hookSpecificOutput.additionalContext.includes("Subscription budget")) throw Error("session context probe failed");

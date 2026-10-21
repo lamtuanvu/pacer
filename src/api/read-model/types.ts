@@ -9,6 +9,8 @@ export interface RepoRef { key: string; label: string; path: string; unreachable
 export type TaskDataV2 = TaskData & { archived?: boolean; archivePath?: string; title: string; fullTitle?: string; question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: TaskRecord["source"] };
 export type ApiTask = TaskDataV2;
 export interface ExecutorRow {
+ stale?: boolean;
+ eligibility?: import("../../evidence/types").EligibilityDecision;
  id: string; agent: string; account: string; host: string | null; model: string | null;
  rank: number | "planner"; enabled: boolean;
  state: "ready" | "busy" | "full" | "failing" | "down" | "blocked" | "exhausted" | "disabled" | "checking";
@@ -21,11 +23,14 @@ export interface ExecutorRow {
  recentFailures: number; next: boolean;
 }
 export interface AccountSummary {
+ stale?: boolean; capturedAt?: number | null;
+ eligibility?: import("../../evidence/types").EligibilityDecision;
  name: string; agent: string; source: string; usedPct: number | null; pacePct: number | null;
  window: string | null; resetsAt: number | null; verdict: string; signedIn: boolean | null; executors: string[];
  spendUsdWeek: number | null; capUsdWeek: number | null;
 }
 export interface PlannerMeter {
+ eligibility?: import("../../evidence/types").EligibilityDecision;
  runner: string; agent: string; usedPct: number | null; pacePct: number | null; deltaPts: number | null;
  verdict: "behind" | "on_pace" | "ahead" | "out" | "unknown";
  activeHoursLeft: number | null; resetsAt: number | null; window: string | null; stale: boolean;

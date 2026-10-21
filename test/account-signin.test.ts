@@ -1,3 +1,4 @@
+import { accountEvidenceScope } from "../src/evidence/scope";
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -92,10 +93,13 @@ test("a cached successful reading cannot erase a newer attempt's auth failure", 
   const account = loadStrategy(ctx).accounts.codex;
   await readAccountUsage(ctx, account, []);
   ctx.now += 1;
-  markAuthFailed(ctx, "codex", "please log in");
+  markAuthFailed(ctx, "codex", "please log in", {scope:accountEvidenceScope(account)});
   expect((await list(ctx)).find(a => a.name === "codex")?.signedIn).toBe(false);
   expect(read).toHaveBeenCalledTimes(1);
   await readAccountUsage(ctx, account, [], true);
   expect(read).toHaveBeenCalledTimes(2);
+  expect(readAuthFailures(ctx).codex).toBe(ctx.now);
+  ctx.now += 1; read.mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
+  await readAccountUsage(ctx, account, [], true);
   expect(readAuthFailures(ctx)).toEqual({});
 });

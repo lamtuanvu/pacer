@@ -14,7 +14,7 @@ test('disable preserves comments, excludes ranking and warns',()=>{
  const ctx=runnerCtx(); expect(runners.set(ctx,'codex',{enabled:false}).warnings).toEqual(["routing rule 'docs' has no enabled executor left", "routing rule 'default' has no enabled executor left"]);
  expect(readFileSync(join(ctx.pacerHome,'strategy.yaml'),'utf8')).toContain('# keep runner');
  expect(loadStrategy(ctx).runners.codex.enabled).toBe(false);
- expect(rankExecutors('docs',loadStrategy(ctx),{}).excluded).toContainEqual({id:'codex',account:'codex',reason:'disabled'});
+ expect(rankExecutors('docs',loadStrategy(ctx),{}).excluded).toContainEqual(expect.objectContaining({id:'codex',account:'codex',reason:'disabled'}));
  expect(()=>runners.set(ctx,'claude-code',{enabled:false})).toThrow(expect.objectContaining({code:'not_allowed'}));
 });
 test('reorder requires a permutation; add stores options and joins matching kinds',()=>{

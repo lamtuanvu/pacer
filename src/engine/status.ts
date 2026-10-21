@@ -1,6 +1,10 @@
+import { authObservation } from "../usage/auth";
+import type { EligibilityDecision, EvidenceScope, ReconciledEvidence } from "../evidence/types";
+import { accountEvidenceScope, mergeEvidence } from "../core/evidence";
+import { appliesTo, currentEvidence, evidenceDeadline, evidenceFact, readingEvidence } from "./evidence";
+import { evaluateEligibility } from "./eligibility";
 import { statusTimer } from "../usage/trace";
 import { accountSignIn } from "../usage/signin";
-import { readAuthFailures } from "../usage/auth";
 import { readPause, type PauseState } from "../core/pause";
 import { readHold, type ModeHold } from "../core/mode-hold";
 import { readEndpointState } from "../endpoints/state";
@@ -16,12 +20,14 @@ import { isCalendar } from "../pace/clock";
 import type { Ctx, UsageReading, UsageSource, Verdict } from "../types";
 import { markFreshness } from "../usage/freshness";
 import { readAccountUsage } from "../usage/index";
-import { limitWindow } from "../usage/reactive";
+import { limitObservation } from "../usage/reactive";
 import { type Mode, plannerMode } from "./mode";
 import { type Excluded, type ProviderStatus, type RankedExecutor, rankExecutors } from "./rank";
 import { bindingWindow, evaluateWindow } from "./verdict";
 
 export interface AccountStatus {
+  eligibility?: EligibilityDecision;
+  evidence?: ReconciledEvidence;
   name: string;
   kind: AccountCfg["kind"];
   verdict: Verdict;
@@ -61,7 +67,7 @@ export function binaryFor(cfg: ProviderCfg): string {
 export { displayName } from "../render/accounts";
 
 export async function computeStatus(
-  ctx: Ctx, s: Strategy, opts: { cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading> } = {},
+  ctx: Ctx, s: Strategy, opts: { cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; refreshAccounts?: readonly string[] } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
   const trace = statusTimer(ctx);
   const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
@@ -75,7 +81,7 @@ export async function computeStatus(
     const runners = Object.values(s.runners).filter(r => r.account === account.name);
     const key = JSON.stringify({ account, models: [...new Set(runners.map(r => r.model))] });
     const reading = opts.readings?.get(account.name) ?? opts.readings?.get(key)
-      ?? await readAccountUsage(ctx, account, runners, false, opts.cacheOnly).catch((e): UsageReading => ({
+      ?? await readAccountUsage(ctx, account, runners, opts.refreshAccounts?.includes(account.name) ?? false, opts.cacheOnly, s.hosts).catch((e): UsageReading => ({
         windows: [], capturedAt: null, stale: false, error: String(e),
       }));
     opts.readings?.set(key, reading);
@@ -86,42 +92,98 @@ export async function computeStatus(
     };
     // Account marks constrain all runners; retain support for older runner marks.
     const limits = [account.name, ...runners.map(r => r.name)].flatMap(id => {
-      const limit = limitWindow(ctx, id); return limit ? [limit] : [];
+      const observation = limitObservation(ctx, id); return observation ? [observation] : [];
     });
-    const limit = limits.sort((a, b) => (b.resetsAt ?? 0) - (a.resetsAt ?? 0))[0];
+    const usage = reading.source === "reactive" ? "reactive" : account.usage;
     const fresh = markFreshness(reading, ctx.now);
-    const usageWindows = limit ? [...fresh.windows.filter(w => w.name !== "limit"), { ...limit, stale: false }] : fresh.windows;
+    const scope = accountEvidenceScope(account, s.hosts);
+    const incoming = readingEvidence(scope, reading, usage);
+    // Percentages derived from a previous cap remain history, not current constraints.
+    const budgetPolicy = JSON.stringify([account.weeklyUsd, account.weeklyTokens]);
+    incoming.budget = incoming.budget.map(f => f.source === "metered"
+      ? evidenceFact(f.scope, f.source, f.observedAt, f.validUntil, f.reason, f.value, budgetPolicy) : f);
+    const auth = authObservation(ctx, scope);
+    if (auth) incoming.availability.push(evidenceFact(auth.scope, "execution", auth.at, auth.at + 7200, "authentication_failed", "unavailable"));
+    for (const runner of runners.filter(r => r.host === null && !(r.agent === s.planner.agent && r.account === s.planner.account))) {
+      const runnerScope = { ...scope, runner: runner.name, model: runner.model ?? "default", host: "local" };
+      const signIn = accountSignIn(ctx, account, runnerScope);
+      // A newer local login repairs only matching authentication facts, never quota or remote evidence.
+      for (const recoveredScope of signIn.recoveredScopes ?? []) {
+        incoming.availability.push(evidenceFact(recoveredScope, "session-log",
+          signIn.recoveredAt!, signIn.recoveredAt! + 7200, "signin_observed", "ready"));
+      }
+    }
+    for (const limit of limits.filter(v => v.manual || v.scope?.identity === scope.identity)) incoming.budget.push(evidenceFact(limit.scope ?? scope, limit.manual ? "configuration" : "execution", limit.observedAt,
+      limit.until, "quota_failure", { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: 21600, paced: false }));
+    const snapshot = await mergeEvidence(ctx, scope, incoming, budgetPolicy);
+    snapshot.evidence = {
+      ...snapshot.evidence,
+      facts: {...snapshot.evidence.facts, budget: snapshot.evidence.facts.budget.filter(f =>
+        f.source !== "metered" || f.budgetPolicy === budgetPolicy)},
+    };
+    const applicableIds = new Set(Object.values(snapshot.evidence.facts).flat().map(f => f.id));
+    snapshot.evidence.conflicts = snapshot.evidence.conflicts.filter(id => applicableIds.has(id));
+    const usageWindows = snapshot.evidence.facts.budget.filter(f => appliesTo(f, scope)).map(f => ({ ...f.value,
+      stale: f.value.stale || !currentEvidence(f, ctx.now, evidenceDeadline(f)) }));
     const windows = usageWindows.map(w => evaluateWindow(w, ctx.now, profile, th));
     const live = windows.filter(w => !w.stale);
     const binding = bindingWindow(live) ?? bindingWindow(windows);
+    const bindingFact = snapshot.evidence.facts.budget.find(f => f.value.name === binding?.name);
+    const reconciledReading = { ...fresh, windows: usageWindows,
+      stale: fresh.stale || usageWindows.some(w => w.stale),
+      ...(bindingFact ? { capturedAt: bindingFact.observedAt,
+        ...(!["execution", "configuration"].includes(bindingFact.source) ? { source: bindingFact.source as UsageSource } : {}) } : {}),
+    };
     // Nothing to pace against: unmetered usage, or metered usage with no token budget and no dollar cap (spend is
     // still reported). Such accounts are available rather than unknown, so routing does not rank them last.
-    const unlimited = account.usage === "unmetered" || account.usage === "metered" && account.weeklyUsd === null && account.weeklyTokens === null;
+    const unlimited = usage === "unmetered" || usage === "reactive" || account.usage === "metered" && account.weeklyUsd === null && account.weeklyTokens === null;
     const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     const endpoint = opts.cacheOnly ? (account.connection || account.source === "opencode" ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
-    return { account, runners, reading: fresh, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested" };
+    const eligibility = evaluateEligibility({ now: ctx.now, scope, usage, budgetRequired: !unlimited, allowPaid: account.allowPaid,
+      evidence: snapshot.evidence, restrictions: [] });
+    return { account, runners, reading: reconciledReading, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested", scope, snapshot, eligibility, usage, unlimited };
   }));
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
-  const authFailures = readAuthFailures(ctx);
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
-    const { account, reading, windows, binding, verdict, endpointReason, endpointNotTested } = byAccount[runner.account];
+    const { account, reading, endpointReason, endpointNotTested, scope, snapshot, usage, unlimited } = byAccount[runner.account];
+    const runnerScope = { ...scope, runner: runner.name, model: runner.model ?? "default", host: runner.host ?? "local" };
+    const windows = snapshot.evidence.facts.budget.filter(f => appliesTo(f, runnerScope)).map(f => evaluateWindow({ ...f.value,
+      stale: f.value.stale || !currentEvidence(f, ctx.now, evidenceDeadline(f)) }, ctx.now, profile, {
+        ahead: s.pacing.aheadThreshold, behind: s.pacing.behindThreshold,
+        paceScale: account.name === s.planner.account ? 1 - s.pacing.plannerReserve / 100 : 1,
+      }));
+    const live = windows.filter(w => !w.stale), binding = bindingWindow(live) ?? bindingWindow(windows);
+    const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
-    const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, authFailures) : null;
-    return {
-      id: runner.name, account: account.name, usage: account.usage, windows, binding, verdict,
+    const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, runnerScope) : null;
+    const provider: ProviderStatus = {
+      id: runner.name, account: account.name, usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),
       ...(account.source === "orca" && (account.kind === "claude" || account.kind === "codex") && !orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") ? { unavailableReason: "account folder not found" } : {}),
       ...(signIn?.signedIn === false ? { signedOutReason: signIn.reason } : {}),
       ...(endpointReason ? {unavailableReason: endpointReason} : {}),
       ...(endpointNotTested ? {endpointNotTested: true as const} : {}),
       installed: runner.host !== null || ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
-      stale: reading.stale,
+      stale: reading.stale || windows.some(w => w.stale),
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
       ...(broken[runner.name] ? { brokenReason: broken[runner.name].reason } : {}),
       ...(reading.error ? { error: reading.error } : {}),
+      evidenceScope: scope, evidenceRevision: snapshot.revision,
     };
+    const restrictions: { code: string; evidenceIds: string[] }[] = [];
+    if (runner.enabled === false) restrictions.push({ code: "disabled", evidenceIds: [] });
+    if (!provider.installed) restrictions.push({ code: "not_installed", evidenceIds: [] });
+    for (const [field, code] of [["unavailableReason", "unavailable"], ["signedOutReason", "signed_out"], ["blockedReason", "blocked"], ["brokenReason", "broken"]] as const) {
+      if (provider[field]) restrictions.push({ code, evidenceIds: [] });
+    }
+    provider.eligibility = evaluateEligibility({ now: ctx.now, scope: runnerScope,
+      usage, budgetRequired: !unlimited, allowPaid: account.allowPaid, evidence: snapshot.evidence, restrictions });
+    if ((reading.error || reading.stale) && provider.eligibility.state === "eligible") {
+      provider.eligibility = { ...provider.eligibility, state: "uncertain", reasons: [{ code: "refresh_failed", evidenceIds: [] }] };
+    }
+    return provider;
   });
   const byId = Object.fromEntries(providers.map(p => [p.id, p]));
   const planner = byAccount[s.planner.account];
@@ -135,8 +197,8 @@ export async function computeStatus(
     disabled: (ctx.env.PACER ?? "").toLowerCase() === "off",
     calendarPace: isCalendar(profile),
     ...(warnings.length ? { warnings } : {}),
-    accounts: budgets.map(({ account, runners, binding, verdict, reading }) => ({
-      name: account.name, kind: account.kind, verdict,
+    accounts: budgets.map(({ account, runners, binding, verdict, reading, eligibility, snapshot }) => ({
+      name: account.name, kind: account.kind, verdict, eligibility, evidence: snapshot.evidence,
       usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
       resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
       stale: reading.stale, runners: runners.map(r => r.name),

@@ -1,3 +1,4 @@
+import { executorEligibility } from "../../../src/view-model/capacity";
 import { useOverviewPage } from "./overview-page";
 import { ListRow, ListRowLink, EmptyState } from "../ds/Patterns";
 import { ButtonLink, TextAction } from "../ds/Button";
@@ -13,7 +14,7 @@ import { ago, clock, elapsed } from "../../../src/view-model/time";
 import { meterText } from "../../../src/view-model/format";
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
-import { attentionStatus, executorLabel, executorRowStatus, paceStatus, taskStatus, taskOutcome } from "../../../src/view-model/words";
+import { attentionStatus, executorLabel, paceStatus, taskStatus, taskOutcome } from "../../../src/view-model/words";
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import { AgentMark } from "../ds/AgentMark";
@@ -92,10 +93,10 @@ function Capacity({ snapshot, narrow, query }: { snapshot: ClientSnapshot; narro
   const page = useOverviewPage(rows, "Capacity", narrow ? Math.max(1, rows.length) : 5);
   const next = rows.find(e => e.next), down = rows.filter(e => e.state === "down" || e.state === "failing").length;
   return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><SectionHeading id="capacity">Capacity</SectionHeading>{!narrow && c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" />{narrow && next ? <span className="muted">next: <b>{executorLabel(next.id)}</b></span> : <TextAction className="pc-text-action" href={withQuery("#/settings/executors", query)}>Details</TextAction>}</div>
-    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{page.rows.map(e => <ListRowLink key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${executorRowStatus(e).label}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
+    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{page.rows.map(e => <ListRowLink key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${executorEligibility(e, snapshot.at).label}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
       <AgentMark agent={markAgent(e.id, e.account)} size={20} labelled={false} />
-      {narrow && <span className={`pc-cap__dot pc-cap__dot--${executorRowStatus(e).tone}`} />}
-      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><StatusPill status={executorRowStatus(e)} /><div className="muted"><StatusGlyph status={executorPace(e, snapshot)} />{executorPace(e, snapshot).label}{e.reason || e.paceReason ? ` · ${e.reason ?? e.paceReason}` : ""}</div></div>
+      {narrow && <span className={`pc-cap__dot pc-cap__dot--${executorEligibility(e, snapshot.at).tone}`} />}
+      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><StatusPill status={executorEligibility(e, snapshot.at)} /><div className="muted" title={[executorEligibility(e, snapshot.at).detail, executorEligibility(e, snapshot.at).age].filter(Boolean).join(" · ")}>{executorEligibility(e, snapshot.at).detail}{executorEligibility(e, snapshot.at).age ? ` · ${executorEligibility(e, snapshot.at).age}` : ""}</div><div className="muted"><StatusGlyph status={executorPace(e, snapshot)} />{executorPace(e, snapshot).label}{e.reason || e.paceReason ? ` · ${e.reason ?? e.paceReason}` : ""}</div></div>
       <div><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={executorPace(e, snapshot).tone} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
       <span className="muted pc-num">{e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`}</span>
       <span className="muted pc-num" aria-label={`${e.slots.used} of ${e.slots.max} parallel tasks`}>{e.slots.used}/{e.slots.max}</span>

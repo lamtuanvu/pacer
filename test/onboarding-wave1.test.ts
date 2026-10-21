@@ -49,7 +49,7 @@ test("signed-out executors are excluded without subprocess login probes", async 
   const ctx = fakeCtx({ which: bin => ["claude", "codex", "agy"].includes(bin) ? `/fixture/${bin}` : null });
   const s = validateStrategy(Bun.YAML.parse(starterStrategy(await detect(ctx))), "test");
   ctx.run = async () => { throw Error("no subprocess allowed"); };
-  expect((await computeStatus(ctx, s)).executors.excluded).toContainEqual({ id: "codex", account: "codex", reason: "signed out — run codex login" });
+  expect((await computeStatus(ctx, s)).executors.excluded).toContainEqual(expect.objectContaining({ id: "codex", account: "codex", reason: "signed out — run codex login" }));
   mkdirSync(join(ctx.home, ".codex"), { recursive: true });
   writeFileSync(join(ctx.home, ".codex/auth.json"), "{}");
   const st = await computeStatus(ctx, s);

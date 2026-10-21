@@ -1,8 +1,10 @@
+import { accountEvidenceScope } from "../../evidence/scope";
+import { eligibilityPresentation } from "../../view-model/eligibility";
 import type { Ctx } from "../../types";
 import { slotLimit, slotBlock, type SlotUse } from "../../engine/slots";
 import { readRunnerCheck } from "../../core/runner-check";
 import { listJobs } from "../../jobs/registry";
-import { readAuthFailures } from "../../usage/auth";
+import { accountAuthFailure } from "../../usage/auth";
 import { redactEndpointError } from "../../endpoints/state";
 import type { Status } from "../../engine/status";
 import type { Strategy } from "../../config/strategy";
@@ -33,9 +35,9 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
   else if(jobs.some(j=>j.kind==="runner.check"&&j.target===id&&j.state==="running")){state="checking";}
   else if(p?.blockedReason){state="blocked";reason=p.blockedReason;}
   else if(p?.brokenReason || p?.unavailableReason || p?.installed===false){state="down";reason=p.brokenReason??p.unavailableReason??"not installed";}
-  // Routing excludes a signed-out executor (engine/status), so it is never shown as Ready.
   else if(p?.signedOutReason){state="down";reason=p.signedOutReason;}
-  else if(p?.verdict==="EXHAUSTED"){state="exhausted";}
+  else if(p?.eligibility?.state==="ineligible"){state=p.eligibility.budget==="exhausted"?"exhausted":"down";reason=eligibilityPresentation(p.eligibility,now).detail;}
+  else if(!p?.eligibility&&p?.verdict==="EXHAUSTED"){state="exhausted";}
   else if(lastCheck?.passed===false){state="failing";reason=lastCheck.detail;}
   else if(recentFailures>=2){state="failing";reason=`${recentFailures} recent failures`;}
   else if(block){state="full";reason=block;}
@@ -46,9 +48,10 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
   if(reason)reason=redactEndpointError(reason).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
   const places=[...new Set(Object.values(s.runners).filter(other=>other.account===account).map(other=>other.host??"this Mac"))].sort((a,b)=>a==="this Mac"?-1:b==="this Mac"?1:a.localeCompare(b)).join(" + ")||"this Mac";
   const tones:Record<ExecutorRow["state"],ExecutorRow["tone"]>={ready:"good",busy:"info",full:"info",failing:"warn",down:"bad",exhausted:"bad",blocked:"muted",disabled:"muted",checking:"info"};
-  return {id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:tones[state],sub:reason??`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`,...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),...(untested?{untested:true as const}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
+  const assessment=eligibilityPresentation(p?.eligibility,now);
+  return {...(p?.eligibility?{eligibility:p.eligibility,stale:p.stale}:{}),id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:p?.eligibility?.state==="uncertain"?"warn":tones[state],sub:reason??(!p?.eligibility?`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`:`${assessment.label} · ${assessment.detail}${assessment.age?` · ${assessment.age}`:""} · ${places}`),...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),...(untested?{untested:true as const}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
  });
- const next=st.executors.ranked.find(e=>rows.some(r=>r.id===e.id&&["ready","busy"].includes(r.state)));
+ const next=st.executors.ranked.find(e=>rows.some(r=>r.id===e.id&&r.eligibility?.state!=="ineligible"&&["ready","busy","failing"].includes(r.state)));
  if(next)rows.find(r=>r.id===next.id)!.next=true;
  return rows;
 }
@@ -68,10 +71,10 @@ function signedIn(st: Status,s: Strategy,name: string,failures: Record<string,nu
  return Object.hasOwn(failures,name)?false:null;
 }
 export function buildAccounts(st: Status,s: Strategy,ctx?: Ctx): AccountSummary[] {
- const failures=ctx?readAuthFailures(ctx):{};
+ const failures=ctx?Object.fromEntries(Object.values(s.accounts).filter(a=>accountAuthFailure(ctx,accountEvidenceScope(a,s.hosts))).map(a=>[a.name,ctx.now])):{};
  return Object.values(s.accounts).map(a=>{
   const runners=Object.values(s.runners).filter(r=>r.account===a.name),p=st.providers.find(p=>p.account===a.name||runners.some(r=>r.id===p.id)),status=st.accounts?.find(row=>row.name===a.name);
-  return {name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id),spendUsdWeek:status?.spendUsd??null,capUsdWeek:a.weeklyUsd};
+  return {...(status?.eligibility?{eligibility:status.eligibility}:{}),stale:status?.stale??p?.stale??true,capturedAt:status?.capturedAt??null,name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id),spendUsdWeek:status?.spendUsd??null,capUsdWeek:a.weeklyUsd};
  });
 }
 export function buildPlanner(st: Status): PlannerMeter | null {
@@ -85,5 +88,5 @@ export function buildPlanner(st: Status): PlannerMeter | null {
  if(verdict==="on_pace")advice="On pace.";
  if(verdict==="ahead"&&deltaPts!==null)advice=`${deltaPts} pts ahead of pace — delegate more.`;
  if(verdict==="out"&&b?.resetsAt!=null){const d=new Date(b.resetsAt*1000);advice=`Out of quota — back ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}.`;}
- return {runner:st.planner,agent:p?.agent??parseRunnerId(st.planner)?.agent??st.planner,usedPct,pacePct,deltaPts,verdict,activeHoursLeft:known?b!.activeHoursLeft??null:null,resetsAt:known?b!.resetsAt:null,window:known?b!.name:null,stale:p?.stale??false,advice,mode:st.mode,...(st.modeHold?{modeHeldUntil:st.modeHold.until}:{})};
+ return {...(p?.eligibility?{eligibility:p.eligibility}:{}),runner:st.planner,agent:p?.agent??parseRunnerId(st.planner)?.agent??st.planner,usedPct,pacePct,deltaPts,verdict,activeHoursLeft:known?b!.activeHoursLeft??null:null,resetsAt:known?b!.resetsAt:null,window:known?b!.name:null,stale:p?.stale??false,advice,mode:st.mode,...(st.modeHold?{modeHeldUntil:st.modeHold.until}:{})};
 }

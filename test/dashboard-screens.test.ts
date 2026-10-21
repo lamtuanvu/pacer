@@ -32,6 +32,62 @@ const bounded = (text: string, width: number, height: number) => {
   for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width);
 };
 
+describe("executor eligibility survives the screen redesign", () => {
+  test("Settings accounts marks cached quota as historical", () => {
+    const s = snapshot();
+    s.accounts![0]!.stale = true;
+    const text = renderDashboard(s, 80, 40, s.at, {
+      noColor: true, data: data(), state: { screen: "settings", section: "accounts", focus: "detail" },
+    });
+    expect(text.replace(/\s+/g, " ")).toContain("Historical usage · Observation time unknown");
+  });
+  for (const screen of ["home", "settings"] as const) {
+    for (const width of [80, 120]) {
+      test(`${screen} at ${width} columns shows decision, evidence age and historical usage`, () => {
+        const s = snapshot(), executor = s.executors![1]!;
+        s.tasks = [];
+        s.attention = [];
+        s.executors = [{
+          ...executor, state: "ready", stale: true, usedPct: 100,
+          eligibility: {
+            state: "uncertain", reasons: [{ code: "budget_expired_or_unknown", evidenceIds: [] }],
+            evaluatedAt: s.at, validUntil: null, evidenceAgeS: 3600,
+            availability: "ready", budget: "unknown", spendingRisk: "unknown",
+          },
+        }];
+        const text = renderDashboard(s, width, 40, s.at + 3600, {
+          noColor: true, state: { screen, section: "executors", focus: "detail" },
+        });
+        bounded(text, width, 40);
+        const prose = text.replace(/\s+/g, " ");
+        expect(prose).toContain("Uncertain fallback");
+        expect(prose).toContain("Historical usage");
+        expect(prose).toContain("Budget evidence has expired or is incomplete");
+        expect(prose).toContain("observed 2h ago");
+        expect(text).not.toContain("Budget exhausted");
+      });
+    }
+    test(`${screen} shows paid eligibility independently of exhausted historical percentage`, () => {
+      const s = snapshot(), executor = s.executors![1]!;
+      s.tasks = [];
+      s.attention = [];
+      s.executors = [{
+        ...executor, state: "ready", usedPct: 100,
+        eligibility: {
+          state: "eligible", reasons: [], evaluatedAt: s.at, validUntil: s.at + 60, evidenceAgeS: 10,
+          availability: "ready", budget: "exhausted", spendingRisk: "observed",
+        },
+      }];
+      const text = renderDashboard(s, 120, 40, s.at, {
+        noColor: true, state: { screen, section: "executors", focus: "detail" },
+      });
+      expect(text).toContain("Eligible");
+      expect(text).toContain("Paid execution allowed");
+      expect(text).toContain("observed 10s ago");
+    });
+  }
+});
+
 describe("golden frames (NO_COLOR)", () => {
   const cases: [string, ScreenId, Partial<UiState>][] = [
     ["home", "home", {}],

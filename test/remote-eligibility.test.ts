@@ -74,7 +74,7 @@ test("route without a task checks reachability only", async () => {
   const result = await route(ctx, null, strategy({}));
   expect(result.ranked.map(r => r.id)).toContain("codex@box");
   const down = await route(fakeCtx(), null, strategy());
-  expect(down.excluded).toContainEqual({ id: "codex@box", account: "codex", reason: "host box unreachable" });
+  expect(down.excluded).toContainEqual(expect.objectContaining({ id: "codex@box", account: "codex", reason: "host box unreachable" }));
 });
 
 test("runner falls back from an unreachable remote and records the reason in the attempt log", async () => {

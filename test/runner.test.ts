@@ -1,3 +1,4 @@
+import { eligibility, exhaustedEligibility } from "./fixtures/eligibility";
 import { diff } from "../src/core/tasks";
 import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
@@ -22,7 +23,7 @@ const strategy = validateStrategy({
 
 function status(overrides: Record<string, Partial<ProviderStatus>> = {}): Status {
   const providers = Object.keys(strategy.providers).map((id) => ({
-    id, usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false, ...overrides[id],
+    id, eligibility: overrides[id]?.verdict === "EXHAUSTED" ? exhaustedEligibility() : eligibility(), usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false, ...overrides[id],
   })) as ProviderStatus[];
   return { generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, providers, executors: { ranked: [], excluded: [] } };
 }
@@ -99,7 +100,8 @@ test("requested executor is used alone; unavailable requested executor explains 
   const r2 = await runTask(ctx, newTask(ctx, { requestedExecutor: "codex" }).id, exhausted);
   expect(exhausted.calls).toEqual([]);
   expect(r2.state).toBe("failed");
-  expect(r2.result?.report).toContain('requested executor "codex" is unavailable (exhausted)');
+  expect(r2.result?.report).toContain('requested executor "codex" is unavailable (Budget exhausted; paid execution is not allowed)');
+
 });
 
 test("no executor available at all reports the exclusions; the planner is never used", async () => {

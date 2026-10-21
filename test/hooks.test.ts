@@ -96,7 +96,7 @@ for (const name of ["taskKind", "filterExecutors", "resultCheck", "all"] as cons
 test("unknown filter ids leave no executor available", async () => {
   const ctx = fakeCtx();
   const r = await runTask(ctx, newTask(ctx).id, deps({ filterExecutors: async () => ["unknown"] }, []));
-  expect(r.state).toBe("limit");
+  expect(r.state).toBe("failed");
   expect(r.attempts).toEqual([]);
   expect(r.result).toMatchObject({ executor: null, backend: "direct" });
   expect(r.result?.report).toStartWith("no executor available (");

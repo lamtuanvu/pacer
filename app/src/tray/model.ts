@@ -19,6 +19,8 @@ export const primaryAction = (actions: Action[]) => actions.find(a => a.style ==
 const OFF_STATES = new Set(["disabled", "down", "failing", "blocked"]);
 export function executorValue(executor: ExecutorRow): string {
   // Same off states Overview's Capacity dims (e.g. BytePlus without an active coding plan is "down").
+  if (executor.eligibility?.state === "uncertain") return "?";
+  if (executor.eligibility?.state === "ineligible") return executor.eligibility.budget === "exhausted" ? "out" : "off";
   if (!executor.enabled || OFF_STATES.has(executor.state) || /no (active )?(coding[- ])?plan|no subscription/i.test(`${executor.sub} ${executor.reason ?? ""}`)) return "off";
   if (executor.state === "exhausted") return "out";
   if (executor.state === "checking" || (executor.usedPct === null && executor.paceReason !== "unmetered")) return "?";

@@ -33,5 +33,5 @@ export async function route(ctx: Ctx, kind: string | null, s: Strategy = loadStr
     if (reason) p.unavailableReason = reason;
   }));
   const r = rankExecutors(kind, s, Object.fromEntries(st.providers.map((p) => [p.id, p])), selection && { executors: selection.executors, order: "configured" });
-  return { ...(selection ? { policy: projectPolicy(selection) } : {}), kind, ranked: r.ranked, excluded: r.excluded, ...(r.reason ? {reason:r.reason} : {}) };
+  return { ...(selection ? { policy: projectPolicy(selection) } : {}), kind, ranked: r.ranked, ...(r.uncertain ? { uncertain: r.uncertain } : {}), excluded: r.excluded, ...(r.reason ? {reason:r.reason} : {}) };
 }

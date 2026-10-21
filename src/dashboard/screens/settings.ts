@@ -1,7 +1,7 @@
 /** Settings: sections on the left, the selected section on the right. Every read and write is an API op (ARCH-1). */
 import type { ExecutorRow, HostSummary } from "../../api/read-model/types";
-import { capacityNote } from "../../view-model/capacity";
-import { executorLabel, executorStatus, type Status } from "../../view-model/words";
+import { accountUsageFreshness, capacityNote, executorEligibility } from "../../view-model/capacity";
+import { executorLabel, type Status } from "../../view-model/words";
 import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line, cellWidth, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, time, updateState } from "./common";
@@ -136,8 +136,9 @@ const accounts: Build = (ctx, width) => {
       { content: statusSpans(ctx.theme, SIGNIN[String(signed)]!), width: w[2]! },
     ], GAP, ctx.theme) });
     const used = usage?.usedPct != null ? `${Math.round(usage.usedPct)}% of ${usage.window === "weekly" ? "week" : usage.window ?? "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}` : "Usage unknown";
+    const freshness = usage ? accountUsageFreshness(usage) : null;
     const users = a.executors ?? a.runners ?? [];
-    rows.push(...prose(id, `${used} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
+    rows.push(...prose(id, `${used}${freshness ? ` · ${freshness}` : ""} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
   }
   rows.push(blank());
   for (const [id, act] of [["account-add", add], ["account-link", link]] as const) {
@@ -153,7 +154,7 @@ const executors: Build = (ctx, width) => {
   rows.push({ line: [span("Agent + account + where it runs. Set the priority order.", { fg: "secondary" })] }, blank());
   if (!list.length) rows.push(empty("No executors yet. Add one."));
   const ordered = list.filter(e => e.rank !== "planner").sort((a, b) => Number(a.rank) - Number(b.rank)).map(e => e.id);
-  const w = flex(width, [{ fixed: 2 }, { fixed: 30 }, { fixed: 15 }, { weight: 1, min: 3 }]);
+  const w = flex(width, [{ fixed: 2 }, { fixed: 24 }, { fixed: 22 }, { weight: 1, min: 3 }]);
   for (const e of list) {
     const id = `executor:${e.id}`, planner = e.rank === "planner", i = ordered.indexOf(e.id);
     const move = (step: number): Act | undefined => {
@@ -172,7 +173,7 @@ const executors: Build = (ctx, width) => {
     rows.push({ item: id, line: cols([
       { content: planner ? "P" : String(e.rank), width: w[0]!, style: { fg: "muted" } },
       { content: executorName(ctx.theme, e.id), width: w[1]!, style: { bold: true } },
-      { content: statusSpans(ctx.theme, executorStatus(e.state)), width: w[2]! },
+      { content: statusSpans(ctx.theme, executorEligibility(e, ctx.now)), width: w[2]! },
       { content: e.enabled ? "" : "off", width: w[3]!, style: { fg: "muted" } },
     ], GAP, ctx.theme) });
     rows.push(...prose(id, executorFacts(ctx, e), width));
@@ -186,7 +187,8 @@ const executors: Build = (ctx, width) => {
 function executorFacts(ctx: ScreenCtx, e: ExecutorRow): string {
   const check = e.lastCheck ? `${e.lastCheck.passed ? "check passed" : "check failed"} ${time(ctx, e.lastCheck.at)}` : "not checked";
   const note = capacityNote(e, ctx.s);
-  return [e.id, e.model ?? "agent default", e.host ? `runs on ${e.host}` : "this machine", `${e.slots.used}/${e.slots.max} tasks`, check, e.reason, note].filter(Boolean).join(` ${glyph(ctx.theme, "·")} `);
+  const assessment = executorEligibility(e, ctx.now);
+  return [e.id, e.model ?? "agent default", e.host ? `runs on ${e.host}` : "this machine", `${e.slots.used}/${e.slots.max} tasks`, check, e.stale ? "Historical usage" : null, assessment.detail, assessment.age, e.reason !== assessment.detail ? e.reason : null, note].filter(Boolean).join(` ${glyph(ctx.theme, "·")} `);
 }
 
 const machine: Build = (ctx, width) => {

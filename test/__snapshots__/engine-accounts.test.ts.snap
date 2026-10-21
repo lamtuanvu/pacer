@@ -1,37 +1,161 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`starter route JSON retains its pre-accounts output, including after migration 1`] = `
+exports[`starter route JSON exposes labelled fallbacks and remains stable through migration 1`] = `
 {
   "excluded": [],
   "kind": null,
   "ranked": [
     {
+      "eligibility": {
+        "availability": "ready",
+        "budget": "not_required",
+        "evaluatedAt": 1800000000,
+        "evidenceAgeS": null,
+        "reasons": [],
+        "spendingRisk": "unknown",
+        "state": "eligible",
+        "validUntil": null,
+      },
       "id": "cursor",
-      "reason": "ok, used 0%",
+      "reason": "ok",
       "score": 5,
       "verdict": "OK",
     },
     {
-      "id": "codex",
-      "reason": "unknown",
+      "eligibility": {
+        "availability": "ready",
+        "budget": "not_required",
+        "evaluatedAt": 1800000000,
+        "evidenceAgeS": null,
+        "reasons": [],
+        "spendingRisk": "unknown",
+        "state": "eligible",
+        "validUntil": null,
+      },
+      "id": "agy",
+      "reason": "ok",
       "score": 4,
-      "verdict": "UNKNOWN",
+      "verdict": "OK",
     },
     {
-      "id": "agy",
-      "reason": "ok, used 0%",
+      "eligibility": {
+        "availability": "ready",
+        "budget": "not_required",
+        "evaluatedAt": 1800000000,
+        "evidenceAgeS": null,
+        "reasons": [],
+        "spendingRisk": "unknown",
+        "state": "eligible",
+        "validUntil": null,
+      },
+      "id": "local",
+      "reason": "ok",
       "score": 3,
       "verdict": "OK",
     },
     {
-      "id": "local",
-      "reason": "ok",
+      "eligibility": {
+        "availability": "unknown",
+        "budget": "unknown",
+        "evaluatedAt": 1800000000,
+        "evidenceAgeS": null,
+        "reasons": [
+          {
+            "code": "availability_unknown",
+            "evidenceIds": [],
+          },
+          {
+            "code": "budget_missing",
+            "evidenceIds": [],
+          },
+        ],
+        "spendingRisk": "unknown",
+        "state": "uncertain",
+        "validUntil": null,
+      },
+      "fallback": "uncertain",
+      "id": "codex",
+      "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available",
       "score": 2,
-      "verdict": "OK",
+      "verdict": "UNKNOWN",
     },
     {
+      "eligibility": {
+        "availability": "unknown",
+        "budget": "unknown",
+        "evaluatedAt": 1800000000,
+        "evidenceAgeS": null,
+        "reasons": [
+          {
+            "code": "availability_unknown",
+            "evidenceIds": [],
+          },
+          {
+            "code": "budget_missing",
+            "evidenceIds": [],
+          },
+        ],
+        "spendingRisk": "unknown",
+        "state": "uncertain",
+        "validUntil": null,
+      },
+      "fallback": "uncertain",
       "id": "byteplus",
-      "reason": "unknown",
+      "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available",
+      "score": 1,
+      "verdict": "UNKNOWN",
+    },
+  ],
+  "uncertain": [
+    {
+      "eligibility": {
+        "availability": "unknown",
+        "budget": "unknown",
+        "evaluatedAt": 1800000000,
+        "evidenceAgeS": null,
+        "reasons": [
+          {
+            "code": "availability_unknown",
+            "evidenceIds": [],
+          },
+          {
+            "code": "budget_missing",
+            "evidenceIds": [],
+          },
+        ],
+        "spendingRisk": "unknown",
+        "state": "uncertain",
+        "validUntil": null,
+      },
+      "fallback": "uncertain",
+      "id": "codex",
+      "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available",
+      "score": 2,
+      "verdict": "UNKNOWN",
+    },
+    {
+      "eligibility": {
+        "availability": "unknown",
+        "budget": "unknown",
+        "evaluatedAt": 1800000000,
+        "evidenceAgeS": null,
+        "reasons": [
+          {
+            "code": "availability_unknown",
+            "evidenceIds": [],
+          },
+          {
+            "code": "budget_missing",
+            "evidenceIds": [],
+          },
+        ],
+        "spendingRisk": "unknown",
+        "state": "uncertain",
+        "validUntil": null,
+      },
+      "fallback": "uncertain",
+      "id": "byteplus",
+      "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available",
       "score": 1,
       "verdict": "UNKNOWN",
     },
