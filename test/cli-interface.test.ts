@@ -14,7 +14,7 @@ const summaryKeys=["title","task_id","goal","state","kind","requested_executor",
 test("CLI status and route pin JSON top-level keys",async()=>{
  const ctx=setup();
  expect(Object.keys(JSON.parse((await main(["status","--json"],ctx)).out)).sort()).toEqual(["generatedAt","strategy","planner","mode","disabled","calendarPace","accounts","providers","executors","paused","modeHold"].sort());
- expect(Object.keys(JSON.parse((await main(["route","debug","--json"],ctx)).out)).sort()).toEqual(["kind","ranked","excluded"].sort());
+ expect(Object.keys(JSON.parse((await main(["route","debug","--json"],ctx)).out)).sort()).toEqual(["kind","ranked","excluded","uncertain"].sort());
 });
 test("brief-file and stdin preserve text and command flags override file fields",async()=>{
  const ctx=setup(),path=join(ctx.home,"brief.json"),goal="quotes ' \" and $()\nnext line";

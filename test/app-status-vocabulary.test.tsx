@@ -53,6 +53,6 @@ test('planner, capacity and tray agree on the pace of a ready executor at 37 per
   expect(top).toContain('pc-meter__fill--warn');
   const tray = renderToString(<Tray snapshot={snapshot} api={createApi()} ipc={createTrayIpc({location:{assign(){}}})} />);
   expect(tray).toContain('pc-meter__fill--warn');
-  expect(tray).toContain('Ready · Ahead of pace');
+  expect(tray).toContain('Eligibility unknown · No execution decision is available · Ahead of pace');
   expect(tray).toContain('pc-status--warn">37%');
 });

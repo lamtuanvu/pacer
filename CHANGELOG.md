@@ -13,6 +13,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Executor routing shares timestamped, scoped eligibility evidence across status and launch guards; uncertain fallbacks remain permitted and visibly labelled, and historical usage no longer implies current quota.
+
 - Native desktop buttons keep readable backgrounds when switching Light/Dark appearance instead of retaining the previous theme during a stuck background transition.
 - Settings > Updates distinguishes the native desktop app version from the connected service version, provides desktop download/replacement guidance, and labels the service-only update action explicitly. Failed update checks no longer appear as up to date.
 
@@ -23,11 +25,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Session details now show a structured Brief, readable executor reports alongside collapsed technical logs, a responsive Activity panel, and an on-demand retry dialog.
 - Overview uses aligned pairs of cards and paginated attention, running, capacity, completed-work and activity lists, keeping the existing design system and compact layout.
 - Repository filters use filled count badges and a searchable **Find repo** menu anchored to its trigger, with compact rows, selected checkmarks, keyboard navigation and narrow-screen containment. The finder includes repositories with no current work.
-||||||| parent of 8474696 (fix(delegate): honour --repo, never pick blocked executors, base new worktrees on the remote default branch)
 ### Fixed
 
 - Delegation preserves an explicitly selected checkout's real path instead of substituting a registry checkout of the same repository.
-- Blocked and exhausted executors cannot be selected through aliases, dispatch races or fallback; explicit requests fail clearly, including when legacy paid overflow is enabled.
+- User-blocked executors cannot be selected through aliases, dispatch races or fallback. Confirmed budget exhaustion refuses explicit requests when paid execution is forbidden; newer scoped recovery evidence and explicit paid permission remain effective.
 - New worktrees fetch origin's default branch tip and record its SHA. `--worktree-base head` explicitly selects the current HEAD. Review retries reuse the original local worktree, including uncommitted changes.
 - Automatic child placement still starts executors in local-only repositories without origin, preserving session takeover support; explicit new/default requests continue to require origin.
 
@@ -46,6 +47,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Executor eligibility now uses timestamped availability and budget evidence across routing, guards and launch checks. Confirmed eligible choices come before automatically permitted, labelled uncertain fallbacks; expired quota remains historical and credits do not override paid-execution policy (#213).
 - Linux arm64 gets an AppImage again. AppImages now bundle the CLI untouched: linuxdeploy's patchelf step corrupted Bun-compiled binaries, so they are repacked after bundling and the bundled CLI is checked before release (#217).
 - The interactive account and endpoint setup checks each answer as it is entered and asks again instead of aborting: kind, name, key storage, usage, weekly token budget (with a budget-specific message) and quota source. A blank quota source selects `arkcli` instead of saving an empty value, with a warning when `arkcli` is not on `PATH`. Endpoint setup now asks where to keep the key on add as well as edit (Keychain on macOS and a file elsewhere by default). Endpoint save errors show their full reason instead of only the first line, and migration notices no longer print array indexes.
 - Account sign-in state now has one source, the local login indicator plus recorded authentication failures, shared by `account list`, routing, the Executors and Accounts screens, attention and `runner.check`. `account list` reports `signedIn: true/false` for native accounts instead of always `null`; a signed-out executor shows as Unavailable with its reason instead of Ready; the Accounts screen shows endpoint state (Ready, Not tested, Not working, Key missing) for endpoints and offers **Fix sign-in** only for signed-out native accounts.

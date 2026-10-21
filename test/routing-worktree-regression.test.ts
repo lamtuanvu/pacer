@@ -53,7 +53,7 @@ for (const mark of ["block", "exhausted"] as const) test(`fresh ${mark} during s
     computeStatus: async () => ({ providers: Object.keys(strategy.providers).map(id => ({ id, usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false })) } as unknown as Status),
     hooks: { ...defaultHooks, filterExecutors: async (_c, _t, ids) => {
       if (mark === "block") blockExecutor(ctx, "codex#codex");
-      else markExhausted(ctx, strategy.runners.codex.account, Date.now() / 1000 + 3600);
+      else markExhausted(ctx, strategy.runners.codex.account, Date.now() / 1000 + 3600, { manual: true });
       return ids;
     } },
     runAttempt: async (_c, cfg) => {
@@ -68,7 +68,7 @@ for (const mark of ["block", "exhausted"] as const) test(`fresh ${mark} during s
 
 test("explicit exhausted executor is refused before creating a task", () => {
   const ctx = fakeCtx();
-  markExhausted(ctx, strategy.runners.codex.account, ctx.now + 3600);
+  markExhausted(ctx, strategy.runners.codex.account, ctx.now + 3600, { manual: true });
   expect(() => delegate(ctx, { brief: { goal: "g", repo: ctx.home }, executor: "codex" }, () => 1, strategy)).toThrow(/exhausted/i);
 });
 
@@ -207,7 +207,7 @@ for (const mark of ["block", "exhausted"] as const) test(`queue drain cannot res
   const ctx = fakeCtx(), task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 60 });
   updateTask(ctx, task.id, t => { t.queue = { reason: "no_slot", since: ctx.now, position: 1 }; });
   if (mark === "block") blockExecutor(ctx, "codex#codex");
-  else markExhausted(ctx, strategy.runners.codex.account, ctx.now + 3600);
+  else markExhausted(ctx, strategy.runners.codex.account, ctx.now + 3600, { manual: true });
   const spawned: string[] = [];
   await drainQueue(ctx, (_c, id) => { spawned.push(id); return 1; }, {
     loadStrategy: () => strategy,

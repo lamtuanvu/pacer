@@ -10,7 +10,7 @@ export function providers(s: ClientSnapshot): ProviderLine[] {
  if(s.planner === undefined) return s.budget?.providers ?? [];
  return capacity(s).map(e => {
   const a=s.accounts?.find(a=>a.name===e.account);
-  return {id:e.id,agent:e.agent,account:e.account,usedPct:e.usedPct,pacePct:e.pacePct,
+  return {eligibility:e.eligibility,id:e.id,agent:e.agent,account:e.account,usedPct:e.usedPct,pacePct:e.pacePct,
    resetsAt:a?.resetsAt??null,window:a?.window??null,verdict:e.state==="exhausted"?"EXHAUSTED":a?.verdict??"UNKNOWN",stale:e.rank==="planner"?(plannerMeter(s)?.stale??false):false,
    ...(e.state==="blocked"?{blockedReason:e.reason??"blocked"}:{}),
    ...(e.state==="down"?{brokenReason:e.reason??"not available"}:{}),
@@ -22,7 +22,7 @@ export function plannerProvider(s: ClientSnapshot): ProviderLine | undefined {
  const p=plannerMeter(s);
  if(!p) return undefined;
  const e=capacity(s).find(e=>e.id===p.runner);
- return {id:p.runner,agent:p.agent,account:e?.account,usedPct:p.usedPct,pacePct:p.pacePct,resetsAt:p.resetsAt,window:p.window,stale:p.stale,
+ return {eligibility:p.eligibility,id:p.runner,agent:p.agent,account:e?.account,usedPct:p.usedPct,pacePct:p.pacePct,resetsAt:p.resetsAt,window:p.window,stale:p.stale,
   verdict:({behind:"BEHIND",on_pace:"ON_PACE",ahead:"AHEAD",out:"EXHAUSTED",unknown:"UNKNOWN"}[p.verdict])};
 }
 export function rankedProviders(s: ClientSnapshot): ProviderLine[] {
@@ -31,7 +31,7 @@ export function rankedProviders(s: ClientSnapshot): ProviderLine[] {
   return (b?.ranked ?? []).filter((r,i,a)=>r.id!==b?.planner && a.findIndex(x=>x.id===r.id)===i).map(r => b?.providers.find(p=>p.id===r.id) ?? { ...r, usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false }).filter(p=>p.verdict!=="EXHAUSTED"&&!p.brokenReason&&!p.blockedReason&&!p.unavailableReason);
  }
  const rows=providers(s);
- return capacity(s).filter(e=>e.rank!=="planner"&&e.enabled&&["ready","busy","full","failing","checking"].includes(e.state))
+ return capacity(s).filter(e=>e.rank!=="planner"&&e.enabled&&e.eligibility?.state!=="ineligible"&&["ready","busy","full","failing","checking"].includes(e.state))
   .sort((a,b)=>Number(b.next)-Number(a.next)||Number(a.rank)-Number(b.rank)).map(e=>rows.find(p=>p.id===e.id)!);
 }
 export function mutedProviders(s: ClientSnapshot): ProviderLine[] {

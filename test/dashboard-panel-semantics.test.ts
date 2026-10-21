@@ -51,4 +51,3 @@ test("attention linked to an unknown task uses its task status", () => {
   s.attention = [{ ...s.attention![0]!, kind: "review", taskId: s.tasks[0]!.id, title: "Unknown task", actions: [] }];
   expect(renderDashboard(s, 100, 30, s.at, { selected: -1, noColor: true }).split("\n").find(line => line.includes("Unknown task"))).toContain("◐ Review requested");
 });
-

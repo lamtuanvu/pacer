@@ -11,11 +11,11 @@ test("short windows go stale after 2 h, long ones after 24 h", () => {
   expect(staleAfterS(w("weekly", 7 * 86400))).toBe(86400);
 });
 
-test("a 3 h old reading: 5 h window stale, weekly fresh, reading not stale", () => {
+test("a 3 h old reading: 5 h window stale, weekly fresh, reading partially stale", () => {
   const r: UsageReading = { windows: [w("weekly", 7 * 86400), w("5h", 5 * 3600)], capturedAt: now - 3 * 3600, stale: false, source: "status-line" };
   const m = markFreshness(r, now);
   expect(m.windows.map((x) => [x.name, x.stale])).toEqual([["weekly", false], ["5h", true]]);
-  expect(m.stale).toBe(false);
+  expect(m.stale).toBe(true);
 });
 
 test("all windows stale makes the reading stale; no capturedAt is stale", () => {
@@ -23,10 +23,10 @@ test("all windows stale makes the reading stale; no capturedAt is stale", () => 
   expect(markFreshness({ windows: [w("weekly", 7 * 86400)], capturedAt: null, stale: false, source: "status-line" }, now).stale).toBe(true);
 });
 
-test("old near-limit windows stay fresh only until a known future reset", () => {
+test("near-limit observations expire by age even before their reset", () => {
   for (const [usedPct, resetsAt, stale] of [
-    [90, now + 3600, false],
-    [100, now + 3600, false],
+    [90, now + 3600, true],
+    [100, now + 3600, true],
     [50, now + 3600, true],
     [89, now + 3600, true],
     [99, null, true],
@@ -45,4 +45,10 @@ test("limit windows and reactive/unmetered readings are never stale; empty readi
   expect(markFreshness({ windows: [lim], capturedAt: null, stale: false }, now).windows[0].stale).toBe(false);
   expect(markFreshness({ windows: [w("limit", 0)], capturedAt: now - 10 * 86400, stale: false, source: "reactive" }, now).stale).toBe(false);
   expect(markFreshness({ windows: [], capturedAt: null, stale: false, source: "status-line" }, now).stale).toBe(false);
+});
+
+test("reset and missing observation boundaries remain historical", () => {
+  const reading = { windows: [w("5h", 18000, { usedPct: 100, resetsAt: now })], capturedAt: now - 60, stale: false };
+  expect(markFreshness(reading, now).windows[0].stale).toBe(true);
+  expect(markFreshness({ ...reading, capturedAt: now + 1 }, now).stale).toBe(true);
 });

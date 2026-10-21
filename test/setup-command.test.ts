@@ -9,7 +9,9 @@ import { fakeCtx } from "./helpers";
 function fixture(bins = ["claude", "codex", "cursor-agent", "opencode"]) {
  const ctx = fakeCtx({ which: bin => bins.includes(bin) ? `/fixture/${bin}` : null, env: { PACER_BIN: "/fixture/pacer" } });
  let installed = false, installs = 0, questions: string[] = [], previews: string[] = [];
- const deps: SetupDeps = { tty: false, stdoutTTY: false, print: () => {}, question: async q => { questions.push(q); return ""; }, confirm: async p => { previews.push(p); return false; }, service: () => ({ status: async () => ({ installed }) as any, install: async () => { installed = true; installs++; return []; } }) };
+ const deps: SetupDeps = { tty: false, stdoutTTY: false, print: () => {}, question: async q => { questions.push(q); return ""; }, confirm: async p => { previews.push(p); return false; },
+  onboardingClient: async () => { throw new Error("No service in the setup unit fixture"); },
+  service: () => ({ status: async () => ({ installed }) as any, install: async () => { installed = true; installs++; return []; } }) };
  return { ctx, deps, questions, previews, get installs() { return installs; } };
 }
 test("non TTY ensures strategy and skips service but never edits agent config without consent", async () => {

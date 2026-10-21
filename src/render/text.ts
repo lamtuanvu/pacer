@@ -1,3 +1,4 @@
+import { eligibilityPresentation } from "../view-model/eligibility";
 import { pauseLine } from "../core/pause";
 import type { Mode } from "../engine/mode";
 import type { Status } from "../engine/status";
@@ -28,6 +29,10 @@ function fmtWindow(w: WindowStatus): string {
 export function renderText(st: Status): string {
   const lines = accountGroups(st.providers).flatMap(group => [...(group.account ? [`Account ${group.account}`] : []), ...group.rows.map((p) => {
     const name = runnerLabel(p);
+    if (p.eligibility) {
+      const decision = eligibilityPresentation(p.eligibility, st.generatedAt);
+      return `- ${name}: ${decision.label} · ${decision.detail}${decision.age ? ` · ${decision.age}` : ""}${p.windows.length ? ` · ${p.windows.map(w => `${fmtWindow(w)}${w.stale ? " [historical]" : ""}`).join("; ")}` : ""}`;
+    }
     if(p.agent && p.unavailableReason) return `- ${name}: usage-only · ${p.unavailableReason}${p.windows.length ? ` · ${p.windows.map(fmtWindow).join("; ")}` : ""}`;
     if(p.brokenReason) return `- ${name}: Not working · ${p.brokenReason}`;
     if(p.blockedReason) return `- ${name}: Blocked by you`;
@@ -46,7 +51,7 @@ export function renderText(st: Status): string {
   const ex = st.executors;
   const excluded = ex.excluded.filter((e) => e.reason !== "planner").map((e) => `${e.id}: ${e.reason}`);
   lines.push(ex.ranked.length
-    ? `Executor preference: ${ex.ranked.map((e) => e.id).join(" > ")}${excluded.length ? ` (excluded: ${excluded.join(", ")})` : ""}`
+    ? `Executor preference: ${ex.ranked.map((e) => `${e.id}${e.fallback ? " (uncertain fallback)" : ""}`).join(" > ")}${excluded.length ? ` (excluded: ${excluded.join(", ")})` : ""}`
     : `No executor available${excluded.length ? ` (${excluded.join(", ")})` : ""}. ${planner} does the work; keep it lean.`);
   lines.push(`Pace clock: ${st.calendarPace ? "calendar (not enough activity history yet)" : "learned activity"}`);
   return lines.join("\n");

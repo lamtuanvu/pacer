@@ -34,8 +34,8 @@ test("prefers the newer of the pacer cache and the legacy budget file", async ()
   const ctx = fakeCtx({ now: 1791640000 });
   const [pacerPath, legacyPath] = claudeCachePaths(ctx);
   expect(legacyPath).toBe(join(ctx.home, ".claude", "state", "budget", "claude.json"));
-  await put(pacerPath, { ...SAMPLE, seven_day: { used_percentage: 10, resets_at: 1792213200 } }, 1000);
-  await put(legacyPath, { ...SAMPLE, seven_day: { used_percentage: 20, resets_at: 1792213200 } }, 2000);
+  await put(pacerPath, { ...SAMPLE, captured_at: 1000, seven_day: { used_percentage: 10, resets_at: 1792213200 } }, 3000);
+  await put(legacyPath, { ...SAMPLE, captured_at: 2000, seven_day: { used_percentage: 20, resets_at: 1792213200 } }, 2000);
   expect((await readClaude(ctx)).windows[0].usedPct).toBe(20);
 });
 

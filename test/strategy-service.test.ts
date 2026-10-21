@@ -74,11 +74,13 @@ test("pump alerts once when a new strategy appears and includes header author",a
 test("preview and saved YAML use identical indented blocks and a final newline",async()=>{
  const ctx=await setup(), draft={from:"default",set:{"pacing.planner_reserve":25}};
  const result=await s.preview(ctx,draft);
- const expected="planner: claude-code\nproviders: \n  claude-code: \n    usage: reactive\n  codex: \n    usage: reactive\n  agy: \n    usage: reactive\npacing: \n  order: \n    - codex\n    - agy\n  planner_reserve: 25\nrouting: \n  - default: \n      - codex\n      - agy\n";
- expect(result.yaml).toBe(expected);
+ const expected="planner: claude-code\nproviders:\n  claude-code:\n    usage: reactive\n  codex:\n    usage: reactive\n  agy:\n    usage: reactive\npacing:\n  order:\n    - codex\n    - agy\n  planner_reserve: 25\nrouting:\n  - default:\n      - codex\n      - agy\n";
+ // Bun 1.4.2 emits trailing spaces after mapping keys; 1.4.3 omits them.
+ // Keep indentation/content assertions while allowing that formatting difference.
+ expect(result.yaml.split("\n").map(line=>line.trimEnd()).join("\n")).toBe(expected);
  s.save(ctx,"block",draft,"approved");
- expect(s.show(ctx,"block").yaml.split("\n").slice(2).join("\n")).toBe(expected);
- expect(validateStrategy(Bun.YAML.parse(expected),"test").pacing.plannerReserve).toBe(25);
+ expect(s.show(ctx,"block").yaml.split("\n").slice(2).join("\n")).toBe(result.yaml);
+ expect(validateStrategy(Bun.YAML.parse(result.yaml),"test").pacing.plannerReserve).toBe(25);
 });
 test("unknown set and unset paths name the rejected key and suggest the nearest known key",()=>{
  for(const key of ["junk.x","pacing.planer_reserve","providers.codex.usag","execution.bakend","classifier.adapters.ollama.modle"]){

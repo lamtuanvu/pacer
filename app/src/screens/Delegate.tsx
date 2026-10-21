@@ -4,6 +4,7 @@ import { Field, TextInput, TextArea, Select } from "../ds/Controls";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { RepoRef } from "../../../src/api/read-model/types";
 import { executorLabel } from "../../../src/view-model/words";
+import { eligibilityPresentation } from "../../../src/view-model/eligibility";
 import { Button } from "../ds/Button";
 import { blankDelegate, delegateParams, delegateRoutingParams, initialDelegateDraft, kinds, taskHref, type TaskSummary } from "../model/tasks";
 import { routingStatus } from "../model/executors";
@@ -22,10 +23,12 @@ export function handleDelegateKey(
 }
 export function DelegateRoutingPreview({ routing, executor, accounts = [], loading = false, repoLabel }: { routing?: Routing; executor: string; accounts?: Account[]; loading?: boolean; repoLabel?: string }) {
   const next = routing?.ranked[0];
+  const chosen = executor ? routing?.ranked.find(row => row.id === executor) : next;
+  const readiness = eligibilityPresentation(chosen?.eligibility, Date.now() / 1000);
   return <p className="muted" aria-live="polite">{executor
-    ? `Goes to ${executorLabel(executor, accounts)} · selected executor`
+    ? `Goes to ${executorLabel(executor, accounts)} · selected executor · ${readiness.label}`
     : loading ? "Checking routing…"
-    : next ? `Goes to ${executorLabel(next.id, accounts)} now · next in line`
+    : next ? `Goes to ${executorLabel(next.id, accounts)} now · ${readiness.label}${next.eligibility?.state === "uncertain" ? ` · ${readiness.detail}` : " · next in line"}`
     : "No executor available now."}{routing?.policy && <> · Project order{repoLabel ? ` for ${repoLabel}` : " for this repository"}</>}{!executor && !loading && !next && routing?.policy && routing.excluded.length > 0 && <>. {routing.excluded.map(row=>`${executorLabel(row.id,accounts)}: ${row.reason}`).join("; ")}</>}</p>;
 }
 const lastRepoStorage = () => draftStorage("pacer.delegate.last-repo", { repo: "" }, {

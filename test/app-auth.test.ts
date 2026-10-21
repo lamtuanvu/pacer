@@ -119,13 +119,20 @@ test("sessions slide for 30 days, expire, and logout clears them", async () => {
 });
 
 test("open uses the injected opener, keeps screen in the fragment, and reports a stopped daemon", async () => {
-  const { ctx, s } = await serve();
+  const { ctx, s, url } = await serve();
   const { openCmd } = await import("../src/commands/open");
   const opened: string[] = [];
   expect((await openCmd(["tasks/one"], ctx, { opener: async url => { opened.push(url); } })).code).toBe(0);
   expect(new URL(opened[0]!).hash).toBe("#/sessions/one");
   s.stop(); stop = undefined;
-  const down = await main(["open"], ctx);
+  // The public listener stops on another thread; wait for that shutdown before
+  // testing the stopped-daemon path. Never launch a real browser on a race.
+  const deadline = Date.now() + 2000;
+  while (await fetch(`${url}/health`).then(r => r.ok, () => false)) {
+    if (Date.now() >= deadline) throw Error("public listener did not stop");
+    await Bun.sleep(10);
+  }
+  const down = await main(["open", "--print"], ctx);
   expect(down.code).toBe(1);
   expect(down.err).toContain("pacer isn't running. Start it with: pacer service install");
 });

@@ -67,7 +67,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         continue;
       }
       if (readPause(ctx)) continue;
-      st ??= await deps.computeStatus(ctx, s);
+      st = await deps.computeStatus({ ...ctx, now: Date.now() / 1000 }, s);
       const blocked = readBlocked(ctx), broken = readBroken(ctx);
       const statuses = Object.fromEntries(st.providers.map(p => [p.id, {...p,
         ...(blocked[p.id] ? {blockedReason: blocked[p.id].reason} : {}),

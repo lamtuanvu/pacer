@@ -1,5 +1,5 @@
 import type { AccountCfg } from "../config/accounts";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { readJson } from "../fsutil";
 import type { Ctx, UsageReading } from "../types";
@@ -19,10 +19,10 @@ export function claudeCachePaths(ctx: Ctx, account?: AccountCfg): string[] {
 }
 
 export async function readClaude(ctx: Ctx, account?: AccountCfg): Promise<UsageReading> {
-  const files = claudeCachePaths(ctx, account)
-    .filter((p) => existsSync(p))
-    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-  const data = files.length ? readJson<Record<string, unknown>>(files[0]) : null;
+  const candidates = claudeCachePaths(ctx, account).filter(p => existsSync(p))
+    .map(p => readJson<Record<string, unknown>>(p)).filter(isObj);
+  const data = candidates.filter(d => { const at = parseTs(d.captured_at); return at === null || at <= ctx.now; })
+    .sort((a, b) => (parseTs(b.captured_at) ?? -Infinity) - (parseTs(a.captured_at) ?? -Infinity))[0];
   if (!isObj(data)) {
     return { windows: [], capturedAt: null, stale: false, error: "no Claude rate-limit data yet (the Claude Code status line writes it)" };
   }

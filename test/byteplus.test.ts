@@ -46,3 +46,17 @@ test("arkcli failure with no cache is an error reading; no subscription is repor
   const none = fakeCtx({ run: async () => ({ code: 0, stdout: JSON.stringify({ items: [] }), stderr: "" }) });
   expect((await readByteplus(none)).error).toBe("no active coding-plan subscription");
 });
+
+test("confirmed missing subscription is unavailable but malformed and transient responses are uncertain", async () => {
+  for (const [payload, state] of [[{ items: [{ product: "coding-plan", subscribed: false }] }, "unavailable"], [{}, "unknown"]] as const) {
+    const ctx = fakeCtx({ run: async () => ({ code: 0, stdout: JSON.stringify(payload), stderr: "" }) });
+    expect((await readByteplus(ctx)).availability?.state).toBe(state);
+  }
+});
+test("explicit refresh bypasses the provider response cache without renewing a failed observation", async () => {
+  let subscribed = true;
+  const ctx = fakeCtx({ run: async () => ({ code: 0, stdout: subscribed ? ARK : JSON.stringify({ items: [{ product: "coding-plan", subscribed: false }] }), stderr: "" }) });
+  await readByteplus(ctx);
+  subscribed = false;
+  expect((await readByteplus({ ...ctx, now: ctx.now + 1 }, true)).availability?.state).toBe("unavailable");
+});

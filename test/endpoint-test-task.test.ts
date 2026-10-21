@@ -50,11 +50,11 @@ test("routing and shared account rows reflect live keys and stored states", asyn
     writeEndpointState(ctx, "api", {state, ...(state === "not_working" ? {detail: "model not found"} : {})});
     const status = await computeStatus(ctx, s, {profile: null});
     expect(status.executors.ranked.some(r => r.id === "opencode#api")).toBe(state !== "not_working");
-    if (state === "not_working") expect(status.executors.excluded).toContainEqual({id: "opencode#api", account: "api", reason: "Not working · model not found"});
+    if (state === "not_working") expect(status.executors.excluded).toContainEqual(expect.objectContaining({id: "opencode#api", account: "api", reason: "Not working · model not found"}));
   }
   delete ctx.env.TEST_ENDPOINT_KEY;
   const status = await computeStatus(ctx, s, {profile: null});
-  expect(status.executors.excluded).toContainEqual({id: "opencode#api", account: "api", reason: "Key missing"});
+  expect(status.executors.excluded).toContainEqual(expect.objectContaining({id: "opencode#api", account: "api", reason: "Key missing"}));
   const rows = JSON.parse((await accountCmd(["list", "--json"], ctx)).out);
   expect(rows.find((a: any) => a.name === "api")).toMatchObject({state: "key_missing", connection: {key: "missing"}});
   expect(rows.find((a: any) => a.name === "external")).toMatchObject({state: "external"});

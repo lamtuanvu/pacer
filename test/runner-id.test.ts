@@ -66,7 +66,7 @@ test("legacy blocked executor aliases still constrain canonical runners", async 
   const {computeStatus} = await import("../src/engine/status");
   const ctx = fakeCtx(); const s = parse(base);
   blockExecutor(ctx, "byteplus", undefined, "paused");
-  expect((await computeStatus(ctx, s, {profile: null})).executors.excluded).toContainEqual({id: "opencode#byteplus", account: "byteplus", reason: "Blocked by you"});
+  expect((await computeStatus(ctx, s, {profile: null})).executors.excluded).toContainEqual(expect.objectContaining({id: "opencode#byteplus", account: "byteplus", reason: "Blocked by you"}));
   expect(() => delegate(ctx, {brief: {goal: "work", repo: ctx.home}, executor: "byteplus"}, () => undefined, s)).toThrow("Blocked by you");
 });
 test("canonical identities reject conflicting model declarations", () => {

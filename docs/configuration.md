@@ -30,7 +30,7 @@ Native IDs are `claude-code`, `codex`, `cursor` and `agy`. Other provider IDs ne
 | metered | OpenCode token totals against `budget: {weekly_tokens: 20M}`; this budget is required. |
 | unmetered | No usage quota measurement; suitable for local models. |
 
-Exhausted providers are excluded even when the legacy `allow_paid` setting is true. The setting does not override blocks or exhaustion, purchase credits or configure billing. Durations support `s`, `m`, `h` and `d`. Native providers may set `model`; Cursor and agy cannot use `quota`.
+Confirmed exhausted budgets exclude providers when `allow_paid` is false. `allow_paid` permits execution beyond a measured budget, but never overrides a user block or confirmed unavailability, purchases credits or configures billing. Durations support `s`, `m`, `h` and `d`. Native providers may set `model`; Cursor and agy cannot use `quota`.
 
 ## Accounts and usage sources
 
@@ -219,3 +219,7 @@ Edits take effect at the next attempt reservation, including queued tasks and
 fallback attempts. They do not interrupt an already reserved attempt. Concurrent
 edits return a conflict instead of overwriting changes; reload and review before
 saving again. Invalid or unreadable policy data blocks new routing until repaired.
+
+## Eligibility evidence
+
+`allow_paid` is execution permission, separate from credit balance and quota observations. Routing preserves pacing or project order within the eligible and uncertain groups, and automatically permits labelled uncertain fallbacks after eligible choices. See [execution eligibility](executors.md#execution-eligibility-and-evidence).

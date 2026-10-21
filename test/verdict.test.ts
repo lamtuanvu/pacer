@@ -24,9 +24,9 @@ test("EXPIRING when 9 or fewer active hours remain with 25%+ unused", () => {
   expect(evaluateWindow(weekly(90), late, null, th).verdict).toBe("ON_PACE");
 });
 
-test("past resetsAt rolls the window over instead of reporting it exhausted", () => {
+test("past resetsAt preserves historical usage without claiming current quota", () => {
   const w = evaluateWindow(weekly(100, start - 60), start, null, th);
-  expect(w).toMatchObject({ usedPct: 0, resetsAt: null, rolled: true, verdict: "OK" });
+  expect(w).toMatchObject({ usedPct: 100, resetsAt: start - 60, rolled: true, verdict: "UNKNOWN" });
 });
 
 test("unpaced windows only check limits; planner paceScale lowers the target", () => {

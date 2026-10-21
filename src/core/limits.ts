@@ -46,6 +46,6 @@ export function report(ctx: Ctx, provider: string, until?: number, s: Strategy =
   const at = until ?? ctx.now + cfg.cooldownS;
   if (!Number.isFinite(at)) throw new CoreError("invalid_input", "until must be unix seconds");
   const account = runner?.account ?? provider;
-  markExhausted(ctx, account, at);
+  markExhausted(ctx, account, at, { manual: true });
   return { provider, account, exhaustedUntil: at };
 }

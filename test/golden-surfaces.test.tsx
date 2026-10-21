@@ -58,7 +58,7 @@ const line20 = renderLine(snapshot, { width: 20, color: false });
 const surfaces = { app, tray, tui };
 
 for (const [name, output] of Object.entries({ app, tray, tui, line120, line20 })) {
-  test(`golden ${name}`, () => expect(output).toMatchSnapshot());
+  test(`golden ${name}`, () => expect(name === "tui" ? output.split("\n").map(line => line.trimEnd()).join("\n") : output).toMatchSnapshot());
 }
 
 test("golden --line --json fields use the fixture through the local link", async () => {
@@ -174,4 +174,27 @@ test("tray and Overview agree on unknown and unavailable capacity from the same 
   expect(anchorRows(popover, 'tray-executor--off')).toHaveLength(1);
   expect(popover).toContain(">off</span>");
   expect(popover).not.toContain(">free</span>");
+});
+
+test("Overview, tray and redesigned TUI preserve uncertain historical eligibility", () => {
+  const executor = {
+    ...snapshot.executors![1]!, state: "ready" as const, usedPct: 100, stale: true,
+    eligibility: {
+      state: "uncertain" as const, reasons: [{ code: "budget_expired_or_unknown", evidenceIds: [] }],
+      evaluatedAt: snapshot.at, validUntil: null, evidenceAgeS: 3600,
+      availability: "ready" as const, budget: "unknown" as const, spendingRisk: "unknown" as const,
+    },
+  };
+  const s = { ...snapshot, tasks: [], attention: [], executors: [executor] };
+  const current = reduceStore(initialState(), { type: "snapshot", snapshot: s });
+  const overview = renderToString(<TaskContext.Provider value={{ state: current, api }}><ActionContext.Provider value={runner}><Overview query={{ repo: null, scope: null }} /></ActionContext.Provider></TaskContext.Provider>);
+  const popover = renderToString(<Tray snapshot={s} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
+  const terminal = renderDashboard(s, 120, 40, s.at, { noColor: true });
+  // Tray puts the complete compact-row explanation in its accessible label.
+  for (const output of [strip(overview), popover, strip(terminal)]) {
+    expect(output).toContain("Uncertain fallback");
+    expect(output).toContain("Historical usage");
+    expect(output).toContain("observed 1h ago");
+    expect(output).toContain("Budget evidence has expired or is incomplete");
+  }
 });

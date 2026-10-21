@@ -16,4 +16,3 @@ test("retired bearer routes return 404", async () => {
   }
  } finally { stop?.();listener.mockRestore(); }
 });
-

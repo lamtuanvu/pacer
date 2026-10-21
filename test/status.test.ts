@@ -81,7 +81,7 @@ test("PACER=off marks the status disabled; missing binaries are not installed", 
   const st = await computeStatus(ctx, s, { profile: null });
   expect(st.disabled).toBe(true);
   expect(st.providers.find((p) => p.id === "codex")?.installed).toBe(false);
-  expect(st.executors.excluded).toContainEqual({ id: "codex", account: "codex", reason: "not installed" });
+  expect(st.executors.excluded).toContainEqual(expect.objectContaining({ id: "codex", account: "codex", reason: "not installed" }));
 });
 
 test("displayName", () => {

@@ -1,11 +1,11 @@
 /** Home: the app's Overview — Needs you, Running, Capacity, Done today, in that order. */
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, reviewQueue, running } from "../../view-model/selectors";
-import { attentionStatus, executorStatus, taskStatus, taskOutcome } from "../../view-model/words";
-import { executorPace, queueWait } from "../../view-model/capacity";
+import { attentionStatus, taskStatus, taskOutcome } from "../../view-model/words";
+import { executorEligibility, executorPace, queueWait } from "../../view-model/capacity";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
 import type { ClientTask } from "../../view-model/snapshot";
-import { cols, flex, glyph, heading, meter, span, statusSpans, type Line } from "../frame";
+import { cols, flex, glyph, heading, meter, span, statusSpans, wrap, type Line } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, serviceAct, time } from "./common";
 import type { Row, ScreenCtx, ScreenView } from "./types";
@@ -67,7 +67,7 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
     const open: Act = { label: "Open in Settings", effect: { type: "navigate", screen: "settings", section: "executors", id: `executor:${e.id}` } };
     const item: Item = { id: `executor:${e.id}`, primary: open, actions: defined([block]), keys: block ? { b: block } : {} };
     const off = ["down", "failing", "disabled", "blocked", "exhausted"].includes(e.state) || !e.enabled;
-    const pace = executorPace(e, s), status = executorStatus(e.state), w = capacityWidths(width, wide);
+    const pace = executorPace(e, s), status = executorEligibility(e, ctx.now), w = capacityWidths(width, wide);
     const used = e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`, slots = `${e.slots.used}/${e.slots.max}`;
     const name = executorName(theme, e.id, s.accounts?.map(a => ({ name: a.name, runners: a.executors, source: a.source })));
     const muted = off ? { fg: "muted" as const } : undefined;
@@ -90,6 +90,10 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
         { content: slots, width: w[4]!, align: "right" },
       ], GAP, theme);
     add(item, line);
+    if (e.eligibility || e.stale) {
+      const detail = [e.stale ? "Historical usage" : null, status.detail, status.age].filter(Boolean).join(" · ");
+      for (const text of wrap(detail, width)) rows.push({ item: item.id, cont: true, line: [span(text, { fg: "secondary" })] });
+    }
   }
 
   // DONE TODAY
@@ -108,8 +112,8 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
 
 function capacityWidths(width: number, wide: boolean): number[] {
   return wide
-    ? flex(width, [{ fixed: 2 }, { fixed: 26 }, { fixed: 15 }, { fixed: 4 }, { weight: 1, min: 12 }, { fixed: 14 }, { fixed: 4 }, { fixed: 5 }])
-    : flex(width, [{ fixed: 2 }, { weight: 1, min: 12 }, { fixed: 15 }, { fixed: 4 }, { fixed: 5 }]);
+    ? flex(width, [{ fixed: 2 }, { fixed: 26 }, { fixed: 22 }, { fixed: 4 }, { weight: 1, min: 12 }, { fixed: 14 }, { fixed: 4 }, { fixed: 5 }])
+    : flex(width, [{ fixed: 2 }, { weight: 1, min: 12 }, { fixed: 22 }, { fixed: 4 }, { fixed: 5 }]);
 }
 
 /** Running rows: Watch when a session can be attached, otherwise open the session details. Stop always confirms. */

@@ -19,11 +19,9 @@ export interface Thresholds { ahead: number; behind: number; paceScale: number }
 export function evaluateWindow(w: UsageWindow, now: number, profile: ActivityProfile | null, th: Thresholds): WindowStatus {
   const s: WindowStatus = { ...w, verdict: "UNKNOWN" };
   if (s.resetsAt !== null && s.resetsAt <= now) {
-    // The window rolled over since this reading (drift or an early reset).
-    if (s.usedPct !== null) s.usedPct = 0;
-    s.resetsAt = null;
-    s.rolled = true;
+    return { ...s, stale: true, rolled: true };
   }
+  if (s.stale) return s;
   if (s.usedPct === null) return s;
   const used = s.usedPct;
   if (used >= EXHAUSTED_PCT) return { ...s, verdict: "EXHAUSTED" };
