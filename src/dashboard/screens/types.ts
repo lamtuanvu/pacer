@@ -18,6 +18,7 @@ export interface TaskDetail {
   files?: { path: string; status: string; added: number | null; removed: number | null; binary?: boolean }[];
   retryOptions?: { id: string; state: string; reason?: string }[];
   timeline?: { at: number; text: string }[];
+  reviewRequest?: {note:string;at:number};
   review?: { accepted: boolean } | null; resolved?: string | null; dismissed?: boolean; retriedBy?: string | null;
   progress?: { phase?: string; files?: number; commits?: number; lastOutputAt?: number | null } | null;
 }
@@ -43,6 +44,7 @@ export interface ProjectStrategy {
 
 export interface DashData {
   details: ReadonlyMap<string, Resource<TaskDetail>>;
+  history?: Resource<{tasks: import("../../view-model/snapshot").ClientTask[]; next:string|null}>;
   settings: SettingsData;
 }
 

@@ -124,7 +124,7 @@ test("pump logs settle, mode, executor and account changes once", async () => {
   await pumpOnce(next, changed);
   await pumpOnce(next, changed);
   expect(readActivity(ctx, { kinds: ["task_settled"] }).entries).toMatchObject([
-    { text: "Codex finished “Add SSH keepalive” · waiting for review", executor: "codex", taskId: task.id },
+    { text: "Codex finished “Add SSH keepalive”", executor: "codex", taskId: task.id },
   ]);
   expect(readActivity(ctx, { kinds: ["mode"] }).entries.map(e => e.text)).toEqual(["Mode Normal → Emergency · planner out of quota"]);
   expect(readActivity(ctx, { kinds: ["executor_state"] }).entries.map(e => e.text)).toEqual(["Codex marked blocked · maintenance"]);

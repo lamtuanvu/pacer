@@ -16,7 +16,7 @@ function notificationView(item: AttentionItem): string {
   const section = item.actions.find(a => a.op === "ui.open" && a.params.view === "settings")?.params.section;
   if (typeof section === "string") return `settings/${encodeURIComponent(section)}`;
   if (item.kind === "update") return "settings/updates";
-  if (item.taskId) return `${item.kind === "review" ? "review" : "sessions"}/${encodeURIComponent(item.taskId)}`;
+  if (item.taskId) return `tasks/${encodeURIComponent(item.taskId)}`;
   if (item.executor) return "settings/executors";
   if (item.account) return "settings/accounts";
   if (item.host) return `settings/hosts/${encodeURIComponent(item.host)}`;
@@ -51,7 +51,7 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
         candidates.push({ key, data: { key, title: `Budget mode changed to ${d.mode}`, body: `${d.previous} → ${d.mode}`, actions: [], url: "/app/#/" } });
       } else if (event.type === "task" && ["done", "partial", "failed", "limit", "stopped"].includes(event.data.state) && !items.some(item => item.taskId === event.data.id)) {
         const d = event.data, key = `task:${d.id}:${d.state}:${d.updatedAt}`;
-        candidates.push({ key, data: { key, title: `Task ${d.state}`, body: d.goal, actions: [], url: `/app/#/${needsReview(d) ? "review" : "sessions"}/${encodeURIComponent(d.id)}` } });
+        candidates.push({ key, data: { key, title: `Task ${d.state}`, body: d.goal, actions: [], url: `/app/#/tasks/${encodeURIComponent(d.id)}` } });
       }
     }
     const sent: OutboxEvent[] = [];

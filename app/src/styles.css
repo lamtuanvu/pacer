@@ -150,7 +150,6 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 
 .pc-chip__n{font-size:var(--type-caption-size);opacity:.8}
 
-.pc-attn--bad{background:var(--bad-tint);border-color:var(--bad-line)}
 .pc-attn__title{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-weight:var(--type-body-strong-weight)}
 
 
@@ -329,8 +328,6 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-setup-diff{border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4);background:var(--surface-card)}
 @media(max-width:767px){.pc-setup-layout{grid-template-columns:minmax(0,1fr)}.pc-setup-header{padding:var(--space-4);flex-wrap:wrap}.pc-setup-rail{position:static;border-right:0;border-bottom:1px solid var(--line);padding:var(--space-3)}.pc-setup-rail ol{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-setup-rail li{padding:var(--space-2)}.pc-setup-version{margin:var(--space-3)}.pc-setup-panel{padding:var(--space-5)}.pc-setup-executors li{grid-template-columns:var(--size-20) var(--size-32) minmax(0,1fr)}.pc-setup-executors .pc-pill{grid-column:3}.pc-setup-move{grid-column:3;justify-content:flex-start}}
 .sr-only{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.pc-attn{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
-.pc-attn--bad{border-color:var(--bad-line);background:var(--bad-tint)}
 .pc-review-files .pc-selectable-row,.pc-review-queue .pc-selectable-row{flex-direction:column;align-items:flex-start;overflow:hidden}
 .pc-cap.pc-list-row{display:grid}.pc-cap.pc-list-row .pc-pill{white-space:normal}
 .pc-panel{position:sticky;top:0;max-height:100vh;overflow:auto;align-self:flex-start}
@@ -346,6 +343,12 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-overview-attention .pc-attn .pc-list-row__leading{min-width:var(--size-176)}
 @media(max-width:767px){.pc-overview-attention .pc-attn .pc-list-row__leading{min-width:0}}
 
+/* Task results compose existing sections and DS controls. */
+.pc-task-result { max-width: 100%; }
+.pc-task-result__heading { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.pc-task-result__columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: var(--space-6); }
+.pc-task-result__columns > * { min-width: 0; }
+@media (max-width: 900px) { .pc-task-result__columns { grid-template-columns: minmax(0, 1fr); } }
 /* Keep settings navigation visible without occupying the narrow content viewport. */
 .pc-app:not(.pc-app--narrow) .pc-panel{min-height:100vh}
 .pc-app--narrow .pc-panel{position:sticky;top:0;z-index:var(--layer-sticky);max-height:none;background:var(--surface-card)}

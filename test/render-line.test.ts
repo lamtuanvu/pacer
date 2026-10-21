@@ -21,7 +21,7 @@ test("offline and unknown usage", () => {
   expect(renderLine(s, { color: false })).toContain("usage unknown");
 });
 test("mode only when non-normal; needs hidden at zero", () => {
-  const s = snapshot(); s.planner!.mode = "relaxed"; s.counts!.attention = 0;
+  const s = snapshot(); s.planner!.mode = "relaxed"; s.counts!.attention = 0;s.attention=[];
   expect(renderLine(s, { color: false, width: 120 })).toBe("▬┃ Claude Code 63%·77  ▸2  relaxed");
   expect(renderLine(s, { color: false, width: 60 })).toBe("▬┃ Claude Code 63%·77  ▸2");
 });
@@ -40,8 +40,8 @@ test("Codex uses its shared identity and invalid counts stay unknown", () => {
   const s = snapshot(); s.planner!.agent = "codex";
   expect(renderLine(s)).toContain(rgb("Codex", "fafafa"));
   s.counts!.running = -1; s.counts!.attention = NaN;
-  expect(lineFields(s)).toMatchObject({ running: null, attention: null });
-  expect(renderLine(s, { color: false })).toBe("▬┃ Codex 63%·77");
+  expect(lineFields(s)).toMatchObject({ running: null, attention: 4 });
+  expect(renderLine(s, { color: false })).toBe("▬┃ Codex 63%·77  ⚑4");
 });
 test("narrow ahead/out states preserve the needs-you count", () => {
   const s = snapshot();

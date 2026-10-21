@@ -1,5 +1,7 @@
 # Implementing the redesigned pacer UI
 
+> Review-queue behavior is superseded by [actionable attention](2026-10-21-actionable-attention-design.md). Historical layout and delivery descriptions below are not the current review contract.
+
 Status: design agreed 2026-10-16. Builds on the [pacer app spec](2026-10-15-pacer-app-design.md), the [app web UI decision](../decisions/2026-10-15-app-web-ui.md), the [clients-over-one-service decision](../decisions/2026-10-16-clients-over-local-service.md) and the [live sessions spec](2026-10-16-live-sessions-design.md). The service behaviour and API contract the UI relies on are owned by the [UI functionality spec](2026-10-16-ui-functionality-design.md) (PR #50); this document only lists what the UI needs from it (see [Needs from the service](#needs-from-the-service)).
 
 Reference design: the [redesign canvas](https://claude.ai/artifact/HyQe5GM84sRm3qUnRQNXxF) (start with `App.dc.html`, the clickable prototype), built on the [pacer design system](https://claude.ai/code/artifact/45ead394-e081-491f-a457-a4f772b09267). When the canvas and this spec disagree, the canvas wins on look (sizes, spacing, order on screen) and this spec wins on behaviour and words. A builder without access to the canvas gets an export of its boards from the owner.

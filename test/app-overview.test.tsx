@@ -38,8 +38,8 @@ test("the planner strip gives the advice, usage and the day's numbers", () => {
 
 test("needs you links to the review queue and the footer lists the main keys", () => {
   const html = view();
-  expect(html).toContain('href="#/review"');
-  expect(html).toContain("Open review queue");
+  expect(html).toContain('href="#/needs-you"');
+  expect(html).toContain("All attention");
   expect(html).toMatch(/pc-keys-footer[\s\S]*j k[\s\S]*⏎[\s\S]*dismiss[\s\S]*pacer/);
 });
 
@@ -72,10 +72,10 @@ test("a repo scope filters Needs you and Running but never Capacity", () => {
 test("a failed card has the bad tint, the glyph, the service's words and exactly its actions", () => {
   const html = view();
   // The card is the span between its own opening tag and the next card's.
-  const cards = [...html.matchAll(/class="pc-attn(?: [^"]*)?"/g)].map(m => m.index!);
+  const cards = [...html.matchAll(/class="[^"]*pc-attn(?: [^"]*)?"/g)].map(m => m.index!);
   const title = html.indexOf("Retry budget refresh on 429"), start = cards.filter(i => i < title).at(-1)!;
   const card = html.slice(start, cards.find(i => i > title) ?? html.length);
-  expect(card).toContain("pc-attn--bad");
+  expect(card).toContain("pc-list-row--bad");
   expect(card).toContain("✕");
   expect(card).toContain("Failed twice on Antigravity · test timed out after 120 s");
   expect(card).toContain(">Retry on Codex<");
@@ -106,14 +106,14 @@ test("done today and activity use absolute times and the service's sentences", (
   expect(html).toContain("7 · 6 accepted");
   expect(html).toContain('aria-label="Done today pages"');
   expect(html).toContain("1–3 of 5");
-  expect(html).toContain(">Waiting for review<");
+  expect(html).toContain(">Completed<");
   expect(html).toContain("Mode Normal → Relaxed · planner behind pace");
 });
 
 test("empty states say what to do next", () => {
   const empty = { ...snap, attention: [], executors: [], counts: { ...snap.counts!, attention: 0 } };
   const html = view(null, empty);
-  expect(html).toContain("Nothing needs you.");
+  expect(html).toContain("Nothing needs your attention");
   expect(html).toContain("No executors yet.");
   expect(html).toContain('href="#/settings/add-executor"');
 });
