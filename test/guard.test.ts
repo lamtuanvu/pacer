@@ -1,3 +1,4 @@
+import { eligibility } from "./fixtures/eligibility";
 import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { guardEventId } from "../src/classify/state";
@@ -14,7 +15,7 @@ function status(overrides: Partial<Status> = {}): Status {
     providers: ["claude-code", "codex", "local"].map((id) => ({
       id, usage: "unmetered", windows: [], binding: null, verdict: "OK", installed: true, stale: false,
     })),
-    executors: { ranked: [{ id: "codex", score: 1, verdict: "OK", reason: "ok" }], excluded: [] },
+    executors: { ranked: [{ id: "codex", score: 1, verdict: "OK", reason: "ok", eligibility: eligibility() }], excluded: [] },
     ...overrides,
   };
 }

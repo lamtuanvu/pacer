@@ -68,12 +68,12 @@ test('section failures show the service hint and a retry action',async()=>{
  expect(html).toContain('Cannot read settings');expect(html).toContain('Start pacer');expect(html).toContain('Try again');
 });
 test('standalone screens bundle for the browser with their CSP compatible styles',async()=>{
+ const {APP_JS_BUDGET}=await import('../app/build');
  const result=await Bun.build({entrypoints:['app/src/screens/settings/index.ts'],target:'browser',minify:true});
  expect(result.success).toBe(true);expect(result.outputs.length).toBe(1);
  const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
- // Standalone aggregate includes OpenCode setup, category icons and per-page canvas.
- // Shipping app retains its separate 60 KB budget.
- expect(Bun.gzipSync(text).byteLength).toBeLessThan(38*1024);
+ // Settings composes the shared eligibility vocabulary; use the governed UI-3 budget.
+ expect(Bun.gzipSync(text).byteLength).toBeLessThan(APP_JS_BUDGET);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
@@ -157,6 +157,19 @@ test('settings pages leave their page title to the shell and inline links are un
  expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toContain('href="#/settings/hosts"');
 });
 
+test('Settings and host executors share uncertainty; retained account usage is historical',()=>{
+ const decision={state:'uncertain',reasons:[{code:'budget_expired_or_unknown',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
+ const uncertain={...executor,eligibility:decision};
+ const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,usedPct:61,window:'5h',stale:true,eligibility:decision}]};
+ const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
+ const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
+ expect(executors).toContain('Uncertain fallback');expect(general).toContain('Historical usage');expect(general).toContain('Observation time unknown');
+ const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
+ expect(remote).toContain('Uncertain fallback');
+ const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
+ expect(render(<HostDetail alias="devbox" initialData={{...host,executors:[known] as any}}/>)).toContain('observed 3h ago');
+});
+
 test('Executors copy matches routing: a failed check does not skip an executor',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
@@ -167,6 +180,14 @@ test('a not-tested endpoint executor reads Not tested, not Ready, in Executors',
  const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,reason:'not tested — run a check',lastCheck:null} as any;
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row]}});
  expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Not tested<\/span>/);
+ expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
+});
+test('an untested endpoint keeps its eligibility decision and its unchecked status',()=>{
+ const eligibility={state:'uncertain',reasons:[{code:'budget_missing',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
+ const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,eligibility,lastCheck:null} as any;
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}});
+ expect(html).toContain('Uncertain fallback');
+ expect(html).toContain('No budget observation is available · Not tested');
  expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
 });
 test('an executor row states its reason once, not again under Last check',()=>{
@@ -189,6 +210,12 @@ test('Accounts show an endpoint account\'s weekly dollar spend against its cap',
  const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $'}]}});
  expect(html).toContain('$3.20 of $5 this week');
 });
+test('historical endpoint usage keeps its weekly spend and cap', () => {
+ const name = settings.accounts[0]!.name;
+ const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
+ expect(html).toContain('$3.20 of $5 this week');
+ expect(html).toContain('Historical usage · Observation time unknown');
+});
 
 test('Updates identifies the service and preserves failed-check status', () => {
  const html = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false}}}/>);
@@ -199,4 +226,20 @@ test('Updates identifies the service and preserves failed-check status', () => {
  expect(failed).not.toContain('Up to date');
  const available = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true}}}/>);
  expect(available).toContain('Update service and restart');
+
+});
+
+test('eligible executors retain recent task failures separately from their passed check',()=>{
+ const eligibility={state:'eligible',reasons:[],evaluatedAt:1000,validUntil:null,evidenceAgeS:0,availability:'available',budget:'available',spendingRisk:'none'} as const;
+ const row={...executor,state:'failing',recentFailures:2,reason:'2 recent failures',eligibility,lastCheck:{at:1000,passed:true,detail:'Ready'}} as any;
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
+ expect(html).toContain('Eligible');
+ expect(html).toContain('Recent task failures');
+ expect(html).toContain('2 recent failures');
+ expect(html).toContain('Passed');
+ expect(html).not.toContain('Failing');
+ const failedCheck=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[{...row,lastCheck:{at:1000,passed:false,detail:'test task failed'}}]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
+ expect(failedCheck).toContain('Failing');
+ expect(failedCheck).toContain('Failed');
+ expect(failedCheck).not.toContain('Recent task failures');
 });

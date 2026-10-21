@@ -87,3 +87,15 @@ it Not working. To stop using an executor whose check failed, disable it.
 Capacity rows use the configured executor limit and report `full` when the
 executor, host or shared local machine limit is reached, naming the binding limit.
 Tasks try the next eligible executor or wait for capacity.
+
+## Execution eligibility and evidence
+
+Pacer separates execution permission from pacing. An executor is **eligible** when its applicable availability and budget evidence permits execution, **unavailable** when a current restriction prohibits it, or an **uncertain fallback** when required evidence is missing, expired or conflicting. Routing tries eligible executors first, then automatically permits labelled uncertain fallbacks. A guard redirects local work only when a confirmed eligible alternative exists.
+
+Quota observations use the provider event time, not a log file's modification time or a cache fetch time. Newer observations supersede older ones, even when usage decreases before a predicted reset. Equal-time provider CLI evidence outranks passive logs; equally authoritative contradictions stay explicit. A short window (up to six hours) expires after two hours; longer windows expire after one day. A reported reset expires evidence sooner. Expired values remain historical; passing a reset does not create a measured zero. Every applicable quota window must be current.
+
+Before a new attempt, Pacer refreshes sources that support a current provider command and rereads passive logs. It checks the resulting evidence revision, deadline, account configuration and project policy again before dispatch. A failed or unsupported refresh cannot manufacture confirmation. Existing attempts are observed normally on resume.
+
+Credits, credit balances and measured paid consumption are separate from the configured `allow_paid` permission. Current exhaustion with `allow_paid: false` remains unavailable even if credits exist. An uncertain fallback is not permission to change `allow_paid`; its paid-spend risk remains unknown when the source cannot establish it. Reactive and unmetered executors use their declared measurement contracts instead of fabricated quota windows.
+
+Successful execution confirms availability only. Authentication/subscription failures constrain availability; a quota failure constrains budget. Timeouts and unrelated task failures do not establish either. Later applicable evidence can clear an older observed failure; explicit user blocks remain effective until removed or expired.

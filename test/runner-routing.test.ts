@@ -1,3 +1,4 @@
+import { eligibility } from "./fixtures/eligibility";
 import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
 import { defaultHooks } from "../src/classify/hooks";
@@ -21,7 +22,7 @@ function setup(kind: string | null = "tests") {
     computeStatus: async () => ({
       generatedAt: ctx.now, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, calendarPace: true,
       accounts: [{ name: strategy.runners.cursor.account, kind: "cursor", verdict: "ON_PACE", pacePct: null, resetsAt: null, stale: false, source: null, capturedAt: null, runners: ["cursor"], usedPct: ++reads === 1 ? 3 : 4.2, window: "week", spendUsd: null }],
-      providers: Object.keys(strategy.providers).map(id => ({ id, usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false, ...(id === "codex" ? { blockedReason: "manual" } : {}) })),
+      providers: Object.keys(strategy.providers).map(id => ({ id, eligibility: eligibility(), usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false, ...(id === "codex" ? { blockedReason: "manual" } : {}) })),
       executors: { ranked: [], excluded: [] },
     } as Status),
     hooks: { ...defaultHooks, taskKind: async () => "tests" },
@@ -35,7 +36,7 @@ test("records the matching rule, choice, exclusions and account readings", async
   const { ctx, task, deps } = setup();
   const result = await runTask(ctx, task.id, deps);
   expect(result.state).toBe("done");
-  expect(result.attempts[0].routing).toEqual({ kind: "tests", kindSource: "brief", rule: "tests, refactor", chosen: "cursor", why: "on pace", skipped: [{ executor: "codex", reason: "Blocked by you" }] });
+  expect(result.attempts[0].routing).toMatchObject({ kind: "tests", kindSource: "brief", rule: "tests, refactor", chosen: "cursor", why: "on pace", skipped: [{ executor: "codex", reason: "Blocked by you" }] });
   expect(result.attempts[0].usageAtStart).toMatchObject({ account: strategy.runners.cursor.account, usedPct: 3, window: "week", at: expect.any(Number) });
   expect(result.attempts[0].usageAtEnd).toMatchObject({ account: strategy.runners.cursor.account, usedPct: 4.2, window: "week" });
 });
@@ -67,8 +68,40 @@ test("an unavailable end reading does not lose the attempt", async () => {
   const { ctx, task, deps } = setup();
   const status = deps.computeStatus;
   let calls = 0;
-  deps.computeStatus = async (...args) => { if (++calls === 2) throw Error("usage unavailable"); return status(...args); };
+  deps.computeStatus = async (...args) => { if (++calls === 3) throw Error("usage unavailable"); return status(...args); };
   const result = await runTask(ctx, task.id, deps);
   expect(result.state).toBe("done");
   expect(result.attempts[0].usageAtEnd).toMatchObject({ account: strategy.runners.cursor.account, usedPct: null, window: null });
+});
+
+test("a newly ineligible preflight never dispatches the selected executor", async () => {
+  const { ctx, task, deps } = setup();
+  const status = deps.computeStatus;
+  let calls = 0, launched = false;
+  deps.computeStatus = async (...args) => {
+    const st = await status(...args);
+    if (++calls > 1) for (const provider of st.providers) provider.eligibility = {
+      state: "ineligible", reasons: [{ code: "subscription_missing", evidenceIds: [] }], evaluatedAt: ctx.now,
+      validUntil: ctx.now + 600, evidenceAgeS: 0, availability: "unavailable", budget: "unknown", spendingRisk: "unknown",
+    };
+    return st;
+  };
+  deps.runAttempt = async () => { launched = true; throw Error("must not launch"); };
+  await runTask(ctx, task.id, deps);
+  expect(launched).toBe(false);
+});
+
+test("a configuration change during refresh is rechecked before dispatch", async () => {
+  const { ctx, task, deps } = setup();
+  const status = deps.computeStatus;
+  let current = strategy, calls = 0, launched = false;
+  deps.loadStrategy = () => current;
+  deps.computeStatus = async (...args) => {
+    const st = await status(...args);
+    if (++calls === 2) current = { ...strategy, runners: { ...strategy.runners, cursor: { ...strategy.runners.cursor, enabled: false } } };
+    return st;
+  };
+  deps.runAttempt = async () => { launched = true; throw Error("must not launch"); };
+  await runTask(ctx, task.id, deps);
+  expect(launched).toBe(false);
 });

@@ -49,13 +49,13 @@ test("executor labels identify agents, endpoint accounts and named budgets", () 
  expect(executorLabel("codex#personal",[{name:"personal",kind:"codex",source:"default"}])).toBe("Codex");
 });
 test("routing verdicts are words and unknown is neutral", () => {
- for(const [verdict,label] of [["OK","Ready"],["UNKNOWN","Usage unknown"],["AHEAD","Ahead of pace"],["EXHAUSTED","Out of quota"]]) expect(routingStatus({verdict,reason:"ok, used 0%"}).label).toBe(label);
+ for(const [verdict,label] of [["OK","Eligibility unknown"],["UNKNOWN","Usage unknown"],["AHEAD","Ahead of pace"],["EXHAUSTED","Out of quota"]]) expect(routingStatus({verdict,reason:"ok, used 0%"}).label).toBe(label);
  const snapshot={...emptySnapshot(),budget:{generatedAt:1,planner:"codex",strategy:"default",mode:"normal",ranked:[],providers:[{id:"codex",verdict:"UNKNOWN",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false}]}};
  expect(homeModel(snapshot,[]).planner?.tone).toBe("neutral");
 });
 test("native executor states use installation, routing and runner overrides", () => {
  const runner={id:"codex",state:"ok" as const,until:null,reason:null};
- expect(executorStatus(runner).label).toBe("Ready");
+ expect(executorStatus(runner).label).toBe("Eligibility unknown");
  expect(executorStatus(runner,undefined,false).label).toBe("Not installed");
  expect(executorStatus({...runner,state:"blocked",until:100}).label).toContain("Blocked until");
  expect(executorStatus({...runner,state:"exhausted"}).label).toBe("Out of quota");

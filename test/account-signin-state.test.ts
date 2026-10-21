@@ -9,6 +9,8 @@ import { computeStatus } from "../src/engine/status";
 import { buildAccounts, buildExecutors } from "../src/api/read-model/capacity";
 import { deriveItems } from "../src/attention/rules";
 import { fakeCtx } from "./helpers";
+import { markAuthFailed } from "../src/usage/auth";
+import { accountEvidenceScope } from "../src/evidence/scope";
 
 function setup() {
   const ctx = fakeCtx();
@@ -42,12 +44,14 @@ test("account list reports local native sign-in from the login indicator and no 
 test("a recorded authentication failure signs an account out until it signs in again", async () => {
   const {ctx, work} = setup();
   mkdirSync(join(ctx.pacerHome, "state"), {recursive: true});
-  writeFileSync(join(ctx.pacerHome, "state", "auth-failed.json"), JSON.stringify({work: ctx.now}));
+  const strategy = loadStrategy(ctx);
+  markAuthFailed(ctx, "work", "authentication failed", {scope: accountEvidenceScope(strategy.accounts.work!, strategy.hosts)});
   const old = (ctx.now - 600);
   utimesSync(join(work, ".claude.json"), old, old);
   expect((await list(ctx)).find(r => r.name === "work")!.signedIn).toBe(false);
   // Logging in again rewrites the config file after the failure.
   utimesSync(join(work, ".claude.json"), ctx.now + 60, ctx.now + 60);
+  ctx.now += 61;
   expect((await list(ctx)).find(r => r.name === "work")!.signedIn).toBe(true);
 });
 
@@ -123,7 +127,8 @@ test("decision: a failed runner check keeps the executor in routing (attention o
 test("routing excludes an executor whose authentication failed after its last login, and ranks it after a newer login", async () => {
   const {ctx, work} = setup();
   mkdirSync(join(ctx.pacerHome, "state"), {recursive: true});
-  writeFileSync(join(ctx.pacerHome, "state", "auth-failed.json"), JSON.stringify({work: ctx.now}));
+  const strategy = loadStrategy(ctx);
+  markAuthFailed(ctx, "work", "authentication failed", {scope: accountEvidenceScope(strategy.accounts.work!, strategy.hosts)});
   // The failure is newer than the login file: excluded with the authentication reason.
   utimesSync(join(work, ".claude.json"), ctx.now - 600, ctx.now - 600);
   let st = await computeStatus(ctx, loadStrategy(ctx));
@@ -131,6 +136,7 @@ test("routing excludes an executor whose authentication failed after its last lo
   expect(st.executors.ranked.some(e => e.id === "claude-code#work")).toBe(false);
   // Logging in again rewrites the login file after the failure: ranked again.
   utimesSync(join(work, ".claude.json"), ctx.now + 60, ctx.now + 60);
+  ctx.now += 61;
   st = await computeStatus(ctx, loadStrategy(ctx));
   expect(st.executors.ranked.some(e => e.id === "claude-code#work")).toBe(true);
   expect(st.executors.excluded.some(e => e.id === "claude-code#work")).toBe(false);
@@ -160,4 +166,53 @@ test("a not-tested endpoint executor stays routable but is not shown as Ready", 
   row = buildExecutors(st, s, [], ctx.now, ctx).find(r => r.id === "opencode#lab")!;
   expect(row.untested).toBeUndefined();
   expect(executorRowStatus(row).label).toBe("Ready");
+});
+
+
+test("unbound legacy authentication marks do not sign out a current account identity", async () => {
+  const {ctx, work} = setup();
+  mkdirSync(join(ctx.pacerHome, "state"), {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "state", "auth-failed.json"), JSON.stringify({work: ctx.now}));
+  utimesSync(join(work, ".claude.json"), ctx.now - 600, ctx.now - 600);
+  expect((await list(ctx)).find(r => r.name === "work")!.signedIn).toBe(true);
+  const st = await computeStatus(ctx, loadStrategy(ctx));
+  expect(st.executors.ranked.some(e => e.id === "claude-code#work")).toBe(true);
+});
+
+for (const clearSidecar of [false, true]) {
+  test(`new local login recovers scoped execution authentication (${clearSidecar ? "persisted only" : "with sidecar"})`, async () => {
+    const {ctx, work} = setup(), strategy = loadStrategy(ctx);
+    const {recordExecutionEvidence, readEvidence} = await import("../src/core/evidence");
+    const {recordAuthReading} = await import("../src/usage/auth");
+    const scope = {...accountEvidenceScope(strategy.accounts.work!, strategy.hosts), runner: "claude-code#work", model: "default", host: "local"};
+    const failedAt = ctx.now;
+    await recordExecutionEvidence(ctx, scope, {endedAt: failedAt, exitCode: 1, timedOut: false, classification: "authentication"});
+    const remote = {...scope, host: "remote"};
+    await recordExecutionEvidence(ctx, remote, {endedAt: failedAt, exitCode: 1, timedOut: false, classification: "authentication"});
+    markAuthFailed(ctx, "work", "authentication failed", {scope});
+    utimesSync(join(work, ".claude.json"), failedAt - 600, failedAt - 600);
+    if (clearSidecar) {
+      ctx.now += 10;
+      recordAuthReading(ctx, "work", {capturedAt: ctx.now, windows: [], stale: false, source: "session-log"}, scope);
+    }
+    expect((await computeStatus(ctx, strategy)).executors.ranked.some(e => e.id === scope.runner)).toBe(false);
+    utimesSync(join(work, ".claude.json"), failedAt + 60, failedAt + 60);
+    ctx.now = failedAt + 61;
+    expect((await computeStatus(ctx, strategy)).executors.ranked.some(e => e.id === scope.runner)).toBe(true);
+    const facts = readEvidence(ctx, scope).evidence.facts.availability;
+    expect(facts.find(f => f.scope.host === "local")).toMatchObject({value: "ready", scope, observedAt: failedAt + 60});
+    expect(facts.find(f => f.scope.host === "remote")).toMatchObject({value: "unavailable", scope: remote});
+  });
+}
+
+test("successful same-scope execution supersedes its older auth sidecar without rewriting login", async () => {
+  const {ctx, work} = setup(), strategy = loadStrategy(ctx);
+  const {recordExecutionEvidence} = await import("../src/core/evidence");
+  const scope = {...accountEvidenceScope(strategy.accounts.work!, strategy.hosts), runner: "claude-code#work", model: "default", host: "local"};
+  utimesSync(join(work, ".claude.json"), ctx.now - 600, ctx.now - 600);
+  markAuthFailed(ctx, "work", "authentication failed", {scope});
+  await recordExecutionEvidence(ctx, scope, {endedAt: ctx.now, exitCode: 1, timedOut: false, classification: "authentication"});
+  ctx.now += 10;
+  await recordExecutionEvidence(ctx, scope, {endedAt: ctx.now, exitCode: 0, timedOut: false, classification: "success"});
+  expect((await computeStatus(ctx, strategy)).executors.ranked.some(e => e.id === scope.runner)).toBe(true);
 });

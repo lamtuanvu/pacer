@@ -67,7 +67,8 @@ test("narrow Overview uses Panel order, repo default, other-repo count and compa
   expect(html).not.toContain('Add dark mode to the web header');
   expect(html).toContain('LM Studio is not running');
   expect(html).toContain('pc-capacity--compact');
-  expect(html).toContain('pc-cap__dot--bad');
+  expect(html).toContain('pc-cap__dot--neutral');
+  expect(html).toContain('Eligibility unknown');
   expect(html).toContain('2 ready · 2 down');
   expect(html).toContain('next: <b>Codex · team on devbox</b>');
   expect(html).not.toContain('pc-planner-strip');

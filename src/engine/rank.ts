@@ -1,9 +1,15 @@
+import type { EligibilityDecision, EvidenceScope } from "../evidence/types";
 import { resolveRunner } from "../config/runner-id";
 import type { Strategy } from "../config/strategy";
 import type { UsageKind, Verdict } from "../types";
 import type { WindowStatus } from "./verdict";
+import { restrictEligibility } from "./eligibility";
+import { eligibilityPresentation } from "../view-model/eligibility";
 
 export interface ProviderStatus {
+  eligibility?: EligibilityDecision;
+  evidenceScope?: EvidenceScope;
+  evidenceRevision?: number;
   id: string;
   /** Present for account-form strategies; legacy presentation stays unchanged. */
   agent?: string;
@@ -23,8 +29,8 @@ export interface ProviderStatus {
   blockedReason?: string;
   blockedUntil?: number | null;
 }
-export interface RankedExecutor { id: string; account?: string; score: number; verdict: Verdict; reason: string }
-export interface Excluded { id: string; account?: string; reason: string }
+export interface RankedExecutor { eligibility?: EligibilityDecision; fallback?: "uncertain"; id: string; account?: string; score: number; verdict: Verdict; reason: string }
+export interface Excluded { eligibility?: EligibilityDecision; id: string; account?: string; reason: string }
 
 const EXPIRING_BOOST = 50;
 const TIER: Record<UsageKind, number> = { unmetered: 0, quota: 1, reactive: 1, metered: 2 };
@@ -74,7 +80,7 @@ export interface CandidateSelection { executors: readonly string[]; order: "conf
 
 export function rankExecutors(
   kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>, selection?: CandidateSelection,
-): { ranked: RankedExecutor[]; excluded: Excluded[]; reason?: string } {
+): { ranked: RankedExecutor[]; excluded: Excluded[]; uncertain?: RankedExecutor[]; reason?: string } {
   statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [resolveRunner(s, id)?.id ?? id, status]));
   const ranked: (RankedExecutor & { unknown: boolean; order: number })[] = [];
   const excluded: Excluded[] = [];
@@ -83,7 +89,8 @@ export function rankExecutors(
     const runner = s.runners[id];
     const account = runner ? s.accounts[runner.account] : undefined;
     const accountField = runner ? { account: runner.account } : {};
-    const exclude = (reason: string) => excluded.push({ id, ...accountField, reason });
+    const exclude = (reason: string) => excluded.push({ id, ...accountField, reason,
+      eligibility: restrictEligibility(st?.eligibility, reason === "planner" ? "planner" : "unavailable") });
     if (runner?.agent === s.planner.agent && runner.account === s.planner.account) return exclude("planner");
     if (runner?.enabled === false) return exclude("disabled");
     if (!st || !runner || !account) return exclude("not configured");
@@ -92,12 +99,21 @@ export function rankExecutors(
     if (st.brokenReason) return exclude(`Not working · ${st.brokenReason}`);
     if (!st.installed) return exclude("not installed");
     if (st.signedOutReason) return exclude(st.signedOutReason);
-    if (st.verdict === "EXHAUSTED") return exclude("exhausted");
-    ranked.push({ id, ...accountField, score: score(st, s), verdict: st.verdict, reason: reason(st), unknown: st.verdict === "UNKNOWN", order });
+    const decision = restrictEligibility(st.eligibility);
+    if (decision.state === "ineligible") {
+      excluded.push({ id, ...accountField, reason: eligibilityPresentation(decision, decision.evaluatedAt).detail, eligibility: decision });
+      return;
+    }
+    const uncertain = decision.state === "uncertain";
+    ranked.push({ id, ...accountField, eligibility: decision,
+      ...(uncertain ? { fallback: "uncertain" as const } : {}), score: score(st, s), verdict: st.verdict, reason: uncertain ? `Uncertain fallback: ${eligibilityPresentation(decision, decision.evaluatedAt).detail}` : reason(st), unknown: uncertain, order });
+
   });
   if (selection) {
+    ranked.sort((a, b) => Number(a.unknown) - Number(b.unknown) || a.order - b.order);
     return {
       ranked: ranked.map(({ unknown, order, ...executor }, index) => ({ ...executor, score: ranked.length - index })),
+      uncertain: ranked.filter(e => e.unknown).map(({ unknown, order, ...executor }) => executor),
       excluded,
       ...(!selection.executors.some(id => s.runners[id] && !(s.runners[id].agent === s.planner.agent && s.runners[id].account === s.planner.account)) ? { reason: "no executor configured" } : {}),
     };
@@ -167,11 +183,13 @@ export function rankExecutors(
     });
     positions.forEach((position, i) => { ranked[position] = candidates[i]; });
   }
+  ranked.sort((a, b) => Number(a.unknown) - Number(b.unknown));
   if (s.pacing.policy === "priority") ranked.forEach((e, i) => { e.score = ranked.length - i; });
   const configured = executorsFor(kind, s).some(id => {
     const runner = s.runners[id];
     return runner && !(runner.agent === s.planner.agent && runner.account === s.planner.account);
   });
   return { ranked: ranked.map(({ unknown, order, ...executor }) => executor), excluded,
+    uncertain: ranked.filter(e => e.unknown).map(({ unknown, order, ...executor }) => executor),
     ...(!configured ? { reason: "no executor configured" } : {}) };
 }

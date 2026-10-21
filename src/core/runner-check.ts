@@ -8,6 +8,7 @@ import { detectAgents } from "../install/detection";
 import { startJob, type Job } from "../jobs/registry";
 import type { Ctx } from "../types";
 import { accountSignIn } from "../usage/signin";
+import { accountEvidenceScope } from "../evidence/scope";
 import { list as listAccounts } from "./accounts";
 import { CoreError } from "./errors";
 import { check as checkLimits, type LimitsRow } from "./limits";
@@ -60,7 +61,7 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
         const status = (await (deps.listAccounts ?? listAccounts)(ctx)).find(a => a.name === account.name);
         if (!status) throw Error(`Sign in to account ${account.name}`);
         if (status.signedIn === false) {
-          const signIn = accountSignIn(ctx, account);
+          const signIn = accountSignIn(ctx, account, accountEvidenceScope(account, strategy.hosts));
           throw Error(`Sign in to account ${account.name}${signIn.reason ? ` (${signIn.reason})` : ""}`);
         }
       });

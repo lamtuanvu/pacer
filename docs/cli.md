@@ -399,4 +399,8 @@ shared progress through `job.get`, `job.list` and `job.cancel` when cancellable.
 
 New worktrees fetch `origin` and start at `origin/<default-branch>` rather than the source checkout's current branch. The task JSON records `baseBranch` and the immutable `baseSha`. Use `--worktree-base head` (brief/API: `worktree_base: head`) to opt in to the current HEAD, including detached HEAD. An explicit brief `base` or configured `execution.base_branch` still selects that ref. Fetch or default-branch discovery failures stop creation rather than silently using a stale checkout.
 
-An explicit `--repo` preserves that checkout's real path, including linked worktrees; repository identity can still be shared for project policy. Registered repo keys select the saved checkout when a path is not supplied. Blocked or exhausted executors are excluded from automatic selection and fallback; requesting one explicitly returns an error. A review retry reuses the original local worktree, including uncommitted work.
+An explicit `--repo` preserves that checkout's real path, including linked worktrees; repository identity can still be shared for project policy. Registered repo keys select the saved checkout when a path is not supplied. Blocked executors and executors with confirmed exhaustion where paid execution is forbidden are excluded from automatic selection and fallback; requesting one explicitly returns an error. A review retry reuses the original local worktree, including uncommitted work.
+
+## Eligibility evidence
+
+Status and routing expose the same eligibility decision used at launch. `route --json` adds `eligibility` on candidates and exclusions, `fallback: "uncertain"` on fallback candidates, and an `uncertain` subset. Human output labels uncertainty and shows historical quota without inventing a reset. See [execution eligibility](executors.md#execution-eligibility-and-evidence).
