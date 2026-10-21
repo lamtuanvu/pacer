@@ -29,3 +29,15 @@ export function resolveRunner(s: Strategy, idOrAlias: string): RunnerCfg | null 
   const canonical = formatRunnerId(id, defaults);
   return Object.hasOwn(s.runners, canonical) ? s.runners[canonical] : null;
 }
+
+/** The planner is the local runner for one exact agent/account pair. */
+export function isPlannerRunner(s: Pick<Strategy, "planner">, runner: Pick<RunnerCfg, "agent" | "account" | "host">): boolean {
+  return runner.host === null && runner.agent === s.planner.agent && runner.account === s.planner.account;
+}
+/** Stable configured priority, expanding group references and retaining unlisted runners. */
+export function orderedExecutorIds(s: Strategy): string[] {
+  const ids = Object.values(s.runners).filter(r => !isPlannerRunner(s, r)).map(r => r.id);
+  return [...new Set([...s.pacing.order.flatMap(ref => ref === "opencode"
+    ? ids.filter(id => s.runners[id].agent === "opencode")
+    : [resolveRunner(s, ref)?.id ?? ref]), ...ids])].filter(id => ids.includes(id));
+}
