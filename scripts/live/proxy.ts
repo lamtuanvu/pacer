@@ -25,6 +25,7 @@ export const BLOCKED_OPS: Readonly<Record<string, string>> = {
   "task.attach": "openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively)",
   "host.clean": "hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively)",
   "desktop.update.*": "all desktop update operations except status require a verified OTA fixture",
+  "plugin.remove": "plugins.remove deletes a plugin folder under the home (whole op refused conservatively)",
   "service.*": "all service operations except service.status can change the real login service",
 };
 

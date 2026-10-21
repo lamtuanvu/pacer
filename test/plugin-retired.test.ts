@@ -13,13 +13,17 @@ function setup() {
 
 test("plugin subcommands other than uninstall explain the plugin was removed", async () => {
   const { ctx } = setup();
-  for (const args of [["install"], ["status"], ["set", "port", "4317"], []]) {
+  for (const args of [["install"], ["status"], ["set", "port", "4317"]]) {
     const r = await main(["plugin", ...args], ctx);
     expect(r.code).toBe(2);
     expect(r.err).toContain("no longer ships an Orca plugin");
     expect(r.err).toContain("pacer plugin uninstall");
   }
   expect(existsSync(join(ctx.pacerHome, "orca-plugin"))).toBe(false);
+  // Bare `pacer plugin` now belongs to the plugin system; its usage still points at the Orca cleanup.
+  const bare = await main(["plugin"], ctx);
+  expect(bare.code).toBe(2);
+  expect(bare.err).toContain("pacer plugin uninstall");
 });
 
 test("plugin uninstall removes an earlier install, its panel and both storage keys", async () => {
