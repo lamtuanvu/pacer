@@ -256,11 +256,15 @@ source provenance. A busy target refuses concurrent writers.
 Build the ordinary desktop app, then use `live desktop --app <path>` and
 `live doctor --surface desktop --json`. To request the macOS approval prompt, run
 `live doctor --surface desktop --request-accessibility --json`; ordinary doctor
-checks do not prompt. Approve the helper in System Settings → Privacy & Security
-→ Accessibility. If it is not listed, use + and the file chooser's Go to Folder
-(Command-Shift-G) to select `.work/live-tools/pacer-native-control` in the checkout.
-The request does not grant permission or change the toggle for you. Rerun doctor
-after approval; the helper launches afresh on each command. The macOS helper requires the installed
+checks do not prompt. Approve the app macOS attributes the request to in System Settings → Privacy &
+Security → Accessibility. For a harness launched inside a terminal or agent host,
+this can be the hosting app rather than the helper. In the measured Orca session,
+macOS TCC logs attributed the helper request to `com.stablyai.orca`; enabling the
+helper executable alone did not grant access. If the hosting app is not listed,
+use + to select its application bundle. The request does not grant permission or
+change the toggle for you. Rerun doctor after approval and verify an actual owned
+AX observation; a settings toggle alone is not evidence that the session can act.
+macOS can suppress the request dialog, so manual settings remain a fallback. The macOS helper requires the installed
 Swift compiler, an unlocked exclusive desktop session, Accessibility permission
 for input/AX and screen capture permission for window images. The currently
 measured compile host is macOS 27.0 with Xcode 27.1; external window capture uses
