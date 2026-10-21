@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, basename, dirname } from "node:path";
 import { command } from "./desktop-verify";
@@ -51,6 +51,11 @@ export async function withSigningCredentials<T>(env: NodeJS.ProcessEnv, body: (c
     writeFileSync(signer, env.TAURI_SIGNING_PRIVATE_KEY!, { mode: 0o600 });
     // The durable record exists before create: a lost response still requires cleanup.
     await run(["/usr/bin/security", "create-keychain", "-p", password, keychain]);
+    // security creates keychain databases as 0644 even inside our private directory.
+    // Restrict only the fresh, owned regular file before importing any credentials.
+    const created = lstatSync(keychain);
+    if (!created.isFile() || created.isSymbolicLink() || created.uid !== process.getuid?.()) throw Error("Invalid ephemeral signing keychain");
+    chmodSync(keychain, 0o600);
     await run(["/usr/bin/security", "set-keychain-settings", "-lut", "21600", keychain]);
     await run(["/usr/bin/security", "unlock-keychain", "-p", password, keychain]);
     await run(["/usr/bin/security", "import", p12, "-k", keychain, "-P", env[certificatePassword]!, "-T", "/usr/bin/codesign"]);
