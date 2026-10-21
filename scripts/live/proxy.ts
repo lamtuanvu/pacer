@@ -23,6 +23,7 @@ export const BLOCKED_OPS: Readonly<Record<string, string>> = {
   "runner.add": "interactiveTerminal opens a real terminal (whole op refused conservatively)",
   "task.attach": "openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively)",
   "host.clean": "hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively)",
+  "plugin.remove": "plugins.remove deletes a plugin folder under the home (whole op refused conservatively)",
   "service.*": "all service operations except service.status can change the real login service",
 };
 

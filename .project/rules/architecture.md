@@ -3,7 +3,7 @@
 Applies to: `src/**`, `app/**` and `desktop/**`. Also applies to any change that adds a capability, a client surface or an execution backend.
 Out of scope: internal refactors inside one module that leave its imports and public operations unchanged.
 Owner: @lamtuanvu
-Canonical sources: [ADR clients-over-local-service](../../docs/decisions/2026-10-16-clients-over-local-service.md), [ADR retire-orca-plugin](../../docs/decisions/2026-10-20-retire-orca-plugin.md), [ADR remote-hosts-ssh](../../docs/decisions/2026-10-15-remote-hosts-ssh.md), [core contract spec](../../docs/specs/2026-10-14-core-contract-design.md), `test/core-boundaries.test.ts`
+Canonical sources: [ADR plugin-host-and-rust-strangler](../../docs/decisions/2026-10-19-plugin-host-and-rust-strangler.md), [ADR clients-over-local-service](../../docs/decisions/2026-10-16-clients-over-local-service.md), [ADR retire-orca-plugin](../../docs/decisions/2026-10-20-retire-orca-plugin.md), [ADR remote-hosts-ssh](../../docs/decisions/2026-10-15-remote-hosts-ssh.md), [core contract spec](../../docs/specs/2026-10-14-core-contract-design.md), `test/core-boundaries.test.ts`
 
 | ID | Rule or convention | Status | Rationale/source | Verification |
 |----|--------------------|--------|------------------|--------------|
@@ -18,6 +18,9 @@ Canonical sources: [ADR clients-over-local-service](../../docs/decisions/2026-10
 | ARCH-9 | Durable architectural choices get an ADR in `docs/decisions/`. | Established | GOVERNANCE.md | Review the PR for a matching ADR |
 | ARCH-10 | Remove retired transport code (`src/link/`, `src/console/`, the `link/consoles` watcher) or move what is still used (e.g. `OutboxEvent`) into its owning module. | Proposed | 3.0 retired the link transport (#77) | Pending decision |
 | ARCH-11 | Rename phase-numbered modules (`src/commands/plan2b.ts`…`plan7.ts`) after what they do. | Proposed | Observed naming drift | Pending decision |
+| ARCH-12 | The host is minimal: a capability a plugin could provide goes in a plugin against the plugin protocol, and once extracted the host has no built-in fallback. Routing, strategy and the pacing engine stay in the host. | Established | ADR plugin-host-and-rust-strangler D1 | Review; `plugin.list` shows the provider of each capability |
+| ARCH-13 | Only `src/plugins/` and `src/core/plugins.ts` import the bundled plugin list. Plugins never import host code; they use `@pacer/plugin`. | Established | same ADR | `bun run test` (core-boundaries) |
+| ARCH-14 | The plugin protocol follows API-1 to API-4: additive changes need no bump, removals bump the major, docs are generated and freshness-tested, errors are `CoreError` codes. | Established | same ADR; P14 | `test/plugins-protocol-doc.test.ts` |
 
 Relevant reviewers: [architecture](../reviewers/architecture.md), [protocol-compat](../reviewers/protocol-compat.md)
 Exceptions and open decisions: ARCH-10 and ARCH-11 are proposals (see [decisions.md](../decisions.md)).

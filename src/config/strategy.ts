@@ -35,6 +35,40 @@ export interface ProviderCfg {
   weeklyUsd: number | null;
 }
 export interface RouteRule { kinds: string[] | null; executors: string[] }
+
+export interface PluginGrant { version: string; capabilities: string[] }
+export interface PluginsCfg { disabled: string[]; installed: Record<string, PluginGrant>; config: Record<string, Record<string, unknown>> }
+export const EMPTY_PLUGINS: PluginsCfg = { disabled: [], installed: {}, config: {} };
+
+const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
+  if (raw === undefined) return { disabled: [], installed: {}, config: {} };
+  if (!isObj(raw)) { p.push("plugins must be a mapping"); return { disabled: [], installed: {}, config: {} }; }
+  const disabled: string[] = [];
+  if (raw.disabled !== undefined) {
+    if (!Array.isArray(raw.disabled)) p.push("plugins.disabled must be a list of plugin ids");
+    else for (const id of raw.disabled) { if (typeof id !== "string" || !PLUGIN_ID.test(id)) p.push(`plugins.disabled: invalid plugin id "${String(id)}"`); else disabled.push(id); }
+  }
+  const installed: Record<string, PluginGrant> = {};
+  if (raw.installed !== undefined) {
+    if (!isObj(raw.installed)) p.push("plugins.installed must be a mapping of plugin id to grant");
+    else for (const [id, g] of Object.entries(raw.installed)) {
+      if (!PLUGIN_ID.test(id)) { p.push(`plugins.installed: invalid plugin id "${id}"`); continue; }
+      if (!isObj(g)) { p.push(`plugins.installed.${id} must be a mapping`); continue; }
+      if (typeof g.version !== "string" || !SEMVER.test(g.version)) p.push(`plugins.installed.${id}.version must be semver`);
+      if (!Array.isArray(g.capabilities) || g.capabilities.some(c => typeof c !== "string")) p.push(`plugins.installed.${id}.capabilities must be a list of names`);
+      else installed[id] = { version: String(g.version), capabilities: g.capabilities.map(String) };
+    }
+  }
+  const config: Record<string, Record<string, unknown>> = {};
+  if (raw.config !== undefined) {
+    if (!isObj(raw.config)) p.push("plugins.config must be a mapping of plugin id to settings");
+    else for (const [id, c] of Object.entries(raw.config)) { if (!isObj(c)) p.push(`plugins.config.${id} must be a mapping`); else config[id] = c; }
+  }
+  return { disabled, installed, config };
+}
+
 export interface Strategy {
   name: string;
   planner: PlannerCfg;
@@ -51,6 +85,7 @@ export interface Strategy {
   classifier: Record<string, unknown>;
   terminal?: {open:string};
   taskRetentionDays?: number;
+  plugins?: PluginsCfg;
 }
 
 export class StrategyError extends Error {
@@ -210,9 +245,11 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   if (localMax !== undefined && (typeof localMax !== "number" || !Number.isInteger(localMax) || localMax < 1 || localMax > 16)) p.push("execution.local_max_tasks must be 1..16");
   const taskRetentionDays = raw.task_retention_days ?? 14;
   if (typeof taskRetentionDays !== "number" || !Number.isSafeInteger(taskRetentionDays) || taskRetentionDays < 0) p.push("task_retention_days must be a non-negative integer");
+  const plugins = parsePlugins(raw.plugins, p);
   if (p.length) throw new StrategyError(path, p);
   return {
     name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing, taskRetentionDays: taskRetentionDays as number,
+    plugins,
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
     ...(isObj(raw.terminal) && raw.terminal.open !== undefined ? {terminal:{open:validateTerminalOpen(String(raw.terminal.open))}} : {}),

@@ -9,6 +9,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
   const codes: ApiErrorCode[] = [
     "invalid_input", "not_allowed", "unknown_task", "unknown_executor", "unknown_op",
     "conflict", "too_large", "internal",
+    "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin",
   ];
   const schemas = major === 2 ? v2OpJsonSchemas() : opJsonSchemas();
   const doc = [

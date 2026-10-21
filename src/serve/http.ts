@@ -3,6 +3,7 @@ import { superviseTasks } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
+import { shutdownPlugins } from "../plugins";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
 import { randomBytes } from "node:crypto";
@@ -182,5 +183,5 @@ export function startServer(
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: publicPort, token, stop: () => { listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(supervisorTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); } };
+  return { port: publicPort, token, stop: () => { listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(supervisorTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true);  void shutdownPlugins(initialCtx); } };
 }

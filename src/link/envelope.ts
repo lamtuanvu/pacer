@@ -11,7 +11,7 @@ export interface TaskData { title?: string; session?:SessionData; progress?: { p
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export interface ConfigData { area: string; at: number }
-export interface EntityData { kind: "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify"; id: string; value?: unknown; removed?: true }
+export interface EntityData { kind: "planner" | "plugin" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify"; id: string; value?: unknown; removed?: true }
 export type OutboxEvent = { type: "pause"; data: PauseState | {removed:true} } | { type: "entity"; data: EntityData } | { type: "config"; data: ConfigData } | { type: "budget"; data: BudgetData } | { type: "task"; data: TaskData } | { type: "mode"; data: ModeData } | { type: "alert"; data: AlertData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
@@ -79,7 +79,7 @@ export function parseOutboxEvent(raw: unknown): OutboxEvent | null {
   switch (raw.type) {
     case "entity": {
       const d=raw.data;
-      if(!isObj(d) || !["planner","executor","account","host","repo","counts","attention","activity","job","notify"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>(d.kind==="notify"?512:128))return null;
+      if(!isObj(d) || !["plugin", "planner","executor","account","host","repo","counts","attention","activity","job","notify"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>(d.kind==="notify"?512:128))return null;
       return {type:"entity",data:{kind:d.kind as EntityData["kind"],id:d.id,...(d.removed===true?{removed:true}:{value:d.value})}};
     }
     case "pause": {

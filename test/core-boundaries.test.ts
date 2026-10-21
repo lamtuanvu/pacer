@@ -19,3 +19,10 @@ test("src/core imports nothing from src/exec/orca", () => {
   const offenders = files(join(import.meta.dir, "..", "src", "core")).filter((f) => /from\s+["'][^"']*exec\/orca/.test(readFileSync(f, "utf8")));
   expect(offenders).toEqual([]);
 });
+
+test("only the plugin host imports the bundled plugin list", () => {
+  const src = join(import.meta.dir, "..", "src");
+  const allowed = new Set([join(src, "plugins", "index.ts"), join(src, "plugins", "run.ts"), join(src, "core", "plugins.ts")]);
+  const offenders = files(src).filter(f => !allowed.has(f) && /from\s+["'][^"']*\/plugins\/bundled["']/.test(readFileSync(f, "utf8")));
+  expect(offenders).toEqual([]);
+});
