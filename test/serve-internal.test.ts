@@ -20,6 +20,9 @@ test("internal mode trusts only the internal token and keeps the bearer/cookie d
     expect(cookie.status).toBe(200);
     const ok = await fetch(url("/v3/hello"), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}`, "x-pacer-auth": "bearer" } });
     expect(ok.status).toBe(200);
+    const health = await fetch(url("/health"), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
+    expect(health.status).toBe(200);
+    expect(await health.json()).toEqual({ ok: true, pid: process.pid });
     const page = await fetch(url("/_internal/app-page?status=401&message=Session%20ended."), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
     expect(page.status).toBe(401);
     expect(await page.text()).toContain("Session ended.");

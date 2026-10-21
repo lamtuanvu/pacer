@@ -119,6 +119,8 @@ export function startServer(
           return new Response("unauthorized\n", { status: 401 });
         }
         bearer = req.headers.get("x-pacer-auth") !== "cookie";
+        // The front door's heartbeat: an answer proves this event loop is responsive.
+        if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
         if (pathname === "/_internal/app-page") {
           const params = new URL(req.url).searchParams;
           return appPage(params.get("message") ?? "", Number(params.get("status") ?? 200));

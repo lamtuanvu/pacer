@@ -1,6 +1,7 @@
 //! Public listener authentication. Listener and core forwarding are wired separately.
 pub mod auth;
 pub mod core_child;
+pub mod heartbeat;
 pub mod proxy;
 pub mod sessions;
 pub mod ws;
@@ -16,20 +17,15 @@ use axum::{
 use pacer_foundation::Ctx;
 use std::{collections::HashMap, io, sync::Arc};
 struct Listener {
-    core: core_child::CoreChild,
+    core: Arc<core_child::CoreChild>,
+    heartbeat: Arc<heartbeat::Heartbeat>,
     ctx: Ctx,
     port: u16,
     token: String,
 }
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     let auth = match auth::classify(&req, state.port, &state.token, &state.ctx) {
-        auth::Decision::Health => {
-            return (
-                [("x-pacer", "1")],
-                axum::Json(serde_json::json!({"ok":true,"pid":std::process::id()})),
-            )
-                .into_response();
-        }
+        auth::Decision::Health => return state.heartbeat.response(),
         auth::Decision::Reject(response) => {
             if let Some(page) = response.extensions().get::<auth::AppPage>() {
                 let Some(target) = state.core.target().await else {
@@ -90,8 +86,12 @@ pub async fn run_serve(
     if std::env::var("PACER_SERVE_ANNOUNCE").as_deref() == Ok("1") {
         println!("{}", serde_json::json!({"port":port}));
     }
+    let core = Arc::new(core_child::CoreChild::spawn(core, env));
+    let beats = Arc::new(heartbeat::Heartbeat::new());
+    let probe = tokio::spawn(heartbeat::run(core.clone(), beats.clone()));
     let state = Arc::new(Listener {
-        core: core_child::CoreChild::spawn(core, env),
+        core,
+        heartbeat: beats,
         ctx,
         port,
         token,
@@ -112,6 +112,7 @@ pub async fn run_serve(
     // Stop long-lived SSE/WebSocket connections as well as accepting new ones.
     server.abort();
     let _ = server.await;
+    probe.abort();
     state.core.shutdown().await;
     Ok(())
 }

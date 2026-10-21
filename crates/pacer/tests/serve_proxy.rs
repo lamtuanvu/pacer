@@ -81,6 +81,23 @@ fn forwards_http_sse_limits_and_recovers_core() {
         assert!(Instant::now() < deadline, "core never became ready");
         std::thread::sleep(Duration::from_millis(50));
     }
+    // Health reflects the core heartbeat: a probe lands within a few seconds of readiness.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let out = String::from_utf8_lossy(&request(&server, "/health", &[]).stdout).into_owned();
+        let (body, code) = out.rsplit_once('\n').unwrap();
+        assert_eq!(code, "200");
+        let health: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(health["ok"], true);
+        if health["backendLagS"].as_f64().unwrap() < 2.0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the core heartbeat never landed: {health}"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
     for path in ["/v2/hello", "/v3/hello"] {
         let response = request(&server, path, &[]);
         assert!(String::from_utf8_lossy(&response.stdout).ends_with("200"));
