@@ -69,11 +69,13 @@ warning. The planner is protected from these changes.
 usage and a scratch task that writes `hello.txt` containing `ok`. It never runs
 the test in a user repository. **Signed in** uses the account's local sign-in
 state (see [accounts](accounts.md#sign-in-state)), not a usage reading; for a
-remote runner the test task checks the host's login. **Usage readable** is
-skipped, with the reason, when a Claude or Codex account has no usage reading yet
-(Claude usage comes from the Claude Code status line, Codex usage from its
-session logs); routing treats that usage as unknown, so it does not fail the
-check. A usage reader error still fails it. The row shows `checking` while
+remote runner the test task checks the host's login. For a local Claude quota
+account with missing or stale usage, the test task collects Claude Code's own
+structured quota telemetry and **Usage readable** is checked again afterward.
+It passes only when current usage is available; missing telemetry fails with
+subscription and CLI-update guidance. No planner status line is needed for
+this check. Codex's missing first session-log reading is still skipped with its
+reason. A usage reader error still fails the check. The row shows `checking` while
 running and `lastCheck` after completion; a failed check shows `failing` and
 executor attention.
 

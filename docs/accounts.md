@@ -249,6 +249,14 @@ Account JSON includes kind, source, folder or Orca id, usage settings and
 `usageReading`, runner ids, `runnable`, and `signedIn`. Runner JSON includes id,
 agent, account, host and model.
 
+Claude executor checks collect quota windows from Claude Code's own structured
+test-task output into that account's usage cache. This works for default,
+pacer-managed and linked Orca accounts without installing a planner status line
+or reading credentials. If usage was missing or stale, the check verifies it
+again after the test task; missing quota telemetry fails **Usage readable** with
+guidance to update Claude Code and check the subscription. Interactive sessions
+can also update usage through the installed status line.
+
 ### Sign-in state
 
 `signedIn` is the account's local sign-in on this machine. One check supplies it

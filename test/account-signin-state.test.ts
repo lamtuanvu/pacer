@@ -75,17 +75,17 @@ test("route, capacity rows and account summaries agree on a signed-out executor"
   expect(items.map(i => i.id)).not.toContain("executor_down:claude-code#off");
 });
 
-test("runner check: a signed-in Claude account without status-line data passes and runs the test task", async () => {
+test("runner check: missing Claude usage is rechecked after the test task and cannot silently pass", async () => {
   const {ctx} = setup(); let launched = false;
   const job = await checkRunner(ctx, "claude-code#work", {
     detectAgents: async () => [{agent: "claude-code", found: true, version: "1", path: "/bin/claude", install_hint: "install"}],
     runTestTask: async () => { launched = true; },
   });
   expect(job.steps[1]).toMatchObject({name: "Signed in", state: "passed"});
-  expect(job.steps[2]).toMatchObject({name: "Usage readable", state: "skipped"});
-  expect(job.steps[2].detail).toContain("status line");
+  expect(job.steps[2]).toMatchObject({name: "Usage readable", state: "failed"});
+  expect(job.steps[2].detail).toContain("did not report current account usage");
   expect(launched).toBe(true);
-  expect(job.state).toBe("passed");
+  expect(job.state).toBe("failed");
 });
 
 test("runner check: a signed-out Claude account fails at Signed in with the fix", async () => {
