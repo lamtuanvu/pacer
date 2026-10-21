@@ -522,6 +522,14 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           delete ctx.env.PACER_INTERNAL_TOKEN;
           const s = startServer(() => fresh(ctx), { internal: { token: internalToken! } });
           process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
+          if (ctx.env.PACER_INTERNAL_PARENT_PIPE === "1") {
+            // The front door owns the write end. EOF also arrives after SIGKILL,
+            // when signal handlers in the parent cannot clean up its child.
+            process.stdin.once("end", () => {
+              void s.stop().finally(() => process.exit(0));
+            });
+            process.stdin.resume();
+          }
           return { code: 0, out: "", err: "", keepAlive: true };
         }
         const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });

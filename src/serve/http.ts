@@ -45,7 +45,7 @@ export function ensureToken(ctx: Ctx): string {
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
   getCtx: () => Ctx, opts: { internal?: { token: string }; port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
-): { port: number; token: string; stop: () => void } {
+): { port: number; token: string; stop: () => Promise<void> } {
   const initialCtx = getCtx();
   resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
@@ -221,5 +221,24 @@ export function startServer(
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: publicPort, token, stop: () => { nativeServices?.native.stop(); desktopUpdates.stop(); unbindDesktopUpdates(); listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(supervisorTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); void shutdownPlugins(initialCtx); } };
+  return { port: publicPort, token, stop: () => {
+    nativeServices?.native.stop();
+    desktopUpdates.stop();
+    unbindDesktopUpdates();
+    listener?.stop();
+    readCache.stop();
+    unregisterJobs();
+    stopped = true;
+    clearTimeout(retentionStart);
+    clearInterval(retentionTimer);
+    clearInterval(supervisorTimer);
+    clearInterval(pumpTimer);
+    clearInterval(snapshotTimer);
+    clearInterval(statusTimer);
+    clearInterval(terminalTimer);
+    clearTimeout(scheduled);
+    for (const watcher of watchers) watcher.close();
+    server.stop(true);
+    return shutdownPlugins(initialCtx);
+  } };
 }

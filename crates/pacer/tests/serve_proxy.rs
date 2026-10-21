@@ -199,4 +199,34 @@ finally{ws.close();peer?.destroy();unix.close();}
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(50));
     }
+    // Even SIGKILL must close the ownership pipe and stop the private core.
+    let children = Command::new("pgrep")
+        .args(["-P", &server.child.id().to_string()])
+        .output()
+        .unwrap();
+    let core_pid = String::from_utf8(children.stdout).unwrap();
+    assert!(!core_pid.trim().is_empty());
+    Command::new("kill")
+        .args(["-KILL", &server.child.id().to_string()])
+        .status()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let alive = Command::new("kill")
+            .args(["-0", core_pid.trim()])
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        if !alive {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = Command::new("kill")
+                .args(["-KILL", core_pid.trim()])
+                .status();
+            panic!("internal core survived the front door");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }

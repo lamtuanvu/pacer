@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { main } from "../src/cli";
 import { startServer } from "../src/serve/http";
 import { fakeCtx } from "./helpers";
@@ -49,3 +51,56 @@ for (const token of [undefined, "i".repeat(31)]) {
 test("executors never inherit the internal credential", () => {
   expect(executorEnv({ PACER_INTERNAL_TOKEN: "i".repeat(64), PATH: "/bin" }, {}).PACER_INTERNAL_TOKEN).toBeUndefined();
 });
+
+test("internal core exits when its supervising stdin pipe closes", async () => {
+  const ctx = fakeCtx();
+  const pluginDir = join(ctx.pacerHome, "plugins", "fx-stubborn");
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {}\nplugins:\n  installed:\n    fx-stubborn:\n      version: 1.0.0\n      capabilities: []\n");
+  writeFileSync(join(pluginDir, "pacer-plugin.json"), JSON.stringify({
+    id: "fx-stubborn", version: "1.0.0", publisher: "test", host: "^1", entry: "main.ts", capabilities: [],
+  }));
+  writeFileSync(join(pluginDir, "main.ts"), `#!/usr/bin/env bun
+import { createInterface } from "node:readline";
+process.on("SIGTERM", () => {});
+for await (const line of createInterface({ input: process.stdin })) {
+  const request = JSON.parse(line);
+  if (request.id === undefined) continue;
+  const result = request.method === "plugin.hello"
+    ? { id: "fx-stubborn", version: "1.0.0", protocol: "1.0.0", contributes: ["diagnostic"] }
+    : { ok: true, uptimeS: 0 };
+  console.log(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
+}
+`, { mode: 0o755 });
+  let pluginPid: number | undefined;
+  const child = Bun.spawn([process.execPath, "src/cli.ts", "serve", "--internal"], {
+    env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome,
+      PACER_INTERNAL_TOKEN: "i".repeat(64), PACER_INTERNAL_PARENT_PIPE: "1" },
+    stdin: "pipe", stdout: "pipe", stderr: "pipe",
+  });
+  try {
+    const reader = child.stdout.getReader();
+    const announced = await reader.read();
+    expect(new TextDecoder().decode(announced.value)).toContain('"internal"');
+    reader.releaseLock();
+    const port = JSON.parse(new TextDecoder().decode(announced.value)).internal.port;
+    const doctor = await fetch(`http://127.0.0.1:${port}/v3/ops/plugin.doctor`, {
+      method: "POST", headers: { authorization: `Bearer ${"i".repeat(64)}`, "content-type": "application/json" },
+      body: JSON.stringify({ id: "fx-stubborn" }),
+    });
+    expect(doctor.status).toBe(200);
+    const { result: body } = await doctor.json() as { result: { reports: { ok: boolean; pid: number }[] } };
+    expect(body.reports[0]?.ok).toBe(true);
+    pluginPid = body.reports[0]!.pid;
+    child.stdin.end();
+    const exited = await Promise.race([child.exited, Bun.sleep(10000).then(() => "still running")]);
+    expect(exited).toBe(0);
+    let pluginAlive = true;
+    try { process.kill(pluginPid, 0); } catch { pluginAlive = false; }
+    expect(pluginAlive).toBe(false);
+  } finally {
+    if (pluginPid) { try { process.kill(pluginPid, "SIGKILL"); } catch { /* already stopped */ } }
+    child.kill();
+    await child.exited;
+  }
+}, 30000);

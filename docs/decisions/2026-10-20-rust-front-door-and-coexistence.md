@@ -54,6 +54,10 @@ home, and how releases ship and update the pair.
   announces it as one JSON line on stdout, and accepts only
   `Authorization: Bearer <PACER_INTERNAL_TOKEN>`. The token is 32 random bytes,
   fresh for every core generation, and exists only in the child's environment.
+  The core clears it before spawning executors. A dedicated stdin pipe ties the
+  core lifetime to the front door: EOF stops the core even if its parent is
+  killed without signal cleanup. Old stdout readers are cancelled on restart
+  so a descendant retaining a pipe cannot stall the next generation.
   The front door replaces client credentials with that token and tells the core
   how the client authenticated in `x-pacer-auth: bearer|cookie`, so cookie
   clients keep their narrower permissions.

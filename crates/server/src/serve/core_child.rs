@@ -27,6 +27,9 @@ impl CoreChild {
                 let result = start(&core, &env, &token);
                 match result {
                     Ok(mut child) => {
+                        // Child::wait closes stdin unless its handle has been taken.
+                        // Keep ownership until this generation exits or is terminated.
+                        let _ownership = child.stdin.take();
                         let ready = async {
                             let stdout = child
                                 .stdout
@@ -78,6 +81,9 @@ impl CoreChild {
                                     result = child.wait() => { if let Err(error) = result { eprintln!("pacer: core wait: {error}"); } }
                                 }
                                 *shared.write().await = None;
+                                // A descendant can keep the dead generation's stdout open.
+                                // Its pipe must never prevent starting a replacement core.
+                                copy.abort();
                                 let _ = copy.await;
                             }
                             _ => {
@@ -122,7 +128,8 @@ fn start(core: &[String], env: &HashMap<String, String>, token: &str) -> io::Res
         .args(["serve", "--internal"])
         .envs(env)
         .env("PACER_INTERNAL_TOKEN", token)
-        .stdin(Stdio::null())
+        .env("PACER_INTERNAL_PARENT_PIPE", "1")
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
@@ -175,5 +182,37 @@ mod tests {
         assert_ne!(first.1, second.1);
         core.shutdown().await;
         assert!(core.target().await.is_none());
+    }
+    #[tokio::test]
+    async fn inherited_stdout_does_not_block_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let pids = dir.path().join("pids");
+        let core = CoreChild::spawn(
+            vec!["/bin/sh".into(), "-c".into(),
+                "sleep 10 & echo $! >> \"$PIDS\"; printf '{\"internal\":{\"port\":12345}}\\n'; exec sleep 0.1".into()],
+            HashMap::from([("PIDS".into(), pids.to_string_lossy().into_owned())]),
+        );
+        let first = ready(&core).await;
+        let restarted = timeout(Duration::from_secs(3), async {
+            loop {
+                if core
+                    .target()
+                    .await
+                    .is_some_and(|target| target.1 != first.1)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        for pid in std::fs::read_to_string(pids).unwrap().lines() {
+            let _ = Command::new("kill").args(["-TERM", pid]).status().await;
+        }
+        core.shutdown().await;
+        assert!(
+            restarted.is_ok(),
+            "inherited stdout prevented a new core generation"
+        );
     }
 }
