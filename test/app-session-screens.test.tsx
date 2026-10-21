@@ -22,8 +22,8 @@ function textContent(html: string): string {
 
 const data=fixture as SessionData;
 test('Session board preserves layout, copy, service actions and metadata',()=>{const html=renderToString(<Session data={data}/>);
- for(const word of [data.goal,'codex#team','pacer/t-0415','this Mac','started 11:49','Testing','Changes so far','Brief','Watch it elsewhere','Done when','Timeline','Stop and retry on','pacer attach t-0415'])expect(html).toContain(word);
- expect(html.indexOf('Watch it elsewhere')).toBeLessThan(html.indexOf('Done when'));expect(html).toContain('aria-label="Codex"');expect(html).not.toContain('pc-btn--primary');});
+ for(const word of [data.goal,'codex#team','pacer/t-0415','this Mac','started 11:49','Testing','Changes','Brief','Watch it elsewhere','Activity','Stop and retry…','pacer attach t-0415'])expect(html).toContain(word);
+ expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('Watch it elsewhere'));expect(html).toContain('aria-label="Codex"');expect(html).not.toContain('pc-btn--primary');});
 test('Orca host offers Open in Orca and no terminal control',()=>{const html=renderToString(<Session data={{...data,session:{...data.session!,host:'orca'}}}/>);expect(html).toContain('This session runs in Orca');expect(html).toContain('Open in Orca');expect(html).not.toContain('Take control');});
 test('none host renders escaped plain log; tabs render their resources',()=>{expect(renderToString(<Session data={{...data,session:{...data.session!,host:'none'},log:{data:'<script>bad</script>'}}}/>)).toContain('&lt;script>');expect(renderToString(<Session data={data} initialTab="brief"/>)).toContain('Split the store;');expect(renderToString(<Session data={data} initialTab="changes"/>)).toContain('diff --git');});
 test('loading, errors and empty resources are explicit',()=>{expect(renderToString(<Session loading/>)).toContain('Loading session');expect(renderToString(<Session error="Offline"/>)).toContain('Offline');expect(renderToString(<Session/>)).toContain('Session not found');const html=renderToString(<Session data={{...data,timeline:{error:'Timeline unavailable'},doneWhen:{},brief:{loading:true}}} initialTab="brief"/>);expect(html).toContain('Timeline unavailable');expect(html).toContain('No done-when command');expect(html).toContain('Loading brief');});
@@ -38,8 +38,8 @@ test('read-only terminal exposes size, accessible status and screen reader toggl
 });
 
 test('unavailable attach targets, retry states and resource empties use service words',()=>{
- const html=renderToString(<Session data={{...data,session:{...data.session!,targets:[]},retryOptions:[{...data.retryOptions![0]!,available:false,reason:'No free slot'}],timeline:{data:[]},doneWhen:{error:'Command unavailable'}}}/>);
- expect(html).not.toContain('>Open in Orca terminal');expect(html).not.toContain('>Open in my terminal');expect(html).toContain('No free slot');expect(html).toContain('No timeline events yet.');expect(html).toContain('Command unavailable');
+ const html=renderToString(<Session data={{...data,session:{...data.session!,targets:[]},retryOptions:[{...data.retryOptions![0]!,available:false,reason:'No free slot'}],timeline:{data:[]},doneWhen:{error:'Command unavailable'}}} initialTab="brief"/>);
+ expect(html).not.toContain('>Open in Orca terminal');expect(html).not.toContain('>Open in my terminal');expect(html).toContain('>Stop and retry…</button>');expect(html).toContain('No timeline events yet.');expect(html).toContain('Command unavailable');
 });
 
 test('Sessions list uses short titles and ended outcomes or diffstats, reserving pending for running',()=>{
@@ -122,7 +122,7 @@ test('missing sessions do not advertise watch-elsewhere options', () => {
 
 test('session task title uses normal-case page typography and prefers the service title', async () => {
  const html = renderToString(<Session data={{...data,title:'Fix add() in calc.py'}}/>);
- expect(html).toMatch(/<h2(?=[^>]*class="pc-session-title pc-ellipsis")(?=[^>]*title="Fix add\(\) in calc.py")[^>]*>Fix add\(\) in calc.py<\/h2>/);
+ expect(html).toMatch(/<h2(?=[^>]*class="pc-session-title")(?=[^>]*title="Fix add\(\) in calc.py")[^>]*>Fix add\(\) in calc.py<\/h2>/);
  expect(html).not.toContain(data.goal);
  expect(renderToString(<Session data={data}/>)).toContain(`title="${data.goal}"`);
  const css = await Bun.file(new URL('../app/src/screens/session/session.css', import.meta.url)).text();
@@ -134,9 +134,8 @@ test('ended headless sessions show their outcome and Review or Retry without liv
  for (const state of ['done', 'partial', 'failed', 'stopped', 'limit']) {
   const ended: SessionData = {...data,state,changesSummary:undefined,session:{...data.session!,host:'none',live:true,driving:true,takeover:{available:true}}};
   const html = renderToString(<Session data={ended} onTakeover={()=>{}} takeoverStarting takeoverError="Stale takeover error"/>);
-  expect(html).toContain('This run has finished');
-  expect(html).toContain('Retry on');
-  expect(html).toContain('>Retry</button>');
+  expect(html).not.toContain('This run has finished');
+  expect(html).toContain('>Retry session…</button>');
   for (const text of ['Take over','Stop and retry','>Stop<','Changes and output pending','Testing · 14m',">Driving<",'Starting interactive session','Stale takeover error']) expect(html).not.toContain(text);
   if (['done','partial'].includes(state)) {
    expect(html).toContain(state==='done'?'Completed':'Incomplete');
@@ -161,7 +160,7 @@ test('running headless takeover occupies its own area outside the explanatory se
  const html=renderToString(<Session data={{...data,session:{...data.session!,host:'none',takeover:{available:true}}}} onTakeover={()=>{}}/>);
  expect(html).toMatch(/<div class="pc-session-run"><p>This run is headless — Take over to work in it live<\/p><span class="pc-control-with-reason"><button/);
  expect(html).toContain('>Stop</button>');
- expect(html).toContain('Stop and retry on');
+ expect(html).toContain('Stop and retry…');
 });
 
 test('ended row Replay link covers its row and preserves route query and accessible title', async () => {
@@ -193,4 +192,75 @@ test('session detail maps and deduplicates timeline events with raw copy collaps
  expect(visible).not.toContain('hook:');
  expect(html).toContain('<summary>Technical event details</summary>');
  expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+});
+
+test('finished sessions open a readable brief, while active sessions keep live output selected', () => {
+ const finished = renderToString(<Session data={{...data,state:'done'}}/>);
+ expect(finished).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>Brief</);
+ expect(finished).toContain('Split the store;');
+ const live = renderToString(<Session data={data}/>);
+ expect(live).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>Output</);
+});
+
+test('structured brief preserves multiline instructions, command and extra context without flattening', () => {
+ const html = renderToString(<Session data={{...data,state:'done',briefSections:[{label:'Goal',text:'Fix checks'},{label:'Scope',text:'Line one\nLine two'},{label:'Context',text:'<script>unsafe</script>'}]}}/>);
+ expect(html).toContain('>Goal</h3>');
+ expect(html).toContain('Line one\nLine two');
+ expect(html).toContain('&lt;script>unsafe&lt;/script>');
+ expect(html.match(/bun test test\/usage/g)).toHaveLength(1);
+ expect(html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g,'')).not.toContain('Split the store;');
+});
+
+test('executor report is formatted separately from collapsed raw output without interpreting HTML', () => {
+ const html = renderToString(<Session data={{...data,state:'done',session:{...data.session!,host:'none'},report:'Fixed **both failures**.\n\n- Kept `callbacks` working\n- <script>unsafe</script>',log:{data:'hook: Stop'}}} initialTab="terminal"/>);
+ expect(html).toContain('<strong>both failures</strong>');
+ expect(html).toContain('<code>callbacks</code>');
+ expect(html).toContain('&lt;script>unsafe&lt;/script>');
+ expect(html).toMatch(/<details[^>]*>[\s\S]*Technical session output[\s\S]*hook: Stop/);
+ expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+});
+
+test('retry picker is deferred until requested and a missing executor is explained', () => {
+ const html = renderToString(<Session data={data} onAction={()=>{}}/>);
+ expect(html).toContain('>Stop and retry…</button>');
+ expect(html).not.toContain('<select');
+ const unavailable = renderToString(<Session data={{...data,retryOptions:[]}}/>);
+ expect(unavailable).toContain('No retry options available.');
+ expect(unavailable).not.toContain('>Stop and retry…</button>');
+});
+
+test('session detail retains all brief fields and uses the actual executor report', async () => {
+ const {sessionDetail}=await import('../app/src/screens/session/controller');
+ const detail=(await import('./fixtures/ui/task-get.json')).default;
+ const model=sessionDetail({...detail,brief:{...detail.brief,scope:'Only client code',constraints:'Keep callbacks',context:'CI run',feedback:'Check cleanup',base:'main',qa:[{q:'Which platform?',a:'Both'}]},summary:'Executor-authored report'} as unknown as import('../src/core/task-detail').TaskDetail);
+ expect(model.briefSections).toEqual([
+  {label:'Goal',text:'Fix flaky retry test in the payments client'},
+  {label:'Repository',text:'/tmp/fixture/api'},
+  {label:'Scope',text:'Only client code'},
+  {label:'Constraints',text:'Keep callbacks'},
+  {label:'Context',text:'CI run'},
+  {label:'Feedback',text:'Check cleanup'},
+  {label:'Base',text:'main'},
+  {label:'Questions and answers',text:'Which platform?\nBoth'},
+ ]);
+ expect(model.report).toBe('Executor-authored report');
+ expect(model.doneWhen?.data).toBe('bun test');
+});
+
+test('formatted reports preserve code blocks and unsupported markup as escaped content', async () => {
+ const {Prose}=await import('../app/src/ds/Prose');
+ const html=renderToString(<Prose text={'## Validation\n\n```sh\n<script>not HTML</script>\n```\n\n[jump](javascript:alert(1))\n\n```\nunfinished code'}/>);
+ expect(html).toContain('>Validation</h3>');
+ expect(html).toContain('<code>&lt;script>not HTML&lt;/script></code>');
+ expect(html).not.toContain('<script>');
+ expect(html).not.toContain('<a ');
+ expect(html).toContain('[jump](javascript:alert(1))');
+ expect(html).toContain('<code>unfinished code</code>');
+});
+
+
+test('session review action requires an explicit review request and preserves the completed outcome', () => {
+ const completed={...data,state:'done'};
+ expect(renderToString(<Session data={completed}/>)).not.toContain('>Review</a>');
+ expect(renderToString(<Session data={{...completed,reviewRequest:{note:'Check cleanup',at:1}}}/>)).toContain('>Review</a>');
 });
