@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "version": "0.6.2",
+  "notes": "- Normalize absent compiled desktop signer pins and validate production macOS signing in enabled release dry runs before tagging.",
+  "pub_date": "2026-10-21T10:04:26.000Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.6.2/desktop-pacer-0.6.2-darwin-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1Q2eURNdE5RM2UycUlsaklkSGNTSUxKQ05YalBhOElXY0RUcHZLczJIR3FjTXhXTVYzcU4yTmo1N1ljUlFaWkZ5SWVENnpxc1lXT2Ura040dnRDVlE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNTc3OTQ4CWZpbGU6ZGVza3RvcC1wYWNlci0wLjYuMi1kYXJ3aW4tYWFyY2g2NC5hcHAudGFyLmd6CXZlcnNpb246MC42LjIKRTJrTi9EQzF2RXFkTFd0R1FwZHhEaVhWM2lzeVVMQzFSZGlrVktWWWo3MitrY1E2bmJreXRaa2dEWXA5ejNkLzV3aHNZaEdCY3FJL3V5NHFxNmJERFE9PQo=",
+      "sha256": "870e3893138c23986faefb37bc938571bdf0ddbfe8e9c667af00c85448418fc6",
+      "bundleId": "dev.pacer.desktop",
+      "protocolMajors": [
+        3
+      ],
+      "admissionProtocol": 1,
+      "rollbackCompatible": true
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.6.2/desktop-pacer-0.6.2-darwin-x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2RxYlZjNHBrQVJPQmthamg4d0gwNHNvQitoNWg0MUNHTjBOVFRla09naE1GdXdYVXVrbng3UjdlVzVWYlg5elo3RThEUnZUMTR0RTdURmljSlVWU3dnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNTc4ODkwCWZpbGU6ZGVza3RvcC1wYWNlci0wLjYuMi1kYXJ3aW4teDg2XzY0LmFwcC50YXIuZ3oJdmVyc2lvbjowLjYuMgorYVVpNnVOMHJ6eU40MkdjY0l2TjVjTDFmQlltallRRFpwa2NHY0kvTklKWG5veXNlUmJKTlRIOHdxbjNQRGFhbGNUOXZDYm1RaW4xRW9ZbzZhNGJEQT09Cg==",
+      "sha256": "ca632ee202f12e2ac0d3b46b7ff9a7bf241b63a517fd82d871a293b070dbd711",
+      "bundleId": "dev.pacer.desktop",
+      "protocolMajors": [
+        3
+      ],
+      "admissionProtocol": 1,
+      "rollbackCompatible": true
+    }
+  }
+}
