@@ -11,6 +11,7 @@ mod logic;
 mod notifications;
 mod profile;
 mod tray_model;
+mod update_journal;
 
 use reqwest::Url;
 use serde_json::Value;
@@ -522,6 +523,10 @@ fn recovery(app: &AppHandle, state: &str) {
                     "relink" => "relink",
                     "foreign" => "foreign",
                     "stuck" => "stuck",
+                    "installing" => "installing",
+                    "rollingBack" => "rollingBack",
+                    "restored" => "restored",
+                    "recoveryFailed" => "recoveryFailed",
                     _ => "starting",
                 },
                 None,

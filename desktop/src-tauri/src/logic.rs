@@ -581,6 +581,38 @@ pub fn shell_page(
     }
 }
 
+/// A terminal native update journal that explains why the service is not answering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JournalCopy {
+    Restored,
+    RecoveryFailed,
+}
+
+/// Bundled update explanation for a window that would otherwise say "Starting pacer…".
+/// More specific guidance (permission, install, foreign, protocol pages) always wins.
+/// The result only selects copy: it never grants authority or triggers an effect.
+/// - `recoveryFailed`: the newest journal for this installation is recovery-failed.
+/// - `rollingBack`: the helper launched this desktop as the old release to restore it.
+/// - `restored`: the newest journal recently restored the previous version.
+/// - `installing`: the service acknowledged maintenance (installation) for this desktop.
+pub fn update_page(
+    page: &'static str,
+    maintenance: bool,
+    restoring: bool,
+    journal: Option<JournalCopy>,
+) -> &'static str {
+    if page != "starting" {
+        return page;
+    }
+    match journal {
+        Some(JournalCopy::RecoveryFailed) => "recoveryFailed",
+        _ if restoring => "rollingBack",
+        Some(JournalCopy::Restored) => "restored",
+        None if maintenance => "installing",
+        None => page,
+    }
+}
+
 pub fn display_home(path: &str, home: &str) -> String {
     if home.is_empty() {
         return path.to_owned();
@@ -644,6 +676,9 @@ pub fn service_navigation(url: &Url, origin: Option<&str>) -> bool {
         && matches!(url.path(), "/app" | "/app/" | "/app/auth")
 }
 
+/// Where the bundled recovery-failed page sends the user to report the problem.
+pub const RECOVERY_REPORT_URL: &str = "https://github.com/lamtuanvu/pacer/issues";
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Navigation {
     Allow,
@@ -661,8 +696,10 @@ pub fn main_navigation(url: &Url, current: Option<&Url>, origin: Option<&str>) -
     };
     if shell_page(url) || service_navigation(url, origin) {
         Navigation::Allow
-    } else if (url.as_str() == "https://github.com/lamtuanvu/pacer/blob/main/docs/install.md"
-        && current.is_some_and(shell_page))
+    } else if (matches!(
+        url.as_str(),
+        "https://github.com/lamtuanvu/pacer/blob/main/docs/install.md" | RECOVERY_REPORT_URL
+    ) && current.is_some_and(shell_page))
         || external_link(url, current, origin)
     {
         Navigation::OpenExternal
@@ -1021,6 +1058,54 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn update_pages_replace_only_the_generic_starting_page() {
+        use JournalCopy::*;
+        assert_eq!(update_page("starting", false, false, None), "starting");
+        assert_eq!(update_page("starting", true, false, None), "installing");
+        assert_eq!(update_page("starting", true, true, None), "rollingBack");
+        assert_eq!(update_page("starting", false, false, Some(Restored)), "restored");
+        // A recent restoration outranks a stale maintenance flag; a rollback launch outranks both.
+        assert_eq!(update_page("starting", true, false, Some(Restored)), "restored");
+        assert_eq!(update_page("starting", true, true, Some(Restored)), "rollingBack");
+        assert_eq!(
+            update_page("starting", true, true, Some(RecoveryFailed)),
+            "recoveryFailed"
+        );
+        for page in ["permission", "foreign", "install", "oldService", "oldApp", "protocol"] {
+            assert_eq!(update_page(page, true, true, Some(RecoveryFailed)), page);
+        }
+    }
+
+    #[test]
+    fn recovery_report_link_opens_only_from_the_bundled_shell() {
+        let shell = Url::parse("tauri://localhost/index.html?state=recoveryFailed").unwrap();
+        let service = Url::parse("http://127.0.0.1:7432/app/").unwrap();
+        let report = Url::parse(RECOVERY_REPORT_URL).unwrap();
+        let origin = Some("http://127.0.0.1:7432");
+        assert_eq!(
+            main_navigation(&report, Some(&shell), origin),
+            Navigation::OpenExternal
+        );
+        assert_eq!(main_navigation(&report, None, origin), Navigation::Block);
+        for raw in [
+            "https://github.com/lamtuanvu/pacer/issues/evil",
+            "https://github.com/lamtuanvu/pacer/issues?x=1",
+            "http://github.com/lamtuanvu/pacer/issues",
+        ] {
+            assert_eq!(
+                main_navigation(&Url::parse(raw).unwrap(), Some(&shell), origin),
+                Navigation::Block,
+                "{raw}"
+            );
+        }
+        // From the service app, normal external-link rules still apply.
+        assert_eq!(
+            main_navigation(&report, Some(&service), origin),
+            Navigation::OpenExternal
+        );
     }
 
     #[test]

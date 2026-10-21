@@ -10,7 +10,7 @@ const pages = {
   installing: ['Installing update', 'pacer will restart when installation finishes. Cancellation is no longer available.'],
   rollingBack: ['Restoring the previous version', "The update couldn't start. Restoring your previous version."],
   restored: ['Previous version restored', "The update couldn't start. Your previous version has been restored."],
-  recoveryFailed: ['Recovery needs attention', 'The previous version could not be restored automatically. Keep your data and update recovery files in place. Quit the desktop and report the failed update at github.com/lamtuanvu/pacer/issues.'],
+  recoveryFailed: ['Recovery needs attention', "An update didn't finish, and pacer couldn't put the previous version back on its own. Your tasks and settings are safe. Keep this app installed and leave the files in your pacer folder as they are: pacer needs them to recover. Quit pacer, then report the problem."],
   stuck: ['pacer could not finish signing in', 'The desktop app could not connect and sign in to the local pacer service. Retrying automatically in the background.'],
   install: ['pacer needs its command-line tool', "The pacer app runs its background service through the pacer command-line tool, which isn't installed. Install it and this window continues on its own."],
   foreign: ['Another pacer is running', 'The background service belongs to the pacer folder {path}, and this app uses a different one.'],
@@ -38,6 +38,19 @@ for (const [id, text, href, primary] of [
 }
 relink.append(relinkActions);
 document.querySelector('main').append(relink);
+// The native shell opens only this exact address externally (logic::RECOVERY_REPORT_URL).
+const report = document.createElement('a');
+report.id = 'report-issue';
+report.textContent = 'Report the problem on GitHub';
+report.href = 'https://github.com/lamtuanvu/pacer/issues';
+report.className = 'button primary';
+report.hidden = true;
+const reportActions = document.createElement('div');
+reportActions.className = 'actions';
+reportActions.hidden = true;
+reportActions.append(report);
+document.querySelector('main').append(reportActions);
+const progress = ['installing', 'rollingBack'];
 const pathChoice = document.querySelector('#path');
 const pathRow = document.querySelector('#path-row');
 let consentRc = null;
@@ -73,9 +86,12 @@ function renderShell(detail) {
   status.hidden = !status.textContent;
   document.querySelector('#privacy').hidden = !permission;
   document.querySelector('#install-help').hidden = permission || detail.page !== 'install';
-  // Only the plain starting state spins; permission and error pages ask for something.
-  document.querySelector('#spinner').hidden = permission || Boolean(pages[detail.page]);
+  // The compact tray popover cannot open external links, so it shows no dead action.
+  report.hidden = reportActions.hidden = permission || detail.page !== 'recoveryFailed' || compact;
+  // Starting and update progress pages spin; permission and error pages ask for something.
+  document.querySelector('#spinner').hidden = permission || (Boolean(pages[detail.page]) && !progress.includes(detail.page));
 }
+const compact = query.get('compact') === '1';
 window.renderShell = renderShell;
 renderShell({
   page: query.get('state'), prompt: query.get('prompt') === '1', path: query.get('path'),
@@ -83,4 +99,4 @@ renderShell({
   rc: query.get('rc'), onPath: query.has('onPath') ? query.get('onPath') !== 'false' : undefined,
   installed: query.get('installed'), version: query.get('version'),
 });
-if (query.get('compact') === '1') document.body.classList.add('compact');
+if (compact) document.body.classList.add('compact');

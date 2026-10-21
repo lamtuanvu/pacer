@@ -1150,6 +1150,11 @@ pub async fn run(app: AppHandle) {
             cli.is_some(),
             cfg!(target_os = "macos"),
         );
+        let page = update_copy(
+            &app,
+            page,
+            matches!(probe, logic::HealthProbe::Ready | logic::HealthProbe::Starting),
+        );
         let detail = match (page, &owner) {
             ("permission", _) => logic::diagnosis(page, waiting),
             ("foreign", Some(owner)) => logic::foreign_diagnosis(
@@ -1222,7 +1227,11 @@ pub async fn run(app: AppHandle) {
                         if app.state::<Shell>().session.lock().unwrap().is_some() {
                             lifecycle.ready();
                         }
-                        let page = logic::recovery_page(&error);
+                        let page = update_copy(
+                            &app,
+                            logic::recovery_page(&error),
+                            !matches!(error.as_str(), "stopped" | "diagnose"),
+                        );
                         crate::diagnostic_recovery(&app, &logic::diagnosis(page, None));
                     }
                 } else {
@@ -1697,6 +1706,58 @@ mod tests {
         );
         worker.join().unwrap();
     }
+}
+
+/// This desktop's installation as a native update manifest names it, when it runs from a bundle.
+fn this_installation() -> Option<crate::update_journal::ThisInstallation> {
+    let executable = std::env::current_exe().ok()?.canonicalize().ok()?;
+    let app = executable.parent()?.parent()?.parent()?.to_path_buf();
+    if app.extension().is_none_or(|extension| extension != "app")
+        || executable.strip_prefix(&app).ok()? != Path::new("Contents/MacOS/pacer")
+    {
+        return None;
+    }
+    Some(crate::update_journal::ThisInstallation {
+        home: pacer_home().canonicalize().ok()?,
+        app,
+        port: service_port(),
+    })
+}
+
+/// Replace the generic starting page with bundled update copy. The journal check is
+/// read-only, runs only while the service is not answering, and only selects copy.
+fn update_copy(app: &AppHandle, page: &'static str, answering: bool) -> &'static str {
+    if page != "starting" {
+        return page;
+    }
+    let shell = app.state::<Shell>();
+    let maintenance = shell.maintenance.load(Ordering::SeqCst);
+    let ticket = shell.navigation.lock().unwrap().ticket().cloned();
+    let installation = (ticket.is_some() || !answering)
+        .then(this_installation)
+        .flatten();
+    let restoring = match (&ticket, &installation) {
+        (Some(ticket), Some(installation)) => crate::update_journal::restoration_launch(
+            installation,
+            &ticket.installation_id,
+            &ticket.transaction_id,
+            env!("CARGO_PKG_VERSION"),
+        ),
+        _ => false,
+    };
+    let journal = if answering {
+        None
+    } else {
+        installation
+            .as_ref()
+            .and_then(crate::update_journal::latest)
+            .and_then(|latest| latest.copy(std::time::SystemTime::now()))
+    };
+    let selected = logic::update_page(page, maintenance, restoring, journal);
+    if selected != page && shell.recovery.lock().unwrap().as_str() != selected {
+        desktop_log!("pacer lifecycle: showing bundled update page {selected}");
+    }
+    selected
 }
 
 fn service_port() -> u16 {
