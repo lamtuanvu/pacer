@@ -10,10 +10,9 @@ const NavigationContext=createContext<NavigationValue>({current:fallbackRoute,na
 
 export function NavigationProvider({route,children,location=globalThis.location}:{route:Route;children:ComponentChildren;location?:NavigationLocation}) {
   useEffect(()=>{
-    if(typeof document==="undefined")return;
     document.title=titleFor(route);
     document.getElementById("main-content")?.focus();
-  },[route.name,"id" in route?route.id:undefined,"section" in route?route.section:undefined,"alias" in route?route.alias:undefined]);
+  },[location.hash]);
   return <NavigationContext.Provider value={{current:route,navigate(target,options){const href=hrefFor(target,route.query);options?.replace?location.replace(href):location.hash=href;}}}>{children}</NavigationContext.Provider>;
 }
 export function useNavigation():NavigationValue{return useContext(NavigationContext);}

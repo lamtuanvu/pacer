@@ -4,7 +4,7 @@ import { Disclosure } from "./Controls";
 import { SectionHeading } from "./SectionHeading";
 
 type DivProps=JSX.HTMLAttributes<HTMLDivElement>;
-export function Page({width,children,className,...props}:DivProps&{width:"standard"|"wide"|"full"}){return <div {...props} className={classes("pc-page",`pc-page--${width}`,className)}>{children}</div>;}
+export function Page({width,children,className,...props}:DivProps&{width:"standard"|"wide"|"full"}){return <div {...props} className={`pc-page pc-page--${width}${className?` ${className}`:""}`}>{children}</div>;}
 export function PageBody({children,className,...props}:DivProps){return <div {...props} className={classes("pc-page-body",className)}>{children}</div>;}
 export function PageHeader({breadcrumbs,identity,description,metadata,status,actions,children,className,...props}:JSX.HTMLAttributes<HTMLElement>&{breadcrumbs?:ComponentChildren;identity?:ComponentChildren;description?:ComponentChildren;metadata?:ComponentChildren;status?:ComponentChildren;actions?:ComponentChildren}){
  return <header {...props} className={classes("pc-page-header",className)}>{breadcrumbs&&<nav aria-label="Breadcrumb" className="pc-page-header__breadcrumbs">{breadcrumbs}</nav>}<div className="pc-page-header__row"><div className="pc-page-header__content">{identity&&<div className="pc-page-header__identity">{identity}</div>}{children&&<SectionHeading>{children}</SectionHeading>}{description&&<div className="pc-page-header__description">{description}</div>}{metadata&&<div className="pc-page-header__metadata">{metadata}</div>}</div>{status&&<div className="pc-page-header__status">{status}</div>}{actions&&<div className="pc-page-header__actions">{actions}</div>}</div></header>;

@@ -126,7 +126,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-live-dot{width:var(--size-7);height:var(--size-7);border-radius:var(--radius-full);background:var(--good-fill)}
 .pc-live-dot--off{background:var(--ink-muted)}
 /* Overview (Phase 1), laid out as the canvas Main board. */
-.pc-overview{display:flex;flex-direction:column;gap:var(--space-4);max-width:calc(var(--size-600) * 2 + var(--size-240));width:100%;margin-inline:auto}
+.pc-overview{display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-overview__cols{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-start}
 .pc-overview__main{flex:999 1 640px;min-width:0;display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-overview__side{flex:1 1 400px;min-width:0;display:flex;flex-direction:column;gap:var(--space-4)}
@@ -267,7 +267,6 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-app--narrow .pc-review-verdict{grid-column:1}
 .pc-app--narrow .pc-review-queue{max-height:var(--size-240);overflow:auto}
 .pc-app--narrow .pc-review-cards{grid-template-columns:minmax(0,1fr)}
-.pc-app--narrow .pc-sessions-list{padding:var(--space-3)}
 .pc-app--narrow .pc-session-aside{max-width:none;flex-basis:100%;border-left:0;border-top:1px solid var(--line)}
 .pc-app--narrow .pc-sessions-rows li{flex-wrap:wrap;gap:var(--space-2)}
 .pc-app--narrow .pc-sessions-goal{flex-basis:70%}
@@ -278,7 +277,6 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-review-queue-row{display:flex;align-items:center;gap:var(--space-2)}
 .pc-review-queue-row button{min-width:0}
 
-.pc-setup{max-width:var(--content-max, var(--size-960));margin:0 auto}
 .pc-setup-row{display:grid;grid-template-columns:var(--size-fact-label) minmax(0,1fr);gap:var(--space-3);padding:var(--space-4) 0;border-bottom:1px solid var(--line)}
 .pc-setup-row h3{font-family:inherit;font-size:inherit;line-height:inherit;font-weight:inherit;font-weight:var(--type-body-strong-weight);margin:0}
 .pc-setup-row p{margin:var(--space-2) 0}

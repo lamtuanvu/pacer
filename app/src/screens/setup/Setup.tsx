@@ -16,6 +16,7 @@ import { ErrorMessage, useQuery, useTaskContext } from '../task-shared';
 import { SetupContext } from './context';
 import { createPlannerAutoInit, plannerOptions, nextSetupStep, signedOutRunners, setupRunners, type SetupConfig, completeRunnerOrder, SETUP_STEPS, SERVICE_CONSENT, changeExecutor, reviewFirstTask, type SetupStep, type AgentPreview } from './model';
 import { PlannerChoices, ConnectChanges, ExecutorList, FirstTaskReview, setupAgentName } from './steps';
+import { Page } from '../../ds/Page';
 
 const autoInitPlanner = createPlannerAutoInit();
 const titles = ['Planner', 'Background service', 'Connect your planner', 'Who does the work', 'Try a first task'];
@@ -123,7 +124,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
     'Summarize a short README in a scratch folder, never in your code. Review the result the way your planner will review real work.',
   ];
   function visit(id: SetupStep) { if (!busy) setCurrent(id); }
-  return <div className="pc-setup">
+  return <Page width="standard" className="pc-setup">
     <header className="pc-setup-header"><strong>Set up pacer</strong><span className="muted" role="status">{count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header>
     <div className="pc-setup-layout">
       <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {
@@ -174,7 +175,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
         {busy && <p role="status">Working…</p>}{notice && <p role="status">{notice}</p>}<SetupError error={error} />
       </section>
     </div>
-  </div>;
+  </Page>;
 }
 export function Setup({ query }: { query: RouteQuery }) {
   const { checklist } = useContext(SetupContext);
