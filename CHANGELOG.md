@@ -13,6 +13,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Companion-aware bridge updater: validates and verifies `pacer-core` release assets, stages and smoke-tests both executables, installs the core first, and rolls it back if replacing `pacer` fails. Manifests without companions keep the existing single-binary behavior. The bridge remains a single Bun binary.
 - `pacer watch <task-id> [--timeout <seconds>] [--json]` streams task output and state changes until settled, with newline-delimited JSON events and observation-only timeout/Ctrl-C. Planner guidance now uses watch instead of polling private logs. The additive `task.log.source` marker lets watchers reset offsets when executor rerouting changes logs.
 
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.

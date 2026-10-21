@@ -21,6 +21,21 @@ add build metadata from `git describe`, for example `0.2.3+12.gabc1234` (with
 without Git use the package version. Update checks ignore build metadata and
 offer only releases newer than that package version.
 
+## Companion-aware bridge updates
+
+The bridge release remains a single Bun executable. Its updater accepts an optional
+`companions` list on each platform asset, currently limited to `pacer-core`. It
+checks every file against both the manifest and `SHA256SUMS`, stages and signs
+each executable, and checks its `--version` before replacing anything. It installs
+`pacer-core` beside the real binary (including through a symlink), then replaces
+`pacer`, retaining existing executables as `.bak`. If replacement fails, installed
+companions are restored; a newly introduced companion is removed.
+
+Manifests without companions retain the single-binary update behavior. Downgrading
+to a single-binary release leaves any old `pacer-core` in place; that binary ignores
+it. This bridge does not add Rust binaries, paired release packaging or self-repair.
+The bridge must ship before releases that depend on companion installation.
+
 ## npm
 
 `bun run release:npm --release-dir dist/release/<version> --out dist/npm` builds five packages:

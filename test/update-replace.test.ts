@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ReleaseError } from "../src/update/errors";
@@ -248,4 +248,64 @@ test("signs only the staged inode before smoke and preserves target on signing f
   await expect(replaceBinary(target, enc(script("0.3.0")), "0.3.0", async () => { throw Error("must not smoke"); }, async () => { throw Error("signing failed"); })).rejects.toThrow("signing failed");
   expect(readFileSync(target, "utf8")).toBe(script("0.2.0"));
   expect(readdirSync(dir).some(p => p.includes(".update-"))).toBe(false);
+});
+
+test("pair stages and signs both before install, retaining backups", async () => {
+  const { replacePair } = await import("../src/update/replace");
+  const dir = tmpDir(), target = installed(dir), core = join(dir, "pacer-core");
+  writeFileSync(core, "old core");
+  const signed: string[] = [];
+  const r = await replacePair({ target, bytes: enc("new front"), companions: [{ target: core, bytes: enc("new core") }], version: "0.2.0", sign: async p => { signed.push(p); }, smoke: async p => {
+    expect(signed).toContain(p);
+    expect(readFileSync(target, "utf8")).toBe(script("0.1.0"));
+    expect(readFileSync(core, "utf8")).toBe("old core");
+    return "pacer 0.2.0";
+  } });
+  expect(readFileSync(target, "utf8")).toBe("new front");
+  expect(readFileSync(core, "utf8")).toBe("new core");
+  expect(readFileSync(r.companions[0].backup, "utf8")).toBe("old core");
+  expect(readFileSync(r.backup, "utf8")).toBe(script("0.1.0"));
+});
+
+test("pair failure leaves originals intact, including a newly introduced companion", async () => {
+  const { replacePair } = await import("../src/update/replace");
+  for (const failure of ["smoke", "sign", "rename"]) {
+    const dir = tmpDir(), target = installed(dir), core = join(dir, "pacer-core");
+    const rename = await import("node:fs");
+    await expect(replacePair({ target, bytes: enc("new front"), companions: [{ target: core, bytes: enc("new core") }], version: "0.2.0",
+      sign: async () => { if (failure === "sign") throw Error("sign failed"); },
+      smoke: async p => failure === "smoke" && p.includes("pacer-core") ? "wrong" : "pacer 0.2.0",
+      rename: (from, to) => { if (failure === "rename" && to === realpathSync(target)) throw Error("rename failed"); rename.renameSync(from, to); },
+    })).rejects.toThrow();
+    expect(readFileSync(target, "utf8")).toBe(script("0.1.0"));
+    expect(readdirSync(dir).filter(p => p !== "pacer.bak")).toEqual(["pacer"]);
+  }
+});
+
+test("failed front-door rename restores an existing core and preserves staged-file collisions", async () => {
+  const { replacePair } = await import("../src/update/replace");
+  const { renameSync } = await import("node:fs");
+  const dir = tmpDir(), target = installed(dir), core = join(dir, "pacer-core");
+  writeFileSync(core, "old core");
+  await expect(replacePair({ target, bytes: enc("front"), companions: [{ target: core, bytes: enc("core") }], version: "0.2.0", sign: async () => {}, smoke: async () => "pacer 0.2.0", rename: (from, to) => {
+    if (to === realpathSync(target)) throw Error("front rename failed");
+    renameSync(from, to);
+  } })).rejects.toThrow("front rename failed");
+  expect(readFileSync(core, "utf8")).toBe("old core");
+  expect(readFileSync(target, "utf8")).toBe(script("0.1.0"));
+  writeFileSync(`${core}.new`, "belongs to another update");
+  await expect(replacePair({ target, bytes: enc("front"), companions: [{ target: core, bytes: enc("core") }], version: "0.2.0" })).rejects.toThrow();
+  expect(readFileSync(`${core}.new`, "utf8")).toBe("belongs to another update");
+  expect(readFileSync(core, "utf8")).toBe("old core");
+});
+
+test("pair refuses a dangling companion symlink without removing it", async () => {
+  const { replacePair } = await import("../src/update/replace");
+  const dir = tmpDir(), target = installed(dir), core = join(dir, "pacer-core");
+  const missing = join(dir, "missing-core");
+  symlinkSync(missing, core);
+  await expect(replacePair({ target, bytes: enc("new front"), companions: [{ target: core, bytes: enc("new core") }], version: "0.2.0", sign: async () => {}, smoke: async () => "pacer 0.2.0" })).rejects.toThrow("not a regular file");
+  expect(lstatSync(core).isSymbolicLink()).toBe(true);
+  expect(readlinkSync(core)).toBe(missing);
+  expect(readFileSync(target, "utf8")).toBe(script("0.1.0"));
 });
