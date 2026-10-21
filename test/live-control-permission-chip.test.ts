@@ -9,6 +9,7 @@ test.skipIf(process.platform!=="darwin")("permission chip follows Settings, flip
  const run=Bun.spawn([output],{stdout:"pipe",stderr:"pipe"});
  const result=JSON.parse(await new Response(run.stdout).text());expect(await run.exited).toBe(0);
  expect(result.exclusive).toBe(true);
+ expect(result.launcherAlive).toBe(true);expect(result.launcherReplaced).toBe(false);expect(result.launcherMissing).toBe(false);
  const p=result.positions;
  expect(p[0].x).toBe(712);expect(p[1].x).toBe(600);expect(p[2].x).toBe(-538);
  expect(p[3].x-p[0].x).toBe(50);

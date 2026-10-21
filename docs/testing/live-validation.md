@@ -256,7 +256,14 @@ source provenance. A busy target refuses concurrent writers.
 Build the ordinary desktop app, then use `live desktop --app <path>` and
 `live doctor --surface desktop --json`. To request the macOS approval prompt, run
 `live doctor --surface desktop --request-accessibility --json`; ordinary doctor
-checks do not prompt. Approve the app macOS attributes the request to in System Settings → Privacy &
+checks do not prompt. The normal macOS app also offers **Settings → Diagnostics →
+Enable native checks**. Setup opens System Settings and displays a draggable app
+chip beside its window. The chip follows the Settings window without requiring
+Accessibility or screen capture access for positioning; **Show app** provides a
+Finder alternative. The proposed hosting app is inferred from process ancestry.
+Setup succeeds only after an actual AX read of the owned desktop window, and
+closes on cancellation, launcher exit, target exit or timeout. A failed or
+cancelled requested setup remains UNVERIFIED even if the OS trust flags are on. Approve the app macOS attributes the request to in System Settings → Privacy &
 Security → Accessibility. For a harness launched inside a terminal or agent host,
 this can be the hosting app rather than the helper. In the measured Orca session,
 macOS TCC logs attributed the helper request to `com.stablyai.orca`; enabling the

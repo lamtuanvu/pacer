@@ -61,6 +61,11 @@ func permissionProcessIdentity(_ pid: pid_t) -> String? {
     return "\(info.pbi_start_tvsec):\(info.pbi_start_tvusec)"
 }
 
+func permissionLauncherIsAlive(_ pid: pid_t, identity: String?) -> Bool {
+    guard let identity=identity else { return false }
+    return permissionProcessIdentity(pid)==identity
+}
+
 // Directly launched apps inherit the outer hosting app’s responsibility.
 // Continue past a nested desktop process; LaunchServices roots naturally end at launchd.
 func permissionHostingBundle() -> URL? {
@@ -94,7 +99,7 @@ func permissionHostingBundle() -> URL? {
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel("Drag \(name) into the Accessibility applications list")
-        setAccessibilityHelp("Use Show app for a keyboard-accessible Finder alternative")
+        setAccessibilityHelp("Hosting app inferred from process ancestry. Use Show app for a keyboard-accessible Finder alternative")
     }
     required init?(coder:NSCoder) { fatalError("init(coder:) is unavailable") }
     override func draw(_ dirtyRect:NSRect) {
@@ -104,7 +109,7 @@ func permissionHostingBundle() -> URL? {
         NSBezierPath(roundedRect:bounds.insetBy(dx:0.5,dy:0.5),xRadius:9,yRadius:9).stroke()
         NSWorkspace.shared.icon(forFile:appURL.path).draw(in:NSRect(x:10,y:(bounds.height-36)/2,width:36,height:36))
         (appName as NSString).draw(in:NSRect(x:55,y:bounds.midY-1,width:bounds.width-65,height:20),withAttributes:[.font:NSFont.systemFont(ofSize:13,weight:.medium),.foregroundColor:NSColor.labelColor])
-        ("Drag app into the list" as NSString).draw(in:NSRect(x:55,y:bounds.midY-18,width:bounds.width-65,height:17),withAttributes:[.font:NSFont.systemFont(ofSize:11),.foregroundColor:NSColor.secondaryLabelColor])
+        ("Inferred host · drag into list" as NSString).draw(in:NSRect(x:55,y:bounds.midY-18,width:bounds.width-65,height:17),withAttributes:[.font:NSFont.systemFont(ofSize:11),.foregroundColor:NSColor.labelColor])
     }
     override func mouseDown(with event:NSEvent) {
         // Use the dedicated dragging pasteboard; never read or change the clipboard.
@@ -127,6 +132,8 @@ func permissionHostingBundle() -> URL? {
     let appURL:URL
     let targetPID:pid_t
     let targetIdentity:String
+    let launcherPID=getppid()
+    let launcherIdentity=permissionProcessIdentity(getppid())
     let deadline:TimeInterval
     let title=NSTextField(labelWithString:"Drag this app into the list")
     let hint=NSTextField(labelWithString:"Then enable its switch in Settings")
@@ -157,7 +164,7 @@ func permissionHostingBundle() -> URL? {
         panel.backgroundColor = .windowBackgroundColor
         panel.contentView?.wantsLayer=true;panel.contentView?.layer?.cornerRadius=12
         title.font = .systemFont(ofSize:13,weight:.medium)
-        hint.font = .systemFont(ofSize:11);hint.textColor = .secondaryLabelColor
+        hint.font = .systemFont(ofSize:11);hint.textColor = .labelColor
         for view in [title,hint,drag,reveal,cancel] { panel.contentView?.addSubview(view) }
         reveal.target=self;reveal.action=#selector(showApp);reveal.bezelStyle = .rounded
         cancel.target=self;cancel.action=#selector(cancelSetup);cancel.bezelStyle = .rounded;cancel.keyEquivalent="\u{1b}"
@@ -193,6 +200,7 @@ func permissionHostingBundle() -> URL? {
     @objc func timerFired(_ timer:Timer) { tick() }
     func tick() {
         guard !finished else { return }
+        if !permissionLauncherIsAlive(launcherPID,identity:launcherIdentity) { finish("cancelled");return }
         if Date().timeIntervalSince1970>=deadline { finish("timeout");return }
         if permissionProcessIdentity(targetPID) != targetIdentity { finish("target_exited");return }
         ticks += 1

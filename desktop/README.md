@@ -347,3 +347,9 @@ for agent access, private evidence, identity checks and external capture fallbac
 A sandbox needs its own desktop session: the app singleton will refuse a second
 instance with the same bundle identifier. The harness never terminates the user's
 existing instance or grants macOS Accessibility/screen capture permissions.
+
+On macOS, **Settings → Diagnostics → Enable native checks** opens a following
+app chip beside System Settings. Drag the inferred hosting app into the list,
+then enable its switch yourself. **Show app** reveals the bundle in Finder.
+The packaged helper verifies access to the running Pacer window before reporting
+success; it accepts no caller-supplied executable, app path or URL.

@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Native permission setup in desktop Diagnostics: a draggable hosting-app chip follows System Settings, with a Finder alternative, cancellation and owned-window access verification.
+
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with structured JSON, assertions, replay and automatic evidence. Normal desktop builds include authenticated owned-window and webview self-capture; native interaction and VoiceOver readiness require their own live evidence.
 
 - Guided OpenCode endpoint setup: `pacer account add` and Settings › Add executor list providers already signed in to OpenCode, local model servers (Ollama, LM Studio) and catalog providers, recommend a model that can call tools, set the usage type from the models.dev catalog and offer an optional weekly dollar cap. Signed-in providers are stored as `source: opencode` accounts that refer to the provider and never hold its key. `pacer account add opencode <provider> [--model] [--cap-usd] [--name] [--no-test]` does it in one command. Spend is read in dollars from `opencode stats --cost`, and new API ops `executor.setup.candidates`, `executor.setup.models` and `executor.setup.connect` serve the app.

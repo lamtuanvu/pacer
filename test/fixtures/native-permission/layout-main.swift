@@ -20,7 +20,7 @@ import Foundation
         let secondDenied = (try? PermissionChipLease(targetPID:getpid())) == nil
         firstLease = nil
         let thirdAcquired = (try? PermissionChipLease(targetPID:getpid())) != nil
-        let json = try JSONSerialization.data(withJSONObject:["positions":positions,"bundles":bundles,"exclusive":firstAcquired && secondDenied && thirdAcquired])
+        let json = try JSONSerialization.data(withJSONObject:["launcherAlive":permissionLauncherIsAlive(getpid(),identity:permissionProcessIdentity(getpid())),"launcherReplaced":permissionLauncherIsAlive(getpid(),identity:"replaced"),"launcherMissing":permissionLauncherIsAlive(1,identity:nil),"positions":positions,"bundles":bundles,"exclusive":firstAcquired && secondDenied && thirdAcquired])
         FileHandle.standardOutput.write(json)
     }
 }
