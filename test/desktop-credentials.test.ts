@@ -115,3 +115,22 @@ test("signing preflight exercises the configured identity and cleans its tempora
   expect(existsSync(keychain)).toBe(false);
   expect(calls.some(a => a[1] === "delete-keychain" && a.at(-1) === keychain)).toBe(true);
 });
+
+test("failed signing probe reports only public imported identity hashes", async () => {
+  const { probeSigningCredentials } = await import("../scripts/release/desktop-credentials");
+  const cert = "A".repeat(40), imported = "B".repeat(40);
+  const env = { PACER_SIGNING_CERT_SHA1: cert, PACER_OTA_PUBLIC_KEY: "public", PACER_SELF_SIGNING_CERTIFICATE_BASE64: "cDEy", PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: "pw", TAURI_SIGNING_PRIVATE_KEY: "fixture-updater" };
+  let message = "", keychain = "";
+  try { await probeSigningCredentials(env, async argv => {
+    if (argv[1] === "create-keychain") { keychain = argv.at(-1)!; writeFileSync(keychain, "fixture", { mode: 0o600 }); }
+    if (argv[0] === "/usr/bin/codesign") throw Error("signing failed");
+    if (argv[1] === "find-certificate") return `SHA-1 hash: ${imported}\nfixture-secret-must-not-be-logged`;
+    if (argv[1] === "find-identity") return `  1) ${imported} "fixture-secret-must-not-be-logged"\n`;
+    return "";
+  }); } catch (error) { message = (error as Error).message; }
+  expect(message).toContain(`expected=${cert}`);
+  expect(message).toContain(`certificates=${imported}`);
+  expect(message).toContain(`identities=${imported}`);
+  expect(message).not.toContain("fixture-secret-must-not-be-logged");
+  expect(existsSync(keychain)).toBe(false);
+});

@@ -71,8 +71,16 @@ export async function probeSigningCredentials(env: NodeJS.ProcessEnv, run = comm
     const probe = join(dirname(config.keychain), "signing-probe");
     copyFileSync("/usr/bin/true", probe);
     const identity = config.signer === "self" ? config.certSha1 : config.identity;
-    await run(["/usr/bin/codesign", "--force", "--sign", identity, "--keychain", config.keychain, "--timestamp=none", probe]);
-    await run(["/usr/bin/codesign", "--verify", "--strict", probe]);
+    try {
+      await run(["/usr/bin/codesign", "--force", "--sign", identity, "--keychain", config.keychain, "--timestamp=none", probe]);
+      await run(["/usr/bin/codesign", "--verify", "--strict", probe]);
+    } catch (error) {
+      // Inspect only this disposable release keychain. Publish hashes, never raw command output.
+      const certificates = await run(["/usr/bin/security", "find-certificate", "-a", "-Z", config.keychain]).catch(() => "");
+      const identities = await run(["/usr/bin/security", "find-identity", "-p", "codesigning", config.keychain]).catch(() => "");
+      const hashes = (text: string, pattern: RegExp) => [...new Set([...text.matchAll(pattern)].map(match => match[1].toUpperCase()))].join(",") || "none";
+      throw Error(`${error instanceof Error ? error.message : "Signing probe failed"}; expected=${identity}; certificates=${hashes(certificates, /SHA-1 hash:\s*([0-9A-F]{40})/gi)}; identities=${hashes(identities, /^\s*\d+\)\s+([0-9A-F]{40})\b/gim)}`);
+    }
   }, run);
 }
 if (import.meta.main) {
