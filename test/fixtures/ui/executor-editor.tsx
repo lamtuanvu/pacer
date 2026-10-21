@@ -28,8 +28,8 @@ const api={call:async(op:string,p:any)=>{
 const actions=createActionRunner({call:api.call,waitFor:async()=>true,refetch:()=>{},navigate:()=>{}});
 function App(){
  const [tick,setTick]=useState(0);refresh=()=>setTick(t=>t+1);
- const executor=(id:string,planner=false)=>({id,agent:id.startsWith('claude')?'claude-code':'codex',account:id.split('#')[1]??'codex',host:null,model:null,rank:planner?'planner':1,enabled:true,state:'ready',slots:{used:0,max:1},lastCheck:null});
+ const executor=(id:string,planner=false)=>({id,agent:id.startsWith('claude')?'claude-code':'codex',account:id.split('#')[1]??'codex',host:null,model:id.includes('second')?'claude-long-model-identifier-for-overflow-inspection':null,rank:planner?'planner':1,enabled:true,state:'ready',slots:{used:0,max:1},lastCheck:null});
  const state={...initialState(),connected:true,invalidations:{runners:tick},snapshot:{at:tick,executors:[executor('claude-code',true),...settings.order.map(id=>executor(id))]}} as any;
- return <TaskContext.Provider value={{state,api}}><ActionContext.Provider value={actions}><SettingsPageContext.Provider value="executors"><ExecutorsSection/></SettingsPageContext.Provider></ActionContext.Provider></TaskContext.Provider>;
+ return <TaskContext.Provider value={{state,api}}><ActionContext.Provider value={actions}><SettingsPageContext.Provider value="executors"><div className="u3-settings"><ExecutorsSection/></div></SettingsPageContext.Provider></ActionContext.Provider></TaskContext.Provider>;
 }
 render(<NotificationProvider><App/></NotificationProvider>,document.getElementById('app')!);

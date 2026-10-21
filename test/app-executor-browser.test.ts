@@ -57,3 +57,21 @@ browserTest('stale health ranks cannot duplicate or lock the previous planner af
   expect(await page.locator('tbody tr').count()).toBe(2);
  }finally{await browser.close();}
 },20000);
+
+browserTest('save controls clear the narrow navigation and desktop actions stay visible',async()=>{
+ const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try{
+  const page=await browser.newPage({viewport:{width:375,height:900}});
+  await page.setContent('<div id="app"></div><nav class="pc-bottom-bar" aria-label="Bottom navigation">Navigation</nav>');
+  await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css'].map(path=>Bun.file(path).text()))).join('\n')});
+  await page.evaluate(()=>document.body.classList.add('pc-app--narrow'));
+  await page.addScriptTag({content:await built.outputs[0].text()});
+  await page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}).fill('2');
+  const bounds=await page.evaluate(()=>({save:document.querySelector('.u3-save-bar')!.getBoundingClientRect().bottom,nav:document.querySelector('.pc-bottom-bar')!.getBoundingClientRect().top}));
+  expect(bounds.save).toBeLessThanOrEqual(bounds.nav);
+  await page.setViewportSize({width:1440,height:1100});await page.evaluate(()=>{document.body.classList.remove('pc-app--narrow');document.querySelector('.pc-bottom-bar')!.remove();});
+  const action=await page.evaluate(()=>({right:document.querySelector('th:last-child')!.getBoundingClientRect().right,edge:document.querySelector('.u3-table-wrap')!.getBoundingClientRect().right}));
+  expect(action.right).toBeLessThanOrEqual(action.edge);
+ }finally{await browser.close();}
+},20000);

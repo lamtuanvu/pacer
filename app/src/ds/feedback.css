@@ -8,4 +8,3 @@
 .pc-toast{display:flex;align-items:flex-start;gap:var(--space-1);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-popover)}
 .pc-toast>.pc-alert{flex:1;border:0}
 .pc-toast>.pc-btn{flex:none;margin:var(--space-1)}
-.pc-toasts{position:fixed;inset-inline-end:var(--space-5);bottom:var(--space-5);width:min(var(--size-360),calc(100% - var(--space-8)));display:grid;gap:var(--space-2);z-index:var(--layer-tooltip)}

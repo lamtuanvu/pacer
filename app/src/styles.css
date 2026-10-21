@@ -350,3 +350,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-app--narrow .pc-panel__item{min-height:var(--control-touch)}
 .pc-app--narrow:has(.pc-panel) .pc-topbar{top:calc(var(--control-touch) + var(--space-4) + var(--size-1))}
 html:has(.pc-app--narrow .pc-panel){scroll-padding-top:calc(var(--control-touch) + var(--space-4) + var(--size-1) + var(--size-60) + var(--space-4))}
+
+/* App-level feedback placement clears the narrow shell navigation. */
+.pc-toasts{position:fixed;inset-inline-end:var(--space-5);bottom:var(--space-5);width:min(var(--size-360),calc(100% - var(--space-8)));display:grid;gap:var(--space-2);z-index:var(--layer-tooltip)}
+body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5) + env(safe-area-inset-bottom))}
