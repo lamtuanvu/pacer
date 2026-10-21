@@ -8,6 +8,8 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   start isolated service and disposable repo; ui seeds sample data
   targets|inspect|act|wait|assert|capture|doctor --surface web|tray|tui|desktop --json
                                   inspect and control sandbox UI
+  doctor --surface desktop --request-accessibility
+                                  ask macOS to show Accessibility approval
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL

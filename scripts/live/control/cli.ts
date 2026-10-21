@@ -17,10 +17,13 @@ export async function controlMain(argv: string[]): Promise<number> {
     for (let i = 1; i < argv.length; i++) {
       const name = argv[i];
       if (name === "--json") continue;
+      if (name === "--request-accessibility") { options.set("request_accessibility", "true"); continue; }
       if (!["--id", "--surface", "--target", "--selector", "--ref", "--revision", "--generation", "--action", "--text", "--key", "--value", "--width", "--height", "--delta-x", "--delta-y", "--x", "--y", "--capture-id", "--mode", "--condition", "--timeout-ms", "--file"].includes(name)) throw new ControlError("invalid_input", `unknown option ${name}`);
       if (argv[i + 1] === undefined) throw new ControlError("invalid_input", `${name} needs a value`);
       options.set(name.slice(2).replaceAll("-", "_"), argv[++i]);
     }
+    if (options.has("request_accessibility") && (argv[0] !== "doctor" || options.get("surface") !== "desktop"))
+      throw new ControlError("invalid_input", "--request-accessibility requires doctor --surface desktop");
     const number = (name: string) => options.has(name) ? Number(options.get(name)) : undefined;
     const action = argv[0] === "act" ? { kind: options.get("action"), selector: options.has("selector") ? JSON.parse(options.get("selector")!) : undefined,
       ref: options.get("ref"), revision: options.get("revision"), generation: options.get("generation"), text: options.get("text"), key: options.get("key"), value: options.get("value"),
@@ -34,7 +37,7 @@ export async function controlMain(argv: string[]): Promise<number> {
     const request = requestSchema.parse({ command: argv[0], surface: options.get("surface") ?? "web", target: options.get("target"), action,
       condition: options.has("condition") ? JSON.parse(options.get("condition")!) : undefined, mode: options.get("mode"), timeout_ms: number("timeout_ms") });
     const session = loadSession(options.get("id"));
-    const result = await executeControl(session, request);
+    const result = await executeControl(session, request, options.has("request_accessibility"));
     console.log(JSON.stringify(result)); return result.outcome === "ok" ? 0 : 1;
   } catch (error) {
     const result: ControlResult = { schema_version: 1, command_id: crypto.randomUUID(), command: argv[0], started_at: started, finished_at: new Date().toISOString(), outcome: "error", artifacts: [],
@@ -44,11 +47,11 @@ export async function controlMain(argv: string[]): Promise<number> {
   }
 }
 
-export async function executeControl(session: import("../core").Session, input: ControlRequest): Promise<ControlResult> {
+export async function executeControl(session: import("../core").Session, input: ControlRequest, requestAccessibility = false): Promise<ControlResult> {
   const request = requestSchema.parse(input);
   const provenance = recordProvenance(session);
   let result: ControlResult;
-  if (request.command === "doctor" && request.surface === "desktop") { result = await desktopDoctor(session); result.provenance = provenance; result.run_id = session.id; recordStep(session, result); return result; }
+  if (request.command === "doctor" && request.surface === "desktop") { result = await desktopDoctor(session, requestAccessibility); result.provenance = provenance; result.run_id = session.id; recordStep(session, result); return result; }
   if (request.surface === "web" || request.surface === "tray") result = await (await import("./worker")).browserCommand(session, request);
     else if (request.surface === "tui") {
       const lease = await acquireLease(`tui-${session.id}`, { run_id: session.id });

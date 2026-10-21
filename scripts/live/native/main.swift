@@ -112,6 +112,9 @@ func pressKey(_ key: String) throws {
     @MainActor static func run(_ request: [String: Any]) async throws -> [String: Any] {
         let command = request["command"] as? String ?? ""
         if command == "doctor" {
+            if request["request_accessibility"] as? Bool == true {
+                _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+            }
             return ["accessibility": AXIsProcessTrusted(), "screen_capture":CGPreflightScreenCaptureAccess(), "screens":NSScreen.screens.count]
         }
         guard let rawPid = request["pid"] as? Int, rawPid > 1 else { try fail("invalid_input", "Exact owned PID required") }
