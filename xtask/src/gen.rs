@@ -1,4 +1,5 @@
 //! Deterministic Rust protocol generation from the checked-in schema bundles.
+use quote::ToTokens;
 use std::{
     fs,
     io::Write,
@@ -45,11 +46,41 @@ pub fn generate(schema_path: &Path) -> Result<String, String> {
     let mut space =
         typify::TypeSpace::new(typify::TypeSpaceSettings::default().with_struct_builder(false));
     space.add_root_schema(schema).map_err(|e| e.to_string())?;
-    let file: syn::File = syn::parse2(space.to_stream()).map_err(|e| e.to_string())?;
+    let mut file: syn::File = syn::parse2(space.to_stream()).map_err(|e| e.to_string())?;
+    file.items.retain(|item| !redundant_impl(item));
     rustfmt(&format!(
         "{HEADER}#![allow(clippy::all, clippy::unwrap_used, clippy::expect_used, missing_docs)]\n\npub const VERSION: &str = {version:?};\n\n{}",
         prettyplease::unparse(&file)
     ))
+}
+
+/// Conversions typify emits that only repeat another impl: `From<&T> for T` (a clone) and
+/// `TryFrom<String>` / `TryFrom<&String>` (a `FromStr` call). Dropping them keeps the generated
+/// crates inside the CRATE-3 line budget and cuts their compile time; `FromStr`,
+/// `TryFrom<&str>` and serde stay.
+fn redundant_impl(item: &syn::Item) -> bool {
+    let syn::Item::Impl(imp) = item else {
+        return false;
+    };
+    let Some((_, path, _)) = &imp.trait_ else {
+        return false;
+    };
+    let Some(last) = path.segments.last() else {
+        return false;
+    };
+    let syn::PathArguments::AngleBracketed(args) = &last.arguments else {
+        return false;
+    };
+    let Some(syn::GenericArgument::Type(arg)) = args.args.first() else {
+        return false;
+    };
+    let arg = arg.to_token_stream().to_string().replace(' ', "");
+    let self_ty = imp.self_ty.to_token_stream().to_string().replace(' ', "");
+    match last.ident.to_string().as_str() {
+        "From" => arg == format!("&{self_ty}"),
+        "TryFrom" => arg == "::std::string::String" || arg == "&::std::string::String",
+        _ => false,
+    }
 }
 
 /// Format with the pinned toolchain's rustfmt so `cargo fmt --check` accepts generated files.

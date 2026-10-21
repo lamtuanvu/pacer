@@ -249,11 +249,6 @@ impl ::std::convert::From<AccountAddParamsEnvVar> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountAddParamsEnvVar> for AccountAddParamsEnvVar {
-    fn from(value: &AccountAddParamsEnvVar) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountAddParamsEnvVar {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -270,22 +265,6 @@ impl ::std::str::FromStr for AccountAddParamsEnvVar {
 impl ::std::convert::TryFrom<&str> for AccountAddParamsEnvVar {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAddParamsEnvVar {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAddParamsEnvVar {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -326,11 +305,6 @@ impl ::std::convert::From<AccountAddParamsHome> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountAddParamsHome> for AccountAddParamsHome {
-    fn from(value: &AccountAddParamsHome) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountAddParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -343,22 +317,6 @@ impl ::std::str::FromStr for AccountAddParamsHome {
 impl ::std::convert::TryFrom<&str> for AccountAddParamsHome {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAddParamsHome {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAddParamsHome {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -445,22 +403,6 @@ impl ::std::convert::TryFrom<&str> for AccountAddParamsKeySource {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAddParamsKeySource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAddParamsKeySource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AccountAddParamsModelsItem`
 ///
 /// <details><summary>JSON schema</summary>
@@ -510,11 +452,6 @@ pub struct AccountAddParamsModelsItem {
     pub output: ::std::num::NonZeroU64,
     pub tools: bool,
 }
-impl ::std::convert::From<&AccountAddParamsModelsItem> for AccountAddParamsModelsItem {
-    fn from(value: &AccountAddParamsModelsItem) -> Self {
-        value.clone()
-    }
-}
 ///`AccountAddParamsModelsItemId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -540,11 +477,6 @@ impl ::std::convert::From<AccountAddParamsModelsItemId> for ::std::string::Strin
         value.0
     }
 }
-impl ::std::convert::From<&AccountAddParamsModelsItemId> for AccountAddParamsModelsItemId {
-    fn from(value: &AccountAddParamsModelsItemId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountAddParamsModelsItemId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -557,22 +489,6 @@ impl ::std::str::FromStr for AccountAddParamsModelsItemId {
 impl ::std::convert::TryFrom<&str> for AccountAddParamsModelsItemId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAddParamsModelsItemId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAddParamsModelsItemId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -614,11 +530,6 @@ impl ::std::convert::From<AccountAddParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountAddParamsName> for AccountAddParamsName {
-    fn from(value: &AccountAddParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountAddParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -634,22 +545,6 @@ impl ::std::str::FromStr for AccountAddParamsName {
 impl ::std::convert::TryFrom<&str> for AccountAddParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAddParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAddParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -690,11 +585,6 @@ impl ::std::convert::From<AccountAddParamsQuotaSource> for ::std::string::String
         value.0
     }
 }
-impl ::std::convert::From<&AccountAddParamsQuotaSource> for AccountAddParamsQuotaSource {
-    fn from(value: &AccountAddParamsQuotaSource) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountAddParamsQuotaSource {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -707,22 +597,6 @@ impl ::std::str::FromStr for AccountAddParamsQuotaSource {
 impl ::std::convert::TryFrom<&str> for AccountAddParamsQuotaSource {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAddParamsQuotaSource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAddParamsQuotaSource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -804,22 +678,6 @@ impl ::std::convert::TryFrom<&str> for AccountAddParamsUsage {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAddParamsUsage {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAddParamsUsage {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AccountAdoptParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -868,11 +726,6 @@ pub struct AccountAdoptParams {
     pub key_source: AccountAdoptParamsKeySource,
     pub name: AccountAdoptParamsName,
 }
-impl ::std::convert::From<&AccountAdoptParams> for AccountAdoptParams {
-    fn from(value: &AccountAdoptParams) -> Self {
-        value.clone()
-    }
-}
 ///`AccountAdoptParamsEnvVar`
 ///
 /// <details><summary>JSON schema</summary>
@@ -898,11 +751,6 @@ impl ::std::convert::From<AccountAdoptParamsEnvVar> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountAdoptParamsEnvVar> for AccountAdoptParamsEnvVar {
-    fn from(value: &AccountAdoptParamsEnvVar) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountAdoptParamsEnvVar {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -919,22 +767,6 @@ impl ::std::str::FromStr for AccountAdoptParamsEnvVar {
 impl ::std::convert::TryFrom<&str> for AccountAdoptParamsEnvVar {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAdoptParamsEnvVar {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAdoptParamsEnvVar {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -1021,22 +853,6 @@ impl ::std::convert::TryFrom<&str> for AccountAdoptParamsKeySource {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAdoptParamsKeySource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAdoptParamsKeySource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AccountAdoptParamsName`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1063,11 +879,6 @@ impl ::std::convert::From<AccountAdoptParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountAdoptParamsName> for AccountAdoptParamsName {
-    fn from(value: &AccountAdoptParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountAdoptParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -1083,22 +894,6 @@ impl ::std::str::FromStr for AccountAdoptParamsName {
 impl ::std::convert::TryFrom<&str> for AccountAdoptParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountAdoptParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountAdoptParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -1234,11 +1029,6 @@ pub struct AccountEditParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub weekly_tokens: ::std::option::Option<::std::num::NonZeroU64>,
 }
-impl ::std::convert::From<&AccountEditParams> for AccountEditParams {
-    fn from(value: &AccountEditParams) -> Self {
-        value.clone()
-    }
-}
 ///`AccountEditParamsEnvVar`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1264,11 +1054,6 @@ impl ::std::convert::From<AccountEditParamsEnvVar> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountEditParamsEnvVar> for AccountEditParamsEnvVar {
-    fn from(value: &AccountEditParamsEnvVar) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountEditParamsEnvVar {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -1285,22 +1070,6 @@ impl ::std::str::FromStr for AccountEditParamsEnvVar {
 impl ::std::convert::TryFrom<&str> for AccountEditParamsEnvVar {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountEditParamsEnvVar {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountEditParamsEnvVar {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -1387,22 +1156,6 @@ impl ::std::convert::TryFrom<&str> for AccountEditParamsKeySource {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AccountEditParamsKeySource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountEditParamsKeySource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AccountEditParamsModelsItem`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1452,11 +1205,6 @@ pub struct AccountEditParamsModelsItem {
     pub output: ::std::num::NonZeroU64,
     pub tools: bool,
 }
-impl ::std::convert::From<&AccountEditParamsModelsItem> for AccountEditParamsModelsItem {
-    fn from(value: &AccountEditParamsModelsItem) -> Self {
-        value.clone()
-    }
-}
 ///`AccountEditParamsModelsItemId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1482,11 +1230,6 @@ impl ::std::convert::From<AccountEditParamsModelsItemId> for ::std::string::Stri
         value.0
     }
 }
-impl ::std::convert::From<&AccountEditParamsModelsItemId> for AccountEditParamsModelsItemId {
-    fn from(value: &AccountEditParamsModelsItemId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountEditParamsModelsItemId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -1499,22 +1242,6 @@ impl ::std::str::FromStr for AccountEditParamsModelsItemId {
 impl ::std::convert::TryFrom<&str> for AccountEditParamsModelsItemId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountEditParamsModelsItemId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountEditParamsModelsItemId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -1556,11 +1283,6 @@ impl ::std::convert::From<AccountEditParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountEditParamsName> for AccountEditParamsName {
-    fn from(value: &AccountEditParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountEditParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -1576,22 +1298,6 @@ impl ::std::str::FromStr for AccountEditParamsName {
 impl ::std::convert::TryFrom<&str> for AccountEditParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountEditParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountEditParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -1632,11 +1338,6 @@ impl ::std::convert::From<AccountEditParamsQuotaSource> for ::std::string::Strin
         value.0
     }
 }
-impl ::std::convert::From<&AccountEditParamsQuotaSource> for AccountEditParamsQuotaSource {
-    fn from(value: &AccountEditParamsQuotaSource) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountEditParamsQuotaSource {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -1649,22 +1350,6 @@ impl ::std::str::FromStr for AccountEditParamsQuotaSource {
 impl ::std::convert::TryFrom<&str> for AccountEditParamsQuotaSource {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountEditParamsQuotaSource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountEditParamsQuotaSource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -1746,22 +1431,6 @@ impl ::std::convert::TryFrom<&str> for AccountEditParamsUsage {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AccountEditParamsUsage {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountEditParamsUsage {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AccountListParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1776,11 +1445,6 @@ impl ::std::convert::TryFrom<::std::string::String> for AccountEditParamsUsage {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AccountListParams {}
-impl ::std::convert::From<&AccountListParams> for AccountListParams {
-    fn from(value: &AccountListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for AccountListParams {
     fn default() -> Self {
         Self {}
@@ -1821,11 +1485,6 @@ pub struct AccountModelsParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub name: ::std::option::Option<AccountModelsParamsName>,
 }
-impl ::std::convert::From<&AccountModelsParams> for AccountModelsParams {
-    fn from(value: &AccountModelsParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for AccountModelsParams {
     fn default() -> Self {
         Self {
@@ -1861,11 +1520,6 @@ impl ::std::convert::From<AccountModelsParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountModelsParamsName> for AccountModelsParamsName {
-    fn from(value: &AccountModelsParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountModelsParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -1881,22 +1535,6 @@ impl ::std::str::FromStr for AccountModelsParamsName {
 impl ::std::convert::TryFrom<&str> for AccountModelsParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountModelsParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountModelsParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -1944,11 +1582,6 @@ pub struct AccountRemoveParams {
     pub delete_home: ::std::option::Option<bool>,
     pub name: AccountRemoveParamsName,
 }
-impl ::std::convert::From<&AccountRemoveParams> for AccountRemoveParams {
-    fn from(value: &AccountRemoveParams) -> Self {
-        value.clone()
-    }
-}
 ///`AccountRemoveParamsName`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1976,11 +1609,6 @@ impl ::std::convert::From<AccountRemoveParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountRemoveParamsName> for AccountRemoveParamsName {
-    fn from(value: &AccountRemoveParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountRemoveParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -2001,22 +1629,6 @@ impl ::std::str::FromStr for AccountRemoveParamsName {
 impl ::std::convert::TryFrom<&str> for AccountRemoveParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountRemoveParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountRemoveParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -2133,11 +1745,6 @@ impl ::std::convert::From<AccountSigninParamsVariant0Name> for ::std::string::St
         value.0
     }
 }
-impl ::std::convert::From<&AccountSigninParamsVariant0Name> for AccountSigninParamsVariant0Name {
-    fn from(value: &AccountSigninParamsVariant0Name) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountSigninParamsVariant0Name {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -2153,22 +1760,6 @@ impl ::std::str::FromStr for AccountSigninParamsVariant0Name {
 impl ::std::convert::TryFrom<&str> for AccountSigninParamsVariant0Name {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountSigninParamsVariant0Name {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountSigninParamsVariant0Name {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -2255,22 +1846,6 @@ impl ::std::convert::TryFrom<&str> for AccountSigninParamsVariant0Target {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AccountSigninParamsVariant0Target {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountSigninParamsVariant0Target {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AccountSigninParamsVariant1Interactive`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2337,22 +1912,6 @@ impl ::std::convert::TryFrom<&str> for AccountSigninParamsVariant1Interactive {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AccountSigninParamsVariant1Interactive {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountSigninParamsVariant1Interactive {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AccountSigninParamsVariant1Worktree`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2379,13 +1938,6 @@ impl ::std::convert::From<AccountSigninParamsVariant1Worktree> for ::std::string
         value.0
     }
 }
-impl ::std::convert::From<&AccountSigninParamsVariant1Worktree>
-    for AccountSigninParamsVariant1Worktree
-{
-    fn from(value: &AccountSigninParamsVariant1Worktree) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountSigninParamsVariant1Worktree {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -2401,22 +1953,6 @@ impl ::std::str::FromStr for AccountSigninParamsVariant1Worktree {
 impl ::std::convert::TryFrom<&str> for AccountSigninParamsVariant1Worktree {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountSigninParamsVariant1Worktree {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountSigninParamsVariant1Worktree {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -2458,11 +1994,6 @@ impl<'de> ::serde::Deserialize<'de> for AccountSigninParamsVariant1Worktree {
 pub struct AccountTestParams {
     pub name: AccountTestParamsName,
 }
-impl ::std::convert::From<&AccountTestParams> for AccountTestParams {
-    fn from(value: &AccountTestParams) -> Self {
-        value.clone()
-    }
-}
 ///`AccountTestParamsName`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2489,11 +2020,6 @@ impl ::std::convert::From<AccountTestParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AccountTestParamsName> for AccountTestParamsName {
-    fn from(value: &AccountTestParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AccountTestParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -2509,22 +2035,6 @@ impl ::std::str::FromStr for AccountTestParamsName {
 impl ::std::convert::TryFrom<&str> for AccountTestParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AccountTestParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccountTestParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -2609,11 +2119,6 @@ pub struct ActivityListParams {
     )]
     pub task_id: ::std::option::Option<ActivityListParamsTaskId>,
 }
-impl ::std::convert::From<&ActivityListParams> for ActivityListParams {
-    fn from(value: &ActivityListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for ActivityListParams {
     fn default() -> Self {
         Self {
@@ -2650,11 +2155,6 @@ impl ::std::convert::From<ActivityListParamsBefore> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&ActivityListParamsBefore> for ActivityListParamsBefore {
-    fn from(value: &ActivityListParamsBefore) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for ActivityListParamsBefore {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -2667,22 +2167,6 @@ impl ::std::str::FromStr for ActivityListParamsBefore {
 impl ::std::convert::TryFrom<&str> for ActivityListParamsBefore {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for ActivityListParamsBefore {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ActivityListParamsBefore {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -2809,22 +2293,6 @@ impl ::std::convert::TryFrom<&str> for ActivityListParamsKindsItem {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for ActivityListParamsKindsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ActivityListParamsKindsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`ActivityListParamsRepo`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2850,11 +2318,6 @@ impl ::std::convert::From<ActivityListParamsRepo> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&ActivityListParamsRepo> for ActivityListParamsRepo {
-    fn from(value: &ActivityListParamsRepo) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for ActivityListParamsRepo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -2867,22 +2330,6 @@ impl ::std::str::FromStr for ActivityListParamsRepo {
 impl ::std::convert::TryFrom<&str> for ActivityListParamsRepo {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for ActivityListParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ActivityListParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -2924,11 +2371,6 @@ impl ::std::convert::From<ActivityListParamsTaskId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&ActivityListParamsTaskId> for ActivityListParamsTaskId {
-    fn from(value: &ActivityListParamsTaskId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for ActivityListParamsTaskId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -2944,22 +2386,6 @@ impl ::std::str::FromStr for ActivityListParamsTaskId {
 impl ::std::convert::TryFrom<&str> for ActivityListParamsTaskId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for ActivityListParamsTaskId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ActivityListParamsTaskId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -3009,11 +2435,6 @@ pub struct AgentConnectParams {
     pub agent: AgentConnectParamsAgent,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub consent: ::std::option::Option<bool>,
-}
-impl ::std::convert::From<&AgentConnectParams> for AgentConnectParams {
-    fn from(value: &AgentConnectParams) -> Self {
-        value.clone()
-    }
 }
 ///`AgentConnectParamsAgent`
 ///
@@ -3086,22 +2507,6 @@ impl ::std::convert::TryFrom<&str> for AgentConnectParamsAgent {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AgentConnectParamsAgent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AgentConnectParamsAgent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AgentDetectParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -3125,11 +2530,6 @@ impl ::std::convert::TryFrom<::std::string::String> for AgentConnectParamsAgent 
 pub struct AgentDetectParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub host: ::std::option::Option<AgentDetectParamsHost>,
-}
-impl ::std::convert::From<&AgentDetectParams> for AgentDetectParams {
-    fn from(value: &AgentDetectParams) -> Self {
-        value.clone()
-    }
 }
 impl ::std::default::Default for AgentDetectParams {
     fn default() -> Self {
@@ -3164,11 +2564,6 @@ impl ::std::convert::From<AgentDetectParamsHost> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AgentDetectParamsHost> for AgentDetectParamsHost {
-    fn from(value: &AgentDetectParamsHost) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AgentDetectParamsHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -3184,22 +2579,6 @@ impl ::std::str::FromStr for AgentDetectParamsHost {
 impl ::std::convert::TryFrom<&str> for AgentDetectParamsHost {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AgentDetectParamsHost {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AgentDetectParamsHost {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -3244,11 +2623,6 @@ impl<'de> ::serde::Deserialize<'de> for AgentDetectParamsHost {
 #[serde(deny_unknown_fields)]
 pub struct AgentDisconnectParams {
     pub agent: AgentDisconnectParamsAgent,
-}
-impl ::std::convert::From<&AgentDisconnectParams> for AgentDisconnectParams {
-    fn from(value: &AgentDisconnectParams) -> Self {
-        value.clone()
-    }
 }
 ///`AgentDisconnectParamsAgent`
 ///
@@ -3321,22 +2695,6 @@ impl ::std::convert::TryFrom<&str> for AgentDisconnectParamsAgent {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AgentDisconnectParamsAgent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AgentDisconnectParamsAgent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AgentPreviewParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -3366,11 +2724,6 @@ impl ::std::convert::TryFrom<::std::string::String> for AgentDisconnectParamsAge
 #[serde(deny_unknown_fields)]
 pub struct AgentPreviewParams {
     pub agent: AgentPreviewParamsAgent,
-}
-impl ::std::convert::From<&AgentPreviewParams> for AgentPreviewParams {
-    fn from(value: &AgentPreviewParams) -> Self {
-        value.clone()
-    }
 }
 ///`AgentPreviewParamsAgent`
 ///
@@ -3443,22 +2796,6 @@ impl ::std::convert::TryFrom<&str> for AgentPreviewParamsAgent {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AgentPreviewParamsAgent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AgentPreviewParamsAgent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`ApiError`
 ///
 /// <details><summary>JSON schema</summary>
@@ -3495,11 +2832,6 @@ pub struct ApiError {
     pub hint: ::std::option::Option<::std::string::String>,
     pub message: ::std::string::String,
 }
-impl ::std::convert::From<&ApiError> for ApiError {
-    fn from(value: &ApiError) -> Self {
-        value.clone()
-    }
-}
 ///`AttentionDismissParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -3525,11 +2857,6 @@ impl ::std::convert::From<&ApiError> for ApiError {
 #[serde(deny_unknown_fields)]
 pub struct AttentionDismissParams {
     pub id: AttentionDismissParamsId,
-}
-impl ::std::convert::From<&AttentionDismissParams> for AttentionDismissParams {
-    fn from(value: &AttentionDismissParams) -> Self {
-        value.clone()
-    }
 }
 ///`AttentionDismissParamsId`
 ///
@@ -3557,11 +2884,6 @@ impl ::std::convert::From<AttentionDismissParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AttentionDismissParamsId> for AttentionDismissParamsId {
-    fn from(value: &AttentionDismissParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AttentionDismissParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -3577,22 +2899,6 @@ impl ::std::str::FromStr for AttentionDismissParamsId {
 impl ::std::convert::TryFrom<&str> for AttentionDismissParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AttentionDismissParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AttentionDismissParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -3644,11 +2950,6 @@ pub struct AttentionSnoozeParams {
     #[serde(rename = "for")]
     pub for_: AttentionSnoozeParamsFor,
     pub id: AttentionSnoozeParamsId,
-}
-impl ::std::convert::From<&AttentionSnoozeParams> for AttentionSnoozeParams {
-    fn from(value: &AttentionSnoozeParams) -> Self {
-        value.clone()
-    }
 }
 ///`AttentionSnoozeParamsFor`
 ///
@@ -3716,22 +3017,6 @@ impl ::std::convert::TryFrom<&str> for AttentionSnoozeParamsFor {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for AttentionSnoozeParamsFor {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AttentionSnoozeParamsFor {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`AttentionSnoozeParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -3758,11 +3043,6 @@ impl ::std::convert::From<AttentionSnoozeParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&AttentionSnoozeParamsId> for AttentionSnoozeParamsId {
-    fn from(value: &AttentionSnoozeParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for AttentionSnoozeParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -3778,22 +3058,6 @@ impl ::std::str::FromStr for AttentionSnoozeParamsId {
 impl ::std::convert::TryFrom<&str> for AttentionSnoozeParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for AttentionSnoozeParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AttentionSnoozeParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -3835,11 +3099,6 @@ impl<'de> ::serde::Deserialize<'de> for AttentionSnoozeParamsId {
 pub struct ClientHeartbeatParams {
     pub client_id: ClientHeartbeatParamsClientId,
 }
-impl ::std::convert::From<&ClientHeartbeatParams> for ClientHeartbeatParams {
-    fn from(value: &ClientHeartbeatParams) -> Self {
-        value.clone()
-    }
-}
 ///`ClientHeartbeatParamsClientId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -3866,11 +3125,6 @@ impl ::std::convert::From<ClientHeartbeatParamsClientId> for ::std::string::Stri
         value.0
     }
 }
-impl ::std::convert::From<&ClientHeartbeatParamsClientId> for ClientHeartbeatParamsClientId {
-    fn from(value: &ClientHeartbeatParamsClientId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for ClientHeartbeatParamsClientId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -3886,22 +3140,6 @@ impl ::std::str::FromStr for ClientHeartbeatParamsClientId {
 impl ::std::convert::TryFrom<&str> for ClientHeartbeatParamsClientId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for ClientHeartbeatParamsClientId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ClientHeartbeatParamsClientId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -3931,11 +3169,6 @@ impl<'de> ::serde::Deserialize<'de> for ClientHeartbeatParamsClientId {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ClientListParams {}
-impl ::std::convert::From<&ClientListParams> for ClientListParams {
-    fn from(value: &ClientListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for ClientListParams {
     fn default() -> Self {
         Self {}
@@ -3984,11 +3217,6 @@ pub struct ClientRegisterParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub notifier: ::std::option::Option<bool>,
     pub version: ClientRegisterParamsVersion,
-}
-impl ::std::convert::From<&ClientRegisterParams> for ClientRegisterParams {
-    fn from(value: &ClientRegisterParams) -> Self {
-        value.clone()
-    }
 }
 ///`ClientRegisterParamsKind`
 ///
@@ -4076,22 +3304,6 @@ impl ::std::convert::TryFrom<&str> for ClientRegisterParamsKind {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for ClientRegisterParamsKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ClientRegisterParamsKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`ClientRegisterParamsVersion`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4117,11 +3329,6 @@ impl ::std::convert::From<ClientRegisterParamsVersion> for ::std::string::String
         value.0
     }
 }
-impl ::std::convert::From<&ClientRegisterParamsVersion> for ClientRegisterParamsVersion {
-    fn from(value: &ClientRegisterParamsVersion) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for ClientRegisterParamsVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -4134,22 +3341,6 @@ impl ::std::str::FromStr for ClientRegisterParamsVersion {
 impl ::std::convert::TryFrom<&str> for ClientRegisterParamsVersion {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for ClientRegisterParamsVersion {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ClientRegisterParamsVersion {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -4179,11 +3370,6 @@ impl<'de> ::serde::Deserialize<'de> for ClientRegisterParamsVersion {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigGetParams {}
-impl ::std::convert::From<&ConfigGetParams> for ConfigGetParams {
-    fn from(value: &ConfigGetParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for ConfigGetParams {
     fn default() -> Self {
         Self {}
@@ -4255,11 +3441,6 @@ pub struct ConfigSetParams {
     pub key: ConfigSetParamsKey,
     pub value: ConfigSetParamsValue,
 }
-impl ::std::convert::From<&ConfigSetParams> for ConfigSetParams {
-    fn from(value: &ConfigSetParams) -> Self {
-        value.clone()
-    }
-}
 ///`ConfigSetParamsIntegrations`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4318,22 +3499,6 @@ impl ::std::str::FromStr for ConfigSetParamsIntegrations {
 impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for ConfigSetParamsIntegrations {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ConfigSetParamsIntegrations {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -4438,22 +3603,6 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsKey {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for ConfigSetParamsKey {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ConfigSetParamsKey {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`ConfigSetParamsValue`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4538,11 +3687,6 @@ pub struct DelegationPauseParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub reason: ::std::option::Option<::std::string::String>,
 }
-impl ::std::convert::From<&DelegationPauseParams> for DelegationPauseParams {
-    fn from(value: &DelegationPauseParams) -> Self {
-        value.clone()
-    }
-}
 ///`DelegationResumeParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4557,11 +3701,6 @@ impl ::std::convert::From<&DelegationPauseParams> for DelegationPauseParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct DelegationResumeParams {}
-impl ::std::convert::From<&DelegationResumeParams> for DelegationResumeParams {
-    fn from(value: &DelegationResumeParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for DelegationResumeParams {
     fn default() -> Self {
         Self {}
@@ -4599,11 +3738,6 @@ pub struct Hello {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub previous: ::std::option::Option<::std::string::String>,
     pub protocol: ::std::string::String,
-}
-impl ::std::convert::From<&Hello> for Hello {
-    fn from(value: &Hello) -> Self {
-        value.clone()
-    }
 }
 ///`HostAccountAddParams`
 ///
@@ -4644,11 +3778,6 @@ pub struct HostAccountAddParams {
     pub alias: HostAccountAddParamsAlias,
     pub home: HostAccountAddParamsHome,
 }
-impl ::std::convert::From<&HostAccountAddParams> for HostAccountAddParams {
-    fn from(value: &HostAccountAddParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostAccountAddParamsAccount`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4675,11 +3804,6 @@ impl ::std::convert::From<HostAccountAddParamsAccount> for ::std::string::String
         value.0
     }
 }
-impl ::std::convert::From<&HostAccountAddParamsAccount> for HostAccountAddParamsAccount {
-    fn from(value: &HostAccountAddParamsAccount) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostAccountAddParamsAccount {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -4695,22 +3819,6 @@ impl ::std::str::FromStr for HostAccountAddParamsAccount {
 impl ::std::convert::TryFrom<&str> for HostAccountAddParamsAccount {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostAccountAddParamsAccount {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostAccountAddParamsAccount {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -4752,11 +3860,6 @@ impl ::std::convert::From<HostAccountAddParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostAccountAddParamsAlias> for HostAccountAddParamsAlias {
-    fn from(value: &HostAccountAddParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostAccountAddParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -4772,22 +3875,6 @@ impl ::std::str::FromStr for HostAccountAddParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostAccountAddParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostAccountAddParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostAccountAddParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -4828,11 +3915,6 @@ impl ::std::convert::From<HostAccountAddParamsHome> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostAccountAddParamsHome> for HostAccountAddParamsHome {
-    fn from(value: &HostAccountAddParamsHome) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostAccountAddParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -4845,22 +3927,6 @@ impl ::std::str::FromStr for HostAccountAddParamsHome {
 impl ::std::convert::TryFrom<&str> for HostAccountAddParamsHome {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostAccountAddParamsHome {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostAccountAddParamsHome {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -4908,11 +3974,6 @@ pub struct HostAddParams {
     pub alias: HostAddParamsAlias,
     pub ssh: HostAddParamsSsh,
 }
-impl ::std::convert::From<&HostAddParams> for HostAddParams {
-    fn from(value: &HostAddParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostAddParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4939,11 +4000,6 @@ impl ::std::convert::From<HostAddParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostAddParamsAlias> for HostAddParamsAlias {
-    fn from(value: &HostAddParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostAddParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -4959,22 +4015,6 @@ impl ::std::str::FromStr for HostAddParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostAddParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostAddParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostAddParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5015,11 +4055,6 @@ impl ::std::convert::From<HostAddParamsSsh> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostAddParamsSsh> for HostAddParamsSsh {
-    fn from(value: &HostAddParamsSsh) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostAddParamsSsh {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5032,22 +4067,6 @@ impl ::std::str::FromStr for HostAddParamsSsh {
 impl ::std::convert::TryFrom<&str> for HostAddParamsSsh {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostAddParamsSsh {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostAddParamsSsh {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5095,11 +4114,6 @@ pub struct HostCheckParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub repo: ::std::option::Option<HostCheckParamsRepo>,
 }
-impl ::std::convert::From<&HostCheckParams> for HostCheckParams {
-    fn from(value: &HostCheckParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostCheckParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -5126,11 +4140,6 @@ impl ::std::convert::From<HostCheckParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostCheckParamsAlias> for HostCheckParamsAlias {
-    fn from(value: &HostCheckParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostCheckParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5146,22 +4155,6 @@ impl ::std::str::FromStr for HostCheckParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostCheckParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostCheckParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostCheckParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5202,11 +4195,6 @@ impl ::std::convert::From<HostCheckParamsRepo> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostCheckParamsRepo> for HostCheckParamsRepo {
-    fn from(value: &HostCheckParamsRepo) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostCheckParamsRepo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5219,22 +4207,6 @@ impl ::std::str::FromStr for HostCheckParamsRepo {
 impl ::std::convert::TryFrom<&str> for HostCheckParamsRepo {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostCheckParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostCheckParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5281,11 +4253,6 @@ pub struct HostCleanParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub dry_run: ::std::option::Option<bool>,
 }
-impl ::std::convert::From<&HostCleanParams> for HostCleanParams {
-    fn from(value: &HostCleanParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostCleanParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -5312,11 +4279,6 @@ impl ::std::convert::From<HostCleanParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostCleanParamsAlias> for HostCleanParamsAlias {
-    fn from(value: &HostCleanParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostCleanParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5332,22 +4294,6 @@ impl ::std::str::FromStr for HostCleanParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostCleanParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostCleanParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostCleanParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5389,11 +4335,6 @@ impl<'de> ::serde::Deserialize<'de> for HostCleanParamsAlias {
 pub struct HostGetParams {
     pub alias: HostGetParamsAlias,
 }
-impl ::std::convert::From<&HostGetParams> for HostGetParams {
-    fn from(value: &HostGetParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostGetParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -5420,11 +4361,6 @@ impl ::std::convert::From<HostGetParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostGetParamsAlias> for HostGetParamsAlias {
-    fn from(value: &HostGetParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostGetParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5440,22 +4376,6 @@ impl ::std::str::FromStr for HostGetParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostGetParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostGetParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostGetParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5485,11 +4405,6 @@ impl<'de> ::serde::Deserialize<'de> for HostGetParamsAlias {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct HostListParams {}
-impl ::std::convert::From<&HostListParams> for HostListParams {
-    fn from(value: &HostListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for HostListParams {
     fn default() -> Self {
         Self {}
@@ -5521,11 +4436,6 @@ impl ::std::default::Default for HostListParams {
 pub struct HostRemoveParams {
     pub alias: HostRemoveParamsAlias,
 }
-impl ::std::convert::From<&HostRemoveParams> for HostRemoveParams {
-    fn from(value: &HostRemoveParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostRemoveParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -5552,11 +4462,6 @@ impl ::std::convert::From<HostRemoveParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostRemoveParamsAlias> for HostRemoveParamsAlias {
-    fn from(value: &HostRemoveParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostRemoveParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5572,22 +4477,6 @@ impl ::std::str::FromStr for HostRemoveParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostRemoveParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostRemoveParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostRemoveParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5642,11 +4531,6 @@ pub struct HostRepoMapParams {
     pub key: HostRepoMapParamsKey,
     pub path: HostRepoMapParamsPath,
 }
-impl ::std::convert::From<&HostRepoMapParams> for HostRepoMapParams {
-    fn from(value: &HostRepoMapParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostRepoMapParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -5673,11 +4557,6 @@ impl ::std::convert::From<HostRepoMapParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostRepoMapParamsAlias> for HostRepoMapParamsAlias {
-    fn from(value: &HostRepoMapParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostRepoMapParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5693,22 +4572,6 @@ impl ::std::str::FromStr for HostRepoMapParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostRepoMapParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostRepoMapParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostRepoMapParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5750,11 +4613,6 @@ impl ::std::convert::From<HostRepoMapParamsKey> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostRepoMapParamsKey> for HostRepoMapParamsKey {
-    fn from(value: &HostRepoMapParamsKey) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostRepoMapParamsKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5770,22 +4628,6 @@ impl ::std::str::FromStr for HostRepoMapParamsKey {
 impl ::std::convert::TryFrom<&str> for HostRepoMapParamsKey {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostRepoMapParamsKey {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostRepoMapParamsKey {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5826,11 +4668,6 @@ impl ::std::convert::From<HostRepoMapParamsPath> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostRepoMapParamsPath> for HostRepoMapParamsPath {
-    fn from(value: &HostRepoMapParamsPath) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostRepoMapParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5843,22 +4680,6 @@ impl ::std::str::FromStr for HostRepoMapParamsPath {
 impl ::std::convert::TryFrom<&str> for HostRepoMapParamsPath {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostRepoMapParamsPath {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostRepoMapParamsPath {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -5923,11 +4744,6 @@ pub struct HostRepoSetupParams {
     pub identity: ::std::option::Option<bool>,
     pub key: HostRepoSetupParamsKey,
 }
-impl ::std::convert::From<&HostRepoSetupParams> for HostRepoSetupParams {
-    fn from(value: &HostRepoSetupParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostRepoSetupParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -5954,11 +4770,6 @@ impl ::std::convert::From<HostRepoSetupParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostRepoSetupParamsAlias> for HostRepoSetupParamsAlias {
-    fn from(value: &HostRepoSetupParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostRepoSetupParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -5974,22 +4785,6 @@ impl ::std::str::FromStr for HostRepoSetupParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostRepoSetupParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostRepoSetupParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostRepoSetupParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -6031,11 +4826,6 @@ impl ::std::convert::From<HostRepoSetupParamsKey> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostRepoSetupParamsKey> for HostRepoSetupParamsKey {
-    fn from(value: &HostRepoSetupParamsKey) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostRepoSetupParamsKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -6051,22 +4841,6 @@ impl ::std::str::FromStr for HostRepoSetupParamsKey {
 impl ::std::convert::TryFrom<&str> for HostRepoSetupParamsKey {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostRepoSetupParamsKey {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostRepoSetupParamsKey {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -6129,11 +4903,6 @@ pub struct HostSetParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub session: ::std::option::Option<HostSetParamsSession>,
 }
-impl ::std::convert::From<&HostSetParams> for HostSetParams {
-    fn from(value: &HostSetParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostSetParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -6160,11 +4929,6 @@ impl ::std::convert::From<HostSetParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostSetParamsAlias> for HostSetParamsAlias {
-    fn from(value: &HostSetParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostSetParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -6180,22 +4944,6 @@ impl ::std::str::FromStr for HostSetParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostSetParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostSetParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostSetParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -6272,22 +5020,6 @@ impl ::std::convert::TryFrom<&str> for HostSetParamsSession {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for HostSetParamsSession {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostSetParamsSession {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`HostSuggestParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -6302,11 +5034,6 @@ impl ::std::convert::TryFrom<::std::string::String> for HostSetParamsSession {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct HostSuggestParams {}
-impl ::std::convert::From<&HostSuggestParams> for HostSuggestParams {
-    fn from(value: &HostSuggestParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for HostSuggestParams {
     fn default() -> Self {
         Self {}
@@ -6338,11 +5065,6 @@ impl ::std::default::Default for HostSuggestParams {
 pub struct HostTerminalParams {
     pub alias: HostTerminalParamsAlias,
 }
-impl ::std::convert::From<&HostTerminalParams> for HostTerminalParams {
-    fn from(value: &HostTerminalParams) -> Self {
-        value.clone()
-    }
-}
 ///`HostTerminalParamsAlias`
 ///
 /// <details><summary>JSON schema</summary>
@@ -6369,11 +5091,6 @@ impl ::std::convert::From<HostTerminalParamsAlias> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&HostTerminalParamsAlias> for HostTerminalParamsAlias {
-    fn from(value: &HostTerminalParamsAlias) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for HostTerminalParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -6389,22 +5106,6 @@ impl ::std::str::FromStr for HostTerminalParamsAlias {
 impl ::std::convert::TryFrom<&str> for HostTerminalParamsAlias {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for HostTerminalParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for HostTerminalParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -6446,11 +5147,6 @@ impl<'de> ::serde::Deserialize<'de> for HostTerminalParamsAlias {
 pub struct JobCancelParams {
     pub id: JobCancelParamsId,
 }
-impl ::std::convert::From<&JobCancelParams> for JobCancelParams {
-    fn from(value: &JobCancelParams) -> Self {
-        value.clone()
-    }
-}
 ///`JobCancelParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -6477,11 +5173,6 @@ impl ::std::convert::From<JobCancelParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&JobCancelParamsId> for JobCancelParamsId {
-    fn from(value: &JobCancelParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for JobCancelParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -6497,22 +5188,6 @@ impl ::std::str::FromStr for JobCancelParamsId {
 impl ::std::convert::TryFrom<&str> for JobCancelParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for JobCancelParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for JobCancelParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -6554,11 +5229,6 @@ impl<'de> ::serde::Deserialize<'de> for JobCancelParamsId {
 pub struct JobGetParams {
     pub id: JobGetParamsId,
 }
-impl ::std::convert::From<&JobGetParams> for JobGetParams {
-    fn from(value: &JobGetParams) -> Self {
-        value.clone()
-    }
-}
 ///`JobGetParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -6585,11 +5255,6 @@ impl ::std::convert::From<JobGetParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&JobGetParamsId> for JobGetParamsId {
-    fn from(value: &JobGetParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for JobGetParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -6605,22 +5270,6 @@ impl ::std::str::FromStr for JobGetParamsId {
 impl ::std::convert::TryFrom<&str> for JobGetParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for JobGetParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for JobGetParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -6660,11 +5309,6 @@ pub struct JobListParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub target: ::std::option::Option<JobListParamsTarget>,
 }
-impl ::std::convert::From<&JobListParams> for JobListParams {
-    fn from(value: &JobListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for JobListParams {
     fn default() -> Self {
         Self {
@@ -6698,11 +5342,6 @@ impl ::std::convert::From<JobListParamsTarget> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&JobListParamsTarget> for JobListParamsTarget {
-    fn from(value: &JobListParamsTarget) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for JobListParamsTarget {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -6718,22 +5357,6 @@ impl ::std::str::FromStr for JobListParamsTarget {
 impl ::std::convert::TryFrom<&str> for JobListParamsTarget {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for JobListParamsTarget {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for JobListParamsTarget {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -6763,11 +5386,6 @@ impl<'de> ::serde::Deserialize<'de> for JobListParamsTarget {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct LimitsCheckParams {}
-impl ::std::convert::From<&LimitsCheckParams> for LimitsCheckParams {
-    fn from(value: &LimitsCheckParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for LimitsCheckParams {
     fn default() -> Self {
         Self {}
@@ -6804,11 +5422,6 @@ pub struct LimitsReportParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub until: ::std::option::Option<f64>,
 }
-impl ::std::convert::From<&LimitsReportParams> for LimitsReportParams {
-    fn from(value: &LimitsReportParams) -> Self {
-        value.clone()
-    }
-}
 ///`LimitsReportParamsProvider`
 ///
 /// <details><summary>JSON schema</summary>
@@ -6835,11 +5448,6 @@ impl ::std::convert::From<LimitsReportParamsProvider> for ::std::string::String 
         value.0
     }
 }
-impl ::std::convert::From<&LimitsReportParamsProvider> for LimitsReportParamsProvider {
-    fn from(value: &LimitsReportParamsProvider) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for LimitsReportParamsProvider {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -6855,22 +5463,6 @@ impl ::std::str::FromStr for LimitsReportParamsProvider {
 impl ::std::convert::TryFrom<&str> for LimitsReportParamsProvider {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for LimitsReportParamsProvider {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for LimitsReportParamsProvider {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -6920,11 +5512,6 @@ pub struct ModeHoldParams {
     pub mode: ModeHoldParamsMode,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub until: ::std::option::Option<f64>,
-}
-impl ::std::convert::From<&ModeHoldParams> for ModeHoldParams {
-    fn from(value: &ModeHoldParams) -> Self {
-        value.clone()
-    }
 }
 ///`ModeHoldParamsMode`
 ///
@@ -6997,22 +5584,6 @@ impl ::std::convert::TryFrom<&str> for ModeHoldParamsMode {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for ModeHoldParamsMode {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ModeHoldParamsMode {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`ModeReleaseParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7027,11 +5598,6 @@ impl ::std::convert::TryFrom<::std::string::String> for ModeHoldParamsMode {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ModeReleaseParams {}
-impl ::std::convert::From<&ModeReleaseParams> for ModeReleaseParams {
-    fn from(value: &ModeReleaseParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for ModeReleaseParams {
     fn default() -> Self {
         Self {}
@@ -7051,11 +5617,6 @@ impl ::std::default::Default for ModeReleaseParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct NotificationsGetParams {}
-impl ::std::convert::From<&NotificationsGetParams> for NotificationsGetParams {
-    fn from(value: &NotificationsGetParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for NotificationsGetParams {
     fn default() -> Self {
         Self {}
@@ -7089,11 +5650,6 @@ impl ::std::default::Default for NotificationsGetParams {
 #[serde(deny_unknown_fields)]
 pub struct NotificationsSetParams {
     pub level: NotificationsSetParamsLevel,
-}
-impl ::std::convert::From<&NotificationsSetParams> for NotificationsSetParams {
-    fn from(value: &NotificationsSetParams) -> Self {
-        value.clone()
-    }
 }
 ///`NotificationsSetParamsLevel`
 ///
@@ -7161,22 +5717,6 @@ impl ::std::convert::TryFrom<&str> for NotificationsSetParamsLevel {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for NotificationsSetParamsLevel {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for NotificationsSetParamsLevel {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`OnboardingSkipParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7191,11 +5731,6 @@ impl ::std::convert::TryFrom<::std::string::String> for NotificationsSetParamsLe
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct OnboardingSkipParams {}
-impl ::std::convert::From<&OnboardingSkipParams> for OnboardingSkipParams {
-    fn from(value: &OnboardingSkipParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for OnboardingSkipParams {
     fn default() -> Self {
         Self {}
@@ -7215,11 +5750,6 @@ impl ::std::default::Default for OnboardingSkipParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct OnboardingTryParams {}
-impl ::std::convert::From<&OnboardingTryParams> for OnboardingTryParams {
-    fn from(value: &OnboardingTryParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for OnboardingTryParams {
     fn default() -> Self {
         Self {}
@@ -7248,11 +5778,6 @@ impl ::std::ops::Deref for PacerClientProtocol {
 impl ::std::convert::From<PacerClientProtocol> for ::serde_json::Value {
     fn from(value: PacerClientProtocol) -> Self {
         value.0
-    }
-}
-impl ::std::convert::From<&PacerClientProtocol> for PacerClientProtocol {
-    fn from(value: &PacerClientProtocol) -> Self {
-        value.clone()
     }
 }
 impl ::std::convert::From<::serde_json::Value> for PacerClientProtocol {
@@ -7285,11 +5810,6 @@ impl ::std::convert::From<::serde_json::Value> for PacerClientProtocol {
 pub struct PluginDisableParams {
     pub id: PluginDisableParamsId,
 }
-impl ::std::convert::From<&PluginDisableParams> for PluginDisableParams {
-    fn from(value: &PluginDisableParams) -> Self {
-        value.clone()
-    }
-}
 ///`PluginDisableParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7315,11 +5835,6 @@ impl ::std::convert::From<PluginDisableParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&PluginDisableParamsId> for PluginDisableParamsId {
-    fn from(value: &PluginDisableParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for PluginDisableParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -7336,22 +5851,6 @@ impl ::std::str::FromStr for PluginDisableParamsId {
 impl ::std::convert::TryFrom<&str> for PluginDisableParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for PluginDisableParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for PluginDisableParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -7390,11 +5889,6 @@ pub struct PluginDoctorParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub id: ::std::option::Option<PluginDoctorParamsId>,
 }
-impl ::std::convert::From<&PluginDoctorParams> for PluginDoctorParams {
-    fn from(value: &PluginDoctorParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for PluginDoctorParams {
     fn default() -> Self {
         Self {
@@ -7427,11 +5921,6 @@ impl ::std::convert::From<PluginDoctorParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&PluginDoctorParamsId> for PluginDoctorParamsId {
-    fn from(value: &PluginDoctorParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for PluginDoctorParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -7448,22 +5937,6 @@ impl ::std::str::FromStr for PluginDoctorParamsId {
 impl ::std::convert::TryFrom<&str> for PluginDoctorParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for PluginDoctorParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for PluginDoctorParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -7509,11 +5982,6 @@ pub struct PluginEnableParams {
     pub grant: ::std::option::Option<bool>,
     pub id: PluginEnableParamsId,
 }
-impl ::std::convert::From<&PluginEnableParams> for PluginEnableParams {
-    fn from(value: &PluginEnableParams) -> Self {
-        value.clone()
-    }
-}
 ///`PluginEnableParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7539,11 +6007,6 @@ impl ::std::convert::From<PluginEnableParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&PluginEnableParamsId> for PluginEnableParamsId {
-    fn from(value: &PluginEnableParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for PluginEnableParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -7560,22 +6023,6 @@ impl ::std::str::FromStr for PluginEnableParamsId {
 impl ::std::convert::TryFrom<&str> for PluginEnableParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for PluginEnableParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for PluginEnableParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -7605,11 +6052,6 @@ impl<'de> ::serde::Deserialize<'de> for PluginEnableParamsId {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct PluginInstallParams {}
-impl ::std::convert::From<&PluginInstallParams> for PluginInstallParams {
-    fn from(value: &PluginInstallParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for PluginInstallParams {
     fn default() -> Self {
         Self {}
@@ -7629,11 +6071,6 @@ impl ::std::default::Default for PluginInstallParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct PluginListParams {}
-impl ::std::convert::From<&PluginListParams> for PluginListParams {
-    fn from(value: &PluginListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for PluginListParams {
     fn default() -> Self {
         Self {}
@@ -7664,11 +6101,6 @@ impl ::std::default::Default for PluginListParams {
 pub struct PluginRemoveParams {
     pub id: PluginRemoveParamsId,
 }
-impl ::std::convert::From<&PluginRemoveParams> for PluginRemoveParams {
-    fn from(value: &PluginRemoveParams) -> Self {
-        value.clone()
-    }
-}
 ///`PluginRemoveParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7694,11 +6126,6 @@ impl ::std::convert::From<PluginRemoveParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&PluginRemoveParamsId> for PluginRemoveParamsId {
-    fn from(value: &PluginRemoveParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for PluginRemoveParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -7715,22 +6142,6 @@ impl ::std::str::FromStr for PluginRemoveParamsId {
 impl ::std::convert::TryFrom<&str> for PluginRemoveParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for PluginRemoveParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for PluginRemoveParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -7772,11 +6183,6 @@ impl<'de> ::serde::Deserialize<'de> for PluginRemoveParamsId {
 pub struct RepoAddParams {
     pub path: RepoAddParamsPath,
 }
-impl ::std::convert::From<&RepoAddParams> for RepoAddParams {
-    fn from(value: &RepoAddParams) -> Self {
-        value.clone()
-    }
-}
 ///`RepoAddParamsPath`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7803,11 +6209,6 @@ impl ::std::convert::From<RepoAddParamsPath> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RepoAddParamsPath> for RepoAddParamsPath {
-    fn from(value: &RepoAddParamsPath) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RepoAddParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -7823,22 +6224,6 @@ impl ::std::str::FromStr for RepoAddParamsPath {
 impl ::std::convert::TryFrom<&str> for RepoAddParamsPath {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RepoAddParamsPath {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RepoAddParamsPath {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -7868,11 +6253,6 @@ impl<'de> ::serde::Deserialize<'de> for RepoAddParamsPath {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct RepoListParams {}
-impl ::std::convert::From<&RepoListParams> for RepoListParams {
-    fn from(value: &RepoListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for RepoListParams {
     fn default() -> Self {
         Self {}
@@ -7903,11 +6283,6 @@ impl ::std::default::Default for RepoListParams {
 pub struct RepoRemoveParams {
     pub key: RepoRemoveParamsKey,
 }
-impl ::std::convert::From<&RepoRemoveParams> for RepoRemoveParams {
-    fn from(value: &RepoRemoveParams) -> Self {
-        value.clone()
-    }
-}
 ///`RepoRemoveParamsKey`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7933,11 +6308,6 @@ impl ::std::convert::From<RepoRemoveParamsKey> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RepoRemoveParamsKey> for RepoRemoveParamsKey {
-    fn from(value: &RepoRemoveParamsKey) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RepoRemoveParamsKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -7950,22 +6320,6 @@ impl ::std::str::FromStr for RepoRemoveParamsKey {
 impl ::std::convert::TryFrom<&str> for RepoRemoveParamsKey {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RepoRemoveParamsKey {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RepoRemoveParamsKey {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -7995,11 +6349,6 @@ impl<'de> ::serde::Deserialize<'de> for RepoRemoveParamsKey {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct RoutingGetParams {}
-impl ::std::convert::From<&RoutingGetParams> for RoutingGetParams {
-    fn from(value: &RoutingGetParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for RoutingGetParams {
     fn default() -> Self {
         Self {}
@@ -8052,11 +6401,6 @@ pub struct RoutingRouteParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub repo: ::std::option::Option<RoutingRouteParamsRepo>,
 }
-impl ::std::convert::From<&RoutingRouteParams> for RoutingRouteParams {
-    fn from(value: &RoutingRouteParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for RoutingRouteParams {
     fn default() -> Self {
         Self {
@@ -8091,11 +6435,6 @@ impl ::std::convert::From<RoutingRouteParamsGoal> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RoutingRouteParamsGoal> for RoutingRouteParamsGoal {
-    fn from(value: &RoutingRouteParamsGoal) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RoutingRouteParamsGoal {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -8108,22 +6447,6 @@ impl ::std::str::FromStr for RoutingRouteParamsGoal {
 impl ::std::convert::TryFrom<&str> for RoutingRouteParamsGoal {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RoutingRouteParamsGoal {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RoutingRouteParamsGoal {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -8245,22 +6568,6 @@ impl ::std::convert::TryFrom<&str> for RoutingRouteParamsKind {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for RoutingRouteParamsKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RoutingRouteParamsKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`RoutingRouteParamsRepo`
 ///
 /// <details><summary>JSON schema</summary>
@@ -8286,11 +6593,6 @@ impl ::std::convert::From<RoutingRouteParamsRepo> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RoutingRouteParamsRepo> for RoutingRouteParamsRepo {
-    fn from(value: &RoutingRouteParamsRepo) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RoutingRouteParamsRepo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -8303,22 +6605,6 @@ impl ::std::str::FromStr for RoutingRouteParamsRepo {
 impl ::std::convert::TryFrom<&str> for RoutingRouteParamsRepo {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RoutingRouteParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RoutingRouteParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -8381,11 +6667,6 @@ impl<'de> ::serde::Deserialize<'de> for RoutingRouteParamsRepo {
 pub struct RoutingSetParams {
     pub rules: ::std::vec::Vec<RoutingSetParamsRulesItem>,
 }
-impl ::std::convert::From<&RoutingSetParams> for RoutingSetParams {
-    fn from(value: &RoutingSetParams) -> Self {
-        value.clone()
-    }
-}
 ///`RoutingSetParamsRulesItem`
 ///
 /// <details><summary>JSON schema</summary>
@@ -8423,11 +6704,6 @@ pub struct RoutingSetParamsRulesItem {
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub kinds: ::std::vec::Vec<::std::string::String>,
 }
-impl ::std::convert::From<&RoutingSetParamsRulesItem> for RoutingSetParamsRulesItem {
-    fn from(value: &RoutingSetParamsRulesItem) -> Self {
-        value.clone()
-    }
-}
 ///`RoutingSetParamsRulesItemExecutorsItem`
 ///
 /// <details><summary>JSON schema</summary>
@@ -8454,13 +6730,6 @@ impl ::std::convert::From<RoutingSetParamsRulesItemExecutorsItem> for ::std::str
         value.0
     }
 }
-impl ::std::convert::From<&RoutingSetParamsRulesItemExecutorsItem>
-    for RoutingSetParamsRulesItemExecutorsItem
-{
-    fn from(value: &RoutingSetParamsRulesItemExecutorsItem) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RoutingSetParamsRulesItemExecutorsItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -8476,22 +6745,6 @@ impl ::std::str::FromStr for RoutingSetParamsRulesItemExecutorsItem {
 impl ::std::convert::TryFrom<&str> for RoutingSetParamsRulesItemExecutorsItem {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RoutingSetParamsRulesItemExecutorsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RoutingSetParamsRulesItemExecutorsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -8521,11 +6774,6 @@ impl<'de> ::serde::Deserialize<'de> for RoutingSetParamsRulesItemExecutorsItem {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct RoutingStatusParams {}
-impl ::std::convert::From<&RoutingStatusParams> for RoutingStatusParams {
-    fn from(value: &RoutingStatusParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for RoutingStatusParams {
     fn default() -> Self {
         Self {}
@@ -8683,11 +6931,6 @@ impl ::std::convert::From<RunnerAddParamsVariant0Worktree> for ::std::string::St
         value.0
     }
 }
-impl ::std::convert::From<&RunnerAddParamsVariant0Worktree> for RunnerAddParamsVariant0Worktree {
-    fn from(value: &RunnerAddParamsVariant0Worktree) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerAddParamsVariant0Worktree {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -8703,22 +6946,6 @@ impl ::std::str::FromStr for RunnerAddParamsVariant0Worktree {
 impl ::std::convert::TryFrom<&str> for RunnerAddParamsVariant0Worktree {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerAddParamsVariant0Worktree {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerAddParamsVariant0Worktree {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -8760,11 +6987,6 @@ impl ::std::convert::From<RunnerAddParamsVariant1Account> for ::std::string::Str
         value.0
     }
 }
-impl ::std::convert::From<&RunnerAddParamsVariant1Account> for RunnerAddParamsVariant1Account {
-    fn from(value: &RunnerAddParamsVariant1Account) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerAddParamsVariant1Account {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -8780,22 +7002,6 @@ impl ::std::str::FromStr for RunnerAddParamsVariant1Account {
 impl ::std::convert::TryFrom<&str> for RunnerAddParamsVariant1Account {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerAddParamsVariant1Account {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerAddParamsVariant1Account {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -8887,22 +7093,6 @@ impl ::std::convert::TryFrom<&str> for RunnerAddParamsVariant1Agent {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerAddParamsVariant1Agent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerAddParamsVariant1Agent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`RunnerAddParamsVariant1Host`
 ///
 /// <details><summary>JSON schema</summary>
@@ -8929,11 +7119,6 @@ impl ::std::convert::From<RunnerAddParamsVariant1Host> for ::std::string::String
         value.0
     }
 }
-impl ::std::convert::From<&RunnerAddParamsVariant1Host> for RunnerAddParamsVariant1Host {
-    fn from(value: &RunnerAddParamsVariant1Host) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerAddParamsVariant1Host {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -8949,22 +7134,6 @@ impl ::std::str::FromStr for RunnerAddParamsVariant1Host {
 impl ::std::convert::TryFrom<&str> for RunnerAddParamsVariant1Host {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerAddParamsVariant1Host {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerAddParamsVariant1Host {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9086,22 +7255,6 @@ impl ::std::convert::TryFrom<&str> for RunnerAddParamsVariant1KindsItem {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerAddParamsVariant1KindsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerAddParamsVariant1KindsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`RunnerAddParamsVariant1Model`
 ///
 /// <details><summary>JSON schema</summary>
@@ -9127,11 +7280,6 @@ impl ::std::convert::From<RunnerAddParamsVariant1Model> for ::std::string::Strin
         value.0
     }
 }
-impl ::std::convert::From<&RunnerAddParamsVariant1Model> for RunnerAddParamsVariant1Model {
-    fn from(value: &RunnerAddParamsVariant1Model) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerAddParamsVariant1Model {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -9144,22 +7292,6 @@ impl ::std::str::FromStr for RunnerAddParamsVariant1Model {
 impl ::std::convert::TryFrom<&str> for RunnerAddParamsVariant1Model {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerAddParamsVariant1Model {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerAddParamsVariant1Model {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9215,11 +7347,6 @@ pub struct RunnerBlockParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub reason: ::std::option::Option<::std::string::String>,
 }
-impl ::std::convert::From<&RunnerBlockParams> for RunnerBlockParams {
-    fn from(value: &RunnerBlockParams) -> Self {
-        value.clone()
-    }
-}
 ///`RunnerBlockParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -9246,11 +7373,6 @@ impl ::std::convert::From<RunnerBlockParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RunnerBlockParamsId> for RunnerBlockParamsId {
-    fn from(value: &RunnerBlockParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerBlockParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -9266,22 +7388,6 @@ impl ::std::str::FromStr for RunnerBlockParamsId {
 impl ::std::convert::TryFrom<&str> for RunnerBlockParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerBlockParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerBlockParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9323,11 +7429,6 @@ impl<'de> ::serde::Deserialize<'de> for RunnerBlockParamsId {
 pub struct RunnerCheckParams {
     pub id: RunnerCheckParamsId,
 }
-impl ::std::convert::From<&RunnerCheckParams> for RunnerCheckParams {
-    fn from(value: &RunnerCheckParams) -> Self {
-        value.clone()
-    }
-}
 ///`RunnerCheckParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -9354,11 +7455,6 @@ impl ::std::convert::From<RunnerCheckParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RunnerCheckParamsId> for RunnerCheckParamsId {
-    fn from(value: &RunnerCheckParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerCheckParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -9374,22 +7470,6 @@ impl ::std::str::FromStr for RunnerCheckParamsId {
 impl ::std::convert::TryFrom<&str> for RunnerCheckParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerCheckParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerCheckParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9419,11 +7499,6 @@ impl<'de> ::serde::Deserialize<'de> for RunnerCheckParamsId {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct RunnerListParams {}
-impl ::std::convert::From<&RunnerListParams> for RunnerListParams {
-    fn from(value: &RunnerListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for RunnerListParams {
     fn default() -> Self {
         Self {}
@@ -9455,11 +7530,6 @@ impl ::std::default::Default for RunnerListParams {
 pub struct RunnerRemoveParams {
     pub id: RunnerRemoveParamsId,
 }
-impl ::std::convert::From<&RunnerRemoveParams> for RunnerRemoveParams {
-    fn from(value: &RunnerRemoveParams) -> Self {
-        value.clone()
-    }
-}
 ///`RunnerRemoveParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -9486,11 +7556,6 @@ impl ::std::convert::From<RunnerRemoveParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RunnerRemoveParamsId> for RunnerRemoveParamsId {
-    fn from(value: &RunnerRemoveParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerRemoveParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -9506,22 +7571,6 @@ impl ::std::str::FromStr for RunnerRemoveParamsId {
 impl ::std::convert::TryFrom<&str> for RunnerRemoveParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerRemoveParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerRemoveParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9566,11 +7615,6 @@ impl<'de> ::serde::Deserialize<'de> for RunnerRemoveParamsId {
 pub struct RunnerReorderParams {
     pub ids: ::std::vec::Vec<RunnerReorderParamsIdsItem>,
 }
-impl ::std::convert::From<&RunnerReorderParams> for RunnerReorderParams {
-    fn from(value: &RunnerReorderParams) -> Self {
-        value.clone()
-    }
-}
 ///`RunnerReorderParamsIdsItem`
 ///
 /// <details><summary>JSON schema</summary>
@@ -9597,11 +7641,6 @@ impl ::std::convert::From<RunnerReorderParamsIdsItem> for ::std::string::String 
         value.0
     }
 }
-impl ::std::convert::From<&RunnerReorderParamsIdsItem> for RunnerReorderParamsIdsItem {
-    fn from(value: &RunnerReorderParamsIdsItem) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerReorderParamsIdsItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -9617,22 +7656,6 @@ impl ::std::str::FromStr for RunnerReorderParamsIdsItem {
 impl ::std::convert::TryFrom<&str> for RunnerReorderParamsIdsItem {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerReorderParamsIdsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerReorderParamsIdsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9706,11 +7729,6 @@ pub struct RunnerSetParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub rank: ::std::option::Option<i64>,
 }
-impl ::std::convert::From<&RunnerSetParams> for RunnerSetParams {
-    fn from(value: &RunnerSetParams) -> Self {
-        value.clone()
-    }
-}
 ///`RunnerSetParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -9737,11 +7755,6 @@ impl ::std::convert::From<RunnerSetParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RunnerSetParamsId> for RunnerSetParamsId {
-    fn from(value: &RunnerSetParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerSetParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -9757,22 +7770,6 @@ impl ::std::str::FromStr for RunnerSetParamsId {
 impl ::std::convert::TryFrom<&str> for RunnerSetParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerSetParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerSetParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9813,11 +7810,6 @@ impl ::std::convert::From<RunnerSetParamsModel> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RunnerSetParamsModel> for RunnerSetParamsModel {
-    fn from(value: &RunnerSetParamsModel) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerSetParamsModel {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -9830,22 +7822,6 @@ impl ::std::str::FromStr for RunnerSetParamsModel {
 impl ::std::convert::TryFrom<&str> for RunnerSetParamsModel {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerSetParamsModel {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerSetParamsModel {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9887,11 +7863,6 @@ impl<'de> ::serde::Deserialize<'de> for RunnerSetParamsModel {
 pub struct RunnerUnblockParams {
     pub id: RunnerUnblockParamsId,
 }
-impl ::std::convert::From<&RunnerUnblockParams> for RunnerUnblockParams {
-    fn from(value: &RunnerUnblockParams) -> Self {
-        value.clone()
-    }
-}
 ///`RunnerUnblockParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -9918,11 +7889,6 @@ impl ::std::convert::From<RunnerUnblockParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&RunnerUnblockParamsId> for RunnerUnblockParamsId {
-    fn from(value: &RunnerUnblockParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for RunnerUnblockParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -9938,22 +7904,6 @@ impl ::std::str::FromStr for RunnerUnblockParamsId {
 impl ::std::convert::TryFrom<&str> for RunnerUnblockParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for RunnerUnblockParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for RunnerUnblockParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -9994,11 +7944,6 @@ impl<'de> ::serde::Deserialize<'de> for RunnerUnblockParamsId {
 pub struct ServiceInstallParams {
     pub consent: bool,
 }
-impl ::std::convert::From<&ServiceInstallParams> for ServiceInstallParams {
-    fn from(value: &ServiceInstallParams) -> Self {
-        value.clone()
-    }
-}
 ///`ServiceStatusParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -10013,11 +7958,6 @@ impl ::std::convert::From<&ServiceInstallParams> for ServiceInstallParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceStatusParams {}
-impl ::std::convert::From<&ServiceStatusParams> for ServiceStatusParams {
-    fn from(value: &ServiceStatusParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for ServiceStatusParams {
     fn default() -> Self {
         Self {}
@@ -10037,11 +7977,6 @@ impl ::std::default::Default for ServiceStatusParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct SetupCheckParams {}
-impl ::std::convert::From<&SetupCheckParams> for SetupCheckParams {
-    fn from(value: &SetupCheckParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for SetupCheckParams {
     fn default() -> Self {
         Self {}
@@ -10073,11 +8008,6 @@ impl ::std::default::Default for SetupCheckParams {
 pub struct SetupInitParams {
     pub planner: SetupInitParamsPlanner,
 }
-impl ::std::convert::From<&SetupInitParams> for SetupInitParams {
-    fn from(value: &SetupInitParams) -> Self {
-        value.clone()
-    }
-}
 ///`SetupInitParamsPlanner`
 ///
 /// <details><summary>JSON schema</summary>
@@ -10104,11 +8034,6 @@ impl ::std::convert::From<SetupInitParamsPlanner> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&SetupInitParamsPlanner> for SetupInitParamsPlanner {
-    fn from(value: &SetupInitParamsPlanner) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for SetupInitParamsPlanner {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -10124,22 +8049,6 @@ impl ::std::str::FromStr for SetupInitParamsPlanner {
 impl ::std::convert::TryFrom<&str> for SetupInitParamsPlanner {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for SetupInitParamsPlanner {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for SetupInitParamsPlanner {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -10202,11 +8111,6 @@ pub struct StrategyBuildParams {
     pub from: ::std::option::Option<StrategyBuildParamsFrom>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub worktree: ::std::option::Option<StrategyBuildParamsWorktree>,
-}
-impl ::std::convert::From<&StrategyBuildParams> for StrategyBuildParams {
-    fn from(value: &StrategyBuildParams) -> Self {
-        value.clone()
-    }
 }
 impl ::std::default::Default for StrategyBuildParams {
     fn default() -> Self {
@@ -10289,22 +8193,6 @@ impl ::std::convert::TryFrom<&str> for StrategyBuildParamsAgent {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for StrategyBuildParamsAgent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategyBuildParamsAgent {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`StrategyBuildParamsBrief`
 ///
 /// <details><summary>JSON schema</summary>
@@ -10330,11 +8218,6 @@ impl ::std::convert::From<StrategyBuildParamsBrief> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&StrategyBuildParamsBrief> for StrategyBuildParamsBrief {
-    fn from(value: &StrategyBuildParamsBrief) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategyBuildParamsBrief {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -10347,22 +8230,6 @@ impl ::std::str::FromStr for StrategyBuildParamsBrief {
 impl ::std::convert::TryFrom<&str> for StrategyBuildParamsBrief {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategyBuildParamsBrief {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategyBuildParamsBrief {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -10404,11 +8271,6 @@ impl ::std::convert::From<StrategyBuildParamsFrom> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&StrategyBuildParamsFrom> for StrategyBuildParamsFrom {
-    fn from(value: &StrategyBuildParamsFrom) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategyBuildParamsFrom {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -10424,22 +8286,6 @@ impl ::std::str::FromStr for StrategyBuildParamsFrom {
 impl ::std::convert::TryFrom<&str> for StrategyBuildParamsFrom {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategyBuildParamsFrom {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategyBuildParamsFrom {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -10481,11 +8327,6 @@ impl ::std::convert::From<StrategyBuildParamsWorktree> for ::std::string::String
         value.0
     }
 }
-impl ::std::convert::From<&StrategyBuildParamsWorktree> for StrategyBuildParamsWorktree {
-    fn from(value: &StrategyBuildParamsWorktree) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategyBuildParamsWorktree {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -10501,22 +8342,6 @@ impl ::std::str::FromStr for StrategyBuildParamsWorktree {
 impl ::std::convert::TryFrom<&str> for StrategyBuildParamsWorktree {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategyBuildParamsWorktree {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategyBuildParamsWorktree {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -10546,11 +8371,6 @@ impl<'de> ::serde::Deserialize<'de> for StrategyBuildParamsWorktree {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct StrategyListParams {}
-impl ::std::convert::From<&StrategyListParams> for StrategyListParams {
-    fn from(value: &StrategyListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for StrategyListParams {
     fn default() -> Self {
         Self {}
@@ -10609,11 +8429,6 @@ impl ::std::default::Default for StrategyListParams {
 pub struct StrategyPreviewParams {
     pub draft: StrategyPreviewParamsDraft,
 }
-impl ::std::convert::From<&StrategyPreviewParams> for StrategyPreviewParams {
-    fn from(value: &StrategyPreviewParams) -> Self {
-        value.clone()
-    }
-}
 ///`StrategyPreviewParamsDraft`
 ///
 /// <details><summary>JSON schema</summary>
@@ -10667,11 +8482,6 @@ pub struct StrategyPreviewParamsDraft {
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub unset: ::std::vec::Vec<::std::string::String>,
 }
-impl ::std::convert::From<&StrategyPreviewParamsDraft> for StrategyPreviewParamsDraft {
-    fn from(value: &StrategyPreviewParamsDraft) -> Self {
-        value.clone()
-    }
-}
 ///`StrategyPreviewParamsDraftFrom`
 ///
 /// <details><summary>JSON schema</summary>
@@ -10698,11 +8508,6 @@ impl ::std::convert::From<StrategyPreviewParamsDraftFrom> for ::std::string::Str
         value.0
     }
 }
-impl ::std::convert::From<&StrategyPreviewParamsDraftFrom> for StrategyPreviewParamsDraftFrom {
-    fn from(value: &StrategyPreviewParamsDraftFrom) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategyPreviewParamsDraftFrom {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -10718,22 +8523,6 @@ impl ::std::str::FromStr for StrategyPreviewParamsDraftFrom {
 impl ::std::convert::TryFrom<&str> for StrategyPreviewParamsDraftFrom {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategyPreviewParamsDraftFrom {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategyPreviewParamsDraftFrom {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -10856,11 +8645,6 @@ impl
 pub struct StrategyRemoveParams {
     pub name: StrategyRemoveParamsName,
 }
-impl ::std::convert::From<&StrategyRemoveParams> for StrategyRemoveParams {
-    fn from(value: &StrategyRemoveParams) -> Self {
-        value.clone()
-    }
-}
 ///`StrategyRemoveParamsName`
 ///
 /// <details><summary>JSON schema</summary>
@@ -10887,11 +8671,6 @@ impl ::std::convert::From<StrategyRemoveParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&StrategyRemoveParamsName> for StrategyRemoveParamsName {
-    fn from(value: &StrategyRemoveParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategyRemoveParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -10907,22 +8686,6 @@ impl ::std::str::FromStr for StrategyRemoveParamsName {
 impl ::std::convert::TryFrom<&str> for StrategyRemoveParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategyRemoveParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategyRemoveParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11009,11 +8772,6 @@ pub struct StrategySaveParams {
     pub overwrite: ::std::option::Option<bool>,
     pub reason: StrategySaveParamsReason,
 }
-impl ::std::convert::From<&StrategySaveParams> for StrategySaveParams {
-    fn from(value: &StrategySaveParams) -> Self {
-        value.clone()
-    }
-}
 ///`StrategySaveParamsDraft`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11067,11 +8825,6 @@ pub struct StrategySaveParamsDraft {
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub unset: ::std::vec::Vec<::std::string::String>,
 }
-impl ::std::convert::From<&StrategySaveParamsDraft> for StrategySaveParamsDraft {
-    fn from(value: &StrategySaveParamsDraft) -> Self {
-        value.clone()
-    }
-}
 ///`StrategySaveParamsDraftFrom`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11098,11 +8851,6 @@ impl ::std::convert::From<StrategySaveParamsDraftFrom> for ::std::string::String
         value.0
     }
 }
-impl ::std::convert::From<&StrategySaveParamsDraftFrom> for StrategySaveParamsDraftFrom {
-    fn from(value: &StrategySaveParamsDraftFrom) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategySaveParamsDraftFrom {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11118,22 +8866,6 @@ impl ::std::str::FromStr for StrategySaveParamsDraftFrom {
 impl ::std::convert::TryFrom<&str> for StrategySaveParamsDraftFrom {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategySaveParamsDraftFrom {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategySaveParamsDraftFrom {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11175,11 +8907,6 @@ impl ::std::convert::From<StrategySaveParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&StrategySaveParamsName> for StrategySaveParamsName {
-    fn from(value: &StrategySaveParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategySaveParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11195,22 +8922,6 @@ impl ::std::str::FromStr for StrategySaveParamsName {
 impl ::std::convert::TryFrom<&str> for StrategySaveParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategySaveParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategySaveParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11251,11 +8962,6 @@ impl ::std::convert::From<StrategySaveParamsReason> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&StrategySaveParamsReason> for StrategySaveParamsReason {
-    fn from(value: &StrategySaveParamsReason) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategySaveParamsReason {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11268,22 +8974,6 @@ impl ::std::str::FromStr for StrategySaveParamsReason {
 impl ::std::convert::TryFrom<&str> for StrategySaveParamsReason {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategySaveParamsReason {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategySaveParamsReason {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11406,11 +9096,6 @@ impl
 pub struct StrategyShowParams {
     pub name: StrategyShowParamsName,
 }
-impl ::std::convert::From<&StrategyShowParams> for StrategyShowParams {
-    fn from(value: &StrategyShowParams) -> Self {
-        value.clone()
-    }
-}
 ///`StrategyShowParamsName`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11437,11 +9122,6 @@ impl ::std::convert::From<StrategyShowParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&StrategyShowParamsName> for StrategyShowParamsName {
-    fn from(value: &StrategyShowParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategyShowParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11457,22 +9137,6 @@ impl ::std::str::FromStr for StrategyShowParamsName {
 impl ::std::convert::TryFrom<&str> for StrategyShowParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategyShowParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategyShowParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11513,11 +9177,6 @@ impl<'de> ::serde::Deserialize<'de> for StrategyShowParamsName {
 pub struct StrategyUseParams {
     pub name: StrategyUseParamsName,
 }
-impl ::std::convert::From<&StrategyUseParams> for StrategyUseParams {
-    fn from(value: &StrategyUseParams) -> Self {
-        value.clone()
-    }
-}
 ///`StrategyUseParamsName`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11543,11 +9202,6 @@ impl ::std::convert::From<StrategyUseParamsName> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&StrategyUseParamsName> for StrategyUseParamsName {
-    fn from(value: &StrategyUseParamsName) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for StrategyUseParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11560,22 +9214,6 @@ impl ::std::str::FromStr for StrategyUseParamsName {
 impl ::std::convert::TryFrom<&str> for StrategyUseParamsName {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for StrategyUseParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for StrategyUseParamsName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11631,11 +9269,6 @@ pub struct TaskAnswerParams {
     pub id: TaskAnswerParamsId,
     pub text: TaskAnswerParamsText,
 }
-impl ::std::convert::From<&TaskAnswerParams> for TaskAnswerParams {
-    fn from(value: &TaskAnswerParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskAnswerParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11662,11 +9295,6 @@ impl ::std::convert::From<TaskAnswerParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskAnswerParamsId> for TaskAnswerParamsId {
-    fn from(value: &TaskAnswerParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskAnswerParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11682,22 +9310,6 @@ impl ::std::str::FromStr for TaskAnswerParamsId {
 impl ::std::convert::TryFrom<&str> for TaskAnswerParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskAnswerParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskAnswerParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11739,11 +9351,6 @@ impl ::std::convert::From<TaskAnswerParamsText> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskAnswerParamsText> for TaskAnswerParamsText {
-    fn from(value: &TaskAnswerParamsText) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskAnswerParamsText {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11759,22 +9366,6 @@ impl ::std::str::FromStr for TaskAnswerParamsText {
 impl ::std::convert::TryFrom<&str> for TaskAnswerParamsText {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskAnswerParamsText {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskAnswerParamsText {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11823,11 +9414,6 @@ pub struct TaskAskParams {
     pub id: TaskAskParamsId,
     pub text: TaskAskParamsText,
 }
-impl ::std::convert::From<&TaskAskParams> for TaskAskParams {
-    fn from(value: &TaskAskParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskAskParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11854,11 +9440,6 @@ impl ::std::convert::From<TaskAskParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskAskParamsId> for TaskAskParamsId {
-    fn from(value: &TaskAskParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskAskParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11874,22 +9455,6 @@ impl ::std::str::FromStr for TaskAskParamsId {
 impl ::std::convert::TryFrom<&str> for TaskAskParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskAskParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskAskParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -11931,11 +9496,6 @@ impl ::std::convert::From<TaskAskParamsText> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskAskParamsText> for TaskAskParamsText {
-    fn from(value: &TaskAskParamsText) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskAskParamsText {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -11951,22 +9511,6 @@ impl ::std::str::FromStr for TaskAskParamsText {
 impl ::std::convert::TryFrom<&str> for TaskAskParamsText {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskAskParamsText {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskAskParamsText {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -12019,11 +9563,6 @@ pub struct TaskAttachParams {
     pub id: TaskAttachParamsId,
     pub target: TaskAttachParamsTarget,
 }
-impl ::std::convert::From<&TaskAttachParams> for TaskAttachParams {
-    fn from(value: &TaskAttachParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskAttachParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -12049,11 +9588,6 @@ impl ::std::convert::From<TaskAttachParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskAttachParamsId> for TaskAttachParamsId {
-    fn from(value: &TaskAttachParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskAttachParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -12068,22 +9602,6 @@ impl ::std::str::FromStr for TaskAttachParamsId {
 impl ::std::convert::TryFrom<&str> for TaskAttachParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskAttachParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskAttachParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -12172,22 +9690,6 @@ impl ::std::str::FromStr for TaskAttachParamsTarget {
 impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskAttachParamsTarget {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskAttachParamsTarget {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -12321,11 +9823,6 @@ pub struct TaskDelegateParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub worktree_reason: ::std::option::Option<TaskDelegateParamsWorktreeReason>,
 }
-impl ::std::convert::From<&TaskDelegateParams> for TaskDelegateParams {
-    fn from(value: &TaskDelegateParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskDelegateParamsBase`
 ///
 /// <details><summary>JSON schema</summary>
@@ -12352,11 +9849,6 @@ impl ::std::convert::From<TaskDelegateParamsBase> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskDelegateParamsBase> for TaskDelegateParamsBase {
-    fn from(value: &TaskDelegateParamsBase) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDelegateParamsBase {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -12372,22 +9864,6 @@ impl ::std::str::FromStr for TaskDelegateParamsBase {
 impl ::std::convert::TryFrom<&str> for TaskDelegateParamsBase {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsBase {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsBase {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -12428,11 +9904,6 @@ impl ::std::convert::From<TaskDelegateParamsGoal> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskDelegateParamsGoal> for TaskDelegateParamsGoal {
-    fn from(value: &TaskDelegateParamsGoal) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDelegateParamsGoal {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -12445,22 +9916,6 @@ impl ::std::str::FromStr for TaskDelegateParamsGoal {
 impl ::std::convert::TryFrom<&str> for TaskDelegateParamsGoal {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsGoal {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsGoal {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -12582,22 +10037,6 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsKind {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`TaskDelegateParamsRepo`
 ///
 /// <details><summary>JSON schema</summary>
@@ -12623,11 +10062,6 @@ impl ::std::convert::From<TaskDelegateParamsRepo> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskDelegateParamsRepo> for TaskDelegateParamsRepo {
-    fn from(value: &TaskDelegateParamsRepo) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDelegateParamsRepo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -12640,22 +10074,6 @@ impl ::std::str::FromStr for TaskDelegateParamsRepo {
 impl ::std::convert::TryFrom<&str> for TaskDelegateParamsRepo {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -12697,11 +10115,6 @@ impl ::std::convert::From<TaskDelegateParamsRequestId> for ::std::string::String
         value.0
     }
 }
-impl ::std::convert::From<&TaskDelegateParamsRequestId> for TaskDelegateParamsRequestId {
-    fn from(value: &TaskDelegateParamsRequestId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDelegateParamsRequestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -12717,22 +10130,6 @@ impl ::std::str::FromStr for TaskDelegateParamsRequestId {
 impl ::std::convert::TryFrom<&str> for TaskDelegateParamsRequestId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsRequestId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsRequestId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -12814,22 +10211,6 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsSource {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsSource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsSource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///Short task title (trimmed, 1–60 characters), stored separately from the full goal. Omitted titles are derived from the first goal clause with paths, URLs and backticked code removed and word-boundary truncation with an ellipsis. Snapshot tasks, task events, task.get, task.list, attention titles and activity text expose this title; older tasks derive it on read.
 ///
 /// <details><summary>JSON schema</summary>
@@ -12857,11 +10238,6 @@ impl ::std::convert::From<TaskDelegateParamsTitle> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskDelegateParamsTitle> for TaskDelegateParamsTitle {
-    fn from(value: &TaskDelegateParamsTitle) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDelegateParamsTitle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -12877,22 +10253,6 @@ impl ::std::str::FromStr for TaskDelegateParamsTitle {
 impl ::std::convert::TryFrom<&str> for TaskDelegateParamsTitle {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsTitle {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsTitle {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -12974,22 +10334,6 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsWorktree {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsWorktree {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsWorktree {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`TaskDelegateParamsWorktreeReason`
 ///
 /// <details><summary>JSON schema</summary>
@@ -13015,11 +10359,6 @@ impl ::std::convert::From<TaskDelegateParamsWorktreeReason> for ::std::string::S
         value.0
     }
 }
-impl ::std::convert::From<&TaskDelegateParamsWorktreeReason> for TaskDelegateParamsWorktreeReason {
-    fn from(value: &TaskDelegateParamsWorktreeReason) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDelegateParamsWorktreeReason {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13032,22 +10371,6 @@ impl ::std::str::FromStr for TaskDelegateParamsWorktreeReason {
 impl ::std::convert::TryFrom<&str> for TaskDelegateParamsWorktreeReason {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDelegateParamsWorktreeReason {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDelegateParamsWorktreeReason {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -13096,11 +10419,6 @@ pub struct TaskDiffParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub path: ::std::option::Option<TaskDiffParamsPath>,
 }
-impl ::std::convert::From<&TaskDiffParams> for TaskDiffParams {
-    fn from(value: &TaskDiffParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskDiffParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -13127,11 +10445,6 @@ impl ::std::convert::From<TaskDiffParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskDiffParamsId> for TaskDiffParamsId {
-    fn from(value: &TaskDiffParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDiffParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13147,22 +10460,6 @@ impl ::std::str::FromStr for TaskDiffParamsId {
 impl ::std::convert::TryFrom<&str> for TaskDiffParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDiffParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDiffParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -13204,11 +10501,6 @@ impl ::std::convert::From<TaskDiffParamsPath> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskDiffParamsPath> for TaskDiffParamsPath {
-    fn from(value: &TaskDiffParamsPath) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDiffParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13224,22 +10516,6 @@ impl ::std::str::FromStr for TaskDiffParamsPath {
 impl ::std::convert::TryFrom<&str> for TaskDiffParamsPath {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDiffParamsPath {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDiffParamsPath {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -13293,11 +10569,6 @@ pub struct TaskDismissParams {
     pub expect_rev: ::std::option::Option<::std::num::NonZeroU64>,
     pub ids: ::std::vec::Vec<TaskDismissParamsIdsItem>,
 }
-impl ::std::convert::From<&TaskDismissParams> for TaskDismissParams {
-    fn from(value: &TaskDismissParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskDismissParamsIdsItem`
 ///
 /// <details><summary>JSON schema</summary>
@@ -13324,11 +10595,6 @@ impl ::std::convert::From<TaskDismissParamsIdsItem> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskDismissParamsIdsItem> for TaskDismissParamsIdsItem {
-    fn from(value: &TaskDismissParamsIdsItem) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskDismissParamsIdsItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13344,22 +10610,6 @@ impl ::std::str::FromStr for TaskDismissParamsIdsItem {
 impl ::std::convert::TryFrom<&str> for TaskDismissParamsIdsItem {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskDismissParamsIdsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskDismissParamsIdsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -13401,11 +10651,6 @@ impl<'de> ::serde::Deserialize<'de> for TaskDismissParamsIdsItem {
 pub struct TaskGetParams {
     pub id: TaskGetParamsId,
 }
-impl ::std::convert::From<&TaskGetParams> for TaskGetParams {
-    fn from(value: &TaskGetParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskGetParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -13432,11 +10677,6 @@ impl ::std::convert::From<TaskGetParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskGetParamsId> for TaskGetParamsId {
-    fn from(value: &TaskGetParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskGetParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13452,22 +10692,6 @@ impl ::std::str::FromStr for TaskGetParamsId {
 impl ::std::convert::TryFrom<&str> for TaskGetParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskGetParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskGetParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -13551,11 +10775,6 @@ pub struct TaskListParams {
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub states: ::std::vec::Vec<TaskListParamsStatesItem>,
 }
-impl ::std::convert::From<&TaskListParams> for TaskListParams {
-    fn from(value: &TaskListParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for TaskListParams {
     fn default() -> Self {
         Self {
@@ -13594,11 +10813,6 @@ impl ::std::convert::From<TaskListParamsBefore> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskListParamsBefore> for TaskListParamsBefore {
-    fn from(value: &TaskListParamsBefore) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskListParamsBefore {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13614,22 +10828,6 @@ impl ::std::str::FromStr for TaskListParamsBefore {
 impl ::std::convert::TryFrom<&str> for TaskListParamsBefore {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskListParamsBefore {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskListParamsBefore {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -13671,11 +10869,6 @@ impl ::std::convert::From<TaskListParamsExecutor> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskListParamsExecutor> for TaskListParamsExecutor {
-    fn from(value: &TaskListParamsExecutor) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskListParamsExecutor {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13691,22 +10884,6 @@ impl ::std::str::FromStr for TaskListParamsExecutor {
 impl ::std::convert::TryFrom<&str> for TaskListParamsExecutor {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskListParamsExecutor {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskListParamsExecutor {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -13747,11 +10924,6 @@ impl ::std::convert::From<TaskListParamsRepo> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskListParamsRepo> for TaskListParamsRepo {
-    fn from(value: &TaskListParamsRepo) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskListParamsRepo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13764,22 +10936,6 @@ impl ::std::str::FromStr for TaskListParamsRepo {
 impl ::std::convert::TryFrom<&str> for TaskListParamsRepo {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskListParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskListParamsRepo {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -13886,22 +11042,6 @@ impl ::std::convert::TryFrom<&str> for TaskListParamsStatesItem {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for TaskListParamsStatesItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskListParamsStatesItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`TaskLogParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -13942,11 +11082,6 @@ pub struct TaskLogParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub stdout: ::std::option::Option<i64>,
 }
-impl ::std::convert::From<&TaskLogParams> for TaskLogParams {
-    fn from(value: &TaskLogParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskLogParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -13973,11 +11108,6 @@ impl ::std::convert::From<TaskLogParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskLogParamsId> for TaskLogParamsId {
-    fn from(value: &TaskLogParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskLogParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -13993,22 +11123,6 @@ impl ::std::str::FromStr for TaskLogParamsId {
 impl ::std::convert::TryFrom<&str> for TaskLogParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskLogParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskLogParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -14067,11 +11181,6 @@ pub struct TaskRetryAllParams {
     pub from_panel: ::std::option::Option<bool>,
     pub ids: ::std::vec::Vec<TaskRetryAllParamsIdsItem>,
 }
-impl ::std::convert::From<&TaskRetryAllParams> for TaskRetryAllParams {
-    fn from(value: &TaskRetryAllParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskRetryAllParamsExecutor`
 ///
 /// <details><summary>JSON schema</summary>
@@ -14098,11 +11207,6 @@ impl ::std::convert::From<TaskRetryAllParamsExecutor> for ::std::string::String 
         value.0
     }
 }
-impl ::std::convert::From<&TaskRetryAllParamsExecutor> for TaskRetryAllParamsExecutor {
-    fn from(value: &TaskRetryAllParamsExecutor) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskRetryAllParamsExecutor {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -14118,22 +11222,6 @@ impl ::std::str::FromStr for TaskRetryAllParamsExecutor {
 impl ::std::convert::TryFrom<&str> for TaskRetryAllParamsExecutor {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskRetryAllParamsExecutor {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskRetryAllParamsExecutor {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -14175,11 +11263,6 @@ impl ::std::convert::From<TaskRetryAllParamsIdsItem> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskRetryAllParamsIdsItem> for TaskRetryAllParamsIdsItem {
-    fn from(value: &TaskRetryAllParamsIdsItem) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskRetryAllParamsIdsItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -14195,22 +11278,6 @@ impl ::std::str::FromStr for TaskRetryAllParamsIdsItem {
 impl ::std::convert::TryFrom<&str> for TaskRetryAllParamsIdsItem {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskRetryAllParamsIdsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskRetryAllParamsIdsItem {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -14252,11 +11319,6 @@ impl<'de> ::serde::Deserialize<'de> for TaskRetryAllParamsIdsItem {
 pub struct TaskRetryOptionsParams {
     pub id: TaskRetryOptionsParamsId,
 }
-impl ::std::convert::From<&TaskRetryOptionsParams> for TaskRetryOptionsParams {
-    fn from(value: &TaskRetryOptionsParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskRetryOptionsParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -14283,11 +11345,6 @@ impl ::std::convert::From<TaskRetryOptionsParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskRetryOptionsParamsId> for TaskRetryOptionsParamsId {
-    fn from(value: &TaskRetryOptionsParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskRetryOptionsParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -14303,22 +11360,6 @@ impl ::std::str::FromStr for TaskRetryOptionsParamsId {
 impl ::std::convert::TryFrom<&str> for TaskRetryOptionsParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskRetryOptionsParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskRetryOptionsParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -14379,11 +11420,6 @@ pub struct TaskRetryParams {
     pub from_panel: ::std::option::Option<bool>,
     pub id: TaskRetryParamsId,
 }
-impl ::std::convert::From<&TaskRetryParams> for TaskRetryParams {
-    fn from(value: &TaskRetryParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskRetryParamsExecutor`
 ///
 /// <details><summary>JSON schema</summary>
@@ -14410,11 +11446,6 @@ impl ::std::convert::From<TaskRetryParamsExecutor> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskRetryParamsExecutor> for TaskRetryParamsExecutor {
-    fn from(value: &TaskRetryParamsExecutor) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskRetryParamsExecutor {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -14430,22 +11461,6 @@ impl ::std::str::FromStr for TaskRetryParamsExecutor {
 impl ::std::convert::TryFrom<&str> for TaskRetryParamsExecutor {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskRetryParamsExecutor {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskRetryParamsExecutor {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -14487,11 +11502,6 @@ impl ::std::convert::From<TaskRetryParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskRetryParamsId> for TaskRetryParamsId {
-    fn from(value: &TaskRetryParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskRetryParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -14507,22 +11517,6 @@ impl ::std::str::FromStr for TaskRetryParamsId {
 impl ::std::convert::TryFrom<&str> for TaskRetryParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskRetryParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskRetryParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -14612,11 +11606,6 @@ pub struct TaskReviewParams {
     pub note: ::std::option::Option<TaskReviewParamsNote>,
     pub verdict: TaskReviewParamsVerdict,
 }
-impl ::std::convert::From<&TaskReviewParams> for TaskReviewParams {
-    fn from(value: &TaskReviewParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskReviewParamsExpectState`
 ///
 /// <details><summary>JSON schema</summary>
@@ -14703,22 +11692,6 @@ impl ::std::convert::TryFrom<&str> for TaskReviewParamsExpectState {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for TaskReviewParamsExpectState {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskReviewParamsExpectState {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`TaskReviewParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -14745,11 +11718,6 @@ impl ::std::convert::From<TaskReviewParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskReviewParamsId> for TaskReviewParamsId {
-    fn from(value: &TaskReviewParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskReviewParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -14765,22 +11733,6 @@ impl ::std::str::FromStr for TaskReviewParamsId {
 impl ::std::convert::TryFrom<&str> for TaskReviewParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskReviewParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskReviewParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -14821,11 +11773,6 @@ impl ::std::convert::From<TaskReviewParamsNote> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskReviewParamsNote> for TaskReviewParamsNote {
-    fn from(value: &TaskReviewParamsNote) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskReviewParamsNote {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -14838,22 +11785,6 @@ impl ::std::str::FromStr for TaskReviewParamsNote {
 impl ::std::convert::TryFrom<&str> for TaskReviewParamsNote {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskReviewParamsNote {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskReviewParamsNote {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -14940,22 +11871,6 @@ impl ::std::convert::TryFrom<&str> for TaskReviewParamsVerdict {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<&::std::string::String> for TaskReviewParamsVerdict {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskReviewParamsVerdict {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 ///`TaskSessionParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -14980,11 +11895,6 @@ impl ::std::convert::TryFrom<::std::string::String> for TaskReviewParamsVerdict 
 #[serde(deny_unknown_fields)]
 pub struct TaskSessionParams {
     pub id: TaskSessionParamsId,
-}
-impl ::std::convert::From<&TaskSessionParams> for TaskSessionParams {
-    fn from(value: &TaskSessionParams) -> Self {
-        value.clone()
-    }
 }
 ///`TaskSessionParamsId`
 ///
@@ -15011,11 +11921,6 @@ impl ::std::convert::From<TaskSessionParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskSessionParamsId> for TaskSessionParamsId {
-    fn from(value: &TaskSessionParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskSessionParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -15030,22 +11935,6 @@ impl ::std::str::FromStr for TaskSessionParamsId {
 impl ::std::convert::TryFrom<&str> for TaskSessionParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskSessionParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskSessionParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -15094,11 +11983,6 @@ pub struct TaskStopParams {
     pub expect_rev: ::std::option::Option<::std::num::NonZeroU64>,
     pub id: TaskStopParamsId,
 }
-impl ::std::convert::From<&TaskStopParams> for TaskStopParams {
-    fn from(value: &TaskStopParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskStopParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -15125,11 +12009,6 @@ impl ::std::convert::From<TaskStopParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskStopParamsId> for TaskStopParamsId {
-    fn from(value: &TaskStopParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskStopParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -15145,22 +12024,6 @@ impl ::std::str::FromStr for TaskStopParamsId {
 impl ::std::convert::TryFrom<&str> for TaskStopParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskStopParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskStopParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -15201,11 +12064,6 @@ impl<'de> ::serde::Deserialize<'de> for TaskStopParamsId {
 pub struct TaskTakeoverParams {
     pub id: TaskTakeoverParamsId,
 }
-impl ::std::convert::From<&TaskTakeoverParams> for TaskTakeoverParams {
-    fn from(value: &TaskTakeoverParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskTakeoverParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -15231,11 +12089,6 @@ impl ::std::convert::From<TaskTakeoverParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskTakeoverParamsId> for TaskTakeoverParamsId {
-    fn from(value: &TaskTakeoverParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskTakeoverParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -15250,22 +12103,6 @@ impl ::std::str::FromStr for TaskTakeoverParamsId {
 impl ::std::convert::TryFrom<&str> for TaskTakeoverParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskTakeoverParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskTakeoverParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -15314,11 +12151,6 @@ pub struct TaskWaitParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub timeout_s: ::std::option::Option<::std::num::NonZeroU64>,
 }
-impl ::std::convert::From<&TaskWaitParams> for TaskWaitParams {
-    fn from(value: &TaskWaitParams) -> Self {
-        value.clone()
-    }
-}
 ///`TaskWaitParamsId`
 ///
 /// <details><summary>JSON schema</summary>
@@ -15345,11 +12177,6 @@ impl ::std::convert::From<TaskWaitParamsId> for ::std::string::String {
         value.0
     }
 }
-impl ::std::convert::From<&TaskWaitParamsId> for TaskWaitParamsId {
-    fn from(value: &TaskWaitParamsId) -> Self {
-        value.clone()
-    }
-}
 impl ::std::str::FromStr for TaskWaitParamsId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
@@ -15365,22 +12192,6 @@ impl ::std::str::FromStr for TaskWaitParamsId {
 impl ::std::convert::TryFrom<&str> for TaskWaitParamsId {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<&::std::string::String> for TaskWaitParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for TaskWaitParamsId {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
@@ -15410,11 +12221,6 @@ impl<'de> ::serde::Deserialize<'de> for TaskWaitParamsId {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateApplyParams {}
-impl ::std::convert::From<&UpdateApplyParams> for UpdateApplyParams {
-    fn from(value: &UpdateApplyParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for UpdateApplyParams {
     fn default() -> Self {
         Self {}
@@ -15442,11 +12248,6 @@ pub struct UpdateCheckParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub force: ::std::option::Option<bool>,
 }
-impl ::std::convert::From<&UpdateCheckParams> for UpdateCheckParams {
-    fn from(value: &UpdateCheckParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for UpdateCheckParams {
     fn default() -> Self {
         Self {
@@ -15468,11 +12269,6 @@ impl ::std::default::Default for UpdateCheckParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct VersionGetParams {}
-impl ::std::convert::From<&VersionGetParams> for VersionGetParams {
-    fn from(value: &VersionGetParams) -> Self {
-        value.clone()
-    }
-}
 impl ::std::default::Default for VersionGetParams {
     fn default() -> Self {
         Self {}
