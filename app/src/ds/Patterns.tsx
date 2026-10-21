@@ -5,6 +5,7 @@ import type { ComponentChildren, JSX } from 'preact';
 import { Button, type ButtonProps } from "./Button";
 import { useDensity } from "./Density";
 import { SectionHeading } from "./SectionHeading";
+export { ActionPanel, Cluster, DisclosurePanel, Page, PageBody, PageColumns, PageHeader, Section, Stack } from "./Page";
 
 export function TextRow({ label, value, meta, className }: {
   label: ComponentChildren; value: ComponentChildren; meta?: ComponentChildren; className?: string;

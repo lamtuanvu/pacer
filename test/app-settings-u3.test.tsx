@@ -39,6 +39,7 @@ test('wizard has four board steps and never claims ready before a passed check',
 });
 test('host board includes management sections, facts and service supplied branch fate',()=>{
  const html=render(<HostDetail alias="devbox" initialData={host}/>);
+ expect(html).toContain('pc-page--standard');expect(html).toContain('aria-label="Breadcrumb"');
  for(const text of ['Run checks','Open SSH terminal','Pause new work','Max parallel tasks','Repositories','Map a repo','Account folders on host','Worktrees on host','kept','Remove host'])expect(html).toContain(text);
  expect(html).toContain('aria-label="Codex"');expect(html).toContain('disabled');expect(html).not.toContain('Full sessions');
 });
