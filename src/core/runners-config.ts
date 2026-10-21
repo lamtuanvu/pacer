@@ -1,7 +1,7 @@
 import { Document, isNode, isSeq, type Node } from "yaml";
 import { allowedPair, type AgentId } from "../config/accounts";
 import { StrategyDoc } from "../config/edit";
-import { formatRunnerId, parseRunnerId, resolveRunner, runnerDefaults } from "../config/runner-id";
+import { formatRunnerId, parseRunnerId, resolveRunner, runnerDefaults, isPlannerRunner } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { ensureAccounts } from "./accounts";
 import { CoreError, toCoreError } from "./errors";
@@ -48,7 +48,7 @@ function change(ctx: Ctx, verb: "add" | "rm", reference: string, options: AddOpt
     }
     if(verb==='rm') {
       const r=resolveRunner(s,id); if(!r) throw Error('unknown runner');
-      if(r.agent===s.planner.agent && r.account===s.planner.account) throw Error('planner runner is in use');
+      if(isPlannerRunner(s,r)) throw Error('planner runner is in use');
       if(Object.keys(s.runners).length<=1) throw Error('cannot remove the last runner');
       const diff=edit(doc=>{
         const declarations=docValue(doc,['runners']) as Record<string,unknown>|undefined;
@@ -98,7 +98,7 @@ export function add(ctx: Ctx, options: AddOptions & {agent:AgentId}) {
 }
 export function remove(ctx: Ctx, id: string) { return change(ctx, "rm", id); }
 function executorIds(s: ReturnType<typeof loadStrategy>) {
-  return Object.values(s.runners).filter(r=>!(r.agent===s.planner.agent && r.account===s.planner.account)).map(r=>r.id);
+  return Object.values(s.runners).filter(r=>!(isPlannerRunner(s,r))).map(r=>r.id);
 }
 function validRank(rank:number) { if(!Number.isInteger(rank) || rank<0) throw new CoreError("invalid_input","rank must be a nonnegative integer"); }
 function moveRank(doc:StrategyDoc,s:ReturnType<typeof loadStrategy>,id:string,rank:number) {
@@ -110,7 +110,7 @@ function moveRank(doc:StrategyDoc,s:ReturnType<typeof loadStrategy>,id:string,ra
 export function set(ctx:Ctx,reference:string,o:{enabled?:boolean;model?:string|null;max_tasks?:number;rank?:number}) {
   const {strategy: s, migrated, edit}=ensureAccounts(ctx);
   const r=resolveRunner(s,reference); if(!r) throw new CoreError("invalid_input","unknown runner");
-  if(r.agent===s.planner.agent && r.account===s.planner.account) throw new CoreError("not_allowed","cannot edit the planner runner");
+  if(isPlannerRunner(s,r)) throw new CoreError("not_allowed","cannot edit the planner runner");
   if(o.rank!==undefined) validRank(o.rank);
   edit(doc=>{
     // Update the existing declaration even when it uses a transitional alias.

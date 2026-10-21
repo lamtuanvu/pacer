@@ -8,7 +8,7 @@ import { accountAuthFailure } from "../../usage/auth";
 import { redactEndpointError } from "../../endpoints/state";
 import type { Status } from "../../engine/status";
 import type { Strategy } from "../../config/strategy";
-import { parseRunnerId, resolveRunner } from "../../config/runner-id";
+import { parseRunnerId, resolveRunner, orderedExecutorIds } from "../../config/runner-id";
 import { executorsFor } from "../../engine/rank";
 import { verdictWords } from "../../view-model/panel";
 import type { AccountSummary, ApiTask, ExecutorRow, PlannerMeter } from "./types";
@@ -22,7 +22,7 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
  }
  const jobs=ctx?listJobs(ctx):[];
  const planner=resolveRunner(s,st.planner)?.id??st.planner;
- const order=[...new Set([...(planner?[planner]:[]),...executorsFor(null,s),...Object.keys(s.runners)])];
+ const order=[...new Set([...(planner?[planner]:[]),...orderedExecutorIds(s)])];
  const rows:ExecutorRow[]=order.map((id,index)=>{
   const r=resolveRunner(s,id),p=st.providers.find(p=>p.id===id),account=r?.account??p?.account??parseRunnerId(id)?.account??"";
   const host=r?.host??null,used=tasks.filter(t=>t.state==="running"&&t.executor===id).length,max=slotLimit(s,id).executor;

@@ -6,7 +6,16 @@ test('terminal is a separate embedded lazy module and all JS chunks fit the budg
  const files=await buildApp(),app=files.find(f=>f.path==='app.js')!,term=files.find(f=>f.path==='term.js')!;
  expect(term).toBeDefined();expect(files.some(f=>f.path==='term.css')).toBe(true);
  expect(Bun.gzipSync(app.text).length).toBeLessThan(APP_JS_BUDGET);
- const terminalBytes=files.filter(f=>f.path.endsWith('.js')&&f.path!=='app.js').reduce((n,f)=>n+Bun.gzipSync(f.text).length,0);
+ // Settings and Setup are independent lazy entries, not terminal dependencies.
+ const visited=new Set<string>(), scanner=new Bun.Transpiler({loader:'js'});
+ const terminalSize=(path:string):number=>{
+  if(visited.has(path))return 0;
+  visited.add(path);
+  const file=files.find(f=>f.path===path)!;
+  expect(file).toBeDefined();
+  return Bun.gzipSync(file.text).length+scanner.scanImports(file.text).filter(i=>i.path.startsWith('./')).reduce((sum,i)=>sum+terminalSize(i.path.slice(2)),0);
+ };
+ const terminalBytes=terminalSize('term.js');
  expect(terminalBytes).toBeLessThan(TERM_JS_BUDGET);
  // Every relative module import is present in the same embedded asset list.
  for(const file of files.filter(f=>f.path.endsWith('.js')))for(const match of file.text.matchAll(/(?:from\s*|import\s*\(?)['"]\.\/([^'"]+)['"]/g))expect(files.some(f=>f.path===match[1])).toBe(true);

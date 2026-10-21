@@ -1,3 +1,4 @@
+import { Alert } from "../ds/Alert";
 import { TextAction } from "../ds/Button";
 import { useActions } from "../data/action-context";
 import { createContext, type ComponentChildren } from "preact";
@@ -11,7 +12,7 @@ export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>
 export const useTaskContext = () => useContext(TaskContext);
 export function ErrorMessage({ error }: { error: unknown }) {
   if (!error) return null;
-  return <div className="op-error" role="status"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && <p>{error.hint}</p>}</div>;
+  return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && <p>{error.hint}</p>}</Alert>;
 }
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
 export function queryRevision(state: StoreState, op: string, params: unknown): string {

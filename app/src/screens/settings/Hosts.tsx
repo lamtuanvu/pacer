@@ -10,7 +10,7 @@ import { Button } from "../../ds/Button";
 import { useDraft, useTaskContext } from "../task-shared";
 import { Feedback, Field, JobList, ResourceState, Section, time, useOperation, useResource, words } from "./shared";
 import { HostSessionSwitch } from "./HostSessionSwitch";
-import { HostsSection } from "./General";
+import { HostsSection } from "./HostsSection";
 import { Page } from "../../ds/Page";
 import { AppLink } from "../../navigation";
 import { routes } from "../../router";
