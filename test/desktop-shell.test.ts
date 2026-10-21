@@ -237,7 +237,7 @@ test("OTA fallback pages distinguish installation, rollback, restored and failed
   expect(shell("?state=restored").element("#message").textContent).toBe("The update couldn't start. Your previous version has been restored.");
   expect(shell("?state=recoveryFailed").element("#message").textContent).not.toContain("has been restored");
   // The tray popover has no report button, so its text names where to report.
-  expect(shell("?state=recoveryFailed&compact=1").element("#message").textContent).toContain("github.com/lamtuanvu/pacer/issues");
+  expect(shell("?state=recoveryFailed&compact=1").element("#message").textContent).toContain("report the problem at github.com/lamtuanvu/pacer/issues.");
   expect(shell("?state=recoveryFailed").element("#message").textContent).not.toContain("github.com");
 });
 

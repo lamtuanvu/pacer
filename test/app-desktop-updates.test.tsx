@@ -82,7 +82,8 @@ test('adoption details expose inspected service change and separate work blocker
  const adoption=adoptionStatus({phase:'waiting',revision:2,blockers:[{kind:'session',id:'s',label:'Live terminal'}]});
  const html=render(desktopStatus({adoption,actions:['adoptCancel']}));
  expect(html).toContain('Cancel service change');expect(html).toContain('Live terminal');
- expect(html).toContain(adoption.currentServiceExecutable);expect(html).toContain(adoption.replacementServiceExecutable);
+ // Paths are complete, with a break opportunity after each '/'.
+ const text=html.replaceAll('<wbr/>','');expect(text).toContain(adoption.currentServiceExecutable);expect(text).toContain(adoption.replacementServiceExecutable);expect(html).toContain('/<wbr/>');
  const committed=render(desktopStatus({adoption:adoptionStatus({phase:'committed',resultingInstallationId:'managed-installation'}),actions:[]}));
  expect(committed).toContain('managed-installation');expect(committed).toContain('Desktop service is ready');
 });

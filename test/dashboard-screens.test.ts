@@ -428,5 +428,11 @@ test("the settings section list flags desktop update attention", async () => {
   expect(text.split("\n").find(line => line.includes(" Updates"))).toContain("Updates failed");
   s.desktopUpdates = [desktopStatus({ phase: "ready", target: "0.6.0", actions: ["restart"] })];
   const waiting = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates" } });
-  expect(waiting.split("\n").find(line => line.includes(" Updates"))).toContain("Updates pending");
+  expect(waiting.split("\n").find(line => line.includes(" Updates"))).toContain("Updates ready");
+  s.desktopUpdates = [desktopStatus({ phase: "restored", actions: [] })];
+  const restored = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates" } });
+  expect(restored.split("\n").find(line => line.includes(" Updates"))).toContain("Updates restored");
+  // No update action, no "u update" hint.
+  const idle = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates", focus: "detail" } });
+  expect(idle).not.toContain("u update");
 });

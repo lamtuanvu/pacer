@@ -11,6 +11,11 @@ import type { ConfigData } from "../../model/strategy";
 import type { SettingsData } from "./General";
 import { Feedback, ResourceState, Section, time, useOperation, useResource } from "./shared";
 
+/** Offers a line break after each `/`, so long paths wrap between segments rather than mid-name. */
+function PathText({ path }: { path: string }) {
+  return <>{path.split(/(?<=\/)/).map((part, index) => <>{index > 0 && <wbr/>}{part}</>)}</>;
+}
+
 export function DesktopUpdate({ status, showIdentity = false }: { status: UpdateStatus; showIdentity?: boolean }) {
   const { state } = useTaskContext(), runner = useActions(), dialogs = useDialogs();
   const intent = useMemo(() => updateIntent(), []), pending = useRef(false), group = useRef<HTMLDivElement>(null);
@@ -55,7 +60,7 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
     <div role="status" aria-live="polite"><span className="sr-only">{view.label}</span>{busy && <p>Sending request…</p>}{message && <p>{message}</p>}</div>
     <p>{view.detail}</p>
     {showIdentity && <Disclosure summary="Installation details"><code>{status.installationId}</code></Disclosure>}
-    {status.adoption && <div role="group" aria-label="Service change"><p>Current service · <code>{status.adoption.currentServiceExecutable}</code></p><p>Desktop service · <code>{status.adoption.replacementServiceExecutable}</code></p><p>{status.adoption.serviceLabel} · port {status.adoption.port}</p>{status.adoption.resultingInstallationId && <p>Installation · <code>{status.adoption.previousInstallationId}</code> → <code>{status.adoption.resultingInstallationId}</code></p>}{status.adoption.blockers.length > 0 && <ul aria-label="Work holding the service change">{status.adoption.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label}</li>)}</ul>}{status.adoption.error && <p>{status.adoption.error.message}</p>}</div>}
+    {status.adoption && <div role="group" aria-label="Service change"><p>Current service · <code><PathText path={status.adoption.currentServiceExecutable}/></code></p><p>Desktop service · <code><PathText path={status.adoption.replacementServiceExecutable}/></code></p><p>{status.adoption.serviceLabel} · port {status.adoption.port}</p>{status.adoption.resultingInstallationId && <p>Installation · <code>{status.adoption.previousInstallationId}</code> → <code>{status.adoption.resultingInstallationId}</code></p>}{status.adoption.blockers.length > 0 && <ul aria-label="Work holding the service change">{status.adoption.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label}</li>)}</ul>}{status.adoption.error && <p>{status.adoption.error.message}</p>}</div>}
     {status.blockers.length > 0 && <ul aria-label="Work holding the update">{status.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label || ({ task: "Running task", session: "Interactive session", launch: "Starting work", operation: "Operation in progress" }[blocker.kind])}</li>)}</ul>}
     {status.error?.hint && <p>{status.error.hint}</p>}
     <p className="u3-muted">Last checked · {time(status.checkedAt)}</p>

@@ -389,7 +389,7 @@ const desktopUpdates = (ctx: ScreenCtx, width: number, updates: UpdateStatus[]):
     }
     rows.push(blank());
   }
-  return { rows, items, hints: ["u update"] };
+  return { rows, items, hints: items.some(item => item.keys.u) ? ["u update"] : [] };
 };
 
 const updates: Build = (ctx, width) => {
@@ -455,15 +455,18 @@ const appearance: Build = (ctx, width) => {
 };
 
 const BUILDERS: Record<string, Build> = { planner, accounts, executors, machine, hosts, routing, projects, strategies, updates, notifications, appearance };
-const BADGES = (ctx: ScreenCtx): Record<string, [string, "warn" | "bad"] | undefined> => {
+const BADGES = (ctx: ScreenCtx): Record<string, [string, "warn" | "bad" | "info"] | undefined> => {
   const down = (ctx.s.executors ?? []).filter(e => ["down", "failing"].includes(e.state)).length;
   const hostIssues = (ctx.s.hosts ?? []).filter(h => ["down", "needs_setup"].includes(h.state)).length;
   const signin = (ctx.s.accounts ?? []).filter(a => a.signedIn === false).length;
   // Desktop update attention reads the same indicator as the app's settings navigation.
-  const update = desktopUpdateIndicator(ctx.s.desktopUpdates), updateTone = update?.tone === "bad" ? "bad" : update ? "warn" : undefined;
+  // Same tone as the app's badge: failures red, waiting and restored amber, progress and ready blue.
+  const update = desktopUpdateIndicator(ctx.s.desktopUpdates);
+  const updateBadge: [string, "warn" | "bad" | "info"] | undefined = !update ? undefined : update.tone === "bad" ? ["failed", "bad"]
+    : update.tone === "warn" ? [update.glyph === "!" ? "restored" : "waiting", "warn"] : [update.label === "Update available" ? "available" : update.glyph === "↑" ? "ready" : "active", "info"];
   return { executors: down ? [`${down} down`, "bad"] : undefined, hosts: hostIssues ? [`${hostIssues} needs setup`, "warn"] : undefined, accounts: signin ? [`${signin} sign-in`, "warn"] : undefined,
     // Short like the other list badges; the section itself names the exact state.
-    updates: update && updateTone ? [updateTone === "bad" ? "failed" : "pending", updateTone] : undefined };
+    updates: updateBadge };
 };
 
 export function settingsScreen(ctx: ScreenCtx): ScreenView {
