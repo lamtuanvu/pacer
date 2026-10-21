@@ -6,6 +6,7 @@ This log holds dated governance decisions, exceptions and superseded rules. Arch
 
 | Date | Decision | Rules affected | Decided by | Source |
 |------|----------|----------------|------------|--------|
+| 2026-10-21 | Unified agent live control uses typed harness adapters, shipping desktop self-capture, authenticated service coordination and evidence with explicit native prerequisites. No governance exception is granted. | ARCH-1–3, ARCH-9, ARCH-12–14, API-1–5, SEC-1–5/7–8, CT-11 | @lamtuanvu (design approved in conversation) | [ADR agent live control](../docs/decisions/0002-agent-live-control.md) |
 | 2026-10-18 | Governance initialized in `.project/` (constitution 0.1.0). It imports existing agreements from AGENTS.md, CONTRIBUTING.md, GOVERNANCE.md, SECURITY.md, docs/protocol.md, the ADRs and CI workflows as established. New rules are labeled Proposed. All reviewers are advisory. | all | Drafted for the maintainer's review; not yet accepted | Governance initialization |
 | 2026-10-18 | Live validation is part of done (CT-11). Agents run the live harness with real executors and record evidence before they report a behavior-changing task as complete. | CT-11, QA reviewer | @lamtuanvu | [harness spec](../docs/specs/2026-10-18-live-validation-harness-design.md) |
 | 2026-10-19 | Visual craft rules UI-8 to UI-18 and an implementer checklist added to the UI rule; the UI reviewer checks them. Constitution 0.2.0. Merging the PR accepts them. | UI-8–UI-18, UI reviewer | @lamtuanvu (by merging the PR) | #134 (UI review of every app screen, 2026-10-19) |

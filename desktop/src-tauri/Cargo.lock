@@ -2626,6 +2626,7 @@ dependencies = [
  "block2",
  "futures-util",
  "objc2",
+ "objc2-core-graphics",
  "objc2-foundation",
  "objc2-service-management",
  "objc2-user-notifications",

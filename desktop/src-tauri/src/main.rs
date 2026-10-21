@@ -5,6 +5,7 @@ macro_rules! desktop_log {
 mod actions;
 mod approvals;
 mod client;
+mod capture;
 mod link;
 mod logging;
 mod logic;

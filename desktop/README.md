@@ -326,3 +326,24 @@ For screenshots, open `desktop/ui/index.html` or serve `desktop/ui/` statically:
 
 Previews never run commands. The shell CSS embeds the shared design tokens;
 `test/desktop-shell.test.ts` verifies those tokens and the page behavior.
+
+## Owned-window diagnostics
+
+Ordinary builds include authenticated self-capture for the main and tray windows.
+The existing service session coordinates `desktop.capture.*` requests; PNGs use
+bounded authenticated binary routes. No diagnostic build, validation switch or
+extra listener is required. Worker credentials are transient and are not written
+into configuration or logs.
+
+Window mode captures native window paint through ScreenCaptureKit when available;
+content mode snapshots the WKWebView and excludes window chrome and OS dialogs.
+ScreenCaptureKit is weak-linked to preserve the existing deployment floor;
+unsupported APIs and missing OS permissions return explicit capture failures.
+The measured compile host is macOS 27.0/Xcode 27.1; other supported versions still
+need native release validation. Linux self-capture currently reports unsupported.
+
+Use the [live validation harness](../docs/testing/live-validation.md#agent-control-commands)
+for agent access, private evidence, identity checks and external capture fallback.
+A sandbox needs its own desktop session: the app singleton will refuse a second
+instance with the same bundle identifier. The harness never terminates the user's
+existing instance or grants macOS Accessibility/screen capture permissions.

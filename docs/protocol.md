@@ -964,6 +964,9 @@ Params JSON Schema:
     },
     "notifier": {
       "type": "boolean"
+    },
+    "capture": {
+      "type": "boolean"
     }
   },
   "required": [
@@ -1079,6 +1082,186 @@ Params JSON Schema:
 ### `delegation.resume`
 
 Resume delegation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.claim`
+
+Claim the next capture for the authenticated desktop worker; worker credential comes from client.register capture=true.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "worker_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "windows": {
+      "maxItems": 2,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "enum": [
+              "main",
+              "tray"
+            ]
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "pid": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "label",
+          "window_id",
+          "pid"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "client_id",
+    "worker_token"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.complete`
+
+Report a failed capture. Successful PNG bytes use the bounded authenticated image upload route.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "worker_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "error": {
+      "type": "string",
+      "enum": [
+        "permission_denied",
+        "window_unavailable",
+        "unsupported_platform",
+        "capture_failed",
+        "capture_timeout"
+      ]
+    }
+  },
+  "required": [
+    "request_id",
+    "worker_token",
+    "error"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.request`
+
+Request a capture of an owned desktop main or tray window; poll desktop.capture.result.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "window": {
+      "type": "string",
+      "enum": [
+        "main",
+        "tray"
+      ]
+    },
+    "mode": {
+      "default": "window",
+      "type": "string",
+      "enum": [
+        "window",
+        "content"
+      ]
+    }
+  },
+  "required": [
+    "client_id",
+    "window",
+    "mode"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.result`
+
+Read capture status/metadata; completed PNG is at /v3/desktop/capture/<request_id>/image with normal authentication.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.capture.targets`
+
+List owned windows reported by connected authenticated desktop capture workers.
 
 Params JSON Schema:
 

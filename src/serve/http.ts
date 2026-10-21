@@ -1,3 +1,5 @@
+import { desktopCaptureRoute } from "./desktop-capture";
+import { resetCaptureBroker } from "../desktop/capture-broker";
 import { retentionScheduler } from "../tasks/retention";
 import { superviseTasks } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
@@ -41,6 +43,7 @@ export function startServer(
   getCtx: () => Ctx, opts: { port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
+  resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
   recoverJobs(initialCtx);
   const tailMs = opts.tailMs ?? 1_000;
@@ -117,6 +120,8 @@ export function startServer(
         }
       }
       if (app) return appRoute(req, getCtx());
+      const captureResponse = await desktopCaptureRoute(req, getCtx());
+      if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
       if (/^\/v[23]\//.test(pathname)) {
         const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });

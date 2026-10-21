@@ -6,10 +6,13 @@ import { desktop, tui } from "./surfaces";
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui]
                                   start isolated service and disposable repo; ui seeds sample data
+  targets|inspect|act|wait|assert|capture|doctor --surface web|tray|tui|desktop --json
+                                  inspect and control sandbox UI
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
   tui start|keys <keys...>|capture [--out <name>]|stop
+  browser start|stop              own a persistent sandbox browser context
   desktop [--app <path>]           launch built macOS app
   note [--behavior <b> --surface <s> --verdict PASS|FAIL|UNVERIFIED]
        [--steps <text>] <text>     record observed behavior
@@ -20,6 +23,7 @@ const usage = `usage: bun run live <command> [--id <id>]
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
+  if (["targets", "inspect", "act", "wait", "assert", "capture", "doctor", "scenario"].includes(command)) return (await import("./control/cli")).controlMain(argv);
   if (!command || command === "--help" || command === "help") { console.log(usage); return 0; }
   // Only parse harness options before --, so guarded CLI options pass through untouched.
   const separator = rest.indexOf("--");
@@ -63,6 +67,13 @@ export async function main(argv: string[]): Promise<number> {
       return result.code;
     }
     case "tui": console.log(await tui(session, positionals[0], positionals.slice(1), options.get("--out"))); break;
+    case "browser": {
+      const worker = await import("./control/worker");
+      if (positionals[0] === "stop") await worker.stopBrowserWorker(session);
+      else if (positionals[0] === "start") console.log(JSON.stringify(await worker.browserCommand(session, { command: "targets", surface: "web" })));
+      else throw Error("usage: live browser start|stop");
+      break;
+    }
     case "desktop": console.log(desktop(session, options.get("--app"))); break;
     case "note": {
       const verdict = options.get("--verdict");
@@ -86,7 +97,7 @@ export async function main(argv: string[]): Promise<number> {
       console.log(path);
       break;
     }
-    case "down": await down(session, flags.has("--keep")); break;
+    case "down": await (await import("./control/worker")).stopBrowserWorker(session); await down(session, flags.has("--keep")); break;
     default: throw Error(`Unknown command: ${command}\n${usage}`);
   }
   return 0;

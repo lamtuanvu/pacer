@@ -14,6 +14,8 @@ import { ACTIVITY_KINDS } from "../activity/types";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
+import { desktopOps } from "./ops-desktop";
+import { captureBroker } from "../desktop/capture-broker";
 import { sessionOps } from "./ops-session";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
@@ -151,7 +153,7 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
   }, deps.terminal);
 }
 
-export const OPS: Record<string, OpDef> = { ...sessionOps,
+export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
     handler: ctx => projectStrategies.list(ctx),
@@ -187,7 +189,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     core.tasks.requireAskingExecutor(ctx,p.id);
     return core.tasks.ask(ctx,p.id,p.text);
   }}),
-  "client.register": op({ description: "Register a client with an optional notifier lease; heartbeat every 30 seconds.", params: z.object({kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1), notifier: z.boolean().optional()}), handler: (ctx, p) => clients.register(ctx, p) }),
+  "client.register": op({ description: "Register a client with an optional notifier lease; heartbeat every 30 seconds.", params: z.object({kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1), notifier: z.boolean().optional(), capture: z.boolean().optional()}), handler: (ctx, p) => { const result = clients.register(ctx, p); return p.kind === "desktop" && p.capture ? {...result, capture_worker: captureBroker(ctx.pacerHome).register(result.client_id)} : result; } }),
   "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat.", params: z.object({client_id: id}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),

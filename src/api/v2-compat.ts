@@ -17,7 +17,7 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','task.takeover','service.install','onboarding.skip','onboarding.try','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor']);
+export const V3_ONLY_OPS = new Set(['desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','task.takeover','service.install','onboarding.skip','onboarding.try','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor']);
 
 export function v2Hello() {
  const {previous:_,...hello}=helloBody();
@@ -73,6 +73,7 @@ export function toV2OpResult(name:string,result:any):unknown {
 }
 export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):Promise<unknown> {
  if(V3_ONLY_OPS.has(name))throw new CoreError('unknown_op',`unknown operation "${name}"`,`${name} requires protocol 3`);
+ if(name==='client.register' && params && typeof params==='object' && !Array.isArray(params)) { const {capture:_,...legacy}=params as Record<string,unknown>; params=legacy; }
  return toV2OpResult(name,await callOp(ctx,name,v2Params(name,params),deps));
 }
 
@@ -80,6 +81,7 @@ export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
  for(const op of V3_ONLY_OPS)delete schemas[op];
+ delete (schemas['client.register'].params as {properties:Record<string,unknown>}).properties.capture;
  schemas['task.list'].description="Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.";
  const review=schemas['task.review'].params as {properties:Record<string,unknown>;required:string[]};
  review.properties.accepted={type:'boolean'};

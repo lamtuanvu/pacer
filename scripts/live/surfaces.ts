@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, lstatSync } from "node:fs";
+import { processIdentitySync } from "./control/lease";
 import { basename, join, resolve } from "node:path";
 import { atomicWrite, checkout, launch, record, run, sandboxEnv, saveSession, shellQuote, type Session } from "./core";
 
@@ -72,7 +73,10 @@ export function desktop(session: Session, requested?: string): string {
   // when the real user's login startup files replace PATH.
   const shell = join(session.root, "bin/login-shell");
   atomicWrite(shell, '#!/bin/sh\nif [ "$1" = -l ]; then shift; fi\nexec /bin/sh "$@"\n', 0o700);
+  session.desktopExecutable = app;
   session.desktopPid = launch(session, [app], "desktop.log", { SHELL: shell });
+  const identity = processIdentitySync(session.desktopPid);
+  if (identity) session.desktopIdentity = identity;
   saveSession(session);
   record(session, { kind: "command", argv: [app], code: 0, stdout: `Launched PID ${session.desktopPid}; inspect with computer-use` });
   return `Desktop launched (PID ${session.desktopPid}); use computer-use to inspect it.`;

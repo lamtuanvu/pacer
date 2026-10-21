@@ -112,7 +112,7 @@ For direct API calls, use `http://127.0.0.1:<session.port>` and read the sandbox
 bun run live login --id my-change --screen sessions
 ```
 
-Open the printed single-use `/app/auth?code=...` URL in your own browser MCP tool. The URL expires quickly; request another if it was already consumed or expired. Inspect the relevant screens, actions, loading/error states and tray popover view (the `/app/tray.html` URL after login). Attach screenshots and record observations. The harness has no Playwright dependency. Browser rendering alone does not verify native desktop tray behavior.
+Open the printed single-use `/app/auth?code=...` URL in your own browser MCP tool. The URL expires quickly; request another if it was already consumed or expired. Inspect the relevant screens, actions, loading/error states and tray popover view (the `/app/tray.html` URL after login). Attach screenshots and record observations. The agent control adapter uses the existing playwright-core dependency with an installed Chromium browser. Browser rendering alone does not verify native desktop tray behavior.
 
 ### TUI
 
@@ -186,3 +186,86 @@ bun run live down --id my-change --keep
 ```
 
 `down` stops the sandbox proxy, inner service and tmux session. `--keep` preserves the sandbox and evidence for review; without it, the entire sandbox is removed. A retained sandbox can be removed later with `down` without `--keep`. The service PID is checked against inner `/health` and the proxy PID against public `/__live/health` before signaling each; a live but unverified PID causes teardown to refuse rather than kill an unrelated process. If startup fails, inspect the retained logs and process state before deleting its directory.
+
+## Agent control commands
+
+The checkout harness exposes one JSON command contract for `web`, browser `tray`,
+`tui` and native `desktop` targets:
+
+```sh
+bun run live targets --id my-change --surface web --json
+bun run live inspect --id my-change --surface web --json
+bun run live act --id my-change --surface web --action click \
+  --selector '{"role":"link","name":"Settings"}' --json
+bun run live wait --id my-change --surface web \
+  --condition '{"role":"heading","name":"Settings"}' --timeout-ms 10000 --json
+bun run live assert --id my-change --surface web \
+  --condition '{"role":"button","name":"Check now"}' --json
+bun run live capture --id my-change --surface web --json
+bun run live scenario --id my-change --file scripts/live/scenarios/settings-updates.json --json
+```
+
+JSON results have schema major `1`, command/run IDs, timestamps, target identity,
+observations, artifact references and structured errors. `outcome` describes the
+command; `delivery` separately distinguishes `delivered`, `not_delivered` and
+`unknown` inputs. Assertions use PASS/FAIL/UNVERIFIED. Never repeat an uncertain
+mutation without inspecting its effects. Unknown additive response fields are
+allowed; unsupported schema majors are rejected.
+
+Inspection returns accessible controls with refs, revision and target generation.
+A ref action needs all three (`--ref`, `--revision`, `--generation`); navigation,
+replacement or changed state may invalidate it. A semantic selector must match
+exactly one control. Coordinate clicks use image-pixel `--x`, `--y` and
+`--capture-id`; stale image geometry is rejected. Browser control supports click,
+type, key, select, scroll, resize and activate. Native capabilities are reported
+by the adapter; unsupported controls produce explicit errors. TUI uses literal
+text or named tmux keys, screen text and cursor state rather than DOM controls.
+
+Each delivered/uncertain action attempts an automatic capture, including failure
+paths. Terminal captures are text. Files go to `evidence/captures/`, detailed
+steps to `evidence/steps/` and source/binary metadata to `evidence/provenance.json`.
+Input values are redacted from step requests, and browser password/OTP controls
+are masked in screenshots. Review all evidence before publishing: other visible
+text can still be sensitive. Captures alone do not establish a passing behavior.
+
+### Browser ownership
+
+The harness uses the existing `playwright-core` dependency and an installed
+Chromium executable. Set `PACER_LIVE_BROWSER` to select one. The macOS default
+is Google Chrome in Applications; Linux uses an installed Chromium/Chrome on
+PATH. No browser is downloaded. The context has its own profile and logs in
+through the sandbox public origin. Set `PACER_LIVE_HEADLESS=1` for headless use;
+this remains browser evidence, not native desktop evidence.
+
+`live browser start` starts the persistent owned context; control commands can
+also start it lazily. `live browser stop` closes it. `down` closes the owned
+browser before the sandbox service. If control sources change while a worker is
+running, stop it before retrying; this prevents old observers claiming current
+source provenance. A busy target refuses concurrent writers.
+
+### Native prerequisites and capture
+
+Build the ordinary desktop app, then use `live desktop --app <path>` and
+`live doctor --surface desktop --json`. The macOS helper requires the installed
+Swift compiler, an unlocked exclusive desktop session, Accessibility permission
+for input/AX and screen capture permission for window images. The currently
+measured compile host is macOS 27.0 with Xcode 27.1; external window capture uses
+macOS 14+ APIs. Other native OS/SDK combinations remain unverified. The harness
+does not grant permissions or close another Pacer instance to obtain a slot.
+Launching an executable does not bypass Tauri's application singleton.
+
+The normal desktop app supports `desktop.capture.*` on protocol v3. It reports
+owned main/tray window IDs through its authenticated capture worker. Native
+`capture --mode window` defaults to OS window paint; `--mode content` takes a
+WKWebView content snapshot. Content excludes titlebars and native dialogs.
+Window capture may fall back to an explicitly labeled external window capture
+with a warning retaining the self-capture failure. Content never silently replaces
+required window evidence. Old app releases can be inspected externally by native
+window ID but do not acquire self-capture by using a newer harness.
+
+Native leases coordinate cooperating agents across worktrees. Foreground drift
+and stale process/window identities refuse input. They do not prevent another
+user or non-cooperating tool from moving the shared desktop. Use a dedicated
+session for native scenarios. VoiceOver calibration, speech observation and
+manual listening remain separate obligations; this interface does not turn AX
+text or screenshots into speech evidence.

@@ -19,6 +19,8 @@ export interface Session {
   seed?: "ui";
   stopped?: boolean;
   desktopPid?: number;
+  desktopExecutable?: string;
+  desktopIdentity?: { pid: number; start_identity: string };
 }
 export interface Evidence {
   at: string;

@@ -470,7 +470,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     {
         return Err("starting".into());
     }
-    let registration = session.op("client.register", &serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":true})).await?;
+    let registration = session.op("client.register", &serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":true,"capture":true})).await?;
     let client_id = registration["client_id"]
         .as_str()
         .ok_or("Missing client id")?
@@ -486,6 +486,14 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     tokio::select! {
         result = listen(app, &session, &client_id, seq) => result,
         result = heartbeat(app, &session, &client_id) => result,
+        _ = async {
+            if let Some(token) = registration["capture_worker"].as_str() {
+                if crate::capture::worker(app, &session, &client_id, token).await.is_err() {
+                    desktop_log!("Desktop capture observer disconnected; normal service session remains active");
+                }
+            }
+            std::future::pending::<()>().await;
+        } => unreachable!(),
         _ = shell.expired.notified() => Err("sessionExpired".into()),
     }
 }
