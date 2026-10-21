@@ -5,7 +5,7 @@ import { executorLabel, executorStatus, type Status } from "../../view-model/wor
 import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line, cellWidth, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, time, updateState } from "./common";
-import { desktopAdoptionConfirmation, desktopUpdateView, updateIntent, type DesktopAction } from "../../view-model/updates";
+import { desktopAdoptionConfirmation, desktopUpdateIndicator, desktopUpdateView, updateIntent, type DesktopAction } from "../../view-model/updates";
 import type { UpdateStatus } from "../../update/desktop/types";
 import { errorRows } from "./review";
 import type { Resource, Row, ScreenCtx, ScreenView, SettingsData } from "./types";
@@ -330,7 +330,19 @@ const strategies: Build = (ctx, width) => {
 
 /** Stable request IDs across redraws, so a repeated key press retries the same intent. */
 const desktopIntent = updateIntent();
-const desktopUpdates = (ctx: ScreenCtx, width: number, updates: UpdateStatus[]): { rows: Row[]; items: Item[] } => {
+/** Executable paths have no spaces; break them after `/` so every segment stays readable. */
+export function wrapPath(path: string, width: number): string[] {
+  const max = Math.max(8, width), lines: string[] = [];
+  let line = "";
+  for (let part of path.split(/(?<=\/)/)) {
+    if (line && line.length + part.length > max) { lines.push(line); line = ""; }
+    while (part.length > max) { lines.push(part.slice(0, max)); part = part.slice(max); }
+    line += part;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+const desktopUpdates = (ctx: ScreenCtx, width: number, updates: UpdateStatus[]): Section => {
   const rows: Row[] = [], items: Item[] = [];
   for (const status of updates) {
     // Presentation grants nothing: only actions the service advertises and this client may call.
@@ -338,8 +350,16 @@ const desktopUpdates = (ctx: ScreenCtx, width: number, updates: UpdateStatus[]):
     const view = desktopUpdateView(available), prefix = `desktop:${status.installationId}`;
     const act = (action: DesktopAction, options: { autoDownload?: boolean } = {}): Act => {
       const intent = desktopIntent(available, action, options);
+      const adoption = available.adoption;
+      if (action === "adopt") desktopAdoptionConfirmation(available); // Refuses an adoption that is no longer offered.
       const confirm = action === "restart" ? { title: `Restart to install ${status.target} after active work finishes?`, yes: "Restart to update" }
-        : action === "adopt" ? { title: desktopAdoptionConfirmation(available), yes: "Use the desktop service" } : undefined;
+        : action === "adopt" && adoption ? { title: "Use the desktop service?", yes: "Use the desktop service", body: [
+          "Replace", ...wrapPath(adoption.currentServiceExecutable, width - 12).map(line => `  ${line}`),
+          "with", ...wrapPath(adoption.replacementServiceExecutable, width - 12).map(line => `  ${line}`),
+          `for service ${adoption.serviceLabel} on port ${adoption.port}.`,
+          "The desktop will manage this service. Active work finishes first;",
+          "tasks, accounts and settings are preserved.",
+        ] } : undefined;
       return { label: intent.label, effect: { type: "action", action: intent }, ...(confirm ? { confirm } : {}) };
     };
     const version = status.target && status.target !== status.current ? `${status.current} → ${status.target}` : status.current;
@@ -347,8 +367,14 @@ const desktopUpdates = (ctx: ScreenCtx, width: number, updates: UpdateStatus[]):
     items.push({ id: prefix, ...(primary ? { primary } : {}), actions: [], keys: primary ? { u: primary } : {} });
     rows.push(...fieldRows(field(ctx, width, "Desktop", [span(version, { bold: true }), span("  "), ...statusSpans(ctx.theme, view)], view.primary ? `⏎ ${view.primary.toLowerCase()}` : ""), prefix));
     rows.push(...wrap(view.detail, width).map(text => ({ line: [span(text, { fg: "secondary" })] })));
+    if (status.error?.hint) rows.push(...wrap(status.error.hint, width).map(text => ({ line: [span(text, { fg: "secondary" })] })));
     const adoption = status.adoption;
-    if (adoption) rows.push(...fieldRows(field(ctx, width, "Service", [span(`${adoption.currentServiceExecutable} → ${adoption.replacementServiceExecutable}`)], `${adoption.serviceLabel}:${adoption.port}`)));
+    if (adoption) {
+      rows.push(...fieldRows(field(ctx, width, "Service", [span(`${adoption.serviceLabel} on port ${adoption.port}`)])));
+      for (const [label, path] of [["Current", adoption.currentServiceExecutable], ["Desktop", adoption.replacementServiceExecutable]] as const)
+        for (const [index, line] of wrapPath(path, width - 4).entries()) rows.push({ line: [span(`  ${index ? "" : `${label}: `}${line}`, { fg: "secondary" })] });
+    }
+    rows.push({ line: [span(`Last checked: ${status.checkedAt === null ? "never" : time(ctx, status.checkedAt)}`, { fg: "muted" })] });
     for (const blocker of [...status.blockers, ...(adoption?.blockers ?? [])]) rows.push({ line: [span(`  ${blocker.label}`, { fg: "warn" })] });
     if (available.actions.includes("check") && view.action !== "check") {
       const check = act("check");
@@ -362,7 +388,7 @@ const desktopUpdates = (ctx: ScreenCtx, width: number, updates: UpdateStatus[]):
     }
     rows.push(blank());
   }
-  return { rows, items };
+  return { rows, items, hints: ["u update"] };
 };
 
 const updates: Build = (ctx, width) => {
@@ -432,7 +458,11 @@ const BADGES = (ctx: ScreenCtx): Record<string, [string, "warn" | "bad"] | undef
   const down = (ctx.s.executors ?? []).filter(e => ["down", "failing"].includes(e.state)).length;
   const hostIssues = (ctx.s.hosts ?? []).filter(h => ["down", "needs_setup"].includes(h.state)).length;
   const signin = (ctx.s.accounts ?? []).filter(a => a.signedIn === false).length;
-  return { executors: down ? [`${down} down`, "bad"] : undefined, hosts: hostIssues ? [`${hostIssues} needs setup`, "warn"] : undefined, accounts: signin ? [`${signin} sign-in`, "warn"] : undefined };
+  // Desktop update attention reads the same indicator as the app's settings navigation.
+  const update = desktopUpdateIndicator(ctx.s.desktopUpdates), updateTone = update?.tone === "bad" ? "bad" : update ? "warn" : undefined;
+  return { executors: down ? [`${down} down`, "bad"] : undefined, hosts: hostIssues ? [`${hostIssues} needs setup`, "warn"] : undefined, accounts: signin ? [`${signin} sign-in`, "warn"] : undefined,
+    // Short like the other list badges; the section itself names the exact state.
+    updates: update && updateTone ? [updateTone === "bad" ? "failed" : "update", updateTone] : undefined };
 };
 
 export function settingsScreen(ctx: ScreenCtx): ScreenView {

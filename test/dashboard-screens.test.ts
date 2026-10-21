@@ -396,3 +396,32 @@ describe("desktop updates in Settings › Updates", () => {
     expect(limited.find(item => item.id === "desktop:desktop-fixture")?.primary?.effect).toMatchObject({ action: { op: "desktop.update.check" } });
   });
 });
+
+describe("desktop service adoption in the TUI", () => {
+  test("the confirmation and service rows show complete paths, service and port", async () => {
+    const { desktopStatus, adoptionStatus } = await import("./fixtures/desktop-update/status");
+    const { wrapPath } = await import("../src/dashboard/screens/settings");
+    const current = "/opt/homebrew/Cellar/pacer/0.2.3/libexec/bin/pacer-with-a-very-long-installation-directory-name/pacer";
+    const replacement = "/Applications/pacer.app/Contents/Resources/pacer";
+    const s = snapshot();
+    s.desktopUpdates = [desktopStatus({ ownership: "attached", actions: ["adopt"], adoption: adoptionStatus({ currentServiceExecutable: current, replacementServiceExecutable: replacement }) })];
+    const state = { screen: "settings" as const, section: "updates", focus: "detail" as const };
+    const text = renderDashboard(s, 80, 40, s.at, { theme: PLAIN_THEME, data: data(), state });
+    for (const line of wrapPath(current, 76)) expect(text).toContain(line);
+    const primary = screenItems(s, s.at, { data: data(), state }).find(item => item.id === "desktop:desktop-fixture")!.primary!;
+    expect(primary.confirm?.title).toBe("Use the desktop service?");
+    const body = primary.confirm!.body!.join("\n");
+    expect(body.replace(/\n\s*/g, "")).toContain(current);
+    expect(body).toContain(replacement);
+    expect(body).toMatch(/on port \d+/);
+    expect(wrapPath(current, 30).every(line => line.length <= 30)).toBe(true);
+    expect(wrapPath(current, 30).join("")).toBe(current);
+  });
+});
+test("the settings section list flags desktop update attention", async () => {
+  const { desktopStatus } = await import("./fixtures/desktop-update/status");
+  const s = snapshot();
+  s.desktopUpdates = [desktopStatus({ phase: "recovery-failed", actions: [] })];
+  const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates" } });
+  expect(text.split("\n").find(line => line.includes(" Updates"))).toContain("Updates failed");
+});
