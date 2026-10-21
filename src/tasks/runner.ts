@@ -1,4 +1,5 @@
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
+import { executorExclusion } from "../executors/availability";
 import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { projectSnapshot, requireProjectExecutor } from "../core/project-policy";
 import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy";
@@ -170,6 +171,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const blocked = readBlocked({ ...ctx, now });
         const broken = readBroken({ ...ctx, now });
         byId = Object.fromEntries(st.providers.map((p) => [p.id, { ...p, ...(blocked[p.id] ? {blockedReason:blocked[p.id].reason,blockedUntil:blocked[p.id].until} : {}), ...(broken[p.id] ? { brokenReason: broken[p.id].reason } : {}) }]));
+        for (const p of Object.values(byId)) {
+          const reason = executorExclusion({ ...ctx, now }, s, p.id);
+          if (reason === "Blocked by you") p.blockedReason = reason;
+          if (reason === "exhausted") p.verdict = "EXHAUSTED";
+        }
         const ranking = rankExecutors(kind, s, byId, selection && { executors: selection.executors, order: "configured" });
         // Resolve placement only for a remote candidate; local routing remains
         // unchanged and the backend still owns worktree creation and safety.
@@ -207,6 +213,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           const full = new Set<string>();
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;
+            const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, s, candidate.id);
+            if (guard) { excluded.push({ id: candidate.id, reason: guard }); return false; }
             const reason = slotBlock(s, candidate.id, use);
             if (!reason) return true;
             full.add(candidate.id);
@@ -216,6 +224,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           });
           const ids = ranking.ranked.map(e => e.id);
           const paused = readPause(ctx);
+          const refusal = req && !tried.has(req) && excluded.find(e => e.id === req && /Blocked by you|exhausted/.test(e.reason));
+          if (refusal) throw new Error(`requested executor "${req}" is unavailable (${refusal.reason})`);
           pick = requested && ids.includes(req!) ? req! : ids.find(e => !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
           if (paused || (req && !tried.has(req) && full.has(req)) || (!pick && [...full].some(e => !tried.has(e)))) {
@@ -259,6 +269,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           skipped: [...skipped].map(([executor, reason]) => ({ executor, reason })),
         };
       }
+      if (!resuming) {
+        const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, s, pick);
+        if (guard) {
+          excluded.push({ id: pick, reason: guard });
+          if (pick === task.requestedExecutor) throw new Error(`requested executor "${pick}" is unavailable (${guard})`);
+          tried.add(pick); continue;
+        }
+      }
       tried.add(pick);
       const cfg = s.providers[pick];
       attemptedExecutor = pick;
@@ -288,6 +306,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming ? t.attemptStartedAt ?? resuming.startedAt : Date.now() / 1000;
       });
       const before = resuming ? null : await repoFingerprint(ctx, task.brief.repo);
+      if (!resuming) {
+        const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, s, pick);
+        if (guard) {
+          excluded.push({ id: pick, reason: guard });
+          if (pick === task.requestedExecutor) throw new Error(`requested executor "${pick}" is unavailable (${guard})`);
+          continue;
+        }
+      }
       let out: AttemptOutcome;
       try {
         out = resuming ? await resumeAttempt(ctx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(ctx, cfg, task, onSpawn);
@@ -319,7 +345,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const isolated = !!out.worktree && realpathSafe(out.worktree) !== realpathSafe(task.brief.repo);
         let unchanged: boolean | null;
         if (resuming) unchanged = null;
-        else if (isolated) unchanged = await worktreeUnchanged(ctx, out.worktree!, readTask(ctx, id)?.baseBranch);
+        else if (isolated) unchanged = await worktreeUnchanged(ctx, out.worktree!, readTask(ctx, id)?.baseSha ?? readTask(ctx, id)?.baseBranch);
         else { const after = await repoFingerprint(ctx, out.worktree ?? task.brief.repo); unchanged = before === null && after === null ? null : before !== null && before === after; }
         const reason = brokenReason(out.exec, duration, unchanged);
         if (reason) out.attempt.brokenReason = reason;

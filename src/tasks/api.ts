@@ -12,7 +12,7 @@ import { clip, LIMITS } from "../link/envelope";
 import { resolveRunner } from "../config/runner-id";
 import { z } from "zod";
 import { appendLabel } from "./labels";
-import { readBlocked } from "../executors/blocked";
+import { executorExclusion } from "../executors/availability";
 import { spawnSync } from "node:child_process";
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
@@ -40,6 +40,7 @@ export const delegateSchema = {
   goal: z.string().min(1), repo: z.string().min(1),
   scope: z.string().optional(), acceptance: z.string().optional(), constraints: z.string().optional(), context: z.string().optional(),
   kind: z.enum(KINDS).optional(), executor: z.string().optional(),
+  worktree_base: z.enum(["default", "head"]).optional(),
   worktree: z.enum(["current", "new", "auto"]).optional(), worktree_reason: z.string().max(200).optional(),
   timeout_min: z.number().min(1).max(240).optional(),
 };
@@ -47,7 +48,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
   if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
   const a=parsed.data;
-  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, constraints:a.constraints, context:a.context, base:a.base },
+  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
     title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
 }
@@ -78,7 +79,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
+export interface DelegateInput { /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -133,6 +134,7 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   if (input.timeoutMin !== undefined && !(input.timeoutMin >= 1 && input.timeoutMin <= 240)) {
     p.push("timeout_min must be between 1 and 240");
   }
+  if(b.worktreeBase !== undefined && !["default", "head"].includes(b.worktreeBase))p.push("worktree_base must be default or head");
   if(input.worktree!==undefined && !["current","new","auto"].includes(input.worktree))p.push("worktree must be one of current, new, auto");
   if(input.worktree_reason!==undefined && (typeof input.worktree_reason!=="string" || input.worktree_reason.length>200))p.push("worktree_reason must be a string of at most 200 characters");
   return p;
@@ -147,7 +149,10 @@ export function delegate(
   const paused = readPause(ctx);
   if (input.executor) input = {...input, executor: resolveRunner(s, input.executor)?.id ?? input.executor};
   const problems = validateInput(s, input);
-  if(input.executor && Object.keys(readBlocked(ctx)).some(id => (resolveRunner(s,id)?.id ?? id) === input.executor))problems.push(`${input.executor}: Blocked by you; run pacer executor unblock ${input.executor}`);
+  if (input.executor) {
+    const reason = executorExclusion(ctx, s, input.executor);
+    if (reason) problems.push(`${input.executor}: ${reason}`);
+  }
   if (problems.length) throw new DelegateError(problems.join("; "));
   const policies = readProjectStrategies(ctx);
   const repo = input.repoRef ?? registeredRepo(ctx, input.brief.repo);
@@ -165,6 +170,9 @@ export function delegate(
   if(input.repoRef || input.client)updateTask(ctx,task.id,t=>{if(input.repoRef)t.repo=input.repoRef;if(input.client)t.client=input.client;});
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
   if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });
+  if (input.reuseWorktree) updateTask(ctx, task.id, t => {
+    t.worktree = input.reuseWorktree; t.baseBranch = input.baseBranch; t.baseSha = input.baseSha;
+  });
   if (paused) updateTask(ctx, task.id, t => {
     t.queue = {reason: "paused", since: ctx.now, position: 1 + listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== t.id && x.queue).length};
   });

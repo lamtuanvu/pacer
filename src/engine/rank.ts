@@ -92,7 +92,7 @@ export function rankExecutors(
     if (st.brokenReason) return exclude(`Not working · ${st.brokenReason}`);
     if (!st.installed) return exclude("not installed");
     if (st.signedOutReason) return exclude(st.signedOutReason);
-    if (st.verdict === "EXHAUSTED" && !account.allowPaid) return exclude("exhausted");
+    if (st.verdict === "EXHAUSTED") return exclude("exhausted");
     ranked.push({ id, ...accountField, score: score(st, s), verdict: st.verdict, reason: reason(st), unknown: st.verdict === "UNKNOWN", order });
   });
   if (selection) {

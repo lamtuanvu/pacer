@@ -25,5 +25,5 @@ test("project eligibility retains planner, disabled, installation and paid overf
   const s = strategy(), st = statuses(); s.runners.cursor.enabled = false; st.codex.installed = false;
   expect(rankExecutors(null, s, st, { ...project, executors: ["claude-code", ...project.executors] }).excluded.map(e => e.reason)).toEqual(["planner", "disabled", "not installed"]);
   s.runners.cursor.enabled = true; st.cursor.verdict = "EXHAUSTED"; s.accounts.cursor.allowPaid = true;
-  expect(rankExecutors(null, s, st, project).ranked.map(e => e.id)).toEqual(["cursor"]);
+  expect(rankExecutors(null, s, st, project).ranked.map(e => e.id)).toEqual([]);
 });

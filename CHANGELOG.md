@@ -24,6 +24,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Overview uses aligned pairs of cards and paginated attention, running, capacity, completed-work and activity lists, keeping the existing design system and compact layout.
 - Repository filters use filled count badges and a searchable **Find repo** menu anchored to its trigger, with compact rows, selected checkmarks, keyboard navigation and narrow-screen containment. The finder includes repositories with no current work.
+||||||| parent of 8474696 (fix(delegate): honour --repo, never pick blocked executors, base new worktrees on the remote default branch)
+### Fixed
+
+- Delegation preserves an explicitly selected checkout's real path instead of substituting a registry checkout of the same repository.
+- Blocked and exhausted executors cannot be selected through aliases, dispatch races or fallback; explicit requests fail clearly, including when legacy paid overflow is enabled.
+- New worktrees fetch origin's default branch tip and record its SHA. `--worktree-base head` explicitly selects the current HEAD. Review retries reuse the original local worktree, including uncommitted changes.
+- Automatic child placement still starts executors in local-only repositories without origin, preserving session takeover support; explicit new/default requests continue to require origin.
 
 ## [0.5.0] - 2026-10-20
 

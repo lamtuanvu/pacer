@@ -1,4 +1,5 @@
 import { beginWorkSync, finishWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
+import { executorExclusion } from "../executors/availability";
 import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { projectSnapshot, requireProjectExecutor } from "../core/project-policy";
 import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy";
@@ -115,7 +116,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           return;
         }
         const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
-        const executor = eligible.find(id => !slotBlock(s, id, use));
+        const executor = eligible.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use));
         if (!executor) return;
         // A running reservation is claimed by the spawned process before its first attempt.
         updateTask(ctx, task.id, t => {t.state = "running"; t.executor = executor; delete t.queue; delete t.runnerPid;});
