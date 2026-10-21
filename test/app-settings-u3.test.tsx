@@ -189,3 +189,14 @@ test('Accounts show an endpoint account\'s weekly dollar spend against its cap',
  const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $'}]}});
  expect(html).toContain('$3.20 of $5 this week');
 });
+
+test('Updates identifies the service and preserves failed-check status', () => {
+ const html = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false}}}/>);
+ expect(html).toContain('Service 0.5.0 · Up to date');
+ expect(html).not.toContain('Desktop app');
+ const failed = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false,error:'offline'}}}/>);
+ expect(failed).toContain('Update check failed');
+ expect(failed).not.toContain('Up to date');
+ const available = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true}}}/>);
+ expect(available).toContain('Update service and restart');
+});

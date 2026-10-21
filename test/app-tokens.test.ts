@@ -98,3 +98,10 @@ test('button shortcuts inherit the action contrast pair without a conflicting ba
  expect(tray).not.toMatch(/\.tray-footer \.pc-kbd\{[^}]*opacity:/);
  for(const theme of ['light','dark'] as const){const fg=luminance(tokens.color.tokens.find(t=>t.name==='ink-on-ink')!.value[theme]);const bg=luminance(tokens.color.tokens.find(t=>t.name==='ink')!.value[theme]);expect((Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05)).toBeGreaterThanOrEqual(4.5);}
 });
+
+
+test('button theme backgrounds change immediately rather than transitioning stale native colors', () => {
+ const css = read('components.css');
+ expect(css).toContain('transition:opacity var(--motion-fast) var(--motion-ease)');
+ expect(css).not.toContain('transition:background-color var(--motion-fast) var(--motion-ease),opacity');
+});

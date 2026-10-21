@@ -3,7 +3,8 @@ Rust adds runtime capabilities for the exact `http://127.0.0.1:<port>` origin,
 with local pages excluded:
 
 - `service-<port>`, main window only: `allow-setLaunchAtLogin`, `allow-setTheme`,
-  `allow-notifyRoute`, `allow-session-expired`.
+  `allow-notifyRoute`, `allow-session-expired`, `allow-session-ready`,
+  `allow-desktop-version` (read-only native app version).
 - `tray-service-<port>`, tray window only: `allow-tray-resize`, `allow-tray-open`,
   `allow-tray-hide`, `allow-app-quit`, `allow-session-expired`.
 

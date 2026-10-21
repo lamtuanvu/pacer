@@ -110,6 +110,11 @@ fn session_expired(window: WebviewWindow, app: AppHandle) -> Result<(), String> 
     Ok(())
 }
 #[tauri::command]
+fn desktop_version(window: WebviewWindow, app: AppHandle) -> Result<String, String> {
+    authorized(&window, &app)?;
+    Ok(app.package_info().version.to_string())
+}
+#[tauri::command]
 fn session_ready(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     authorized(&window, &app)?;
     app.state::<Shell>().startup.lock().unwrap().ready();
@@ -505,7 +510,8 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-setTheme")
                 .permission("allow-notifyRoute")
                 .permission("allow-session-expired")
-                .permission("allow-session-ready"),
+                .permission("allow-session-ready")
+                .permission("allow-desktop-version"),
         )
         .map_err(|e| e.to_string())?;
         app.add_capability(
@@ -854,7 +860,8 @@ fn main() {
             tray_hide,
             app_quit,
             session_expired,
-            session_ready
+            session_ready,
+            desktop_version
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

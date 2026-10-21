@@ -172,7 +172,7 @@ a.pc-btn{text-decoration:none}
 
 /* Beautiful UI adaptations: controls share compact/touch geometry; no demo timers. */
 .pc-density{min-width:0}
-.pc-btn{gap:var(--space-1\.5);font-weight:var(--type-body-strong-weight);transition:background-color var(--motion-fast) var(--motion-ease),opacity var(--motion-fast) var(--motion-ease)}
+.pc-btn{gap:var(--space-1\.5);font-weight:var(--type-body-strong-weight);transition:opacity var(--motion-fast) var(--motion-ease)}
 .pc-btn--quiet{border-color:transparent;background:transparent;color:var(--ink-secondary)}
 .pc-btn--quiet:hover,.pc-btn[aria-expanded=true]{background:var(--surface-lane);color:var(--ink)}
 .pc-btn--danger{border-color:var(--bad-line);color:var(--bad-fg)}
