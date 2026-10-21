@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, utimesSync } from "node:fs";
+import { mkdirSync, statSync, utimesSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { claudeCachePaths, readClaude } from "../src/usage/claude";
+import { claudeCachePaths, readClaude, captureClaudeStreamUsage } from "../src/usage/claude";
+import { validateStrategy } from "../src/config/strategy";
 import { fakeCtx } from "./helpers";
 
 const SAMPLE = {
@@ -9,6 +10,35 @@ const SAMPLE = {
   seven_day: { used_percentage: 4, resets_at: "2026-10-17T05:00:00Z" },
   captured_at: 1791633891.03,
 };
+
+test("Claude stream quota events populate only the selected account without credentials", async () => {
+  const ctx = fakeCtx();
+  const account = validateStrategy({planner: "claude-code", accounts: {
+    main: {kind: "claude"}, work: {kind: "claude", home: "~/.claude-work"},
+  }}, "test").accounts.work;
+  const stream = ["broken JSON", JSON.stringify({type: "rate_limit_event", session_id: "private-session", rate_limit_info: {
+    status: "allowed_warning", unifiedWindows: {
+      seven_day: {utilization: 0.94, resetsAt: ctx.now + 86400},
+      five_hour: {utilization: 0, resetsAt: ctx.now + 3600},
+    },
+  }})].join("\n");
+  expect(captureClaudeStreamUsage(ctx, account, stream)).toBe(true);
+  const reading = await readClaude(ctx, account);
+  expect(reading.windows.map(w => w.usedPct)).toEqual([94, 0]);
+  expect(reading.capturedAt).toBe(ctx.now);
+  expect(statSync(claudeCachePaths(ctx, account)[0]).mode & 0o777).toBe(0o600);
+  expect(statSync(dirname(claudeCachePaths(ctx, account)[0])).mode & 0o777).toBe(0o700);
+  expect((await readClaude(ctx)).capturedAt).toBeNull();
+  expect(await Bun.file(claudeCachePaths(ctx, account)[0]).text()).not.toContain("private-session");
+  expect(captureClaudeStreamUsage(ctx, account, JSON.stringify({type: "rate_limit_event", rate_limit_info: {
+    unifiedWindows: {seven_day: {utilization: 42}},
+  }}))).toBe(false);
+  expect((await readClaude(ctx, account)).windows[0].usedPct).toBe(94);
+  expect(captureClaudeStreamUsage(ctx, account, JSON.stringify({type: "rate_limit_event", rate_limit_info: {
+    rateLimitType: "seven_day", utilization: 0.01,
+  }}))).toBe(false);
+  expect((await readClaude(ctx, account)).windows.map(w => w.usedPct)).toEqual([94, 0]);
+});
 
 async function put(path: string, data: unknown, mtime: number) {
   mkdirSync(dirname(path), { recursive: true });

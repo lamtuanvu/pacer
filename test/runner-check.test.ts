@@ -7,6 +7,32 @@ import { callOp } from "../src/api/ops";
 import { getJob, registerJobDaemon } from "../src/jobs/registry";
 import { fakeCtx } from "./helpers";
 
+for (const session of ["headless", "interactive"]) test(`Claude ${session} readiness captures the named account quotas and rechecks usage`, async () => {
+  const ctx = setup();
+  const strategy = JSON.parse(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8"));
+  strategy.accounts.work = {kind: "claude", home: join(ctx.home, "claude-work")};
+  strategy.runners["claude-code#work"] = {session};
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(strategy));
+  mkdirSync(join(ctx.home, "claude-work"));
+  writeFileSync(join(ctx.home, "claude-work/.claude.json"), '{"oauthAccount":{}}');
+  const job = await checkRunner(ctx, "claude-code#work", {
+    detectAgents: async () => [{agent: "claude-code", found: true, version: "1", path: "/bin/claude", install_hint: "install"}],
+    runTestTask: (ctx, id) => runTestTask(ctx, id, {spawn: async spec => {
+      expect(spec.env.CLAUDE_CONFIG_DIR).toBe(join(ctx.home, "claude-work"));
+      expect(spec.argv).toContain("stream-json");
+      expect(spec.argv).toContain("--verbose");
+      writeFileSync(join(spec.cwd, "hello.txt"), "ok");
+      return {code: 0, stderr: "", timedOut: false, stdout: JSON.stringify({type: "rate_limit_event", rate_limit_info: {
+        unifiedWindows: {seven_day: {utilization: 0.94, resetsAt: ctx.now + 86400}, five_hour: {utilization: 0, resetsAt: ctx.now + 3600}},
+      }})};
+    }}),
+  });
+  expect(job.state).toBe("passed");
+  expect(job.steps[2]).toMatchObject({state: "passed", detail: "Weekly window · 94% used"});
+  expect(existsSync(join(ctx.pacerHome, "cache/claude-rate-limits.work.json"))).toBe(true);
+  expect(existsSync(join(ctx.pacerHome, "cache/claude-rate-limits.json"))).toBe(false);
+});
+
 function setup() {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, {recursive: true});

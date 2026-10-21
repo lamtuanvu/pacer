@@ -337,3 +337,9 @@ a.pc-btn{text-decoration:none}
 .pc-action-panel{border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4);min-width:0}
 @media(max-width:900px){.pc-page-columns{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:767px){.pc-page{padding:var(--space-4) max(var(--space-4),env(safe-area-inset-right)) var(--space-6) max(var(--space-4),env(safe-area-inset-left))}.pc-page-header__row{flex-wrap:wrap}.pc-page-header__actions{width:100%}}
+
+/* Nonmodal update notification: canonical tokens, no entrance motion or focus stealing. */
+.pc-update-notice{position:fixed;inset-inline-end:var(--space-4);bottom:var(--space-4);z-index:var(--layer-overlay);width:min(var(--size-360),calc(100vw - var(--space-4) * 2));box-sizing:border-box;padding:var(--space-4);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page);color:var(--ink);box-shadow:var(--shadow-popover);display:grid;gap:var(--space-3);max-height:calc(100dvh - var(--space-4) * 2);overflow:auto}
+.pc-update-notice p{margin:0}
+.pc-update-notice .row-actions{flex-wrap:wrap}
+.pc-update-notice--narrow{bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom));max-height:calc(100dvh - var(--size-56) - var(--space-4) * 2 - env(safe-area-inset-bottom))}

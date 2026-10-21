@@ -4,10 +4,18 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude executor checks collect quota telemetry from Claude Code's structured test-task output for the selected account, then verify usage instead of silently skipping it when no status-line cache exists.
+
 ### Added
 
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.
 - Native permission setup in desktop Diagnostics: a draggable hosting-app chip docks to System Settings, with a Finder alternative, cancellation and owned-window access verification.
+
+### Fixed
+
+- Setup labels its footer version as the running service version, avoiding confusion with the independently versioned desktop app.
 
 ## [0.6.2] - 2026-10-21
 
