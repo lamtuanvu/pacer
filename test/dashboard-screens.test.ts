@@ -407,7 +407,9 @@ describe("desktop service adoption in the TUI", () => {
     s.desktopUpdates = [desktopStatus({ ownership: "attached", actions: ["adopt"], adoption: adoptionStatus({ currentServiceExecutable: current, replacementServiceExecutable: replacement }) })];
     const state = { screen: "settings" as const, section: "updates", focus: "detail" as const };
     const text = renderDashboard(s, 80, 40, s.at, { theme: PLAIN_THEME, data: data(), state });
-    for (const line of wrapPath(current, 76)) expect(text).toContain(line);
+    for (const line of wrapPath(current, 69)) expect(text).toContain(line);
+    // The first wrapped line must fit after "  Current: " without truncation.
+    expect(text).not.toMatch(/Current: [^\n]*…/);
     const primary = screenItems(s, s.at, { data: data(), state }).find(item => item.id === "desktop:desktop-fixture")!.primary!;
     expect(primary.confirm?.title).toBe("Use the desktop service?");
     const body = primary.confirm!.body!.join("\n");
@@ -424,4 +426,7 @@ test("the settings section list flags desktop update attention", async () => {
   s.desktopUpdates = [desktopStatus({ phase: "recovery-failed", actions: [] })];
   const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates" } });
   expect(text.split("\n").find(line => line.includes(" Updates"))).toContain("Updates failed");
+  s.desktopUpdates = [desktopStatus({ phase: "ready", target: "0.6.0", actions: ["restart"] })];
+  const waiting = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state: { screen: "settings", section: "updates" } });
+  expect(waiting.split("\n").find(line => line.includes(" Updates"))).toContain("Updates pending");
 });

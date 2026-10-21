@@ -372,7 +372,8 @@ const desktopUpdates = (ctx: ScreenCtx, width: number, updates: UpdateStatus[]):
     if (adoption) {
       rows.push(...fieldRows(field(ctx, width, "Service", [span(`${adoption.serviceLabel} on port ${adoption.port}`)])));
       for (const [label, path] of [["Current", adoption.currentServiceExecutable], ["Desktop", adoption.replacementServiceExecutable]] as const)
-        for (const [index, line] of wrapPath(path, width - 4).entries()) rows.push({ line: [span(`  ${index ? "" : `${label}: `}${line}`, { fg: "secondary" })] });
+        // Continuation lines align under the path, so wrap at the width left after "  Current: ".
+        for (const [index, line] of wrapPath(path, width - 11).entries()) rows.push({ line: [span(`  ${index ? " ".repeat(9) : `${label}: `.padEnd(9)}${line}`, { fg: "secondary" })] });
     }
     rows.push({ line: [span(`Last checked: ${status.checkedAt === null ? "never" : time(ctx, status.checkedAt)}`, { fg: "muted" })] });
     for (const blocker of [...status.blockers, ...(adoption?.blockers ?? [])]) rows.push({ line: [span(`  ${blocker.label}`, { fg: "warn" })] });
@@ -462,7 +463,7 @@ const BADGES = (ctx: ScreenCtx): Record<string, [string, "warn" | "bad"] | undef
   const update = desktopUpdateIndicator(ctx.s.desktopUpdates), updateTone = update?.tone === "bad" ? "bad" : update ? "warn" : undefined;
   return { executors: down ? [`${down} down`, "bad"] : undefined, hosts: hostIssues ? [`${hostIssues} needs setup`, "warn"] : undefined, accounts: signin ? [`${signin} sign-in`, "warn"] : undefined,
     // Short like the other list badges; the section itself names the exact state.
-    updates: update && updateTone ? [updateTone === "bad" ? "failed" : "update", updateTone] : undefined };
+    updates: update && updateTone ? [updateTone === "bad" ? "failed" : "pending", updateTone] : undefined };
 };
 
 export function settingsScreen(ctx: ScreenCtx): ScreenView {

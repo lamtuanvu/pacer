@@ -43,3 +43,4 @@
 .u3-release-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Service paths are long; the global code style keeps them on one line. */
 .u3-desktop-update code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.u3-desktop-update:focus-visible { outline: var(--stroke-focus) solid var(--focus); outline-offset: var(--stroke-focus); border-radius: var(--radius-sm); }

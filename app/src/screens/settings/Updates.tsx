@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Checkbox, Disclosure } from "../../ds/Controls";
 import type { UpdateStatus } from "../../../../src/update/desktop/types";
 import { desktopUpdateView, desktopUpdateFeedback, desktopAdoptionConfirmation, updateIntent, type DesktopAction } from "../../../../src/view-model/updates";
@@ -17,6 +17,14 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [feedback, setFeedback] = useState<{action:DesktopAction;result:UpdateStatus}>();
   const available = { ...status, actions: status.actions.filter(action => state.features.ops.has(`desktop.update.${action}`)) };
   const view = desktopUpdateView(available);
+  // Read before commit: was focus inside this update when its primary action changed?
+  const focusedBefore = typeof document !== "undefined" && !!group.current?.contains(document.activeElement);
+  const focusOnChange = useRef(false);
+  focusOnChange.current = focusedBefore;
+  useEffect(() => {
+    // The primary button is remounted per action, so a repeated Enter never runs the new action (e.g. cancel after download).
+    if (focusOnChange.current && !group.current?.contains(document.activeElement)) group.current?.focus();
+  }, [view.action]);
   const message = feedback ? desktopUpdateFeedback(feedback.action,feedback.result,status) : null;
   async function run(action: DesktopAction, autoDownload?: boolean) {
     if (pending.current || !state.connected) return;
@@ -52,7 +60,7 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
     {status.error?.hint && <p>{status.error.hint}</p>}
     <p className="u3-muted">Last checked · {time(status.checkedAt)}</p>
     {status.releaseNotes && <Disclosure summary={`What's new in ${status.target}`}><p className="u3-release-notes">{status.releaseNotes}</p></Disclosure>}
-    <div className="u3-actions">{view.action && <Button variant="primary" aria-disabled={unavailable} onClick={() => void run(view.action!)}>{view.primary}</Button>}{view.action !== "check" && available.actions.includes("check") && <Button aria-disabled={unavailable} onClick={() => void run("check")}>Check for updates</Button>}</div>
+    <div className="u3-actions">{view.action && <Button key={view.action} variant="primary" aria-disabled={unavailable} onClick={() => void run(view.action!)}>{view.primary}</Button>}{view.action !== "check" && available.actions.includes("check") && <Button aria-disabled={unavailable} onClick={() => void run("check")}>Check for updates</Button>}</div>
     {available.actions.includes("configure") ? <label className="pc-checkbox"><span>Download updates automatically <small className="u3-muted">Restart only with your permission</small></span><Checkbox className="pc-checkbox__input" checked={status.autoDownload} disabled={busy || !state.connected || !available.actions.includes("configure")} onChange={event => void run("configure", event.currentTarget.checked)}/></label> : status.ownership === "managed" && ["idle", "checking", "downloading", "ready", "complete", "error"].includes(status.phase) ? <p className="u3-muted">Automatic downloads are {status.autoDownload ? "on" : "off"}.</p> : null}
     {!state.connected && <p role="status">Reconnecting… update status may be out of date.</p>}
     <ErrorMessage error={error}/>{dialogs.dialog}
