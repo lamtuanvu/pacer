@@ -108,7 +108,7 @@ export function Session({ data, loading, error, initialTab, onAction, onAttach, 
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </>;
   return <article className="pc-session" aria-label="Session">
-    <div className="pc-session-breadcrumb"><ButtonLink variant="quiet" size="sm" href="#/sessions">‹ Sessions</ButtonLink></div>
+    <div className="pc-session-breadcrumb"><ButtonLink variant="quiet" size="sm" href="#/tasks">‹ Tasks</ButtonLink></div>
     {loading && <LoadingState updating label="Updating session…"/>}
     <header className="pc-session-header">
       <AgentMark agent={data.agent} size={28}/>
