@@ -339,11 +339,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 @media(max-width:767px){.pc-overview-attention .pc-attn .pc-list-row__leading{min-width:0}}
 
 /* Task results compose existing sections and DS controls. */
-.pc-task-result { max-width: 100%; }
 .pc-task-result__heading { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-.pc-task-result__columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: var(--space-6); }
-.pc-task-result__columns > * { min-width: 0; }
-@media (max-width: 900px) { .pc-task-result__columns { grid-template-columns: minmax(0, 1fr); } }
 /* Keep settings navigation visible without occupying the narrow content viewport. */
 .pc-app:not(.pc-app--narrow) .pc-panel{min-height:100vh}
 .pc-app--narrow .pc-panel{position:sticky;top:0;z-index:var(--layer-sticky);max-height:none;background:var(--surface-card)}

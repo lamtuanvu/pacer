@@ -5,7 +5,7 @@ import { createApi } from "./data/api";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
-import { inheritQuery, resolveRoute, setupCompleteFrom, type Route } from "./router";
+import { inheritQuery, resolveRoute, setupCompleteFrom, titleFor, type Route } from "./router";
 import { attachKeyRegistry } from "./keys/registry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
@@ -19,7 +19,6 @@ import { followSavedTheme } from "./theme";
 import { NavigationProvider } from "./navigation";
 followSavedTheme();
 const store = createStore();
-const TITLES: Record<Route["name"], string> = { overview: "Overview", setup: "Set up pacer", review: "Needs you", sessions: "Tasks", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 function App() {
   const [state, setState] = useState(store.getState);
@@ -84,7 +83,7 @@ function App() {
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider>
+      <NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={titleFor(route)} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider>
     </SetupContext.Provider>
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
