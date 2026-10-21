@@ -380,12 +380,13 @@ jobs:
           git commit -s -m "pacer $VERSION"
           git_auth push origin HEAD:main
 
-  # Opt-in only after the signed native validation matrix has been accepted.
+  # Opt-in production builds also run before tagging, so signing is validated in dry runs.
   # Existing CLI/npm/Homebrew/plugin jobs never depend on desktop completion.
   desktop-build:
     needs: verify
     if: >-
-      github.event_name == 'push' && vars.PACER_DESKTOP_RELEASE_ENABLED == 'true' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) &&
+      vars.PACER_DESKTOP_RELEASE_ENABLED == 'true' &&
       !contains(needs.verify.outputs.version, '-')
     environment: desktop-release
     runs-on: ${{ matrix.runner }}

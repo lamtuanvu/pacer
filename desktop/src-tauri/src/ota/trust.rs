@@ -21,14 +21,14 @@ pub fn build_identity() -> serde_json::Value {
         .then_some(option_env!("PACER_OTA_PUBLIC_KEY"))
         .flatten();
     let team = if cfg!(feature = "ota-production") {
-        option_env!("PACER_APPLE_TEAM_ID")
+        option_env!("PACER_APPLE_TEAM_ID").filter(|v| !v.is_empty())
     } else if cfg!(feature = "ota-fixture") {
         Some("FIXTURE000")
     } else {
         None
     };
     let cert = cfg!(feature = "ota-production")
-        .then_some(option_env!("PACER_SIGNING_CERT_SHA1"))
+        .then_some(option_env!("PACER_SIGNING_CERT_SHA1").filter(|v| !v.is_empty()))
         .flatten();
     let signer = cfg!(feature = "ota-production")
         .then(|| signer_kind(team, cert))
@@ -96,8 +96,8 @@ impl ReleaseTrust {
         {
             Self::from_production(
                 env!("PACER_OTA_PUBLIC_KEY"),
-                option_env!("PACER_APPLE_TEAM_ID"),
-                option_env!("PACER_SIGNING_CERT_SHA1"),
+                option_env!("PACER_APPLE_TEAM_ID").filter(|v| !v.is_empty()),
+                option_env!("PACER_SIGNING_CERT_SHA1").filter(|v| !v.is_empty()),
             )
             .ok()
         }
@@ -298,6 +298,30 @@ impl ReleaseTrust {
 mod tests {
     use super::*;
     use base64::{engine::general_purpose::STANDARD, Engine};
+    #[cfg(feature = "ota-production")]
+    #[test]
+    fn production_build_trust_matches_validated_optional_pins() {
+        let expected_team = option_env!("PACER_APPLE_TEAM_ID").filter(|v| !v.is_empty());
+        let expected_cert = option_env!("PACER_SIGNING_CERT_SHA1").filter(|v| !v.is_empty());
+        let identity = build_identity();
+        assert_eq!(identity["appleTeamId"], serde_json::json!(expected_team));
+        assert_eq!(
+            identity["signingCertSha1"],
+            serde_json::json!(expected_cert)
+        );
+        let configured = ReleaseTrust::configured()
+            .expect("validated production trust must be available at runtime");
+        assert_eq!(
+            configured.requirement(CodeRole::Cli),
+            ReleaseTrust::from_production(
+                env!("PACER_OTA_PUBLIC_KEY"),
+                expected_team,
+                expected_cert
+            )
+            .unwrap()
+            .requirement(CodeRole::Cli)
+        );
+    }
     fn public_key() -> String {
         let mut packet = vec![0u8; 42];
         packet[..2].copy_from_slice(b"Ed");

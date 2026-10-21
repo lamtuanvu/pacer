@@ -41,3 +41,9 @@ test("interim certificate signing is wired through build, signing and publicatio
   expect(sign.env.PACER_SELF_SIGNING_CERTIFICATE_BASE64).toBe("${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}");
   expect(sign.env.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD).toBe("${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}");
 });
+
+test("opted-in release dry runs sign both production desktops without publishing their feed", () => {
+  expect(jobs["desktop-build"].if).toContain("github.event_name == 'workflow_dispatch' && inputs.dry_run");
+  expect(jobs["desktop-publish"].if).toContain("github.event_name == 'push'");
+  expect(jobs["desktop-publish"].if).not.toContain("workflow_dispatch");
+});
