@@ -14,5 +14,8 @@ ureq = { version = "3.4.2", default-features = false }
 jiff = "0.2.38"
 pacer-server = { path = "../server" }
 
+[build-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

@@ -5,6 +5,16 @@ fn pacer() -> Command {
     c.env_remove("PACER_BIN").env_remove("PACER_CORE_ARGV");
     c
 }
+/// The version the front door was built with: the build override, else package.json.
+fn expected_version() -> String {
+    if let Some(version) = option_env!("PACER_BUILD_VERSION") {
+        return version.into();
+    }
+    let package = concat!(env!("CARGO_MANIFEST_DIR"), "/../../package.json");
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(package).unwrap()).unwrap();
+    value["version"].as_str().unwrap().into()
+}
 #[test]
 fn version_is_native() {
     for arg in ["--version", "version"] {
@@ -16,10 +26,7 @@ fn version_is_native() {
         assert!(o.status.success());
         assert_eq!(
             String::from_utf8(o.stdout).unwrap(),
-            format!(
-                "pacer {}\n",
-                option_env!("PACER_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
-            )
+            format!("pacer {}\n", expected_version())
         );
     }
 }
