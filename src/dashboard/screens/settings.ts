@@ -152,7 +152,7 @@ const executors: Build = (ctx, width) => {
   rows.push({ line: [span("Agent + account + where it runs. Set the priority order.", { fg: "secondary" })] }, blank());
   if (!list.length) rows.push(empty("No executors yet. Add one."));
   const ordered = list.filter(e => e.rank !== "planner").sort((a, b) => Number(a.rank) - Number(b.rank)).map(e => e.id);
-  const w = flex(width, [{ fixed: 2 }, { fixed: 24 }, { fixed: 21 }, { weight: 1, min: 3 }]);
+  const w = flex(width, [{ fixed: 2 }, { fixed: 24 }, { fixed: 22 }, { weight: 1, min: 3 }]);
   for (const e of list) {
     const id = `executor:${e.id}`, planner = e.rank === "planner", i = ordered.indexOf(e.id);
     const move = (step: number): Act | undefined => {

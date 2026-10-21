@@ -112,8 +112,8 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
 
 function capacityWidths(width: number, wide: boolean): number[] {
   return wide
-    ? flex(width, [{ fixed: 2 }, { fixed: 26 }, { fixed: 21 }, { fixed: 4 }, { weight: 1, min: 12 }, { fixed: 14 }, { fixed: 4 }, { fixed: 5 }])
-    : flex(width, [{ fixed: 2 }, { weight: 1, min: 12 }, { fixed: 21 }, { fixed: 4 }, { fixed: 5 }]);
+    ? flex(width, [{ fixed: 2 }, { fixed: 26 }, { fixed: 22 }, { fixed: 4 }, { weight: 1, min: 12 }, { fixed: 14 }, { fixed: 4 }, { fixed: 5 }])
+    : flex(width, [{ fixed: 2 }, { weight: 1, min: 12 }, { fixed: 22 }, { fixed: 4 }, { fixed: 5 }]);
 }
 
 /** Running rows: Watch when a session can be attached, otherwise open the session details. Stop always confirms. */

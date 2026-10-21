@@ -228,3 +228,18 @@ test('Updates identifies the service and preserves failed-check status', () => {
  expect(available).toContain('Update service and restart');
 
 });
+
+test('eligible executors retain recent task failures separately from their passed check',()=>{
+ const eligibility={state:'eligible',reasons:[],evaluatedAt:1000,validUntil:null,evidenceAgeS:0,availability:'available',budget:'available',spendingRisk:'none'} as const;
+ const row={...executor,state:'failing',recentFailures:2,reason:'2 recent failures',eligibility,lastCheck:{at:1000,passed:true,detail:'Ready'}} as any;
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
+ expect(html).toContain('Eligible');
+ expect(html).toContain('Recent task failures');
+ expect(html).toContain('2 recent failures');
+ expect(html).toContain('Passed');
+ expect(html).not.toContain('Failing');
+ const failedCheck=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[{...row,lastCheck:{at:1000,passed:false,detail:'test task failed'}}]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
+ expect(failedCheck).toContain('Failing');
+ expect(failedCheck).toContain('Failed');
+ expect(failedCheck).not.toContain('Recent task failures');
+});

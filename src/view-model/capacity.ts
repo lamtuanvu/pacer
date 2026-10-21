@@ -29,9 +29,10 @@ export function executorPace(executor: ExecutorRow, snapshot: ClientSnapshot) {
 export function executorEligibility(executor: ExecutorRow, now: number) {
   const eligibility = eligibilityPresentation(executor.eligibility, now);
   if (executor.eligibility) {
-    return executor.untested
-      ? { ...eligibility, detail: `${eligibility.detail} · Not tested` }
-      : eligibility;
+    const warning = executor.state === "failing"
+      ? [executorRowStatus(executor).label, executor.reason].filter(Boolean).join(" · ")
+      : null;
+    return { ...eligibility, detail: [eligibility.detail, executor.untested ? "Not tested" : null, warning].filter(Boolean).join(" · ") };
   }
   // Older snapshots still carry operational state, but "ready" is not evidence
   // that execution is eligible.
