@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
+import { request } from "node:http";
+import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
@@ -52,6 +54,22 @@ test("sandbox environment keeps HOME and auth references but overrides pacer sta
   expect(env.PACER_ROLE).toBe("executor");
   expect(env.PACER_ORCA_USER_DATA).toBe(join(session.root, "orca-profile"));
   expect(environmentScript(session)).not.toContain("export HOME=");
+  expect(env.PACER_CORE_ARGV).toBeUndefined();
+});
+
+test("the rust front door runs the Rust binary and points it at the checkout core", () => {
+  const session = { ...fixture(), frontDoor: "rust" as const };
+  const core = [process.execPath, join(import.meta.dir, "..", "src", "cli.ts")];
+  expect(pacerArgv(session)).toEqual([join(import.meta.dir, "..", "target", "debug", "pacer")]);
+  expect(pacerArgv({})).toEqual(core);
+  expect(JSON.parse(sandboxEnv(session, {}).PACER_CORE_ARGV!)).toEqual(core);
+  expect(environmentScript(session)).toContain("export PACER_CORE_ARGV=");
+});
+
+test("up refuses an unknown front door before creating a sandbox", async () => {
+  const base = tmpDir();
+  await expect(up("fd", undefined, base, undefined, "go")).rejects.toThrow("Unknown front door");
+  expect(readdirSync(base)).toEqual([]);
 });
 
 test("environment shell quoting preserves text without executing substitutions", () => {
@@ -435,3 +453,55 @@ test("OTA CLI requires explicit scoped options and never accepts arbitrary comma
 test("OTA-only options are rejected before up can create a sandbox", async () => {
   await expect(main(["up", "--id", "../escape", "--from-app", "/outside"])).rejects.toThrow("OTA options");
 });
+
+
+test.skipIf(!canBind)("proxy preserves refused WebSocket handshake statuses, headers and bodies", async () => {
+  const session = fixture();
+  session.port = await freePort();
+  session.innerPort = await freePort();
+  while (session.innerPort === session.port) session.innerPort = await freePort();
+  const sockets = new Set<Socket>();
+  const upstream = createServer(socket => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    socket.once("data", data => {
+      const url = new URL(data.toString().split(" ")[1], "http://localhost");
+      const status = Number(url.searchParams.get("status"));
+      const stall = url.searchParams.get("stall") === "true";
+      if (url.searchParams.get("chunked") === "true") {
+        socket.end(`HTTP/1.1 ${status} Refused\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n0\r\n\r\n`);
+        return;
+      }
+      const body = stall ? "x" : url.searchParams.get("large") === "true" ? "x".repeat(256 * 1024 + 1) : `refused ${status}`;
+      socket.write(`HTTP/1.1 ${status} Refused\r\nContent-Length: ${stall ? 10 : Buffer.byteLength(body)}\r\nX-Pacer: 1\r\nConnection: close\r\n\r\n${body}`);
+      if (!stall) socket.end();
+    });
+  });
+  await new Promise<void>(resolve => upstream.listen(session.innerPort, "127.0.0.1", resolve));
+  const proxy = startProxy(session);
+  try {
+    const cases = [
+      [400, "normal"], [401, "normal"], [403, "normal"], [404, "normal"],
+      [409, "normal"], [404, "large"], [404, "stall"], [404, "chunked"],
+    ] as const;
+    for (const [status, mode] of cases) {
+      const result = await new Promise<{status: number; marker: string | string[] | undefined; body: string}>((resolve, reject) => {
+        const req = request(`http://127.0.0.1:${session.port}/v3/tasks/missing/session?status=${status}&large=${mode === "large"}&stall=${mode === "stall"}&chunked=${mode === "chunked"}`, {
+          headers: { connection: "Upgrade", upgrade: "websocket", "sec-websocket-version": "13", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==" },
+        }, response => {
+          const chunks: Buffer[] = [];
+          response.on("data", chunk => chunks.push(Buffer.from(chunk)));
+          response.on("end", () => resolve({ status: response.statusCode!, marker: response.headers["x-pacer"], body: Buffer.concat(chunks).toString() }));
+          response.on("error", reject);
+        });
+        req.setTimeout(5000, () => req.destroy(Error("handshake response timed out")));
+        req.on("error", reject);
+        req.on("upgrade", (_response, socket) => { socket.destroy(); reject(Error("unexpected upgrade")); });
+        req.end();
+      });
+      expect(result).toEqual(mode !== "normal"
+        ? { status: 502, marker: undefined, body: "Live validation upstream unavailable\n" }
+        : { status, marker: "1", body: `refused ${status}` });
+    }
+  } finally { proxy.stop(true); for (const socket of sockets) socket.destroy(); upstream.close(); }
+}, 30000);
