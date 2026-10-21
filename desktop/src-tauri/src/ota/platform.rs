@@ -925,6 +925,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn failed_ticket_waits_for_exact_child_exit_receipt_without_signaling() {
         let temp = tempfile::tempdir().unwrap();
