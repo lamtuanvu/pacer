@@ -111,6 +111,7 @@ func pressKey(_ key: String) throws {
     }
     @MainActor static func run(_ request: [String: Any]) async throws -> [String: Any] {
         let command = request["command"] as? String ?? ""
+        if command == "permission_setup" { return runPermissionChip(request) }
         if command == "doctor" {
             if request["request_accessibility"] as? Bool == true {
                 _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)

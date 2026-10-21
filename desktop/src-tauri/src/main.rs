@@ -11,6 +11,7 @@ mod logging;
 mod logic;
 mod notifications;
 mod profile;
+mod permission_setup;
 mod tray_model;
 
 use reqwest::Url;
@@ -222,6 +223,13 @@ fn toggle_tray(app: &AppHandle) {
     } else {
         show(app);
     }
+}
+#[tauri::command]
+async fn native_validation_setup(window: WebviewWindow, app: AppHandle) -> Result<permission_setup::SetupResult, String> {
+    authorized(&window, &app)?;
+    let result = permission_setup::request().await?;
+    authorized(&window, &app)?;
+    Ok(result)
 }
 #[allow(non_snake_case)]
 #[tauri::command]
@@ -506,7 +514,8 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-setTheme")
                 .permission("allow-notifyRoute")
                 .permission("allow-session-expired")
-                .permission("allow-session-ready"),
+                .permission("allow-session-ready")
+                .permission("allow-native-validation-setup"),
         )
         .map_err(|e| e.to_string())?;
         app.add_capability(
@@ -856,7 +865,8 @@ fn main() {
             tray_hide,
             app_quit,
             session_expired,
-            session_ready
+            session_ready,
+            native_validation_setup
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

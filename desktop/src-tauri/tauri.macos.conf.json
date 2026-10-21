@@ -1,0 +1,5 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/pacer", "binaries/pacer-permission-setup"]
+  }
+}

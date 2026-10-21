@@ -10,15 +10,19 @@ import { acquireLease, processIdentity, sameProcess } from "./lease";
 async function helperPath(): Promise<string> {
   if (process.platform !== "darwin") throw new ControlError("unsupported_capability", "native desktop control requires macOS");
   const source = join(checkout, "scripts/live/native/main.swift");
-  const hash = createHash("sha256").update(readFileSync(source)).digest("hex").slice(0, 16);
+  const permissionSource = join(checkout, "desktop/native/permission-chip.swift");
+  const hash = createHash("sha256").update("native-helper-v2").update(readFileSync(source)).update(readFileSync(permissionSource)).digest("hex").slice(0, 16);
   const directory = join(checkout, ".work/live-tools"); mkdirSync(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, "pacer-native-control");
   const fingerprint = `${path}.source-hash`;
   if (!existsSync(path) || !existsSync(fingerprint) || readFileSync(fingerprint, "utf8") !== hash) {
-    const child = Bun.spawn(["/usr/bin/swiftc", "-parse-as-library", source, "-o", `${path}.tmp-${process.pid}`], { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(["/usr/bin/swiftc", "-parse-as-library", source, permissionSource, "-o", `${path}.tmp-${process.pid}`], { stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 60000);
     const error = await new Response(child.stderr).text(); const code = await child.exited; clearTimeout(timer);
     if (code) throw new ControlError("observer_unavailable", `native helper compilation failed: ${error.slice(0, 1000)}`);
+    const signing = Bun.spawn(["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", "dev.pacer.live-control", `${path}.tmp-${process.pid}`], { stdout: "pipe", stderr: "pipe" });
+    const signingError = await new Response(signing.stderr).text();
+    if (await signing.exited) throw new ControlError("observer_unavailable", `native helper signing failed: ${signingError.slice(0, 500)}`);
     const { renameSync } = await import("node:fs"); renameSync(`${path}.tmp-${process.pid}`, path);
     atomicWrite(fingerprint, hash);
   }
@@ -28,9 +32,10 @@ export async function nativeCommand(request: Record<string, unknown>, clock?: Op
   clock?.check();
   const path = await helperPath();
   clock?.check();
-  request = { ...request, deadline_ms: clock?.deadline_ms ?? Date.now() + 10000 };
+  const timeout = request.command === "permission_setup" ? 190000 : 10000;
+  request = { ...request, deadline_ms: clock?.deadline_ms ?? Date.now() + timeout };
   const child = Bun.spawn([path], { stdin: new TextEncoder().encode(JSON.stringify(request)), stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), clock?.remaining() ?? 10000);
+  const timer = setTimeout(() => child.kill(), clock?.remaining() ?? timeout);
   try {
     const output = await new Response(child.stdout).text();
     if (output.length > MAX_IMAGE_BYTES * 1.4 + 1024 * 1024) throw new ControlError("capture_invalid", "native result too large");

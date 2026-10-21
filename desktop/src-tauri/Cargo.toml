@@ -20,7 +20,7 @@ png = "0.18.1"
 sha2 = "0.10.9"
 plist = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "cookies"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util"] }
 futures-util = "0.3"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 

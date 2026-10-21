@@ -1,6 +1,6 @@
 # App-owned live validation with minimal permission setup
 
-Status: Draft for maintainer review. Direction approved in conversation; written design approval pending.
+Status: Flow and permission-chip interaction approved in conversation after mockup review; inline implementation authorized. App-owned control and native/VoiceOver acceptance remain separate tracked work.
 Date: 2026-10-21
 Related: issue #239; [agent live-control design](2026-10-21-agent-live-control-design.md); [ADR agent control](../decisions/0002-agent-live-control.md).
 
@@ -79,3 +79,11 @@ Run required TypeScript, UI, Rust, release-build and generated-protocol checks. 
 - The user sees a guided, attributable and verifiable permission flow only for a selected native/VoiceOver capability.
 - Evidence clearly distinguishes app-owned workflow checks from native OS/accessibility and speech checks.
 - Security, bounded-resource and repository evidence rules continue to hold.
+
+## Approved permission chip interaction
+
+Approved in conversation: the user selects Enable native checks, the relevant macOS settings page opens, and a compact floating chip contains the actual responsible hosting app's bundle URL and icon. The user drags the app into the OS list and approves any remaining toggle/authentication. Pacer never grants the permission itself.
+
+The chip follows the System Settings window when it moves, tracks display changes, stays within visible screen bounds, and prefers placement outside the settings content. Tracking uses window-server bounds for the known Settings process, not AX event subscriptions that would require the missing permission. When there is insufficient room, a compact layout keeps the drag target accessible without clipping. Stop following while the app itself is being dragged. Hide with the settings window; dismiss on cancellation, settings closure, bounded timeout, or verified access. Provide a keyboard-accessible Show app in Finder fallback.
+
+Use a shared native helper panel for the harness and ordinary release app. Resolve the hosting application from the running process ancestry and report attribution as inferred unless established; do not substitute the helper binary. Verify both trust and a successful read of an exact owned app window before reporting readiness. Dropping alone does not complete setup. Native/VoiceOver results remain separate from app-owned checks.
