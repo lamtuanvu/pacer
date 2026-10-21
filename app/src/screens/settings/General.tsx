@@ -1,3 +1,5 @@
+import { UpdatesSection } from "./Updates";
+
 import { withQuery, type RouteQuery } from '../../router';
 import { DensityContext } from '../../ds/Density';
 import { SETTINGS_PAGES } from '../../settings-pages';
@@ -103,11 +105,6 @@ function RoutingSection({initialData}:{initialData?:RoutingRules}) {
 function StrategiesSection({initialData}:{initialData?:StrategyRow[]}) {
  const query=useResource('strategy.list',{},initialData),action=useOperation(query.reload);const [building,setBuilding]=useState(false),[brief,setBrief]=useState('');
  return <Section id="strategies" title="Strategies" detail="Saved routing and pacing settings. Switch anytime." actions={<Button onClick={()=>setBuilding(v=>!v)}>New from a brief</Button>}><ResourceState resource={query} empty="No strategies yet.">{query.data?.map(strategy=><div className="u3-setting" key={strategy.name}><strong>{strategy.name}</strong><div className="u3-row"><span>{strategy.summary}</span>{strategy.active?<span>Active</span>:<Button disabled={action.busy} onClick={()=>void action.run('strategy.use',{name:strategy.name})}>Use</Button>}</div></div>)}</ResourceState>{building&&<form className="pc-card" onSubmit={e=>{e.preventDefault();void action.run('strategy.build',{brief});}}><Field label="What should this strategy do?"><TextArea value={brief} maxLength={2000} required onInput={e=>setBrief(e.currentTarget.value)}/></Field><Button type="submit" disabled={action.busy}>Build strategy</Button><p className="u3-muted">Opens a planning session or returns a command to run.</p></form>}<Feedback action={action}/></Section>;
-}
-function UpdatesSection({initialData}:{initialData?:SettingsData['updates']}) {
- const dialogs=useDialogs();
- const query=useResource('update.check',{},initialData),config=useResource<ConfigData>('config.get'),action=useOperation(query.reload);
- return <Section id="updates" title="Updates" actions={<Button disabled={action.busy} onClick={()=>void action.run('update.check',{force:true})}>Check now</Button>}>{dialogs.dialog}<ResourceState resource={query}>{query.data&&<><p>Version {query.data.current} · {query.data.available?`Update available: ${query.data.latest}`:query.data.latest?'Up to date':'Not checked'}</p>{query.data.error&&<p role="status">{query.data.error}</p>}{query.data.disabled&&<p>Automatic update checks are off.</p>}{query.data.available&&<Button disabled={action.busy} onClick={async()=>{if(await dialogs.confirm('Update pacer and restart the service?','Update and restart','Update and restart'))void action.run('update.apply',{});}}>Update and restart</Button>}</>}</ResourceState><label className="pc-checkbox"><span>Check for updates <small className="u3-muted">Once a day, in the background</small></span><Checkbox className="pc-checkbox__input"  aria-label="Check for updates" checked={config.data?.keys.update_check?.value!==false} disabled={!config.data||action.busy} onChange={e=>void action.run('config.set',{key:'update_check',value:e.currentTarget.checked})}/></label><ResourceState resource={config}><span/></ResourceState><Feedback action={action}/></Section>;
 }
 function NotificationsSection({initialData}:{initialData?:{level:string}}) {
  const query=useResource('notifications.get',{},initialData),action=useOperation(query.reload);
