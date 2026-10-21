@@ -9,7 +9,7 @@ rust-version.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-regress = "0.10"
+regress = "0.12"
 
 [dev-dependencies]
 xtask = { path = "../../xtask" }
