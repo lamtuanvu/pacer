@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, constants, existsSync, lstatSync, copyFileSync, fsyncSync, linkSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, constants, lstatSync, copyFileSync, fsyncSync, linkSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { signStaged } from "./signing";
 import { ReleaseError } from "./errors";
@@ -113,9 +113,12 @@ export async function replacePair(o: ReplacePairOptions): Promise<ReplaceResult 
   for (const entry of entries) {
     if (dirname(entry.target) !== dirname(front) || paths.has(entry.target)) throw new ReleaseError("pair targets must be distinct siblings of the running binary");
     paths.add(entry.target);
-    if (existsSync(entry.target)) {
-      if (!lstatSync(entry.target).isFile()) throw new ReleaseError(`pair target is not a regular file: ${entry.target}`);
+    try {
+      const stat = lstatSync(entry.target);
+      if (!stat.isFile()) throw new ReleaseError(`pair target is not a regular file: ${entry.target}`);
       entry.existed = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
   try {

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ReleaseError } from "../src/update/errors";
@@ -297,4 +297,15 @@ test("failed front-door rename restores an existing core and preserves staged-fi
   await expect(replacePair({ target, bytes: enc("front"), companions: [{ target: core, bytes: enc("core") }], version: "0.2.0" })).rejects.toThrow();
   expect(readFileSync(`${core}.new`, "utf8")).toBe("belongs to another update");
   expect(readFileSync(core, "utf8")).toBe("old core");
+});
+
+test("pair refuses a dangling companion symlink without removing it", async () => {
+  const { replacePair } = await import("../src/update/replace");
+  const dir = tmpDir(), target = installed(dir), core = join(dir, "pacer-core");
+  const missing = join(dir, "missing-core");
+  symlinkSync(missing, core);
+  await expect(replacePair({ target, bytes: enc("new front"), companions: [{ target: core, bytes: enc("new core") }], version: "0.2.0", sign: async () => {}, smoke: async () => "pacer 0.2.0" })).rejects.toThrow("not a regular file");
+  expect(lstatSync(core).isSymbolicLink()).toBe(true);
+  expect(readlinkSync(core)).toBe(missing);
+  expect(readFileSync(target, "utf8")).toBe(script("0.1.0"));
 });
