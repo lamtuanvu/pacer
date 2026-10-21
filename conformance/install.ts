@@ -16,7 +16,7 @@ export function installFixture(name: FixtureName, pluginsDir: string, overrides:
   const rust = name.startsWith("rust-");
   const src = join(root, rust ? "rust-good" : name);
   if (rust && !rustBuilt) {
-    // bun:test isolates HOME; Rust's installed toolchain and offline cache stay in
+    // bun:test isolates HOME; Rust's installed toolchain and crate cache stay in
     // the user's tool directories, independently of the fixture's sandbox home.
     const home = userInfo().homedir;
     const env = {
@@ -24,7 +24,7 @@ export function installFixture(name: FixtureName, pluginsDir: string, overrides:
       RUSTUP_HOME: process.env.RUSTUP_HOME ?? join(home, ".rustup"),
       CARGO_HOME: process.env.CARGO_HOME ?? join(home, ".cargo"),
     };
-    execFileSync("cargo", ["build", "--offline", "-q", "-p", "pacer-fixtures", "--bin", "pacer-fixture"], { cwd: repo, env, stdio: "inherit" });
+    execFileSync("cargo", ["build", "--locked", "-q", "-p", "pacer-fixtures", "--bin", "pacer-fixture"], { cwd: repo, env, stdio: "inherit" });
     rustBuilt = true;
   }
   const manifestText = readFileSync(join(src, "pacer-plugin.json"), "utf8");

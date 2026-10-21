@@ -52,12 +52,21 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      # The conformance suite builds the Rust fixture plugin.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+      - name: Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Check UI policy
         run: bun run ui:check --source-only
       - name: Typecheck
         run: bun run typecheck
+      - name: Build the Rust fixture plugin
+        run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
       - name: Test
         run: bun run test
       - name: Build
@@ -133,6 +142,13 @@ jobs:
           components: rustfmt, clippy
       - name: Cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Integration tests run the TypeScript core behind the Rust front door.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -145,6 +161,10 @@ jobs:
         run: cargo xtask deps
       - name: Test
         run: cargo test --workspace --locked
+      - name: Plugin conformance through the Rust front door
+        run: |
+          cargo build -p pacer -p pacer-fixtures --locked
+          PACER_CORE_ARGV="[\"$(command -v bun)\",\"$PWD/src/cli.ts\"]" bun conformance/run.ts --host target/debug/pacer
       - name: Build timings (CRATE-9)
         if: matrix.os == 'ubuntu-latest'
         run: |
