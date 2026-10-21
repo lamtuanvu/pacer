@@ -43,3 +43,26 @@ export async function worktreeUnchanged(ctx: Ctx, path: string, base: string | u
   const c = await ctx.run(["git", "-C", path, "rev-list", "--count", `${base}..HEAD`], 15_000);
   return c.code === 0 ? Number(c.stdout.trim()) === 0 : null;
 }
+
+/** Resolve once to an immutable commit; never silently use a stale local branch. */
+export async function resolveWorktreeBase(ctx: Ctx, top: string, brief: { base?: string; worktreeBase?: "default" | "head" }, configured?: string | null, allowLocalHead = false): Promise<{ base: string; sha: string } | { error: string }> {
+  let base = brief.base ?? (brief.worktreeBase === "head" ? "HEAD" : configured);
+  // Automatic child placement must still work in local-only repositories.
+  // Explicit new/default requests require origin; a failed fetch never falls back.
+  if (!base && allowLocalHead && !brief.worktreeBase) {
+    const origin = await ctx.run(["git", "-C", top, "remote"], 10_000);
+    if (origin.code === 0 && !origin.stdout.trim().split(/\s+/).includes("origin")) base = "HEAD";
+  }
+  if (!base) {
+    const fetched = await ctx.run(["git", "-C", top, "fetch", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*"], 60_000);
+    if (fetched.code !== 0) return { error: `cannot fetch origin for worktree base: ${firstLine(fetched.stderr)}; use --worktree-base head to opt in to the current HEAD` };
+    const remote = await ctx.run(["git", "-C", top, "ls-remote", "--symref", "origin", "HEAD"], 30_000);
+    const branch = remote.code === 0 ? /^ref: refs\/heads\/(.+)\tHEAD$/m.exec(remote.stdout)?.[1] : undefined;
+    if (!branch) return { error: "cannot determine origin's default branch; use --worktree-base head or an explicit base" };
+    base = `origin/${branch}`;
+  }
+  const commit = await ctx.run(["git", "-C", top, "rev-parse", "--verify", `${base}^{commit}`], 10_000);
+  const sha = commit.stdout.trim();
+  if (commit.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) return { error: `cannot resolve worktree base ${base}: ${firstLine(commit.stderr)}` };
+  return { base, sha };
+}

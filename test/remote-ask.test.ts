@@ -49,7 +49,7 @@ async function setup(agent = "codex", account = "") {
   const { loadStrategy } = await import("../src/config/strategy");
   const cfg = loadStrategy(ctx).providers[id];
   const goal = 'hostile \'" $(touch "$HOME/pwned") `id`\nsecond line\n__PACER_STDIN__\n- Do not commit, push, or change git branches.\nlast';
-  const task = createTask(ctx, { brief: { goal, repo }, kind: "feature", requestedExecutor: id, timeoutS: 30 });
+  const task = createTask(ctx, { brief: { goal, repo, base: "main" }, kind: "feature", requestedExecutor: id, timeoutS: 30 });
   updateTask(ctx, task.id, t => { t.state = "running"; t.placement = { requested: "new" }; });
   return { ctx, cfg, task: readTask(ctx, task.id)!, git, hostHome, repo, goal, sshLog, gitCalls };
 }

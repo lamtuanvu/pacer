@@ -1,3 +1,4 @@
+import { resolveWorktreeBase } from "../supervisor/worktree";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -59,10 +60,9 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const placement = resolvePlacement(task, ex.worktree, false, git.dirty);
     const excluded = await remoteExclusion(ctx, s, cfg.id, { repo: task.brief.repo, placement: placement.mode });
     if (excluded) return failed(excluded);
-    const base = task.brief.base ?? (ex.worktree === "child-of-current" ? git.branch : ex.baseBranch ?? git.branch);
-    const sha = await ctx.run(["git", "-C", git.top, "rev-parse", `${base}^{commit}`], 10000);
-    if (sha.code) return failed(sha.stderr || "base is not a commit");
-    const baseSha = sha.stdout.trim();
+    const resolvedBase = await resolveWorktreeBase(ctx, git.top, task.brief, ex.baseBranch);
+    if ("error" in resolvedBase) return failed(resolvedBase.error);
+    const { base, sha: baseSha } = resolvedBase;
     const origin = await ctx.run(["git", "-C", git.top, "remote", "get-url", "origin"], 10000);
     const key = repoKey(origin.stdout.trim());
     if (!key || !host.repos[key]) return failed(`repo not set up on ${host.alias}`);
@@ -94,7 +94,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const run: RunRef = { dir, attempt, executor: cfg.id, startedAt, mode: "new", workdir: worktree, logFile: log, host: host.alias, remoteDir, remoteWorktree: worktree, remoteBranch, baseSha,
       ...(launch.lastMessageFile ? { lastMessageFile: join(dir, "last.md") } : {}) };
     updateTask(ctx, task.id, t => {
-      t.run = run; t.baseBranch = base; t.worktree = `${host.alias}:${worktree}`;
+      t.run = run; t.baseBranch = base; t.baseSha = baseSha; t.worktree = `${host.alias}:${worktree}`;
       t.placement = { ...t.placement, requested: t.placement?.requested ?? "auto", ...placement };
     });
     let built = buildPrompt({ ...task.brief, repo: worktree }, task.id);

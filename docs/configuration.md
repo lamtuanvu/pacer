@@ -30,7 +30,7 @@ Native IDs are `claude-code`, `codex`, `cursor` and `agy`. Other provider IDs ne
 | metered | OpenCode token totals against `budget: {weekly_tokens: 20M}`; this budget is required. |
 | unmetered | No usage quota measurement; suitable for local models. |
 
-`allow_paid` defaults to false: exhausted providers are excluded. Setting it true permits routing even when exhausted; it does not purchase credits or configure billing. Durations support `s`, `m`, `h` and `d`. Native providers may set `model`; Cursor and agy cannot use `quota`.
+Exhausted providers are excluded even when the legacy `allow_paid` setting is true. The setting does not override blocks or exhaustion, purchase credits or configure billing. Durations support `s`, `m`, `h` and `d`. Native providers may set `model`; Cursor and agy cannot use `quota`.
 
 ## Accounts and usage sources
 
@@ -96,7 +96,7 @@ Kinds: `boilerplate`, `tests`, `docs`, `rename`, `migration`, `feature`, `debug`
 
 `execution.backend` is `auto` (default), `orca` or `direct`. `auto` and `direct` run agents under pacer's own supervisor, with pacer-owned worktrees for new placement. `orca` runs agents as supervised Orca workers in visible Orca terminals. `PACER_BACKEND=orca` still forces the Orca backend.
 
-`execution.worktree` is `child-of-current` (default), `new-child` or `current`; `base_branch` selects a base ref and implies `new-child` when worktree is omitted. Individual briefs use `worktree: current|new|auto` and an optional reason; safety checks can veto current placement. See [placement](executors.md#execution-and-review).
+`execution.worktree` is `child-of-current` (default), `new-child` or `current`; `base_branch` selects a base ref and implies `new-child` when worktree is omitted. New worktrees fetch and use the remote default branch tip unless `base_branch`, a brief `base`, or `worktree_base: head` explicitly selects another base. Automatic `child-of-current` placement in a local-only repository without origin preserves its HEAD base; explicit `worktree: new` or `worktree_base: default` still requires origin. A failed fetch never falls back to HEAD. Individual briefs use `worktree: current|new|auto` and an optional reason; safety checks can veto current placement. See [placement](executors.md#execution-and-review).
 
 `execution.idle_after_min` defaults to 10: without output or file changes, the task becomes idle and emits an alert. `execution.idle_fail_min` defaults to 30: continued inactivity stops the task. Both accept whole minutes from 1 to 1440, and `idle_fail_min` must exceed `idle_after_min`.
 

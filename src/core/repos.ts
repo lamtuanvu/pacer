@@ -130,8 +130,8 @@ export async function backfillRepos(ctx: Ctx,paths: string[]): Promise<void> {
 }
 
 /** Resolve a picker key without treating it as a relative filesystem path. */
-export async function resolveRepoInput(ctx: Ctx, value: string): Promise<RepoRef> {
- if(isAbsolute(value))return resolveRepo(ctx,value);
+export async function resolveRepoInput(ctx: Ctx, value: string, strict = false): Promise<RepoRef> {
+ if(isAbsolute(value))return { ...await resolveRepo(ctx,value,strict), path: await canonicalAsync(value) };
  const known=listRepos(ctx).find(r=>r.key===value);
  if(known)return known;
  throw new CoreError("invalid_input","repo must be an absolute path or a registered repo key");

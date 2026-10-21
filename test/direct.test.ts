@@ -33,6 +33,7 @@ async function setup(name: string, script: string, o: { git?: boolean } = {}) {
   // Headless Cursor launches first ask for a chat id; these fakes have none.
   const bin = fakeBin(name, name === "cursor-agent" ? `[ "$1" = create-chat ] && exit 1\n${script}` : script);
   const repo = o.git ? gitRepo() : tmpDir();
+  if (o.git) await realRun(["git", "-C", repo, "remote", "add", "origin", repo], 10000);
   const ctx = fakeCtx({ ...(o.git ? { run: realRun } : {}), env: { PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME } });
   const task = createTask(ctx, { brief: { goal: "Do it", repo }, kind: null, requestedExecutor: null, timeoutS: 30 });
   return { ctx, task, repo };
@@ -71,7 +72,7 @@ test("fallback reuses the worktree after a launcher fails before recording a run
   expect(first.exec.code).toBe(127);
   const saved = readTask(ctx, task.id)!;
   expect(saved.run).toBeUndefined();
-  expect(saved.baseBranch).toBe("main");
+  expect(saved.baseBranch).toBe("origin/main");
   writeFileSync(join(saved.worktree!, "prior.txt"), "prior work");
   updateTask(ctx, task.id, t => { t.attempts.push(first.attempt); });
   const second = await runAttempt(ctx, s.providers.cursor, readTask(ctx, task.id)!);
@@ -130,12 +131,13 @@ test("non-git repo runs in place with a note", async () => {
   expect(readTask(ctx, task.id)?.placement?.mode).toBe("current");
 });
 
-test("detached HEAD refuses new placement", async () => {
+test("detached HEAD permits explicit HEAD opt-in", async () => {
   const { ctx, task, repo } = await setup("cursor-agent", "echo done", { git: true });
   Bun.spawnSync(["git", "checkout", "-q", "--detach"], { cwd: repo });
+  task.brief.worktreeBase = "head";
   const o = await runAttempt(ctx, s.providers.cursor, task);
-  expect(o.exec.code).toBe(1);
-  expect(o.report).toContain("detached HEAD");
+  expect(o.exec.code).toBe(0);
+  expect(readTask(ctx, task.id)?.baseSha).toMatch(/^[0-9a-f]{40}$/);
 });
 
 test("live output lands in the run directory while the agent runs; the legacy log is written at the end", async () => {

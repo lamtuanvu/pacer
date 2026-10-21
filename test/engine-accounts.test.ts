@@ -149,10 +149,10 @@ for (const policy of ["priority", "even"]) {
   }
 }
 
-test("paid overflow is controlled by the shared account", async () => {
+test("exhaustion excludes shared accounts even with paid overflow enabled", async () => {
   const s = strategy(); s.accounts.a.allowPaid = true;
   const result = await status(s, 100, 40);
-  expect(result.executors.ranked.map(r => r.id)).toContain("opencode#a");
+  expect(result.executors.excluded).toContainEqual({ id: "opencode#a", account: "a", reason: "exhausted" });
 });
 
 test("an old exhausted short window still binds over a fresh weekly window", async () => {
