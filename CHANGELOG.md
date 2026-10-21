@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore desktop capture-worker enrollment during client registration so native live diagnostics can capture owned windows.
+
+
 ### Added
 
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.
