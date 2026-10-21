@@ -75,6 +75,14 @@ script accepts `BUN` as a single executable name or path (not a shell command):
 BUN="$(npx -y bun@1.4.2 -p 'process.execPath')" ./scripts/stage-cli.sh
 ```
 
+Settings > Updates shows the native **Desktop app** version separately from the
+connected **Service** version. Each is compared with the latest stable release.
+**Update service and restart** updates only the service. **Download desktop app**
+opens the release page: download the desktop build for your platform and replace
+the installed app. Older shells that cannot report their version show
+**Version unavailable** with the same download guidance. Development/prerelease
+desktop versions show **Not checked** rather than claiming they are current.
+
 ### Updating the macOS app
 
 Replace the installed `pacer.app` bundle with the new build at the same path.
@@ -208,6 +216,7 @@ active `http://127.0.0.1:<port>` origin in the main window these app commands:
 ```js
 await window.__TAURI__.core.invoke('setLaunchAtLogin', { enabled: true });
 await window.__TAURI__.core.invoke('setTheme', { theme: 'system' }); // light, dark
+await window.__TAURI__.core.invoke('desktop_version'); // native app version
 await window.__TAURI__.core.invoke('notifyRoute', { route: '#/review/t-example' });
 await window.__TAURI__.core.invoke('session_expired'); // also allowed from tray
 ```
@@ -259,7 +268,7 @@ links open `/app/#<route>` and resizing is skipped.
 - Launch the app twice: only one tray and window remain.
 - Resize/move/relaunch; test theme and launch at login, then turn autostart off.
 - Return protocol 1.x / 3.x from a test service: update CLI / app respectively.
-- Try IPC from another origin: denied. Confirm the three allowed IPC calls from
+- Try IPC from another origin: denied. Confirm the allowed IPC calls, including `desktop_version`, from
   the authenticated main page work, tray commands work only from the tray
   window, session expiration works from both, and all plugin calls are denied.
 

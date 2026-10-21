@@ -94,6 +94,8 @@ This migration consolidates the shared-foundation inventory from #174 while pres
 
 The canonical Disclosure supports `pc-disclosure--wrap` for multi-part summaries, wrapping title, status and evidence within the container. Diagnostics uses this variant with `pc-ellipsis` and a full title attribute for long identities. Native disclosure keyboard and open/closed semantics remain unchanged; no new upstream adaptation is introduced.
 
+Button backgrounds change immediately when theme tokens change; only opacity transitions. This avoids stale native WebKit background transitions during Appearance changes while preserving keyboard/focus semantics and the existing Button API.
+
 ### Task result composition
 
 TaskResult composes canonical SectionHeading, StatusPill, Disclosure, Field,
