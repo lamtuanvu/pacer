@@ -262,3 +262,36 @@ test('paged Updates keeps OTA controls, service identity and navigation status t
  expect(panel).toContain('title="Update ready"');
  expect(panel.match(/aria-current="page"/g)).toHaveLength(1);
 });
+
+test('completed executor setup offers another account without leaving the wizard', () => {
+ const initialDraft={step:'4',agent:'claude-code',account:'team',createdId:executor.id,jobId:job.id};
+ const html=render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
+ expect(html).toContain('Add another account');
+ expect(html).toContain('Back to settings');
+ expect((html.match(/pc-btn--primary/g)||[]).length).toBe(1);
+});
+
+test('adding another account replaces the completed draft with an unlocked account step', async () => {
+ const {options}=await import('preact');
+ const saved=new Map<string,string>();
+ const key='pacer.settings.add-executor';
+ saved.set(key,JSON.stringify({step:'4',agent:'claude-code',host:'devbox',account:'team',model:'old',rank:'1',createdId:executor.id,jobId:job.id}));
+ const oldStorage=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+ const oldVNode=options.vnode;
+ let startAnother:(()=>void)|undefined;
+ Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>saved.get(key)??null,setItem:(key:string,value:string)=>saved.set(key,value),removeItem:(key:string)=>saved.delete(key)}});
+ options.vnode=node=>{oldVNode?.(node);if(node.type==='button'&&(node.props as any).children==='Add another account')startAnother=(node.props as any).onClick;};
+ try {
+  render(<AddExecutor/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
+  expect(startAnother).toBeDefined();
+  startAnother!();
+  const html=render(<AddExecutor/>);
+  expect(html).toContain('Which account pays for it?');
+  expect(html).toContain('New account');
+  expect(html).not.toContain('is ready');
+  expect(JSON.parse(saved.get(key)!)).toEqual({step:'2',agent:'claude-code',host:'devbox',account:'',model:'',rank:'',createdId:'',jobId:''});
+ } finally {
+  options.vnode=oldVNode;
+  if(oldStorage)Object.defineProperty(globalThis,'sessionStorage',oldStorage);else Reflect.deleteProperty(globalThis,'sessionStorage');
+ }
+});

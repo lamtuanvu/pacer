@@ -375,7 +375,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
     locked(0);
     return { dismissed, unknown };
   } }),
-  "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
+  "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets. Returns an opaque source identity; reset offsets when it changes.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
   "task.diff": op({ description: "Tracked changes against the task's base, plus untracked filenames.", params: z.object({ id, path: z.string().min(1).max(4096).refine(path => !path.includes("\0"), "path must not contain NUL").optional() }), handler: async (ctx, p) => { const {diff:_,...result}=await core.tasks.diff(ctx,p.id,{path:p.path});return result; } }),
   "runner.list": op({ description: "Configured executors and their availability.", params: z.object({}), handler: (ctx) => core.runners.list(ctx) }),
   "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),

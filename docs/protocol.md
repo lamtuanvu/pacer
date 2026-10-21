@@ -3685,7 +3685,7 @@ Params JSON Schema:
 
 ### `task.log`
 
-Read up to 256 KiB per output stream from byte offsets.
+Read up to 256 KiB per output stream from byte offsets. Returns an opaque source identity; reset offsets when it changes.
 
 Params JSON Schema:
 

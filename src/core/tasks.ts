@@ -235,16 +235,20 @@ function readFrom(file: string | undefined, offset: number): { text: string; nex
 
 /** Reads output so far without refreshing liveness or restarting a task's runner. */
 export function log(ctx: Ctx, id: string, o: { stdout?: number; stderr?: number } = {}): {
-  stdout: string; stderr: string; next: { stdout: number; stderr: number }; done: boolean;
+  stdout: string; stderr: string; next: { stdout: number; stderr: number }; done: boolean; source: string;
 } {
   const task = readTask(ctx, id);
   if (!task) throw unknown(id);
   const stdout = o.stdout ?? 0, stderr = o.stderr ?? 0;
   if (![stdout, stderr].every((n) => Number.isInteger(n) && n >= 0)) throw new CoreError("invalid_input", "log offsets must be non-negative integers");
-  const out = readFrom(task.run ? join(task.run.dir, "stdout") : task.attempts.at(-1)?.log, stdout);
-  const err = task.run ? readFrom(join(task.run.dir, "stderr"), stderr) : { text: "", next: 0 };
+  const outFile = task.run ? join(task.run.dir, "stdout") : task.attempts.at(-1)?.log;
+  const errFile = task.run ? join(task.run.dir, "stderr") : undefined;
+  // An opaque identity lets readers detect rerouting without exposing file paths.
+  const source = createHash("sha256").update(JSON.stringify([outFile ?? null, errFile ?? null])).digest("hex");
+  const out = readFrom(outFile, stdout);
+  const err = errFile ? readFrom(errFile, stderr) : { text: "", next: 0 };
   return {
-    stdout: out.text, stderr: err.text, next: { stdout: out.next, stderr: err.next },
+    source, stdout: out.text, stderr: err.text, next: { stdout: out.next, stderr: err.next },
     done: TERMINAL_STATES.includes(task.state) || (task.run !== undefined && readRun(task.run.dir).exit !== null),
   };
 }
