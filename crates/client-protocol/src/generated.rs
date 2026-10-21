@@ -3658,6 +3658,9 @@ impl ::std::default::Default for ClientListParams {
 ///    "version"
 ///  ],
 ///  "properties": {
+///    "capture": {
+///      "type": "boolean"
+///    },
 ///    "kind": {
 ///      "type": "string",
 ///      "enum": [
@@ -3685,6 +3688,8 @@ impl ::std::default::Default for ClientListParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ClientRegisterParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub capture: ::std::option::Option<bool>,
     pub kind: ClientRegisterParamsKind,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub notifier: ::std::option::Option<bool>,

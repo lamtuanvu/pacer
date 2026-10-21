@@ -619,6 +619,9 @@
         },
         "notifier": {
           "type": "boolean"
+        },
+        "capture": {
+          "type": "boolean"
         }
       },
       "required": [
