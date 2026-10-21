@@ -25,6 +25,11 @@ test("source snapshot changes only isolated version inputs and excludes live dat
   const source = realpathSync(tmpDir()), destination = join(source, ".work/live/test/ota/build/candidate/source");
   mkdirSync(join(source, "desktop/src-tauri"), { recursive: true });
   mkdirSync(join(source, "src")); mkdirSync(join(source, ".work"));
+  // Bundled plugins and workspace packages are compiled into the CLI.
+  mkdirSync(join(source, "plugins")); mkdirSync(join(source, "packages/plugin-sdk"), { recursive: true });
+  writeFileSync(join(source, "plugins/bundled.ts"), "export const BUNDLED = [];");
+  writeFileSync(join(source, "packages/plugin-sdk/package.json"), "{}");
+  writeFileSync(join(source, "bunfig.toml"), "[install]\n");
   writeFileSync(join(source, ".work/private"), "private");
   writeFileSync(join(source, ".env"), "never copy environment files");
   writeFileSync(join(source, "package.json"), JSON.stringify({ version: "0.2.3" }));
@@ -37,6 +42,7 @@ test("source snapshot changes only isolated version inputs and excludes live dat
   expect(JSON.parse(readFileSync(join(destination, "desktop/src-tauri/tauri.conf.json"), "utf8")).plugins["deep-link"]).toBeUndefined();
   expect(JSON.parse(readFileSync(join(source, "desktop/src-tauri/tauri.conf.json"), "utf8")).plugins["deep-link"].desktop.schemes).toEqual(["pacer"]);
   expect(readFileSync(join(destination, "desktop/src-tauri/Cargo.lock"), "utf8")).toContain('version = "0.2.4"');
+  for (const path of ["plugins/bundled.ts", "packages/plugin-sdk/package.json", "bunfig.toml"]) expect(existsSync(join(destination, path))).toBe(true);
   expect(existsSync(join(destination, ".work"))).toBe(false);
   expect(existsSync(join(destination, ".env"))).toBe(false);
   expect(() => copyFixtureSource(source, source, "0.2.4")).toThrow();

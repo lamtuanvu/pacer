@@ -32,7 +32,7 @@ export function copyFixtureSource(source: string, destination: string, version: 
   for (let parent = dirname(destination); parent !== source; parent = dirname(parent)) if (existsSync(parent) && realpathSync(parent) !== parent) throw Error("Fixture refuses symlinked build parents");
   mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
   const excluded = new Set(["node_modules", "target", "dist"]);
-  const roots = new Set(["src", "app", "desktop", "orca-plugin", "scripts", "package.json", "bun.lock", "tsconfig.json"]);
+  const roots = new Set(["src", "app", "desktop", "plugins", "packages", "scripts", "package.json", "bun.lock", "bunfig.toml", "tsconfig.json"]);
   const filter = (path: string) => {
     const parts = relative(source, path).split("/");
     if (!roots.has(parts[0]) || parts.some(name => name.startsWith(".") || excluded.has(name))) return false;
