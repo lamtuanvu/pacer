@@ -1,3 +1,5 @@
+import { executorEligibility } from "../../../src/view-model/capacity";
+import { useOverviewPage } from "./overview-page";
 import { ListRow, ListRowLink, EmptyState } from "../ds/Patterns";
 import { ButtonLink, TextAction } from "../ds/Button";
 import { displayTitle } from "../../../src/view-model/titles";
@@ -12,7 +14,7 @@ import { ago, clock, elapsed } from "../../../src/view-model/time";
 import { meterText } from "../../../src/view-model/format";
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
-import { attentionStatus, executorLabel, executorRowStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
+import { attentionStatus, executorLabel, paceStatus, taskStatus, taskOutcome } from "../../../src/view-model/words";
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import { AgentMark } from "../ds/AgentMark";
@@ -25,7 +27,7 @@ import { keys } from "../keys/instance";
 import { activeRepo, NarrowContext, useNarrow } from "../shell/narrow";
 import { withQuery, type RouteQuery } from "../router";
 import { ActionButton } from "./ActionButton";
-import { BulkReview, ReviewCheckbox } from "./review/BulkReview";
+
 import { QuickDelegate } from "./QuickDelegate";
 import { repoChoices, RepoFilter } from "./RepoFilter";
 import { useQuery, useTaskContext } from "./task-shared";
@@ -39,19 +41,21 @@ function attentionTitle(item: AttentionItem, snapshot: ClientSnapshot): string {
   return task?.fullTitle ?? (item.title === task?.goal ? displayTitle(task) : item.title);
 }
 
-function NeedsYou({ snapshot, scope, runner, now, query, narrow }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean }) {
+export function NeedsYou({ snapshot, scope, runner, now, query, narrow, standalone = false }: { standalone?: boolean; snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean }) {
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);
+  const page = useOverviewPage(items, "Needs you", standalone ? Math.max(1, items.length) : 5, scope.repo ?? "");
   const otherRepos = others > 0 ? <TextAction className="pc-text-action" href={withQuery("#/", { ...query, repo: "" })}>+{others} in other repos</TextAction> : null;
-  const reviewQueue = <TextAction className="pc-text-action" href={withQuery("#/review", { ...query, repo: scope.repo ?? query.repo })}>Open review queue</TextAction>;
-  return <section className="pc-section" aria-labelledby="needs-you"><div className="pc-section__head"><SectionHeading id="needs-you">Needs you</SectionHeading>{items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{narrow && otherRepos ? otherRepos : reviewQueue}</div>
-    <BulkReview key={scope.repo ?? "all"} snapshot={snapshot} repo={scope.repo} runner={runner}>
-    {items.map(item => { const status = attentionStatus(item, snapshot.tasks); return <ListRow key={item.id} tabIndex={0} data-attention-id={item.id} className={`pc-attn${status.tone === "bad" ? " pc-attn--bad" : ""}`}
-      leading={<><ReviewCheckbox item={item} /><span className={`pc-status--${status.tone}`}><StatusGlyph status={status} />{status.label}</span>{item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}</>}
+  const reviewQueue = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>All attention</TextAction>;
+  return <section className={standalone ? "pc-section" : "pc-card-section pc-overview-attention"} aria-labelledby="needs-you"><div className={standalone ? "pc-section__head" : "pc-card-section__head"}><SectionHeading id="needs-you">{standalone ? "Decisions and problems" : "Needs you"}</SectionHeading>{!standalone && items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{standalone ? otherRepos : narrow && otherRepos ? otherRepos : reviewQueue}</div>
+    <div className="pc-overview-list">
+    {page.rows.map(item => { const status = attentionStatus(item, snapshot.tasks); return <ListRow key={item.id} tabIndex={0} data-attention-id={item.id} className="pc-attn" outlined tone={status.tone === "bad" ? "bad" : undefined}
+      leading={<><span className={`pc-status--${status.tone}`}><StatusGlyph status={status} />{status.label}</span>{item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}</>}
       content={<><div className="pc-attn__title"><span className="pc-ellipsis grow" title={attentionTitle(item, snapshot)}>{attentionTitle(item, snapshot)}</span>{item.repo && <code className="pc-repo-chip" title={item.repo.label}>{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></>}
-      actions={item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action} confirmDone={gone(item)} />)}
+      actions={item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action.op === "task.answer" ? {label:action.label,op:"ui.open",params:{view:"task",id:item.taskId}} : action} confirmDone={gone(item)} />)}
     />; })}
-    </BulkReview>
-    {!items.length && <EmptyState title="Nothing needs you." />}
+    </div>
+    {!items.length && <EmptyState title="Nothing needs your attention" description={<TextAction href={withQuery("#/tasks",query)}>View Tasks</TextAction>} />}
+    {!standalone && page.footer}
     {narrow && otherRepos ? reviewQueue : otherRepos}
   </section>;
 }
@@ -69,8 +73,9 @@ function runningCount(snapshot: ClientSnapshot, scope: Scope, rows: ClientTask[]
 }
 function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner; query: RouteQuery }) {
   const rows = running(snapshot, scope);
+  const page = useOverviewPage(rows, "Running", 3, scope.repo ?? "");
   return <section className="pc-card-section" aria-labelledby="running"><div className="pc-card-section__head"><SectionHeading id="running">Running</SectionHeading><span className="muted">{runningCount(snapshot, scope, rows)}</span></div>
-    {rows.map(t => <ListRow key={t.id}
+    <div className="pc-overview-list">{page.rows.map(t => <ListRow key={t.id}
       leading={t.executor ? <AgentMark agent={markAgent(t.executor)} size={20} labelled={false} /> : <span className="pc-row__gap" />}
       content={<strong className="pc-ellipsis" title={displayTitle(t)}>{displayTitle(t)}</strong>}
       meta={<><span>{t.repo?.label}</span><StatusPill status={taskStatus(t)} />{t.state === "queued" ? <span>{queueWait(t, snapshot)}</span> : <>{t.attemptStartedAt && <span>running for {elapsed(now - t.attemptStartedAt)}</span>}{t.progress && <span>{t.progress.files} files · {t.progress.commits} commits</span>}{lastOutput(t, now)}</>}</>}
@@ -79,42 +84,49 @@ function Running({ snapshot, scope, now, runner, query }: { snapshot: ClientSnap
         : <><ButtonLink size="sm" href={withQuery(`#/sessions/${encodeURIComponent(t.id)}`, query)}>Watch</ButtonLink><ActionButton runner={runner} id={`${t.id}:takeover`} action={{label:"Take over",op:"task.takeover",params:{id:t.id}}}/></>}
     />)}
     {!rows.length && <EmptyState title="Nothing running. Delegate a task, or ask your planner to." />}
+    </div>{page.footer}
   </section>;
 }
 
 function Capacity({ snapshot, narrow, query }: { snapshot: ClientSnapshot; narrow: boolean; query: RouteQuery }) {
   const rows = capacity(snapshot), c = counts(snapshot);
+  const page = useOverviewPage(rows, "Capacity", narrow ? Math.max(1, rows.length) : 5);
   const next = rows.find(e => e.next), down = rows.filter(e => e.state === "down" || e.state === "failing").length;
   return <section className="pc-card-section" aria-labelledby="capacity"><div className="pc-card-section__head"><SectionHeading id="capacity">Capacity</SectionHeading>{!narrow && c && <span className="muted">{c.ready}/{c.executors} executors ready</span>}<span className="grow" />{narrow && next ? <span className="muted">next: <b>{executorLabel(next.id)}</b></span> : <TextAction className="pc-text-action" href={withQuery("#/settings/executors", query)}>Details</TextAction>}</div>
-    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{rows.map(e => <ListRowLink key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${executorRowStatus(e).label}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
+    <div className={narrow ? "pc-capacity--compact" : "pc-capacity"}>{page.rows.map(e => <ListRowLink key={e.id} aria-label={narrow ? `${executorLabel(e.id)} · ${executorEligibility(e, snapshot.at).label}${e.reason ? ` · ${e.reason}` : ""}` : undefined} href={withQuery("#/settings/executors", query)} className={`pc-row pc-cap${OFF_STATES.has(e.state) ? " pc-cap--off" : ""}`}>
       <AgentMark agent={markAgent(e.id, e.account)} size={20} labelled={false} />
-      {narrow && <span className={`pc-cap__dot pc-cap__dot--${executorRowStatus(e).tone}`} />}
-      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><StatusPill status={executorRowStatus(e)} /><div className="muted"><StatusGlyph status={executorPace(e, snapshot)} />{executorPace(e, snapshot).label}{e.reason || e.paceReason ? ` · ${e.reason ?? e.paceReason}` : ""}</div></div>
+      {narrow && <span className={`pc-cap__dot pc-cap__dot--${executorEligibility(e, snapshot.at).tone}`} />}
+      <div className="pc-cap__name"><div>{executorLabel(e.id)}</div><StatusPill status={executorEligibility(e, snapshot.at)} /><div className="muted" title={[executorEligibility(e, snapshot.at).detail, executorEligibility(e, snapshot.at).age].filter(Boolean).join(" · ")}>{executorEligibility(e, snapshot.at).detail}{executorEligibility(e, snapshot.at).age ? ` · ${executorEligibility(e, snapshot.at).age}` : ""}</div><div className="muted"><StatusGlyph status={executorPace(e, snapshot)} />{executorPace(e, snapshot).label}{e.reason || e.paceReason ? ` · ${e.reason ?? e.paceReason}` : ""}</div></div>
       <div><UsageMeter used={e.usedPct} pace={e.pacePct} paceReason={e.paceReason} tone={executorPace(e, snapshot).tone} size="row" text="none" label={`${executorLabel(e.id)} usage`} /></div>
       <span className="muted pc-num">{e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`}</span>
       <span className="muted pc-num" aria-label={`${e.slots.used} of ${e.slots.max} parallel tasks`}>{e.slots.used}/{e.slots.max}</span>
     </ListRowLink>)}{narrow && <span className="muted">{c?.ready ?? 0} ready · {down} down</span>}</div>
+    {!narrow && page.footer}
     {!rows.length && <p className="muted">No executors yet. <TextAction className="pc-text-action" href={withQuery("#/settings/add-executor", query)}>Add one.</TextAction></p>}
   </section>;
 }
 
 function DoneToday({ snapshot, scope, now, query }: { snapshot: ClientSnapshot; scope: Scope; now: number; query: RouteQuery }) {
   const rows = doneToday(snapshot, scope), today = snapshot.today;
+  const page = useOverviewPage(rows, "Done today", 3, scope.repo ?? "");
   const done = scope.repo === null ? today?.done : today?.byRepo[scope.repo] ?? rows.length;
   const accepted = scope.repo === null ? today?.accepted : rows.filter(t => t.review?.accepted).length;
   return <section className="pc-card-section" aria-labelledby="done-today"><div className="pc-card-section__head"><SectionHeading id="done-today">Done today</SectionHeading>{today && <span className="muted">{done} · {accepted} accepted</span>}<span className="grow" /><TextAction className="pc-text-action" href={withQuery("#/sessions", query)}>All tasks</TextAction></div>
-    {rows.map(t => <ListRow key={t.id} leading={<span className="muted pc-num">{clock(t.updatedAt, now)}</span>}
+    <div className="pc-overview-list">{page.rows.map(t => <ListRow key={t.id} leading={<span className="muted pc-num">{clock(t.updatedAt, now)}</span>}
       content={<strong className="pc-ellipsis" title={displayTitle(t)}>{displayTitle(t)}</strong>}
-      meta={<><span>{t.repo?.label}</span><span>{executorLabel(t.executor)}</span><StatusPill status={taskStatus(t)} /></>}
+      meta={<><span>{t.repo?.label}</span><span>{executorLabel(t.executor)}</span><StatusPill status={taskStatus(t)} /><span>{taskOutcome(t).label}</span></>}
     />)}
     {!rows.length && <EmptyState title="Nothing finished yet today." />}
+    </div>{page.footer}
   </section>;
 }
 
 function Activity({ entries, now }: { entries: ActivityEntry[]; now: number }) {
+  const page = useOverviewPage(entries, "Activity", 3);
   return <section className="pc-card-section" aria-labelledby="activity"><div className="pc-card-section__head"><SectionHeading id="activity">Activity</SectionHeading></div>
-    {entries.slice(0, 20).map(e => <ListRow key={e.id} className="pc-activity" leading={<><span className="muted pc-num">{clock(e.at, now)}</span><span className={`pc-dot pc-dot--${e.level}`} role="img" aria-label={e.level === "error" ? "Error" : e.level === "warn" ? "Warning" : "Information"} /></>} content={e.text} />)}
+    <div className="pc-overview-list">{page.rows.map(e => <ListRow key={e.id} className="pc-activity" leading={<><span className="muted pc-num">{clock(e.at, now)}</span><span className={`pc-dot pc-dot--${e.level}`} role="img" aria-label={e.level === "error" ? "Error" : e.level === "warn" ? "Warning" : "Information"} /></>} content={e.text} />)}
     {!entries.length && <EmptyState title="No activity yet." />}
+    </div>{page.footer}
   </section>;
 }
 
@@ -177,7 +189,7 @@ export function Overview({ query }: { query: RouteQuery }) {
     const selected = () => current.current.snapshot?.attention?.find(a => a.id === (document.activeElement?.closest("[data-attention-id]") as HTMLElement)?.dataset.attentionId);
     const actions: Record<string, () => void> = {
       j: () => move(1), k: () => move(-1), Enter: () => { const active = document.activeElement as HTMLElement; (active?.tagName === "BUTTON" ? active as HTMLButtonElement : active?.closest("[data-attention-id]")?.querySelector("button"))?.click(); },
-      v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/review/${encodeURIComponent(item.taskId)}` : "#/review", current.current.query); },
+      v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/review/${encodeURIComponent(item.taskId)}` : "#/needs-you", current.current.query); },
       x: () => { const item = selected(); if (item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
     };
     const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "overview", run: actions[key] ?? (() => {
@@ -189,4 +201,10 @@ export function Overview({ query }: { query: RouteQuery }) {
   }, [runner, state.features.ops]);
   if (!state.snapshot) return null;
   return <OverviewView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} activity={activity} ops={state.features.ops} quickDelegate={<QuickDelegate filterRepo={query.repo} />} />;
+}
+
+export function NeedsYouPage({query}:{query:RouteQuery}) {
+ const {state}=useTaskContext(),runner=useActions();
+ if(!state.snapshot)return null;
+ return <><RepoFilter snapshot={state.snapshot} query={query}/><NeedsYou snapshot={state.snapshot} scope={{repo:query.repo||null}} runner={runner} now={Date.now()/1000} query={query} narrow={false} standalone/></>;
 }

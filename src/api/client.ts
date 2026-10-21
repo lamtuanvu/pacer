@@ -2,7 +2,7 @@ import { callV2Op, v2Hello } from "./v2-compat";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Status } from "../engine/status";
-import { DEFAULT_PORT } from "../serve/http";
+import { DEFAULT_PORT } from "../serve/constants";
 import type { LinkSnapshot } from "../link/envelope";
 import type { Ctx } from "../types";
 import { eventsSince, liveV2Snapshot } from "./events";
@@ -14,7 +14,7 @@ export { ApiError, type ApiClient, type ApiErrorCode, type Hello } from "./clien
 export { HttpClient } from "./http-client";
 export { StdioClient } from "./stdio-client";
 
-export async function connectClient(ctx: Ctx, o: { timeoutMs?: number; opDeps?: OpDeps } = {}): Promise<ApiClient> {
+export async function connectClient(ctx: Ctx, o: { timeoutMs?: number; opDeps?: OpDeps; protocol?: 2 | 3 } = {}): Promise<ApiClient> {
   const fallback = () => new InProcessClient(() => ctx, { opDeps: o.opDeps });
   if (ctx.env.PACER_API === "inprocess") return fallback();
   try {
@@ -26,7 +26,7 @@ export async function connectClient(ctx: Ctx, o: { timeoutMs?: number; opDeps?: 
     try {
       const response = await fetch(`${base}/health`, { signal: controller.signal });
       await response.body?.cancel();
-      if (response.status === 200 && response.headers.get("x-pacer") === "1") return new HttpClient(base, token);
+      if (response.status === 200 && response.headers.get("x-pacer") === "1") return new HttpClient(base, token, { protocol: o.protocol });
     } finally { clearTimeout(timer); }
   } catch { /* A missing token or unavailable daemon uses the local core. */ }
   return fallback();

@@ -1,3 +1,5 @@
+import { accountEvidenceScope } from "../src/evidence/scope";
+import { markAuthFailed } from "../src/usage/auth";
 import { expect, test } from "bun:test";
 import { buildReadModel } from "../src/api/read-model";
 import { capacityFixture } from "./read-model-helpers";
@@ -11,7 +13,7 @@ import { join } from "node:path";
 
 test("counts split by repo, today uses local midnight and setup counts required open items",()=>{
  const ctx=fakeCtx({now:localTs(2026,10,16,0,30)}),{st,s}=capacityFixture();
- const tasks=[record("running",ctx.now),record("running",ctx.now+1),record("queued",ctx.now+2),record("done",ctx.now+3),record("done",ctx.now+4),record("done",localTs(2026,10,16,0,10),{review:{accepted:true,kind:null,note:null,at:ctx.now}}),record("done",localTs(2026,10,15,23,50)),record("failed",ctx.now,{review:{accepted:false,kind:null,note:null,at:ctx.now}})].map((t,i)=>apiTask(ctx,{...t,repo:{key:i%2?"b":"a",label:"repo",path:"/repo"}}));
+ const tasks=[record("running",ctx.now),record("running",ctx.now+1),record("queued",ctx.now+2),record("done",ctx.now+3),record("done",ctx.now+4),record("done",localTs(2026,10,16,0,10),{review:{accepted:true,kind:null,note:null,at:ctx.now}}),record("done",localTs(2026,10,15,23,50)),record("failed",ctx.now,{review:{accepted:false,kind:null,note:null,at:ctx.now}})].map((t,i)=>apiTask(ctx,{...t,...(t.state==="done"&&!t.review?{reviewRequest:{note:"Inspect",at:t.createdAt}}:{}),repo:{key:i%2?"b":"a",label:"repo",path:"/repo"}}));
  const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:false,ready:false,items:[{id:"required",title:"Required",status:"pending",required:true},{id:"optional",title:"Optional",status:"pending",required:false}]}});
  expect(model.counts).toMatchObject({running:2,queued:1,review:3,setupOpen:1,byRepo:{a:{running:1,review:2},b:{running:1,review:1}}});
  expect(model.today).toMatchObject({since:localTs(2026,10,16),done:4,accepted:1,rejected:1,failed:1});
@@ -54,7 +56,7 @@ test("snapshot uses current supplied status for capacity even when the old budge
 
 test("attention counts include severity and repo totals and snapshot exposes items",async()=>{
  const ctx=fakeCtx(),{st,s}=capacityFixture();
- const tasks=[record("done",ctx.now-1000),record("failed",ctx.now-1001),record("running",ctx.now-1002,{progress:{phase:"idle",lastOutputAt:ctx.now-1000,lastChangeAt:ctx.now-1000,host:"local",updatedAt:ctx.now,files:0,commits:0,logBytes:0}})].map(t=>apiTask(ctx,t));
+ const tasks=[record("done",ctx.now-1000,{reviewRequest:{note:"Inspect",at:ctx.now-1000}}),record("failed",ctx.now-1001),record("running",ctx.now-1002,{progress:{phase:"idle",lastOutputAt:ctx.now-1000,lastChangeAt:ctx.now-1000,host:"local",updatedAt:ctx.now,files:0,commits:0,logBytes:0}})].map(t=>apiTask(ctx,t));
  const setup={checkedAt:ctx.now,complete:true,ready:false,items:[]};
  const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:[],setup});
  expect(model.counts).toMatchObject({attention:3,problems:2,byRepo:{[tasks[0]!.repo.key]:{attention:3}}});
@@ -74,7 +76,7 @@ test("snapshot wires pause, hold, auth failure, readiness and disabled rows",asy
  const {writeJsonAtomic}=await import("../src/fsutil"),{startJob,registerJobDaemon}=await import("../src/jobs/registry");
  const ctx=fakeCtx(),{s,st}=capacityFixture();
  writeJsonAtomic(join(ctx.pacerHome,"state/pause.json"),{until:ctx.now+60,reason:"break",by:null});
- writeJsonAtomic(join(ctx.pacerHome,"state/auth-failed.json"),{[s.runners.codex!.account]:ctx.now});
+ markAuthFailed(ctx,s.runners.codex!.account,"authentication failed",{scope:accountEvidenceScope(s.accounts[s.runners.codex!.account],s.hosts)});
  // Status applies the shared sign-in check (usage/signin.ts); this is its result for the recorded failure.
  st.providers.find(p=>p.id==="codex")!.signedOutReason="signed out — authentication failed; run codex login";
  writeJsonAtomic(join(ctx.pacerHome,"state/runner-checks.json"),{codex:{at:ctx.now,passed:false,detail:"failed sk-private-test-token person@example.test"},cursor:{at:ctx.now,passed:false,detail:"failed"}});
@@ -142,8 +144,8 @@ test("service attention uses short titles and counts only the latest retry",()=>
   const original=apiTask(ctx,record(state,ctx.now-1000,{title:"Original title"}));
   const next=apiTask(ctx,record(nextState,ctx.now-700,{title:"Queue fix",retryOf:original.id}));
   const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[original,next],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
-  expect(model.attention.filter(i=>i.taskId)).toEqual(nextState==="done"?[expect.objectContaining({taskId:next.id,title:"Queue fix"})]:[]);
-  expect(model.counts).toMatchObject({attention:nextState==="done"?1:0,review:nextState==="done"?1:0});
+  expect(model.attention.filter(i=>i.taskId)).toEqual([]);
+  expect(model.counts).toMatchObject({attention:0,review:0});
  }
 });
 
@@ -158,7 +160,7 @@ test("machine snapshot capacity counts local runs across executors and excludes 
 test("attention keeps the complete title even when its task is outside the recent snapshot window", () => {
  const ctx=fakeCtx(),{s,st}=capacityFixture();
  const goal="Repair the review queue " + "for all existing workers ".repeat(8) + "(keep the closing bracket)";
- const task=apiTask(ctx,record("done",ctx.now-2*86400,{brief:{goal,repo:ctx.home}}));
+ const task=apiTask(ctx,record("done",ctx.now-2*86400,{reviewRequest:{note:"Inspect",at:ctx.now-2*86400},brief:{goal,repo:ctx.home}}));
  const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[task],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
  expect(model.attention.find(item=>item.taskId===task.id)?.title).toBe(goal);
  expect(task.title).not.toBe(goal);

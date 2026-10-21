@@ -1,5 +1,7 @@
 {
+  "mainBinaryName": "pacer",
   "bundle": {
-    "externalBin": ["binaries/pacer", "binaries/pacer-permission-setup"]
+    "externalBin": ["binaries/pacer-permission-setup"],
+    "resources": { "PrivacyInfo.xcprivacy": "PrivacyInfo.xcprivacy" }
   }
 }

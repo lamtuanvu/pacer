@@ -1,3 +1,6 @@
+import { desktopUpdateOps } from "./ops-desktop-update";
+import { desktopOps } from "./ops-desktop";
+import type { DesktopUpdateRuntime } from "../update/desktop/service";
 import { resolvePolicyRepoInput } from "../core/project-policy";
 import * as projectStrategies from "../core/project-strategies";
 import { pruneTasks, restoreTask } from "../tasks/retention";
@@ -14,8 +17,6 @@ import { ACTIVITY_KINDS } from "../activity/types";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
-import { desktopOps } from "./ops-desktop";
-import { captureBroker } from "../desktop/capture-broker";
 import { sessionOps } from "./ops-session";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
@@ -51,6 +52,7 @@ import type { Ctx } from "../types";
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
+  desktopUpdates?: DesktopUpdateRuntime;
   onboardingRoute?: import("../onboarding/try").TryDeps["route"];
   snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
@@ -154,6 +156,7 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
 }
 
 export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
+  ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
     handler: ctx => projectStrategies.list(ctx),
@@ -189,7 +192,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
     core.tasks.requireAskingExecutor(ctx,p.id);
     return core.tasks.ask(ctx,p.id,p.text);
   }}),
-  "client.register": op({ description: "Register a client with an optional notifier lease; heartbeat every 30 seconds.", params: z.object({kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1), notifier: z.boolean().optional(), capture: z.boolean().optional()}), handler: (ctx, p) => { const result = clients.register(ctx, p); return p.kind === "desktop" && p.capture ? {...result, capture_worker: captureBroker(ctx.pacerHome).register(result.client_id)} : result; } }),
+  "client.register": op({ description: "Register a client with an optional notifier lease; heartbeat every 30 seconds.", params: z.object({kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1), notifier: z.boolean().optional()}), handler: (ctx, p) => clients.register(ctx, p) }),
   "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat.", params: z.object({client_id: id}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
@@ -277,7 +280,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
       const repoRef=await resolvePolicyRepoInput(ctx,p.repo);
-      const input=parseDelegateBrief({...p,repo:isAbsolute(p.repo)?p.repo:repoRef.path},repoRef.path);
+      const input=parseDelegateBrief({...p,repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
       const task = (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source}, deps.spawnRunner ?? spawnRunner);
@@ -324,6 +327,11 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
       return { retried, skipped };
     },
   }),
+  "task.request_review": op({
+    description: "Request a human decision on a completed result without accepting it.",
+    params: z.object({ id, note: z.string().trim().min(1).max(2000), expect_rev }),
+    handler: (ctx, p) => ({ task: apiTask(ctx, core.tasks.requestReview(ctx, p.id, p)) }),
+  }),
   "task.review": op({
     description: "Record the planner's verdict on a task.",
     params: z.object({
@@ -362,7 +370,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
   "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
-  "routing.route": op({ description: "Rank executors for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
+  "routing.route": op({ description: "Rank confirmed eligible executors before labelled uncertain fallbacks for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
   "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional(),worktree:z.string().min(1).max(4096).optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const result=await buildStrategy(ctx,p,{open:deps.openTerminal});await publish(ctx,[{type:"alert",data:{key:"strategy-build",level:result.opened?"info":"error",title:result.opened?"Strategy session opened":"Strategy session failed",body:result.opened?"":result.message,at:ctx.now}}]);return {opened:result.opened,target:result.target,command:result.command};})}),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
   "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(async () => ({name: p.name, path: await strategy.use(ctx, p.name)}))) }),

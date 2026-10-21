@@ -1,11 +1,14 @@
 # Install pacer
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Choose `pacer-<version>-darwin-arm64-unsigned.dmg` for Apple silicon or
-`pacer-<version>-darwin-x64-unsigned.dmg` for Intel. Open the disk image and
-drag pacer into Applications.
+Choose `desktop-pacer-<version>-darwin-aarch64.app.tar.gz` for Apple silicon or
+`desktop-pacer-<version>-darwin-x86_64.app.tar.gz` for Intel. Open the archive and
+move `pacer.app` into Applications.
 
-The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+The app is signed with pacer's own certificate until pacer has an Apple Developer ID,
+so macOS blocks the first launch. Open the app once, then choose **Open Anyway** in
+System Settings › Privacy & Security (or run `xattr -dr com.apple.quarantine /Applications/pacer.app`).
+This is needed once: the app updates itself afterwards from Settings › Updates.
 
 The app includes the matching CLI. **Welcome** leads to one consent screen
 listing the background service and the terminal link at `~/.local/bin/pacer`.

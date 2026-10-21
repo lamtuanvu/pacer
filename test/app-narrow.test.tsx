@@ -41,13 +41,13 @@ test("shell switches below 560 px and repo scope forces narrow at desktop width"
 });
 
 test("bottom bar keeps all four icons, badges and scope on every destination", () => {
-  for (const screen of ["/", "/review", "/sessions", "/settings", "/settings/hosts", "/settings/add-executor"]) {
+  for (const screen of ["/", "/needs-you", "/tasks", "/settings", "/settings/hosts", "/settings/add-executor"]) {
     const html = atWidth(400, () => shell(`#${screen}?scope=repo:${repo}`, screen));
     expect(html).toContain('class="pc-bottom-bar"');
     expect(html).not.toContain('class="pc-rail"');
-    expect(html).toContain('aria-label="Overview · 4 need you"');
-    expect(html).toContain('aria-label="Review · 2 waiting"');
-    expect(html).toContain('aria-label="Sessions · 2 running"');
+    expect(html).toContain('aria-label="Overview"');
+    expect(html).toContain('aria-label="Needs you · 4 need you"');
+    expect(html).toContain('aria-label="Tasks · 2 running"');
     expect(html).toContain(`href="#/settings?scope=repo%3Agithub.com%2Facme%2Fapi"`);
     expect(html).toContain("pc-planner");
     expect(html).toContain("63%·77");
@@ -67,7 +67,8 @@ test("narrow Overview uses Panel order, repo default, other-repo count and compa
   expect(html).not.toContain('Add dark mode to the web header');
   expect(html).toContain('LM Studio is not running');
   expect(html).toContain('pc-capacity--compact');
-  expect(html).toContain('pc-cap__dot--bad');
+  expect(html).toContain('pc-cap__dot--neutral');
+  expect(html).toContain('Eligibility unknown');
   expect(html).toContain('2 ready · 2 down');
   expect(html).toContain('next: <b>Codex · team on devbox</b>');
   expect(html).not.toContain('pc-planner-strip');
@@ -95,7 +96,7 @@ test("navigation inherits scope and repo without overriding an explicit All sele
   expect(route(next)).toMatchObject({ name: "add-executor", host: "devbox", query: { repo, scope: `repo:${repo}` } });
   const all = inheritQuery("#/?repo=", current);
   expect(route(all).query).toEqual({ repo: "", scope: `repo:${repo}` });
-  expect(route(inheritQuery("#/review/t1", all)).query).toEqual(route(all).query);
+  expect(route(inheritQuery("#/tasks/t1", all)).query).toEqual(route(all).query);
   expect(inheritQuery("https://example.com", current)).toBe("https://example.com");
   expect(inheritQuery("#main-content", current)).toBe("#main-content");
 });

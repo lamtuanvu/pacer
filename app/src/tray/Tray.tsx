@@ -11,13 +11,13 @@ import type { Action } from "../../../src/attention/types";
 import { agentInfo, markAgent, runnerAgent } from "../../../src/view-model/agents";
 import { backIn, clock, elapsed } from "../../../src/view-model/time";
 import { meterText } from "../../../src/view-model/format";
-import { attentionStatus, executorRowStatus, executorStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
+import { attentionStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
 import { plannerMeter } from "../../../src/view-model/selectors";
 import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
 import { StatusPill } from "../ds/StatusPill";
 import { StatusGlyph } from "../ds/StatusGlyph";
-import { executorPace } from "../../../src/view-model/capacity";
+import { executorPace, executorEligibility } from "../../../src/view-model/capacity";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
 import { actionRoute, executorValue, primaryAction, shortTitle, trayModel } from "./model";
@@ -31,7 +31,8 @@ export function rowLabel(label: string): string {
 }
 
 export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc) {
-  if (action.op === "ui.open") await ipc.open(actionRoute(action));
+  if (action.op === "task.answer" && typeof action.params.text !== "string") await ipc.open(`/tasks/${encodeURIComponent(String(action.params.id))}`);
+  else if (action.op === "ui.open") await ipc.open(actionRoute(action));
   else await api.call(action.op, action.params);
 }
 /** Native Tab order is also the arrow-key order, including expanded strategies. */
@@ -105,6 +106,8 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         { n: model.waiting, label: "waiting", route: "/sessions?filter=waiting" },
         { n: model.done, label: "done today", route: "/sessions?filter=done" },
       ].map(cell => <TextAction key={cell.label} className="tray-count" href={appHref(cell.route)} onClick={navigate(cell.route)}><b className={!cell.n ? "tray-muted" : cell.warn ? "tray-idle" : undefined}>{cell.n}</b><span>{cell.label}</span></TextAction>)}</nav>
+      {/* Update status sits above the fold: it can need action before the task lists. */}
+      {model.update && <TextAction className="tray-waiting" href={appHref(model.update.route)} onClick={navigate(model.update.route)}><StatusGlyph status={model.update}/><span className="tray-grow">{model.update.label}</span><span aria-hidden="true">›</span></TextAction>}
       {model.attention.length ? <section className="tray-section" aria-label="Needs you"><SectionHeading className="tray-attention-heading">Needs you</SectionHeading>
         {model.attention.slice(0, 3).map(item => {
           const action = primaryAction(item.actions);
@@ -129,10 +132,10 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       {model.waiting > 0 && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></TextAction>}
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
-        const readiness = !executor.enabled ? executorStatus("disabled") : value === "off" && executor.state === "ready" ? executorStatus("blocked") : executorRowStatus(executor);
-        const valueStatus = value === "?" ? paceStatus("unknown") : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
-        const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
-        return <TextAction className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><StatusGlyph status={value === "?" ? valueStatus : readiness} /></span><span className={`pc-status--${valueStatus.tone}`}>{value}</span></TextAction>;
+        const readiness = executorEligibility(executor, snapshot.at);
+        const valueStatus = value === "?" ? readiness : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
+        const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${readiness.detail}${readiness.age ? ` · ${readiness.age}` : ""} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
+        return <TextAction className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><StatusGlyph status={readiness} /></span><span className={`pc-status--${valueStatus.tone}`}>{value}</span></TextAction>;
       })}</section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}

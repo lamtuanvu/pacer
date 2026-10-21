@@ -17,9 +17,12 @@ export interface Brief {
   feedback?: string;
   qa?: { q: string; a: string }[];
   base?: string;
+  worktreeBase?: "default" | "head";
 }
 
 export interface RoutingNote {
+  eligibility?: import("../evidence/types").EligibilityDecision;
+  fallback?: "uncertain";
   policy?: { source: "project"; repoKey: string; rev: number; executors: string[] };
   kind: string | null;
   kindSource: "brief" | "classifier";
@@ -101,7 +104,10 @@ export interface RunRef {
   lastMessageFile?: string;
 }
 
+export interface ReviewRequest { note: string; at: number }
+
 export interface TaskRecord {
+  reviewRequest?: ReviewRequest;
   settledAt?: number;
   archived?: boolean;
   archivePath?: string;
@@ -122,6 +128,7 @@ export interface TaskRecord {
   resolved?: string;
   resolutionCheckedAt?: number;
   baseBranch?: string;
+  baseSha?: string;
   placement?: TaskPlacement;
   worktree?: string;
   id: string;

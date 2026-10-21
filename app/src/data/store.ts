@@ -59,6 +59,20 @@ function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventTyp
     case "account": return list("accounts", "name", "end");
     case "host": return list("hosts", "alias", "end");
     case "repo": return list("repos", "key", "start");
+    case "desktop.update": {
+      if (typeof data.installationId !== "string" || !Number.isSafeInteger(data.revision) || Number(data.revision) < 0) return state;
+      const previous = snapshot.desktopUpdates?.find(item => item.installationId === data.installationId);
+      const adoptionRevision = isObj(data.adoption) && Number.isSafeInteger(data.adoption.revision) && Number(data.adoption.revision) >= 0 ? Number(data.adoption.revision) : -1;
+      const previousAdoptionRevision = previous?.adoption?.revision ?? -1;
+      if (previous && previous.revision > Number(data.revision)) return patch({});
+      if (previous && previous.revision === Number(data.revision) && adoptionRevision <= previousAdoptionRevision) return patch({});
+      // Independently persisted revisions can produce an incomparable response.
+      // Refresh the authoritative pair instead of combining stale controls.
+      if (previous && adoptionRevision < previousAdoptionRevision) return { ...patch({}), needsSnapshot: true };
+      const next = upsert(snapshot.desktopUpdates, data, "installationId", "end");
+      return next ? patch({ desktopUpdates: next }) : state;
+    }
+    case "planner": return patch({ planner: data as unknown as SnapshotV2["planner"] });
     case "counts": return patch({ counts: data as unknown as SnapshotV2["counts"] });
     case "pause": return patch({ pause: (data.removed === true || !Object.keys(data).length ? null : data) as SnapshotV2["pause"] });
     case "job": return typeof data.id === "string" ? { ...state, jobs: { ...state.jobs, [data.id]: data as unknown as Job }, snapshot: { ...snapshot, seq, at } } : state;
@@ -109,7 +123,7 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
       if (stopped || current !== generation) return;
       dispatch({ type: "hello", hello });
       dispatch({ type: "snapshot", snapshot: { ...result.snapshot, seq: result.seq } });
-      const source = stream = new Events(`/v2/events?since=${result.seq}`);
+      const source = stream = new Events(`${hello.protocol.split(".")[0] === "3" ? "/v3/events?since=" : "/v2/events?since="}${result.seq}`);
       let failed = false;
       const active = () => !stopped && stream === source && !state.sessionEnded;
       source.addEventListener("open", () => {

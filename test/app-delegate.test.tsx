@@ -39,7 +39,7 @@ test("kind and repo feed the routing preview and delegate request; automatic kin
 test("routing preview names the next executor and reflects explicit selection and pending reads", () => {
   const routing = { ranked: [{ id: "codex", verdict: "OK", reason: "Ready" }], excluded: [] };
   const render = (executor = "", loading = false) => renderToString(<DelegateRoutingPreview routing={routing} executor={executor} loading={loading} />);
-  expect(render()).toContain("Goes to Codex now · next in line");
+  expect(render()).toContain("Goes to Codex now · Eligibility unknown · next in line");
   expect(render()).toContain('aria-live="polite"');
   expect(render("claude-code")).toContain("Goes to Claude Code · selected executor");
   expect(render("", true)).toContain("Checking routing…");

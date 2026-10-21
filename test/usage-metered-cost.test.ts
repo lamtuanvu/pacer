@@ -32,3 +32,18 @@ test("a token budget keeps today's token window and also reports spend", async (
   expect(r.windows[0]).toMatchObject({name: "7d", usedPct: 100});
   expect(r.spendUsd).toBeCloseTo(46);
 });
+
+for (const cost of [undefined, null, "46", -1]) {
+  test(`invalid cost ${String(cost)} cannot establish dollar permission`, async () => {
+    const c = fakeCtx({run: async () => ({code: 0, stderr: "", stdout: JSON.stringify({
+      models: [{model: {providerID: "openrouter", id: "z-ai/glm-5.3"}, tokens: {input: 10}, cost}],
+    })})});
+    const dollar = await readMetered(c, cfg({weeklyUsd: 100}));
+    expect(dollar.spendUsd == null).toBe(true);
+    expect(dollar.windows.every(w => w.usedPct === null)).toBe(true);
+    expect(dollar.error).toBeDefined();
+    const token = await readMetered(c, cfg({weeklyTokens: 100}));
+    expect(token.windows[0]?.usedPct).toBe(10);
+    expect(token.spendUsd == null).toBe(true);
+  });
+}

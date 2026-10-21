@@ -1,3 +1,10 @@
+import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
+import { restrictEligibility } from "../engine/eligibility";
+import { accountEvidenceScope, recordExecutionEvidence } from "../core/evidence";
+import { prepareLaunch, launchEvidenceCurrent } from "./eligibility";
+import { CoreError } from "../core/errors";
+import { executorExclusion } from "../executors/availability";
+
 import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { projectSnapshot, requireProjectExecutor } from "../core/project-policy";
 import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy";
@@ -30,7 +37,7 @@ import type { Ctx } from "../types";
 import { validateExecution } from "../config/execution";
 import { remoteExclusion } from "../remote/eligibility";
 import { resolveRunner } from "../config/runner-id";
-import { markAuthFailed } from "../usage/auth";
+import { markAuthFailed, attemptAuthError } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
 import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
@@ -40,7 +47,7 @@ const safe = <T>(f: () => Promise<T>, fb: T) => Promise.resolve().then(f).catch(
 
 export interface RunnerDeps {
   loadStrategy: (ctx: Ctx) => Strategy;
-  computeStatus: (ctx: Ctx, s: Strategy) => Promise<Status>;
+  computeStatus: (ctx: Ctx, s: Strategy, opts?: Parameters<typeof computeStatus>[2]) => Promise<Status>;
   runAttempt?: (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void) => Promise<AttemptOutcome>;
   verifyRepo: (repo: string, acceptance: string | undefined, env: Ctx["env"]) => Promise<Verification>;
   hooks?: DecisionHooks;
@@ -49,7 +56,7 @@ export interface RunnerDeps {
 
 const DEFAULTS: RunnerDeps = {
   loadStrategy,
-  computeStatus: (ctx, s) => computeStatus(ctx, s),
+  computeStatus,
   verifyRepo: (repo, acceptance, env) => verifyRepo(repo, acceptance, env),
 };
 
@@ -83,10 +90,16 @@ const stopped = (ctx: Ctx, id: string) => readTask(ctx, id)?.state === "stopped"
 
 /** Run a delegated task to completion: pick executors, fall back on limits, verify, record the result. */
 export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS): Promise<TaskRecord> {
+  const inherited = ctx.env.PACER_ADMISSION_TASK === id ? ctx.env.PACER_ADMISSION_LEASE : undefined;
+  const lease = inherited ?? beginWorkSync(ctx, { kind: "task", id, label: `Task ${id}` });
+  claimWorkSync(ctx, lease);
+  const env = { ...ctx.env }; delete env.PACER_ADMISSION_LEASE; delete env.PACER_ADMISSION_TASK;
+  ctx = { ...ctx, env };
   const startedAt = Date.now();
   try {
     return await runTaskOnce(ctx, id, deps);
   } finally {
+    finishWorkSync(ctx, lease);
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
         loadStrategy: deps.loadStrategy, computeStatus: deps.computeStatus, hooks: deps.hooks,
@@ -140,10 +153,12 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
       const resuming = i === 0 && task.run && task.run.attempt > task.attempts.length ? task.run : null;
       let selection: ProjectSelection | undefined;
+      let policySnapshot: ReturnType<typeof projectSnapshot> | undefined;
       let pick: string | undefined;
       let routing: RoutingNote | undefined;
       let pickReason: string | undefined;
       let startStatus: Status | undefined;
+      let applicableIds: string[] = [];
       let byId: Record<string, Status["providers"][number]> = {};
       if (resuming) {
         pick = resuming.executor;
@@ -155,6 +170,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const repo = task.repo && !task.repo.identityUnverified ? task.repo : await resolvePolicyRepo(ctx, task.brief.repo);
         if (task.repo?.key !== repo.key) task = updateTask(ctx, id, t => { t.repo = repo; });
         const snapshot = projectSnapshot(ctx, s, repo.key);
+        policySnapshot = snapshot;
         selection = snapshot.selection;
         if (!tried.has(task.requestedExecutor ?? "")) requireProjectExecutor(selection, task.requestedExecutor);
         const now = Date.now() / 1000;
@@ -163,6 +179,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const blocked = readBlocked({ ...ctx, now });
         const broken = readBroken({ ...ctx, now });
         byId = Object.fromEntries(st.providers.map((p) => [p.id, { ...p, ...(blocked[p.id] ? {blockedReason:blocked[p.id].reason,blockedUntil:blocked[p.id].until} : {}), ...(broken[p.id] ? { brokenReason: broken[p.id].reason } : {}) }]));
+        for (const p of Object.values(byId)) {
+          const reason = executorExclusion({ ...ctx, now }, s, p.id);
+          if (reason === "Blocked by you") p.blockedReason = reason;
+          if (reason === "exhausted") { p.verdict = "EXHAUSTED"; p.eligibility = restrictEligibility(p.eligibility, "budget_exhausted"); }
+        }
         const ranking = rankExecutors(kind, s, byId, selection && { executors: selection.executors, order: "configured" });
         // Resolve placement only for a remote candidate; local routing remains
         // unchanged and the backend still owns worktree creation and safety.
@@ -200,6 +221,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           const full = new Set<string>();
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;
+            const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, s, candidate.id);
+            if (guard) { excluded.push({ id: candidate.id, reason: guard }); return false; }
             const reason = slotBlock(s, candidate.id, use);
             if (!reason) return true;
             full.add(candidate.id);
@@ -208,7 +231,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
             return false;
           });
           const ids = ranking.ranked.map(e => e.id);
+          applicableIds = ids;
           const paused = readPause(ctx);
+          const refusal = req && !tried.has(req) && excluded.find(e => e.id === req && /Blocked by you|exhausted/.test(e.reason));
+          if (refusal) throw new Error(`requested executor "${req}" is unavailable (${refusal.reason})`);
           pick = requested && ids.includes(req!) ? req! : ids.find(e => !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
           if (paused || (req && !tried.has(req) && full.has(req)) || (!pick && [...full].some(e => !tried.has(e)))) {
@@ -252,7 +278,15 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           skipped: [...skipped].map(([executor, reason]) => ({ executor, reason })),
         };
       }
-      tried.add(pick);
+      if (!resuming) {
+        const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, s, pick);
+        if (guard) {
+          excluded.push({ id: pick, reason: guard });
+          if (pick === task.requestedExecutor) throw new Error(`requested executor "${pick}" is unavailable (${guard})`);
+          tried.add(pick); continue;
+        }
+      }
+
       const cfg = s.providers[pick];
       attemptedExecutor = pick;
       if (resuming && !cfg) {
@@ -281,6 +315,44 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming ? t.attemptStartedAt ?? resuming.startedAt : Date.now() / 1000;
       });
       const before = resuming ? null : await repoFingerprint(ctx, task.brief.repo);
+      if (!resuming) {
+        const launchCtx = { ...ctx, now: Date.now() / 1000 };
+        const currentStrategy = deps.loadStrategy(launchCtx);
+        if (JSON.stringify([currentStrategy.runners[pick], currentStrategy.accounts[account]]) !== JSON.stringify([s.runners[pick], s.accounts[account]])) {
+          if (++policyChanges > 20) throw new CoreError("conflict", "Executor policy keeps changing; retry once editing is complete");
+          i--; continue;
+        }
+        const prepared = await prepareLaunch(launchCtx, currentStrategy, pick, deps.computeStatus, startStatus);
+        const refreshedRanking = rankExecutors(kind, currentStrategy, Object.fromEntries(prepared.status.providers.map(p => [p.id, p])), selection && { executors: selection.executors, order: "configured" });
+        const candidate = refreshedRanking.ranked.find(e => e.id === pick);
+        if (!candidate || prepared.decision.state === "ineligible") {
+          const refusal = refreshedRanking.excluded.find(e => e.id === pick && /Blocked by you|exhausted/.test(e.reason));
+          if (pick === task.requestedExecutor && refusal) throw new Error(`requested executor "${pick}" is unavailable (${refusal.reason})`);
+          excluded.push(...refreshedRanking.excluded);
+          tried.add(pick); continue;
+        }
+        if (!task.requestedExecutor && prepared.decision.state === "uncertain" && refreshedRanking.ranked.some(e => e.eligibility?.state === "eligible" && applicableIds.includes(e.id) && !tried.has(e.id))) {
+          if (++policyChanges > 20) throw new CoreError("conflict", "Executor eligibility keeps changing; retry the task");
+          i--; continue;
+        }
+        const valid = await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
+          if (policySnapshot && projectRevision(readProjectStrategies(ctx), policySnapshot.repoKey) !== policySnapshot.rev) return false;
+          const latest = deps.loadStrategy(ctx);
+          if (JSON.stringify(latest) !== JSON.stringify(currentStrategy)) return false;
+          return launchEvidenceCurrent({ ...ctx, now: Date.now() / 1000 }, prepared)
+            && !executorExclusion({ ...ctx, now: Date.now() / 1000 }, currentStrategy, pick!);
+        }));
+        if (!valid) {
+          if (++policyChanges > 20) throw new CoreError("conflict", "Executor evidence changed before dispatch; retry the task");
+          i--; continue;
+        }
+        routing = { ...routing!, eligibility: prepared.decision,
+          ...(prepared.decision.state === "uncertain" ? { fallback: "uncertain" as const } : {}),
+          why: candidate.reason };
+        task = updateTask(ctx, id, t => { t.pendingAttempt = { routing, usageAtStart }; });
+      }
+      tried.add(pick);
+
       let out: AttemptOutcome;
       try {
         out = resuming ? await resumeAttempt(ctx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(ctx, cfg, task, onSpawn);
@@ -298,21 +370,33 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         out.report = `${note}\n\n${out.report}`;
         if (existsSync(out.attempt.log)) appendFileSync(out.attempt.log, `\n--- routing\n${note}\n`);
       }
-      const authAccount = resolveRunner(s, pick)?.account;
+      const executedRunner = resolveRunner(s, pick);
+      const authAccount = executedRunner?.account;
+      const outcomeScope = authAccount && s.accounts[authAccount] ? { ...accountEvidenceScope(s.accounts[authAccount], s.hosts), runner: pick, model: out.attempt.model ?? cfg.model ?? "default", host: executedRunner?.host ?? "local" } : undefined;
+      const takeover = out.takeover || !!readTask(ctx,id)?.takeover;
       // Only a failed attempt can mean a signed-out CLI; check where the CLI prints, not the agent's report.
-      if (authAccount && out.attempt.exitCode !== 0) {
+      if (!takeover && authAccount && out.attempt.exitCode !== 0 && !out.attempt.timedOut) {
         let log = "";
         try { log = readFileSync(out.attempt.log, "utf8").slice(-4096); } catch { /* Some backends only return output. */ }
-        markAuthFailed({...ctx, now: out.attempt.endedAt}, authAccount, `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}\n${log}`, {attempt: true});
+        markAuthFailed({...ctx, now: out.attempt.endedAt}, authAccount, `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}\n${log}`, {attempt: true, scope: outcomeScope});
       }
-      const takeover = out.takeover || !!readTask(ctx,id)?.takeover;
+      if (!takeover && authAccount && s.accounts[authAccount]) {
+        const text = `${out.exec.stderr}\n${out.exec.stdout.slice(-2048)}`;
+        const classification = out.exec.code === 0 ? "success" : out.attempt.limitHit ? "quota"
+          : attemptAuthError.test(text) ? "authentication"
+          : /no active (?:subscription|coding.plan)|subscription (?:expired|required|inactive)/i.test(text) ? "subscription" : "task";
+        await recordExecutionEvidence({ ...ctx, now: out.attempt.endedAt }, outcomeScope!, {
+          endedAt: out.attempt.endedAt, exitCode: out.exec.code, timedOut: out.exec.timedOut, classification,
+          ...(classification === "quota" ? { until: exhaustUntil(byId[pick], cfg, out.attempt.endedAt, text) } : {}),
+        });
+      }
       if (takeover) { delete out.attempt.brokenReason; out.attempt.limitHit = false; }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
       if (!takeover && out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
         const isolated = !!out.worktree && realpathSafe(out.worktree) !== realpathSafe(task.brief.repo);
         let unchanged: boolean | null;
         if (resuming) unchanged = null;
-        else if (isolated) unchanged = await worktreeUnchanged(ctx, out.worktree!, readTask(ctx, id)?.baseBranch);
+        else if (isolated) unchanged = await worktreeUnchanged(ctx, out.worktree!, readTask(ctx, id)?.baseSha ?? readTask(ctx, id)?.baseBranch);
         else { const after = await repoFingerprint(ctx, out.worktree ?? task.brief.repo); unchanged = before === null && after === null ? null : before !== null && before === after; }
         const reason = brokenReason(out.exec, duration, unchanged);
         if (reason) out.attempt.brokenReason = reason;
@@ -352,7 +436,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       lastBroken = undefined;
       if (out.attempt.limitHit) {
         lastLimitReport = out.report;
-        markExhausted(ctx, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`));
+        markExhausted({ ...ctx, now: out.attempt.endedAt }, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`), { scope: outcomeScope });
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
         continue;
       }
@@ -384,7 +468,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         : `no executor available (${excluded.map((e) => `${e.id}: ${e.reason}`).join(", ") || "none configured"})`;
     const unavailableBroken = Object.entries(readBroken({ ...ctx, now: Date.now()/1000 })).find(([id]) => (!req || id === req) && excluded.some(e => e.id === id));
     const failure = lastBroken ?? (unavailableBroken && (tried.size === 0 || req === unavailableBroken[0]) ? { brokenExecutor: unavailableBroken[0], brokenReason: unavailableBroken[1].reason } : undefined);
-    return finish(ctx, id, { status: failure ? "failed" : "limit", executor: failure?.brokenExecutor ?? attemptedExecutor, model: attemptedModel, files: "", report: failure ? `executor not working: ${failure.brokenReason}` : [why, lastLimitReport].filter(Boolean).join("\n\n"), backend: attemptedBackend, ...failure });
+    return finish(ctx, id, { status: failure || !excluded.some(e => e.reason === "exhausted" || e.eligibility?.budget === "exhausted") && !lastLimitReport ? "failed" : "limit", executor: failure?.brokenExecutor ?? attemptedExecutor, model: attemptedModel, files: "", report: failure ? `executor not working: ${failure.brokenReason}` : [why, lastLimitReport].filter(Boolean).join("\n\n"), backend: attemptedBackend, ...failure });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return finish(ctx, id, { status: "failed", executor: attemptedExecutor, model: attemptedModel, files: "", report: `pacer runner error: ${message}`, backend: attemptedBackend });

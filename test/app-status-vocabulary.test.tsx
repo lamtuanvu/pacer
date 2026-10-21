@@ -28,9 +28,9 @@ test('review queue and detail use task status even when acceptance has a differe
   snapshot.attention = [item]; snapshot.tasks = [task];
   const badge = renderToString(<StatusPill status={taskStatus(task)} />);
   const html = renderToString(<ReviewView snapshot={snapshot} task={task} now={snapshot.at} view={reviewReducer(initialReview,{type:'queue',items:[item]})} />);
-  expect(html.split(badge)).toHaveLength(3); // Queue and detail header agree.
-  expect(overview(snapshot)).toContain('Waiting for review');
-  expect(taskStatus(task).tone).toBe('warn');
+  expect(html.split(badge)).toHaveLength(2); // Execution badge and attention reason are distinct.
+  expect(overview(snapshot)).toContain('Review requested');
+  expect(taskStatus(task).tone).toBe('good');
 });
 
 test('session list and detail retain review verdicts and ignore phases from ended runs', () => {
@@ -53,6 +53,6 @@ test('planner, capacity and tray agree on the pace of a ready executor at 37 per
   expect(top).toContain('pc-meter__fill--warn');
   const tray = renderToString(<Tray snapshot={snapshot} api={createApi()} ipc={createTrayIpc({location:{assign(){}}})} />);
   expect(tray).toContain('pc-meter__fill--warn');
-  expect(tray).toContain('Ready · Ahead of pace');
+  expect(tray).toContain('Eligibility unknown · No execution decision is available · Ahead of pace');
   expect(tray).toContain('pc-status--warn">37%');
 });

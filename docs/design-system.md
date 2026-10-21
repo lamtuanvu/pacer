@@ -25,11 +25,16 @@ All themes use one type scale. `space-2.5` supplies the missing 10px inset; cont
 | `ListRow` | `leading`, `content`, `meta`, `actions`, native div attributes, optional density | Overview attention/running/done/activity, Sessions list and tray attention. Slots are siblings. Row-level focus/data attributes remain on the outer row. Keep full titles in title/detail while clipping through CSS. Secondary actions belong in actions, outside any destination link. |
 | `ListRowLink` | Native anchor attributes and children | Capacity and tray running rows with a single destination. Never put another control inside it. Session replay uses the DS `pc-row-destination`/`pc-list-row--stretch` contract to expand a single link target without nesting controls. |
 | `SelectableRow`, `ChoiceCard`, `FilterChip` | Button props plus optional `selected`; existing aria-pressed/current supported | Review queue/files, Add Executor choices and repo filters. Selection stays controlled by the caller. Choices use buttons and pressed state, not invented tab semantics. |
+| `CountBadge` | Numeric `count`, optional accessible unit `label` (defaults to work items) | Repository filter chips and finder rows. Neutral filled badge with tabular figures; selected chips inherit the chip contrast pair. Counts remain non-interactive and separate from status pills. |
+| `SearchPicker` | Trigger `label`, `searchLabel`, `placeholder`, `emptyLabel`, controlled `value`, `{value,label,description?,count?,searchText?}` options and `onChange` | Repository finder on Overview and Review; searches every registered repo, including those with zero work. Trigger-anchored, right-aligned menu switches alignment near the left viewport edge and fills the row below 560px. Native buttons expose pressed state, the search field receives focus, arrows/Home/End move among results, and Escape/selection return focus. Tab departure and outside pointer dismiss without stealing focus. Search resets on dismissal; filtered empty text is a polite status. Menu rows inherit normal/compact/touch density. |
 | `SegmentedControl`, `Tabs` | Label, controlled value, `{value,label,disabled?}` options and onChange; Tabs additionally requires stable id | Settings switches and Session views. SegmentedControl is a labelled group of pressed buttons. Tabs owns tablist/selected/controls/roving tabIndex and ArrowLeft/Right/Home/End; the consumer renders matching labelled tabpanels. Disabled tabs are skipped. |
 | `Card` / `pc-card`, `ApprovalCard` | Native section props; ApprovalCard optional title/actions slots | Shared settings card CSS also works on native form/div containers. Review verdict uses ApprovalCard framing while VerdictPanel owns decisions and actions. Do not repeat the same heading in both wrapper and content. |
+| `Pagination` | Controlled `label`, zero-based `page`, `pageSize`, `total`, `onChange` | Overview lists. Uses canonical small Buttons with inherited density. Range is a polite live status; only available Previous/Next actions render. Native Tab/Enter/Space activation. Paging moves focus to the persistent labelled navigation region so disappearing boundary buttons do not lose focus. Empty lists omit navigation. Authored locally; no upstream adaptation. |
 | `LoadingState`, `EmptyState` | Loading label/updating; empty title/description/children | Shell connection, task/session/settings resources, Overview and Review clear states, tray connecting. Loading is a polite status with decorative pixel grid; reduced motion freezes it. Refreshing content remains mounted. Errors remain explicit adjacent alerts with existing retry actions. |
 | `SectionHeading`, `Pill`, `StatusPill`, `StatusGlyph` | Existing heading and semantic descriptor APIs | One section-heading type scale. Status descriptors come from `src/view-model/words.ts`; glyph and text accompany color. Color alone never encodes a result. |
 | `UsageMeter`, `AgentMark`, `Mark`, `Icon`, `Kbd`, `Tooltip` | Existing documented typed props in their modules | Specialized meter geometry, vendor identity, navigation, shortcuts and tooltips remain shared. A Kbd composed inside a button inherits the action foreground on a transparent surface, retaining the action contrast pair in both themes. Usage percentages are data, not ad-hoc style. Agent colors mirror shared identity descriptors in both themes. |
+
+Repository chip labels and finder identities use CSS ellipsis when space runs out. Full names remain in the control's title and accessible text; count badges keep a separate fixed column. Screens compose `pc-chip__label` rather than overriding primitive typography or clipping text by character count.
 
 Example composition:
 
@@ -53,6 +58,7 @@ Adapted from [slev12397/beautiful-ui](https://github.com/slev12397/beautiful-ui/
 | --- | --- | --- |
 | `components/atoms/Button.tsx` | `ds/Button.tsx`, `components.css` | Shared inline-flex alignment, size/variant matrix, quiet action, disabled and restrained transition states. Extends existing pacer Button; Preact types/refs replace React and cva, native safe default/busy semantics are added, pacer corners/tokens and touch targets replace demo pill dimensions. |
 | `components/atoms/TextRow.tsx` | `ds/Patterns.tsx: TextRow` | Label-left/value-right, optional baseline metadata and tabular numbers. Supports wrapping and tokens rather than Tailwind pixel literals. |
+| Existing Button/TextRow adaptations above | `ds/SearchPicker.tsx`, `ds/CountBadge.tsx` | Repository finder composes the same quiet button and identity-left/count-right grammar. Local Preact search, anchored containment, keyboard dismissal, pressed selection and neutral count badges are pacer extensions; no additional upstream source or dependency is copied. |
 | `components/atoms/SegmentedControl.tsx` | `ds/Patterns.tsx: SegmentedControl` | Controlled options and selected segments within shared framing. Removes animated sliding thumb; filters use correct pressed-button group semantics. Tabs are a separate keyboard-capable API. |
 | `components/atoms/Switch.tsx` | `ds/Controls.tsx: Switch/Checkbox`, switch CSS | Controlled checked state, rounded track and travelling thumb. Combines existing checkbox styling with a native labelled input, disabled/help/indeterminate/ref support, and reduced-motion/forced-color behavior. |
 | `components/primitives/TaskRows.tsx` | `ds/Patterns.tsx: ListRow/ListRowLink/SelectableRow` | Leading status/identity, flexible clipped title, numeric/status metadata, bounded row and disclosure/action grammar. Removes scripted demonstration status sequence, demo tasks, staggered animation and nested assumptions. Service descriptors decide actual state; sibling actions preserve valid HTML. |
@@ -88,3 +94,46 @@ Component tests establish native attributes, disabled/busy behavior, label/help/
 This migration consolidates the shared-foundation inventory from #174 while preserving #134's semantic status, title, time, containment and one-action requirements. Product-specific remaining work in #134 is complete only when its own observed acceptance criteria and visual evidence pass; architectural reuse alone does not close it.
 
 The canonical Disclosure supports `pc-disclosure--wrap` for multi-part summaries, wrapping title, status and evidence within the container. Diagnostics uses this variant with `pc-ellipsis` and a full title attribute for long identities. Native disclosure keyboard and open/closed semantics remain unchanged; no new upstream adaptation is introduced.
+
+Button backgrounds change immediately when theme tokens change; only opacity transitions. This avoids stale native WebKit background transitions during Appearance changes while preserving keyboard/focus semantics and the existing Button API.
+
+### Task result composition
+
+TaskResult composes canonical SectionHeading, StatusPill, Disclosure, Field,
+TextArea and Button controls. It orders result, checks and changes, delivery and
+next actions before collapsed transcript and technical details. Explicit review
+requests expose verdict controls; ordinary completion keeps them in an optional
+disclosure. Failed checks expose recovery controls. The layout uses existing
+spacing tokens and stacks its columns below 900px. No new upstream component or
+primitive appearance is introduced. Production consumers: Tasks detail and
+legacy task/review deep links. Existing session viewing remains available for
+active tasks. Standard disclosure keyboard behavior, field labels, busy states
+and polite result announcements apply.
+
+ListRow also supports `outlined` for a standalone row with a closed border, and
+`tone="bad"` for a failure tint. Outline and tone belong to the shared component,
+including the last child; Needs you uses them for actionable rows. Existing
+list density, sibling action slots and keyboard behavior are unchanged.
+### Settings page density
+
+`DensityContext` additionally supports `settings`: 32px minimum form buttons,
+inputs, selects and range hit areas, using `control-settings`. Small row actions
+retain the 28px compact minimum; segmented choices use 32px. Body/field text stays
+13px, help 12px and pills 11px. Narrow layouts resolve to touch density; settings
+controls outside the shell also retain 48px targets at narrow/coarse-pointer sizes.
+The existing compact tray density and normal app density are unchanged.
+
+Settings screens mount one editor per route. `settings-pages.ts` owns category
+labels/icons for the sidebar, General links and shell titles. The bounded settings
+canvas owns label/control grids and semantic table columns. Primary page titles
+remain in the shell; nested sections retain `SectionHeading`. Navigation icons
+are decorative beside named links, with one current category. No new upstream
+adaptation or dependency is introduced.
+
+### Session content
+
+`Prose({ text })` renders executor-authored text as an escaped Markdown subset: paragraphs, headings (canonical `SectionHeading` at h3), unordered lists, bold text, inline code and fenced code. Unsupported Markdown remains literal text. It never renders HTML, images or executable URLs. Code retains token boundaries and scrolls within its container; paragraphs preserve line breaks. It uses the normal token type scale at every density. Session briefs and executor reports are its production consumers. This is an original Preact composition; no additional upstream code or dependency is incorporated.
+
+Session details retain a specialized responsive main/activity layout. They compose canonical Tabs, Disclosure, Field, Select, Dialog, Button and StatusPill. Active sessions default to Output; ended sessions default to Brief, and an explicit tab selection stays selected during refreshes. Brief sections use API-provided fields; the original text remains in a collapsed disclosure. The executor report is formatted separately from the unmodified technical log; absent reports are not inferred from logs. Retry selection opens the canonical modal, with native keyboard controls, Escape dismissal, focus cycling/return, visible unavailable reasons, pending state and errors. Changes remain the service-provided diff rather than an inferred file summary.
+
+Completed task results retain their primary result workflow and offer a quiet Session details action. It opens the session workspace; Back to result returns without changing task state. Active tasks continue to open the session workspace directly.

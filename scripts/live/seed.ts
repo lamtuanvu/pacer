@@ -91,6 +91,7 @@ export function seedUi(root: string): void {
       task.result = { status: state, executor: "codex#personal", model: null, backend: "direct", worktree,
         files: state === "failed" ? "" : "src/example.ts | 4 ++--", report: state === "failed" ? "Fixture failure; the worktree has been removed." : detail.summary,
         acceptance: { cmd: "bun test", passed: state === "done", tail: state === "done" ? "38 passed" : "Fixture checks incomplete" } };
+      if (index === 0) task.reviewRequest = {note:"Please review the permission change before integrating.",at:now-60};
       if (index === 4) task.review = { accepted: true, kind: "feature", note: "Sample accepted work", at: now - 30 };
       else attention[`${state === "failed" ? "failed" : "review"}:${id}`] = { since: now - 60 };
     }

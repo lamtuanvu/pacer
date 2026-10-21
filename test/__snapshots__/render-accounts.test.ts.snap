@@ -2,18 +2,18 @@
 
 exports[`account-form status identifies each runner and its agent/account 1`] = `
 "Account plan
-- Claude: weekly 34% (pace 84%, 1 active-h left) EXPIRING
+- Claude: Eligible · Execution permitted · observed 0s ago · weekly 34% (pace 84%, 1 active-h left) EXPIRING
 Account byteplus
-- BytePlus: local, unmetered OK
+- BytePlus: Eligible · Execution permitted
 Account team
-- Codex (team): weekly 34% (pace 99%, 1 active-h left) EXPIRING
+- Codex (team): Eligible · Execution permitted · observed 0s ago · weekly 34% (pace 99%, 1 active-h left) EXPIRING
 Mode: RELAXED - Claude is BEHIND pace or its window resets soon with quota unused. Claude may do small and medium edits itself; still delegate bulk or mechanical work.
 Executor preference: codex#team > opencode#byteplus
 Pace clock: calendar (not enough activity history yet)"
 `;
 
 exports[`account metadata survives the link and appears in the dashboard 1`] = `
-" ▬┃ pacer   [ Home ]  Review  Sessions  Settings                                                                   All repos · Relaxed · ● live 12:00
+" ▬┃ pacer   [ Home ]  Needs you  Tasks  Settings                                                                   All repos · Relaxed · ● live 12:00
  Claude Code planner  ━━━━━━━─────────┃───  34% used · pace 84%  ↓ Behind pace  1 active-h · resets 13:00
  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    50 pts under pace — spend it.
@@ -25,15 +25,15 @@ exports[`account metadata survives the link and appears in the dashboard 1`] = `
    Nothing running. Delegate a task, or ask your planner to.
 
    CAPACITY  3 executors
-   #   EXECUTOR                    STATUS                 PACE                                                            USAGE           USED  TASKS
- › P   Claude Code                 ✓ Ready                Behind pace                                                     ━━━━━──────┃──   34%    0/1
-   1   BytePlus                    ✓ Ready                On pace · unmetered                                             unmetered          —    0/1
-   2   Codex · team                ✓ Ready          next  Expiring soon                                                   ━━━━━────────┃   34%    0/1
+   #   EXECUTOR                    STATUS                        PACE                                                     USAGE           USED  TASKS
+ › P   Claude Code                 ✓ Eligible                    Behind pace                                              ━━━━━──────┃──   34%    0/1
+   Execution permitted · observed 0s ago
+   1   BytePlus                    ✓ Eligible                    On pace · unmetered                                      unmetered          —    0/1
+   Execution permitted
+   2   Codex · team                ✓ Eligible              next  Expiring soon                                            ━━━━━────────┃   34%    0/1
+   Execution permitted · observed 0s ago
 
-   DONE TODAY  0
-   Nothing finished yet today.
-
-
+ ↓ 2 more
  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
  ⏎ Open in Settings  f repo scope  d delegate  ? help                                                                                     pacer 0.2.3"

@@ -122,6 +122,8 @@ test.skipIf(!canBind)("up/status/down uses a free port and leaves no service", a
     expect(session.innerPort).not.toBe(4317);
     expect(session.innerPort).not.toBe(session.port);
     expect(session.proxyPid).toBeGreaterThan(1);
+    expect(session.serviceIdentity?.pid).toBe(session.pid);
+    expect(session.serviceIdentity?.birth).toBeTruthy();
     expect(await healthy({ ...session, proxyPid: 1 })).toBe(false);
     expect(await healthy({ ...session, pid: 1 })).toBe(false);
     expect(await healthy(session)).toBe(true);
@@ -418,4 +420,18 @@ test.skipIf(process.platform !== "darwin")("desktop bundle reports malformed pli
   atomicWrite(join(binaries, "shell"), "shell", 0o700);
   atomicWrite(join(app, "Contents/Info.plist"), "invalid plist");
   expect(() => desktopExecutable(app)).toThrow("plutil");
+});
+test("OTA CLI requires explicit scoped options and never accepts arbitrary commands", async () => {
+  for (const args of [
+    ["ota", "prepare"], ["ota", "prepare", "--id", "missing"],
+    ["ota", "exercise", "--id", "missing"], ["ota", "cleanup", "--id", "missing", "--app", "/outside"],
+    ["ota", "exercise", "--id", "missing", "--scenario", "install", "--", "rm", "-rf", "/outside"],
+    ["ota", "cleanup", "--id", "missing", "--feed", "https://example.invalid"],
+    ["env", "--from-app", "/outside"],
+  ]) await expect(main(args)).rejects.toThrow();
+});
+
+
+test("OTA-only options are rejected before up can create a sandbox", async () => {
+  await expect(main(["up", "--id", "../escape", "--from-app", "/outside"])).rejects.toThrow("OTA options");
 });

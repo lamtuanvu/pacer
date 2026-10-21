@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
+import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
+import { signerKind } from "./update/desktop/signer-requirement";
+import { currentVersion } from "./update/version";
 import { projectStrategyCmd } from "./commands/project-strategy";
 import { dashboardClient as connectTaskClient } from "./dashboard/client";
 import type { PruneResult } from "./tasks/retention";
@@ -63,9 +67,10 @@ const USAGE = `usage: pacer <command>
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
-           [--worktree current|new|auto] [--worktree-reason <text>]
+           [--worktree current|new|auto] [--worktree-base default|head] [--worktree-reason <text>]
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
   review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
+  task request-review <task-id> --note <text> [--expect-rev <n>] [--json] request a human decision
   dismiss <task-id...>                           hide settled tasks
   tasks [<task-id>] [--all] [--json]             recent tasks, including archives with --all
   tasks prune [--dry-run] [--json]               archive old settled tasks
@@ -267,11 +272,12 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
+    if(str(opts["worktree-base"])!==undefined)raw.worktree_base=str(opts["worktree-base"]);
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
-    const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
+    const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
@@ -330,7 +336,26 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
 
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
+  if (cmd === "--pacer-fixture-startup-cleanup" && compiledNativeFixture()) {
+    if (rest.length) return {code:2,out:"",err:"Fixture cleanup accepts no arguments"};
+    try {
+      const {reserveFixtureStartupCleanup}=await import("./update/desktop/native-fixture-cleanup");
+      return {code:0,out:JSON.stringify(await reserveFixtureStartupCleanup()),err:""};
+    } catch { return {code:2,out:"",err:"Fixture startup cleanup proof is unavailable"}; }
+  }
+  if (cmd === "--pacer-native-transport-test") {
+    if (rest.length) return {code:2,out:"",err:"Native transport smoke accepts no arguments"};
+    try {
+      const {nativeTransportSelfTest}=await import("./update/desktop/native-transport-test");
+      return {code:0,out:JSON.stringify(await nativeTransportSelfTest()),err:""};
+    } catch { return {code:2,out:"",err:"Verified native transport unavailable"}; }
+  }
   switch (cmd) {
+    case "--pacer-identity": {
+      if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-identity"};
+      const appleTeamId=compiledAppleTeamId(), signingCertSha1=compiledSigningCertSha1(), pins=compiledSignerPins();
+      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:"dev.pacer.cli",version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
+    }
     case "pause":
     case "resume": {
       if (rest.length !== (cmd === "pause" ? 1 : 0)) return {code: 2, out: "", err: `usage: pacer ${cmd === "pause" ? "pause <for>" : "resume"}`};
@@ -375,6 +400,18 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       return route(rest, ctx);
     case "delegate":
       return delegateCmd(rest, ctx);
+    case "task": {
+      if (rest[0] !== "request-review") return {code:2,out:"",err:USAGE};
+      const {opts,pos} = parseFlags(rest.slice(1), ["json"]);
+      if (!pos[0]) return {code:2,out:"",err:USAGE};
+      const client = await connectTaskClient(ctx);
+      try {
+        const params = {id:pos[0],note:str(opts.note),...(opts["expect-rev"] !== undefined ? {expect_rev:Number(opts["expect-rev"])} : {})};
+        const result = client.kind === "inprocess" ? await callOp(ctx, "task.request_review", params) : await client.call("task.request_review", params);
+        return {code:0,out:opts.json ? JSON.stringify(result) : `${pos[0]} review requested`,err:""};
+      } catch (e) { return {code:2,out:"",err:explain(e)}; }
+      finally { client.close(); }
+    }
     case "tasks":
       return tasksCmd(rest, ctx);
     case "wait":

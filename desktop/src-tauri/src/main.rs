@@ -4,15 +4,16 @@ macro_rules! desktop_log {
 }
 mod actions;
 mod approvals;
-mod client;
 mod capture;
+mod client;
 mod link;
 mod logging;
 mod logic;
 mod notifications;
-mod profile;
 mod permission_setup;
+mod profile;
 mod tray_model;
+mod update_journal;
 
 use reqwest::Url;
 use serde_json::Value;
@@ -34,7 +35,23 @@ use tauri_plugin_notification::{Action, ActionType};
 use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
 
+#[tauri::command]
+async fn native_validation_setup(window: WebviewWindow, app: AppHandle) -> Result<permission_setup::SetupResult, String> {
+    authorized(&window, &app)?;
+    let result = permission_setup::request().await?;
+    authorized(&window, &app)?;
+    Ok(result)
+}
+
 struct Shell {
+    #[cfg(feature = "ota-fixture")]
+    fixture_tray_auth: Mutex<Option<Url>>,
+    native: Mutex<Option<Arc<pacer_desktop::ota::control::NativeConnection>>>,
+    navigation: Mutex<pacer_desktop::ota::control::NavigationState>,
+    adoption: Mutex<Option<pacer_desktop::ota::control::AdoptionReconnectPlan>>,
+    maintenance: AtomicBool,
+    /// Whether the tray icon currently carries the red attention dot.
+    tray_alert: AtomicBool,
     #[cfg(target_os = "macos")]
     relaunch: Mutex<Option<std::process::Command>>,
     startup: Mutex<logic::Startup>,
@@ -55,6 +72,13 @@ struct Shell {
 impl Default for Shell {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "ota-fixture")]
+            fixture_tray_auth: Mutex::new(None),
+            native: Mutex::new(None),
+            navigation: Mutex::new(Default::default()),
+            adoption: Mutex::new(None),
+            maintenance: AtomicBool::new(false),
+            tray_alert: AtomicBool::new(false),
             #[cfg(target_os = "macos")]
             relaunch: Mutex::new(None),
             startup: Mutex::new(logic::Startup::default()),
@@ -112,19 +136,86 @@ fn session_expired(window: WebviewWindow, app: AppHandle) -> Result<(), String> 
     Ok(())
 }
 #[tauri::command]
-fn session_ready(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+fn desktop_version(window: WebviewWindow, app: AppHandle) -> Result<String, String> {
     authorized(&window, &app)?;
+    Ok(app.package_info().version.to_string())
+}
+#[tauri::command]
+fn session_ready(
+    window: WebviewWindow,
+    app: AppHandle,
+    nonce: Option<String>,
+) -> Result<(), String> {
+    authorized(&window, &app)?;
+    let shell = app.state::<Shell>();
+    let native = shell.native.lock().unwrap().clone();
+    if let Some(native) = native {
+        let origin = shell
+            .origin
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("Native service origin missing")?;
+        let desktop = pacer_desktop::ota::native::process_details(std::process::id())
+            .map_err(|_| "Native desktop identity missing")?
+            .ok_or("Native desktop identity missing")?
+            .identity;
+        let proof = shell
+            .navigation
+            .lock()
+            .unwrap()
+            .document_ready(
+                &origin,
+                nonce
+                    .as_deref()
+                    .ok_or("Native document challenge missing")?,
+                &desktop,
+                &native.service,
+                &native.session.session_id,
+                env!("CARGO_PKG_VERSION"),
+                &native.session.service_version,
+                3,
+                true,
+            )
+            .map_err(|_| "Native document acknowledgement rejected")?;
+        native
+            .document_ready(proof)
+            .map_err(|_| "Native service acknowledgement unavailable")?;
+    } else if shell.maintenance.load(Ordering::SeqCst) {
+        return Err("Native maintenance sign-in is pending".into());
+    }
     app.state::<Shell>().startup.lock().unwrap().ready();
     desktop_log!("pacer lifecycle: desktop sign-in complete");
-    set_error_dot(&app, false);
-    if let Some(tray) = app.tray_by_id("pacer") {
-        let _ = tray.set_tooltip(Some("pacer"));
-    }
+    // Clear a sign-in dot, but keep an update failure that the current snapshot reports.
+    set_error_dot(&app, app.state::<Shell>().tray_alert.load(Ordering::SeqCst));
     Ok(())
 }
 // Runs in the trusted service document, including script-free error pages. Also
 // recognizes pages from older services which do not yet carry the marker.
 const CHECK_SESSION_PAGE: &str = r#"if (document.querySelector('[data-pacer-session-ended]') || (!document.getElementById('app') && /Session ended|This link has expired/.test(document.body.textContent))) { window.__TAURI__?.core.invoke('session_expired').catch(() => {}); } else if (document.getElementById('app')) { window.__TAURI__?.core.invoke('session_ready').catch(() => {}); }"#;
+
+fn check_main_document(window: &WebviewWindow, url: &Url) {
+    let app = window.app_handle();
+    let shell = app.state::<Shell>();
+    let origin = shell.origin.lock().unwrap().clone();
+    if let Some(origin) = origin {
+        if logic::command_authorized("main", "main", url, Some(&origin))
+            && matches!(url.path(), "/app" | "/app/")
+            && shell.native.lock().unwrap().is_some()
+        {
+            if let Ok(nonce) = shell.navigation.lock().unwrap().begin_navigation(&origin) {
+                let args = serde_json::json!({"nonce":nonce});
+                let script = CHECK_SESSION_PAGE.replace(
+                    "invoke('session_ready')",
+                    &format!("invoke('session_ready', {args})"),
+                );
+                let _ = window.eval(&script);
+                return;
+            }
+        }
+    }
+    let _ = window.eval(CHECK_SESSION_PAGE);
+}
 
 #[tauri::command]
 fn tray_resize(window: WebviewWindow, app: AppHandle, height: f64) -> Result<(), String> {
@@ -157,38 +248,71 @@ fn app_quit(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     app.exit(0);
     Ok(())
 }
-fn create_tray_window(app: &AppHandle, origin: &str) -> tauri::Result<()> {
+fn create_tray_window(app: &AppHandle, origin: &str) -> Result<(), String> {
     if app.get_webview_window("tray").is_some() {
         return Ok(());
     }
+    #[cfg(feature = "ota-fixture")]
+    let initial = app
+        .state::<Shell>()
+        .fixture_tray_auth
+        .lock()
+        .unwrap()
+        .take()
+        .filter(|url| logic::fixture_tray_auth(url, origin))
+        .ok_or("Isolated tray sign-in unavailable")?;
+    #[cfg(not(feature = "ota-fixture"))]
+    let initial = Url::parse(&format!("{origin}/app/tray.html")).expect("validated service origin");
     let nav = app.clone();
-    let window = tauri::WebviewWindowBuilder::new(
-        app,
-        "tray",
-        WebviewUrl::External(
-            Url::parse(&format!("{origin}/app/tray.html")).expect("validated service origin"),
-        ),
-    )
-    .title("pacer")
-    .inner_size(TRAY_WIDTH, 120.)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .resizable(false)
-    .skip_taskbar(true)
-    .visible(false)
-    .focused(false)
-    .on_page_load(|window, payload| {
-        if payload.event() == tauri::webview::PageLoadEvent::Finished {
-            let _ = window.eval(CHECK_SESSION_PAGE);
-        }
-    })
-    .on_navigation(move |url| {
-        let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
-        logic::command_authorized("tray", "tray", url, origin.as_deref())
-            && url.path() == "/app/tray.html"
-    })
-    .build()?;
+    let window = tauri::WebviewWindowBuilder::new(app, "tray", WebviewUrl::External(initial))
+        .incognito(cfg!(feature = "ota-fixture"))
+        .title("pacer")
+        .inner_size(TRAY_WIDTH, 120.)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        .on_page_load(|window, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                #[cfg(feature = "ota-fixture")]
+                if payload.url().path() == "/app/" {
+                    let origin = window
+                        .app_handle()
+                        .state::<Shell>()
+                        .origin
+                        .lock()
+                        .unwrap()
+                        .clone();
+                    if origin
+                        .as_deref()
+                        .is_some_and(|origin| logic::fixture_tray_navigation(payload.url(), origin))
+                    {
+                        let _ = window.eval("location.replace('/app/tray.html')");
+                    }
+                    return;
+                }
+                let _ = window.eval(CHECK_SESSION_PAGE);
+            }
+        })
+        .on_navigation(move |url| {
+            let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
+            #[cfg(feature = "ota-fixture")]
+            {
+                origin
+                    .as_deref()
+                    .is_some_and(|origin| logic::fixture_tray_navigation(url, origin))
+            }
+            #[cfg(not(feature = "ota-fixture"))]
+            {
+                logic::command_authorized("tray", "tray", url, origin.as_deref())
+                    && url.path() == "/app/tray.html"
+            }
+        })
+        .build()
+        .map_err(|error| error.to_string())?;
     let blur = window.clone();
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Focused(false)) {
@@ -224,19 +348,17 @@ fn toggle_tray(app: &AppHandle) {
         show(app);
     }
 }
-#[tauri::command]
-async fn native_validation_setup(window: WebviewWindow, app: AppHandle) -> Result<permission_setup::SetupResult, String> {
-    authorized(&window, &app)?;
-    let result = permission_setup::request().await?;
-    authorized(&window, &app)?;
-    Ok(result)
-}
 #[allow(non_snake_case)]
 #[tauri::command]
 fn setLaunchAtLogin(window: WebviewWindow, app: AppHandle, enabled: bool) -> Result<(), String> {
     authorized(&window, &app)?;
     launch_at_login(&app, enabled)
 }
+#[cfg(feature = "ota-fixture")]
+fn launch_at_login(_app: &AppHandle, _enabled: bool) -> Result<(), String> {
+    Err("Launch at login is unavailable in isolated fixtures".into())
+}
+#[cfg(not(feature = "ota-fixture"))]
 fn launch_at_login(app: &AppHandle, enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let native = approvals::launch_at_login(enabled);
@@ -416,6 +538,10 @@ fn recovery(app: &AppHandle, state: &str) {
                     "relink" => "relink",
                     "foreign" => "foreign",
                     "stuck" => "stuck",
+                    "installing" => "installing",
+                    "rollingBack" => "rollingBack",
+                    "restored" => "restored",
+                    "recoveryFailed" => "recoveryFailed",
                     _ => "starting",
                 },
                 None,
@@ -444,18 +570,23 @@ fn recovery(app: &AppHandle, state: &str) {
         "foreign" => "Another pacer is running",
         "relink" => "pacer's terminal command was removed",
         "protocol" => "Unable to connect to pacer",
+        "installing" => "Installing update",
+        "rollingBack" => "Restoring the previous version",
+        "restored" => "Previous version restored",
+        "recoveryFailed" => "Recovery needs attention",
         _ => "Starting pacer…",
     };
-    set_error_dot(app, state == "stuck");
+    let alert = matches!(state, "stuck" | "recoveryFailed");
+    shell.tray_alert.store(alert, Ordering::SeqCst);
+    set_error_dot(app, alert);
     if changed {
-        if let Some(tray) = app.tray_by_id("pacer") {
-            let _ = tray.set_tooltip(Some(title));
-        }
         update_tray(
             app,
             TrayModel {
                 title: title.into(),
                 paused: false,
+                tooltip: title.into(),
+                alert,
             },
         );
     }
@@ -472,6 +603,7 @@ fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
         "tray",
         WebviewUrl::App("index.html?compact=1".into()),
     )
+    .incognito(cfg!(feature = "ota-fixture"))
     .title("pacer")
     .inner_size(TRAY_WIDTH, 440.)
     .decorations(false)
@@ -515,6 +647,7 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-notifyRoute")
                 .permission("allow-session-expired")
                 .permission("allow-session-ready")
+                .permission("allow-desktop-version")
                 .permission("allow-native-validation-setup"),
         )
         .map_err(|e| e.to_string())?;
@@ -536,7 +669,7 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
         granted.push(origin.into());
     }
     if let Some(window) = app.get_webview_window("tray") {
-        if window.url().is_ok_and(|url| shell_url(&url)) {
+        if cfg!(feature = "ota-fixture") || window.url().is_ok_and(|url| shell_url(&url)) {
             let _ = window.destroy();
         }
     }
@@ -611,6 +744,10 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
         None::<&str>,
     )?)?;
     tray.set_title(Some(&model.title))?;
+    tray.set_tooltip(Some(&model.tooltip))?;
+    if app.state::<Shell>().tray_alert.swap(model.alert, Ordering::SeqCst) != model.alert {
+        set_error_dot(app, model.alert);
+    }
     tray.set_menu(Some(menu))
 }
 fn dispatch_action(app: &AppHandle, action: Value) {
@@ -684,7 +821,9 @@ async fn native_dialog(message: &str, answer: bool) -> Option<String> {
 async fn native_dialog(_message: &str, _answer: bool) -> Option<String> {
     None
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(feature = "ota-fixture")]
+fn notify(_app: &AppHandle, _notification: notifications::Notification) {}
+#[cfg(all(not(target_os = "macos"), not(feature = "ota-fixture")))]
 fn notify(app: &AppHandle, notification: notifications::Notification) {
     let _ = app
         .notification()
@@ -694,7 +833,7 @@ fn notify(app: &AppHandle, notification: notifications::Notification) {
         .extra("route", notification.route)
         .show();
 }
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "ota-fixture")))]
 fn notify(app: &AppHandle, notification: notifications::Notification) {
     // Each category has stable, unique action ids so later notifications cannot remap earlier buttons.
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -760,6 +899,9 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            if app.state::<Shell>().maintenance.load(Ordering::SeqCst) {
+                continue;
+            }
             match logic::bundle_replaced(&executable, &started) {
                 Ok(false) => continue,
                 Err(error) => {
@@ -793,6 +935,9 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
                 .stderr(std::process::Stdio::null());
             // Commit to relaunch only through Tauri's normal shutdown. The Exit
             // event schedules the helper, which waits for this PID to disappear.
+            if app.state::<Shell>().maintenance.load(Ordering::SeqCst) {
+                continue;
+            }
             *app.state::<Shell>().relaunch.lock().unwrap() = Some(command);
             app.exit(0);
             return;
@@ -802,6 +947,24 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
 
 fn main() {
     capture::initialize_build_identity();
+    // Build smoke checks run before GUI initialization or service discovery.
+    match std::env::args().nth(1).as_deref() {
+        Some("--version") => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Some("--pacer-identity") => {
+            let mut identity = pacer_desktop::ota::trust::build_identity();
+            identity.as_object_mut().unwrap().extend(serde_json::json!({ "schema": 1, "role": "desktop", "bundleId": "dev.pacer.desktop", "version": env!("CARGO_PKG_VERSION"), "arch": std::env::consts::ARCH }).as_object().unwrap().clone());
+            #[cfg(feature = "ota-fixture")]
+            {
+                identity["fixtureIsolationProtocol"] = serde_json::json!(1);
+            }
+            println!("{identity}");
+            return;
+        }
+        _ => {}
+    }
     desktop_log!(
         "pacer lifecycle: desktop starting version {}",
         env!("CARGO_PKG_VERSION")
@@ -825,16 +988,43 @@ fn main() {
             }
         }
     });
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            for arg in args {
-                if arg.starts_with("pacer://") {
-                    navigate(app, &arg);
+    let shell = Shell::default();
+    let maintenance_launch = std::env::args().any(|argument| argument == "--pacer-maintenance-launch");
+    if let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() {
+        match pacer_desktop::ota::control::read_launch_ticket(&trust) {
+            Ok(ticket) => {
+                desktop_log!("pacer lifecycle: native maintenance launch={}", ticket.is_some());
+                if maintenance_launch && ticket.is_none() {
+                    desktop_log!("Native maintenance launch ticket is missing");
+                    std::process::exit(2);
                 }
+                shell.maintenance.store(ticket.is_some(), Ordering::SeqCst);
+                *shell.navigation.lock().unwrap() =
+                    pacer_desktop::ota::control::NavigationState::with_ticket(ticket)
+                        .expect("validated native ticket");
             }
-            show(app);
-        }))
-        .plugin(tauri_plugin_positioner::init())
+            Err(_) => {
+                desktop_log!("Native maintenance launch could not be verified");
+                std::process::exit(2);
+            }
+        }
+    } else if maintenance_launch {
+        desktop_log!("Native maintenance launch trust is unavailable");
+        std::process::exit(2);
+    }
+    let app = tauri::Builder::default();
+    #[cfg(not(feature = "ota-fixture"))]
+    let app = app.plugin(tauri_plugin_single_instance::init(|app, args, _| {
+        for arg in args {
+            if arg.starts_with("pacer://") {
+                navigate(app, &arg);
+            }
+        }
+        show(app);
+    }));
+    let app = app.plugin(tauri_plugin_positioner::init());
+    #[cfg(not(feature = "ota-fixture"))]
+    let app = app
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin({
@@ -854,8 +1044,9 @@ fn main() {
                         | tauri_plugin_window_state::StateFlags::MAXIMIZED,
                 )
                 .build(),
-        )
-        .manage(Shell::default())
+        );
+    let app = app
+        .manage(shell)
         .invoke_handler(tauri::generate_handler![
             setLaunchAtLogin,
             setTheme,
@@ -866,6 +1057,7 @@ fn main() {
             app_quit,
             session_expired,
             session_ready,
+            desktop_version,
             native_validation_setup
         ])
         .setup(move |app| {
@@ -884,15 +1076,23 @@ fn main() {
             let window =
                 tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .visible(!std::env::args().any(|arg| arg == "--pacer-relaunch-hidden"))
+                    .incognito(cfg!(feature = "ota-fixture"))
                     .title("pacer")
                     .inner_size(1120., 760.)
                     .min_inner_size(720., 520.)
                     .on_page_load(move |window, payload| {
                         if payload.event() != tauri::webview::PageLoadEvent::Finished {
+                            window
+                                .app_handle()
+                                .state::<Shell>()
+                                .navigation
+                                .lock()
+                                .unwrap()
+                                .invalidate();
                             return;
                         }
                         *loaded.lock().unwrap() = Some(payload.url().clone());
-                        let _ = window.eval(CHECK_SESSION_PAGE);
+                        check_main_document(&window, payload.url());
                         if shell_url(payload.url()) {
                             render_diagnosis(window.app_handle());
                         }
@@ -999,43 +1199,46 @@ fn main() {
                 })
                 .build(app)?;
             update_tray(&handle, TrayModel::from_snapshot(&Value::Null));
-            let links = handle.clone();
-            app.deep_link().on_open_url(move |event| {
-                for url in event.urls() {
-                    navigate(&links, url.as_str());
-                }
-            });
-            if let Some(urls) = app.deep_link().get_current()? {
-                for url in urls {
-                    navigate(&handle, url.as_str());
-                }
-            }
-            let notifications = handle.clone();
-            app.notification().on_action(move |action| {
-                let mapped = notifications
-                    .state::<Shell>()
-                    .actions
-                    .lock()
-                    .unwrap()
-                    .get(action.action_id())
-                    .cloned();
-                if let Some(mapped) = mapped {
-                    dispatch_action(&notifications, mapped);
-                    return;
-                }
-                let target = logic::route(action.action_id()).or_else(|| {
-                    action
-                        .notification()
-                        .and_then(|n| n.extra().get("route"))
-                        .and_then(Value::as_str)
-                        .and_then(logic::route)
+            #[cfg(not(feature = "ota-fixture"))]
+            {
+                let links = handle.clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        navigate(&links, url.as_str());
+                    }
                 });
-                if let Some(target) = target {
-                    navigate(&notifications, &target);
+                if let Some(urls) = app.deep_link().get_current()? {
+                    for url in urls {
+                        navigate(&handle, url.as_str());
+                    }
                 }
-            })?;
-            #[cfg(target_os = "macos")]
-            approvals::request_notifications();
+                let notifications = handle.clone();
+                app.notification().on_action(move |action| {
+                    let mapped = notifications
+                        .state::<Shell>()
+                        .actions
+                        .lock()
+                        .unwrap()
+                        .get(action.action_id())
+                        .cloned();
+                    if let Some(mapped) = mapped {
+                        dispatch_action(&notifications, mapped);
+                        return;
+                    }
+                    let target = logic::route(action.action_id()).or_else(|| {
+                        action
+                            .notification()
+                            .and_then(|n| n.extra().get("route"))
+                            .and_then(Value::as_str)
+                            .and_then(logic::route)
+                    });
+                    if let Some(target) = target {
+                        navigate(&notifications, &target);
+                    }
+                })?;
+                #[cfg(target_os = "macos")]
+                approvals::request_notifications();
+            }
             tauri::async_runtime::spawn(client::monitor_approvals(handle.clone()));
             tauri::async_runtime::spawn(client::watch_startup(handle.clone()));
             #[cfg(target_os = "macos")]
@@ -1052,6 +1255,10 @@ fn main() {
         match _event {
             tauri::RunEvent::Reopen { .. } => show(_app),
             tauri::RunEvent::Exit => {
+                if _app.state::<Shell>().maintenance.load(Ordering::SeqCst) {
+                    _app.state::<Shell>().relaunch.lock().unwrap().take();
+                    return;
+                }
                 if let Some(mut command) = _app.state::<Shell>().relaunch.lock().unwrap().take() {
                     if let Err(error) = command.spawn() {
                         desktop_log!("Unable to schedule pacer relaunch: {error}");

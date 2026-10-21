@@ -1,3 +1,5 @@
+import { beginWorkSync, bindOrcaWorkSync, finishOrcaWorkSync, finishWorkSync } from "../../update/desktop/admission";
+import { resolveWorktreeBase } from "../../supervisor/worktree";
 import { pidAlive } from "../../link/store";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -53,7 +55,7 @@ interface Mapped { code: number; timedOut: boolean; settled: boolean; summary: s
 
 async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskRecord, ex: ExecutionCfg): Promise<Prepared> {
   const preliminary=resolvePlacement(task,ex.worktree,false);
-  const pick = orcaAgentFor(cfg, preliminary.mode==="current"?"current":ex.worktree==="current"?"new-child":ex.worktree);
+  const pick = orcaAgentFor(cfg, task.retryOf && task.worktree ? "current" : preliminary.mode==="current"?"current":ex.worktree==="current"?"new-child":ex.worktree);
   if ("skip" in pick) return { ok: false, reason: pick.skip };
   if (!isReady(await c.status())) return { ok: false, reason: "the Orca runtime is not ready (orca status)" };
   const git = await gitInfo(ctx.run, task.brief.repo);
@@ -66,12 +68,14 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   if(active&&task.placement?.requested==="current")return {ok:false,reason:"another pacer task is running in the current worktree; requested current placement refused",refuse:true};
   const resolved=resolvePlacement(task,ex.worktree,active,git.dirty);
   if(resolved.mode==="current"&&resolved.why==="strategy default"&&git.dirty)return {ok:false,reason:"current worktree has uncommitted changes",refuse:true};
-  const mapped=orcaAgentFor(cfg,resolved.mode==="current"?"current":"new-child");
+  const mapped=orcaAgentFor(cfg,task.retryOf && task.worktree ? "current" : resolved.mode==="current"?"current":"new-child");
   if("skip" in mapped)return {ok:false,reason:mapped.skip};
-  const base = task.brief.base ?? (ex.worktree==="child-of-current"?git.branch:ex.baseBranch ?? git.branch);
-  if (resolved.mode !== "current" && base === "HEAD") {
-    return { ok: false, reason: `${git.top} has a detached HEAD; check out a branch or set execution.base_branch` };
-  }
+  const resolvedBase = resolved.mode === "current" || (task.retryOf && task.worktree)
+    ? { base: task.baseBranch ?? git.branch, sha: task.baseSha }
+    : await resolveWorktreeBase(ctx, git.top, task.brief, ex.baseBranch, ex.worktree === "child-of-current" && task.placement?.requested !== "new");
+  if ("error" in resolvedBase) return { ok: false, reason: resolvedBase.error, refuse: true };
+  const base = resolvedBase.base;
+  if (resolvedBase.sha) updateTask(ctx, task.id, t => { t.baseSha = resolvedBase.sha; });
   const repoId = await ensureRepo(c, git.top, {main:git.main,linked:git.linked,registerRepos:ex.registerRepos});
   if (typeof repoId !== "string") return { ok: false, reason: repoId.error };
   const coord = await ensureCoordinator(ctx, c, git.top);
@@ -81,8 +85,10 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
     notes.push(`note: ${git.top} has uncommitted changes; the worker's new worktree starts from ${base} without them`);
   }
   // New-child worktree names pacer-<taskId>-<providerId> also identify executor hook sessions.
-  const placement: Placement = resolved.mode !== "current"
-    ? { kind: "new-child", repoId, baseBranch: base, name: `pacer-${task.id}-${cfg.id}` }
+  const placement: Placement = task.retryOf && task.worktree
+    ? { kind: "existing", selector: `path:${task.worktree}` }
+    : resolved.mode !== "current"
+    ? { kind: "new-child", repoId, baseBranch: resolvedBase.sha ?? base, name: `pacer-${task.id}-${cfg.id}` }
     : { kind: "existing", selector: `path:${git.top}` };
   return {
     ok: true, agent: mapped.agent, model: mapped.model, coordinator: coord.coordinator, run: coord.run,
@@ -91,7 +97,7 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
 }
 
 function workerSpec(task: TaskRecord, p: Ready): string {
-  const where = p.placement.kind === "existing" ? task.brief.repo
+  const where = p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo)
     : `The current working directory: a new Orca worktree of ${p.top} branched from ${p.base}` +
       `${p.sub ? `. Work in its ${p.sub}/ subdirectory` : ""}. Do not edit ${p.top} itself.`;
   const prompt = buildPrompt({ ...task.brief, repo: where }, task.id);
@@ -137,15 +143,17 @@ async function fallback(
   return { ...out, backend: "direct" };
 }
 
-async function cleanup(c: OrcaClient, dispatchId: string, terminal: string | null, settled: boolean, log: (l: string) => void) {
+async function cleanup(c: OrcaClient, dispatchId: string, terminal: string | null, settled: boolean, log: (l: string) => void, receipt: (reply: Awaited<ReturnType<OrcaClient["workerStop"]>>) => void) {
   let stop = !settled;
   if (settled) {
     const rel = await c.workerRelease(dispatchId);
+    receipt(rel);
     log(`worker-release: ${rel.ok ? (rel.result.state ?? "ok") : rel.error.code}`);
     if (!rel.ok && rel.error.code === "dispatch_inactive") stop = true;
   }
   if (stop) {
     const st = await c.workerStop(dispatchId);
+    receipt(st);
     log(`worker-stop: ${st.ok ? (st.result.state ?? "ok") : st.error.code}`);
   }
   if (terminal) {
@@ -178,7 +186,7 @@ async function runOrcaAttempt(
     return fallback(deps, ctx, cfg, task, onSpawn, p.reason);
   }
 
-  updateTask(ctx,task.id,t=>{t.baseBranch=p.base;t.placement={requested:task.placement?.requested??"auto",...task.placement,...p.resolved};delete t.worktree;});
+  updateTask(ctx,task.id,t=>{t.baseBranch=p.base;t.placement={requested:task.placement?.requested??"auto",...task.placement,...p.resolved};if (!task.retryOf) delete t.worktree;});
   let startedAt = deps.now() / 1000;
   const lines: string[] = [];
   const log = (line: string) => { lines.push(line); };
@@ -198,6 +206,7 @@ async function runOrcaAttempt(
   };
   let ws: Awaited<ReturnType<OrcaClient["workerStart"]>>;
   const prompt = workerSpec(task, p);
+  const admission = beginWorkSync(ctx, { kind: "session", id: task.id, label: `Orca session ${task.id}` });
   try {
     ws = await c.workerStart({ spec: prompt, agent: p.agent, model: p.model, placement: p.placement, run: p.run, from: p.coordinator });
   } catch (e) {
@@ -206,14 +215,27 @@ async function runOrcaAttempt(
   if (!ws.ok && ["timeout", "bad_output"].includes(ws.error.code)) {
     return uncertainStart(`${ws.error.code}: ${ws.error.message}`);
   }
-  if (!ws.ok) return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`);
+  if (!ws.ok) {
+    if (ws.error.code !== "task_not_startable") return uncertainStart(`${ws.error.code}: ${ws.error.message}`);
+    finishWorkSync(ctx, admission);
+    return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`);
+  }
   startedAt = deps.now() / 1000;
   const r = ws.result;
   if (!r.dispatchId) return uncertainStart("orca worker-start returned no dispatch id");
   const dispatchId = r.dispatchId;
   const root = worktreePathOf(r.effects);
-  const worktree = p.placement.kind === "existing" ? task.brief.repo : root ? (p.sub ? join(root, p.sub) : root) : null;
+  const worktree = p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo) : root ? (p.sub ? join(root, p.sub) : root) : null;
   const terminal = agentTerminalOf(r.effects);
+  bindOrcaWorkSync(ctx, admission, { dispatchId, terminal });
+  if (terminal) {
+    try {
+      const shown = await c.terminalShow(terminal);
+      if (shown.ok && shown.result.terminal?.handle === terminal && shown.result.terminal.incarnationId) {
+        bindOrcaWorkSync(ctx, admission, { dispatchId, terminal, incarnationId: shown.result.terminal.incarnationId });
+      }
+    } catch { /* No precise terminal identity: retain the lease until a closure receipt. */ }
+  }
   log(`worker-start ${dispatchId}: ${r.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
   const forget = async () => {
     try {
@@ -268,11 +290,12 @@ async function runOrcaAttempt(
       const rd = await c.workerRead(dispatchId, 60);
       tailText = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
     }
-    await cleanup(c, dispatchId, terminal, m.settled, log);
+    await cleanup(c, dispatchId, terminal, m.settled, log, receipt => { finishOrcaWorkSync(ctx, admission, receipt); });
     await forget();
   } catch (e) {
     try {
-      await c.workerStop(dispatchId);
+      const receipt = await c.workerStop(dispatchId);
+      finishOrcaWorkSync(ctx, admission, receipt);
     } catch (stopError) {
       log(`worker-stop failed: ${String(stopError)}`);
     }

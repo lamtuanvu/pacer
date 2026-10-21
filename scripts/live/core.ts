@@ -1,11 +1,12 @@
 import { appendFileSync, cpSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve, basename } from "node:path";
+import { join, resolve, basename, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 
 import { sourceFingerprint, type SourceFingerprint } from "./control/fingerprint";
 import { seedUi, validateSeed } from "./seed";
+import { processIdentity, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 
 export const checkout = resolve(import.meta.dir, "../..");
 export const liveRoot = join(checkout, ".work/live");
@@ -16,6 +17,7 @@ export interface Session {
   pid: number;
   innerPort?: number;
   proxyPid?: number;
+  serviceIdentity?: ProcessIdentity;
   createdAt: string;
   seed?: "ui";
   stopped?: boolean;
@@ -74,6 +76,7 @@ export function loadSession(id?: string, base = liveRoot): Session {
   }
   if ((session.innerPort !== undefined && (!Number.isInteger(session.innerPort) || session.innerPort < 1 || session.innerPort > 65535 || session.innerPort === 4317 || session.innerPort === session.port)) ||
       (session.proxyPid !== undefined && (!Number.isInteger(session.proxyPid) || session.proxyPid < 1))) throw Error("Invalid live proxy metadata");
+  if (session.serviceIdentity && (session.serviceIdentity.pid !== session.pid || !session.serviceIdentity.bootId || !session.serviceIdentity.birth)) throw Error("Invalid live source process identity");
   return session;
 }
 export function sandboxEnv(session: Session, inherited = process.env): NodeJS.ProcessEnv {
@@ -208,6 +211,9 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     }
     atomicWrite(join(root, "env.sh"), environmentScript(session));
     session.pid = launch(session, [process.execPath, join(checkout, "src/cli.ts"), "serve", "--port", String(session.innerPort)], "serve.log");
+    const serviceIdentity = processIdentity(session.pid);
+    if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
+    session.serviceIdentity = serviceIdentity;
     saveSession(session);
     session.proxyPid = launch(session, [process.execPath, join(checkout, "scripts/live/proxy.ts"), join(root, "session.json")], "proxy.log");
     saveSession(session);
@@ -231,6 +237,11 @@ export function stopProcess(pid: number): void {
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
 }
 export async function down(session: Session, keep = false): Promise<void> {
+  // OTA owns its own resource ledger; never remove it through generic sandbox teardown.
+  if (existsSync(join(session.root, "ota"))) {
+    const { cleanupOta } = await import("./ota");
+    await cleanupOta(session.id, { base: dirname(session.root) });
+  }
   // Verify each identity independently so teardown works if either process died.
   const processes = [
     { pid: session.proxyPid, port: session.port, proxy: true },

@@ -1,6 +1,6 @@
 # pacer desktop (U2)
 
-An unsigned macOS and Linux Tauri v2 shell with the pacer CLI bundled as a sidecar. The window
+A macOS and Linux Tauri v2 shell with the pacer CLI bundled: inside the signed macOS app (`Contents/Resources/pacer`, updated over the air), and as a sidecar in Linux packages. The window
 loads the existing web UI from the local service; first-run and recovery screens are
 bundled here. Closing the window keeps the native tray client running. Quit
 from the tray to exit; the Dock icon or Open pacer restores the window.
@@ -75,6 +75,14 @@ script accepts `BUN` as a single executable name or path (not a shell command):
 BUN="$(npx -y bun@1.4.2 -p 'process.execPath')" ./scripts/stage-cli.sh
 ```
 
+Settings > Updates shows the native **Desktop app** version separately from the
+connected **Service** version. Each is compared with the latest stable release.
+**Update service and restart** updates only the service. **Download desktop app**
+opens the release page: download the desktop build for your platform and replace
+the installed app. Older shells that cannot report their version show
+**Version unavailable** with the same download guidance. Development/prerelease
+desktop versions show **Not checked** rather than claiming they are current.
+
 ### Updating the macOS app
 
 Replace the installed `pacer.app` bundle with the new build at the same path.
@@ -83,7 +91,7 @@ its executable modification time or `CFBundleVersion`. It requests a graceful
 Tauri exit and schedules an `open -n <bundle>` helper from the exit event. The helper waits for the old process to exit before launching
 the replacement bundle.
 The main window keeps its visibility and route; the tray reconnects to the
-service and restores its current status. Replacing the app also replaces its bundled CLI.
+service and restores its current status. Replacing or updating the app also replaces its bundled CLI.
 
 ### Linux
 
@@ -136,7 +144,7 @@ Icons are generated from `design/assets/pacer-mark.svg` with `bunx tauri icon`.
 
 ## Local service and authentication
 
-The shell searches the login shell's PATH, then `$HOME/.local/bin`,
+Development launches and Linux installations search the login shell's PATH, then `$HOME/.local/bin`,
 `/opt/homebrew/bin` and `/usr/local/bin` on macOS. Linux searches PATH,
 `$HOME/.local/bin/pacer`, `/usr/local/bin/pacer` and `/usr/bin/pacer`, in that
 order (duplicates removed). Only executable files qualify.
@@ -208,6 +216,7 @@ active `http://127.0.0.1:<port>` origin in the main window these app commands:
 ```js
 await window.__TAURI__.core.invoke('setLaunchAtLogin', { enabled: true });
 await window.__TAURI__.core.invoke('setTheme', { theme: 'system' }); // light, dark
+await window.__TAURI__.core.invoke('desktop_version'); // native app version
 await window.__TAURI__.core.invoke('notifyRoute', { route: '#/review/t-example' });
 await window.__TAURI__.core.invoke('session_expired'); // also allowed from tray
 ```
@@ -259,7 +268,7 @@ links open `/app/#<route>` and resizing is skipped.
 - Launch the app twice: only one tray and window remain.
 - Resize/move/relaunch; test theme and launch at login, then turn autostart off.
 - Return protocol 1.x / 3.x from a test service: update CLI / app respectively.
-- Try IPC from another origin: denied. Confirm the three allowed IPC calls from
+- Try IPC from another origin: denied. Confirm the allowed IPC calls, including `desktop_version`, from
   the authenticated main page work, tray commands work only from the tray
   window, session expiration works from both, and all plugin calls are denied.
 
@@ -327,29 +336,70 @@ For screenshots, open `desktop/ui/index.html` or serve `desktop/ui/` statically:
 Previews never run commands. The shell CSS embeds the shared design tokens;
 `test/desktop-shell.test.ts` verifies those tokens and the page behavior.
 
+## Complete macOS package staging
+
+A macOS package includes its CLI/service, UI assets and `pacer-update-helper`.
+The desktop uses only `Contents/Resources/pacer` when launched from an app
+bundle. Missing or incompatible bundled metadata is an installation error;
+`PACER_BIN` and PATH are development discovery options only. Linux keeps its
+separate CLI discovery.
+
+`release:prepare` synchronizes the package, Cargo, Cargo lockfile and Tauri
+versions. To stage an unsigned test package, run from the repository root after
+building the native app:
+
+```sh
+bun run release --host
+cargo build --offline --locked --release --manifest-path desktop/src-tauri/Cargo.toml --bin pacer-update-helper
+# Replace VERSION with the package version and ARCH with aarch64 or x86_64.
+cp -R desktop/src-tauri/target/release/bundle/macos/pacer.app dist/release/VERSION/pacer.app
+cp desktop/src-tauri/target/release/pacer-update-helper dist/release/VERSION/pacer-update-helper
+bun scripts/release/desktop.ts dist/release/VERSION ARCH
+```
+
+The last command prints a fresh staging directory containing `pacer.app`.
+It checks the CLI manifest/checksums, all three native executable architectures
+and version smoke tests, and app identity. It adds the resources and release
+metadata before signing. Use this complete copy for validation; the intermediate
+Tauri bundle has no bundled CLI and cannot discover one elsewhere. Staging
+removes the incomplete app's signature envelope. It does not sign, notarize,
+install, or publish the output. The manual macOS workflow archives this complete
+unsigned copy. A distributable OTA artifact requires the separate signed release
+pipeline and both architecture validations.
+
+## Production OTA packaging
+
+For update controls, ownership rules and recovery guidance, see
+[Desktop updates](../docs/desktop-updates.md).
+
+The pinned desktop CLI is Tauri 2.12.3. Production signing and publication live in
+`release.yml`, separately from the unsigned manual desktop workflow. See
+[the signed desktop release contract](../docs/distribution.md#signed-macos-desktop-updates)
+for required credentials, native architecture jobs, immutable assets and atomic
+feed promotion. Publishing stays disabled until explicitly configured after the
+signed native validation matrix is accepted.
+
+A production bundle compiles fixed trust with `ota-production`; its shell and
+helper must report `fixture:false`. The bundled CLI compiles the same Apple Team
+ID through the desktop-only build option. Complete staging builds `Contents/Frameworks/libpacer-native.dylib` for the target
+architecture with Xcode clang and records native transport ABI1. The library is
+signed with the same Team before the CLI, helper and app; library validation
+remains enabled. Complete staging precedes all signing;
+Apple notarization and stapling precede the final updater archive/signature.
+Unsigned development builds and explicit `ota-fixture` builds cannot qualify for
+the production feed. The release-only fixture driver exercises real Tauri artifact
+signatures and local Git promotion using data-only packages; it does not exercise
+native installation or notarization.
+
 ## Owned-window diagnostics
 
-Ordinary builds include authenticated self-capture for the main and tray windows.
-The existing service session coordinates `desktop.capture.*` requests; PNGs use
-bounded authenticated binary routes. No diagnostic build, validation switch or
-extra listener is required. Worker credentials are transient and are not written
-into configuration or logs.
+Ordinary desktop builds register an authenticated capture worker for the main and
+tray windows. Window mode captures native window paint; content mode snapshots the
+WKWebView without window chrome. The live harness validates the exact process,
+window and application hash before retaining evidence.
 
-Window mode captures native window paint through ScreenCaptureKit when available;
-content mode snapshots the WKWebView and excludes window chrome and OS dialogs.
-ScreenCaptureKit is weak-linked to preserve the existing deployment floor;
-unsupported APIs and missing OS permissions return explicit capture failures.
-The measured compile host is macOS 27.0/Xcode 27.1; other supported versions still
-need native release validation. Linux self-capture currently reports unsupported.
-
-Use the [live validation harness](../docs/testing/live-validation.md#agent-control-commands)
-for agent access, private evidence, identity checks and external capture fallback.
-A sandbox needs its own desktop session: the app singleton will refuse a second
-instance with the same bundle identifier. The harness never terminates the user's
-existing instance or grants macOS Accessibility/screen capture permissions.
-
-On macOS, **Settings → Diagnostics → Enable native checks** opens a following
-app chip beside System Settings. Drag the inferred hosting app into the list,
-then enable its switch yourself. **Show app** reveals the bundle in Finder.
-The packaged helper verifies access to the running Pacer window before reporting
-success; it accepts no caller-supplied executable, app path or URL.
+On macOS, **Settings → Diagnostics → Enable native checks** opens the relevant
+System Settings page and docks a compact draggable hosting-app chip at the bottom
+of its permission list. The chip follows that window and remains available while
+focus moves back to the agent. The helper reports success only after it can read an
+exact owned Pacer window; it never grants the permission or changes the OS toggle.

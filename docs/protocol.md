@@ -14,6 +14,16 @@ Additive fields do not bump the protocol version. Clients must ignore unknown fi
 
 Operation inputs are validated. No operation runs free text in a shell. `task.delegate`, `task.retry` and `task.answer` refuse calls when the API process itself is an executor session.
 
+## Desktop updates
+
+`desktop.update.status`, `check`, `download`, `restart`, `cancel` and `configure` are service-owned v3 operations. Mutations require a verified native desktop registration; `client.register(kind=desktop)` and an in-process CLI connection do not establish that authority. Native registration is internal and unavailable until a supported signed native adapter is connected.
+
+Each mutation supplies `installationId`, a unique `requestId` and the observed `expectRevision`. Retries with identical input reuse their recorded result; reusing a request ID for different input or an expired transaction conflicts. Restart also pins the displayed `version`; the service derives requester identity from its verified native session. It waits for managed work to drain. Cancellation is available before reservation; permission expires on desktop closure, boot change or service restart. A lost handoff acknowledgement retains the reservation for recovery.
+
+`configure` sets `autoDownload` only. Disabling it prevents queued automatic downloads; it does not authorize or revoke a restart. Check respects existing update-check opt-outs. Automatic checks use the daily cache and bounded retry backoff; a restored release is not downloaded automatically again. Attached installations never reserve or stop the external service.
+
+The `desktop.update` event carries the same safe projection as status and `snapshot.desktopUpdates`. Read a new snapshot after a missed event. Protocol2 omits these operations, fields and events. `pacer desktop-update` uses this API; restart requires explicit `--version` and `--revision`.
+
 ## Errors
 
 HTTP route errors after authentication use `{ "error": { "code": "...", "message": "...", "hint": "..." } }`; `hint` is optional.
@@ -85,12 +95,13 @@ Subscription notifications use `{ jsonrpc: "2.0", method: "event", params: { seq
 
 ## Snapshot
 
-The snapshot contains only `seq`, `at`, `service`, `planner`, `mode`, `counts`, `attention`, `executors`, `machine`, `accounts`, `hosts`, `repos`, `tasks`, `today`, `setup`, `pause` and `strategies`. Removed: `v`, `budget`, `alerts`, `console`, `consoles`, `serviceInstalled`. Use `planner`/`accounts`/`executors`, `attention` and `setup` instead. Read-model fields:
+The snapshot contains only `seq`, `at`, `service`, `planner`, `mode`, `counts`, `attention`, `executors`, `machine`, `accounts`, `hosts`, `repos`, `tasks`, `today`, `setup`, `pause`, `strategies` and optional `desktopUpdates`. Removed: `v`, `budget`, `alerts`, `console`, `consoles`, `serviceInstalled`. Use `planner`/`accounts`/`executors`, `attention` and `setup` instead. Read-model fields:
 
 | Field | Contents |
 |---|---|
 | `service` | Pacer version, protocol, process id and service start time; `starting: true` while the service is still computing its first status after a restart (planner, accounts and executors fill in by event); `waiting: { kind, path, since }` while a repository file-system call has been outstanding for at least a second, e.g. behind a macOS removable-volume permission prompt. `kind` is `volume` with the volume root (`/Volumes/<name>`) as `path`, or `folder` with the path itself; `since` is Unix seconds. It is absent once the call returns |
 | `planner` | Planner runner and agent, used/pace percentages, delta, verdict, active hours left, reset, window, stale flag, mode and advice; null without a planner |
+| `desktopUpdates` | Public update statuses for verified desktop installations: revision, phase, current/target version, notes, ownership, progress, blockers, error and available actions. No paths, feed URL, signing material or native command authority. Absent or empty when no desktop is registered |
 | `machine` | Shared local parallel-task capacity `{ used, max }`, across all local executors |
 | `executors` | Planner first, then default routing order: identity, account, host, model, rank, state, tone, usage, slots `{used,max}` (configured executor limit), optional limitedBy (`machine` or `host`) when a shared cap is lower, recent failures and next flag |
 | `accounts` | Name, agent, source, usage, window, reset, verdict, sign-in state and executor ids; no credentials or emails |
@@ -101,6 +112,8 @@ The snapshot contains only `seq`, `at`, `service`, `planner`, `mode`, `counts`, 
 | `repos` | Known repositories ordered by last use: `{ key, label, path }`, with canonical host/owner/repo or local hash key and main-checkout path |
 | `setup` | Complete flag, count of required items open, and items with id, title, status and required flag |
 
+Executor, account and planner rows add optional `eligibility`: `{ state, reasons, evaluatedAt, validUntil, evidenceAgeS, availability, budget, spendingRisk }`. `state` is `eligible`, `uncertain` or `ineligible`; reasons contain stable `code` and `evidenceIds`. Missing fields on older services mean unknown eligibility. Timestamps are Unix seconds; a null deadline or age means unavailable, not fresh evidence. These fields do not change the protocol major.
+`routing.route` includes eligibility on ranked and excluded candidates, an `uncertain` subset and `fallback: "uncertain"` on automatic fallback candidates. Eligible choices precede uncertain ones within global and project routing. Attempts preserve the launch decision and fallback in `routing`. Preflight refreshes supported sources and checks evidence/configuration again before dispatch. Pacing verdicts and legacy state enums are not execution permission. Credits alone do not permit paid execution; `spendingRisk: "unknown"` does not mean no paid usage.
 Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Parallel tasks use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with a shared execution.local_max_tasks limit (default 2). Tasks wait with queue { reason, since, position, limit?, capacity? }; no_slot waits add limit (`executor`, `machine` or `host`) and capacity `{used,max}` at the last scheduling check. Paused waits omit these capacity fields. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
 
 Repository identity and existence reads use an in-memory cache. New paths can initially use their absolute unresolved identity until an async probe completes. Registry probes refresh at most once a minute; timeouts retain the last known value, and only confirmed missing repos without active or recent tasks are hidden. Task resolution uses bounded async filesystem and git reads, so stalled volumes do not block snapshots or event replay.
@@ -126,6 +139,7 @@ Task retention defaults to 14 days (`task_retention_days`, zero disables). Defau
 
 `task.review` accepts verdict `accept`, `reject`, `send_back` (requires note), or `retry` (requires executor), and returns `{ task, retry? }`. Legacy `accepted: true/false` maps to accept/reject. Send back creates a retry on the same executor with the note as review feedback. Queued or running tasks cannot be reviewed.
 
+`task.request_review` adds a human handoff note (1–2000 trimmed characters) to an unresolved done or partial task. It accepts optional `expect_rev`, returns `{ task }`, and never records an acceptance. Repeating the same note is a no-op after revision validation. Task reads/events expose additive `reviewRequest` and `acceptanceState` fields. Ordinary completion without a verdict does not generate review attention.
 Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task.dismiss` accept optional `expect_rev`. A revision mismatch returns `conflict` with `data.task` containing the current task; omitting expect_rev preserves unconditional behavior. Task revisions increase on persisted changes.
 
 `task.delegate` accepts optional `request_id` (1–128 characters, deduplicated for 600 seconds), `base` (branch/ref or 7–40 hex SHA) and `source` (`planner`, `ui`, `cli`). A repo may be an absolute path or RepoRef key. HTTP client labels starting with app, desktop, orca, tui or tray default source to ui; others default to planner. `routing.route { kind?, goal?, repo? }` classifies goal when kind is absent.
@@ -965,9 +979,6 @@ Params JSON Schema:
     },
     "notifier": {
       "type": "boolean"
-    },
-    "capture": {
-      "type": "boolean"
     }
   },
   "required": [
@@ -1304,6 +1315,276 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.adopt`
+
+Explicitly transfer the inspected attached service registration to this desktop bundled CLI when idle.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.adoptCancel`
+
+Cancel a waiting service adoption using its adoption revision before reservation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.cancel`
+
+Cancel a desktop check, download or waiting restart before reservation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.check`
+
+Check the verified desktop release feed, bypassing the cached check; update-check opt-outs still apply.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.configure`
+
+Set automatic desktop downloads without granting restart permission.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "autoDownload": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision",
+    "autoDownload"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.download`
+
+Download and verify the offered complete desktop release.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.restart`
+
+Request restart into the displayed desktop version/revision when idle; permission expires with the verified desktop session.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    }
+  },
+  "required": [
+    "installationId",
+    "requestId",
+    "expectRevision",
+    "version"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.update.status`
+
+Read a registered desktop installation's public update status.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    }
+  },
+  "required": [
+    "installationId"
+  ],
   "additionalProperties": false
 }
 ```
@@ -2276,7 +2557,7 @@ Params JSON Schema:
 
 ### `routing.route`
 
-Rank executors for an optional task kind.
+Rank confirmed eligible executors before labelled uncertain fallbacks for an optional task kind.
 
 Params JSON Schema:
 
@@ -3221,6 +3502,13 @@ Params JSON Schema:
     "executor": {
       "type": "string"
     },
+    "worktree_base": {
+      "type": "string",
+      "enum": [
+        "default",
+        "head"
+      ]
+    },
     "worktree": {
       "type": "string",
       "enum": [
@@ -3441,6 +3729,41 @@ Params JSON Schema:
       "type": "boolean"
     }
   },
+  "additionalProperties": false
+}
+```
+
+### `task.request_review`
+
+Request a human decision on a completed result without accepting it.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "note"
+  ],
   "additionalProperties": false
 }
 ```

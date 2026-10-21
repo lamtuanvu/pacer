@@ -74,7 +74,7 @@ test("planner reserve and mode apply to its account even without a matching runn
   expect(result.providers[0].binding?.pace).toBe(40);
   expect(result.providers[1].binding?.pace).toBe(50);
   expect(result.mode).toBe("strict");
-  expect(result.executors.excluded).toContainEqual({ id: "claude-code#work", reason: "planner", account: "work" });
+  expect(result.executors.excluded).toContainEqual(expect.objectContaining({ id: "claude-code#work", reason: "planner", account: "work" }));
   expect(result.executors.ranked.map(r => r.id)).toEqual(["claude-code"]);
 });
 
@@ -92,7 +92,7 @@ routing:
     executors: [codex, local]
   - default: [codex, cursor, agy, byteplus, local]
 `;
-test("starter route JSON retains its pre-accounts output, including after migration", async () => {
+test("starter route JSON exposes labelled fallbacks and remains stable through migration", async () => {
   const ctx = withLoginIndicators(fakeCtx({ now })); mkdirSync(ctx.pacerHome, { recursive: true });
   const path = join(ctx.pacerHome, "strategy.yaml"); writeFileSync(path, starter);
   const strip = (value: unknown): unknown => Array.isArray(value) ? value.map(strip) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "account").map(([k, v]) => [k, strip(v)])) : value;
@@ -124,7 +124,7 @@ test("live metered readings count the runner model once per account", async () =
 
 test("exhausting a runner exhausts its account", async () => {
   const { markExhausted } = await import("../src/usage/reactive");
-  const ctx = fakeCtx({ now }); markExhausted(ctx, "opencode#a", now + 3600);
+  const ctx = fakeCtx({ now }); markExhausted(ctx, "opencode#a", now + 3600, {manual:true});
   const result = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["a", reading(40)], ["b", reading(40)], ["plan", reading(40)]]) });
   expect(result.providers.find(p => p.id === "opencode#a")?.verdict).toBe("EXHAUSTED");
   expect(result.executors.ranked.map(r => r.id)).toEqual(["opencode#b"]);
@@ -155,7 +155,7 @@ test("paid overflow is controlled by the shared account", async () => {
   expect(result.executors.ranked.map(r => r.id)).toContain("opencode#a");
 });
 
-test("an old exhausted short window still binds over a fresh weekly window", async () => {
+test("an expired exhausted short window leaves eligibility uncertain despite a fresh weekly window", async () => {
   const now = 2_000_000, ctx = fakeCtx({ now });
   const r: UsageReading = { windows: [
     { name: "weekly", usedPct: 40, resetsAt: now + 3 * 86400, lengthS: 7 * 86400, paced: true },
@@ -163,27 +163,27 @@ test("an old exhausted short window still binds over a fresh weekly window", asy
   ], capturedAt: now - 3 * 3600, stale: false, source: "status-line" };
   const st = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["plan", r]]) });
   const acct = st.accounts.find(a => a.name === "plan")!;
-  expect(acct.verdict).toBe("EXHAUSTED");
-  expect(acct).toMatchObject({ source: "status-line", capturedAt: now - 3 * 3600, stale: false });
+  expect(acct.eligibility?.state).toBe("uncertain");
+  expect(acct).toMatchObject({ source: "status-line", capturedAt: now - 3 * 3600, stale: true });
   const provider = st.providers.find(p => p.account === "plan")!;
-  expect(provider.stale).toBe(false);
-  expect(provider.verdict).toBe("EXHAUSTED");
-  expect(provider.windows.map(w => [w.name, w.stale])).toEqual([["weekly", false], ["5h", false]]);
+  expect(provider.stale).toBe(true);
+  expect(provider.eligibility?.state).toBe("uncertain");
+  expect(provider.windows.map(w => [w.name, w.stale])).toEqual([["weekly", false], ["5h", true]]);
 });
 
-test("an old exhausted weekly snapshot still blocks the account until reset", async () => {
+test("an expired exhausted weekly snapshot is historical and uncertain", async () => {
   const now = 2_000_000, ctx = fakeCtx({ now });
   const r: UsageReading = { windows: [
     { name: "weekly", usedPct: 99, resetsAt: now + 3 * 86400, lengthS: 7 * 86400, paced: true },
   ], capturedAt: now - 25 * 3600, stale: false, source: "session-log" };
   const st = await computeStatus(ctx, strategy(), { profile: null, readings: new Map([["plan", r]]) });
-  expect(st.accounts.find(a => a.name === "plan")!).toMatchObject({ verdict: "EXHAUSTED", stale: false, usedPct: 99 });
-  expect(st.providers.find(p => p.account === "plan")!).toMatchObject({ verdict: "EXHAUSTED", stale: false });
+  expect(st.accounts.find(a => a.name === "plan")!).toMatchObject({ verdict: "UNKNOWN", stale: true, usedPct: 99 });
+  expect(st.providers.find(p => p.account === "plan")!).toMatchObject({ verdict: "UNKNOWN", stale: true });
 });
 
 test("a limit mark beats staleness", async () => {
   const now = 2_000_000, ctx = fakeCtx({ now });
-  markExhausted(ctx, "plan", now + 3600);
+  markExhausted(ctx, "plan", now + 3600, {manual:true});
   const r: UsageReading = { windows: [
     { name: "weekly", usedPct: 10, resetsAt: now + 2 * 86400, lengthS: 7 * 86400, paced: true },
   ], capturedAt: now - 3 * 86400, stale: false, source: "session-log" };
@@ -203,7 +203,7 @@ for (const usageSource of [undefined, "orca"] as const) {
     mkdirSync(logs, { recursive: true });
     writeFileSync(join(logs, "rollout-test.jsonl"), JSON.stringify({
       rate_limits: { primary: { used_percent: 27, window_minutes: 10080, resets_at: now + 86400 } },
-    }));
+    }) + "\n");
     mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true });
     writeFileSync(join(ctx.pacerHome, "cache", "claude-rate-limits.work.json"), JSON.stringify({
       seven_day: { used_percentage: 42, resets_at: now + 86400 }, captured_at: now,
@@ -242,7 +242,7 @@ test("reactive and metered accounts never query Orca for usage", async () => {
   }, "test");
   const st = await computeStatus(ctx, s, { profile: null });
   for (const name of ["cursor", "agy", "legacy"]) {
-    expect(st.accounts.find(a => a.name === name)).toMatchObject({ source: "reactive", usedPct: 0 });
+    expect(st.accounts.find(a => a.name === name)).toMatchObject({ source: "reactive", usedPct: null });
   }
   expect(st.accounts.find(a => a.name === "metered")).toMatchObject({ source: "metered", usedPct: 15 });
   expect(calls.map(argv => argv[0])).toEqual(["opencode"]);

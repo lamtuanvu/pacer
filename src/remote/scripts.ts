@@ -8,10 +8,9 @@ while IFS= read -r -d '' file; do
   printf '%s %s\\n' "$mtime" "$file"
 done < <(find "$home/sessions" -type f -name 'rollout-*.jsonl' -print0) |
 sort -rn | head -n 15 | while read -r mtime file; do
-  line=$(tail -n 4000 "$file" | grep '"rate_limits"' | tail -1)
-  [ -n "$line" ] || continue
-  printf 'mtime=%s\\n%s\\n' "$mtime" "$line"
-  break
+  tail -c 4000000 "$file" | while IFS= read -r line; do
+    case "$line" in *\'"rate_limits"\'*) printf '%s\\n' "$line";; esac
+  done || true
 done`,
   PROBE: `printf 'glibc=%s\\n' "$(getconf GNU_LIBC_VERSION 2>/dev/null | sed 's/^glibc //')"
 printf 'os=%s\\n' "$(uname -s)"
@@ -230,6 +229,7 @@ if [ -s "$D/start.error" ]; then printf 'error=%s\\n' "$(cat "$D/start.error")";
 printf 'pid=%s\\n' "$(cat "$D/pid")"`,
   REPORT: `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+printf 'admission_complete=%s\\n' "$(cat "$D/admission.complete" 2>/dev/null)"
 printf 'session=%s\\n' "$(cat "$D/session.host" 2>/dev/null)"
 pid=$(cat "$D/pid" 2>/dev/null); alive=0
 if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then

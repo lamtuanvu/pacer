@@ -89,7 +89,7 @@ test("Codex cursors equal tail scan after append, partial line, truncation, repl
   await rename(path, path + ".old"); await writeFile(path, quota(5) + "\n"); await check();
   await appendFile(path, "x".repeat(4_000_010)); await check();
   const newer = join(dir, "rollout-new.jsonl");
-  await writeFile(newer, quota(9));
+  await writeFile(newer, quota(9)+"\n");
   await utimes(newer, ctx.now + 10, ctx.now + 10);
   expect((await readCodex(ctx)).windows[0].usedPct).toBe(9);
 });
@@ -101,7 +101,7 @@ test("persisted cursors are usable in another process without reading unchanged 
   await writeFile(join(dir, "a.jsonl"), stamp(ctx.now - 3600));
   const codexDir = join(ctx.home, ".codex/sessions");
   await mkdir(codexDir, { recursive: true });
-  await writeFile(join(codexDir, "rollout-a.jsonl"), quota(7));
+  await writeFile(join(codexDir, "rollout-a.jsonl"), quota(7)+"\n");
   const expectedQuota = await readCodex(ctx);
   const expected = await buildActivity(ctx);
   // A fresh module/process loads persisted state; unchanged source files need no data reads.

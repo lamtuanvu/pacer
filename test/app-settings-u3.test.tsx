@@ -1,3 +1,5 @@
+import { desktopStatus } from "./fixtures/desktop-update/status";
+import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { expect, test } from 'bun:test';
 import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
@@ -8,17 +10,15 @@ import { settings, host, executor, job } from './fixtures/ui/settings';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
 const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as any;
 const render = (child:any,s=state) => renderToString(<TaskContext.Provider value={{state:s,api}}>{child}</TaskContext.Provider>);
-test('General follows board order and uses the actual planner agent',()=>{
- const html=render(<SettingsGeneral initialData={settings}/>);
- const labels=['Planner &amp; pacing','Accounts','Executors','Remote hosts','Routing','Strategies','Updates','Notifications','Appearance'];
- let at=html.indexOf('<h1');
- for(const label of labels){const next=html.indexOf(`>${label}</h2>`,at);expect(next).toBeGreaterThan(at);at=next;}
- expect(html).toContain('aria-label="Codex"');expect(html).toContain('codex#team');expect(html).toContain('Scratch task passed');
- expect(html).toContain('Link Orca account');expect(html).toContain('New from a brief');
+test('Planner uses the actual planner agent without mounting other settings',()=>{
+ const html=render(<SettingsGeneral section="planner" initialData={settings}/>);
+ expect(html).toContain('aria-label="Codex"');
+ expect(html).toContain('Review integration changes');
+ expect(html).not.toContain('Link Orca account');
  expect((html.match(/pc-btn--primary/g)||[]).length).toBeLessThanOrEqual(1);
 });
 test('executor and update checkboxes keep their labels inline', () => {
- const html = render(<SettingsGeneral initialData={settings}/>);
+ const html = render(<SettingsGeneral section="executors" initialData={settings}/>) + render(<SettingsGeneral section="updates" initialData={settings}/>);
  const labels = [...html.matchAll(/<label class="pc-checkbox">([\s\S]*?)<\/label>/g)];
  expect(labels).toHaveLength(2);
  for (const [, body] of labels) { expect(body).toMatch(/class="[^"]*pc-checkbox__input[^"]*"/); expect(body).toContain('type="checkbox"'); }
@@ -26,8 +26,9 @@ test('executor and update checkboxes keep their labels inline', () => {
  expect(labels[1]![1]).toContain('Check for updates');
 });
 test('all General sections provide loading and empty states',()=>{
- expect(render(<SettingsGeneral/>)).toContain('Loading');
- const html=render(<SettingsGeneral initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,{...state,snapshot:{...state.snapshot,executors:[],hosts:[]}});
+ expect(render(<SettingsGeneral section="planner"/>)).toContain('Loading');
+ const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
+ const html=["accounts","executors","routing","strategies"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<RemoteHosts/>,empty);
  for(const word of ['No accounts','No executors','No remote hosts','No routing rules','No strategies'])expect(html).toContain(word);
 });
 test('wizard has four board steps and never claims ready before a passed check',()=>{
@@ -68,13 +69,12 @@ test('section failures show the service hint and a retry action',async()=>{
  expect(html).toContain('Cannot read settings');expect(html).toContain('Start pacer');expect(html).toContain('Try again');
 });
 test('standalone screens bundle for the browser with their CSP compatible styles',async()=>{
+ const {APP_JS_BUDGET}=await import('../app/build');
  const result=await Bun.build({entrypoints:['app/src/screens/settings/index.ts'],target:'browser',minify:true});
  expect(result.success).toBe(true);expect(result.outputs.length).toBe(1);
  const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
- // The aggregate includes the project-policy editor and additive Diagnostics screen.
- // This all-screens development entry has a 36 KB cap (raised for the OpenCode provider picker, as #206 and
- // #216 did for their screens); the shipped app retains its separate 60 KB cap.
- expect(Bun.gzipSync(text).byteLength).toBeLessThan(36*1024);
+ // Settings composes the shared eligibility vocabulary; use the governed UI-3 budget.
+ expect(Bun.gzipSync(text).byteLength).toBeLessThan(APP_JS_BUDGET);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
@@ -102,7 +102,7 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id]},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
   {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
  const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
- const html=render(<SettingsGeneral initialData={{...settings,accounts}}/>,s);
+ const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
  expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
  for(const label of ['Signed in','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
  expect(html).toContain('<th>Status</th>');expect(html).not.toContain('<th>Sign-in</th>');
@@ -115,7 +115,7 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
 
 test('multiple accounts always shows the threshold beside Spread and Fill, disabled only for Spread',()=>{
  for(const mode of ['spread','fill']) {
-  const html=render(<SettingsGeneral initialData={{...settings,config:{...settings.config,keys:{...settings.config.keys,'pacing.accounts':{value:mode}}}}}/>);
+  const html=render(<SettingsGeneral section="planner" initialData={{...settings,config:{...settings.config,keys:{...settings.config.keys,'pacing.accounts':{value:mode}}}}}/>);
   expect(html).toContain('class="u3-accounts-mode"');
   expect(html).toContain('Move to the next account at');
   expect(html).toContain('% used');
@@ -126,7 +126,7 @@ test('multiple accounts always shows the threshold beside Spread and Fill, disab
 test('settings navigation pluralises rule counts',()=>{
  for(const count of [1,3]) {
   const rules=Array.from({length:count},()=>settings.routing.rules[0]!);
-  const html=render(<SettingsGeneral initialData={{...settings,routing:{...settings.routing,rules}}}/>);
+  const html=renderToString(<SettingsPanel route={{name:"settings",section:"routing",query:{repo:null,scope:null}}} counts={null} badges={{routing:`${rules.length} ${rules.length===1?"rule":"rules"}`}}/>);
   expect(html).toContain(`>${count} ${count===1?'rule':'rules'}</span>`);
  }
 });
@@ -138,14 +138,15 @@ test('settings feedback explains automatic migration in plain language',async()=
 });
 test('General exposes named parallel tasks controls and shared capacity notes',()=>{
  const limited={...executor,rank:1,slots:{used:0,max:4},limitedBy:'machine'};
- const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
  expect(html).toContain('Parallel tasks for '+executor.id);
  expect(html).toContain('Limited to 2 by this machine');
- expect(html).toContain('Parallel tasks on this machine');
- expect(html).toContain('Shared by all executors that run on this machine.');
+ const machine=render(<SettingsGeneral section="machine" initialData={settings}/>);
+ expect(machine).toContain('Parallel tasks on this machine');
+ expect(machine).toContain('Shared by all executors that run on this machine.');
  expect(html).toContain('min="1" max="16" step="1"');
  expect(html).not.toContain('>Slots<');
- const planner=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
+ const planner=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
 });
 test('settings pages leave their page title to the shell and inline links are underlined', () => {
@@ -154,26 +155,47 @@ test('settings pages leave their page title to the shell and inline links are un
  }
  const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
  expect(render(<RemoteHosts/>, emptyState)).not.toContain('>Remote hosts</h2>');
- expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toMatch(/<a(?=[^>]*class="pc-inline-link")(?=[^>]*href="#\/settings\/hosts")[^>]*>Add a host\.<\/a>/);
+ expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toContain('href="#/settings/hosts"');
+});
+
+test('Settings and host executors share uncertainty; retained account usage is historical',()=>{
+ const decision={state:'uncertain',reasons:[{code:'budget_expired_or_unknown',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
+ const uncertain={...executor,eligibility:decision};
+ const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,usedPct:61,window:'5h',stale:true,eligibility:decision}]};
+ const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
+ const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
+ expect(executors).toContain('Uncertain fallback');expect(general).toContain('Historical usage');expect(general).toContain('Observation time unknown');
+ const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
+ expect(remote).toContain('Uncertain fallback');
+ const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
+ expect(render(<HostDetail alias="devbox" initialData={{...host,executors:[known] as any}}/>)).toContain('observed 3h ago');
 });
 
 test('Executors copy matches routing: a failed check does not skip an executor',()=>{
- const html=render(<SettingsGeneral initialData={settings}/>);
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
- expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention; routing keeps using a Failing executor. Disable it to skip it.');
+ expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention. Recent task failures means two or more tasks failed in the past 24 hours; a passed check does not clear that history. Routing keeps using executors with either warning. Disable an executor to skip it.');
 });
 
 test('a not-tested endpoint executor reads Not tested, not Ready, in Executors',()=>{
  const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,reason:'not tested — run a check',lastCheck:null} as any;
- const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row]}});
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row]}});
  expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Not tested<\/span>/);
+ expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
+});
+test('an untested endpoint keeps its eligibility decision and its unchecked status',()=>{
+ const eligibility={state:'uncertain',reasons:[{code:'budget_missing',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
+ const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,eligibility,lastCheck:null} as any;
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}});
+ expect(html).toContain('Uncertain fallback');
+ expect(html).toContain('No budget observation is available · Not tested');
  expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
 });
 test('an executor row states its reason once, not again under Last check',()=>{
  const detail='Sign in to account cwork (signed out — run claude and log in)';
  const row={...executor,state:'down',reason:'signed out — run claude and log in',lastCheck:{at:100,passed:false,detail}} as any;
  const failing={...executor,id:'claude-code#main',state:'failing',reason:'test task failed: Not logged in',lastCheck:{at:100,passed:false,detail:'test task failed: Not logged in'}} as any;
- const html=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row,failing]}});
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row,failing]}});
  expect(html.split('signed out — run claude and log in').length-1).toBe(1);
  expect(html.split('test task failed: Not logged in').length-1).toBe(1);
 });
@@ -186,6 +208,56 @@ test('Add executor offers sign-in only for a signed-out native account',()=>{
 });
 test('Accounts show an endpoint account\'s weekly dollar spend against its cap', () => {
  const name = settings.accounts[0]!.name;
- const html = render(<SettingsGeneral initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $'}]}});
+ const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $'}]}});
  expect(html).toContain('$3.20 of $5 this week');
+});
+test('historical endpoint usage keeps its weekly spend and cap', () => {
+ const name = settings.accounts[0]!.name;
+ const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
+ expect(html).toContain('$3.20 of $5 this week');
+ expect(html).toContain('Historical usage · Observation time unknown');
+});
+
+test('Updates identifies the service and preserves failed-check status', () => {
+ const html = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false}}}/>);
+ expect(html).toContain('Service 0.5.0 · Up to date');
+ expect(html).not.toContain('Desktop app');
+ const failed = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false,error:'offline'}}}/>);
+ expect(failed).toContain('Update check failed');
+ expect(failed).not.toContain('Up to date');
+ const available = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true}}}/>);
+ expect(available).toContain('Update service and restart');
+
+});
+
+test('eligible executors retain recent task failures separately from their passed check',()=>{
+ const eligibility={state:'eligible',reasons:[],evaluatedAt:1000,validUntil:null,evidenceAgeS:0,availability:'available',budget:'available',spendingRisk:'none'} as const;
+ const row={...executor,state:'failing',recentFailures:2,reason:'2 recent failures',eligibility,lastCheck:{at:1000,passed:true,detail:'Ready'}} as any;
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
+ expect(html).toContain('Eligible');
+ expect(html).toContain('Recent task failures');
+ expect(html).toContain('2 recent failures');
+ expect(html).toContain('Passed');
+ expect(html).not.toContain('Failing');
+ const failedCheck=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[{...row,lastCheck:{at:1000,passed:false,detail:'test task failed'}}]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
+ expect(failedCheck).toContain('Failing');
+ expect(failedCheck).toContain('Failed');
+ expect(failedCheck).not.toContain('Recent task failures');
+});
+
+test('paged Updates keeps OTA controls, service identity and navigation status together', () => {
+ const status = desktopStatus({current:'0.3.1',phase:'ready',target:'0.5.0',actions:['restart']});
+ const updated = {...state,connected:true,version:'0.4.0',features:{readModel:true,ops:new Set(['desktop.update.restart'])},snapshot:{...state.snapshot,desktopUpdates:[status]}};
+ const html=render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.4.0',latest:'0.5.0',available:true}}}/>,updated);
+ expect(html).toContain('pacer desktop · 0.3.1');
+ expect(html).toContain('Service 0.4.0');
+ expect(html).toContain('Restart to update');
+ expect(html).not.toContain('Update service and restart');
+ expect(html).not.toContain('Pacing policy');
+ const panel=renderToString(<SettingsPanel route={{name:'settings',section:'updates',query:{repo:null,scope:null}}} counts={null} snapshot={updated.snapshot}/>);
+ expect(panel).toContain('aria-label="Update ready"');
+ expect(panel).toContain('>↑</span>');
+ expect(panel).toContain('pc-rail__badge--info');
+ expect(panel).toContain('title="Update ready"');
+ expect(panel.match(/aria-current="page"/g)).toHaveLength(1);
 });

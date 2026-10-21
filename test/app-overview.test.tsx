@@ -5,7 +5,7 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { ActivityEntry } from "../src/api/read-model/types";
 import { createActionRunner } from "../app/src/data/actions";
 import { OverviewView } from "../app/src/screens/Overview";
-import { RepoFilter, RepoList, repoChoices } from "../app/src/screens/RepoFilter";
+import { RepoFilter, repoChoices } from "../app/src/screens/RepoFilter";
 
 const snap = fixture as unknown as ClientSnapshot;
 const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: async () => true, refetch: () => {}, navigate: () => {} });
@@ -38,8 +38,8 @@ test("the planner strip gives the advice, usage and the day's numbers", () => {
 
 test("needs you links to the review queue and the footer lists the main keys", () => {
   const html = view();
-  expect(html).toContain('href="#/review"');
-  expect(html).toContain("Open review queue");
+  expect(html).toContain('href="#/needs-you"');
+  expect(html).toContain("All attention");
   expect(html).toMatch(/pc-keys-footer[\s\S]*j k[\s\S]*⏎[\s\S]*dismiss[\s\S]*pacer/);
 });
 
@@ -54,8 +54,8 @@ test("capacity with no usage reading says so with a glyph and the reason", () =>
 test("repo chips show counts, pressed state and the shared-budget note", () => {
   const html = view("github.com/acme/api");
   expect(html).toContain("All repos");
-  expect(html).toMatch(/aria-pressed="true"[^>]*>acme\/api <span[^>]*>3</);
-  expect(html).toMatch(/aria-pressed="false"[^>]*>All repos/);
+  expect(html).toMatch(/aria-pressed="true"[^>]*><span[^>]*>acme\/api<\/span><span[^>]*aria-label="3 work items"[^>]*>3</);
+  expect(html).toMatch(/aria-pressed="false"[^>]*><span[^>]*>All repos/);
   expect(html).toContain("Budgets are shared across repos; the filter only narrows work.");
 });
 
@@ -72,10 +72,10 @@ test("a repo scope filters Needs you and Running but never Capacity", () => {
 test("a failed card has the bad tint, the glyph, the service's words and exactly its actions", () => {
   const html = view();
   // The card is the span between its own opening tag and the next card's.
-  const cards = [...html.matchAll(/class="pc-attn(?: [^"]*)?"/g)].map(m => m.index!);
+  const cards = [...html.matchAll(/class="[^"]*pc-attn(?: [^"]*)?"/g)].map(m => m.index!);
   const title = html.indexOf("Retry budget refresh on 429"), start = cards.filter(i => i < title).at(-1)!;
   const card = html.slice(start, cards.find(i => i > title) ?? html.length);
-  expect(card).toContain("pc-attn--bad");
+  expect(card).toContain("pc-list-row--bad");
   expect(card).toContain("✕");
   expect(card).toContain("Failed twice on Antigravity · test timed out after 120 s");
   expect(card).toContain(">Retry on Codex<");
@@ -104,15 +104,16 @@ test("capacity dims a down executor and gives its reason; header counts ready ex
 test("done today and activity use absolute times and the service's sentences", () => {
   const html = view();
   expect(html).toContain("7 · 6 accepted");
-  expect(html).toContain(">Accepted<");
-  expect(html).toContain(">Rejected<");
+  expect(html).toContain('aria-label="Done today pages"');
+  expect(html).toContain("1–3 of 5");
+  expect(html).toContain(">Completed<");
   expect(html).toContain("Mode Normal → Relaxed · planner behind pace");
 });
 
 test("empty states say what to do next", () => {
   const empty = { ...snap, attention: [], executors: [], counts: { ...snap.counts!, attention: 0 } };
   const html = view(null, empty);
-  expect(html).toContain("Nothing needs you.");
+  expect(html).toContain("Nothing needs your attention");
   expect(html).toContain("No executors yet.");
   expect(html).toContain('href="#/settings/add-executor"');
 });
@@ -133,7 +134,7 @@ test("30 repos render All repos and at most five repo chips, ordered by work cou
   expect(repoChoices(snapshot, null).chips.map(repo => repo.key)).toEqual(['repo-0', 'repo-1', 'repo-2', 'repo-3', 'repo-4']);
   expect(html.match(/aria-pressed=/g)?.length).toBe(6);
   expect(html).toContain('All repos');
-  expect(html).toContain('More repos ▾');
+  expect(html).toContain('Find repo');
   expect(html).toContain('aria-expanded="false"');
   expect(html).not.toContain('Repo 29');
   expect(html).not.toContain('All repositories');
@@ -143,7 +144,7 @@ test("an idle active filter stays visible within the five repo limit", () => {
   const snapshot = thirtyRepos();
   const html = renderToString(<RepoFilter snapshot={snapshot} query={{ repo: 'repo-29', scope: null }} />);
   expect(html.match(/aria-pressed=/g)?.length).toBe(6);
-  expect(html).toMatch(/aria-pressed="true"[^>]*>Repo 29/);
+  expect(html).toMatch(/aria-pressed="true"[^>]*><span[^>]*>Repo 29/);
   expect(html).not.toContain('>Repo 4 ');
   expect(repoChoices(snapshot, 'repo-29').chips.map(repo => repo.key)).toEqual(['repo-0', 'repo-1', 'repo-2', 'repo-3', 'repo-29']);
 });
@@ -152,11 +153,8 @@ test("today's repos can fill spare chips, while zero-work repos are only in the 
   const original = thirtyRepos();
   const snapshot = { ...original, counts: { ...original.counts!, byRepo: {} } };
   expect(repoChoices(snapshot, null).chips.map(repo => repo.key)).toEqual(['repo-8']);
-  const list = (search: string) => renderToString(<RepoList snapshot={snapshot} active="repo-29" search={search} onSelect={() => {}} />);
-  expect(list('').match(/aria-pressed=/g)?.length).toBe(30);
-  expect(list('  REPO 29  ')).toContain('aria-pressed="true"');
-  expect(list('  REPO 29  ').match(/aria-pressed=/g)?.length).toBe(1);
-  expect(list('unknown')).toContain('No matching repositories.');
+  expect(repoChoices(snapshot, null).all).toHaveLength(30);
+  expect(repoChoices(snapshot, null).all.find(repo => repo.key === 'repo-29')?.count).toBe(0);
 });
 
 test("attention uses service title, inline repo, reason and time with secondary actions in a shared row", () => {
@@ -190,4 +188,15 @@ test("wide repo filter uses repo Done today totals and counts accepted rows only
 test("repo Done today falls back to its filtered rows when no repo total is supplied", () => {
   const html = view('github.com/acme/api', { ...snap, today: { ...snap.today!, byRepo: {} } });
   expect(html.slice(html.indexOf('aria-labelledby="done-today"'))).toContain('2 · 0 accepted');
+});
+
+test("overview bounds a long attention queue and exposes its page range", () => {
+  const item = snap.attention![0]!;
+  const snapshot = { ...snap, attention: Array.from({ length: 13 }, (_, i) => ({ ...item, id: `page-${i}`, title: `Attention ${i}`, taskId: undefined })) };
+  const html = view(null, snapshot);
+  expect(html.match(/data-attention-id=/g)).toHaveLength(5);
+  expect(html).toContain('aria-label="Needs you pages"');
+  expect(html).toContain('1–5 of 13');
+  expect(html).toContain('Next');
+  expect(html).not.toContain('Attention 12');
 });

@@ -1,3 +1,5 @@
+import { beginWorkSync, finishWorkSync } from "../update/desktop/admission";
+import { randomUUID } from "node:crypto";
 import { chmodSync, closeSync, mkdirSync, openSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { HostCfg } from "../config/hosts";
@@ -14,20 +16,47 @@ export function controlDir(ctx: Ctx): string {
   return dir;
 }
 
-export function sshArgv(ctx: Ctx, host: HostCfg, script: string, args: string[]): string[] {
+export function sshArgv(ctx: Ctx, host: HostCfg, script: string, args: string[], completionNonce?: string): string[] {
   if (!Object.values<string>(SCRIPTS).includes(script)) throw new Error("unknown remote script");
+  if (completionNonce && !/^[a-f0-9-]{36}$/.test(completionNonce)) throw new Error("invalid remote completion nonce");
+  const program = completionNonce
+    ? `printf '__PACER_BEGIN__\\n'; ( ${script}\n); pacer_result=$?; printf '\\n__PACER_DONE__=${completionNonce}\\n'; exit "$pacer_result"`
+    : `printf '__PACER_BEGIN__\\n'; ${script}`;
   return [
     "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
     "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
     "-o", "ControlMaster=auto", "-o", `ControlPath=${join(controlDir(ctx), "cm-%C")}`,
     "-o", "ControlPersist=60", "--", host.ssh,
-    `bash -lc ${shq(`printf '__PACER_BEGIN__\\n'; ${script}`)} pacer${args.map((arg) => ` ${shq(arg)}`).join("")}`,
+    `bash -lc ${shq(program)} pacer${args.map((arg) => ` ${shq(arg)}`).join("")}`,
   ];
 }
 
 export async function runRemote(ctx: Ctx, host: HostCfg, script: string, args: string[], o: { stdin?: string; timeoutMs?: number } = {}): Promise<RunResult> {
-  const result = await ctx.run(sshArgv(ctx, host, script, args), o.timeoutMs ?? 60_000, { stdin: o.stdin });
-  return { ...result, stdout: payload(result.stdout) };
+  const mutation = ([SCRIPTS.PREPARE, SCRIPTS.CLEAN, SCRIPTS.SET_IDENTITY] as readonly string[]).includes(script)
+    || (script === SCRIPTS.CHECK_REPO && args[1] === "clone")
+    || (script === SCRIPTS.BINARY && args[1] !== "check");
+  const lease = mutation ? beginWorkSync(ctx, { kind: "operation", id: randomUUID(), label: `Remote operation on ${host.alias}` }) : undefined;
+  let sent = false;
+  try {
+    const argv = sshArgv(ctx, host, script, args, lease);
+    sent = true;
+    const result = await ctx.run(argv, o.timeoutMs ?? 60_000, { stdin: o.stdin });
+    let stdout = payload(result.stdout);
+    if (lease) {
+      const completion = `\n__PACER_DONE__=${lease}\n`;
+      if (!result.timedOut && result.code !== 255 && stdout.endsWith(completion)) {
+        stdout = stdout.slice(0, -completion.length);
+        finishWorkSync(ctx, lease);
+      }
+      // Private completion capabilities never enter command/API output, even
+      // when a transport failure makes an otherwise complete receipt ambiguous.
+      stdout = stdout.replaceAll(`__PACER_DONE__=${lease}`, "");
+    }
+    return { ...result, stdout };
+  } catch (error) {
+    if (lease && !sent) finishWorkSync(ctx, lease);
+    throw error;
+  }
 }
 
 const SENTINEL = "__PACER_BEGIN__\n";

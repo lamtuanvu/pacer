@@ -115,14 +115,16 @@ test("successful operation responses count even when the review snapshot has not
   expect(writes(h)).toHaveLength(2);
 });
 
-test("Overview and Review show bulk controls and accessible checkboxes only for scoped review items", () => {
+test("Overview has no bulk verdict controls while legacy review controls remain compatible", () => {
   const h = harness();
   const overview = renderToString(<OverviewView snapshot={snap} query={{ repo: repoA.key, scope: null }} now={snap.at}
     runner={h.runner} activity={[]} ops={new Set(["task.review"])} />);
   const review = renderToString(<BulkReview snapshot={snap} repo={repoA.key} runner={h.runner}>
     <ReviewView snapshot={snap} view={{ ...initialReview, queue: scopedReviewQueue(snap, repoA.key) }} now={snap.at} />
   </BulkReview>);
-  for (const html of [overview, review]) {
+  expect(overview).not.toContain("Accept all with passing checks");
+  expect(overview).not.toContain("Select all review tasks");
+  for (const html of [review]) {
     expect(html).toContain("Accept all with passing checks");
     expect(html).toContain("Select all review tasks");
     expect(html).toContain("Accept selected");

@@ -100,6 +100,8 @@ The snapshot preserves `v`, `seq`, `at`, `budget`, `mode`, `tasks`, `alerts`, `c
 | `repos` | Known repositories ordered by last use: `{ key, label, path }`, with canonical host/owner/repo or local hash key and main-checkout path |
 | `setup` | Complete flag, count of required items open, and items with id, title, status and required flag |
 
+Executor, account and planner rows add optional `eligibility`: `{ state, reasons, evaluatedAt, validUntil, evidenceAgeS, availability, budget, spendingRisk }`. `state` is `eligible`, `uncertain` or `ineligible`; reasons contain stable `code` and `evidenceIds`. Missing fields on older services mean unknown eligibility. Timestamps are Unix seconds; a null deadline or age means unavailable, not fresh evidence. These fields do not change the protocol major.
+`routing.route` includes eligibility on ranked and excluded candidates, an `uncertain` subset and `fallback: "uncertain"` on automatic fallback candidates. Eligible choices precede uncertain ones within global and project routing. Attempts preserve the launch decision and fallback in `routing`. Preflight refreshes supported sources and checks evidence/configuration again before dispatch. Pacing verdicts and legacy state enums are not execution permission. Credits alone do not permit paid execution; `spendingRisk: "unknown"` does not mean no paid usage.
 Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Parallel tasks use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with a shared execution.local_max_tasks limit (default 2). Tasks wait with queue { reason, since, position, limit?, capacity? }; no_slot waits add limit (`executor`, `machine` or `host`) and capacity `{used,max}` at the last scheduling check. Paused waits omit these capacity fields. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
 
 Repository identity and existence reads use an in-memory cache. New paths can initially use their absolute unresolved identity until an async probe completes. Registry probes refresh at most once a minute; timeouts retain the last known value, and only confirmed missing repos without active or recent tasks are hidden. Task resolution uses bounded async filesystem and git reads, so stalled volumes do not block snapshots or event replay.
@@ -125,6 +127,7 @@ Default task lists and snapshots omit archived history. The protocol 3 task.prun
 
 `task.review` accepts verdict `accept`, `reject`, `send_back` (requires note), or `retry` (requires executor), and returns `{ task, retry? }`. Legacy `accepted: true/false` maps to accept/reject. Send back creates a retry on the same executor with the note as review feedback. Queued or running tasks cannot be reviewed.
 
+`task.request_review` adds a human handoff note (1–2000 trimmed characters) to an unresolved done or partial task. It accepts optional `expect_rev`, returns `{ task }`, and never records an acceptance. Repeating the same note is a no-op after revision validation. Task reads/events expose additive `reviewRequest` and `acceptanceState` fields. Ordinary completion without a verdict does not generate review attention.
 Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task.dismiss` accept optional `expect_rev`. A revision mismatch returns `conflict` with `data.task` containing the current task; omitting expect_rev preserves unconditional behavior. Task revisions increase on persisted changes.
 
 `task.delegate` accepts optional `request_id` (1–128 characters, deduplicated for 600 seconds), `base` (branch/ref or 7–40 hex SHA) and `source` (`planner`, `ui`, `cli`). A repo may be an absolute path or RepoRef key. HTTP client labels starting with app, desktop, orca, tui or tray default source to ui; others default to planner. `routing.route { kind?, goal?, repo? }` classifies goal when kind is absent.
@@ -1798,7 +1801,7 @@ Params JSON Schema:
 
 ### `routing.route`
 
-Rank executors for an optional task kind.
+Rank confirmed eligible executors before labelled uncertain fallbacks for an optional task kind.
 
 Params JSON Schema:
 
@@ -2720,6 +2723,13 @@ Params JSON Schema:
     "executor": {
       "type": "string"
     },
+    "worktree_base": {
+      "type": "string",
+      "enum": [
+        "default",
+        "head"
+      ]
+    },
     "worktree": {
       "type": "string",
       "enum": [
@@ -2920,6 +2930,41 @@ Params JSON Schema:
   },
   "required": [
     "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `task.request_review`
+
+Request a human decision on a completed result without accepting it.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "note"
   ],
   "additionalProperties": false
 }

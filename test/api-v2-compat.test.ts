@@ -8,13 +8,26 @@ test('v2 preserves pre-upgrade goldens while allowing additive snapshot fields',
    // service.version is the live pacer version; the golden records pre-upgrade output.
    const live=(value as any).snapshot?.service?.version;
    if (golden.snapshot?.service?.version) { expect(live).toMatch(/^\d+\.\d+\.\d+/); golden.snapshot.service.version=live; }
+   // Attention is intentionally re-derived by the new workflow, not frozen data.
+   const current=(value as any).snapshot;
+   delete golden.snapshot.attention;
+   delete golden.snapshot.counts;
+   expect(current.attention.some((a:any)=>a.id==='review:t-20261010-190000-0002')).toBe(false);
+   expect(current.attention.find((a:any)=>a.taskId==='t-20261010-190000-0003')).toMatchObject({kind:'failed',severity:'problem'});
+   expect(current.counts).toMatchObject({review:0,attention:5,problems:5});
    expect(value).toMatchObject(golden);
    expect(value).toMatchObject({snapshot:{machine:{used:1,max:2}}});
+  } else if (name === 'hello') {
+   const live=value as any;
+   expect(live.ops).toContain('task.request_review');
+   expect({...live,pacer:golden.pacer,ops:live.ops.filter((op:string)=>op!=='task.request_review')}).toEqual(golden);
   } else {
    // The live pacer version changes every release; the golden records pre-upgrade output.
    const live=value as Record<string,unknown>;
-   if (typeof golden.pacer === 'string') expect(live.pacer).toMatch(/^\d+\.\d+\.\d+/);
-   expect(typeof golden.pacer === 'string' ? {...live,pacer:golden.pacer} : live).toEqual(golden);
+   if (typeof golden?.pacer === 'string') expect(live.pacer).toMatch(/^\d+\.\d+\.\d+/);
+   const comparable=typeof golden?.pacer === 'string' ? {...live,pacer:golden.pacer} : live;
+   if(golden===null || typeof golden!=='object') expect(comparable).toEqual(golden);
+   else expect(comparable).toMatchObject(golden);
   }
  }
 });

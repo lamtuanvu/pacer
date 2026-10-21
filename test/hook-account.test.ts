@@ -42,7 +42,7 @@ test("Codex hooks select CODEX_HOME and warn when it is unknown", async () => {
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "accounts:\n  personal: {kind: codex}\n  work: {kind: codex, home: ~/.work-agent}\nplanner: codex#work\nrouting:\n  - default: [codex]\n");
   for (const [folder, used] of [[".codex", 10], [".work-agent", 99]] as const) {
     mkdirSync(join(ctx.home, folder, "sessions"), {recursive: true});
-    writeFileSync(join(ctx.home, folder, "sessions/rollout-test.jsonl"), JSON.stringify({rate_limits: {primary: {used_percent: used, window_minutes: 10080, resets_at: ctx.now + 86400}}}));
+    writeFileSync(join(ctx.home, folder, "sessions/rollout-test.jsonl"), JSON.stringify({timestamp: new Date(ctx.now*1000).toISOString(), rate_limits: {primary: {used_percent: used, window_minutes: 10080, resets_at: ctx.now + 86400}}})+"\n");
   }
   ctx.env.CODEX_HOME = join(ctx.home, ".work-agent");
   expect((await main(["status", "--hook", "codex"], ctx)).out).toContain("Mode: EMERGENCY");

@@ -8,9 +8,9 @@ import { Icon, type IconName } from "../ds/icons";
 import { withQuery, type Route } from "../router";
 
 const ITEMS: { name: "overview" | "review" | "sessions"; label: string; href: string; icon: IconName; count: (c: Counts) => number; words: string; tone: "warn" | "info" }[] = [
-  { name: "overview", label: "Overview", href: "#/", icon: "overview", count: c => c.attention, words: "need you", tone: "warn" },
-  { name: "review", label: "Review", href: "#/review", icon: "review", count: c => c.review, words: "waiting", tone: "warn" },
-  { name: "sessions", label: "Sessions", href: "#/sessions", icon: "sessions", count: c => c.running, words: "running", tone: "info" },
+  { name: "overview", label: "Overview", href: "#/", icon: "overview", count: () => 0, words: "need you", tone: "warn" },
+  { name: "review", label: "Needs you", href: "#/needs-you", icon: "review", count: c => c.attention, words: "need you", tone: "warn" },
+  { name: "sessions", label: "Tasks", href: "#/tasks", icon: "sessions", count: c => c.running, words: "running", tone: "info" },
 ];
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 /** 56 px icon rail. Setup readiness comes from the shared service checklist. */

@@ -2,26 +2,28 @@ import { executorLabel, taskStatus } from "../../../src/view-model/words";
 import type { Account } from "./accounts";
 import type { LinkSnapshot, TaskData } from "../../../src/link/envelope";
 import type { TaskResult } from "../../../src/tasks/types";
+import { needsYou, counts as snapshotCounts } from "../../../src/view-model/selectors";
 export type TaskTab = "running" | "review" | "history";
 export interface TaskSummary {
   task_id: string; goal?: string; state: string; kind: string | null; requested_executor: string | null;
   attempts: { executor: string; exit_code?: number; limit_hit?: boolean; timed_out?: boolean; log?: string }[];
   result: TaskResult | null; review: { accepted: boolean; note?: string | null; kind?: string | null; at?: number } | null;
+  reviewRequest?: TaskData["reviewRequest"]; acceptanceState?: TaskData["acceptanceState"];
   resolved: string | null; placement?: { mode?: string; why?: string } | null;
 }
 export const kinds = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
-export const taskHref = (id: string) => `#/sessions/${encodeURIComponent(id)}`;
+export const taskHref = (id: string) => `#/tasks/${encodeURIComponent(id)}`;
 /** A queued snapshot must not regress a task already running or complete. */
 export function mergeTask(task: TaskSummary, live?: TaskData): TaskSummary {
-  return {...task, ...(live ? {state: (live.state === "queued" && task.state === "running") || (activeTask(live.state) && !activeTask(task.state)) ? task.state : live.state, review: live.review ?? task.review, resolved: live.resolved ?? task.resolved, goal: live.goal || task.goal} : {})};
+  return {...task, ...(live ? {state: (live.state === "queued" && task.state === "running") || (activeTask(live.state) && !activeTask(task.state)) ? task.state : live.state, reviewRequest: live.reviewRequest ?? task.reviewRequest, acceptanceState: live.acceptanceState ?? task.acceptanceState, review: live.review ?? task.review, resolved: live.resolved ?? task.resolved, goal: live.goal || task.goal} : {})};
 }
 export const activeTask = (state: string) => state === "running" || state === "queued";
-export const needsReview = (task: { state: string; review?: unknown; resolved?: string | null; dismissed?: boolean }) => ["done", "partial"].includes(task.state) && !task.review && !task.resolved && !task.dismissed;
+export const needsReview = (task: { state: string; review?: unknown; resolved?: string | null; dismissed?: boolean; reviewRequest?: unknown }) => !!task.reviewRequest && ["done", "partial"].includes(task.state) && !task.review && !task.resolved && !task.dismissed;
 export function taskActions(task: { state: string }): ("stop" | "retry" | "dismiss")[] { return activeTask(task.state) ? ["stop"] : ["retry", "dismiss"]; }
 export function tasksModel(tasks: TaskSummary[], liveOrSnapshot: TaskData[] | LinkSnapshot, tab: TaskTab, dismissed: string[] = [], accounts: Account[] = []) {
   const snapshot = Array.isArray(liveOrSnapshot) ? undefined : liveOrSnapshot;
   const live = Array.isArray(liveOrSnapshot) ? liveOrSnapshot : liveOrSnapshot.tasks;
-  const reviewIds = snapshot?.attention === undefined ? undefined : new Set(snapshot.attention.filter(item => item.kind === "review").map(item => item.taskId));
+  const reviewIds = snapshot?.attention === undefined ? undefined : new Set(needsYou(snapshot, {repo:null}).filter(item => item.kind === "review").map(item => item.taskId));
   const inReview = (task: TaskSummary) => reviewIds ? reviewIds.has(task.task_id) : needsReview(task);
   return tasks.map(task => {
     const update = live.find(t => t.id === task.task_id);
@@ -63,5 +65,7 @@ export function delegateParams(draft: DelegateDraft, ops: ReadonlySet<string>, r
 }
 
 export function taskCounts(snapshot: LinkSnapshot) {
-  return { running: snapshot.counts ? snapshot.counts.running + snapshot.counts.queued : snapshot.tasks.filter(t => activeTask(t.state) && !t.dismissed).length, review: snapshot.counts?.review ?? (snapshot.attention?.filter(item => item.kind === "review").length ?? snapshot.tasks.filter(needsReview).length) };
+  const c = snapshotCounts(snapshot);
+  return { running: c ? c.running + c.queued : snapshot.tasks.filter(t => activeTask(t.state) && !t.dismissed).length,
+    review: c?.review ?? (snapshot.attention === undefined ? snapshot.tasks.filter(needsReview).length : needsYou(snapshot, {repo:null}).filter(i=>i.kind==="review").length) };
 }

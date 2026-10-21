@@ -1,3 +1,5 @@
+import { beginWorkSync, finishWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
+import { executorExclusion } from "../executors/availability";
 import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { projectSnapshot, requireProjectExecutor } from "../core/project-policy";
 import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy";
@@ -16,7 +18,7 @@ import { computeStatus, type Status } from "../engine/status";
 import { remoteExclusion } from "../remote/eligibility";
 import { gitInfo } from "../core/git";
 import type { Ctx } from "../types";
-import { spawnRunner, type SpawnRunner } from "./api";
+import { spawnRunner, launchTaskRunner, type SpawnRunner } from "./api";
 import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement } from "./types";
 
@@ -30,8 +32,16 @@ const defaults: DrainDeps = {loadStrategy, computeStatus};
 /** Reserve slots before spawning so concurrent drains and runners see the same capacity. */
 export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, deps: DrainDeps = defaults): Promise<string[]> {
   if (ctx.readOnly) return [];
-  return withLock(ctx, "drain", async () => {
-    const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue)
+  let operation: string;
+  try { operation = beginWorkSync(ctx, { kind: "operation", id: "queue-drain", label: "Queue drain" }); }
+  catch { return []; } // Queued work retains its existing retry intent.
+  const launches = new Map<string, string>();
+  try {
+    for (const task of listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue)) {
+      launches.set(task.id, beginWorkSync(ctx, { kind: "task", id: task.id, label: `Queued task ${task.id}` }));
+    }
+    return await withLock(ctx, "drain", async () => {
+    const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue && launches.has(t.id))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     if (!waiting.length) return [];
     const spawned: string[] = [], hooks = deps.hooks ?? activeHooks;
@@ -66,7 +76,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         continue;
       }
       if (readPause(ctx)) continue;
-      st ??= await deps.computeStatus(ctx, s);
+      st = await deps.computeStatus({ ...ctx, now: Date.now() / 1000 }, s);
       const blocked = readBlocked(ctx), broken = readBroken(ctx);
       const statuses = Object.fromEntries(st.providers.map(p => [p.id, {...p,
         ...(blocked[p.id] ? {blockedReason: blocked[p.id].reason} : {}),
@@ -106,7 +116,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           return;
         }
         const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
-        const executor = eligible.find(id => !slotBlock(s, id, use));
+        const executor = eligible.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use));
         if (!executor) return;
         // A running reservation is claimed by the spawned process before its first attempt.
         updateTask(ctx, task.id, t => {t.state = "running"; t.executor = executor; delete t.queue; delete t.runnerPid;});
@@ -114,7 +124,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         });
         if (!reserved) return;
         try {
-          const pid = spawn(ctx, task.id);
+          const pid = launchTaskRunner(ctx, task.id, spawn, launches.get(task.id));
           updateTask(ctx, task.id, t => {t.runnerPid = pid;});
           spawned.push(task.id);
         } catch (error) {
@@ -129,5 +139,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
       .forEach((t, i) => updateTask(ctx, t.id, x => {if (x.queue) x.queue.position = i + 1;}));
     return spawned;
-  });
+  }); } finally {
+    for (const lease of launches.values()) finishUnlaunchedWorkSync(ctx, lease);
+    finishWorkSync(ctx, operation);
+  }
 }

@@ -58,7 +58,7 @@ test("missing Orca folder keeps usage visible but excludes the runner from routi
   const status = await computeStatus(ctx, s, {profile: null, readings});
   expect(status.accounts.find(a => a.name === "managed")).toBeDefined();
   expect(status.executors.ranked.some(r => r.id === "codex#managed")).toBe(false);
-  expect(status.executors.excluded).toContainEqual({id: "codex#managed", account: "managed", reason: "account folder not found"});
+  expect(status.executors.excluded).toContainEqual(expect.objectContaining({id: "codex#managed", account: "managed", reason: "account folder not found"}));
 });
 
 test.each([
@@ -69,6 +69,9 @@ test.each([
 ] as const)("default-account Orca %s on %s keeps agent supervision", async (id, worktree, agent) => {
   const {ctx, s} = setup();
   const f = fakeRun([
+    [["git", "-C", "/work/app", "rev-parse", "--verify"], raw("a".repeat(40))],
+    [["git", "-C", "/work/app", "fetch"], raw("")],
+    [["git", "-C", "/work/app", "ls-remote"], raw("ref: refs/heads/main\tHEAD\n")],
     [["git", "-C", "/work/app", "rev-parse"], raw("/work/app\nmain\n")],
     [["git", "-C", "/work/app", "status"], raw("")],
     [["orca", "status"], ok("status-ready.json")],

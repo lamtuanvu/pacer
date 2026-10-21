@@ -6,12 +6,48 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- Native permission setup in desktop Diagnostics: a draggable hosting-app chip follows System Settings, with a Finder alternative, cancellation and owned-window access verification.
+- Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.
+- Native permission setup in desktop Diagnostics: a draggable hosting-app chip docks to System Settings, with a Finder alternative, cancellation and owned-window access verification.
 
-- Agent live-control commands for browser/tray, TUI and native macOS targets, with structured JSON, assertions, replay and automatic evidence. Normal desktop builds include authenticated owned-window and webview self-capture; native interaction and VoiceOver readiness require their own live evidence.
+## [0.6.2] - 2026-10-21
+
+- Normalize absent compiled desktop signer pins and validate production macOS signing in enabled release dry runs before tagging.
+
+## [0.6.1] - 2026-10-21
+
+- Fix Linux desktop release compilation, secure temporary macOS signing keychain permissions before importing release credentials, and create missing parent directories for the release feed dry run.
+
+## [0.6.0] - 2026-10-21
+
+### Added
+
+- macOS desktop OTA support with complete app/service packages, explicit restart after download, work admission, verified recovery, and shared Settings, tray, TUI and CLI controls. Until pacer has an Apple Developer ID, releases are signed with a pinned project certificate; a later bridge release moves installed apps to Developer ID builds by update. macOS desktop downloads are the signed, auto-updating app; Linux packages are unchanged.
+- Separate `desktop.update.*` operations on protocol v3 and `pacer desktop-update` commands; existing standalone CLI update operations retain their behavior.
+- Explicit human review handoff through `task.request_review`, MCP `task_request_review`, and `pacer task request-review <id> --note <concern>`, with revision guards and no inferred acceptance.
 
 - Guided OpenCode endpoint setup: `pacer account add` and Settings › Add executor list providers already signed in to OpenCode, local model servers (Ollama, LM Studio) and catalog providers, recommend a model that can call tools, set the usage type from the models.dev catalog and offer an optional weekly dollar cap. Signed-in providers are stored as `source: opencode` accounts that refer to the provider and never hold its key. `pacer account add opencode <provider> [--model] [--cap-usd] [--name] [--no-test]` does it in one command. Spend is read in dollars from `opencode stats --cost`, and new API ops `executor.setup.candidates`, `executor.setup.models` and `executor.setup.connect` serve the app.
 - Plugin host: `pacer-plugin.json` manifests, `plugin.list/enable/disable/remove/doctor` operations and `pacer plugin …` commands, a stdio JSON-RPC plugin transport with deadlines and crash backoff, the `@pacer/plugin` runtime, a conformance suite and the generated `docs/plugin-protocol.md`. No plugin is bundled yet; behavior is unchanged for a fresh install.
+
+### Fixed
+
+- Executor routing shares timestamped, scoped eligibility evidence across status and launch guards; uncertain fallbacks remain permitted and visibly labelled, and historical usage no longer implies current quota.
+
+- Native desktop buttons keep readable backgrounds when switching Light/Dark appearance instead of retaining the previous theme during a stuck background transition.
+- Settings > Updates distinguishes the native desktop app version from the connected service version, provides desktop download/replacement guidance, and labels the service-only update action explicitly. Failed update checks no longer appear as up to date.
+
+- Settings categories open separate pages with icon navigation and a proper gear icon. Forms use consistent compact sizing, bounded widths and aligned spacing; narrow layouts keep category navigation and focused controls visible.
+
+### Changed
+
+- Session details now show a structured Brief, readable executor reports alongside collapsed technical logs, a responsive Activity panel, and an on-demand retry dialog.
+- Overview uses aligned pairs of cards and paginated attention, running, capacity, completed-work and activity lists, keeping the existing design system and compact layout.
+- Repository filters use filled count badges and a searchable **Find repo** menu anchored to its trigger, with compact rows, selected checkmarks, keyboard navigation and narrow-screen containment. The finder includes repositories with no current work.
+### Fixed
+
+- Delegation preserves an explicitly selected checkout's real path instead of substituting a registry checkout of the same repository.
+- User-blocked executors cannot be selected through aliases, dispatch races or fallback. Confirmed budget exhaustion refuses explicit requests when paid execution is forbidden; newer scoped recovery evidence and explicit paid permission remain effective.
+- New worktrees fetch origin's default branch tip and record its SHA. `--worktree-base head` explicitly selects the current HEAD. Review retries reuse the original local worktree, including uncommitted changes.
+- Automatic child placement still starts executors in local-only repositories without origin, preserving session takeover support; explicit new/default requests continue to require origin.
 
 ## [0.5.0] - 2026-10-20
 
@@ -22,10 +58,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Needs you replaces the routine review queue across the app, tray and terminal dashboard. Successful completion without a verdict stays in Tasks; failed checks, incomplete work and explicit human decisions remain actionable. Task results put checks and changes before collapsed transcripts, separate execution from verdicts, and clarify that acceptance does not merge branches. Legacy task links remain supported.
+
 - `pacer dashboard` is redesigned on the shared design system: Home, Review, Sessions, Settings and Setup screens mirror the app, statuses are glyph plus label, colors follow the design tokens for dark and light terminals, destructive actions confirm, and `--plain` and `--once` print screen-reader-friendly or single frames. The dashboard now reads and writes only through the API.
 
 ### Fixed
 
+- Executor eligibility now uses timestamped availability and budget evidence across routing, guards and launch checks. Confirmed eligible choices come before automatically permitted, labelled uncertain fallbacks; expired quota remains historical and credits do not override paid-execution policy (#213).
 - Linux arm64 gets an AppImage again. AppImages now bundle the CLI untouched: linuxdeploy's patchelf step corrupted Bun-compiled binaries, so they are repacked after bundling and the bundled CLI is checked before release (#217).
 - The interactive account and endpoint setup checks each answer as it is entered and asks again instead of aborting: kind, name, key storage, usage, weekly token budget (with a budget-specific message) and quota source. A blank quota source selects `arkcli` instead of saving an empty value, with a warning when `arkcli` is not on `PATH`. Endpoint setup now asks where to keep the key on add as well as edit (Keychain on macOS and a file elsewhere by default). Endpoint save errors show their full reason instead of only the first line, and migration notices no longer print array indexes.
 - Account sign-in state now has one source, the local login indicator plus recorded authentication failures, shared by `account list`, routing, the Executors and Accounts screens, attention and `runner.check`. `account list` reports `signedIn: true/false` for native accounts instead of always `null`; a signed-out executor shows as Unavailable with its reason instead of Ready; the Accounts screen shows endpoint state (Ready, Not tested, Not working, Key missing) for endpoints and offers **Fix sign-in** only for signed-out native accounts.

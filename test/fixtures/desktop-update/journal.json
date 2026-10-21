@@ -1,0 +1,109 @@
+{
+  "prepared": {
+    "schema": 1,
+    "binding": {
+      "schema": 1,
+      "commandId": "command-fixture",
+      "installationId": "fixture",
+      "transactionId": "tx-1",
+      "revision": 2,
+      "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "target": {
+      "id": "fixture",
+      "appPath": "/tmp/pacer-ota-fixture/pacer.app",
+      "bundleId": "dev.pacer.desktop",
+      "ownerUid": 501,
+      "arch": "aarch64",
+      "pacerHome": "/tmp/pacer-ota-fixture/state",
+      "port": 7433,
+      "serviceLabel": "com.pacer.serve",
+      "ownership": "managed",
+      "version": "1.0.0"
+    },
+    "candidate": {
+      "version": "1.1.0",
+      "arch": "aarch64",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "signature": "fixture-signature",
+      "url": "https://example.invalid/1.1.0.tar.gz",
+      "protocolMajors": [
+        3
+      ],
+      "rollbackCompatible": true,
+      "notes": "A release."
+    },
+    "nativeSessionId": "native-session",
+    "requesterBootId": "boot-one",
+    "oldDesktop": {
+      "pid": 100,
+      "bootId": "boot-one",
+      "birth": "1000:5"
+    },
+    "oldService": {
+      "pid": 101,
+      "bootId": "boot-one",
+      "birth": "1000:6"
+    },
+    "oldServiceExecutable": "/tmp/pacer-ota-fixture/pacer.app/Contents/Resources/pacer",
+    "oldServiceVersion": "1.0.0",
+    "oldServiceProtocol": 3,
+    "oldAdmissionProtocol": 1,
+    "oldStateCompatible": true,
+    "artifact": {
+      "relativePath": "candidate.tar.gz",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "oldBundleBackup": {
+      "relativePath": "old.app",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "registrationBackup": {
+      "relativePath": "registration.plist",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "recoveryJob": {
+      "label": "dev.pacer.recovery.fixture",
+      "helper": {
+        "relativePath": "helper",
+        "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    }
+  },
+  "journal": {
+    "schema": 1,
+    "revision": 5,
+    "manifestSha256": "df44930e8cce66df45275b2cd2db3f502c2fafa0b898566e0566c4614984c29e",
+    "state": "prepared",
+    "authorization": null,
+    "steps": [
+      {
+        "action": {
+          "kind": "prepare-backup"
+        },
+        "intentRevision": 1,
+        "intentBootId": "boot-one",
+        "evidence": {
+          "kind": "complete"
+        }
+      },
+      {
+        "action": {
+          "kind": "arm-recovery"
+        },
+        "intentRevision": 3,
+        "intentBootId": "boot-one",
+        "evidence": {
+          "kind": "complete"
+        }
+      }
+    ],
+    "verificationStarted": null,
+    "restorationStarted": null,
+    "restorationHistory": [],
+    "verificationProof": null,
+    "restorationProof": null,
+    "failedVersion": null,
+    "error": null
+  }
+}

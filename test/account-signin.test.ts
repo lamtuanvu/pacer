@@ -1,3 +1,4 @@
+import { accountEvidenceScope } from "../src/evidence/scope";
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -66,7 +67,15 @@ test("signin opens Codex login with its quoted account home through the terminal
   const script = readFileSync(calls[0][3], "utf8");
   expect(script).toContain("CODEX_HOME=");
   expect(script).toContain("codex login");
-  expect(result.command).toBe(script.split("\n")[1]);
+  const bin = join(ctx.home, "fixture-bin"), receipt = join(ctx.home, "login-argv");
+  mkdirSync(bin, {mode: 0o700});
+  writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf '%s\\n' "$CODEX_HOME" "$@" > "$PACER_TEST_LOGIN"\n`, {mode: 0o700});
+  const child = Bun.spawn(["/bin/sh", calls[0][3]], {
+    env: {PATH: `${bin}:/usr/bin:/bin`, PACER_TEST_LOGIN: receipt}, stdout: "pipe", stderr: "pipe",
+  });
+  expect(await child.exited).toBe(0);
+  expect(readFileSync(receipt, "utf8").trim().split("\n")).toEqual([join(ctx.home, "codex team's home"), "login"]);
+  expect(result.command).toContain("codex login");
 });
 
 test("account.signin supports headless fallback, validates targets and refuses endpoint accounts", async () => {
@@ -84,10 +93,13 @@ test("a cached successful reading cannot erase a newer attempt's auth failure", 
   const account = loadStrategy(ctx).accounts.codex;
   await readAccountUsage(ctx, account, []);
   ctx.now += 1;
-  markAuthFailed(ctx, "codex", "please log in");
+  markAuthFailed(ctx, "codex", "please log in", {scope:accountEvidenceScope(account)});
   expect((await list(ctx)).find(a => a.name === "codex")?.signedIn).toBe(false);
   expect(read).toHaveBeenCalledTimes(1);
   await readAccountUsage(ctx, account, [], true);
   expect(read).toHaveBeenCalledTimes(2);
+  expect(readAuthFailures(ctx).codex).toBe(ctx.now);
+  ctx.now += 1; read.mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
+  await readAccountUsage(ctx, account, [], true);
   expect(readAuthFailures(ctx)).toEqual({});
 });

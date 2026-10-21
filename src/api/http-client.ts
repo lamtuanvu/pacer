@@ -10,7 +10,7 @@ export class HttpClient implements ApiClient {
   constructor(
     private readonly base: string,
     private readonly token: string,
-    private readonly o: { retryMs?: number; timeoutMs?: number } = {},
+    private readonly o: { retryMs?: number; timeoutMs?: number; protocol?: 2 | 3 } = {},
   ) {
     const url = new URL(base);
     if (!/^http:\/\/127\.0\.0\.1:[0-9]+\/?$/.test(base) ||
@@ -38,12 +38,12 @@ export class HttpClient implements ApiClient {
     return await response.json() as T;
   }
 
-  hello(): Promise<Hello> { return this.request("/v2/hello"); }
+  hello(): Promise<Hello> { return this.request(`/v${this.o.protocol ?? 2}/hello`); }
   snapshot(): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot }> {
-    return this.request("/v2/snapshot");
+    return this.request(`/v${this.o.protocol ?? 2}/snapshot`);
   }
   async call<T = unknown>(op: string, params?: unknown): Promise<T> {
-    const body = await this.request<{ result: T }>(`/v2/ops/${encodeURIComponent(op)}`, params ?? {});
+    const body = await this.request<{ result: T }>(`/v${this.o.protocol ?? 2}/ops/${encodeURIComponent(op)}`, params ?? {});
     return body.result;
   }
 
@@ -63,7 +63,7 @@ export class HttpClient implements ApiClient {
       controller = new AbortController();
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
       try {
-        const response = await fetch(`${this.base}/v2/events?since=${last}`, {
+        const response = await fetch(`${this.base}/v${this.o.protocol ?? 2}/events?since=${last}`, {
           headers: { authorization: `Bearer ${this.token}`, "Last-Event-ID": String(last) },
           signal: controller.signal,
         });

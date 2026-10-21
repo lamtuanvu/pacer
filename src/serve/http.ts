@@ -1,5 +1,8 @@
 import { desktopCaptureRoute } from "./desktop-capture";
 import { resetCaptureBroker } from "../desktop/capture-broker";
+import { configuredNativeServices } from "../update/desktop/native-provider";
+import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
+import { reconcileAdmissionSync } from "../update/desktop/admission";
 import { retentionScheduler } from "../tasks/retention";
 import { superviseTasks } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
@@ -22,7 +25,8 @@ import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 
 
-export const DEFAULT_PORT = 4317;
+import { DEFAULT_PORT } from "./constants";
+export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
 export const STATUS_WARMUP_WAIT_MS = 300;
 
@@ -45,7 +49,14 @@ export function startServer(
   const initialCtx = getCtx();
   resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
+  reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx);
+  const nativeServices = opts.opDeps?.desktopUpdates ? null : configuredNativeServices(getCtx,opts.port??Number(initialCtx.env.PACER_PORT??DEFAULT_PORT),()=>{
+    stop();setImmediate(()=>process.exit(0));
+  });
+  nativeServices?.native.listen();
+  const desktopUpdates = opts.opDeps?.desktopUpdates ?? createDesktopUpdateRuntime(getCtx,nativeServices??{});
+  const unbindDesktopUpdates = bindDesktopUpdateRuntime(initialCtx, desktopUpdates);
   const tailMs = opts.tailMs ?? 1_000;
   const pumpMs = opts.pumpMs ?? 15_000;
   let snapshot = currentSnapshot(initialCtx);
@@ -90,7 +101,8 @@ export function startServer(
     try{watchers.push(watch(dir,()=>{invalidateConsoleCache(initialCtx);scheduleSnapshot();}));}catch{}
   }
   refreshStatus();
-  const server = Bun.serve<SessionWS>({
+  let server: ReturnType<typeof Bun.serve<SessionWS>>;
+  try { server = Bun.serve<SessionWS>({
     websocket: sessionWebSocket,
     hostname: "127.0.0.1",
     port: 0,
@@ -132,7 +144,11 @@ export function startServer(
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });
       return new Response("not found\n", { status: 404 });
     },
-  });
+  }); } catch (error) {
+    stopped = true; nativeServices?.native.stop(); unbindDesktopUpdates(); clearTimeout(scheduled);
+    for (const watcher of watchers) watcher.close();
+    throw error;
+  }
   try {
     // Handler tests can explicitly skip the public listener and use the backend.
     if (opts.listener === false) {
@@ -142,12 +158,13 @@ export function startServer(
       publicPort = listener.port;
     }
   } catch (error) {
-    stopped = true;
+    stopped = true; nativeServices?.native.stop(); unbindDesktopUpdates(); clearTimeout(scheduled);
     readCache.stop();
     for (const watcher of watchers) watcher.close();
     server.stop(true);
     throw error;
   }
+  void desktopUpdates.start().catch(() => { console.error("pacer: desktop update startup requires recovery"); });
   const unregisterJobs = registerJobDaemon(initialCtx);
   refreshSnapshot();
   let busy = false;
@@ -188,5 +205,5 @@ export function startServer(
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: publicPort, token, stop: () => { listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(supervisorTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true);  void shutdownPlugins(initialCtx); } };
+  return { port: publicPort, token, stop: () => { nativeServices?.native.stop(); desktopUpdates.stop(); unbindDesktopUpdates(); listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(supervisorTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); void shutdownPlugins(initialCtx); } };
 }

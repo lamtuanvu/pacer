@@ -74,6 +74,7 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `runner.add` | interactiveTerminal opens a real terminal (whole op refused conservatively) |
 | `task.attach` | openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively) |
 | `host.clean` | hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively) |
+| `desktop.update.*` | all desktop update operations except status require a verified OTA fixture |
 | `plugin.remove` | plugins.remove deletes a plugin folder under the home (whole op refused conservatively) |
 | `service.*` | all service operations except service.status can change the real login service |
 <!-- /D8 policy -->
@@ -112,7 +113,7 @@ For direct API calls, use `http://127.0.0.1:<session.port>` and read the sandbox
 bun run live login --id my-change --screen sessions
 ```
 
-Open the printed single-use `/app/auth?code=...` URL in your own browser MCP tool. The URL expires quickly; request another if it was already consumed or expired. Inspect the relevant screens, actions, loading/error states and tray popover view (the `/app/tray.html` URL after login). Attach screenshots and record observations. The agent control adapter uses the existing playwright-core dependency with an installed Chromium browser. Browser rendering alone does not verify native desktop tray behavior.
+Open the printed single-use `/app/auth?code=...` URL in your own browser MCP tool. The URL expires quickly; request another if it was already consumed or expired. Inspect the relevant screens, actions, loading/error states and tray popover view (the `/app/tray.html` URL after login). Attach screenshots and record observations. The harness has no Playwright dependency. Browser rendering alone does not verify native desktop tray behavior.
 
 ### TUI
 
@@ -187,118 +188,67 @@ bun run live down --id my-change --keep
 
 `down` stops the sandbox proxy, inner service and tmux session. `--keep` preserves the sandbox and evidence for review; without it, the entire sandbox is removed. A retained sandbox can be removed later with `down` without `--keep`. The service PID is checked against inner `/health` and the proxy PID against public `/__live/health` before signaling each; a live but unverified PID causes teardown to refuse rather than kill an unrelated process. If startup fails, inspect the retained logs and process state before deleting its directory.
 
-## Agent control commands
+## Disposable desktop OTA fixtures
 
-The checkout harness exposes one JSON command contract for `web`, browser `tray`,
-`tui` and native `desktop` targets:
+OTA preparation is an explicit harness mode. Use two disposable build bundles inside this checkout, such as builds copied under `.work/fixtures/`; never pass an installed app. The harness refuses sources outside the checkout or inside the destination sandbox, equal/overlapping sources, escaping symlinks, default service ports, and unowned or symlinked sandbox resources. Relative framework links whose targets stay inside their bundle are preserved.
 
 ```sh
-bun run live targets --id my-change --surface web --json
-bun run live inspect --id my-change --surface web --json
-bun run live act --id my-change --surface web --action click \
-  --selector '{"role":"link","name":"Settings"}' --json
-bun run live wait --id my-change --surface web \
-  --condition '{"role":"heading","name":"Settings"}' --timeout-ms 10000 --json
-bun run live assert --id my-change --surface web \
-  --condition '{"role":"button","name":"Check now"}' --json
-bun run live capture --id my-change --surface web --json
-bun run live scenario --id my-change --file scripts/live/scenarios/settings-updates.json --json
+bun run live up --id ota-check
+bun run live ota prepare --id ota-check --from-app .work/fixtures/old.app --to-app .work/fixtures/new.app
+bun run live ota exercise --id ota-check --scenario upgrade
+bun run live ota cleanup --id ota-check
+bun run live report --id ota-check
+bun run live down --id ota-check --keep
 ```
 
-JSON results have schema major `1`, command/run IDs, timestamps, target identity,
-observations, artifact references and structured errors. `outcome` describes the
-command; `delivery` separately distinguishes `delivered`, `not_delivered` and
-`unknown` inputs. Assertions use PASS/FAIL/UNVERIFIED. Never repeat an uncertain
-mutation without inspecting its effects. Unknown additive response fields are
-allowed; unsupported schema majors are rejected.
+`prepare` records a private resource ledger under `ota/record.json` before copying either app. It allocates separate current/candidate copies, a sandbox installation ID, and unique reserved service/recovery labels. It fingerprints both sources and the existing real service registration bytes without copying the registration into the fixture. Preparation never invokes a service manager or launches a native application. Cleanup of copies that have never been exercised does neither. Cleanup validates the ledger and canonical ownership again, removes only the recorded copies, and verifies that the sources and real registration bytes are unchanged. Unexpected resources, changed sources/registration, or unknown registration ownership preserve the sandbox for diagnosis. Generic `down` runs this validation before tearing down an OTA sandbox; `--keep` preserves the ledger and evidence.
 
-Inspection returns accessible controls with refs, revision and target generation.
-A ref action needs all three (`--ref`, `--revision`, `--generation`); navigation,
-replacement or changed state may invalidate it. A semantic selector must match
-exactly one control. When names repeat, scope the selector with `within`, for example
-`{"role":"link","name":"Updates","within":{"role":"navigation","name":"Settings sections"}}`. Coordinate clicks use image-pixel `--x`, `--y` and
-`--capture-id`; stale image geometry is rejected. Browser control supports click,
-type, key, select, scroll, resize and activate. Native capabilities are reported
-by the adapter; unsupported controls produce explicit errors. TUI uses literal
-text or named tmux keys, screen text and cursor state rather than DOM controls.
+On macOS, `bun run live ota build --id <id>` can instead build the complete disposable baseline0.2.3 and candidate0.2.4 from isolated source snapshots. It reserves an immutable compile lease in phase `building`, uses a newly generated disposable Tauri key and explicit ad-hoc Apple signatures, verifies compiled identities and the version-bound updater signature, then records exact feed/artifact fingerprints before marking `prepared`. The production checkout versions are unchanged. Only the host architecture is represented; no other architecture or production signing is claimed. This command accepts no key, command, feed, version, or manager target override. Incomplete builds remain preserved and cannot authorize runtime mutations. Cleanup retains immutable build sources and removes only recorded application copies and feed artifacts after registration ownership is settled.
 
-Each delivered/uncertain action attempts an automatic capture, including failure
-paths. Terminal captures are text. Files go to `evidence/captures/`, detailed
-steps to `evidence/steps/` and immutable source/binary metadata to
-`evidence/provenance/<hash>.json`. Each step retains its own provenance reference;
-`evidence/provenance.json` points to the latest document. Native self-capture
-artifacts also retain capture-time PID, native window ID, application version and
-executable hash, timestamp, viewport dimensions and scale. The harness checks
-the producer against its owned desktop build/window before saving evidence.
-The input deadline prevents late actions after expired preflight; follow-up
-read-only capture gets a separate diagnostic budget of at most 10 seconds.
-Input values are redacted from step requests, and browser password/OTP controls
-are masked in screenshots. Review all evidence before publishing: other visible
-text can still be sensitive. Captures alone do not establish a passing behavior.
+The fixed scenario names are `upgrade`, `startup-failure`, `helper-crash`, `interrupted-install`, `restore-failure`, `adopt`, `adopt-failure`, `attached`, `wrong-service`, `watcher-race`, `active-work`, `invalid-signature`, `corrupt-archive`, `wrong-architecture`, `incompatible`, and `offline`. Commands, feed URLs, signing keys, and arbitrary service targets are not accepted as scenario options.
 
-### Browser ownership
+Managed native scenarios require `ota build` and a fresh harness service with recorded PID, birth and boot identity. The driver verifies immutable bundle bytes, ad-hoc signatures, exact compiled fixture policy and scoped native job inspection before handing off that one service process to the fixture desktop. It binds the native installation ID independently from signed bundle coordinates and the inspected registration, then observes the default automatic check/download and sends explicit restart through the public guarded proxy. If automatic download was already disabled, check and download also use that proxy. Only one exact recorded request is authorized while the driver incarnation remains alive. D3, unrelated D8 operations and all real service targets remain blocked. Missing or uncertain proof refuses and records UNVERIFIED. A failed baseline startup can reuse its signed fixture only when no exercise or request was armed and the former driver, source service and desktop incarnations have all exited. The native service and immutable bundle are verified again before a new driver claims the startup under the ledger lock; previous identities remain in evidence. An armed or ambiguous transaction cannot use this retry.
 
-The harness uses the existing `playwright-core` dependency and an installed
-Chromium executable. Set `PACER_LIVE_BROWSER` to select one. The macOS default
-is Google Chrome in Applications; Linux uses an installed Chromium/Chrome on
-PATH. No browser is downloaded. The context has its own profile and logs in
-through the sandbox public origin. Set `PACER_LIVE_HEADLESS=1` for headless use;
-this remains browser evidence, not native desktop evidence.
+`upgrade`, `startup-failure`, `helper-crash`, `interrupted-install`, `restore-failure`, `adopt`, `adopt-failure` and `attached` have fixed compiled fixture checkpoints. No command, environment variable or API parameter selects a fault. A marker is consumed durably once before the fixed effect; `interrupted-install` occurs before commit and must restore the original version. Other scenarios remain unavailable until their constrained driver is implemented. This implementation is not evidence that a native scenario passed: use the actual evidence report. Production builds compile out fixture authority and fault hooks.
 
-`live browser start` starts the persistent owned context; control commands can
-also start it lazily. `live browser stop` closes it. `down` closes the owned
-browser before the sandbox service. If control sources change while a worker is
-running, stop it before retrying; this prevents old observers claiming current
-source provenance. A busy target refuses concurrent writers.
+The attached scenarios start from an external service instead of the bundled one. `ota build` also stages one standalone copy of the baseline CLI and its native shim under `ota/external/`, recorded by hash in the ledger. The compiled helper's fixed attach operation registers and loads that program under the lease's service label before Desktop starts, so Desktop sees an attached installation. `adopt` sends the explicit adoption through the guarded proxy and requires a committed adoption journal, a managed-branch readiness proof, the bundled CLI as the surviving service, and the expected new installation ID. `adopt-failure` fails the bundled service's readiness once through a compiled fault and requires the original registration, external service and installation to be restored. `attached` performs an app-only update and requires the exact external service incarnation and registration bytes to be unchanged. The native ledger permits the service label to switch only between its two cataloged registrations, only after the old job is absent and every recorded incarnation has exited, and keeps each superseded generation in history.
 
-### Native prerequisites and capture
+Successful upgrade and restoration checks also require completed reservation
+release and recovery-job retirement, followed by independent observation of the
+exact Desktop and service incarnations in the readiness proof. A terminal journal
+written before those processes disappear is insufficient evidence of success.
 
-Build the ordinary desktop app, then use `live desktop --app <path>` and
-`live doctor --surface desktop --json`. To request the macOS approval prompt, run
-`live doctor --surface desktop --request-accessibility --json`; ordinary doctor
-checks do not prompt. The normal macOS app also offers **Settings → Diagnostics →
-Enable native checks**. Setup opens System Settings and displays a draggable app
-chip beside its window. The chip follows the Settings window without requiring
-Accessibility or screen capture access for positioning; **Show app** provides a
-Finder alternative. The proposed hosting app is inferred from process ancestry.
-Setup succeeds only after an actual AX read of the owned desktop window, and
-closes on cancellation, launcher exit, target exit or timeout. A failed or
-cancelled requested setup remains UNVERIFIED even if the OS trust flags are on. Approve the app macOS attributes the request to in System Settings → Privacy &
-Security → Accessibility. For a harness launched inside a terminal or agent host,
-this can be the hosting app rather than the helper. In the measured Orca session,
-macOS TCC logs attributed the helper request to `com.stablyai.orca`; enabling the
-helper executable alone did not grant access. If the hosting app is not listed,
-use + to select its application bundle. The request does not grant permission or
-change the toggle for you. Rerun doctor after approval and verify an actual owned
-AX observation; a settings toggle alone is not evidence that the session can act.
-macOS can suppress the request dialog, so manual settings remain a fallback. The macOS helper requires the installed
-Swift compiler, an unlocked exclusive desktop session, Accessibility permission
-for input/AX and screen capture permission for window images. The currently
-measured compile host is macOS 27.0 with Xcode 27.1; external window capture uses
-macOS 14+ APIs. Other native OS/SDK combinations remain unverified. The harness
-does not grant permissions or close another Pacer instance to obtain a slot.
-Launching an executable does not bypass Tauri's application singleton.
+The deliberate `restore-failure` case leaves the service unavailable. Its driver
+therefore requires an authorized terminal native journal, both consumed fault
+receipts, the retained admission reservation and independently observed absence
+of the service and desktop. It does not manufacture a public API response while
+the service is down. Successful upgrade and rollback still require matching
+public status and fresh native readiness proofs.
 
-The normal desktop app supports `desktop.capture.*` on protocol v3. It reports
-owned main/tray window IDs through its authenticated capture worker. Expired
-worker credentials are renewed with the existing instance proof over the
-service session; public client IDs cannot obtain another worker credential.
-Renewal proof lasts for the current service lifetime and becomes invalid on
-service restart. A newly registered desktop receives a new client ID. Transient
-observer failures retry with bounded backoff without repeating UI actions.
-PNG validation limits compressed images to 16 MiB, decoded data to 128 MiB and
-each dimension to 16384 pixels. Binary uploads reserve one reader per request
-and terminate after at most 10 seconds or request expiry. Native
-`capture --mode window` defaults to OS window paint; `--mode content` takes a
-WKWebView content snapshot. Content excludes titlebars and native dialogs.
-Window capture may fall back to an explicitly labeled external window capture
-with a warning retaining the self-capture failure. Content never silently replaces
-required window evidence. Old app releases can be inspected externally by native
-window ID but do not acquire self-capture by using a newer harness.
+After a successful exercise, cleanup uses only the helper's fixed compiled-lease retirement operation. It reserves admission, verifies and gracefully closes exact native desktop peers, waits for their incarnations to exit, and retires only the ledger-owned jobs before removing disposable copies. Unknown processes or registrations, incomplete exercise, and `recovery-failed` preserve all resources for diagnosis. Keep data and recovery files in place; do not use a reinstall or an unscoped manager command as cleanup. Developer signatures cannot establish production signing, notarization, other-architecture or delivery evidence.
 
-Native leases coordinate cooperating agents across worktrees. Foreground drift
-and stale process/window identities refuse input. They do not prevent another
-user or non-cooperating tool from moving the shared desktop. Use a dedicated
-session for native scenarios. VoiceOver calibration, speech observation and
-manual listening remain separate obligations; this interface does not turn AX
-text or screenshots into speech evidence.
+A fixture baseline that failed before becoming ready has a separate constrained cleanup path. It requires the original driver, source service and desktop to have exited, no update request or transaction ever armed, and exact signed diagnostics compiled for that same lease. The diagnostics reserve idle admission before retiring the unique recorded job; unavailable or uncertain proof preserves the sandbox. Diagnostic corrections retain prior binaries, descriptors and source fingerprints in an append-only history (at most four attempts). This mechanism accepts no arbitrary command, process, service label or build key, and is absent from production authority.
+
+### Certificate-signed fixtures
+
+`bun run live ota build --id <id> --signer cert` signs both fixture versions with a disposable self-signed code-signing certificate instead of ad hoc signatures. The certificate's SHA-1 is compiled into the fixture lease, so every native check also pins it, as an interim release build pins the project certificate. The private keychain is deleted after the build. Use it to exercise the interim signer's requirement strings end to end (`upgrade`, `startup-failure`, `adopt`). Cleanup diagnostics for a failed startup are unavailable for certificate-signed fixtures. A disposable certificate is not evidence for the release certificate, CI signing, Gatekeeper or the first-install flow.
+
+## Agent control commands
+
+The harness exposes a single JSON contract for `web`, browser `tray`, `tui` and
+native `desktop` targets through `targets`, `inspect`, `act`, `wait`, `assert`,
+`capture`, `scenario` and `doctor`. Actions carry target generations and revisions;
+coordinate input additionally carries a recent capture ID. Delivered or uncertain
+actions attempt an automatic evidence capture and are never repeated implicitly.
+
+The ordinary desktop app registers an authenticated capture worker and reports its
+owned main/tray window IDs. Window captures may fall back to an explicitly labelled
+external capture; content captures never substitute a different surface.
+
+Native macOS input and VoiceOver checks require Accessibility and screen recording
+permission. `live doctor --surface desktop --request-accessibility --json`, or
+**Settings → Diagnostics → Enable native checks**, opens System Settings and a
+draggable hosting-app chip. The chip follows the selected Settings window without
+AX access, remains visible across focus changes, and verifies a read of the exact
+owned desktop window before setup succeeds. Missing native or speech evidence is
+reported as UNVERIFIED.

@@ -1,6 +1,7 @@
+import { beginWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
 import { resolvePolicyRepo } from "./project-policy";
 import { taskDiff, cleanTaskRuns } from "../tasks/diff";
-import { repoFs, withTimeout } from "./path-probe";
+import { repoFs, cachedPath, withTimeout } from "./path-probe";
 import { taskTitle } from "./short-title";
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
@@ -15,7 +16,7 @@ import { repoKey } from "../config/hosts";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
 import { transferred } from "../remote/transfer";
-import { realpathSafe, boundedGitRead } from "./git";
+import { boundedGitRead } from "./git";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
 import { cleanSettledSessions } from "../session/retention";
@@ -98,6 +99,7 @@ export async function ask(ctx: Ctx, id: string, text: string): Promise<TaskRecor
 }
 
 export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): TaskRecord {
+  const lease = input.admissionLease ?? beginWorkSync(ctx, { kind: "launch", id: "delegate", label: "Delegating task" });
   const create = () => {
     if (input.requestId) {
       const prior = listTasksWhere(ctx, { updatedSince: ctx.now - 600 }).find(t => t.requestId === input.requestId && ctx.now - t.createdAt >= 0 && ctx.now - t.createdAt <= 600);
@@ -107,14 +109,16 @@ export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = sp
       if (prior) return prior;
     }
     try {
-      const task = s ? apiDelegate(ctx, input, spawn, s) : apiDelegate(ctx, input, spawn);
+      const admitted = { ...input, admissionLease: lease };
+      const task = s ? apiDelegate(ctx, admitted, spawn, s) : apiDelegate(ctx, admitted, spawn);
       if (!input.retryOf) taskActivity(ctx, task, "task_started", `Delegated “${taskTitle(task)}” to ${executorName(task.executor ?? task.requestedExecutor)}`);
       return task;
     } catch (e) { throw toCoreError(e); }
   };
   // Delegate is synchronous for CLI/retry callers. This shares withLock's files;
   // hashing keeps arbitrary client request ids out of filesystem paths.
-  return input.requestId === undefined ? create() : withLockSync(ctx, `delegate-request-${createHash("sha256").update(input.requestId).digest("hex")}`, create);
+  try { return input.requestId === undefined ? create() : withLockSync(ctx, `delegate-request-${createHash("sha256").update(input.requestId).digest("hex")}`, create); }
+  finally { finishUnlaunchedWorkSync(ctx, lease); }
 }
 
 export async function wait(ctx: Ctx, id: string, timeoutS: number): Promise<TaskRecord> {
@@ -132,6 +136,24 @@ export function stop(ctx: Ctx, id: string): TaskRecord {
   if (!t) throw unknown(id);
   if (before && !TERMINAL_STATES.includes(before.state)) taskActivity(ctx, t, "task_settled", `Stopped “${taskTitle(t)}”`);
   return t;
+}
+
+/** Request a human decision without recording a quality verdict. */
+export function requestReview(ctx: Ctx, id: string, input: { note: string; expect_rev?: number }): TaskRecord {
+  if (typeof input.note !== "string" || !input.note.trim() || input.note.trim().length > 2000) {
+    throw new CoreError("invalid_input", "review request needs a note of 1–2000 characters");
+  }
+  const note = input.note.trim();
+  return withTaskLock(ctx, id, () => {
+    const task = readTask(ctx, id);
+    if (!task) throw unknown(id);
+    checkRev(ctx, task, input.expect_rev);
+    if (!["done", "partial"].includes(task.state) || task.review || task.resolved || task.dismissed || task.retriedBy) {
+      throw new CoreError("conflict", "task no longer needs a review request", undefined, { task: apiTask(ctx, task) });
+    }
+    if (task.reviewRequest?.note === note) return task;
+    return updateTask(ctx, id, t => { t.reviewRequest = { note, at: ctx.now }; });
+  });
 }
 
 export type ReviewVerdict = "accept" | "reject" | "send_back" | "retry";
@@ -255,7 +277,8 @@ async function retryTask(
       answerBase = head.stdout.trim();
     }
   }
-  return withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
+  const lease = beginWorkSync(ctx, { kind: "launch", id, label: `Retrying task ${id}` });
+  try { return await withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
     checkRev(ctx, task, o.expectRev);
@@ -269,8 +292,10 @@ async function retryTask(
     if (prior && ["queued", "running"].includes(prior.state)) {
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
+    const reuseWorktree = !answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined;
     const input: DelegateInput = {
-      repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+      ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
+      admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
       ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
       ...(answering && (task.placement?.mode === "new" || task.run?.mode === "new") ? {worktree:"new" as const} : {}),
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
@@ -288,7 +313,7 @@ async function retryTask(
     const retried = readTask(ctx, next.id) ?? next;
     taskActivity(ctx, retried, "retry", `Delegated “${taskTitle(retried)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
     return { retry: retried, of };
-  }));
+  })); } finally { finishUnlaunchedWorkSync(ctx, lease); }
 }
 
 /** Re-delegate a brief; serializes with answers on the same task. */
@@ -313,6 +338,10 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
     const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;
     if (!wt.startsWith(root) || (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; }))) continue;
     const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
+    const shared = listTasksWhere(ctx).some(other => other.id !== t.id
+      && cachedPath(other.worktree ?? other.result?.worktree ?? other.brief.repo).real === cachedPath(wt).real
+      && (!TERMINAL_STATES.includes(other.state) || !(other.review || other.dismissed || other.resolved)));
+    if (shared) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
     if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
     if (o.dryRun) { removed.push(t.id); continue; }
     if (t.run.host) {

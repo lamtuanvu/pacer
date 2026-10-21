@@ -17,7 +17,7 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','task.takeover','service.install','onboarding.skip','onboarding.try','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor']);
+export const V3_ONLY_OPS = new Set(['desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor']);
 
 export function v2Hello() {
  const {previous:_,...hello}=helloBody();
@@ -27,11 +27,12 @@ export function v2Hello() {
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;
  return {generatedAt:s.at,strategy:s.strategies.flatMap(x=>typeof x!=='string'&&x.active?[x.name]:[])[0]??'default',planner:s.planner.runner,mode:s.planner.mode,
- providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {id:e.id,agent:e.agent,account:e.account,verdict:a?.verdict??'UNKNOWN',usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
- ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN'}))};
+ providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {...(e.eligibility?{eligibility:e.eligibility}:{}),id:e.id,agent:e.agent,account:e.account,verdict:a?.verdict??'UNKNOWN',usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
+ ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN'}))};
 }
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
+ const {desktopUpdates: _desktopUpdates, ...compatible}=s;
  const attention=sortItems(s.attention.flatMap(a=>{
   if(a.id==="setup:connect")return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
@@ -41,10 +42,11 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
   return [{...a,id,title:item.title,actions:a.actions.map(action=>action.op==="ui.open"?{...action,params:{...action.params,section:item.id}}:action)}];
  }));
  const counts={...s.counts,attention:attention.length,problems:attention.filter(a=>a.severity!=="decide").length,setupOpen:setup.open};
- return {...s,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ return {...compatible,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
+ if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
  if(e.type==='planner')return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
@@ -73,7 +75,6 @@ export function toV2OpResult(name:string,result:any):unknown {
 }
 export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):Promise<unknown> {
  if(V3_ONLY_OPS.has(name))throw new CoreError('unknown_op',`unknown operation "${name}"`,`${name} requires protocol 3`);
- if(name==='client.register' && params && typeof params==='object' && !Array.isArray(params)) { const {capture:_,...legacy}=params as Record<string,unknown>; params=legacy; }
  return toV2OpResult(name,await callOp(ctx,name,v2Params(name,params),deps));
 }
 
@@ -81,7 +82,6 @@ export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
  for(const op of V3_ONLY_OPS)delete schemas[op];
- delete (schemas['client.register'].params as {properties:Record<string,unknown>}).properties.capture;
  schemas['task.list'].description="Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.";
  const review=schemas['task.review'].params as {properties:Record<string,unknown>;required:string[]};
  review.properties.accepted={type:'boolean'};

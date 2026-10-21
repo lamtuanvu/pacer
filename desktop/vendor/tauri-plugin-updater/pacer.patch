@@ -1,0 +1,121 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -60,6 +60,8 @@
+ notes = ""
+ 
+ [features]
++# Pacer: compile out the macOS administrator fallback.
++no-elevation = []
+ default = [
+     "rustls-tls",
+     "system-proxy",
+--- a/src/updater.rs
++++ b/src/updater.rs
+@@ -1560,7 +1560,10 @@
+         };
+         let need_authorization = match moved {
+             Ok(()) => false,
+-            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => true,
++            // Pacer: a late permissions failure must use the same recovery path
++            // as other failures, never request administrator access.
++            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied
++                && !cfg!(feature = "no-elevation") => true,
+             Err(err) => {
+                 if let Some(kept) = keep_backup_if_not_restored(
+                     &self.extract_path,
+@@ -1715,8 +1718,16 @@
+     backup: &Path,
+     fallback_dir: Option<&Path>,
+ ) -> Option<PathBuf> {
+-    if std::fs::symlink_metadata(target).is_ok() || std::fs::symlink_metadata(backup).is_err() {
+-        return None;
++    // Pacer: successful restoration consumes the backup with rename. An
++    // occupied target alone does not establish its identity; keep remaining
++    // old bytes, including when their metadata cannot be inspected.
++    match std::fs::symlink_metadata(backup) {
++        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
++        Err(_) => {
++            let _ = backup_dir.keep();
++            return Some(backup.to_path_buf());
++        }
++        Ok(_) => {}
+     }
+ 
+     let mut name = target.file_stem().unwrap_or_default().to_os_string();
+@@ -2160,6 +2171,43 @@
+                 }
+             }
+         })
++    }
++
++    // Pacer regression: exercise a real filesystem denial without allowing the
++    // upstream fallback to schedule AppleScript. The callback only records attempts.
++    #[test]
++    #[cfg(all(target_os = "macos", feature = "no-elevation"))]
++    fn pacer_permission_denied_never_requests_elevation() {
++        use std::os::unix::fs::PermissionsExt;
++        use std::sync::atomic::{AtomicUsize, Ordering};
++        let dir = tempfile::tempdir().unwrap();
++        let parent = dir.path().join("installed");
++        let target = parent.join("Probe.app");
++        std::fs::create_dir_all(&target).unwrap();
++        std::fs::write(target.join("version"), "old").unwrap();
++        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
++        let mut archive = tar::Builder::new(encoder);
++        let mut header = tar::Header::new_gnu();
++        header.set_size(3);
++        header.set_mode(0o644);
++        header.set_cksum();
++        archive.append_data(&mut header, "Probe.app/version", &b"new"[..]).unwrap();
++        let bytes = archive.into_inner().unwrap().finish().unwrap();
++        let mut update = updater().restore_update(manifest()).unwrap().unwrap();
++        update.extract_path = target.clone();
++        let attempts = Arc::new(AtomicUsize::new(0));
++        let observed = attempts.clone();
++        update.context.run_on_main_thread = Arc::new(move |_callback| {
++            observed.fetch_add(1, Ordering::SeqCst);
++            // Deliberately drop the callback: never display a privilege prompt.
++            Ok(())
++        });
++        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o500)).unwrap();
++        let result = update.install_inner(&bytes);
++        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
++        assert_eq!(attempts.load(Ordering::SeqCst), 0, "permission denial attempted elevation");
++        assert!(matches!(result, Err(Error::Io(ref error)) if error.kind() == std::io::ErrorKind::PermissionDenied), "{result:?}");
++        assert_eq!(std::fs::read_to_string(target.join("version")).unwrap(), "old");
+     }
+ 
+     #[test]
+@@ -2761,14 +2809,31 @@
+     }
+ 
+     #[test]
+-    fn drops_the_backup_when_the_previous_app_is_in_place() {
++    fn pacer_keeps_old_backup_when_another_bundle_occupies_target() {
+         let dir = tempfile::tempdir().unwrap();
+         let target = dir.path().join("App.app");
+         std::fs::create_dir(&target).unwrap();
++        std::fs::write(target.join("version"), "unrelated").unwrap();
++        let backup_dir = tempfile::tempdir_in(dir.path()).unwrap();
++        let backup = backup_dir.path().join("current_app");
++        std::fs::create_dir(&backup).unwrap();
++        std::fs::write(backup.join("version"), "old").unwrap();
++        let kept = super::keep_backup_if_not_restored(&target, backup_dir, &backup, None)
++            .expect("an occupied target is not proof that the previous app was restored");
++        assert_eq!(std::fs::read_to_string(kept.join("version")).unwrap(), "old");
++        assert_eq!(std::fs::read_to_string(target.join("version")).unwrap(), "unrelated");
++    }
++
++    #[test]
++    fn drops_the_backup_directory_after_successful_restoration() {
++        let dir = tempfile::tempdir().unwrap();
++        let target = dir.path().join("App.app");
+         let backup_dir = tempfile::tempdir_in(dir.path()).unwrap();
+         let backup_dir_path = backup_dir.path().to_path_buf();
+         let backup = backup_dir_path.join("current_app");
+         std::fs::create_dir(&backup).unwrap();
++
++        std::fs::rename(&backup, &target).unwrap();
+ 
+         assert!(super::keep_backup_if_not_restored(&target, backup_dir, &backup, None).is_none());
+         assert!(!backup_dir_path.exists());

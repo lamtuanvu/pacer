@@ -1,3 +1,9 @@
 {
-  "bundle": { "targets": ["appimage", "deb"] }
+  "bundle": {
+    "targets": [
+      "appimage",
+      "deb"
+    ]
+  },
+  "mainBinaryName": "pacer-desktop"
 }
