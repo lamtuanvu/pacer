@@ -6,7 +6,7 @@ import { buildOtaFixtures } from "./ota-build";
 import { desktop, tui } from "./surfaces";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui]
+  up [--repo-template <dir>] [--seed ui] [--front-door rust]
                                   start isolated service and disposable repo; ui seeds sample data
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
@@ -40,7 +40,7 @@ export async function main(argv: string[]): Promise<number> {
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer"]);
+  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
@@ -53,8 +53,9 @@ export async function main(argv: string[]): Promise<number> {
   const id = options.get("--id");
   if (command !== "ota" && ["--from-app", "--to-app", "--scenario", "--signer"].some(key => options.has(key))) throw Error("OTA options require the ota command");
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
+  if (options.has("--front-door") && command !== "up") throw Error("--front-door is only valid for up");
   if (command === "up") {
-    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed")), null, 2));
+    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door")), null, 2));
     return 0;
   }
   if (command === "status") {

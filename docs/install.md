@@ -84,7 +84,7 @@ Use Bun >=1.4.2 and a source checkout. Install/authenticate your planner and exe
 bun install --frozen-lockfile
 bun run build
 mkdir -p "$HOME/.local/bin"
-cp dist/pacer "$HOME/.local/bin/pacer"
+cp dist/pacer dist/pacer-core "$HOME/.local/bin/"
 export PATH="$HOME/.local/bin:$PATH"
 pacer --version
 ```
@@ -237,7 +237,7 @@ keychain password or a confirmation; approve that request and retry if the
 bounded command times out. Setup reuses an existing identity. Keep that
 certificate and private key: replacing them changes the signing identity.
 
-Reinstall the resulting `dist/pacer` using the usual source-build instructions,
+Reinstall the resulting `dist/pacer` and `dist/pacer-core` using the usual source-build instructions,
 then run `pacer service install` to refresh the service. Builds and updates use
 this identity with identifier `dev.pacer.cli` when available. Signing leaves
 hardened runtime disabled so the compiled Bun runtime can execute. The release
