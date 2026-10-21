@@ -14,7 +14,10 @@
   },
   "include": [
     "src",
-    "test"
+    "test",
+    "packages",
+    "plugins",
+    "conformance"
   ],
   "exclude": [
     "test/**/*.tsx"

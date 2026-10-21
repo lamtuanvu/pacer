@@ -272,3 +272,16 @@ a.pc-btn{text-decoration:none}
 
 .pc-pagination{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-top:1px solid var(--line);margin-top:auto;font-variant-numeric:tabular-nums}
 .pc-pagination:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1 * var(--stroke-focus))}
+
+/* Settings forms sit between compact tray/table actions and normal app controls. */
+.pc-btn--settings{min-height:var(--control-settings);padding:var(--space-1) var(--space-3);font-size:var(--type-body-size);line-height:var(--type-body-line);border-radius:var(--radius-md)}
+.pc-btn--settings.pc-btn--sm{min-height:var(--control-compact);font-size:var(--type-caption-size);line-height:var(--type-caption-line);padding:var(--space-1) var(--space-2)}
+.pc-segmented .pc-btn--settings{min-height:var(--control-settings)}
+.pc-input.pc-control--settings,.pc-select.pc-control--settings,.pc-range.pc-control--settings{min-height:var(--control-settings);padding:var(--space-1) var(--space-2)}
+.pc-select.pc-control--settings{padding-right:var(--space-8)}
+.pc-range.pc-control--settings{padding:0}
+.pc-checkbox:has(.pc-control--settings){min-height:var(--control-settings)}
+@media(max-width:560px),(pointer:coarse){
+ .pc-btn--settings,.pc-btn--settings.pc-btn--sm,.pc-input.pc-control--settings,.pc-select.pc-control--settings,.pc-range.pc-control--settings,.pc-checkbox:has(.pc-control--settings){min-height:var(--control-touch)}
+ .pc-input.pc-control--settings,.pc-select.pc-control--settings{font-size:var(--type-headline-size)}
+}
