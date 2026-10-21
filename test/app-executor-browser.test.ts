@@ -45,3 +45,15 @@ browserTest('a delayed save acknowledgement cannot hide a newer client change',a
   expect(await page.evaluate(()=>(window as any).executorFixture.settings().runners[0].maxTasks)).toBe(5);
  }finally{await browser.close();}
 },20000);
+
+browserTest('stale health ranks cannot duplicate or lock the previous planner after configuration changes',async()=>{
+ const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try{
+  const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
+  await page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}).waitFor();
+  await page.evaluate(()=>(window as any).executorFixture.switchPlanner());await page.waitForTimeout(50);
+  expect(await page.getByRole('spinbutton',{name:'Parallel tasks for claude-code',exact:true}).count()).toBe(1);
+  expect(await page.locator('tbody tr').count()).toBe(2);
+ }finally{await browser.close();}
+},20000);

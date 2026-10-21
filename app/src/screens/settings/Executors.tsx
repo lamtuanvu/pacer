@@ -84,7 +84,7 @@ export function ExecutorsSection() {
     if(dirty && !await canLeaveScreen())return;
     await action();
   };
-  const ordered = rows ? [ ...rows.filter(r=>r.rank==='planner'), ...(draft?.order ?? rows.filter(r=>r.rank!=='planner').map(r=>r.id)).map(id=>rows.find(r=>r.id===id)??knownRows.current.get(id)).filter((r):r is ExecutorRow=>!!r)] : [];
+  const ordered = rows ? [ ...rows.filter(r=>r.rank==='planner'&&!draft?.order.includes(r.id)), ...(draft?.order ?? rows.filter(r=>r.rank!=='planner').map(r=>r.id)).map(id=>rows.find(r=>r.id===id)??knownRows.current.get(id)).filter((r):r is ExecutorRow=>!!r)] : [];
   return <Section id="executors" title="Executors" detail="Set executor priority and capacity, then save your changes." actions={<ButtonLink size="sm" href="#/settings/add-executor">Add executor</ButtonLink>}>
     {dialogs.dialog}
     {leaving&&<Dialog title="Unsaved executor changes" close={()=>finishLeave(false)}><p>Save your executor settings before leaving?</p><div className="u3-actions"><Button disabled={busy} onClick={()=>finishLeave(false)}>Stay</Button><Button disabled={busy} onClick={()=>{reload();finishLeave(true);}}>Discard changes</Button><Button variant="primary" busy={busy} disabled={!state.connected||!!conflict||Object.keys(errors).length>0} onClick={async()=>{if(await current.current.save())finishLeave(true);}}>Save and leave</Button></div><ErrorMessage error={error}/></Dialog>}
@@ -101,7 +101,7 @@ export function ExecutorsSection() {
 }
 function ExecutorRowEditor({executor,removed,position,count,value,error,disabled,edit,announce,independent}:{executor:ExecutorRow;removed:boolean;position:number;count:number;value?:{enabled:boolean;maxTasks:string};error?:string;disabled:boolean;edit:(fn:(draft:ExecutorDraft)=>void)=>void;announce:(text:string)=>void;independent:(action:()=>void|Promise<void>)=>Promise<void>}) {
   const {state}=useTaskContext(), action=useOperation(), dialogs=useDialogs();
-  const planner=executor.rank==='planner', name=executorLabel(executor.id), readiness=executorEligibility(executor,state.snapshot?.at??Date.now()/1000);
+  const planner=position<0, name=executorLabel(executor.id), readiness=executorEligibility(executor,state.snapshot?.at??Date.now()/1000);
   const up=useRef<HTMLButtonElement>(null), down=useRef<HTMLButtonElement>(null), moved=useRef<number>();
   useLayoutEffect(()=>{
     if(moved.current===undefined)return;
