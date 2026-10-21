@@ -259,6 +259,9 @@ impl Startup {
     pub fn ready(&mut self) {
         self.since = None;
     }
+    pub fn is_ready(&self) -> bool {
+        self.since.is_none()
+    }
     pub fn stuck(&self, now: std::time::Instant) -> bool {
         self.since.is_some_and(|since| {
             now.saturating_duration_since(since) >= std::time::Duration::from_secs(45)

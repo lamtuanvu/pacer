@@ -468,6 +468,129 @@ fn retry_native_connection<T>(
     unreachable!()
 }
 
+type NativeSupervision = (PathBuf, PathBuf, u16, pacer_desktop::ota::trust::ReleaseTrust);
+
+/// One verified native connection attempt (bounded retries), off the async runtime.
+async fn connect_native(
+    handle: AppHandle,
+    user_home: PathBuf,
+    home: PathBuf,
+    port: u16,
+    trust: pacer_desktop::ota::trust::ReleaseTrust,
+    ticket: Option<pacer_desktop::ota::control::LaunchTicket>,
+    adoption: Option<pacer_desktop::ota::control::AdoptionReconnectPlan>,
+) -> Result<
+    Result<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>, pacer_desktop::ota::OtaError>,
+    String,
+> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let callback = std::sync::Arc::new(move |kind: &str| {
+            let shell = handle.state::<Shell>();
+            if kind == "maintenance" {
+                shell.maintenance.store(true, Ordering::SeqCst);
+                #[cfg(target_os = "macos")]
+                shell.relaunch.lock().unwrap().take();
+            }
+            if kind == "resume" {
+                shell.maintenance.store(false, Ordering::SeqCst);
+                shell.adoption.lock().unwrap().take();
+            }
+            if kind == "adoption-reconnect" {
+                shell.maintenance.store(true, Ordering::SeqCst);
+                shell.expired.notify_one();
+            }
+            if kind == "shutdown" {
+                handle.exit(0);
+            }
+        });
+        retry_native_connection(|| {
+            // Each attempt rechecks the registration and signed process;
+            // no failed observation becomes authority for the next one.
+            let registered = pacer_desktop::ota::control::inspect_registered_service(
+                &user_home, &home, port, &trust,
+            )?;
+            pacer_desktop::ota::control::NativeConnection::connect_adoption(
+                &registered.endpoint(),
+                &trust,
+                ticket.as_ref(),
+                adoption.as_ref(),
+                callback.clone(),
+            )
+        })
+    })
+    .await
+    .map_err(|_| "Native service verification failed".to_owned())
+}
+
+/// When should a signed-in ordinary launch try to restore native update authority?
+/// Never during maintenance, an adoption hand-off, or a helper-launched release:
+/// those flows own the connection and end the session instead.
+pub(crate) fn native_reconnect_due(
+    alive: Option<bool>,
+    maintenance: bool,
+    connection_maintenance: bool,
+    reconnect_plan: bool,
+    ticket: bool,
+) -> bool {
+    alive != Some(true) && !maintenance && !connection_maintenance && !reconnect_plan && !ticket
+}
+
+/// Restores native update authority that dropped (or was refused at sign-in) while
+/// the web session stays connected. Backs off to 30 seconds; never ends the session.
+async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision>) {
+    let Some((user_home, home, port, trust)) = supervision else {
+        return std::future::pending().await;
+    };
+    let mut delay = Duration::from_secs(2);
+    let mut reported = false;
+    loop {
+        tokio::time::sleep(delay).await;
+        let shell = app.state::<Shell>();
+        let current = shell.native.lock().unwrap().clone();
+        let due = native_reconnect_due(
+            current.as_ref().map(|native| native.alive()),
+            shell.maintenance.load(Ordering::SeqCst),
+            current.as_ref().is_some_and(|native| native.maintenance_active()),
+            current.as_ref().is_some_and(|native| native.reconnect_plan().is_some())
+                || shell.adoption.lock().unwrap().is_some(),
+            shell.navigation.lock().unwrap().ticket().is_some(),
+        );
+        if !due {
+            delay = Duration::from_secs(2);
+            continue;
+        }
+        match connect_native(app.clone(), user_home.clone(), home.clone(), port, trust.clone(), None, None).await {
+            Ok(Ok(native)) => {
+                // An ordinary launch carries no readiness proof; the signed-in page already
+                // completed its own check, so only acknowledge after startup is ready.
+                let ready = shell.startup.lock().unwrap().is_ready();
+                let acknowledged = !ready || {
+                    let native = native.clone();
+                    tauri::async_runtime::spawn_blocking(move || native.document_ready(None))
+                        .await
+                        .is_ok_and(|result| result.is_ok())
+                };
+                if acknowledged {
+                    if let Some(previous) = shell.native.lock().unwrap().replace(native) {
+                        previous.close();
+                    }
+                    desktop_log!("pacer lifecycle: native update authority restored");
+                    reported = false;
+                    delay = Duration::from_secs(2);
+                    continue;
+                }
+                native.close();
+            }
+            Ok(Err(error)) if !reported => {
+                desktop_log!("pacer lifecycle: native update authority unavailable; retrying: {error}");
+                reported = true;
+            }
+            _ => {}
+        }
+        delay = (delay * 2).min(Duration::from_secs(30));
+    }
+}
+
 async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Result<(), String> {
     desktop_log!("pacer lifecycle: requesting desktop sign-in link");
     let web_auth = cli.auth().await?;
@@ -503,6 +626,8 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     if logic::local_origin(&web_auth).as_deref() != Some(&session.origin) {
         return Err("stopped".into());
     }
+    // Native update authority for an ordinary launch is re-established if it drops.
+    let mut supervision = None;
     if let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() {
         let user_home = PathBuf::from(std::env::var_os("HOME").ok_or("Native user home missing")?);
         let home = cli.pacer_home.clone();
@@ -517,43 +642,19 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             .cloned();
         let adoption = app.state::<Shell>().adoption.lock().unwrap().clone();
         let maintenance_launch = ticket.is_some() || adoption.is_some();
-        let native = tauri::async_runtime::spawn_blocking(move || {
-            let callback = std::sync::Arc::new(move |kind: &str| {
-                let shell = handle.state::<Shell>();
-                if kind == "maintenance" {
-                    shell.maintenance.store(true, Ordering::SeqCst);
-                    #[cfg(target_os = "macos")]
-                    shell.relaunch.lock().unwrap().take();
-                }
-                if kind == "resume" {
-                    shell.maintenance.store(false, Ordering::SeqCst);
-                    shell.adoption.lock().unwrap().take();
-                }
-                if kind == "adoption-reconnect" {
-                    shell.maintenance.store(true, Ordering::SeqCst);
-                    shell.expired.notify_one();
-                }
-                if kind == "shutdown" {
-                    handle.exit(0);
-                }
-            });
-            retry_native_connection(|| {
-                // Each attempt rechecks the registration and signed process;
-                // no failed observation becomes authority for the next one.
-                let registered = pacer_desktop::ota::control::inspect_registered_service(
-                    &user_home, &home, port, &trust,
-                )?;
-                pacer_desktop::ota::control::NativeConnection::connect_adoption(
-                    &registered.endpoint(),
-                    &trust,
-                    ticket.as_ref(),
-                    adoption.as_ref(),
-                    callback.clone(),
-                )
-            })
-        })
-        .await
-        .map_err(|_| "Native service verification failed")?;
+        if !maintenance_launch {
+            supervision = Some((user_home.clone(), home.clone(), port, trust.clone()));
+        }
+        let native = connect_native(
+            handle,
+            user_home.clone(),
+            home.clone(),
+            port,
+            trust.clone(),
+            ticket,
+            adoption,
+        )
+        .await?;
         match native {
             Ok(native) => {
                 #[cfg(feature = "ota-fixture")]
@@ -597,6 +698,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     let result = tokio::select! {
         result = listen(app, &session, &client_id, seq) => result,
         result = heartbeat(app, &session, &client_id) => result,
+        _ = supervise_native(app, supervision) => Err("stopped".into()),
         _ = shell.expired.notified() => Err("sessionExpired".into()),
     };
     if let Some(native) = shell.native.lock().unwrap().take() {
@@ -1257,6 +1359,20 @@ pub async fn run(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn native_authority_reconnects_only_for_an_ordinary_signed_in_launch() {
+        use super::native_reconnect_due as due;
+        // Dropped or never-established authority on an ordinary launch is restored.
+        assert!(due(Some(false), false, false, false, false));
+        assert!(due(None, false, false, false, false));
+        // A live connection is left alone.
+        assert!(!due(Some(true), false, false, false, false));
+        // Maintenance, adoption hand-offs and helper-launched releases own the connection.
+        assert!(!due(Some(false), true, false, false, false));
+        assert!(!due(Some(false), false, true, false, false));
+        assert!(!due(None, false, false, true, false));
+        assert!(!due(None, false, false, false, true));
+    }
     #[test]
     fn native_connection_retries_fresh_verification_and_remains_bounded() {
         let mut attempts = 0;
