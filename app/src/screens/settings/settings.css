@@ -22,8 +22,8 @@
 @media(max-width:700px){.u3-settings{padding:var(--space-4)}.u3-wizard,.u3-settings-grid,.u3-setting{grid-template-columns:minmax(0,1fr);gap:var(--space-3)}.u3-steps{display:flex;flex-wrap:wrap;gap:var(--space-1)}.u3-steps li{padding:var(--space-2)}.u3-settings th,.u3-settings td{padding:var(--space-2)}}
 .u3-checks{list-style:none;padding:0;margin:0}.u3-checks li{padding:var(--space-2) 0;border-bottom:1px solid var(--line)}
 .u3-general-sections .u3-section{margin-top:var(--space-4);padding-top:var(--space-3)}
-.u3-general-sections .u3-setting{grid-template-columns:var(--size-200) minmax(0,1fr);gap:var(--space-4);align-items:center;padding:var(--space-2) var(--space-3);border:1px solid var(--line)}
-.u3-general-sections .u3-setting+.u3-setting{border-top:0}
+.u3-general-sections .u3-setting{grid-template-columns:minmax(var(--size-126),1fr) minmax(0,1.7fr);gap:var(--space-4);align-items:start;padding:var(--space-3) 0;border:0;border-bottom:1px solid var(--line)}
+.u3-general-sections .u3-setting:last-of-type{border-bottom:1px solid var(--line)}
 @media(max-width:700px){.u3-general-sections .u3-setting{grid-template-columns:minmax(0,1fr)}}
 .u3-nav-badge{margin-left:var(--space-1\.5);font-size:var(--type-label-size);color:var(--ink-muted)}.u3-steps li>div{font-weight:var(--type-body-weight);margin-top:var(--space-1)}
 @media(max-width:700px){.u3-table-wrap{overflow:visible}.u3-table-wrap table{min-width:0;table-layout:fixed}.u3-table-wrap thead{display:none}.u3-table-wrap tbody,.u3-table-wrap tr{display:block}.u3-table-wrap tr{padding:var(--space-2);border-bottom:1px solid var(--line)}.u3-table-wrap td{display:block;border:0;overflow-wrap:anywhere}.u3-table-wrap td:first-child{font-weight:var(--type-body-strong-weight)}.u3-agent{flex-wrap:wrap}.u3-choices{grid-template-columns:minmax(0,1fr)}}
@@ -38,3 +38,30 @@
 .pc-project-row { padding-block: var(--space-3); border-bottom: 1px solid var(--line); }
 .pc-project-label { display: grid; gap: var(--space-1); margin-bottom: var(--space-2); }
 .pc-project-label strong { overflow-x: auto; white-space: nowrap; }
+
+/* Settings pages share a bounded canvas and one aligned label/control grammar. */
+.u3-settings{width:100%;max-width:var(--size-960);margin:0 auto;padding:var(--space-6);box-sizing:border-box}
+.u3-settings-page .u3-section:first-child{margin-top:0;border-top:0;padding-top:0}
+.u3-settings-page .u3-setting>div:last-child{max-width:var(--size-520)}
+.u3-settings-page .u3-agent:has(select){max-width:var(--size-360)}
+.u3-settings-page .u3-agent select{flex:1;min-width:0}
+.u3-settings-note{border-top:1px solid var(--line);padding-top:var(--space-3);margin-top:var(--space-6)!important;color:var(--ink-secondary);font-size:var(--type-caption-size)}
+.u3-settings-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-2)}
+.u3-settings-link{display:flex;align-items:center;gap:var(--space-2);min-height:var(--size-36);padding:var(--space-2) 0}
+.u3-settings-link svg{flex:none}
+.u3-settings th{line-height:var(--type-caption-line)}
+.u3-settings td{font-variant-numeric:tabular-nums}
+.u3-settings td input[type=number]{width:var(--size-64)}
+.u3-settings td .pc-field{flex:none}
+.u3-settings td[data-label="Last check"]{width:18%}
+.u3-settings td[data-label="Last check"]>.pc-btn{display:flex;margin-top:var(--space-1)}
+.u3-settings td[data-label="Priority"]{width:10%}
+.u3-settings td[data-label="Parallel tasks"]{width:10%}
+.u3-settings td[data-label="Enabled"]{width:12%}
+.u3-settings .u3-checks{max-width:var(--size-680)}
+@media(max-width:700px){
+ .u3-settings{padding:var(--space-4)}
+ .u3-settings-links{grid-template-columns:minmax(0,1fr)}
+ .u3-settings-link{min-height:var(--control-touch)}
+ .u3-settings td[data-label]{width:auto}
+}
