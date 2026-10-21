@@ -165,21 +165,35 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       taskId = task.task_id;
       expect(taskId).toBeTruthy();
       const deadline = Date.now() + 45_000;
-      let reviewed = false;
+      let completed = false;
       while (Date.now() < deadline) {
         const { snapshot } = await browserFetch(page, "/v3/snapshot");
         const row = snapshot.tasks.find((t: { id: string }) => t.id === taskId);
         if (row && ["failed", "limit", "stopped", "partial"].includes(row.state)) throw Error(`Fake delegation settled as ${row.state}: ${JSON.stringify(row)}`);
-        if (snapshot.attention.some((a: { kind: string; taskId?: string }) => a.kind === "review" && a.taskId === taskId)) {
-          expect(row.state).toBe("done");
+        if (row?.state === "done") {
           expect(row.review).toBeFalsy();
-          reviewed = true;
+          expect(snapshot.attention.some((a: { kind: string; taskId?: string }) => a.kind === "review" && a.taskId === taskId)).toBe(false);
+          completed = true;
           break;
         }
         await Bun.sleep(250);
       }
-      expect(reviewed).toBe(true);
+      expect(completed).toBe(true);
       expect(readFileSync(join(s.repo, "takeover-change.txt"), "utf8")).toContain("headless change");
+      // Completion is quiet until the planner explicitly asks for a decision.
+      await browserFetch(page, "/v3/ops/task.request_review", { id: taskId, note: "Check the headless change" });
+      // Snapshot reads are stale-while-revalidate; wait for the request to appear.
+      let reviewRequested = false;
+      const reviewDeadline = Date.now() + 10_000;
+      while (Date.now() < reviewDeadline) {
+        const { snapshot } = await browserFetch(page, "/v3/snapshot");
+        if (snapshot.attention.some((a: { kind: string; taskId?: string }) => a.kind === "review" && a.taskId === taskId)) {
+          reviewRequested = true;
+          break;
+        }
+        await Bun.sleep(250);
+      }
+      expect(reviewRequested).toBe(true);
     } finally {
       if (taskId) await s.cli("stop", taskId).catch(error => console.error(`Task cleanup: ${error.message}`));
       try { await browser?.close(); }
