@@ -1,5 +1,6 @@
 import { withWork } from "../update/desktop/admission";
 import { conversationActivity } from "../session/conversation";
+import { prepareAgentSession } from "../plugins/agent-session";
 import { executorExclusion } from "../executors/availability";
 import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync } from "node:fs";
@@ -323,7 +324,20 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         } catch { /* best effort: launch unchanged */ }
       }
     }
-    launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id);
+    if (conversation) {
+      const executable = cfg.via === "opencode" ? "opencode" : agent === "claude-code" ? "claude" : agent === "cursor" ? "cursor-agent" : agent;
+      const version = await ctx.run([executable, "--version"], 5000, {env});
+      const number = version.stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? "unknown";
+      let request = prompt;
+      if (Buffer.byteLength(request) > 32 * 1024) {
+        mkdirSync(rdir, {recursive: true, mode: 0o700});
+        const path = join(rdir, "prompt.md");
+        writeFileSync(path, request, {mode: 0o600});
+        request = `Read the request in ${JSON.stringify(path)} and continue this conversation.`;
+      }
+      launch = await prepareAgentSession(ctx, {agent: cfg.via === "opencode" ? "opencode" : agent, version: number, request,
+        workspace: workdir, runDir: rdir, attachments: [], permissionPolicy: "native", ...(cfg.model ? {model: cfg.model} : {})});
+    } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id);
     if (interactive) {
       const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
       if (agent === "codex") await requireCodexInteractive(ctx, env);

@@ -95,14 +95,14 @@ test("idle conversation stays active, occupies a slot and publishes turn activit
 test("conversation launches interactive per task with original request rather than executor contract", async () => {
   const repo = gitRepo(), bin = tmpDir();
   const executable = join(bin, "cursor-agent");
-  writeFileSync(executable, '#!/bin/sh\nprintf "%s\\n" "$@"\n');
+  writeFileSync(executable, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "1.0.0"; exit; fi\nprintf "%s\\n" "$@"\n');
   chmodSync(executable, 0o700);
   const ctx = fakeCtx({run: realRun, env: {PATH: `${bin}:${process.env.PATH}`}});
   const task = createTask(ctx, {brief: {goal: "Explain this code", repo}, kind: null, requestedExecutor: "cursor", timeoutS: 1});
   updateTask(ctx, task.id, t => {t.interactionMode = "conversation"; t.state = "running"; t.placement = {requested: "current"};});
   const strategy = validateStrategy({planner: "claude-code", providers: {cursor: {}}}, ctx.home);
   const result = await runAttempt(ctx, strategy.providers.cursor, readTask(ctx, task.id)!);
-  expect(result.exec.code).toBe(0);
+  expect(result.exec).toMatchObject({code: 0});
   expect(result.exec.stdout).toContain("Explain this code");
   expect(result.exec.stdout).not.toContain("--force");
   expect(result.exec.stdout).not.toContain("Executor contract");
