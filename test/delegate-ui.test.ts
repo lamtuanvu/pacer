@@ -1,6 +1,6 @@
 import { toApiError } from "../src/api/protocol";
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { createTask, listTasks, readTask, updateTask } from "../src/tasks/store";
@@ -95,5 +95,5 @@ test("delegating an absolute subfolder keeps its working directory",async()=>{
  const ctx=await setup(),repo=gitRepo(),sub=join(repo,"package");
  mkdirSync(sub);
  const result=await callOp(ctx,"task.delegate",{goal:"g",repo:sub},{spawnRunner}) as any;
- expect(readTask(ctx,result.task_id)!.brief.repo).toBe(sub);
+ expect(readTask(ctx,result.task_id)!.brief.repo).toBe(realpathSync(sub));
 });

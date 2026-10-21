@@ -2723,6 +2723,13 @@ Params JSON Schema:
     "executor": {
       "type": "string"
     },
+    "worktree_base": {
+      "type": "string",
+      "enum": [
+        "default",
+        "head"
+      ]
+    },
     "worktree": {
       "type": "string",
       "enum": [

@@ -28,7 +28,7 @@ export async function taskDiff(ctx: Ctx, task: TaskRecord, o: DiffOptions = {}):
   const worktree = task.run?.host
     ? reviewWorktree ?? task.brief.repo
     : task.run?.workdir ?? task.worktree ?? task.result?.worktree ?? task.brief.repo;
-  const base = task.run?.mode === "new" && task.baseBranch ? task.baseBranch : null;
+  const base = task.run?.mode === "new" ? task.baseSha ?? task.baseBranch ?? null : null;
   if (task.run?.host && (!reviewWorktree || task.state === "running")) {
     return { base, worktree, files: [], patch: "", diff: "", untracked: [], truncated: false, note: `changes are on ${task.run.host} until the run ends` };
   }

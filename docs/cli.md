@@ -42,7 +42,7 @@ write a brief JSON file:
 Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `pacer delegate --brief-file - --json`. Flags override file fields. The brief supports
 `goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `constraints`, `context`,
-`executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
+`worktree_base` (`default` or `head`), `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
 (max 200 characters). Executors cannot delegate onward.
 
 Delegate accepts kind aliases in `--kind` and brief files: `bugfix`, `fix`, and `bug`
@@ -396,6 +396,10 @@ planner window resets (seven days if unknown); `mode.release {}` ends the hold.
 Use `pacer executor set <id> --enabled false --model <model> --max-tasks 2` to
 change executor settings. Executor readiness, host checks and updates expose
 shared progress through `job.get`, `job.list` and `job.cancel` when cancellable.
+
+New worktrees fetch `origin` and start at `origin/<default-branch>` rather than the source checkout's current branch. The task JSON records `baseBranch` and the immutable `baseSha`. Use `--worktree-base head` (brief/API: `worktree_base: head`) to opt in to the current HEAD, including detached HEAD. An explicit brief `base` or configured `execution.base_branch` still selects that ref. Fetch or default-branch discovery failures stop creation rather than silently using a stale checkout.
+
+An explicit `--repo` preserves that checkout's real path, including linked worktrees; repository identity can still be shared for project policy. Registered repo keys select the saved checkout when a path is not supplied. Blocked executors and executors with confirmed exhaustion where paid execution is forbidden are excluded from automatic selection and fallback; requesting one explicitly returns an error. A review retry reuses the original local worktree, including uncommitted work.
 
 ## Eligibility evidence
 

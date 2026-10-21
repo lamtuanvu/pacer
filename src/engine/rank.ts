@@ -107,6 +107,7 @@ export function rankExecutors(
     const uncertain = decision.state === "uncertain";
     ranked.push({ id, ...accountField, eligibility: decision,
       ...(uncertain ? { fallback: "uncertain" as const } : {}), score: score(st, s), verdict: st.verdict, reason: uncertain ? `Uncertain fallback: ${eligibilityPresentation(decision, decision.evaluatedAt).detail}` : reason(st), unknown: uncertain, order });
+
   });
   if (selection) {
     ranked.sort((a, b) => Number(a.unknown) - Number(b.unknown) || a.order - b.order);

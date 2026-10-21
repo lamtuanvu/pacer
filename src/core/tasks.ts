@@ -1,6 +1,6 @@
 import { resolvePolicyRepo } from "./project-policy";
 import { taskDiff, cleanTaskRuns } from "../tasks/diff";
-import { repoFs, withTimeout } from "./path-probe";
+import { repoFs, cachedPath, withTimeout } from "./path-probe";
 import { taskTitle } from "./short-title";
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
@@ -15,7 +15,7 @@ import { repoKey } from "../config/hosts";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
 import { transferred } from "../remote/transfer";
-import { realpathSafe, boundedGitRead } from "./git";
+import { boundedGitRead } from "./git";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
 import { cleanSettledSessions } from "../session/retention";
@@ -287,7 +287,9 @@ async function retryTask(
     if (prior && ["queued", "running"].includes(prior.state)) {
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
+    const reuseWorktree = !answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined;
     const input: DelegateInput = {
+      ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
       repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
       ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
       ...(answering && (task.placement?.mode === "new" || task.run?.mode === "new") ? {worktree:"new" as const} : {}),
@@ -331,6 +333,10 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
     const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;
     if (!wt.startsWith(root) || (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; }))) continue;
     const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
+    const shared = listTasksWhere(ctx).some(other => other.id !== t.id
+      && cachedPath(other.worktree ?? other.result?.worktree ?? other.brief.repo).real === cachedPath(wt).real
+      && (!TERMINAL_STATES.includes(other.state) || !(other.review || other.dismissed || other.resolved)));
+    if (shared) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
     if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
     if (o.dryRun) { removed.push(t.id); continue; }
     if (t.run.host) {

@@ -13,6 +13,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Executor routing shares timestamped, scoped eligibility evidence across status and launch guards; uncertain fallbacks remain permitted and visibly labelled, and historical usage no longer implies current quota.
+
 - Native desktop buttons keep readable backgrounds when switching Light/Dark appearance instead of retaining the previous theme during a stuck background transition.
 - Settings > Updates distinguishes the native desktop app version from the connected service version, provides desktop download/replacement guidance, and labels the service-only update action explicitly. Failed update checks no longer appear as up to date.
 
@@ -22,6 +24,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Overview uses aligned pairs of cards and paginated attention, running, capacity, completed-work and activity lists, keeping the existing design system and compact layout.
 - Repository filters use filled count badges and a searchable **Find repo** menu anchored to its trigger, with compact rows, selected checkmarks, keyboard navigation and narrow-screen containment. The finder includes repositories with no current work.
+### Fixed
+
+- Delegation preserves an explicitly selected checkout's real path instead of substituting a registry checkout of the same repository.
+- User-blocked executors cannot be selected through aliases, dispatch races or fallback. Confirmed budget exhaustion refuses explicit requests when paid execution is forbidden; newer scoped recovery evidence and explicit paid permission remain effective.
+- New worktrees fetch origin's default branch tip and record its SHA. `--worktree-base head` explicitly selects the current HEAD. Review retries reuse the original local worktree, including uncommitted changes.
+- Automatic child placement still starts executors in local-only repositories without origin, preserving session takeover support; explicit new/default requests continue to require origin.
 
 ## [0.5.0] - 2026-10-20
 

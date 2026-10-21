@@ -191,4 +191,5 @@ test("priority: installation, configuration and paid-overflow exclusions are pre
   expect(r.excluded).toContainEqual(expect.objectContaining({ id: "cursor", account: "cursor", reason: "not installed" }));
   expect(r.excluded).toContainEqual(expect.objectContaining({ id: "agy", account: "agy", reason: "not configured" }));
   expect(r.excluded).toContainEqual(expect.objectContaining({ id: "missing", reason: "not configured" }));
+
 });
