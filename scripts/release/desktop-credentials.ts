@@ -58,6 +58,9 @@ export async function withSigningCredentials<T>(env: NodeJS.ProcessEnv, body: (c
     chmodSync(keychain, 0o600);
     await run(["/usr/bin/security", "set-keychain-settings", "-lut", "21600", keychain]);
     await run(["/usr/bin/security", "unlock-keychain", "-p", password, keychain]);
+    // codesign also resolves the certificate chain through the user search list.
+    // The existing cleanup restores the captured list on success, failure or retry.
+    await run(["/usr/bin/security", "list-keychains", "-d", "user", "-s", keychain, ...keychains]);
     await run(["/usr/bin/security", "import", p12, "-k", keychain, "-P", env[certificatePassword]!, "-T", "/usr/bin/codesign"]);
     await run(["/usr/bin/security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", password, keychain]);
     return await body(config);

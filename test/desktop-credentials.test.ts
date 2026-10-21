@@ -84,7 +84,11 @@ test("interim signing secures a macOS-created 0644 keychain before importing cre
     expect(statSync(config.keychain).mode & 0o777).toBe(0o600);
     expect(existsSync(config.keychain.slice(0, config.keychain.lastIndexOf("/")) + "/notary.p8")).toBe(false);
     return config.keychain;
-  }, async argv => { calls.push(argv); if (argv[1] === "import") expect(statSync(argv[argv.indexOf("-k") + 1]).mode & 0o777).toBe(0o600); if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o644 }); return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : ""; });
+  }, async argv => { calls.push(argv); if (argv[1] === "import") {
+    const keychain = argv[argv.indexOf("-k") + 1];
+    expect(statSync(keychain).mode & 0o777).toBe(0o600);
+    expect(calls.some(call => call[1] === "list-keychains" && call.includes("-s") && call.includes(keychain))).toBe(true);
+  } if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o644 }); return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : ""; });
   const imported = calls.find(a => a[1] === "import")!;
   expect(imported[imported.indexOf("-k") + 1]).toBe(seen);
   expect(imported[imported.indexOf("-P") + 1]).toBe("pw");
