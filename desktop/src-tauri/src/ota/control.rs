@@ -1505,6 +1505,12 @@ fn managed_action(
 }
 
 /// Bounded kernel inventory. No process environments or untrusted executable probes.
+// Native audit-token process discovery is unavailable on other platforms.
+#[cfg(not(target_os = "macos"))]
+pub fn native_process_inventory() -> Result<Vec<native::ProcessDetails>, OtaError> {
+    Err(OtaError::Unavailable)
+}
+
 #[cfg(target_os = "macos")]
 pub fn native_process_inventory() -> Result<Vec<native::ProcessDetails>, OtaError> {
     unsafe extern "C" {

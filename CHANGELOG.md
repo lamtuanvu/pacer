@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+- Fix Linux desktop release compilation and secure temporary macOS signing keychain permissions before importing release credentials.
+
 ## [0.6.0] - 2026-10-21
 
 ### Added

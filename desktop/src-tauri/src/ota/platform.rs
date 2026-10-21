@@ -1,5 +1,6 @@
 //! Native platform effects. Loaded job descriptions are checked conservatively;
 //! unsupported macOS dictionary shapes refuse instead of guessing ownership.
+#[cfg(target_os = "macos")]
 #[path = "platform_adoption.rs"]
 mod adoption_native;
 #[cfg(any(test, feature = "ota-fixture"))]
@@ -11,6 +12,7 @@ use super::{
     trust::{CodeRole, ReleaseTrust},
     ProcessIdentity,
 };
+#[cfg(target_os = "macos")]
 pub(crate) use adoption_native::NativeAdoptionPlatform;
 #[cfg(feature = "ota-fixture")]
 pub(crate) use fixture::{fixture_attach, fixture_jobs};

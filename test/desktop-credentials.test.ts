@@ -76,14 +76,15 @@ test("unproven cleanup retains its private record and a lost delete response is 
   }
 });
 
-test("interim signing imports the project certificate into the same ephemeral keychain without a notary key", async () => {
+test("interim signing secures a macOS-created 0644 keychain before importing credentials", async () => {
   const calls: string[][] = [];
   const env = { PACER_SIGNING_CERT_SHA1: "2C5405FB6D2906AE2049D59B9DF5D42661997922", PACER_OTA_PUBLIC_KEY: "public", PACER_SELF_SIGNING_CERTIFICATE_BASE64: Buffer.from("p12").toString("base64"), PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: "pw", TAURI_SIGNING_PRIVATE_KEY: "fixture-updater" };
   const seen = await withSigningCredentials(env, async config => {
     expect(config.signer).toBe("self");
+    expect(statSync(config.keychain).mode & 0o777).toBe(0o600);
     expect(existsSync(config.keychain.slice(0, config.keychain.lastIndexOf("/")) + "/notary.p8")).toBe(false);
     return config.keychain;
-  }, async argv => { calls.push(argv); if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o600 }); return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : ""; });
+  }, async argv => { calls.push(argv); if (argv[1] === "import") expect(statSync(argv[argv.indexOf("-k") + 1]).mode & 0o777).toBe(0o600); if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o644 }); return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : ""; });
   const imported = calls.find(a => a[1] === "import")!;
   expect(imported[imported.indexOf("-k") + 1]).toBe(seen);
   expect(imported[imported.indexOf("-P") + 1]).toBe("pw");
