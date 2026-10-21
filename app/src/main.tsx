@@ -10,7 +10,8 @@ import { attachKeyRegistry } from "./keys/registry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
-import { activeRepo } from "./shell/narrow";
+import { useNarrow, activeRepo } from "./shell/narrow";
+import { UpdateNotice } from "./shell/UpdateNotice";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
@@ -51,6 +52,7 @@ function App() {
   const resolved = resolveRoute(hash, setupComplete);
   useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
   const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
+  const narrow = useNarrow(route.query);
   if (!SETTINGS.has(route.name) && route.name !== "loading" && route.name !== "setup") lastWork.current = hash || "#/";
   useEffect(() => {
     keys.setScope(route.name);
@@ -85,6 +87,7 @@ function App() {
     }}>
       <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
     </SetupContext.Provider>
+    <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || (route.name === "settings" && route.section === "updates")}/>
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
