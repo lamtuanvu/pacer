@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 const jobs = (Bun.YAML.parse(readFileSync(".github/workflows/release.yml", "utf8")) as any).jobs;
-test("desktop promotion requires both native signed builds and standalone release while CLI publishing stays independent", () => {
+test("desktop promotion requires the native signed build and standalone release while CLI publishing stays independent", () => {
   expect(jobs.publish.needs).toEqual(["verify", "build", "desktop"]);
   expect(jobs.desktop.strategy.matrix.include.every((entry: any) => entry.platform.startsWith("linux-"))).toBe(true);
   expect(jobs["desktop-publish"].needs).toEqual(["verify", "desktop-build", "publish"]);
-  expect(jobs["desktop-build"].strategy.matrix.include).toEqual([{ runner: "macos-15", arch: "aarch64" }, { runner: "macos-15-intel", arch: "x86_64" }]);
+  // macOS Intel (x86_64) is temporarily not built for release (see DESKTOP_ARCHES).
+  expect(jobs["desktop-build"].strategy.matrix.include).toEqual([{ runner: "macos-15", arch: "aarch64" }]);
   expect(jobs["desktop-build"].permissions.contents).toBe("read");
   expect(jobs["desktop-publish"].permissions.contents).toBe("write");
   expect(jobs["desktop-build"].if).toContain("PACER_DESKTOP_RELEASE_ENABLED");
