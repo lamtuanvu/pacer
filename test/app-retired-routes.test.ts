@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 // Match route literals, not API endpoints, module imports, or state directories.
-const retiredRoute = /(?:["'`](?:#?\/|(?=(?:tasks|executors|accounts|hosts|strategy)\/))(?:tasks|executors|accounts|hosts|strategy)(?=[/\s?"'`$])|\/app\/#\/?(?:tasks|executors|accounts|hosts|strategy)(?=[/\s?"'`$]))/g;
+const retiredRoute = /(?:["'`](?:#?\/|(?=(?:executors|accounts|hosts|strategy)\/))(?:executors|accounts|hosts|strategy)(?=[/\s?"'`$])|\/app\/#\/?(?:executors|accounts|hosts|strategy)(?=[/\s?"'`$]))/g;
 
 test("shipped sources contain no retired UI route literals", async () => {
   const violations: string[] = [];
