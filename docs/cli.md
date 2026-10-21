@@ -54,6 +54,33 @@ Choose current for uncommitted work, research/review, installed dependencies, or
 follow-ups. Choose new for parallel tasks, concurrent user edits, or risky experiments;
 omit the choice for auto placement.
 
+`pacer watch <id> [--timeout 600] [--json]` streams the current attempt's output from the start,
+then new output and observed state changes until it settles. It uses the service's
+`task.get` and `task.log` operations, checking every half second. Re-running it
+replays available output. Automatic executor rerouting resets offsets for the new
+log source. stdout and stderr retain their own order; ordering between the two
+streams is not guaranteed. Archived output must first be restored
+with `pacer tasks restore <id>`.
+
+The final event reports the outcome and a next command. Exit 0 means settled,
+including failed or needs-input outcomes; it does not mean acceptance passed.
+Timeout defaults to 600 seconds (integer 1–3000); timeout or error exits 2.
+Ctrl-C exits 130. Timeout and Ctrl-C stop observation; the task continues independently.
+Use `pacer stop <id>` to cancel execution, or `pacer attach <id>` for a live terminal.
+
+`--json` emits newline-delimited JSON. Every event contains `type` and `task_id`:
+
+| Type | Additional fields |
+| --- | --- |
+| `state` | `state` (initial state and each observed change) |
+| `output` | `stream` (`stdout` or `stderr`), `source` (opaque log identity when supported by the service), `offset`, `next` (byte offsets), `text` |
+| `settled` | `state`, `summary`, `question` (or null), `next` (suggested command) |
+| `timeout`, `interrupted` | No additional fields |
+| `error` | `message`; also printed to stderr |
+
+Use watch in planner workflows instead of repeatedly tailing private log files.
+Use wait when only the final task summary is needed.
+
 `pacer wait <id> --timeout 600 --json` blocks until a task leaves queued/running, or times out.
 Timeout defaults to 600 seconds, maximum 3000; exit 0 means settled, exit 2 means timeout
 (or invalid input). Review the diff and run acceptance before

@@ -134,7 +134,7 @@ pacer delegate --goal "Improve the setup instructions" \
 Use the returned `id` in the next commands, replacing `TASK_ID`:
 
 ```sh
-pacer wait TASK_ID --json
+pacer watch TASK_ID --json
 pacer tasks TASK_ID --json
 # Review the diff in the reported worktree and run acceptance yourself.
 pacer review TASK_ID --accept --json

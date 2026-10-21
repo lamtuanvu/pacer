@@ -51,12 +51,12 @@ test("log falls back to the last attempt and handles absent files", () => {
   const ctx = fakeCtx(), dir = tmpDir(), log = join(dir, "log");
   writeFileSync(log, "éabc");
   const t = createTask(ctx, { brief: { goal: "g", repo: dir }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  expect(tasks.log(ctx, t.id)).toEqual({ stdout: "", stderr: "", next: { stdout: 0, stderr: 0 }, done: false });
+  expect(tasks.log(ctx, t.id)).toMatchObject({ source: expect.any(String), stdout: "", stderr: "", next: { stdout: 0, stderr: 0 }, done: false });
   updateTask(ctx, t.id, (x) => {
     x.state = "done";
     x.attempts.push({ executor: "codex", model: null, startedAt: ctx.now, endedAt: ctx.now, exitCode: 0, timedOut: false, limitHit: false, log });
   });
-  expect(tasks.log(ctx, t.id, { stdout: 2 })).toEqual({ stdout: "abc", stderr: "", next: { stdout: 5, stderr: 0 }, done: true });
+  expect(tasks.log(ctx, t.id, { stdout: 2 })).toMatchObject({ source: expect.any(String), stdout: "abc", stderr: "", next: { stdout: 5, stderr: 0 }, done: true });
   expect(tasks.log(ctx, t.id, { stdout: 99 }).next.stdout).toBe(99);
 });
 
