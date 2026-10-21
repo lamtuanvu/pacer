@@ -86,11 +86,13 @@ export function assertFixtureTransport(value: unknown, version: string, arch: De
   if (!receipt || receipt.schema !== 1 || receipt.role !== "cli" || receipt.version !== version || receipt.arch !== arch || receipt.nativeTransportAbi !== 1 || receipt.transport !== "unix-audit-token" || receipt.verified !== true) throw Error("Fixture signed native transport validation failed");
 }
 
-export type FixtureSigner = { sha1: string; keychain: string };
+export type FixtureSigner = { sha1: string; keychain: string; password?: string };
 /** Sign nested native code before sealing the app envelope. A refusal stops the sequence. */
 export async function signFixtureBundle(app: string, entitlement: string, run: (argv: string[]) => Promise<string>, signer?: FixtureSigner): Promise<void> {
   const resources = join(app, "Contents/Resources");
   const identity = signer ? ["--sign", signer.sha1, "--keychain", signer.keychain, "--timestamp=none"] : ["--sign", "-"];
+  // Sleep or a long build can relock the keychain; codesign then reports an internal error.
+  if (signer?.password) await run(["/usr/bin/security", "unlock-keychain", "-p", signer.password, signer.keychain]);
   for (const [file, identifier, extra] of [
     [join(app, "Contents/Frameworks/libpacer-native.dylib"), "dev.pacer.desktop.native-shim", []],
     [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlement]],
@@ -113,7 +115,7 @@ async function createFixtureSigner(directory: string, run: (argv: string[], cwd?
   await run(["/usr/bin/security", "set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", password, keychain], directory, true);
   const sha1 = (await run(["/usr/bin/openssl", "x509", "-noout", "-fingerprint", "-sha1", "-in", p("signer.pem")], directory, true)).trim().split("=").at(-1)!.replaceAll(":", "").toUpperCase();
   if (!/^[0-9A-F]{40}$/.test(sha1)) throw Error("Fixture signer fingerprint unavailable");
-  return { sha1, keychain };
+  return { sha1, keychain, password };
 }
 
 /** This entry point accepts only a harness session ID. All commands, versions and outputs are fixed. */

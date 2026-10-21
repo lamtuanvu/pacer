@@ -39,7 +39,7 @@ function harness() {
     output.enqueue(encodeFrame({ schema, commandId, installationId, transactionId, revision, nonce, sequence, ...value }));
   };
   return { factory, opened: opened.promise, writes, send, raw: (bytes: Uint8Array) => output.enqueue(bytes),
-    end: (code = 0) => { output.close(); exited.resolve(code); }, aborts: () => aborts };
+    end: (code = 0) => { output.close(); exited.resolve(code); }, fault: () => output.error(new Error("pipe reset")), aborts: () => aborts };
 }
 const hello = (h: ReturnType<typeof harness>, command: AdapterCommand) => h.send(command, { kind: "hello", ...identity }, 0);
 
@@ -290,4 +290,13 @@ test("adoption recovery accepts a journal-verified terminal outcome without reau
  const result=runAdapterCommand(h.factory,{command:"recover-adoption",installationId:"fixture",revision:3,transactionId:"tx-1"});
  const command=await h.opened;hello(h,command);h.send(command,{kind:"outcome",outcome:"restored"},1);h.end();
  expect(await result).toMatchObject({kind:"outcome",outcome:"restored"});expect(h.writes).toHaveLength(1);
+});
+
+test("a pipe that fails mid-read is closed, while a malformed frame is a protocol failure", async () => {
+  const reset = harness(), first = runAdapterCommand(reset.factory, check); const command = await reset.opened;
+  hello(reset, command); reset.fault();
+  await fails(first, "closed");
+  const garbled = harness(), second = runAdapterCommand(garbled.factory, check); await garbled.opened;
+  garbled.raw(new Uint8Array([0, 0, 0, 0]));
+  await fails(second, "protocol");
 });

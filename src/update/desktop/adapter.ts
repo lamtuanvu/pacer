@@ -284,7 +284,9 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
       const read = async () => {
         try {
           while (!stopped) {
-            const next = await reader!.read();
+            let next: Awaited<ReturnType<NonNullable<typeof reader>["read"]>>;
+            // A failed read means the pipe ended (for example the desktop reconnected), not a malformed frame.
+            try { next = await reader!.read(); } catch { fail("closed"); return; }
             if (stopped) return;
             if (next.done) {
               decoder.finish(); eof = true;

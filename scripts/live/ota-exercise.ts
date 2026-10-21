@@ -116,17 +116,29 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       }
       throw Error(`Fixture outcome not established (${last?.phase ?? "unavailable"})`);
     }
-    if ((await status()).autoDownload) {
-      // Exercise default automatic downloads without racing them with a
-      // configuration write and another exclusive native fixture inspection.
-      await waitStatus(value => value.phase === "ready" && value.target === "0.2.4", 120000);
-    } else {
+    const manualCandidate = async () => {
       await waitStatus(value => value.actions.includes("check"), 60000);
       await mutate("check");
       const checked = await waitStatus(value => value.target === "0.2.4" && (value.phase === "ready" || value.actions.includes("download")), 60000);
       if (checked.phase !== "ready") {
         await mutate("download");
         await waitStatus(value => value.phase === "ready", 90000);
+      }
+    };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        // Exercise default automatic downloads without racing them with a
+        // configuration write and another exclusive native fixture inspection.
+        if (attempt === 0 && (await status()).autoDownload) await waitStatus(value => value.phase === "ready" && value.target === "0.2.4", 120000);
+        else await manualCandidate();
+        break;
+      } catch (error) {
+        // A check or download can fail before any transaction exists, for example when the
+        // desktop reconnects mid-operation; the error hint tells a person to retry. Anything
+        // else, or a third failure, fails the scenario.
+        const current = await status().catch(() => undefined);
+        if (attempt >= 2 || !current || current.phase !== "error" || current.transactionId !== null) throw error;
+        record(session, { kind: "note", behavior: `OTA ${scenario} candidate retry`, surface: "public API", verdict: "UNVERIFIED", text: `Retrying the pre-transaction check after: ${current.error?.message ?? "error"}` });
       }
     }
     journalTraceFd = openSync(join(session.root, "evidence/native-journal-trace.jsonl"), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
