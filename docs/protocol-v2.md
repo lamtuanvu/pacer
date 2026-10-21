@@ -28,6 +28,11 @@ HTTP route errors after authentication use `{ "error": { "code": "...", "message
 | `conflict` | 409 |
 | `too_large` | 413 |
 | `internal` | 500 |
+| `plugin_timeout` | 504 |
+| `plugin_unavailable` | 503 |
+| `plugin_refused` | 422 |
+| `capability_denied` | 403 |
+| `unknown_plugin` | 404 |
 
 Missing or invalid HTTP tokens return 401 with the plain-text body `unauthorized`. A wrong HTTP verb returns 405 with `invalid_input`.
 
@@ -702,6 +707,7 @@ Params JSON Schema:
       "items": {
         "type": "string",
         "enum": [
+          "plugin_state",
           "task_started",
           "task_settled",
           "verdict",

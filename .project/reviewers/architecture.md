@@ -2,13 +2,13 @@
 
 Role: Keep the service-owns-work and thin-client boundaries, multi-client safety, and planner and host neutrality intact.
 Human owner/approver: @lamtuanvu
-Applies when: a change adds a capability, operation, client surface or execution backend; crosses `src/api` ↔ core ↔ clients ↔ adapters; touches `desktop/`; or proposes or changes an ADR or spec.
+Applies when: a change adds a capability, operation, client surface or execution backend; crosses `src/api` ↔ core ↔ clients ↔ adapters; touches `desktop/`; adds a Rust crate, adds a dependency to a crate or grows a crate past its CRATE-1 threshold; or proposes or changes an ADR or spec.
 Excludes: changes inside one module that leave its imports and public operations unchanged; docs-only typo fixes.
 Review requirement: Advisory (constitution, "Validation and review agreements").
 
 ## Context
 
-Read [constitution.md](../constitution.md), [context.md](../context.md), and [rules/architecture.md](../rules/architecture.md) and [rules/api-protocol.md](../rules/api-protocol.md). Review the requested artifact or change scope (a spec, plan, diff or PR against its actual base), whatever the workflow or filename.
+Read [constitution.md](../constitution.md), [context.md](../context.md), [rules/architecture.md](../rules/architecture.md), [rules/api-protocol.md](../rules/api-protocol.md), and for Rust changes [rules/rust-crates.md](../rules/rust-crates.md). Review the requested artifact or change scope (a spec, plan, diff or PR against its actual base), whatever the workflow or filename.
 
 ## Checks
 
@@ -19,6 +19,7 @@ Read [constitution.md](../constitution.md), [context.md](../context.md), and [ru
 - ARCH-7/8: remote execution follows the SSH/bundle model; the CLI and TUI stay complete.
 - UI-20/22/23 (proposed amendment 0.4.0): DS imports point only toward Preact, DS and shared view vocabulary; density and primitive styles belong with DS. Check component boundaries, adaptation provenance and Preact/bundle tradeoffs. UI/QA reports required by that amendment are evidence; human merge authority remains unchanged.
 - ARCH-9: a durable design change has an ADR, or the PR explains why none is needed.
+- CRATE-1 to CRATE-11 (Rust workspace): run the reviewer checklist in [rules/rust-crates.md](../rules/rust-crates.md). Report `cargo xtask loc` and `cargo xtask deps` output, every crate above 8,000 LOC with its justification or split plan, any heavy dependency outside its allowed crates, any upward dependency, and missing build-timings evidence.
 
 ## Findings contract
 
