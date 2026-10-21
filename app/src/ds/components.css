@@ -288,6 +288,9 @@ a.pc-btn{text-decoration:none}
 .pc-disclosure--wrap{min-width:0;max-width:100%}
 .pc-disclosure--wrap>summary{flex-wrap:wrap}
 
+.pc-pagination{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-top:1px solid var(--line);margin-top:auto;font-variant-numeric:tabular-nums}
+.pc-pagination:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1 * var(--stroke-focus))}
+
 .pc-list-row--outlined,.pc-list-row--outlined:last-child{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
 .pc-list-row--bad{border-color:var(--bad-line);background:var(--bad-tint)}
 /* Settings forms sit between compact tray/table actions and normal app controls. */
