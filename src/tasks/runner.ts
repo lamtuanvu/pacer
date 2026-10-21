@@ -69,6 +69,10 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
     }
     t.result = t.state === "stopped" ? { ...result, status: "stopped" } : result;
     t.state = t.result.status;
+    if (t.interactionMode === "conversation") t.conversation = {
+      ...t.conversation, activity: "ended",
+      endReason: t.state === "stopped" ? "user" : t.state === "done" ? "agent_exit" : "failure",
+    };
     if (t.takeover) t.takeover.state = "ended";
     delete t.childPid;
   });
@@ -422,6 +426,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       }
       if (task.state === "stopped") {
         return finish(ctx, id, { status: "stopped", executor: pick, model: cfg.model, files: "", report: out.report, backend: out.backend ?? "direct" });
+      }
+      if (task.interactionMode === "conversation") {
+        // Ending a conversation is not a delegated acceptance/review decision.
+        return finish(ctx, id, {
+          status: out.attempt.limitHit ? "limit" : out.exec.code === 0 ? "done" : "failed",
+          executor: pick, model: cfg.model, files: "", report: out.report, backend: attemptedBackend,
+          ...(out.worktree ? {worktree: out.worktree} : {}),
+        });
       }
       if (task.question && task.question.answer === undefined) {
         const v = out.partial ? {files:"(kept on host)"} : await deps.verifyRepo(out.worktree ?? task.brief.repo, undefined, ctx.env);

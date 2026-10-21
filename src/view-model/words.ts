@@ -63,8 +63,13 @@ const sessionStates: Record<string, Status> = {
   queued: taskStates.queued!,
 };
 const waitingReview = status("Review requested", "warn", "◐");
-export interface TaskStatusInput { dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; acceptanceState?: string; phase?: string; progress?: { phase?: string } | null }
+export interface TaskStatusInput { interactionMode?: import("../tasks/types").InteractionMode; conversation?: import("../tasks/types").ConversationState; dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; acceptanceState?: string; phase?: string; progress?: { phase?: string } | null }
 export function taskStatus(task: TaskStatusInput): Status {
+  if (task.interactionMode === "conversation" && task.state === "running") {
+    if (task.conversation?.activity === "idle") return status("Ready for input", "neutral", "…");
+    if (task.conversation?.activity === "waiting") return status("Needs input", "warn", "?");
+    if (task.conversation?.activity === "working") return status("Working", "info", "▶");
+  }
   const phase = task.progress?.phase ?? task.phase;
   if (task.state === "running" && phase) return sessionStatus(phase);
   return Object.hasOwn(taskStates, task.state) ? taskStates[task.state]! : unknownStatus;

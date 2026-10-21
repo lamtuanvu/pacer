@@ -12,7 +12,8 @@ import { FrameType, WireDecoder, wire } from "./framing";
 import { SecretMasker } from "./masking";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
-export interface SessionLaunch { completionNonce?:string; takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
+import type { InteractionMode } from "../tasks/types";
+export interface SessionLaunch { interactionMode?:InteractionMode; completionNonce?:string; takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
 export function socketPath(dir:string):string {
   const direct=join(dir,"session.sock");
   if(Buffer.byteLength(direct) < 104) return direct;
@@ -168,7 +169,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   } catch { /* a socket failure must never terminate the attempt */ }
   // Completion is also consumed here so reporting still ends the TUI if its supervisor died.
   let escalation: ReturnType<typeof setTimeout> | undefined;
-  const reports = launch.interactive ? setInterval(() => {
+  const reports = launch.interactive && launch.interactionMode !== "conversation" ? setInterval(() => {
     const report = readReport(dir);
     if (!stopping && (report?.status === "done" || report?.status === "failed")) {
       stop();

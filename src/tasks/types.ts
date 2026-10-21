@@ -3,6 +3,14 @@ import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
 
+export type InteractionMode = "delegated" | "conversation";
+export type ConversationActivity = "starting" | "working" | "waiting" | "idle" | "ended";
+export interface ConversationState {
+  activity: ConversationActivity;
+  agentSessionId?: string;
+  endReason?: "user" | "agent_exit" | "failure";
+}
+
 export type TaskState = "queued" | "running" | "done" | "partial" | "failed" | "limit" | "stopped" | "needs_input";
 export const TERMINAL_STATES: readonly TaskState[] = ["done", "partial", "failed", "limit", "stopped", "needs_input"];
 
@@ -86,6 +94,7 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
 }
 
 export interface RunRef {
+  interactionMode?: InteractionMode;
   takeover?: boolean;
   agentSession?: {id: string; source: "header" | "assigned" | "lookup"};
   host?: string;
@@ -107,6 +116,8 @@ export interface RunRef {
 export interface ReviewRequest { note: string; at: number }
 
 export interface TaskRecord {
+  interactionMode?: InteractionMode;
+  conversation?: ConversationState;
   reviewRequest?: ReviewRequest;
   settledAt?: number;
   archived?: boolean;
