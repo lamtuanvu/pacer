@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
@@ -52,6 +52,22 @@ test("sandbox environment keeps HOME and auth references but overrides pacer sta
   expect(env.PACER_ROLE).toBe("executor");
   expect(env.PACER_ORCA_USER_DATA).toBe(join(session.root, "orca-profile"));
   expect(environmentScript(session)).not.toContain("export HOME=");
+  expect(env.PACER_CORE_ARGV).toBeUndefined();
+});
+
+test("the rust front door runs the Rust binary and points it at the checkout core", () => {
+  const session = { ...fixture(), frontDoor: "rust" as const };
+  const core = [process.execPath, join(import.meta.dir, "..", "src", "cli.ts")];
+  expect(pacerArgv(session)).toEqual([join(import.meta.dir, "..", "target", "debug", "pacer")]);
+  expect(pacerArgv({})).toEqual(core);
+  expect(JSON.parse(sandboxEnv(session, {}).PACER_CORE_ARGV!)).toEqual(core);
+  expect(environmentScript(session)).toContain("export PACER_CORE_ARGV=");
+});
+
+test("up refuses an unknown front door before creating a sandbox", async () => {
+  const base = tmpDir();
+  await expect(up("fd", undefined, base, undefined, "go")).rejects.toThrow("Unknown front door");
+  expect(readdirSync(base)).toEqual([]);
 });
 
 test("environment shell quoting preserves text without executing substitutions", () => {
