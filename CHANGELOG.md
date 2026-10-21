@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude executor checks collect quota telemetry from Claude Code's structured test-task output for the selected account, then verify usage instead of silently skipping it when no status-line cache exists.
+
 ### Added
 
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.
