@@ -38,9 +38,10 @@ export function resourceRevision(op: string, invalidations: Record<string, numbe
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
  const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[revision,reload]=useState(0);
+ const generation=useRef(0);
  const serialized=JSON.stringify(params),invalidations=resourceRevision(op,state.invalidations);
- useEffect(()=>{let active=true;setLoading(true);setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active)setData(r);},e=>{if(active)setError(e);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
- return {data,error,loading,setData,reload:()=>reload(v=>v+1)};
+ useEffect(()=>{let active=true;const ticket=++generation.current;setLoading(true);setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active&&ticket===generation.current)setData(r);},e=>{if(active&&ticket===generation.current)setError(e);}).finally(()=>{if(active&&ticket===generation.current)setLoading(false);});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
+ return {data,error,loading,setData:(next:T)=>{generation.current++;setLoading(false);setData(next);},reload:()=>reload(v=>v+1)};
 }
 export function ResourceState({resource,empty,children}:{resource:{data:unknown;loading:boolean;error:unknown;reload:()=>void};empty?:string;children:ComponentChildren}) {
  if(resource.error)return <><ErrorMessage error={resource.error}/><Button onClick={resource.reload}>Try again</Button></>;

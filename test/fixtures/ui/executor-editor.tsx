@@ -12,8 +12,8 @@ import { ApiError } from '../../../app/src/data/api';
 import type { ExecutorSettings } from '../../../app/src/model/executor-settings';
 
 let settings:ExecutorSettings={revision:'1',order:['codex','claude-code#second'],runners:[{id:'codex',enabled:true,maxTasks:1},{id:'claude-code#second',enabled:true,maxTasks:1}]};
-let writes=0,fail=false;let refresh=()=>{};
-const fixture={writes:()=>writes,settings:()=>settings,fail:(value:boolean)=>{fail=value;},refresh:()=>refresh(),external:()=>{settings={...settings,revision:String(Number(settings.revision)+1)};refresh();},leave:canLeaveScreen};
+let writes=0,fail=false,hold=false;let release=()=>{};let refresh=()=>{};
+const fixture={writes:()=>writes,holdSave:()=>{hold=true;},release:()=>release(),setLimit:(maxTasks:number)=>{settings={...settings,revision:String(Number(settings.revision)+1),runners:settings.runners.map(r=>r.id==='codex'?{...r,maxTasks}:r)};refresh();},settings:()=>settings,fail:(value:boolean)=>{fail=value;},refresh:()=>refresh(),external:()=>{settings={...settings,revision:String(Number(settings.revision)+1)};refresh();},remove:()=>{settings={...settings,revision:String(Number(settings.revision)+1),order:settings.order.filter(id=>id!=='codex'),runners:settings.runners.filter(r=>r.id!=='codex')};refresh();},leave:canLeaveScreen};
 Object.assign(window,{executorFixture:fixture});
 const api={call:async(op:string,p:any)=>{
  if(op==='runner.settings.get')return structuredClone(settings);
@@ -21,7 +21,7 @@ const api={call:async(op:string,p:any)=>{
   writes++;
   if(fail)throw new Error('Service unavailable');
   if(p.expectedRevision!==settings.revision)throw new ApiError('conflict','Settings changed elsewhere');
-  settings={revision:String(Number(settings.revision)+1),order:p.order,runners:p.runners};refresh();return {...structuredClone(settings),warnings:[]};
+  settings={revision:String(Number(settings.revision)+1),order:p.order,runners:p.runners};const result={...structuredClone(settings),warnings:[]};refresh();if(hold)await new Promise<void>(resolve=>{release=resolve;});return result;
  }
  return {};
 }} as any;
