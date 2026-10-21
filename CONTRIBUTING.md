@@ -42,7 +42,7 @@ The workflow then does the rest:
 1. `scripts/release/next-version.ts` picks the version and refuses an empty Unreleased section.
 2. `bun run release:prepare <version>` updates `package.json`, the desktop app versions and the embedded app assets, and moves Unreleased into a dated section.
 3. It commits `chore: release <version>` (DCO-signed) on `release/v<version>` and opens the PR. CI runs the full suite; the PR needs no UI evidence manifest because its only UI-scoped changes are version strings, which CI checks.
-4. It runs the release dry run on that branch: every platform builds, npm publishes with `--dry-run` and the Homebrew formula is checked, with nothing published.
+4. It runs the release dry run on that branch: every platform builds (including production-signed macOS apps when `PACER_DESKTOP_RELEASE_ENABLED=true`), npm publishes with `--dry-run` and the Homebrew formula is checked, with nothing published.
 5. When the dry run passes, it turns on auto-merge. If the dry run fails, it comments on the PR and stops; fix `main`, close the PR, delete the branch and run it again.
 6. When the PR merges, **Release tag** tags the merge commit `v<version>` and the tag runs `release.yml`, which publishes.
 

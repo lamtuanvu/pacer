@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
+import { copyFileSync, chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, basename, dirname } from "node:path";
 import { command } from "./desktop-verify";
@@ -58,6 +58,9 @@ export async function withSigningCredentials<T>(env: NodeJS.ProcessEnv, body: (c
     chmodSync(keychain, 0o600);
     await run(["/usr/bin/security", "set-keychain-settings", "-lut", "21600", keychain]);
     await run(["/usr/bin/security", "unlock-keychain", "-p", password, keychain]);
+    // codesign also resolves the certificate chain through the user search list.
+    // The existing cleanup restores the captured list on success, failure or retry.
+    await run(["/usr/bin/security", "list-keychains", "-d", "user", "-s", keychain, ...keychains]);
     await run(["/usr/bin/security", "import", p12, "-k", keychain, "-P", env[certificatePassword]!, "-T", "/usr/bin/codesign"]);
     await run(["/usr/bin/security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", password, keychain]);
     return await body(config);
@@ -65,10 +68,33 @@ export async function withSigningCredentials<T>(env: NodeJS.ProcessEnv, body: (c
     await cleanupSigningRecord(cleanupRecord, run);
   }
 }
+/** Fail before compilation when CI cannot use its configured signing identity. */
+export async function probeSigningCredentials(env: NodeJS.ProcessEnv, run = command): Promise<void> {
+  await withSigningCredentials(env, async config => {
+    const probe = join(dirname(config.keychain), "signing-probe");
+    copyFileSync("/usr/bin/true", probe);
+    const identity = config.signer === "self" ? config.certSha1 : config.identity;
+    try {
+      await run(["/usr/bin/codesign", "--force", "--sign", identity, "--keychain", config.keychain, "--timestamp=none", probe]);
+      await run(["/usr/bin/codesign", "--verify", "--strict", probe]);
+    } catch (error) {
+      // Inspect only this disposable release keychain. Publish hashes, never raw command output.
+      const certificates = await run(["/usr/bin/security", "find-certificate", "-a", "-Z", config.keychain]).catch(() => "");
+      const identities = await run(["/usr/bin/security", "find-identity", "-p", "codesigning", config.keychain]).catch(() => "");
+      const hashes = (text: string, pattern: RegExp) => [...new Set([...text.matchAll(pattern)].map(match => match[1].toUpperCase()))].join(",") || "none";
+      throw Error(`${error instanceof Error ? error.message : "Signing probe failed"}; expected=${identity}; certificates=${hashes(certificates, /SHA-1 hash:\s*([0-9A-F]{40})/gi)}; identities=${hashes(identities, /^\s*\d+\)\s+([0-9A-F]{40})\b/gim)}`);
+    }
+  }, run);
+}
 if (import.meta.main) {
   try {
     if (process.argv[2] === "--cleanup" && process.argv.length === 3 && process.env.GITHUB_ACTIONS === "true") {
       if (process.env.PACER_SIGNING_CLEANUP_RECORD) await cleanupSigningRecord(process.env.PACER_SIGNING_CLEANUP_RECORD);
+      process.exit(0);
+    }
+    if (process.argv[2] === "--probe" && process.argv.length === 3 && process.platform === "darwin" && process.env.GITHUB_ACTIONS === "true") {
+      await probeSigningCredentials(process.env);
+      console.log("Production signing identity probe passed");
       process.exit(0);
     }
     const [dir, arch, out] = process.argv.slice(2);

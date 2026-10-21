@@ -78,3 +78,22 @@ test("staging rejects a compiler output with the wrong library architecture or M
     } })).rejects.toThrow("architecture/type");
   }
 });
+
+test("staging removes only the duplicate Cargo helper from its private copy", async () => {
+  const f = fixture();
+  const duplicate = join(f.app, "Contents/MacOS/pacer-update-helper");
+  writeFileSync(duplicate, "duplicate Cargo output");
+  const stage = await stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run });
+  expect(existsSync(join(stage, "pacer.app/Contents/MacOS/pacer-update-helper"))).toBe(false);
+  expect(readFileSync(duplicate, "utf8")).toBe("duplicate Cargo output");
+  expect(readFileSync(join(stage, "pacer.app/Contents/Resources/pacer-update-helper"))).toEqual(readFileSync(join(f.dir, "pacer-update-helper")));
+});
+
+test("staging rejects unknown MacOS payloads and helper directories", async () => {
+  const f = fixture();
+  writeFileSync(join(f.app, "Contents/MacOS/unexpected"), "unknown executable");
+  await expect(stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run })).rejects.toThrow("MacOS");
+  const g = fixture();
+  mkdirSync(join(g.app, "Contents/MacOS/pacer-update-helper"));
+  await expect(stageDesktopPackage(g.root, g.dir, "aarch64", { run: g.run })).rejects.toThrow();
+});

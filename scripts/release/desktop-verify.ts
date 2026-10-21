@@ -13,7 +13,11 @@ export async function command(argv: string[], timeoutMs = 30_000): Promise<strin
   const timeout = setTimeout(() => p.kill(), timeoutMs);
   try {
     const [code, stdout, stderr] = await Promise.all([p.exited, new Response(p.stdout).text(), new Response(p.stderr).text()]);
-    if (code) throw Error(`Desktop verification failed: ${argv[0]} ${argv[1]}`);
+    if (code) {
+      // codesign handles public identities and paths; credential-bearing security commands stay opaque.
+      const detail = argv[0] === "/usr/bin/codesign" ? ` (exit ${code}): ${stderr.trim().slice(0, 2000)}` : "";
+      throw Error(`Desktop verification failed: ${argv[0]} ${argv[1]}${detail}`);
+    }
     return stdout + stderr;
   } finally { clearTimeout(timeout); }
 }
