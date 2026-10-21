@@ -27,7 +27,7 @@ test('Setup renders five steps, done values and the current panel', () => {
   expect(html.match(/data-step=/g)).toHaveLength(5);
   expect(html).toMatch(/aria-current="step"[^>]*data-step="connect"/);
   expect(html).toContain('Running at login'); expect(html).toContain('Claude Code');
-  expect(html).toContain('3 agents'); expect(html).toContain('pacer 0.2.3');
+  expect(html).toContain('3 agents'); expect(html).toContain('Service 0.2.3');
   expect(html).not.toContain('build.123'); expect(html.match(/<h1/g)).toHaveLength(1);
   expect(html).toContain('Step 3 of 5');
 });

@@ -47,6 +47,14 @@ describe("UI source policy", () => {
     expect(checkUiSource("app/src/ds/components.css", '.meter { width:calc(var(--used) * 1%); }')).toEqual([]);
   });
 
+  test("routed screen roots cannot recreate page containment", () => {
+    for (const declaration of ["max-width:var(--size-960)", "margin-inline:auto", "padding:var(--space-6)"]) {
+      expect(checkUiSource("app/src/screens/probe.css", `.pc-overview { ${declaration}; }`).some(v => v.rule === "UI-25")).toBe(true);
+    }
+    expect(checkUiSource("app/src/screens/probe.css", ".pc-overview__cols { padding:var(--space-3); }")).toEqual([]);
+    expect(checkUiSource("app/src/screens/probe.css", ".u3-settings:not(.pc-page) { padding:var(--space-3); }")).toEqual([]);
+  });
+
   test.each([
     'style={{ fontSize: "12px" }}', 'style={{ fontWeight: 600 }}', 'style={{ color: "red" }}',
     'style={{ padding: 10 }}', 'style={{ "--custom": "#fff" }}', 'style="font:12px sans-serif"',

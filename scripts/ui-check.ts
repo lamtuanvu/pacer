@@ -160,6 +160,10 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
   };
   if (path.endsWith(".css")) {
     checkCss(source);
+    if (path.startsWith("app/src/screens/")) {
+      const pageRoot = /\.(?:pc-overview|pc-session|pc-sessions-list|u3-settings|pc-setup)\s*\{[^}]*\b(?:max-width|margin(?:-inline)?|padding)\s*:/g;
+      for (const match of source.matchAll(pageRoot)) add(match.index ?? 0, "UI-25", "Routed screen roots cannot own maximum width, centering, or outer gutters; use the shared Page contract.");
+    }
     if (path.startsWith("app/src/ds/")) {
       for (const imported of cssImports(source)) {
         const specifier = imported.specifier;
