@@ -1,4 +1,5 @@
 import { desktopUpdateOps } from "./ops-desktop-update";
+import { desktopOps } from "./ops-desktop";
 import type { DesktopUpdateRuntime } from "../update/desktop/service";
 import { resolvePolicyRepoInput } from "../core/project-policy";
 import * as projectStrategies from "../core/project-strategies";
@@ -154,7 +155,7 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
   }, deps.terminal);
 }
 
-export const OPS: Record<string, OpDef> = { ...sessionOps,
+export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),

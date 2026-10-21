@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "name": "Web settings and updates",
+  "steps": [
+    {
+      "command": "act",
+      "surface": "web",
+      "action": {
+        "kind": "click",
+        "selector": {
+          "role": "link",
+          "name": "Settings"
+        }
+      }
+    },
+    {
+      "command": "wait",
+      "surface": "web",
+      "condition": {
+        "role": "heading",
+        "name": "Settings"
+      }
+    },
+    {
+      "command": "act",
+      "surface": "web",
+      "action": {
+        "kind": "click",
+        "selector": {
+          "role": "link",
+          "name": "Updates",
+          "within": {
+            "role": "navigation",
+            "name": "Settings sections"
+          }
+        }
+      }
+    },
+    {
+      "command": "assert",
+      "surface": "web",
+      "condition": {
+        "role": "button",
+        "name": "Check now"
+      }
+    }
+  ]
+}

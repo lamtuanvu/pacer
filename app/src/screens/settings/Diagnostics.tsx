@@ -1,3 +1,4 @@
+import { NativeValidationSetup } from "./NativeValidation";
 import { useState } from "preact/hooks";
 import type { Check } from "../../../../src/install/doctor";
 import { diagnosticEvidence, diagnosticLevel, diagnosticTitle } from "../../../../src/view-model/diagnostics";
@@ -32,5 +33,6 @@ export function DiagnosticsSection() {
     <div role="status" aria-live="polite" id="diagnostics-progress">{action.busy ? "Wait for checks to finish." : report ? "Checks complete." : "No checks run yet."}</div>
     <ErrorMessage error={action.error}/>
     {report && <div aria-busy={action.busy}><DiagnosticResults report={report}/></div>}
+    <NativeValidationSetup/>
   </Section>;
 }

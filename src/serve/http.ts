@@ -1,3 +1,5 @@
+import { desktopCaptureRoute } from "./desktop-capture";
+import { resetCaptureBroker } from "../desktop/capture-broker";
 import { configuredNativeServices } from "../update/desktop/native-provider";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
@@ -45,6 +47,7 @@ export function startServer(
   getCtx: () => Ctx, opts: { port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
 ): { port: number; token: string; stop: () => void } {
   const initialCtx = getCtx();
+  resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx);
@@ -129,6 +132,8 @@ export function startServer(
         }
       }
       if (app) return appRoute(req, getCtx());
+      const captureResponse = await desktopCaptureRoute(req, getCtx());
+      if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
       if (/^\/v[23]\//.test(pathname)) {
         const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });

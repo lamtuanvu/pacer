@@ -57,6 +57,10 @@ export function seedUi(root: string): void {
   write("bin/systemctl", '#!/bin/sh\nif [ "$#" = 4 ] && [ "$1" = --user ] && [ "$2" = show ] && [ "$3" = pacer-serve.service ] && [ "$4" = --property=LoadState,ActiveState,SubState,MainPID,ExecMainStatus ]; then\n  printf "LoadState=loaded\\nActiveState=active\\nSubState=running\\nMainPID=1\\nExecMainStatus=0\\n"\n  exit 0\nfi\n' + refused, 0o700);
   for (const bin of ["codex", "claude", "cursor", "cursor-agent", "opencode", "arkcli", "orca"]) write(`bin/${bin}`, "#!/bin/sh\n" + refused, 0o700);
 
+  const repo = join(home, "repos/sample");
+  const repoKey = `local:${createHash("sha256").update(repo).digest("hex").slice(0, 12)}`;
+  mkdirSync(repo, { recursive: true, mode: 0o700 });
+  json("state/repos.json", { [repo]: { key: repoKey, path: repo, lastUsed: now } });
   const states = ["done", "failed", "partial", "running", "done"] as const;
   const attention: Record<string, { since: number }> = {};
   states.forEach((state, index) => {
@@ -65,14 +69,13 @@ export function seedUi(root: string): void {
     const { id } = createTask(ctx, { brief: { goal: "fixture", repo: join(home, "repos/sample") },
       kind: "feature", requestedExecutor: null, timeoutS: 0 });
     const source = state === "running" ? session : snapshot.tasks.find((task: { state: string }) => task.state === state) ?? detail;
-    const repo = join(home, "repos/sample");
     const worktree = join(home, "worktrees", id);
     if (state !== "failed") mkdirSync(worktree, { recursive: true, mode: 0o700 });
     mkdirSync(repo, { recursive: true, mode: 0o700 });
     const task: TaskRecord = {
       id, rev: 1, source: "ui", createdAt: now - 300 + index, state, kind: "feature", timeoutS: 0,
       requestedExecutor: null, executor: "codex#personal", backend: "direct", worktree,
-      repo: { key: `local:${repo}`, label: "sample", path: repo },
+      repo: { key: repoKey, label: "sample", path: repo },
       brief: { goal: source.goal, repo, acceptance: detail.brief.acceptance, context: session.brief.data },
       attempts: [],
     };

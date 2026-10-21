@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 
+import { sourceFingerprint, type SourceFingerprint } from "./control/fingerprint";
 import { seedUi, validateSeed } from "./seed";
 import { processIdentity, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 
@@ -21,6 +22,10 @@ export interface Session {
   seed?: "ui";
   stopped?: boolean;
   desktopPid?: number;
+  desktopExecutable?: string;
+  desktopSha256?: string;
+  serviceSource?: SourceFingerprint;
+  desktopIdentity?: { pid: number; start_identity: string };
 }
 export interface Evidence {
   at: string;
@@ -186,7 +191,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { id, root, port, innerPort, seed, pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (template) cpSync(resolve(template), join(root, "repo"), {
@@ -263,7 +268,16 @@ export async function down(session: Session, keep = false): Promise<void> {
       if (result.code) throw Error(result.stderr);
     }
   }
-  for (const pid of [session.desktopPid]) if (pid) stopProcess(pid);
+  if (session.desktopPid) {
+    const { processIdentity, sameProcess } = await import("./control/lease");
+    const current = await processIdentity(session.desktopPid);
+    if (current) {
+      if (!session.desktopIdentity || session.desktopIdentity.pid !== session.desktopPid || !await sameProcess(session.desktopIdentity)) {
+        throw Error("Desktop identity could not be verified; refusing to signal or remove sandbox");
+      }
+      stopProcess(session.desktopPid);
+    }
+  }
   session.stopped = true;
   saveSession(session);
   record(session, { kind: "note", text: "Sandbox stopped" });
