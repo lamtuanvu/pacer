@@ -9,6 +9,13 @@ pub struct Ctx {
     pub now: f64,
 }
 
+/// Seconds since the Unix epoch, as the TypeScript `Date.now() / 1000`.
+pub fn unix_now() -> f64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
+}
+
 impl Ctx {
     pub fn from_env() -> Self {
         let env: HashMap<String, String> = std::env::vars().collect();
@@ -22,10 +29,15 @@ impl Ctx {
             .get("PACER_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".pacer"));
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_or(0.0, |d| d.as_secs_f64());
-        Self::with(home, pacer_home, env, now)
+        Self::with(home, pacer_home, env, unix_now())
+    }
+
+    /// The same context at the current time; long-running servers call this per request.
+    pub fn at_now(&self) -> Self {
+        Self {
+            now: unix_now(),
+            ..self.clone()
+        }
     }
 
     pub fn with(

@@ -287,3 +287,86 @@ fn ordering_and_browser_rule_edges() {
         }
     ));
 }
+
+fn status_of(decision: Decision) -> u16 {
+    match decision {
+        Decision::Reject(response) => response.status().as_u16(),
+        Decision::Forward { .. } => 200,
+        Decision::Health | Decision::AppAuth => 0,
+    }
+}
+
+#[test]
+fn unnormalized_paths_are_refused_before_any_route_check() {
+    let (_dir, ctx) = fixture();
+    let token = auth::ensure_token(&ctx).unwrap();
+    let cookie = format!("pacer_session={}", sessions::create(&ctx).unwrap());
+    let request = |path: &str, auth: (&str, &str)| {
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("host", "127.0.0.1:4317")
+            .header(auth.0, auth.1)
+            .body(())
+            .unwrap()
+    };
+    let bearer = format!("Bearer {token}");
+    for path in [
+        "/v3/x/../session/exchange",
+        "/v3/./session/exchange",
+        "/v3/%2e%2e/v3/session/exchange",
+        "/v3/%2E/hello",
+        "/v3/tasks%2fx/session",
+        "/v3//hello",
+        "/v3/x\\..\\hello",
+    ] {
+        for auth in [
+            ("cookie", cookie.as_str()),
+            ("authorization", bearer.as_str()),
+        ] {
+            assert_eq!(
+                status_of(auth::classify(&request(path, auth), 4317, &token, &ctx)),
+                400,
+                "{path} {}",
+                auth.0
+            );
+        }
+    }
+    // A trailing slash stays a normal path.
+    assert_eq!(
+        status_of(auth::classify(
+            &request("/app/", ("authorization", bearer.as_str())),
+            4317,
+            &token,
+            &ctx
+        )),
+        200
+    );
+}
+
+#[test]
+fn internal_routes_are_not_public() {
+    let (_dir, ctx) = fixture();
+    let token = auth::ensure_token(&ctx).unwrap();
+    let req = Request::builder()
+        .uri("/_internal/app-page?status=1")
+        .header("host", "127.0.0.1:4317")
+        .header("authorization", format!("Bearer {token}"))
+        .body(())
+        .unwrap();
+    assert_eq!(status_of(auth::classify(&req, 4317, &token, &ctx)), 404);
+}
+
+#[test]
+fn sessions_expire_against_the_request_time() {
+    let (_dir, ctx) = fixture();
+    // A listener that started before the session expired: its start-up clock still accepts it.
+    let started = Ctx {
+        now: pacer_foundation::ctx::unix_now() - sessions::SESSION_SECONDS - 60.0,
+        ..ctx
+    };
+    let value = sessions::create(&started).unwrap();
+    assert!(sessions::check(&started, &value).unwrap());
+    // Requests use the current clock (serve::mod handles each request with `ctx.at_now()`).
+    assert!(!sessions::check(&started.at_now(), &value).unwrap());
+}

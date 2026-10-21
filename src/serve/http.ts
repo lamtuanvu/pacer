@@ -123,7 +123,8 @@ export function startServer(
         if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
         if (pathname === "/_internal/app-page") {
           const params = new URL(req.url).searchParams;
-          return appPage(params.get("message") ?? "", Number(params.get("status") ?? 200));
+          const status = Number(params.get("status") ?? 200);
+          return appPage(params.get("message") ?? "", Number.isInteger(status) && status >= 200 && status <= 599 ? status : 500);
         }
       } else {
         if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });

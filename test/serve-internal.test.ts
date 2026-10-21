@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { main } from "../src/cli";
 import { startServer } from "../src/serve/http";
 import { fakeCtx } from "./helpers";
+import { executorEnv } from "../src/exec/process";
 
 test("internal mode trusts only the internal token and keeps the bearer/cookie distinction", async () => {
   const ctx = fakeCtx({ now: Date.now() / 1000 });
@@ -26,6 +27,11 @@ test("internal mode trusts only the internal token and keeps the bearer/cookie d
     const page = await fetch(url("/_internal/app-page?status=401&message=Session%20ended."), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
     expect(page.status).toBe(401);
     expect(await page.text()).toContain("Session ended.");
+    for (const status of ["1", "99999", "abc"]) {
+      const odd = await fetch(url(`/_internal/app-page?status=${status}&message=x`), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
+      expect(odd.status).toBe(500);
+      expect(await odd.text()).not.toContain("at ");
+    }
   } finally { s.stop(); }
 });
 
@@ -39,3 +45,7 @@ for (const token of [undefined, "i".repeat(31)]) {
     expect(result.err).toContain("32");
   });
 }
+
+test("executors never inherit the internal credential", () => {
+  expect(executorEnv({ PACER_INTERNAL_TOKEN: "i".repeat(64), PATH: "/bin" }, {}).PACER_INTERNAL_TOKEN).toBeUndefined();
+});

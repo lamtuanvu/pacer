@@ -517,6 +517,9 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       }
       try {
         if (internal) {
+          // Only this process may hold the internal credential: task runners and executors inherit the environment.
+          delete process.env.PACER_INTERNAL_TOKEN;
+          delete ctx.env.PACER_INTERNAL_TOKEN;
           const s = startServer(() => fresh(ctx), { internal: { token: internalToken! } });
           process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
           return { code: 0, out: "", err: "", keepAlive: true };

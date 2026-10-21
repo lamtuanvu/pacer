@@ -24,7 +24,9 @@ struct Listener {
     token: String,
 }
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
-    let auth = match auth::classify(&req, state.port, &state.token, &state.ctx) {
+    // Session expiry is checked against the time of this request, never the start-up time.
+    let ctx = state.ctx.at_now();
+    let auth = match auth::classify(&req, state.port, &state.token, &ctx) {
         auth::Decision::Health => return state.heartbeat.response(),
         auth::Decision::Reject(response) => {
             if let Some(page) = response.extensions().get::<auth::AppPage>() {
@@ -79,8 +81,10 @@ pub async fn run_serve(
     env: HashMap<String, String>,
     port: u16,
 ) -> io::Result<()> {
-    let ctx = Ctx::from_env();
+    let mut ctx = Ctx::from_env();
     let token = auth::ensure_token(&ctx)?;
+    // Requests clone the context; the listener needs only the pacer home.
+    ctx.env.clear();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     if std::env::var("PACER_SERVE_ANNOUNCE").as_deref() == Ok("1") {

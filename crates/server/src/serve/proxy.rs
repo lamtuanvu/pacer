@@ -11,6 +11,11 @@ use hyper_util::{
     rt::TokioExecutor,
 };
 
+/// One pooled client, so requests reuse loopback connections to the core.
+fn client() -> &'static Client<HttpConnector, Body> {
+    static CLIENT: std::sync::OnceLock<Client<HttpConnector, Body>> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| Client::builder(TokioExecutor::new()).build_http())
+}
 pub fn unavailable(app: bool) -> Response {
     if app {
         (
@@ -66,8 +71,7 @@ pub async fn forward(mut req: Request<Body>, target: (u16, String), auth: AuthKi
     if headers(req.headers_mut(), &target.1, auth).is_err() {
         return unavailable(app);
     }
-    let client: Client<HttpConnector, Body> = Client::builder(TokioExecutor::new()).build_http();
-    match client.request(req).await {
+    match client().request(req).await {
         Ok(response) => {
             let (parts, body) = response.into_parts();
             Response::from_parts(parts, Body::from_stream(body.into_data_stream()))

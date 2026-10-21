@@ -62,6 +62,28 @@ fn reject(status: StatusCode, body: &'static str, app_message: Option<&'static s
     Decision::Reject(response)
 }
 
+/// True when no segment is empty, `.` or `..` (a trailing slash is allowed) and the path has no
+/// encoded dot, slash or backslash. Clients never send other forms; Bun would rewrite them.
+fn normalized(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix('/') else {
+        return false;
+    };
+    let lower = rest.to_ascii_lowercase();
+    if lower.contains("%2e")
+        || lower.contains("%2f")
+        || lower.contains("%5c")
+        || rest.contains('\\')
+    {
+        return false;
+    }
+    let segments: Vec<&str> = rest.split('/').collect();
+    let last = segments.len() - 1;
+    segments
+        .iter()
+        .enumerate()
+        .all(|(i, segment)| !matches!(*segment, "." | "..") && (!segment.is_empty() || i == last))
+}
+
 pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decision {
     let header = |name: &str| {
         req.headers()
@@ -80,6 +102,13 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         );
     }
     let path = req.uri().path();
+    // The core routes on the normalized path, so every check here must see that same path.
+    if !normalized(path) {
+        return reject(StatusCode::BAD_REQUEST, "bad request\n", None);
+    }
+    if path.starts_with("/_internal/") {
+        return reject(StatusCode::NOT_FOUND, "not found\n", None);
+    }
     let app = path.starts_with("/app/");
     if req.method() == "OPTIONS" {
         return reject(
