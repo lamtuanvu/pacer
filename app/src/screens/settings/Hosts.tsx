@@ -10,7 +10,7 @@ import { Button, TextAction } from "../../ds/Button";
 import { useDraft, useTaskContext } from "../task-shared";
 import { Feedback, Field, JobList, ResourceState, Section, time, useOperation, useResource, words } from "./shared";
 import { HostSessionSwitch } from "./HostSessionSwitch";
-import { HostsSection } from "./General";
+import { HostsSection } from "./HostsSection";
 export function RemoteHosts({alias}:{alias?:string}) {
  const [draft,setDraft,clear]=useDraft('pacer.settings.add-host',{alias:'',ssh:''}),action=useOperation(),check=useOperation();
  return <div className="u3-settings"><p className="u3-muted">pacer drives hosts over your own SSH config. Nothing is installed on them.</p><HostsSection onHostsPage/><Section id="add-host" title="Add host"><form onSubmit={e=>{e.preventDefault();void action.run('host.add',draft,async()=>{const result=await actionCheck(draft.alias);if(result)clear();});}}><div className="u3-settings-grid"><Field label="Name in pacer" help="Lower-case letters, digits, hyphens; “local” is reserved."><TextInput required pattern="[a-z0-9][a-z0-9-]*" value={draft.alias} onInput={e=>setDraft({...draft,alias:e.currentTarget.value})}/></Field><Field label="SSH alias from ~/.ssh/config" help="Must connect with BatchMode (no password prompt)."><TextInput required value={draft.ssh} onInput={e=>setDraft({...draft,ssh:e.currentTarget.value})}/></Field></div><Button variant="primary" type="submit" disabled={action.busy||draft.alias==='local'}>Connect and check</Button></form><Feedback action={action}/><Feedback action={check}/></Section>{alias&&<HostDetail alias={alias}/>}</div>;

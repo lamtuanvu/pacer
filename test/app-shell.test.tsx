@@ -89,7 +89,8 @@ test("settings counts are neutral while executor and host status badges use thei
     badges={{ strategies: 6, routing: '1 rule' }} />);
   expect(html).toMatch(/Accounts<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
   expect(html).toMatch(/Strategies<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
-  expect(html).toMatch(/pc-rail__badge--bad"[^>]*>1 down</);
+  expect(html).toMatch(/pc-rail__badge--bad"[^>]*>1</);
+  expect(html).toContain("1 need attention; 0 blocked");
   expect(html).toMatch(/pc-rail__badge--warn"[^>]*>1 needs setup</);
   expect(html).toContain('>1 rule</span>');
 });

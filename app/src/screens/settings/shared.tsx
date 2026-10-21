@@ -1,3 +1,5 @@
+import { useNotifications } from "../../data/notification-context";
+import { Alert } from "../../ds/Alert";
 import { createContext } from 'preact';
 import { jobKindCopy, jobStateCopy } from "../../../../src/view-model/copy";
 import { SegmentedControl, LoadingState, EmptyState, TextRow } from "../../ds/Patterns";
@@ -53,6 +55,7 @@ export async function performOperation(call:BrowserApi['call'],op:string,params:
  return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
 }
 export function useOperation(onDone?:()=>void) {
+ const notifications=useNotifications();
  const runner=useActions();
  const {api,state}=useTaskContext(),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<OperationResult>();const pending=useRef(false);
  const jobId=result?.jobId, eventJob=jobId?state.jobs[jobId]:undefined;
@@ -60,7 +63,7 @@ export function useOperation(onDone?:()=>void) {
  const completed=useRef<string>();
  useEffect(()=>{if(!jobId||job&&job.state!=='running')return;let active=true;let timer:ReturnType<typeof setTimeout>;
  const poll=async()=>{try{const current=await api.call<Job>('job.get',{id:jobId});if(active)setResult(r=>r?{...r,job:current}:r);}catch(e){if(active)setError(e);}if(active)timer=setTimeout(poll,1500);};void poll();return()=>{active=false;clearTimeout(timer);};},[api,jobId,job?.state]);
- useEffect(()=>{if(job&&job.state!=='running'&&completed.current!==job.id){completed.current=job.id;onDone?.();}},[job]);
+ useEffect(()=>{if(job&&job.state!=='running'&&completed.current!==job.id){completed.current=job.id;notifications?.notify({key:`job:${job.id}`,tone:job.state==='passed'?'success':'error',title:job.state==='passed'?'Check completed':'Check needs attention',message:job.error?.message});onDone?.();}},[job]);
  async function run(op:string,params:unknown,done?:(data:any)=>void) {
   if(pending.current)return;pending.current=true;setBusy(true);setError(undefined);setResult(undefined);
   try{const r=await performOperation(async <T,>(operation:string,payload:unknown)=>{
@@ -68,16 +71,17 @@ export function useOperation(onDone?:()=>void) {
    const outcome=await runner.run(key,{label:operation,op:operation,params:payload as Record<string,unknown>});
    if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message+('hint' in outcome&&outcome.hint?` · ${outcome.hint}`:''));
    return runner.result(key) as T;
-  },op,params);setResult(r);await done?.(r.data);if(!r.jobId)onDone?.();return r;}
+  },op,params);setResult(r);if(!r.jobId)notifications?.notify({key:`settings:${op}`,tone:"success",title:r.message==="Saved."?"Changes saved":r.message});await done?.(r.data);if(!r.jobId)onDone?.();return r;}
   catch(e){setError(e);}finally{pending.current=false;setBusy(false);}
  }
  return {busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};
 }
 export function JobProgress({job}:{job:Job}) {
- return <div className="u3-progress" role="status" aria-live="polite"><TextRow label="Check progress" value={jobKindCopy(job.kind)} meta={jobStateCopy(job.state)} /><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{jobStateCopy(step.state)}</span> {step.name}{step.detail&&<span className="u3-muted"> · {step.detail}</span>}</li>)}</ul>{job.error&&<><p>{job.error.message}</p>{job.error.hint&&<p>{job.error.hint}</p>}</>}</div>;
+ return <div className="u3-progress" role="status" aria-live="polite"><TextRow label="Check progress" value={jobKindCopy(job.kind)} meta={jobStateCopy(job.state)} /><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{jobStateCopy(step.state)}</span> {step.name}{step.detail&&<span className="u3-muted"> · {step.detail}</span>}</li>)}</ul>{job.error&&<Alert tone="error" title={job.error.message} announce={false}>{job.error.hint}</Alert>}</div>;
 }
 export function Feedback({action}:{action:ReturnType<typeof useOperation>}) {
- return <div className="u3-feedback" aria-live="polite"><ErrorMessage error={action.error}/>{action.result&&<><span>{action.result.message}</span>{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
+ const notifications=useNotifications();
+ return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&<span>{action.result.message}</span>}{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
 }
 export function Segment(props:{label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
 export const words=(value:string)=>value.replaceAll('_',' ');

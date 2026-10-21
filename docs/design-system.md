@@ -137,3 +137,17 @@ adaptation or dependency is introduced.
 Session details retain a specialized responsive main/activity layout. They compose canonical Tabs, Disclosure, Field, Select, Dialog, Button and StatusPill. Active sessions default to Output; ended sessions default to Brief, and an explicit tab selection stays selected during refreshes. Brief sections use API-provided fields; the original text remains in a collapsed disclosure. The executor report is formatted separately from the unmodified technical log; absent reports are not inferred from logs. Retry selection opens the canonical modal, with native keyboard controls, Escape dismissal, focus cycling/return, visible unavailable reasons, pending state and errors. Changes remain the service-provided diff rather than an inferred file summary.
 
 Completed task results retain their primary result workflow and offer a quiet Session details action. It opens the session workspace; Back to result returns without changing task state. Active tasks continue to open the session workspace directly.
+
+### App feedback: Alert and Toast
++
++`ds/Alert.tsx` owns severity presentation (`success`, `warning`, `error`, `info`), a visible glyph/title, wrapped detail and semantic announcement. Errors use `role=alert`; other severities use `role=status`. Set `announce=false` for duplicate diagnostic detail when its completion is already announced. Production consumers: shared ErrorMessage, settings conflicts/validation, job diagnostics and Toast.
++
++`ds/Toast.tsx` composes Alert and a named dismiss Button. `data/notification-context.tsx` mounts one app notification host outside route content, backed by `model/notifications.ts`. Success/info expire after five seconds, paused while hovered/focused; errors/warnings persist. Three notifications are visible with a bounded queue; operation keys deduplicate repeats. Notifications never take focus. Consumers notify only after confirmed mutations or completed jobs, never on polling. Screen drafts remain local until an explicit Save and do not trigger notifications while editing. Presentation modules import no API/store code. These are original in-repo components, with no upstream adaptation.
++
++The Executors table retains its specialized metadata columns. Priority controls use a fixed three-column layout; Save/Discard sit outside the table. Model identifiers scroll instead of wrapping mid-token. Settings editors load on demand via LazySettings; HostsSection is extracted to avoid eagerly importing all editors through the hosts screen. The root Screen imports concrete host/add modules to preserve this boundary; the settings barrel remains available for other consumers/tests.
++EOF
+cat >> .work/executors/progress.md <<'EOF'
+Task 1: regression RED→GREEN, 16 pass. Saved order was ignored by table projection; second Claude core reorder succeeds, so original message remains unconfirmed rather than assumed fixed.
+Task 2: atomic save RED→GREEN, 11 pass (includes imported fixture file's tests). New ops preserve old ones; lock serializes batch saves and optimistic source comparison protects external edits.
+Ruling: settings editors load on demand and HostsSection extracted to keep the established 60 KB initial app bundle budget. Existing barrel formed an eager import edge; Screen now imports concrete host/add modules.
+Tasks 3/4: draft and notification controller tests RED→GREEN (10 pass); DOM/native integration pending.
