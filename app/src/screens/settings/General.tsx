@@ -1,4 +1,9 @@
 import { UpdatesSection } from "./Updates";
+
+import { withQuery, type RouteQuery } from '../../router';
+import { DensityContext } from '../../ds/Density';
+import { SETTINGS_PAGES } from '../../settings-pages';
+import { Icon } from '../../ds/icons';
 import { DiagnosticsSection } from "./Diagnostics";
 import { ProjectStrategies } from "./ProjectStrategies";
 import { Checkbox, Disclosure, Range, Select, TextArea, TextInput } from "../../ds/Controls";
@@ -21,23 +26,45 @@ import type { RoutingRules, Rule } from '../../model/executors';
 import type { AgentPreview } from '../../model/settings';
 import { consentAction, plannerAgent } from "../../model/settings";
 import { Dialog, useTaskContext } from "../task-shared";
-import { Feedback, Field, ResourceState, Section, Segment, time, useOperation, useResource, words } from "./shared";
+import { Feedback, Field, ResourceState, Section, Segment, time, useOperation, useResource, words, SettingsPageContext } from "./shared";
 export interface SettingsData {config?:ConfigData;accounts?:Account[];routing?:RoutingRules;strategies?:StrategyRow[];notifications?:{level:string};updates?:{current:string;latest:string|null;available:boolean;error?:string;disabled?:boolean}}
-const sections=[['planner','Planner & pacing'],['accounts','Accounts'],['executors','Executors'],['machine','This machine'],['hosts','Remote hosts'],['routing','Routing'],['strategies','Strategies'],['updates','Updates'],['notifications','Notifications'],['appearance','Appearance'],['diagnostics','Diagnostics']] as const;
-export function SettingsGeneral({section,initialData={}}:{section?:string;initialData?:SettingsData}) {
- const {state}=useTaskContext();
- const config=useResource<RoutingRules>('routing.get',{},initialData.routing),strategies=useResource<StrategyRow[]>('strategy.list',{},initialData.strategies);
- const down=state.snapshot?.executors?.filter(e=>e.state==='down'||e.state==='failing').length??0,hosts=state.snapshot?.hosts?.filter(h=>h.state==='needs_setup').length??0;
- const badges:Record<string,string|number>={accounts:state.snapshot?.accounts?.length??initialData.accounts?.length??0,executors:down?`${down} down`:'',hosts:hosts?`${hosts} needs setup`:'',routing:config.data?`${config.data.rules.length} ${config.data.rules.length === 1 ? "rule" : "rules"}`:'',strategies:strategies.data?.length??''};
- useEffect(()=>{if(section)document.getElementById(section==='planner'||section==='general'?'pacing':section==='runners'?'executors':section)?.scrollIntoView();},[section]);
- return <div className="u3-settings"><p className="u3-muted">Changes apply on the next routing decision.</p><nav className="u3-anchor-nav" aria-label="Settings sections">{sections.map(([id,label])=><TextAction className="pc-text-action" key={id} aria-current={section===id?"page":undefined} href={`#/settings/${id}`}>{label}{badges[id]!==undefined&&badges[id]!==''&&<span className={`u3-nav-badge u3-nav-badge--${id==='executors'?'bad':id==='hosts'?'warn':'neutral'}`}>{badges[id]}</span>}</TextAction>)}</nav><div className="u3-general-sections"><PlannerPacing initialData={initialData.config}/><AccountsSection initialData={initialData.accounts}/><ExecutorsSection/><MachineSection initialData={initialData.config}/><HostsSection/><RoutingSection initialData={initialData.routing}/><StrategiesSection initialData={initialData.strategies}/><UpdatesSection initialData={initialData.updates}/><NotificationsSection initialData={initialData.notifications}/><AppearanceSection/><DiagnosticsSection/></div></div>;
+/** Mount only the selected editor: inactive pages must not fetch or run effects. */
+export function SettingsGeneral({ section, initialData = {}, query = {repo:null,scope:null} }: { section?: string; initialData?: SettingsData; query?: RouteQuery }) {
+  let content: ComponentChildren;
+  switch (section) {
+    case 'planner': content = <PlannerPacing initialData={initialData.config}/>; break;
+    case 'accounts': content = <AccountsSection initialData={initialData.accounts}/>; break;
+    case 'executors': content = <ExecutorsSection/>; break;
+    case 'machine': content = <MachineSection initialData={initialData.config}/>; break;
+    case 'routing': content = <RoutingSection initialData={initialData.routing}/>; break;
+    case 'strategies': content = <StrategiesSection initialData={initialData.strategies}/>; break;
+    case 'updates': content = <UpdatesSection initialData={initialData.updates}/>; break;
+    case 'notifications': content = <NotificationsSection initialData={initialData.notifications}/>; break;
+    case 'appearance': content = <AppearanceSection/>; break;
+    case 'diagnostics': content = <DiagnosticsSection/>; break;
+    default: content = <GeneralOverview query={query}/>;
+  }
+  return <DensityContext.Provider value="settings"><SettingsPageContext.Provider value={section === 'planner' ? 'pacing' : section ?? null}>
+    <div className="u3-settings u3-settings-page"><div className="u3-general-sections">{content}</div>
+      <p className="u3-settings-note">Changes apply on the next routing decision.</p>
+    </div>
+  </SettingsPageContext.Provider></DensityContext.Provider>;
 }
+
+function GeneralOverview({query}: {query: RouteQuery}) {
+  return <Section id="general" title="Preferences" detail="Manage how pacer plans, delegates, and keeps you informed.">
+    <div className="u3-settings-links">{SETTINGS_PAGES.filter(page => page.id && page.id !== 'add-executor').map(page =>
+      <TextAction key={page.id} href={withQuery(`#/settings/${page.id}`, query)} className="u3-settings-link"><Icon name={page.icon}/>{page.label}</TextAction>
+    )}</div>
+  </Section>;
+}
+
 function Setting({label,help,children}:{label:string;help:string;children:ComponentChildren}) {return <div className="u3-setting"><div><strong>{label}</strong><div className="u3-muted">{help}</div></div><div>{children}</div></div>;}
 export function PlannerPacing({initialData}:{initialData?:ConfigData}) {
  const query=useResource('config.get',{},initialData),action=useOperation(query.reload),{state}=useTaskContext();const [chosen,setChosen]=useState('');
  const config=query.data, value=(key:string)=>String(config?.keys[key]?.value??'');
  const save=(key:string,value:string|number)=>void action.run('config.set',{key,value});
- return <Section id="pacing" title="Planner & pacing"><ResourceState resource={query}>{config&&<><Setting label="Planner" help="Plans and reviews; paced weekly"><div className="u3-agent"><AgentMark agent={state.snapshot?.planner?.agent??plannerAgent(value('planner'))}/><Field label="Planner"><Select className="pc-select" value={value('planner')} onChange={e=>setChosen(e.currentTarget.value)}><option value="" disabled>Choose a planner</option>{config.planners.map(p=><option key={p}>{p}</option>)}</Select></Field></div><p className="u3-muted">{state.snapshot?.planner?.advice}</p><Button disabled={!value('planner')} onClick={()=>setChosen(value('planner'))}>Review integration changes</Button></Setting><Setting label="Policy" help="How work spreads across executors"><Segment label="Pacing policy" value={value('pacing.policy')} disabled={action.busy} onChange={v=>save('pacing.policy',v)} options={[{value:'priority',label:'Priority'},{value:'even',label:'Even'},{value:'burn-before-reset',label:'Burn before reset'},{value:'cheapest-first',label:'Cheapest first'}]}/><p className="u3-muted">{value('pacing.policy')==='priority'?'Use executors in the order below; skip one only when it’s out of quota or ahead of pace.':'pacer applies this policy on the next routing decision.'}</p></Setting><Setting label="Planner reserve" help="Kept back for planning and review"><Field label="Planner reserve (%)"><div className="u3-reserve"><Range  min="0" max="50" step="5" value={value('pacing.planner_reserve')} disabled={action.busy} onChange={e=>{if(e.currentTarget.validity.valid)save('pacing.planner_reserve',Number(e.currentTarget.value));}}/><output>{value('pacing.planner_reserve')}%</output><span className="u3-muted">0–50%</span></div></Field></Setting><Setting label="Multiple accounts" help="When one agent has several"><div className="u3-accounts-mode"><Segment label="Account mode" value={value('pacing.accounts')} disabled={action.busy} onChange={v=>save('pacing.accounts',v)} options={[{value:'spread',label:'Spread'},{value:'fill',label:'Fill'}]}/><label className="u3-fill">Move to the next account at <TextInput type="number" min="50" max="100" disabled={action.busy||value('pacing.accounts')!=='fill'} value={value('pacing.fill_threshold')||'80'} onChange={e=>{if(e.currentTarget.validity.valid)save('pacing.fill_threshold',Number(e.currentTarget.value));}}/><span>% used</span></label></div></Setting></>}</ResourceState><Feedback action={action}/>{chosen&&<PlannerConsent planner={chosen} close={()=>setChosen('')} done={query.reload}/>}</Section>;
+ return <Section id="pacing" title="Planner & pacing"><ResourceState resource={query}>{config&&<><Setting label="Planner" help="Plans and reviews; paced weekly"><div className="u3-agent"><AgentMark agent={state.snapshot?.planner?.agent??plannerAgent(value('planner'))}/><Select aria-label="Planner" className="pc-select" value={value('planner')} onChange={e=>setChosen(e.currentTarget.value)}><option value="" disabled>Choose a planner</option>{config.planners.map(p=><option key={p}>{p}</option>)}</Select></div><p className="u3-muted">{state.snapshot?.planner?.advice}</p><Button disabled={!value('planner')} onClick={()=>setChosen(value('planner'))}>Review integration changes</Button></Setting><Setting label="Policy" help="How work spreads across executors"><Segment label="Pacing policy" value={value('pacing.policy')} disabled={action.busy} onChange={v=>save('pacing.policy',v)} options={[{value:'priority',label:'Priority'},{value:'even',label:'Even'},{value:'burn-before-reset',label:'Burn before reset'},{value:'cheapest-first',label:'Cheapest first'}]}/><p className="u3-muted">{value('pacing.policy')==='priority'?'Use the order on the Executors page; skip one only when it’s out of quota or ahead of pace.':'pacer applies this policy on the next routing decision.'}</p></Setting><Setting label="Planner reserve" help="Kept back for planning and review"><div className="u3-reserve"><Range aria-label="Planner reserve (%)"  min="0" max="50" step="5" value={value('pacing.planner_reserve')} disabled={action.busy} onChange={e=>{if(e.currentTarget.validity.valid)save('pacing.planner_reserve',Number(e.currentTarget.value));}}/><output>{value('pacing.planner_reserve')}%</output><span className="u3-muted">0–50%</span></div></Setting><Setting label="Multiple accounts" help="When one agent has several"><div className="u3-accounts-mode"><Segment label="Account mode" value={value('pacing.accounts')} disabled={action.busy} onChange={v=>save('pacing.accounts',v)} options={[{value:'spread',label:'Spread'},{value:'fill',label:'Fill'}]}/><label className="u3-fill">Move to the next account at <TextInput type="number" min="50" max="100" disabled={action.busy||value('pacing.accounts')!=='fill'} value={value('pacing.fill_threshold')||'80'} onChange={e=>{if(e.currentTarget.validity.valid)save('pacing.fill_threshold',Number(e.currentTarget.value));}}/><span>% used</span></label></div></Setting></>}</ResourceState><Feedback action={action}/>{chosen&&<PlannerConsent planner={chosen} close={()=>setChosen('')} done={query.reload}/>}</Section>;
 }
 function PlannerConsent({planner,close,done}:{planner:string;close:()=>void;done:()=>void}) {
  const agent=plannerAgent(planner),query=useResource<AgentPreview>('agent.preview',{agent}),action=useOperation(done);
@@ -77,7 +104,7 @@ function RoutingSection({initialData}:{initialData?:RoutingRules}) {
 }
 function StrategiesSection({initialData}:{initialData?:StrategyRow[]}) {
  const query=useResource('strategy.list',{},initialData),action=useOperation(query.reload);const [building,setBuilding]=useState(false),[brief,setBrief]=useState('');
- return <Section id="strategies" title="Strategies" detail="Saved sets of everything above. Switch anytime." actions={<Button onClick={()=>setBuilding(v=>!v)}>New from a brief</Button>}><ResourceState resource={query} empty="No strategies yet.">{query.data?.map(strategy=><div className="u3-setting" key={strategy.name}><strong>{strategy.name}</strong><div className="u3-row"><span>{strategy.summary}</span>{strategy.active?<span>Active</span>:<Button disabled={action.busy} onClick={()=>void action.run('strategy.use',{name:strategy.name})}>Use</Button>}</div></div>)}</ResourceState>{building&&<form className="pc-card" onSubmit={e=>{e.preventDefault();void action.run('strategy.build',{brief});}}><Field label="What should this strategy do?"><TextArea value={brief} maxLength={2000} required onInput={e=>setBrief(e.currentTarget.value)}/></Field><Button type="submit" disabled={action.busy}>Build strategy</Button><p className="u3-muted">Opens a planning session or returns a command to run.</p></form>}<Feedback action={action}/></Section>;
+ return <Section id="strategies" title="Strategies" detail="Saved routing and pacing settings. Switch anytime." actions={<Button onClick={()=>setBuilding(v=>!v)}>New from a brief</Button>}><ResourceState resource={query} empty="No strategies yet.">{query.data?.map(strategy=><div className="u3-setting" key={strategy.name}><strong>{strategy.name}</strong><div className="u3-row"><span>{strategy.summary}</span>{strategy.active?<span>Active</span>:<Button disabled={action.busy} onClick={()=>void action.run('strategy.use',{name:strategy.name})}>Use</Button>}</div></div>)}</ResourceState>{building&&<form className="pc-card" onSubmit={e=>{e.preventDefault();void action.run('strategy.build',{brief});}}><Field label="What should this strategy do?"><TextArea value={brief} maxLength={2000} required onInput={e=>setBrief(e.currentTarget.value)}/></Field><Button type="submit" disabled={action.busy}>Build strategy</Button><p className="u3-muted">Opens a planning session or returns a command to run.</p></form>}<Feedback action={action}/></Section>;
 }
 function NotificationsSection({initialData}:{initialData?:{level:string}}) {
  const query=useResource('notifications.get',{},initialData),action=useOperation(query.reload);
