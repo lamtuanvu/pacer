@@ -9,10 +9,10 @@ const op = <P extends z.ZodTypeAny>(definition: OpDef<P>) => definition as unkno
 export const desktopOps: Record<string, OpDef> = {
   "desktop.capture.register": op({
     description: "Renew a capture worker credential for an existing connected desktop instance after expiry or recovery.",
-    params: z.object({ client_id: id }),
+    params: z.object({ client_id: id, worker_token: credential }),
     handler: (ctx, params) => {
       if (!listClients(ctx).some(client => client.client_id === params.client_id && client.kind === "desktop")) throw new CoreError("not_found", "Desktop instance is not connected");
-      return { worker_token: captureBroker(ctx.pacerHome).register(params.client_id) };
+      return { worker_token: captureBroker(ctx.pacerHome).renew(params.client_id, params.worker_token) };
     },
   }),
   "desktop.capture.targets": op({ description: "List owned windows reported by connected authenticated desktop capture workers.", params: z.object({}), handler: ctx => captureBroker(ctx.pacerHome).targets() }),

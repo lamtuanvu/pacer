@@ -264,7 +264,10 @@ Launching an executable does not bypass Tauri's application singleton.
 
 The normal desktop app supports `desktop.capture.*` on protocol v3. It reports
 owned main/tray window IDs through its authenticated capture worker. Expired
-worker credentials are renewed over the existing service session; transient
+worker credentials are renewed with the existing instance proof over the
+service session; public client IDs cannot obtain another worker credential.
+Renewal proof lasts for the current service lifetime and becomes invalid on
+service restart. A newly registered desktop receives a new client ID. Transient
 observer failures retry with bounded backoff without repeating UI actions.
 PNG validation limits compressed images to 16 MiB, decoded data to 128 MiB and
 each dimension to 16384 pixels. Binary uploads reserve one reader per request

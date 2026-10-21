@@ -74,5 +74,6 @@ async fn capture_claim_recovers_expired_worker_without_restarting_service_sessio
     assert_eq!(token, "renewed");
     let requests = server.join().unwrap();
     assert!(requests[1].starts_with("POST /v3/ops/desktop.capture.register "));
+    assert!(requests[1].contains("expired"));
     assert!(requests[2].contains("renewed"));
 }

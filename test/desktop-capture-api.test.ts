@@ -82,3 +82,21 @@ test("capture-time window identity must match the requested target", () => {
   const request = broker.request("identity", "main", "window", "99"); broker.claim("identity", token);
   rejects("conflict", () => broker.complete(request.request_id, token, png, metadata()));
 });
+
+
+test("renewal requires issued instance proof even after expiry and rejects restart proofs", async () => {
+  const { fakeCtx } = await import("./helpers");
+  const { callOp } = await import("../src/api/ops");
+  const ctx = fakeCtx();
+  const desktop = await callOp(ctx, "client.register", {kind:"desktop", version:"test", capture:true}) as {client_id:string; capture_worker:string};
+  const other = await callOp(ctx, "client.register", {kind:"desktop", version:"test", capture:true}) as {client_id:string; capture_worker:string};
+  await expect(callOp(ctx, "desktop.capture.register", {client_id:desktop.client_id})).rejects.toThrow();
+  await expect(callOp(ctx, "desktop.capture.register", {client_id:desktop.client_id, worker_token:other.capture_worker})).rejects.toThrow();
+  let now=0; const broker = new CaptureBroker(() => now); const proof=broker.register("owned");
+  now=60001;
+  expect(broker.targets()).toEqual([]);
+  expect(broker.renew("owned",proof)).toBe(proof);
+  expect(broker.claim("owned",proof)).toBeNull();
+  rejects("not_allowed",()=>new CaptureBroker().renew("owned",proof));
+  rejects("not_allowed",()=>broker.renew("foreign",proof));
+});

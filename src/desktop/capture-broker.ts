@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { captureMetadataSchema, type CaptureMetadata } from "./capture-contract";
 export type { CaptureMetadata } from "./capture-contract";
 import { validatePng } from "./png";
@@ -11,19 +11,34 @@ export interface DesktopWindow { label: "main" | "tray"; window_id: string; pid:
 
 /** Coordinates owned-window capture; no OS/window implementation or arbitrary paths. */
 export class CaptureBroker {
+  private readonly renewalKey = randomBytes(32);
+  private proof(client_id: string, nonce: string): string {
+    return createHmac("sha256", this.renewalKey).update(JSON.stringify([client_id, nonce])).digest("hex").slice(0, 32);
+  }
   private workers = new Map<string, { token: string; expires_at: number }>();
   private windows = new Map<string, DesktopWindow[]>();
   private requests = new Map<string, CaptureRequest>();
   constructor(private now: () => number = Date.now) {}
   private prune() {
     for (const [id, request] of this.requests) if (request.expires_at < this.now()) this.requests.delete(id);
-    for (const [id, worker] of this.workers) if (worker.expires_at < this.now()) this.workers.delete(id);
+    for (const [id, worker] of this.workers) if (worker.expires_at < this.now()) { this.workers.delete(id); this.windows.delete(id); }
   }
   register(client_id: string): string {
     this.prune();
     if (this.workers.size >= 64 && !this.workers.has(client_id)) throw new CoreError("conflict", "Too many desktop capture workers");
-    const token = randomBytes(32).toString("hex");
+    const nonce = randomBytes(16).toString("hex");
+    const token = nonce + this.proof(client_id, nonce);
     this.workers.set(client_id, { token, expires_at: this.now() + 60000 }); return token;
+  }
+  renew(client_id: string, token: string): string {
+    if (!/^[0-9a-f]{64}$/.test(token) || !timingSafeEqual(Buffer.from(token.slice(32)), Buffer.from(this.proof(client_id, token.slice(0, 32)))))
+      throw new CoreError("not_allowed", "Desktop instance renewal proof rejected");
+    this.prune();
+    if (this.workers.size >= 64 && !this.workers.has(client_id)) throw new CoreError("conflict", "Too many desktop capture workers");
+    const active = this.workers.get(client_id);
+    if (active && active.token !== token) throw new CoreError("not_allowed", "Desktop instance credential was replaced");
+    this.workers.set(client_id, {token, expires_at: this.now() + 60000});
+    return token;
   }
   private authorize(client_id: string, token: string) {
     this.prune(); const worker = this.workers.get(client_id);

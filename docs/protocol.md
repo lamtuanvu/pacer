@@ -1210,10 +1210,15 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "worker_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   },
   "required": [
-    "client_id"
+    "client_id",
+    "worker_token"
   ],
   "additionalProperties": false
 }
@@ -3792,7 +3797,7 @@ HTTP `subscribe` reconnects with `Last-Event-ID` to resume from the last seen ev
 
 ## Desktop capture images
 
-Desktop clients enroll with `client.register` (`kind: desktop`, `capture: true`) and renew expired worker credentials through `desktop.capture.register`. Workers claim queued requests with `desktop.capture.claim`.
+Desktop clients enroll with `client.register` (`kind: desktop`, `capture: true`) and renew expired worker credentials through `desktop.capture.register` with their existing `worker_token` as instance proof. A public client ID alone cannot enroll or replace a worker. Proof is bound to the client instance and current service lifetime; a service restart requires fresh client registration. Workers claim queued requests with `desktop.capture.claim`.
 
 `POST /v3/desktop/capture/<request_id>/image` uploads PNG bytes after normal Host, bearer/cookie and Origin checks. Required headers are `X-Pacer-Capture-Worker`, `X-Pacer-Capture-Method`, `X-Pacer-Capture-Scale`, and `X-Pacer-Capture-Metadata` (JSON matching the capture metadata schema: method, scale, native window_id, pid, app_version, app_sha256, captured_at_ms, viewport_width and viewport_height). Metadata must identify the requested window and agree with decoded image geometry. Only one upload per claim may read at a time; duplicates return 409. Uploads expire after at most 10 seconds or the request deadline. PNGs are limited to 16 MiB compressed, 128 MiB decoded and 16384 pixels per dimension.
 

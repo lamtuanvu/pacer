@@ -185,7 +185,7 @@ async fn claim_next(
             let registration = session
                 .op(
                     "desktop.capture.register",
-                    &serde_json::json!({"client_id":client_id}),
+                    &serde_json::json!({"client_id":client_id,"worker_token":credential}),
                 )
                 .await?;
             *credential = registration["worker_token"]
