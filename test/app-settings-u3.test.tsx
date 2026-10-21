@@ -49,7 +49,7 @@ test('host list and detail expose loading and empty states',()=>{
 });
 test('job progress uses service words and steps, including error hints',()=>{
  const html=renderToString(<JobProgress job={{...job,state:'failed',error:{code:'bad',message:'Check failed',hint:'Sign in on host'}}}/>);
- for(const text of ['CLI found','Test task','failed','Check failed','Sign in on host'])expect(html).toContain(text);
+ for(const text of ['CLI found','Test task','Failed','Check failed','Sign in on host'])expect(html).toContain(text);
 });
 test('operation helper preserves response and error details, and follows bare or wrapped jobs',async()=>{
  const calls:any[]=[];
@@ -175,7 +175,7 @@ test('Settings and host executors share uncertainty; retained account usage is h
 test('Executors copy matches routing: a failed check does not skip an executor',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
- expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention. Recent task failures means two or more tasks failed in the past 24 hours; a passed check does not clear that history. Routing keeps using executors with either warning. Disable an executor to skip it.');
+ expect(html).toContain('Unavailable executors are skipped; warning states may still receive work.');
 });
 
 test('a not-tested endpoint executor reads Not tested, not Ready, in Executors',()=>{

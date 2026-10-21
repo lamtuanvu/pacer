@@ -1,3 +1,5 @@
+import { canLeaveScreen } from "./data/navigation-guard";
+import { NotificationProvider } from "./data/notification-context";
 import { SetupContext } from "./screens/setup/context";
 import { render } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -33,7 +35,16 @@ function App() {
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
     const stop = store.start();
-    const navigate = () => setHash(location.hash);
+    let accepted = location.hash, navigating = false;
+    const navigate = async () => {
+      const target = location.hash;
+      if (target === accepted) return;
+      history.replaceState(null, '', accepted);
+      if (navigating) return;
+      navigating = true;
+      try { if (await canLeaveScreen()) { accepted=target; history.replaceState(null,'',target); setHash(target); } }
+      finally { navigating=false; }
+    };
     window.addEventListener("hashchange", navigate);
     return () => { unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
   }, []);
@@ -95,4 +106,4 @@ function App() {
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
 }
-render(<App />, document.getElementById("app")!);
+render(<NotificationProvider><App /></NotificationProvider>, document.getElementById("app")!);

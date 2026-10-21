@@ -140,6 +140,14 @@ Session details retain a specialized responsive main/activity layout. They compo
 
 Completed task results retain their primary result workflow and offer a quiet Session details action. It opens the session workspace; Back to result returns without changing task state. Active tasks continue to open the session workspace directly.
 
+### App feedback: Alert and Toast
+
+`ds/Alert.tsx` owns severity presentation (`success`, `warning`, `error`, `info`), a visible glyph/title, wrapped detail and semantic announcement. Errors use `role=alert`; other severities use `role=status`. Set `announce=false` for duplicate diagnostic detail when its completion is already announced. Production consumers: shared ErrorMessage, settings conflicts/validation, job diagnostics and Toast.
+
+`ds/Toast.tsx` composes Alert and a named dismiss Button. `data/notification-context.tsx` mounts one app notification host outside route content, backed by `model/notifications.ts`. Success/info expire after five seconds, paused while hovered/focused; errors/warnings persist. Three notifications are visible with a bounded queue; operation keys deduplicate repeats. Notifications never take focus. Consumers notify only after confirmed mutations or completed jobs, never on polling. Screen drafts remain local until an explicit Save and do not trigger notifications while editing. Presentation modules import no API/store code. These are original in-repo components, with no upstream adaptation.
+
+The Executors table retains its specialized metadata columns. Priority controls use a fixed three-column layout; Save/Discard sit outside the table. Model identifiers scroll instead of wrapping mid-token. Settings editors load on demand via LazySettings; HostsSection is extracted to avoid eagerly importing all editors through the hosts screen. The root Screen imports concrete host/add modules to preserve this boundary; the settings barrel remains available for other consumers/tests.
+
 ### Update notification
 
 `UpdateNoticeCard({ version, restart, later, busy, narrow, children })` is the canonical nonmodal bottom-right update panel, consumed by the app shell's `UpdateNotice`. Ready, pending and inline error states use existing Button and status semantics. Arrival never steals focus; busy actions retain focus and reject activation. Narrow layouts leave room above the bottom navigation and safe area. The shell owns capability checks, per-installation/version dismissal for the app session, confirmation and the existing revision-checked restart operation. The Updates screen retains the detailed status and controls. This is an original composition of existing primitives; no new upstream code or dependency is used.
