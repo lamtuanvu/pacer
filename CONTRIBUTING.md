@@ -12,6 +12,8 @@ The test script pins `TZ=Asia/Ho_Chi_Minh` because some tests depend on local da
 
 When changing `app/`, also run `bun run app:build` and include its generated assets. A test checks that the embedded app assets are fresh. Re-run tests after rebuilding.
 
+Regenerate client protocol docs with `bun run protocol:doc` and plugin protocol docs with `bun run plugin:protocol`.
+
 Discuss significant changes in an issue first. Keep pull requests focused, explain the behavior changed, link relevant issues and describe validation. Use a Conventional Commit PR title, for example `fix: handle missing usage readings` or `docs: clarify executor setup`. PRs are squash merged; the PR title becomes the commit on `main`.
 
 ## Developer Certificate of Origin
