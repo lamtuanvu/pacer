@@ -475,6 +475,7 @@ mod tests {
         )
         .is_err());
     }
+    #[cfg(target_os = "macos")]
     #[test]
     fn ordinary_bootstrap_refuses_redirected_maintenance_directory() {
         use std::os::unix::fs::{symlink, PermissionsExt};
