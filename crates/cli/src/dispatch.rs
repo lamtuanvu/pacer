@@ -24,13 +24,14 @@ pub fn main(argv: Vec<String>) -> i32 {
     match resolve_core(&env, &exe) {
         Ok(core) => {
             let env = child_env(&env, &exe);
-            if args.first().is_some_and(|a| a == "api") && args.iter().any(|a| a == "--stdio") {
+            // Only the exact transport forms run natively; usage, help and errors stay the core's.
+            let words: Vec<&str> = args.iter().map(String::as_str).collect();
+            if words == ["api", "--stdio"] {
                 pacer_server::run_stdio_blocking(core, env)
-            } else if args.first().is_some_and(|a| a == "serve") {
+            } else if matches!(words.as_slice(), ["serve"] | ["serve", "--port", _]) {
                 let value = args
-                    .windows(2)
-                    .find(|pair| pair[0] == "--port")
-                    .map(|pair| pair[1].clone())
+                    .get(2)
+                    .cloned()
                     .or_else(|| env.get("PACER_PORT").cloned())
                     .unwrap_or_else(|| "4317".into());
                 match value.parse::<u16>() {

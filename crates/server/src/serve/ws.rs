@@ -12,6 +12,18 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::{Message as CoreMessage, client::IntoClientRequest};
 
+fn relay(refused: axum::http::Response<Option<Vec<u8>>>) -> Response {
+    let (parts, body) = refused.into_parts();
+    let mut response = Response::new(Body::from(body.unwrap_or_default()));
+    *response.status_mut() = parts.status;
+    for name in ["content-type", "x-pacer"] {
+        if let Some(value) = parts.headers.get(name) {
+            response.headers_mut().insert(name, value.clone());
+        }
+    }
+    response
+}
+
 pub async fn bridge(req: Request<Body>, target: (u16, String), auth: AuthKind) -> Response {
     let url = format!(
         "ws://127.0.0.1:{}{}",
@@ -44,6 +56,8 @@ pub async fn bridge(req: Request<Body>, target: (u16, String), auth: AuthKind) -
     };
     let (core, _) = match tokio_tungstenite::connect_async(upstream).await {
         Ok(value) => value,
+        // The core refused the upgrade (unknown task, conflict, bad hello): relay its answer.
+        Err(tokio_tungstenite::tungstenite::Error::Http(refused)) => return relay(*refused),
         Err(_) => return proxy::unavailable(false),
     };
     upgrade.on_upgrade(move |socket| async move {

@@ -10,7 +10,7 @@ pub fn agent_key(agent: &str) -> Option<&str> {
 }
 pub fn agent_info(agent: &str) -> (&str, &str) {
     match agent_key(agent) {
-        Some("claude-code") => ("Claude", "D97757"),
+        Some("claude-code") => ("Claude Code", "D97757"),
         Some("codex") => ("Codex", "fafafa"),
         Some("cursor") => ("Cursor", "fafafa"),
         Some("agy") => ("Antigravity", "4285F4"),

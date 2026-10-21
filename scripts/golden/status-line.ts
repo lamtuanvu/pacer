@@ -21,7 +21,8 @@ import fixture from "../../test/fixtures/ui/snapshot.json";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const outDir = join(repoRoot, "crates", "cli", "tests", "golden");
-const outPath = join(outDir, "status-line.json");
+export const statusLineGoldenPath = join(outDir, "status-line.json");
+const outPath = statusLineGoldenPath;
 
 const snapshot = () => structuredClone(fixture) as ClientSnapshot;
 const planner = (s: ClientSnapshot) => s.planner!;
@@ -64,7 +65,8 @@ counts(invalidCounts).attention = NaN;
 
 /** `Status`-shaped input: the `generatedAt`-present branch of lineFields.
  *  Mirrors the snapshot scenario for the installed agent status-bar capture path. */
-const statusInput: Status = {
+// Recorded as a loose, older Status shape on purpose: the renderer must tolerate it.
+const statusInput = {
   generatedAt: 1800000000,
   strategy: "default",
   planner: "claude-code",
@@ -81,7 +83,7 @@ const statusInput: Status = {
     },
   ],
   executors: { ranked: [], excluded: [] },
-};
+} as unknown as Status;
 
 interface Input { label: string; value: ClientSnapshot | Status | null }
 const inputs: Input[] = [
@@ -100,16 +102,23 @@ const inputs: Input[] = [
 const widths = [120, 60, 40, 20];
 const colors = [true, false];
 
-const cases: unknown[] = [];
-for (const { value } of inputs) {
-  const fields = lineFields(value);
-  for (const width of widths) {
-    for (const color of colors) {
-      cases.push({ input: value, width, color, out: renderLine(value, { width, color }), fields });
+/** The golden cases, as the TypeScript renderer produces them now. */
+export function recordStatusLine(): unknown[] {
+  const cases: unknown[] = [];
+  for (const { value } of inputs) {
+    const fields = lineFields(value);
+    for (const width of widths) {
+      for (const color of colors) {
+        cases.push({ input: value, width, color, out: renderLine(value, { width, color }), fields });
+      }
     }
   }
+  return cases;
 }
 
-mkdirSync(outDir, { recursive: true });
-writeFileSync(outPath, JSON.stringify(cases, null, 1) + "\n");
-console.log(`wrote ${cases.length} cases to ${outPath}`);
+if (import.meta.main) {
+  const cases = recordStatusLine();
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(outPath, JSON.stringify(cases, null, 1) + "\n");
+  console.log(`wrote ${cases.length} cases to ${outPath}`);
+}

@@ -555,7 +555,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -622,10 +624,10 @@
   },
   "width": 120,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -1192,7 +1194,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -1259,10 +1263,10 @@
   },
   "width": 120,
   "color": false,
-  "out": "▬┃ Claude 63%·77  ▸2  ⚑4",
+  "out": "▬┃ Claude Code 63%·77  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -1829,7 +1833,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -1896,10 +1902,10 @@
   },
   "width": 60,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -2466,7 +2472,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -2533,10 +2541,10 @@
   },
   "width": 60,
   "color": false,
-  "out": "▬┃ Claude 63%·77  ▸2  ⚑4",
+  "out": "▬┃ Claude Code 63%·77  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -3103,7 +3111,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -3173,7 +3183,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m 63%·77 \u001b[38;2;147;197;253m▸2\u001b[0m \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -3740,7 +3750,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -3810,7 +3822,7 @@
   "out": "▬┃ 63%·77 ▸2 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -4377,7 +4389,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -4447,7 +4461,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m63 \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -5014,7 +5028,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -5084,7 +5100,7 @@
   "out": "▬┃63 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -5651,7 +5667,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -5718,10 +5736,10 @@
   },
   "width": 120,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m usage unknown  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m usage unknown  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": null,
    "pacePct": null,
@@ -6288,7 +6306,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -6355,10 +6375,10 @@
   },
   "width": 120,
   "color": false,
-  "out": "▬┃ Claude usage unknown  ▸2  ⚑4",
+  "out": "▬┃ Claude Code usage unknown  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": null,
    "pacePct": null,
@@ -6925,7 +6945,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -6992,10 +7014,10 @@
   },
   "width": 60,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m usage unknown  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m usage unknown  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": null,
    "pacePct": null,
@@ -7562,7 +7584,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -7629,10 +7653,10 @@
   },
   "width": 60,
   "color": false,
-  "out": "▬┃ Claude usage unknown  ▸2  ⚑4",
+  "out": "▬┃ Claude Code usage unknown  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": null,
    "pacePct": null,
@@ -8199,7 +8223,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -8269,7 +8295,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m usage unknown \u001b[38;2;147;197;253m▸2\u001b[0m \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": null,
    "pacePct": null,
@@ -8836,7 +8862,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -8906,7 +8934,7 @@
   "out": "▬┃ usage unknown ▸2 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": null,
    "pacePct": null,
@@ -9473,7 +9501,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -9543,7 +9573,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m? \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": null,
    "pacePct": null,
@@ -10110,7 +10140,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -10180,7 +10212,7 @@
   "out": "▬┃? ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": null,
    "pacePct": null,
@@ -10747,7 +10779,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -10814,10 +10848,10 @@
   },
   "width": 120,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77  \u001b[38;2;147;197;253m▸2\u001b[0m  relaxed",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77  \u001b[38;2;147;197;253m▸2\u001b[0m  relaxed",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -11384,7 +11418,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -11451,10 +11487,10 @@
   },
   "width": 120,
   "color": false,
-  "out": "▬┃ Claude 63%·77  ▸2  relaxed",
+  "out": "▬┃ Claude Code 63%·77  ▸2  relaxed",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -12021,7 +12057,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -12088,10 +12126,10 @@
   },
   "width": 60,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77  \u001b[38;2;147;197;253m▸2\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77  \u001b[38;2;147;197;253m▸2\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -12658,7 +12696,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -12725,10 +12765,10 @@
   },
   "width": 60,
   "color": false,
-  "out": "▬┃ Claude 63%·77  ▸2",
+  "out": "▬┃ Claude Code 63%·77  ▸2",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -13295,7 +13335,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -13365,7 +13407,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m 63%·77 \u001b[38;2;147;197;253m▸2\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -13932,7 +13974,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -14002,7 +14046,7 @@
   "out": "▬┃ 63%·77 ▸2",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -14569,7 +14613,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -14639,7 +14685,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m63",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -15206,7 +15252,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -15276,7 +15324,7 @@
   "out": "▬┃63",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -15843,7 +15891,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -15910,10 +15960,10 @@
   },
   "width": 120,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;211;77m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77 ahead  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;211;77m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77 ahead  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -16480,7 +16530,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -16547,10 +16599,10 @@
   },
   "width": 120,
   "color": false,
-  "out": "▬┃ Claude 63%·77 ahead  ▸2  ⚑4",
+  "out": "▬┃ Claude Code 63%·77 ahead  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -17117,7 +17169,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -17184,10 +17238,10 @@
   },
   "width": 60,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;211;77m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77 ahead  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;211;77m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77 ahead  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -17754,7 +17808,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -17821,10 +17877,10 @@
   },
   "width": 60,
   "color": false,
-  "out": "▬┃ Claude 63%·77 ahead  ▸2  ⚑4",
+  "out": "▬┃ Claude Code 63%·77 ahead  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -18391,7 +18447,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -18461,7 +18519,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;211;77m┃\u001b[0m 63%·77 ahead \u001b[38;2;147;197;253m▸2\u001b[0m \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -19028,7 +19086,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -19098,7 +19158,7 @@
   "out": "▬┃ 63%·77 ahead ▸2 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -19665,7 +19725,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -19735,7 +19797,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;211;77m┃\u001b[0m63 \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -20302,7 +20364,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -20372,7 +20436,7 @@
   "out": "▬┃63 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -20939,7 +21003,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -21006,10 +21072,10 @@
   },
   "width": 120,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m out · back Mon 15:00  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m out · back Mon 15:00  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -21576,7 +21642,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -21643,10 +21711,10 @@
   },
   "width": 120,
   "color": false,
-  "out": "▬┃ Claude out · back Mon 15:00  ▸2  ⚑4",
+  "out": "▬┃ Claude Code out · back Mon 15:00  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -22213,7 +22281,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -22280,10 +22350,10 @@
   },
   "width": 60,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m out · back Mon 15:00  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m out · back Mon 15:00  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -22850,7 +22920,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -22917,10 +22989,10 @@
   },
   "width": 60,
   "color": false,
-  "out": "▬┃ Claude out · back Mon 15:00  ▸2  ⚑4",
+  "out": "▬┃ Claude Code out · back Mon 15:00  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -23487,7 +23559,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -23557,7 +23631,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m out · back Mon 15:00 \u001b[38;2;147;197;253m▸2\u001b[0m \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -24124,7 +24198,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -24194,7 +24270,7 @@
   "out": "▬┃ out · back Mon 15:00 ▸2 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -24761,7 +24837,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -24831,7 +24909,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m63 \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -25398,7 +25476,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -25468,7 +25548,7 @@
   "out": "▬┃63 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -26035,7 +26115,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -26102,10 +26184,10 @@
   },
   "width": 120,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m out · reset unknown  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m out · reset unknown  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -26672,7 +26754,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -26739,10 +26823,10 @@
   },
   "width": 120,
   "color": false,
-  "out": "▬┃ Claude out · reset unknown  ▸2  ⚑4",
+  "out": "▬┃ Claude Code out · reset unknown  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -27309,7 +27393,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -27376,10 +27462,10 @@
   },
   "width": 60,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m out · reset unknown  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m out · reset unknown  \u001b[38;2;147;197;253m▸2\u001b[0m  \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -27946,7 +28032,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -28013,10 +28101,10 @@
   },
   "width": 60,
   "color": false,
-  "out": "▬┃ Claude out · reset unknown  ▸2  ⚑4",
+  "out": "▬┃ Claude Code out · reset unknown  ▸2  ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -28583,7 +28671,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -28653,7 +28743,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m out · reset unknown \u001b[38;2;147;197;253m▸2\u001b[0m \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -29220,7 +29310,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -29290,7 +29382,7 @@
   "out": "▬┃ out · reset unknown ▸2 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -29857,7 +29949,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -29927,7 +30021,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;252;165;165m┃\u001b[0m63 \u001b[38;2;252;211;77m⚑4\u001b[0m",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -30494,7 +30588,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -30564,7 +30660,7 @@
   "out": "▬┃63 ⚑4",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -31131,7 +31227,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -31768,7 +31866,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -32405,7 +32505,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -33042,7 +33144,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -33679,7 +33783,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -34316,7 +34422,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -34953,7 +35061,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -35590,7 +35700,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -36227,7 +36339,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -36294,10 +36408,10 @@
   },
   "width": 120,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -36864,7 +36978,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -36931,10 +37047,10 @@
   },
   "width": 120,
   "color": false,
-  "out": "▬┃ Claude 63%·77",
+  "out": "▬┃ Claude Code 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -37501,7 +37617,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -37568,10 +37686,10 @@
   },
   "width": 60,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -38138,7 +38256,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -38205,10 +38325,10 @@
   },
   "width": 60,
   "color": false,
-  "out": "▬┃ Claude 63%·77",
+  "out": "▬┃ Claude Code 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -38775,7 +38895,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -38845,7 +38967,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -39412,7 +39534,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -39482,7 +39606,7 @@
   "out": "▬┃ 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -40049,7 +40173,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -40119,7 +40245,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m63",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -40686,7 +40812,9 @@
      "signedIn": true,
      "executors": [
       "codex#team@devbox"
-     ]
+     ],
+     "spendUsdWeek": null,
+     "capUsdWeek": null
     }
    ],
    "hosts": [
@@ -40756,7 +40884,7 @@
   "out": "▬┃63",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -40949,10 +41077,10 @@
   },
   "width": 120,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -41001,10 +41129,10 @@
   },
   "width": 120,
   "color": false,
-  "out": "▬┃ Claude 63%·77",
+  "out": "▬┃ Claude Code 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -41053,10 +41181,10 @@
   },
   "width": 60,
   "color": true,
-  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude\u001b[0m 63%·77",
+  "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m \u001b[38;2;217;119;87mClaude Code\u001b[0m 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -41105,10 +41233,10 @@
   },
   "width": 60,
   "color": false,
-  "out": "▬┃ Claude 63%·77",
+  "out": "▬┃ Claude Code 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -41160,7 +41288,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -41212,7 +41340,7 @@
   "out": "▬┃ 63%·77",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -41264,7 +41392,7 @@
   "out": "\u001b[38;2;163;230;53m▬\u001b[0m\u001b[38;2;163;230;53m┃\u001b[0m63",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,
@@ -41316,7 +41444,7 @@
   "out": "▬┃63",
   "fields": {
    "online": true,
-   "planner": "Claude",
+   "planner": "Claude Code",
    "agent": "claude-code",
    "usedPct": 63,
    "pacePct": 77,

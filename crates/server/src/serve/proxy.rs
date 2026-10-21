@@ -52,7 +52,18 @@ pub async fn forward(mut req: Request<Body>, target: (u16, String), auth: AuthKi
         let (parts, body) = req.into_parts();
         let body = match to_bytes(body, 256 * 1024).await {
             Ok(body) => body,
-            Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, axum::Json(serde_json::json!({"error":{"code":"too_large","message":"body exceeds 256 KiB"}}))).into_response(),
+            // Same status, headers and body as the core's errorResponse.
+            Err(_) => {
+                return (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    [
+                        ("content-type", "application/json;charset=utf-8"),
+                        ("x-pacer", "1"),
+                    ],
+                    r#"{"error":{"code":"too_large","message":"body exceeds 256 KiB"}}"#,
+                )
+                    .into_response();
+            }
         };
         req = Request::from_parts(parts, Body::from(body));
     }
@@ -108,6 +119,11 @@ mod tests {
             .unwrap();
         let response = forward(request, (1, "secret".into()), AuthKind::Bearer).await;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(response.headers()["x-pacer"], "1");
+        assert_eq!(
+            response.headers()["content-type"],
+            "application/json;charset=utf-8"
+        );
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
