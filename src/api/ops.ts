@@ -30,6 +30,7 @@ import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
 import { redactEndpointMessage } from "../endpoints/state";
+import * as executorSettings from "../core/executor-settings";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -238,6 +239,8 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
     return {id, ...(migrated ? {migrated} : {}), ...(p.test !== false ? {job: await checkRunner(ctx, id, deps.runnerCheck)} : {})};
   }) }),
   "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
+  "runner.settings.get": op({description:"Read editable executor settings and an opaque revision.",params:z.object({}),handler:ctx=>executorSettings.readExecutorSettings(ctx)}),
+  "runner.settings.save": op({description:"Atomically save executor order, enabled states and parallel limits against the expected revision.",params:z.object({expectedRevision:z.string().min(1),order:z.array(id),runners:z.array(z.object({id,enabled:z.boolean(),maxTasks:z.number().int().min(1).max(16)}))}),handler:(ctx,p)=>mutation(ctx,"runners",()=>executorSettings.saveExecutorSettings(ctx,p))}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
   "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", () => { const {migrated} = runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
