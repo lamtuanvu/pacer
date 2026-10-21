@@ -20,7 +20,7 @@ function signingFixture() {
 function fixture() {
   const dir = tmpDir(), signing = signingFixture();
   writeFileSync(join(dir, "desktop-release-1.2.3.json"), JSON.stringify({ schema: 1, version: "1.2.3", notes: "release", pub_date: "2026-10-19T00:00:00Z" }));
-  for (const arch of ["aarch64", "x86_64"] as const) {
+  for (const arch of ["aarch64"] as const) {
     const bytes = Buffer.from(`signed fixture archive ${arch}`), name = desktopAssetName("1.2.3", arch);
     writeFileSync(join(dir, name), bytes); writeFileSync(join(dir, name + ".sig"), signing.signature(bytes));
   }
@@ -47,18 +47,19 @@ test("version-bound minisign verification rejects tampering and version relabeli
   expect(() => verifyUpdateSignature(bytes, signature, signingFixture().publicKey, "1.2.3")).toThrow();
 });
 
-test("complete feed contains both immutable architecture URLs and matching metadata", async () => {
+// macOS Intel (x86_64) is temporarily not built for release (see DESKTOP_ARCHES).
+test("complete feed contains the darwin-arm64 immutable URL and matching metadata", async () => {
   const f = fixture();
   const feed = JSON.parse(await buildDesktopFeed(f.dir, "1.2.3", f.options));
-  expect(Object.keys(feed.platforms)).toEqual(["darwin-aarch64", "darwin-x86_64"]);
-  expect(feed.platforms["darwin-x86_64"].url).toBe("https://github.com/lamtuanvu/pacer/releases/download/v1.2.3/desktop-pacer-1.2.3-darwin-x86_64.app.tar.gz");
+  expect(Object.keys(feed.platforms)).toEqual(["darwin-aarch64"]);
+  expect(feed.platforms["darwin-aarch64"].url).toBe("https://github.com/lamtuanvu/pacer/releases/download/v1.2.3/desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz");
   expect(feed.platforms["darwin-aarch64"].admissionProtocol).toBe(1);
 });
 
-for (const reason of ["missing-intel", "bad-signature", "wrong-version", "wrong-arch", "wrong-protocol", "no-notarization", "prerelease", "cli-only"]) {
+for (const reason of ["missing-archive", "bad-signature", "wrong-version", "wrong-arch", "wrong-protocol", "no-notarization", "prerelease", "cli-only"]) {
   test(`invalid desktop release ${reason} performs zero promotions`, async () => {
     const f = fixture(); let version = "1.2.3";
-    if (reason === "missing-intel" || reason === "cli-only") rmSync(join(f.dir, desktopAssetName("1.2.3", "x86_64")));
+    if (reason === "missing-archive" || reason === "cli-only") rmSync(join(f.dir, desktopAssetName("1.2.3", "aarch64")));
     if (reason === "bad-signature") writeFileSync(join(f.dir, desktopAssetName("1.2.3", "aarch64") + ".sig"), "invalid");
     if (reason === "prerelease") version = "1.2.3-beta.1";
     const original = f.options.verifyArchive!;
@@ -74,7 +75,7 @@ test("identical retry is a no-op and changed same-version bytes are immutable co
   await publishDesktopRelease(f.dir, "1.2.3", f.publisher, f.options);
   await publishDesktopRelease(f.dir, "1.2.3", f.publisher, f.options);
   expect(f.promotions()).toBe(1);
-  const name = desktopAssetName("1.2.3", "x86_64"), bytes = Buffer.from("new validly signed bytes");
+  const name = desktopAssetName("1.2.3", "aarch64"), bytes = Buffer.from("new validly signed bytes");
   writeFileSync(join(f.dir, name), bytes); writeFileSync(join(f.dir, name + ".sig"), f.signing.signature(bytes));
   await expect(publishDesktopRelease(f.dir, "1.2.3", f.publisher, f.options)).rejects.toThrow("immutable");
   expect(f.promotions()).toBe(1);
