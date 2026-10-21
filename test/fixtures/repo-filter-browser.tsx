@@ -24,7 +24,7 @@ function Preview() {
   return <main>
     <h1>Repository filter</h1>
     <RepoFilter snapshot={snapshot} query={"query" in route ? route.query : { repo: null, scope: null }} />
-    <a href="#/sessions" className="pc-inline-link">Next section</a>
+    <a href="#/tasks" className="pc-inline-link">Next section</a>
   </main>;
 }
 

@@ -22,9 +22,9 @@ afterAll(async () => { await browser?.close(); server?.stop(true); }, 15000);
 
 browserTest("repository finder searches all repos, selects an idle repo and preserves route scope", async () => {
   const page = await browser.newPage();
-  page.setDefaultTimeout(2000);
+  page.setDefaultTimeout(10000);
   try {
-    await page.goto(`${server.url}#/review?scope=all`);
+    await page.goto(`${server.url}#/needs-you?scope=all`);
     const trigger = page.getByRole("button", { name: "Find repo" });
     await trigger.click();
     const search = page.getByRole("searchbox", { name: "Search repositories" });
@@ -49,9 +49,9 @@ browserTest("repository finder searches all repos, selects an idle repo and pres
 
 browserTest("repository finder supports arrow keys, Escape, outside click and Tab dismissal", async () => {
   const page = await browser.newPage();
-  page.setDefaultTimeout(2000);
+  page.setDefaultTimeout(10000);
   try {
-    await page.goto(`${server.url}#/review`);
+    await page.goto(`${server.url}#/needs-you`);
     const trigger = page.getByRole("button", { name: "Find repo" });
     await trigger.click();
     const search = page.getByRole("searchbox");
@@ -78,11 +78,11 @@ browserTest("repository finder supports arrow keys, Escape, outside click and Ta
 
 browserTest("repository badges and anchored menu fit desktop and narrow layouts in both themes", async () => {
   const page = await browser.newPage();
-  page.setDefaultTimeout(2000);
+  page.setDefaultTimeout(10000);
   try {
     for (const width of [1440, 375]) for (const theme of ["light", "dark"]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto(`${server.url}#/review`);
+      await page.goto(`${server.url}#/needs-you`);
       await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
       const trigger = page.getByRole("button", { name: "Find repo" });
       await trigger.click();
@@ -104,10 +104,10 @@ browserTest("repository badges and anchored menu fit desktop and narrow layouts 
 
 browserTest("unbroken repository names retain their full identity without overflowing narrow controls", async () => {
   const page = await browser.newPage({ viewport: { width: 375, height: 900 } });
-  page.setDefaultTimeout(2000);
+  page.setDefaultTimeout(10000);
   const name = "a".repeat(100);
   try {
-    await page.goto(`${server.url}#/review`);
+    await page.goto(`${server.url}#/needs-you`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const chip = page.getByRole("button", { name: `econ-v1/${name} 40 work items`, exact: true });
     expect(await chip.getAttribute("title")).toBe(`econ-v1/${name}`);

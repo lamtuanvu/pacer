@@ -1,6 +1,6 @@
 /** Home: the app's Overview — Needs you, Running, Capacity, Done today, in that order. */
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, reviewQueue, running } from "../../view-model/selectors";
-import { attentionStatus, executorStatus, taskStatus } from "../../view-model/words";
+import { attentionStatus, executorStatus, taskStatus, taskOutcome } from "../../view-model/words";
 import { executorPace, queueWait } from "../../view-model/capacity";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
@@ -31,7 +31,7 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
     const title = task?.fullTitle?.trim() || (a as { fullTitle?: string }).fullTitle?.trim() || a.title;
     const acts = defined(a.actions.map(action => serviceAct(ctx, action, title)));
     const dismiss = opAct(ctx, "Dismiss", "attention.dismiss", { id: a.id });
-    const review: Act | undefined = a.kind === "review" && a.taskId ? { label: "Open in Review", effect: { type: "navigate", screen: "review", id: a.taskId } } : undefined;
+    const review: Act | undefined = a.kind === "review" && a.taskId ? { label: "Review changes", effect: { type: "navigate", screen: "review", id: a.taskId } } : undefined;
     const item: Item = { id: `attention:${a.id}`, primary: acts[0], actions: [...acts.slice(1), ...defined([review, dismiss])], keys: { ...(dismiss ? { x: dismiss } : {}), ...(review ? { v: review } : {}) } };
     const w = wide ? flex(width, [{ fixed: 20 }, { weight: 3, min: 16 }, { fixed: 10 }, { weight: 2, min: 10 }, { fixed: 5 }]) : flex(width, [{ fixed: 20 }, { weight: 1, min: 12 }, { weight: 1, min: 8 }]);
     const cells = wide
@@ -97,7 +97,11 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
   const done = doneToday(s, scope), today = s.today;
   rows.push({ line: heading(theme, "Done today", today?.done ?? done.length, today ? `${today.accepted} accepted` : undefined) });
   if (!done.length) rows.push(empty("Nothing finished yet today."));
-  for (const t of done) add(doneItem(ctx, t, reviewIds.has(t.id)), doneLine(ctx, t, width, wide));
+  for (const t of done) {
+    const item=doneItem(ctx,t,reviewIds.has(t.id));
+    add(item,doneLine(ctx,t,width,wide));
+    if(t.review)rows.push({item:item.id,cont:true,line:statusSpans(theme,taskOutcome(t))});
+  }
 
   return { list: rows, items, hints: ["f repo scope", "d delegate"] };
 }
@@ -111,7 +115,7 @@ function capacityWidths(width: number, wide: boolean): number[] {
 /** Running rows: Watch when a session can be attached, otherwise open the session details. Stop always confirms. */
 export function taskItem(ctx: ScreenCtx, t: ClientTask): Item {
   const attachable = !!t.session && t.session.host !== "none" && ctx.supports("task.attach");
-  const details: Act = { label: "Open in Sessions", effect: { type: "navigate", screen: "sessions", id: t.id } };
+  const details: Act = { label: "Open in Tasks", effect: { type: "navigate", screen: "sessions", id: t.id } };
   const watch: Act | undefined = attachable ? { label: "Watch", effect: { type: "attach", id: t.id, target: "here" } } : undefined;
   const terminal: Act | undefined = attachable ? { label: "Open in a terminal window", effect: { type: "attach", id: t.id, target: "terminal" } } : undefined;
   const tmux: Act | undefined = attachable ? { label: "Open in a tmux pane", effect: { type: "attach", id: t.id, target: "tmux" } } : undefined;
@@ -125,7 +129,7 @@ export function taskItem(ctx: ScreenCtx, t: ClientTask): Item {
 }
 function doneItem(ctx: ScreenCtx, t: ClientTask, waiting: boolean): Item {
   const review: Act | undefined = waiting ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
-  const details: Act = { label: "Open in Sessions", effect: { type: "navigate", screen: "sessions", id: t.id } };
+  const details: Act = { label: "Open in Tasks", effect: { type: "navigate", screen: "sessions", id: t.id } };
   const dismiss = opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) });
   return { id: `task:${t.id}`, primary: review ?? details, actions: defined([review ? details : undefined, dismiss]), keys: dismiss ? { x: dismiss } : {} };
 }

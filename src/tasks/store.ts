@@ -27,7 +27,7 @@ const columns = "id, rev, state, created_at, updated_at, settled_at, repo, recor
 const placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?";
 
 function activityAt(task: TaskRecord): number {
-  return Math.max(task.createdAt, task.attemptStartedAt ?? 0, task.review?.at ?? 0,
+  return Math.max(task.createdAt, task.attemptStartedAt ?? 0, task.review?.at ?? 0, task.reviewRequest?.at ?? 0,
     ...task.attempts.map(a => a.startedAt ?? 0),
     ...task.attempts.map(a => a.endedAt ?? 0));
 }
