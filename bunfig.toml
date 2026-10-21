@@ -1,2 +1,6 @@
 [test]
 preload = ["./test/setup.ts"]
+
+[install]
+# Workspaces default to isolated installs; keep the hoisted layout so scripts resolve transitive types (for example @babel/types).
+linker = "hoisted"

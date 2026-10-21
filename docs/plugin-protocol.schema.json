@@ -1,0 +1,501 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pacer plugin protocol 1.0.0",
+  "$defs": {
+    "manifest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+        },
+        "version": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "host": {
+          "type": "string",
+          "pattern": "^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$"
+        },
+        "contributes": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "diagnostic"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          }
+        },
+        "capabilities": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "enum": [
+                  "tasks.read",
+                  "events.subscribe",
+                  "process.spawn",
+                  "fs.read",
+                  "net.http",
+                  "secrets.resolve",
+                  "config.get",
+                  "entitlement.report",
+                  "log"
+                ]
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "entry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reentrant": {
+          "default": false,
+          "type": "boolean"
+        },
+        "tier": {
+          "default": "free",
+          "type": "string",
+          "enum": [
+            "free",
+            "commercial"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "publisher",
+        "host",
+        "contributes",
+        "capabilities",
+        "reentrant",
+        "tier"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "helloParams": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "string"
+        },
+        "pacer": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+            },
+            "version": {
+              "type": "string"
+            },
+            "publisher": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "host": {
+              "type": "string",
+              "pattern": "^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$"
+            },
+            "contributes": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "enum": [
+                  "diagnostic"
+                ]
+              },
+              "additionalProperties": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            },
+            "capabilities": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "enum": [
+                      "tasks.read",
+                      "events.subscribe",
+                      "process.spawn",
+                      "fs.read",
+                      "net.http",
+                      "secrets.resolve",
+                      "config.get",
+                      "entitlement.report",
+                      "log"
+                    ]
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "entry": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reentrant": {
+              "default": false,
+              "type": "boolean"
+            },
+            "tier": {
+              "default": "free",
+              "type": "string",
+              "enum": [
+                "free",
+                "commercial"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "version",
+            "publisher",
+            "host",
+            "contributes",
+            "capabilities",
+            "reentrant",
+            "tier"
+          ],
+          "additionalProperties": false
+        },
+        "config": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema1"
+          }
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "tasks.read",
+              "events.subscribe",
+              "process.spawn",
+              "fs.read",
+              "net.http",
+              "secrets.resolve",
+              "config.get",
+              "entitlement.report",
+              "log"
+            ]
+          }
+        }
+      },
+      "required": [
+        "protocol",
+        "pacer",
+        "manifest",
+        "config",
+        "grants"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            }
+          ]
+        },
+        "__schema1": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema1"
+              }
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema1"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "helloResult": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "contributes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "protocol",
+        "id",
+        "version",
+        "contributes"
+      ],
+      "additionalProperties": false
+    },
+    "diagnostic.ping.params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "diagnostic.ping.result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "uptimeS": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "ok",
+        "uptimeS"
+      ],
+      "additionalProperties": false
+    },
+    "capability.log.params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "level",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "capability.log.result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "capability.config.get.params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "capability.config.get.result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "config": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

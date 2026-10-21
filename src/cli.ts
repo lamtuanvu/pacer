@@ -38,6 +38,7 @@ import { accountCmd, runnerCmd } from "./commands/accounts";
 import { makeCtx } from "./ctx";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
+import { shutdownPlugins } from "./plugins";
 import { runStdio } from "./api/stdio";
 import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
@@ -466,6 +467,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         if (remainder) yield remainder;
       }
       await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: cliDeps });
+      await shutdownPlugins(ctx);
       return { code: 0, out: "", err: "", keepAlive: true };
     }
     case "serve": {
