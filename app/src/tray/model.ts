@@ -3,15 +3,15 @@ import type { Action } from "../../../src/attention/types";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { ActivityEntry } from "../../../src/activity/log";
 import type { ExecutorRow } from "../../../src/api/read-model/types";
-import { capacity, needsYou, running } from "../../../src/view-model/selectors";
+import { capacity, needsYou, running, counts } from "../../../src/view-model/selectors";
 
 export { displayTitle as shortTitle } from "../../../src/view-model/titles";
 export function actionRoute(action: Action): string {
   const { route, view, id, section } = action.params;
   if (typeof route === "string" && /^#?\//.test(route)) return route.replace(/^#/, "");
-  if ((view === "task" || view === "session" || view === "review") && typeof id === "string") return `/${view === "review" ? "review" : "sessions"}/${encodeURIComponent(id)}`;
+  if ((view === "task" || view === "session" || view === "review") && typeof id === "string") return `/tasks/${encodeURIComponent(id)}`;
   if (view === "settings" && typeof section === "string") return settingsPath(section);
-  return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/sessions", strategy: "/settings/strategies" } as Record<string, string>)[String(view)] ?? "/";
+  return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/tasks", strategy: "/settings/strategies" } as Record<string, string>)[String(view)] ?? "/";
 }
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
 /** Compact capacity values never invent an unknown usage percentage. */
@@ -32,6 +32,6 @@ export function trayModel(snapshot: ClientSnapshot, activity: ActivityEntry[] = 
   const queued = tasks.filter(t => t.state === "queued").sort((a, b) => (a.queue?.position ?? Infinity) - (b.queue?.position ?? Infinity) || (a.queue?.since ?? a.updatedAt) - (b.queue?.since ?? b.updatedAt));
   const reviews = [...snapshot.tasks.flatMap(t => t.review?.accepted ? [t.review.at] : []),
     ...activity.filter(e => e.kind === "verdict" && /^Accepted\b/.test(e.text)).map(e => e.at)];
-  return { attention, active, queued, waiting: queued.length, needsCount: snapshot.counts?.attention ?? attention.length,
+  return { attention, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
     done: snapshot.today?.done ?? 0, lastReview: reviews.length ? Math.max(...reviews) : null, executors: capacity(snapshot) };
 }

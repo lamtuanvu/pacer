@@ -13,7 +13,7 @@ const item = (extra: Partial<AttentionItem> = {}): AttentionItem => ({ id:"faile
 test("levels filter attention and keys include since with at most two actions", () => {
  const failed=item({actions:[1,2,3].map(n=>({label:`Action ${n}`,op:"task.retry",params:{}}))}), setup=item({id:"setup",kind:"setup",notify:"all",taskId:undefined});
  expect(toNotify([setup,failed],"off",{})).toEqual([]);
- expect(toNotify([setup,failed],"important",{})).toEqual([{key:"failed:t-1:100",data:{key:"failed:t-1:100",title:failed.title,body:"Try again",actions:failed.actions.slice(0,2),url:"/app/#/sessions/t-1"}}]);
+ expect(toNotify([setup,failed],"important",{})).toEqual([{key:"failed:t-1:100",data:{key:"failed:t-1:100",title:failed.title,body:"Try again",actions:failed.actions.slice(0,2),url:"/app/#/tasks/t-1"}}]);
  expect(toNotify([setup,failed],"all",{})).toHaveLength(2);
  expect(toNotify([failed,failed],"important",{})).toHaveLength(1);
  expect(toNotify([failed],"important",{"failed:t-1:100":101})).toEqual([]);
@@ -63,8 +63,8 @@ test("all includes mode transitions and every settled state while important excl
 
 test("notification links target review, sessions and settings directly", () => {
  for (const [extra, route] of [
-  [{kind:"review",taskId:"a b"}, "review/a%20b"],
-  [{kind:"stuck"}, "sessions/t-1"],
+  [{kind:"review",taskId:"a b"}, "tasks/a%20b"],
+  [{kind:"stuck"}, "tasks/t-1"],
   [{taskId:undefined,executor:"codex"}, "settings/executors"],
   [{taskId:undefined,account:"work"}, "settings/accounts"],
   [{taskId:undefined,host:"box"}, "settings/hosts/box"],
@@ -88,6 +88,6 @@ test("settled task notifications link to review only until the result is reviewe
   {type:"task",data:{...base,id:"failed",state:"failed"}},
  ]});
  expect(result.map(e=>(e.data as any).value.url)).toEqual([
-  "/app/#/", "/app/#/review/done", "/app/#/review/partial", "/app/#/sessions/accepted", "/app/#/sessions/failed",
+  "/app/#/", "/app/#/tasks/done", "/app/#/tasks/partial", "/app/#/tasks/accepted", "/app/#/tasks/failed",
  ]);
 });

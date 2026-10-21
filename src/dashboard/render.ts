@@ -27,7 +27,7 @@ export function screenItems(s: ClientSnapshot, now: number, options: Pick<Render
   const state: UiState = { ...initialState(), ...options.state };
   return screenView({
     s, now, theme: PLAIN_THEME, state, width: 120, height: 40, ops: options.ops, version: "0.0.0-test", connection: "live",
-    data: { details: options.data?.details ?? new Map(), settings: options.data?.settings ?? {} },
+    data: { history: options.data?.history, details: options.data?.details ?? new Map(), settings: options.data?.settings ?? {} },
   }).view.items;
 }
 
@@ -36,7 +36,7 @@ export function renderDashboard(s: ClientSnapshot, width: number, height: number
   let state: UiState = { ...initialState(), ...options.state };
   const input: FrameInput = {
     s, now, theme, state, width, height, ops: options.ops, version: options.version ?? "0.0.0-test",
-    data: { details: options.data?.details ?? new Map(), settings: options.data?.settings ?? {} },
+    data: { history: options.data?.history, details: options.data?.details ?? new Map(), settings: options.data?.settings ?? {} },
     connection: options.connection ?? "live", timeZone: options.timeZone ?? "UTC",
     ...(options.message ? { message: options.message } : {}), ...(options.update ? { update: options.update } : {}),
   };

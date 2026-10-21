@@ -30,15 +30,15 @@ test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  expect(html('#/settings/hosts')).toContain('Connect and check');
  expect(html('#/settings/hosts/devbox')).toContain('Remote hosts</a>');
  expect(html('#/settings/add-executor')).toContain('Step 1 of 4');
- expect(html('#/sessions')).toContain('Recently ended');
- expect(html('#/sessions/t1')).toContain('Loading session');
+ expect(html('#/sessions')).toContain('Completed');
+ expect(html('#/sessions/t1')).toContain('Loading task');
 });
 test('legacy and unknown routes mount Overview',()=>{
- for(const path of ['/tasks','/tasks/t1','/executors','/executors/add','/accounts','/strategy','/hosts','/missing']) {
+ for(const path of ['/executors','/executors/add','/accounts','/strategy','/hosts','/missing']) {
   expect(destination(`#${path}`).name).toBe('overview');
   expect(html(`#${path}`)).toContain('pc-overview');
  }
- expect(html('#/review/t1')).toContain('pc-review');
+ expect(html('#/review/t1')).toContain('Loading task');
 });
 test('Add executor keeps the host prefill from host detail links',()=>{
  expect(destination('#/settings/add-executor?host=dev%20box')).toMatchObject({name:'add-executor',host:'dev box'});

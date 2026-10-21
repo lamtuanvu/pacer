@@ -6,12 +6,12 @@ import { executorLabel } from "../src/view-model/words";
 
 const task = (task_id: string, state: string, extra = {}) => ({ task_id, state, kind: "tests", requested_executor: null, attempts: [], result: null, review: null, resolved: null, ...extra });
 test("tabs distinguish active, unreviewed and historical tasks and preserve snapshot titles", () => {
-  const tasks = [task("q", "queued"), task("r", "running"), task("d", "done"), task("p", "partial"), task("a", "done", { review: { accepted: true } }), task("f", "failed")];
+  const tasks = [task("q", "queued"), task("r", "running"), task("d", "done", {reviewRequest:{note:"Check",at:1}}), task("p", "partial"), task("a", "done", { review: { accepted: true } }), task("f", "failed")];
   const snapshot = [{ id: "r", goal: "Real title", state: "running", executor: "codex", backend: null, worktree: null, updatedAt: 1 }];
   expect(tasksModel(tasks, snapshot, "running").map(t => t.id)).toEqual(["q", "r"]);
   expect(tasksModel(tasks, snapshot, "running")[1]?.goal).toBe("Real title");
-  expect(tasksModel(tasks, snapshot, "review").map(t => t.id)).toEqual(["d", "p"]);
-  expect(tasksModel(tasks, snapshot, "history").map(t => t.id)).toEqual(["a", "f"]);
+  expect(tasksModel(tasks, snapshot, "review").map(t => t.id)).toEqual(["d"]);
+  expect(tasksModel(tasks, snapshot, "history").map(t => t.id)).toEqual(["p", "a", "f"]);
   expect(taskActions(task("q", "queued"))).toEqual(["stop"]);
   expect(taskActions(task("f", "failed"))).toEqual(["retry", "dismiss"]);
   expect(executorLabel("claude-code#work@box")).toBe("Claude Code · work on box");
@@ -19,7 +19,7 @@ test("tabs distinguish active, unreviewed and historical tasks and preserve snap
 test("snapshot events override stale query states and reviews", () => {
   const live = [{ id: "r", goal: "Done now", state: "done", executor: "codex", backend: null, worktree: null, updatedAt: 2 }];
   expect(tasksModel([task("r", "running")], live, "running")).toEqual([]);
-  expect(tasksModel([task("r", "running")], live, "review")[0]?.goal).toBe("Done now");
+  expect(tasksModel([task("r", "running")], live, "history")[0]?.goal).toBe("Done now");
 });
 test("pagination grows bounded API limits; delegate validates input and omits automatic executor", () => {
   expect(nextTaskLimit(20)).toBe(40);
@@ -37,8 +37,8 @@ test("service review attention controls review and history membership", () => {
   expect(tasksModel(tasks, live, "history").map(t => t.id)).toEqual(["planner"]);
   expect(tasksModel(tasks, { ...live, attention: [] }, "review")).toEqual([]);
   const counts = { attention: 9, problems: 2, review: 7, running: 3, queued: 2, ready: 1, executors: 1, setupOpen: 0, hostsWithProblems: 0, byRepo: {} };
-  expect(taskCounts({ ...live, counts })).toEqual({ running: 5, review: 7 });
-  expect(homeModel({ ...live, counts }, []).attentionCount).toBe(9);
+  expect(taskCounts({ ...live, counts })).toEqual({ running: 5, review: 1 });
+  expect(homeModel({ ...live, counts }, []).attentionCount).toBe(1);
 });
 
 const draft = { goal: " Add SSH keepalive ", repo: "github.com/acme/api", base: "main", acceptance: " bun test ", executor: "", kind: "" };

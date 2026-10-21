@@ -270,6 +270,8 @@ a.pc-btn{text-decoration:none}
 .pc-disclosure--wrap{min-width:0;max-width:100%}
 .pc-disclosure--wrap>summary{flex-wrap:wrap}
 
+.pc-list-row--outlined,.pc-list-row--outlined:last-child{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
+.pc-list-row--bad{border-color:var(--bad-line);background:var(--bad-tint)}
 /* Settings forms sit between compact tray/table actions and normal app controls. */
 .pc-btn--settings{min-height:var(--control-settings);padding:var(--space-1) var(--space-3);font-size:var(--type-body-size);line-height:var(--type-body-line);border-radius:var(--radius-md)}
 .pc-btn--settings.pc-btn--sm{min-height:var(--control-compact);font-size:var(--type-caption-size);line-height:var(--type-caption-line);padding:var(--space-1) var(--space-2)}

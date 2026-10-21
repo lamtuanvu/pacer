@@ -1,14 +1,14 @@
 /** Review: the queue on the left, the selected task's evidence and verdict on the right. */
 import type { AttentionItem } from "../../attention/types";
-import { reviewQueue } from "../../view-model/selectors";
+import { reviewQueue, needsYou } from "../../view-model/selectors";
 import { costCopy, reasonCopy } from "../../view-model/copy";
 import { displayTitle } from "../../view-model/titles";
 import { elapsed } from "../../view-model/time";
-import { executorLabel, taskStatus, type Status } from "../../view-model/words";
+import { executorLabel, taskStatus, taskOutcome, attentionStatus, type Status } from "../../view-model/words";
 import type { ClientTask } from "../../view-model/snapshot";
 import { box, cols, flex, glyph, heading, span, statusSpans, wrap, type Line, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
-import { blank, defined, empty, GAP, MARK, time, wrapLines } from "./common";
+import { blank, defined, empty, GAP, MARK, time, wrapLines, serviceAct } from "./common";
 import type { Resource, Row, ScreenCtx, ScreenView, TaskDetail } from "./types";
 
 export const KINDS = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
@@ -33,7 +33,8 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
   const verdict = (label: string, verdict: string, extra: Record<string, unknown> = {}) =>
     ({ type: "action" as const, action: { label, op: "task.review", params: { ...base, verdict, ...extra } } });
   if (!ctx.supports("task.review")) return { id: `review:${id}`, actions: [], keys: {} };
-  const accept: Act = { label: "Accept and bring back", effect: verdict("Accepted", "accept"), confirm: { title: `Accept "${title}"?`, body: ["Accept records the verdict; you merge the branch."], yes: "Accept" } };
+  const acceptAllowed = a.kind === "review" && (task ?? detail)?.state === "done" && task?.acceptanceState !== "failed" && detail?.acceptance?.state !== "failed";
+  const accept: Act = { label: "Mark accepted", effect: verdict("Accepted", "accept"), confirm: { title: `Accept "${title}"?`, body: ["Accept records the verdict; you merge the branch."], yes: "Accept" } };
   const note = (label: string, verdictName: string, title: string): Act => ({
     label, danger: verdictName === "reject",
     effect: { type: "prompt", prompt: { title, label: "Note for the executor and your planner", required: "Add a note first.", submit: value => verdict(verdictName === "reject" ? "Rejected" : "Sent back", verdictName, { note: value }) } },
@@ -47,41 +48,37 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
   } : undefined;
   const path: Act | undefined = detail?.worktree ? { label: "Show worktree path", effect: { type: "local", label: `Worktree: ${detail.worktree}`, run: () => {} } } : undefined;
   return {
-    id: `review:${id}`, actions: defined([sendBack, reject, retry, path]),
-    keys: { a: accept, s: sendBack, r: reject, ...(retry ? { t: retry } : {}), ...(path ? { o: path } : {}) },
+    id: `review:${id}`, actions: defined([
+      a.kind !== "review" && (task ?? detail)?.state === "done" && task?.acceptanceState !== "failed" && detail?.acceptance?.state !== "failed" ? {...accept,label:"Mark accepted (optional verdict)"} : undefined,
+      sendBack, reject, retry, path]),
+    keys: { ...(acceptAllowed ? {a:accept} : {}), s: sendBack, r: reject, ...(retry ? { t: retry } : {}), ...(path ? { o: path } : {}) },
   };
 }
 
 export function reviewScreen(ctx: ScreenCtx): ScreenView {
-  const { s, theme } = ctx, queue = scopedReviewQueue(ctx);
+  const {s,theme} = ctx;
+  const queue = needsYou(s,{repo:ctx.state.scope});
   const listWidth = ctx.wide ? 52 : ctx.width;
-  const list: Row[] = [{ line: heading(theme, "Review queue", queue.length) }];
+  const list: Row[] = [{line:heading(theme,"Decisions and problems")}];
   const items: Item[] = [];
   for (const a of queue) {
-    const task = s.tasks.find(t => t.id === a.taskId), detail = ctx.data.details.get(a.taskId!)?.value;
-    const item = reviewItem(ctx, a, task, detail);
+    const task = s.tasks.find(t=>t.id===a.taskId);
+    const item = a.kind === "review" && a.taskId ? reviewItem(ctx,a,task,ctx.data.details.get(a.taskId)?.value) : {
+      id:`attention:${a.id}`, primary:a.actions[0]?serviceAct(ctx,a.actions[0],a.title):undefined,
+      actions:defined(a.actions.slice(1).map(action=>serviceAct(ctx,action,a.title))), keys:{},
+    };
     items.push(item);
-    // Glyph and word, as every status (UI-2); plain mode has no glyph, so the word is all it has.
-    const w = flex(listWidth - MARK, [{ fixed: 20 }, { weight: 1, min: 8 }, { fixed: 5 }], 1);
-    list.push({ item: item.id, line: cols([
-      { content: statusSpans(theme, taskStatus(task ?? { state: "done" })), width: w[0]! },
-      { content: task ? displayTitle(task) : a.title, width: w[1]!, style: { bold: true } },
-      { content: time(ctx, a.raisedAt), width: w[2]!, align: "right", style: { fg: "muted" } },
-    ], 1, theme) });
+    const w=flex(listWidth-MARK,[{fixed:20},{weight:1,min:8}],1);
+    list.push({item:item.id,line:cols([{content:statusSpans(theme,attentionStatus(a,s.tasks)),width:w[0]!},{content:task?displayTitle(task):a.title,width:w[1]!,style:{bold:true}}],1,theme)});
+    for(const line of wrap(a.detail,listWidth-MARK,2)) list.push({item:item.id,cont:true,line:[span(line,{fg:"secondary"})]});
+    list.push(blank());
   }
-  const today = s.today;
-  if (!queue.length) list.push(empty("Review queue is clear"));
-  list.push(blank());
-  for (const text of wrap(`Accepted today ${today?.accepted ?? 0} · rejected ${today?.rejected ?? 0}. Your verdicts teach routing which executor suits which kind.`, listWidth - MARK)) list.push({ line: [span(text, { fg: "muted" })] });
-
-  const selectedId = ctx.state.selected.review ?? items[0]?.id;
-  const selected = queue.find(a => `review:${a.taskId}` === selectedId) ?? queue[0];
-  const detailWidth = ctx.wide ? ctx.width - listWidth - 3 : ctx.width - MARK;
-  const detail = selected ? reviewDetail(ctx, selected, ctx.data.details.get(selected.taskId!), detailWidth) : [{ line: [span("Select a task to review.", { fg: "muted" })] }];
-  return {
-    list, detail, listWidth, items, needs: selected?.taskId ? [selected.taskId] : [],
-    hints: ctx.wide || !items.length ? [] : [`${glyph(theme, "→")} details`],
-  };
+  if(!queue.length) list.push(empty("Nothing needs your attention. See Tasks for completed work."));
+  const index = items.findIndex(i=>i.id===ctx.state.selected.review);
+  const selected = queue[index < 0 ? 0 : index];
+  const width = ctx.wide ? ctx.width-listWidth-3 : ctx.width-MARK;
+  return {list,items,listWidth,detail:selected?.taskId ? reviewDetail(ctx,selected,ctx.data.details.get(selected.taskId),width)
+    : selected ? wrap(selected.detail,width).map(line=>({line:[span(line)]})) : [], needs:selected?.taskId?[selected.taskId]:[]};
 }
 
 function loadingRow(ctx: ScreenCtx, text: string): Row {
@@ -91,7 +88,7 @@ export function errorRows(ctx: ScreenCtx, error: NonNullable<Resource<unknown>["
   return [{ line: statusSpans(ctx.theme, { label: `${error.message}${error.hint ? ` (${error.hint})` : ""}`, tone: "bad", glyph: "✕" }) }, { line: [span("R retries", { fg: "muted" })] }];
 }
 
-function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskDetail> | undefined, width: number): Row[] {
+export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskDetail> | undefined, width: number): Row[] {
   const { theme, s, now } = ctx, task = s.tasks.find(t => t.id === a.taskId), d = resource?.value;
   const title = task ? displayTitle(task) : d ? displayTitle(d) : a.title;
   const rows: Row[] = [];
@@ -116,6 +113,14 @@ function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskD
   }
   if (!d) return [...rows, blank(), loadingRow(ctx, "Loading task…")];
   if (resource?.loading) rows.push({ line: [span("Updating…", { fg: "muted" })] });
+
+  rows.push(blank(), {line:heading(theme,"Result")});
+  const summary = d.summary?.trim();
+  const concise = summary && summary.split("\n").length <= 8 && !/I'll start|Let me (?:read|look|check|explore)/i.test(summary);
+  rows.push(...wrapLines([],concise?summary:"Execution ended. Inspect checks and changes.",width,{}).map(line=>({line})));
+  rows.push({line:statusSpans(theme,taskOutcome(d))});
+  rows.push(...wrapLines([],d.reviewRequest ? `Review requested: ${d.reviewRequest.note}` : "",width,{}).map(line=>({line})));
+  rows.push(blank(),{line:heading(theme,"Delivery")},{line:[span("Integration not recorded",{fg:"muted"})]});
 
   // Done when
   rows.push(blank());
@@ -147,16 +152,12 @@ function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskD
   }
   if (files.length > 12) rows.push(empty(`+${files.length - 12} more files · pacer review ${d.id} shows the diff`));
 
-  // Executor summary
-  rows.push(blank(), { line: heading(theme, "Executor summary") });
-  for (const line of wrap(d.summary?.trim() || "No summary provided", width, 6)) rows.push({ line: [span(line, { fg: d.summary ? "ink" : "muted" })] });
-
   // Verdict
   rows.push(blank());
-  const can = ctx.supports("task.review");
+  const can = a.kind === "review" && ctx.supports("task.review") && !d.review && !d.resolved && !d.dismissed && !d.retriedBy;
   // Each verdict key stays whole; groups move to the next line when the box is narrow.
   const groups: Line[] = can
-    ? [[span("a", { bold: true }), span(" Accept and bring back", { fg: "ink", bold: true })], [span("s", { bold: true }), span(" Send back", { fg: "secondary" })], [span("r", { bold: true }), span(" Reject", { fg: "bad" })],
+    ? [[span("a", { bold: true }), span(" Mark accepted", { fg: "ink", bold: true })], [span("s", { bold: true }), span(" Send back", { fg: "secondary" })], [span("r", { bold: true }), span(" Reject", { fg: "bad" })],
       ...((d.retryOptions ?? []).some(o => o.state === "ready") ? [[span("t", { bold: true }), span(" Retry on another executor", { fg: "secondary" })]] : [])]
     : [];
   const keyLines: Line[] = [];
@@ -166,7 +167,8 @@ function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resource<TaskD
     else keyLines.push([...group]);
   }
   const body: Line[] = can ? keyLines : wrapLines([], `This pacer service does not offer reviews here. Use pacer review ${d.id}.`, width - 4, { fg: "muted" });
-  rows.push(...box(theme, "Your verdict", [...body, ...wrapLines([], "Accept records the verdict; you merge the branch.", width - 4, { fg: "muted" })], width).map(line => ({ line })));
+  if (a.kind === "review" && !ctx.supports("task.review")) rows.push(empty("This service does not offer reviews here."));
+  if (can) rows.push(...box(theme, "Your verdict", [...body, ...wrapLines([], "Accept records the verdict; you merge the branch.", width - 4, { fg: "muted" })], width).map(line => ({ line })));
   void now;
   return rows;
 }

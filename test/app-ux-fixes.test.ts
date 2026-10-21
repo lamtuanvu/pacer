@@ -41,7 +41,7 @@ test("task completion updates the store and both task view models", () => {
  const task={task_id:"t1",goal:"Write tests",state:"done",kind:null,requested_executor:null,attempts:[],result:null,review:null,resolved:null};
  expect(mergeTask(task,live).state).toBe("done");
  expect(mergeTask({...task,state:"running"},live).state).toBe("running");
- expect(tasksModel([task],[],"review")[0]?.goal).toBe("Write tests");
+ expect(tasksModel([task],[],"history")[0]?.goal).toBe("Write tests");
  expect(start.snapshot?.tasks[0]?.state).toBe("queued");
 });
 test("executor labels identify agents, endpoint accounts and named budgets", () => {

@@ -7,9 +7,9 @@ import { renderDashboard } from "../src/dashboard/render";
 const snapshot = () => structuredClone(fixture) as unknown as ClientSnapshot;
 const review = (accepted: boolean, at: number) => ({ accepted, at, kind: null, note: null });
 const doneCases = [
-  { state: "done", label: "Waiting for review", glyph: "◐", tone: "warn", code: 33 },
-  { state: "done", accepted: true, label: "Accepted", glyph: "✓", tone: "good", code: 32 },
-  { state: "done", accepted: false, label: "Rejected", glyph: "✕", tone: "bad", code: 31 },
+  { state: "done", label: "Completed", glyph: "✓", tone: "good", code: 32 },
+  { state: "done", accepted: true, label: "Completed", glyph: "✓", tone: "good", code: 32 },
+  { state: "done", accepted: false, label: "Completed", glyph: "✓", tone: "good", code: 32 },
   { state: "failed", label: "Failed", glyph: "✕", tone: "bad", code: 31 },
   { state: "needs_input", label: "Needs your answer", glyph: "!", tone: "warn", code: 33 },
   { state: "limit", label: "Out of quota", glyph: "!", tone: "bad", code: 31 },
@@ -30,7 +30,7 @@ for (const item of doneCases) test(`TUI preserves ${item.label} in completed row
 });
 
 const attentionCases = [
-  { kind: "review", label: "Waiting for review", glyph: "◐", tone: "warn", code: 33 },
+  { kind: "review", label: "Review requested", glyph: "◐", tone: "warn", code: 33 },
   { kind: "question", label: "Needs your answer", glyph: "!", tone: "warn", code: 33 },
   { kind: "failed", label: "Failed", glyph: "✕", tone: "bad", code: 31 },
   { kind: "limit", label: "Out of quota", glyph: "!", tone: "bad", code: 31 },
@@ -49,6 +49,6 @@ test("attention linked to an unknown task uses its task status", () => {
   const s = snapshot();
   s.tasks = [{ ...s.tasks[3]!, state: "future-state", review: undefined }];
   s.attention = [{ ...s.attention![0]!, kind: "review", taskId: s.tasks[0]!.id, title: "Unknown task", actions: [] }];
-  expect(renderDashboard(s, 100, 30, s.at, { selected: -1, noColor: true }).split("\n").find(line => line.includes("Unknown task"))).toContain("? Unknown");
+  expect(renderDashboard(s, 100, 30, s.at, { selected: -1, noColor: true }).split("\n").find(line => line.includes("Unknown task"))).toContain("◐ Review requested");
 });
 

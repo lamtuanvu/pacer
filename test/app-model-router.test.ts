@@ -7,10 +7,10 @@ const route = (hash: string, setup: boolean | null = true) => resolveRoute(hash,
 test("new routes resolve with their ids and sections", () => {
   expect(route("#/")).toEqual({ name: "overview", query: q });
   expect(route("")).toEqual({ name: "overview", query: q });
-  expect(route("#/review")).toEqual({ name: "review", query: q });
-  expect(route("#/review/t-0412")).toEqual({ name: "review", id: "t-0412", query: q });
-  expect(route("#/sessions")).toEqual({ name: "sessions", query: q });
-  expect(route("#/sessions/a%20b")).toEqual({ name: "sessions", id: "a b", query: q });
+  expect(route("#/needs-you")).toEqual({ name: "review", query: q });
+  expect(route("#/tasks/t-0412")).toEqual({ name: "sessions", id: "t-0412", query: q });
+  expect(route("#/tasks")).toEqual({ name: "sessions", query: q });
+  expect(route("#/tasks/a%20b")).toEqual({ name: "sessions", id: "a b", query: q });
   expect(route("#/settings")).toEqual({ name: "settings", query: q });
   expect(route("#/settings/executors")).toEqual({ name: "settings", section: "executors", query: q });
   expect(route("#/settings/hosts")).toEqual({ name: "hosts", query: q });
@@ -24,13 +24,13 @@ test("unknown or malformed routes fall back to Overview", () => {
 
 test("the repo filter and scope come from the query and survive", () => {
   expect(route("#/?repo=github.com%2Facme%2Fapi")).toEqual({ name: "overview", query: { repo: "github.com/acme/api", scope: null } });
-  expect(route("#/review/t1?scope=repo:github.com/acme/api").query).toEqual({ repo: null, scope: "repo:github.com/acme/api" });
+  expect(route("#/tasks/t1?scope=repo:github.com/acme/api").query).toEqual({ repo: null, scope: "repo:github.com/acme/api" });
   expect(withQuery("#/review/t1", { repo: "github.com/acme/api", scope: null })).toBe("#/review/t1?repo=github.com%2Facme%2Fapi");
   expect(withQuery("#/", q)).toBe("#/");
 });
 
 test("old routes fall back to Overview and keep the repo filter and scope", () => {
-  for (const hash of ["#/tasks", "#/tasks/t1", "#/executors", "#/executors/add", "#/accounts", "#/strategy", "#/hosts"]) {
+  for (const hash of ["#/executors", "#/executors/add", "#/accounts", "#/strategy", "#/hosts"]) {
     expect(resolveRoute(hash)).toEqual({ name: "overview", query: q });
     expect(resolveRoute(`${hash}?repo=k&scope=all`)).toEqual({ name: "overview", query: { repo: "k", scope: "all" } });
   }
@@ -63,4 +63,12 @@ test("Setup is reachable after required completion and Settings remains availabl
   expect(route("#/setup", true).name).toBe("setup");
   expect(route("#/setup", null).name).toBe("loading");
   expect(route("#/settings", false).name).toBe("settings");
+});
+
+test("new destinations and legacy bookmarks preserve task IDs and repository scope", () => {
+ expect(resolveRoute("#/needs-you?repo=acme")).toMatchObject({name:"review",query:{repo:"acme"}});
+ expect(resolveRoute("#/tasks/old-task?repo=acme")).toMatchObject({name:"sessions",id:"old-task",query:{repo:"acme"}});
+ expect(resolveRoute("#/review/old-task?repo=acme")).toEqual({redirect:"#/tasks/old-task?repo=acme"});
+ expect(resolveRoute("#/review")).toEqual({redirect:"#/needs-you"});
+ expect(resolveRoute("#/sessions")).toEqual({redirect:"#/tasks"});
 });

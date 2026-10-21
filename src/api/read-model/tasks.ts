@@ -20,8 +20,15 @@ export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=apiTasks(ctx,records.filter(t=>!t.archived));
  return rows.filter(t=>["queued","running"].includes(t.state)||(!t.dismissed && t.updatedAt>=ctx.now-86400)).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,200);
 }
-export function needsReview(t: Pick<TaskData,"state"|"review"|"resolved"|"dismissed"|"retriedBy">): boolean {
- return ["done","partial"].includes(t.state)&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy;
+export type AttentionTask = Pick<TaskData, "state" | "review" | "resolved" | "dismissed" | "retriedBy" | "reviewRequest" | "acceptanceState">;
+export function taskAttentionReason(t: AttentionTask): "checks_failed" | "incomplete" | "review_requested" | null {
+ if (!["done", "partial"].includes(t.state) || t.review || t.resolved || t.dismissed || t.retriedBy) return null;
+ if (t.acceptanceState === "failed") return "checks_failed";
+ if (t.state === "partial") return "incomplete";
+ return t.reviewRequest ? "review_requested" : null;
+}
+export function needsReview(t: AttentionTask): boolean {
+ return taskAttentionReason(t) === "review_requested";
 }
 
 /** Reverse retry links also cover snapshots published before retriedBy was persisted. */

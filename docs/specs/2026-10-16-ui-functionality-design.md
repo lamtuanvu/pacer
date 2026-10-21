@@ -1,5 +1,7 @@
 # Service functionality for the redesigned UI
 
+> Review-queue behavior is superseded by [actionable attention](2026-10-21-actionable-attention-design.md). Historical layout and delivery descriptions below are not the current review contract.
+
 > Historical context: protocol 3.0 retired the v1 Orca link, storage bridge, channel sends, console command lines and unversioned read routes on 2026-10-18. The owner waived the release gate; `/v2` remains for one more pacer minor release. See [current protocol](../protocol.md).
 
 Status: proposed 2026-10-16.

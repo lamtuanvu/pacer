@@ -134,6 +134,24 @@ export function stop(ctx: Ctx, id: string): TaskRecord {
   return t;
 }
 
+/** Request a human decision without recording a quality verdict. */
+export function requestReview(ctx: Ctx, id: string, input: { note: string; expect_rev?: number }): TaskRecord {
+  if (typeof input.note !== "string" || !input.note.trim() || input.note.trim().length > 2000) {
+    throw new CoreError("invalid_input", "review request needs a note of 1–2000 characters");
+  }
+  const note = input.note.trim();
+  return withTaskLock(ctx, id, () => {
+    const task = readTask(ctx, id);
+    if (!task) throw unknown(id);
+    checkRev(ctx, task, input.expect_rev);
+    if (!["done", "partial"].includes(task.state) || task.review || task.resolved || task.dismissed || task.retriedBy) {
+      throw new CoreError("conflict", "task no longer needs a review request", undefined, { task: apiTask(ctx, task) });
+    }
+    if (task.reviewRequest?.note === note) return task;
+    return updateTask(ctx, id, t => { t.reviewRequest = { note, at: ctx.now }; });
+  });
+}
+
 export type ReviewVerdict = "accept" | "reject" | "send_back" | "retry";
 export interface ReviewOptions {
   verdict?: ReviewVerdict;

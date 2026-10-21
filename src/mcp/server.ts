@@ -82,6 +82,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     return json({ provider: r.provider, exhausted_until: r.exhaustedUntil });
   });
 
+  server.registerTool("task_request_review", {
+    description: "Ask a human to decide about a completed result. Give the specific concern; this does not accept the work.",
+    inputSchema: { task_id: z.string(), note: z.string().trim().min(1).max(2000), expect_rev: z.number().int().positive().optional() },
+  }, async ({ task_id, note, expect_rev }) => json({ task: summarizeTask(core.tasks.requestReview(getCtx(), task_id, { note, expect_rev })) }));
+
   server.registerTool("task_review", {
     description: "Record your verdict on a delegated task's result after reviewing it (ground truth for pacer's routing benchmark).",
     inputSchema: { task_id: z.string(), verdict: z.enum(["accept", "reject", "send_back", "retry"]), executor: z.string().optional(), kind: z.enum(KINDS).optional(), note: z.string().optional() },

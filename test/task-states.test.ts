@@ -28,7 +28,8 @@ test("needs_input is terminal and labelled in app, panel and TUI", () => {
   const attention=deriveTaskItems({now:100,tasks:[task],executors:[],accounts:[],planner:null,setup:{complete:true,open:0,items:[]},update:null,retryTarget:()=>null});
   const current={...emptySnapshot(),at:100,tasks:[task],attention};
   const item=screenItems(current,100).find(i=>i.id===`attention:${attention[0]!.id}`)!;
-  expect(item.primary?.effect).toMatchObject({type:"action",action:{op:"task.answer",params:{id:task.id}}});
+  expect(item.primary?.effect.type).toBe("prompt");
+  if(item.primary?.effect.type === "prompt") expect(item.primary.effect.prompt.submit("SQLite")).toMatchObject({type:"action",action:{op:"task.answer",params:{id:task.id,text:"SQLite"}}});
   const tui=renderDashboard(current,150,24,100,{selected:0,noColor:true});
   expect(tui).toContain("! Needs your answer");
   expect(tui).toContain("Which database?");

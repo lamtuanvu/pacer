@@ -62,13 +62,13 @@ test("ui.open actions navigate inside the TUI instead of calling the service", a
   expect(t.dash.state.screen).toBe("review");
   expect(t.dash.state.selected.review).toBe("review:t-0412");
   expect(t.ops()).toEqual([]);
-  expect(t.last().split("\n")[0]).toContain("[ Review ]");
+  expect(t.last().split("\n")[0]).toContain("[ Needs you ]");
 });
 
 test("accepting a review confirms, sends the revision guard and moves to the next item", async () => {
   const t = setup();
   await t.dash.refresh();
-  await t.keys("2", "a");
+  await t.keys("2", "j", "j", "a");
   expect(t.last()).toContain('Accept "Fix flaky retry test in the payments client"?');
   expect(t.ops()).toEqual([]);
   await t.keys("y");
@@ -80,7 +80,7 @@ test("accepting a review confirms, sends the revision guard and moves to the nex
 test("reject and send back require a note; conflicts explain another client won", async () => {
   const t = setup({ respond: op => op === "task.review" ? new ApiError("conflict", "revision changed") : undefined });
   await t.dash.refresh();
-  await t.keys("2", "r", "enter");
+  await t.keys("2", "j", "j", "r", "enter");
   expect(t.last()).toContain("Add a note first.");
   await t.keys(..."flaky", "enter");
   expect(t.ops()).toEqual([{ op: "task.review", params: { id: "t-0412", expect_rev: 3, verdict: "reject", note: "flaky" } }]);
@@ -90,7 +90,7 @@ test("reject and send back require a note; conflicts explain another client won"
 test("retry offers only ready executors from the task detail", async () => {
   const t = setup();
   await t.dash.refresh();
-  await t.keys("2");
+  await t.keys("2", "j", "j");
   await t.keys("t");
   const menu = t.dash.state.overlay;
   expect(menu).toMatchObject({ kind: "menu", title: "Retry on" });
@@ -102,7 +102,7 @@ test("retry offers only ready executors from the task detail", async () => {
 test("review keys are absent when the service does not offer task.review", async () => {
   const t = setup({ ops: ALL_OPS.filter(op => op !== "task.review") });
   await t.dash.refresh();
-  await t.keys("2", "a", "r", "s");
+  await t.keys("2", "j", "j", "a", "r", "s");
   expect(t.dash.state.overlay).toBeNull();
   expect(t.ops()).toEqual([]);
   expect(t.last()).toContain("does not offer reviews here");

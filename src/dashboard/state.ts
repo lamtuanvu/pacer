@@ -2,11 +2,12 @@
 import type { Action } from "../attention/types";
 
 export type ScreenId = "home" | "review" | "sessions" | "settings" | "setup";
-export const SCREEN_LABELS: Record<ScreenId, string> = { home: "Home", review: "Review", sessions: "Sessions", settings: "Settings", setup: "Setup" };
+export const SCREEN_LABELS: Record<ScreenId, string> = { home: "Home", review: "Needs you", sessions: "Tasks", settings: "Settings", setup: "Setup" };
 export const SCREEN_KEYS: Record<string, ScreenId> = { "1": "home", "2": "review", "3": "sessions", "4": "settings", "5": "setup" };
 
 /** What an action does. The controller executes effects; screens only describe them. */
 export type Effect =
+  | { type: "history-more" }
   | { type: "action"; action: Action }
   | { type: "navigate"; screen: ScreenId; id?: string; section?: string }
   | { type: "attach"; id: string; target: "here" | "terminal" | "tmux" }

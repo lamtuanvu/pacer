@@ -47,6 +47,8 @@ ${enforcement} the mode is \`relaxed\`, no executor is available, or \`PACER=off
 
 Review each delegated result and verify before reporting done. Check the changes and run the acceptance command; then run \`pacer review <id> --accept|--reject [--kind <k>]\` to record your verdict and any corrected kind tag.
 
+When a human decision is needed, use \`pacer task request-review <id> --note "<specific concern>"\` (or MCP task_request_review) instead of recording a verdict you have not reached. Successful execution alone never means acceptance. A completed run without a verdict stays in history and does not require a second human acknowledgment.
+
 Escape hatch: set \`PACER=off\` to disable pacing and delegation enforcement for the session.
 `;
 }

@@ -32,7 +32,7 @@ async function connect() {
 test("lists planner and strategy tools", async () => {
   const { client } = await connect();
   expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
-    "budget_status", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_status", "task_stop", "task_wait",
+    "budget_status", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_request_review", "task_status", "task_stop", "task_wait",
     "strategy_list", "strategy_preview", "strategy_save", "strategy_show", "strategy_use",
   ].sort());
 });
@@ -188,4 +188,16 @@ test("MCP delegate accepts trimmed short titles and rejects oversized titles",as
  expect(readTask(ctx,d.structuredContent.task_id)?.title).toBe("Queue fix");
  expect((await call("delegate",{goal:"g",repo:ctx.home,title:"x".repeat(61)})).isError).toBe(true);
  await client.close();
+});
+
+test("human handoff records a request without a verdict", async () => {
+  const {ctx,call,client}=await connect();
+  const d=await call("delegate",{goal:"Check permissions",repo:tmpDir(),executor:"codex"});
+  const id=d.structuredContent.task_id;
+  updateTask(ctx,id,t=>{t.state="done";});
+  const result=await call("task_request_review",{task_id:id,note:"Check access",expect_rev:readTask(ctx,id)!.rev});
+  expect(result.isError).not.toBe(true);
+  expect(readTask(ctx,id)?.reviewRequest?.note).toBe("Check access");
+  expect(readTask(ctx,id)?.review).toBeUndefined();
+  await client.close();
 });

@@ -21,8 +21,8 @@ import { settingsPath } from "../router";
 export function uiHref(params: Record<string, unknown>): string {
   const id = typeof params.id === "string" ? encodeURIComponent(params.id) : "";
   switch (params.view) {
-    case "review": return id ? `#/review/${id}` : "#/review";
-    case "task": case "session": return id ? `#/sessions/${id}` : "#/sessions";
+    case "review": return id ? `#/tasks/${id}` : "#/needs-you";
+    case "task": case "session": return id ? `#/tasks/${id}` : "#/tasks";
     case "settings": return `#${settingsPath(params.section)}`;
     default: return "#/";
   }

@@ -18,7 +18,7 @@ import { Delegate } from "./screens/Delegate";
 import { followSavedTheme } from "./theme";
 followSavedTheme();
 const store = createStore();
-const TITLES: Record<Route["name"], string> = { overview: "Overview", setup: "Set up pacer", review: "Review", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
+const TITLES: Record<Route["name"], string> = { overview: "Overview", setup: "Set up pacer", review: "Needs you", sessions: "Tasks", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 function App() {
   const [state, setState] = useState(store.getState);
@@ -57,8 +57,8 @@ function App() {
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
       keys.register({ keys: "g o", label: "Go to Overview", scope: "global", run: go("#/") }),
-      keys.register({ keys: "g r", label: "Go to Review", scope: "global", run: go("#/review") }),
-      keys.register({ keys: "g s", label: "Go to Sessions", scope: "global", run: go("#/sessions") }),
+      keys.register({ keys: "g r", label: "Go to Needs you", scope: "global", run: go("#/needs-you") }),
+      keys.register({ keys: "g s", label: "Go to Tasks", scope: "global", run: go("#/tasks") }),
       keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),
       keys.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => setHelp(true) }),
       keys.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => setDelegate(true) }),

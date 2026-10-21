@@ -25,7 +25,7 @@ test("phases and modes read as words", () => {
 
 test("moved task words keep their behaviour", () => {
   expect(taskStatus({ state: "running" })).toEqual({ label: "Working", tone: "info", glyph: "▶" });
-  expect(taskStatus({ state: "done", review: { accepted: false } })).toEqual({ label: "Rejected", tone: "bad", glyph: "✕" });
+  expect(taskStatus({ state: "done", review: { accepted: false } })).toEqual({ label: "Completed", tone: "good", glyph: "✓" });
   expect(executorLabel("codex#team@devbox", [{ name: "team" }])).toBe("Codex · team on devbox");
   expect(executorLabel(null)).toBe("Automatic");
 });
@@ -96,11 +96,20 @@ test("every task, session, executor and pace state has a complete descriptor", a
     expect(paceStatus(old!)).toEqual(paceStatus(current!));
   }
   const task = {id:'finished', state:'done', progress:{phase:'testing'}};
-  expect(attentionStatus({kind:'review',taskId:task.id}, [task])).toEqual(taskStatus(task));
-  expect(taskStatus(task)).toEqual({label:'Waiting for review',tone:'warn',glyph:'◐'});
+  expect(attentionStatus({kind:'review',taskId:task.id}, [task]).label).toBe('Review requested');
+  expect(taskStatus(task)).toEqual({label:'Completed',tone:'good',glyph:'✓'});
   expect(paceStatus('unknown').glyph).not.toBe(taskStatus(task).glyph);
-  expect(taskStatus({...task,review:{accepted:true}})).toEqual({label:'Accepted',tone:'good',glyph:'✓'});
-  expect(taskStatus({...task,dismissed:true}).label).toBe('Done');
+  expect(taskStatus({...task,review:{accepted:true}})).toEqual({label:'Completed',tone:'good',glyph:'✓'});
+  expect(taskStatus({...task,dismissed:true}).label).toBe('Completed');
   expect(taskStatus({state:'running',progress:{phase:'idle'}})).toEqual(sessionStatus('idle'));
   for (const getter of [sessionStatus, executorStatus, paceStatus]) expect(getter('future_state').tone).toBe('neutral');
+});
+
+test("execution status is independent of verdict and unrecorded outcomes are neutral", async () => {
+ const {taskOutcome}=await import("../src/view-model/words");
+ expect(taskStatus({state:"done"}).label).toBe("Completed");
+ expect(taskStatus({state:"partial",review:{accepted:true}}).label).toBe("Incomplete");
+ expect(taskStatus({state:"failed",review:{accepted:true}}).label).toBe("Failed");
+ expect(taskOutcome({state:"done"})).toMatchObject({label:"Outcome not recorded",tone:"neutral"});
+ expect(taskOutcome({state:"done",review:{accepted:true}}).label).toBe("Accepted");
 });

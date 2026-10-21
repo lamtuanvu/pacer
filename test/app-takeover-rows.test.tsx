@@ -22,6 +22,6 @@ test('both running lists dispatch takeover and navigate through the row button',
   expect(html!).toContain('pc-btn--secondary');
   clicks[0]!();await Promise.resolve();await Promise.resolve();
   expect(calls).toEqual([['task.takeover',{id:overview?snapshot.tasks.find(t=>t.state==='running')!.id:'t-0415'}]]);
-  expect(routes).toEqual([overview?`#/sessions/${snapshot.tasks.find(t=>t.state==='running')!.id}?takeover=driving`:'#/sessions/t-0415?takeover=driving']);
+  expect(routes).toEqual([overview?`#/tasks/${snapshot.tasks.find(t=>t.state==='running')!.id}?takeover=driving`:'#/tasks/t-0415?takeover=driving']);
  }
 });

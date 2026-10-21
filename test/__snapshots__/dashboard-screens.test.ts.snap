@@ -1,7 +1,7 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
-" ▬┃ pacer   [ Home ]  Review 2  Sessions 2  Settings                                  All repos · Normal · ● live 08:00
+" ▬┃ pacer   [ Home ]  Needs you 4  Tasks 2  Settings                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    14 pts under pace — spend it.
@@ -9,8 +9,8 @@ exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
    NEEDS YOU  4
  › ✕ Unavailable         buildbox is not answering                                ssh failed twice · last answe…  07:40
    ✕ Failed              Retry budget refresh on 429                  acme/api    Failed twice on Antigravity ·…  07:50
-   ◐ Waiting for review  Fix flaky retry test in the payments client  acme/api    Tests passed · 11:58            07:30
-   ◐ Waiting for review  Add dark mode to the web header              acme/web    Tests passed · 12:13            07:45
+   ◐ Review requested    Fix flaky retry test in the payments client  acme/api    Tests passed · 11:58            07:30
+   ◐ Review requested    Add dark mode to the web header              acme/web    Tests passed · 12:13            07:45
    
    RUNNING  2 · 1 queued
    ▶ Editing         Add SSH keepalive to remote runs                            acme/api      Codex · team on devbox  
@@ -30,12 +30,12 @@ exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
    
    DONE TODAY  7 · 6 accepted
    07:50  ✕ Failed              Retry budget refresh on 429          acme/api      Antigravity                         
-   07:45  ◐ Waiting for review  Add dark mode to the web header      acme/web      Cursor                              
-   07:30  ◐ Waiting for review  Fix flaky retry test in the paymen…  acme/api      Codex · team on devbox              
-   03:00  ✓ Accepted            Rename runner ids in docs            pacer         Codex · team on devbox              
-   02:00  ✕ Rejected            Bump yaml to 2.8.2                   pacer         Local model                         
- 
- 
+   07:45  ✓ Completed           Add dark mode to the web header      acme/web      Cursor                              
+   07:30  ✓ Completed           Fix flaky retry test in the paymen…  acme/api      Codex · team on devbox              
+   03:00  ✓ Completed           Rename runner ids in docs            pacer         Codex · team on devbox              
+   ✓ Accepted
+   02:00  ✓ Completed           Bump yaml to 2.8.2                   pacer         Local model                         
+   ✕ Rejected
  
  
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
-" ▬┃ pacer   [ Home ]  Review 2  Sessions 2  Settings               ● live 08:00
+" ▬┃ pacer   [ Home ]  Needs you 4  Tasks 2  Settings               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    14 pts under pace — spend it.
@@ -52,8 +52,8 @@ exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
    NEEDS YOU  4
  › ✕ Unavailable         buildbox is not answering   ssh failed twice · last a…
    ✕ Failed              Retry budget refresh on 4…  Failed twice on Antigravi…
-   ◐ Waiting for review  Fix flaky retry test in t…  Tests passed · 11:58      
-   ◐ Waiting for review  Add dark mode to the web…   Tests passed · 12:13      
+   ◐ Review requested    Fix flaky retry test in t…  Tests passed · 11:58      
+   ◐ Review requested    Add dark mode to the web…   Tests passed · 12:13      
    
    RUNNING  2 · 1 queued
    ▶ Editing         Add SSH keepalive to remote runs        Codex · team on d…
@@ -64,42 +64,42 @@ exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
                      Waiting: this executor is running 1 of 1
    
    CAPACITY  2/4 executors ready
- ↓ 13 more
+ ↓ 15 more
  ──────────────────────────────────────────────────────────────────────────────
  
  ⏎ Run checks  x dismiss  . actions (3)  f repo scope  ? help  pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) review at 120x40 1`] = `
-" ▬┃ pacer   Home 4  [ Review ]  Sessions 2  Settings                                  All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  [ Needs you ]  Tasks 2  Settings                                    All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-   REVIEW QUEUE  2                                    │ Fix flaky retry test in the payments client
- › ◐ Waiting for review Fix flaky retry test i… 07:30 │ ◐ Waiting for review · Codex · team on devbox · ran 50m ·
-   ◐ Waiting for review Add dark mode to the w… 07:45 │ pacer/review → main
-                                                      │ acme/api · finished 07:50
-   Accepted today 6 · rejected 1. Your verdicts teach │ 
-   routing which executor suits which kind.           │ ╭ Done when ──────────────────────────────────────────────────╮
-                                                      │ │ bun test                                                    │
-                                                      │ │ ✓ Tests passed · 38 passed · checks ran 41 s · run by pacer │
-                                                      │ │ on devbox                                                   │
-                                                      │ ╰─────────────────────────────────────────────────────────────╯
-                                                      │ ╭ Why Codex · team on devbox ─────────────────────────────────╮
-                                                      │ │ Best available capacity                                     │
-                                                      │ │ Skipped other: Quota budget reached                         │
-                                                      │ ╰─────────────────────────────────────────────────────────────╯
+   DECISIONS AND PROBLEMS                             │ ssh failed twice · last answered 40m ago
+ › ✕ Unavailable        buildbox is not answering     │ 
+   ssh failed twice · last answered 40m ago           │ 
                                                       │ 
-                                                      │ CHANGES  1 file · +3 −1
-                                                      │ M  src/example.ts                                    +3      −1
+   ✕ Failed             Retry budget refresh on 429   │ 
+   Failed twice on Antigravity · test timed out after │ 
+   120 s                                              │ 
                                                       │ 
-                                                      │ EXECUTOR SUMMARY
-                                                      │ Implemented and verified the change.
+   ◐ Review requested   Fix flaky retry test in the…  │ 
+   Tests passed · 11:58                               │ 
                                                       │ 
-                                                      │ ╭ Your verdict ───────────────────────────────────────────────╮
-                                                      │ │ a Accept and bring back   s Send back   r Reject            │
-                                                      │ │ t Retry on another executor                                 │
-                                                      │ │ Accept records the verdict; you merge the branch.           │
-                                                      │ ╰─────────────────────────────────────────────────────────────╯
+   ◐ Review requested   Add dark mode to the web hea… │ 
+   Tests passed · 12:13                               │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
                                                       │ 
                                                       │ 
                                                       │ 
@@ -110,26 +110,26 @@ exports[`golden frames (NO_COLOR) review at 120x40 1`] = `
                                                       │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- a accept and bring back  s send back  r reject  t retry on another executor  ? help                   pacer 0.0.0-test"
+ ⏎ Run checks  . actions (2)  ? help                                                                   pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) review at 80x24 1`] = `
-" ▬┃ pacer   Home 4  [ Review ]  Sessions 2  Settings               ● live 08:00
+" ▬┃ pacer   Home  [ Needs you ]  Tasks 2  Settings                 ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
-   REVIEW QUEUE  2
- › ◐ Waiting for review Fix flaky retry test in the payments client       07:30
-   ◐ Waiting for review Add dark mode to the web header                   07:45
+   DECISIONS AND PROBLEMS
+ › ✕ Unavailable        buildbox is not answering                              
+   ssh failed twice · last answered 40m ago                                    
    
-   Accepted today 6 · rejected 1. Your verdicts teach routing which executor
-   suits which kind.
- 
- 
- 
- 
- 
- 
- 
+   ✕ Failed             Retry budget refresh on 429                            
+   Failed twice on Antigravity · test timed out after 120 s
+   
+   ◐ Review requested   Fix flaky retry test in the payments client            
+   Tests passed · 11:58
+   
+   ◐ Review requested   Add dark mode to the web header                        
+   Tests passed · 12:13
+   
  
  
  
@@ -137,38 +137,38 @@ exports[`golden frames (NO_COLOR) review at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- a accept and bring back  s send back  r reject  ? help        pacer 0.0.0-test"
+ ⏎ Run checks  . actions (2)  ? help                           pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) review detail (narrow drill-in) at 80x24 1`] = `
-" ▬┃ pacer   Home 4  [ Review ]  Sessions 2  Settings               ● live 08:00
+" ▬┃ pacer   Home  [ Needs you ]  Tasks 2  Settings                 ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
-   Fix flaky retry test in the payments client
-   ◐ Waiting for review · Codex · team on devbox · ran 50m · pacer/review →
-   main
-   acme/api · finished 07:50
-   
-   ╭ Done when ───────────────────────────────────────────────────────────────╮
-   │ bun test                                                                 │
-   │ ✓ Tests passed · 38 passed · checks ran 41 s · run by pacer on devbox    │
-   ╰──────────────────────────────────────────────────────────────────────────╯
-   ╭ Why Codex · team on devbox ──────────────────────────────────────────────╮
-   │ Best available capacity                                                  │
-   │ Skipped other: Quota budget reached                                      │
-   ╰──────────────────────────────────────────────────────────────────────────╯
-   
-   CHANGES  1 file · +3 −1
-   M  src/example.ts                                                 +3      −1
-   
- ↓ 8 more
+   ssh failed twice · last answered 40m ago
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
  ──────────────────────────────────────────────────────────────────────────────
  
- a accept and bring back  s send back  r reject  ? help        pacer 0.0.0-test"
+ ⏎ Run checks  . actions (2)  ? help                           pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  [ Sessions ]  Settings                                  All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  [ Tasks ]  Settings                                    All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    RUNNING  2 · 1 queued                        │ Add SSH keepalive to remote runs
@@ -179,17 +179,17 @@ exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
    Document the token sync               queued │ WATCH
    … Queued                                     │ This run is headless; its output is in the task log.
                                                 │ 
-   RECENTLY ENDED  5                            │ DONE WHEN
+   COMPLETED  5                                 │ DONE WHEN
    Retry budget refresh on 429            07:50 │ bun test
-   ✕ Failed                                     │ pacer runs it after the executor exits, then asks you to review.
-   Add dark mode to the web header        07:45 │ 
-   ◐ Waiting for review                         │ TIMELINE
-   Fix flaky retry test in the paym…      07:30 │ 07:46 Executor selected
-   ◐ Waiting for review                         │ 07:46 Working copy created
-   Rename runner ids in docs              03:00 │ 07:51 Running checks
-   ✓ Accepted                                   │ 
+   ✕ Failed                                     │ pacer runs it after the executor exits, records the checks with the
+   Add dark mode to the web header        07:45 │ result.
+   ✓ Completed                                  │ 
+   Fix flaky retry test in the paym…      07:30 │ TIMELINE
+   ✓ Completed                                  │ 07:46 Executor selected
+   Rename runner ids in docs              03:00 │ 07:46 Working copy created
+   ✓ Completed                                  │ 07:51 Running checks
    Bump yaml to 2.8.2                     02:00 │ 
-   ✕ Rejected                                   │ 
+   ✓ Completed                                  │ 
                                                 │ 
                                                 │ 
                                                 │ 
@@ -211,7 +211,7 @@ exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) sessions at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  [ Sessions ]  Settings               ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  [ Tasks ]  Settings                 ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    RUNNING  2 · 1 queued
@@ -219,12 +219,12 @@ exports[`golden frames (NO_COLOR) sessions at 80x24 1`] = `
    … Idle                Split the settings page into sections              40m
    … Queued              Document the token sync                         queued
    
-   RECENTLY ENDED  5
+   COMPLETED  5
    ✕ Failed              Retry budget refresh on 429                      07:50
-   ◐ Waiting for review  Add dark mode to the web header                  07:45
-   ◐ Waiting for review  Fix flaky retry test in the payments client      07:30
-   ✓ Accepted            Rename runner ids in docs                        03:00
-   ✕ Rejected            Bump yaml to 2.8.2                               02:00
+   ✓ Completed           Add dark mode to the web header                  07:45
+   ✓ Completed           Fix flaky retry test in the payments client      07:30
+   ✓ Completed           Rename runner ids in docs                        03:00
+   ✓ Completed           Bump yaml to 2.8.2                               02:00
  
  
  
@@ -238,7 +238,7 @@ exports[`golden frames (NO_COLOR) sessions at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) sessions detail (narrow drill-in) at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  [ Sessions ]  Settings               ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  [ Tasks ]  Settings                 ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    Add SSH keepalive to remote runs
@@ -250,7 +250,7 @@ exports[`golden frames (NO_COLOR) sessions detail (narrow drill-in) at 80x24 1`]
    
    DONE WHEN
    bun test
-   pacer runs it after the executor exits, then asks you to review.
+   pacer runs it after the executor exits, records the checks with the result.
    
    TIMELINE
    07:46 Executor selected
@@ -265,7 +265,7 @@ exports[`golden frames (NO_COLOR) sessions detail (narrow drill-in) at 80x24 1`]
 `;
 
 exports[`golden frames (NO_COLOR) settings sections at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › Planner & pacing             │   PLANNER & PACING
@@ -308,7 +308,7 @@ exports[`golden frames (NO_COLOR) settings sections at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings sections at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
  › Planner & pacing                                                            
@@ -335,7 +335,7 @@ exports[`golden frames (NO_COLOR) settings sections at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Planner & pacing at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    ▸ Planner & pacing           │   PLANNER & PACING
@@ -378,7 +378,7 @@ exports[`golden frames (NO_COLOR) settings › Planner & pacing at 120x40 1`] = 
 `;
 
 exports[`golden frames (NO_COLOR) settings › Planner & pacing at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    PLANNER & PACING
@@ -405,7 +405,7 @@ exports[`golden frames (NO_COLOR) settings › Planner & pacing at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Accounts at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   ACCOUNTS
@@ -448,7 +448,7 @@ exports[`golden frames (NO_COLOR) settings › Accounts at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Accounts at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    ACCOUNTS
@@ -475,7 +475,7 @@ exports[`golden frames (NO_COLOR) settings › Accounts at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Executors at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   EXECUTORS
@@ -518,7 +518,7 @@ exports[`golden frames (NO_COLOR) settings › Executors at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Executors at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    EXECUTORS
@@ -545,7 +545,7 @@ exports[`golden frames (NO_COLOR) settings › Executors at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   THIS MACHINE
@@ -588,7 +588,7 @@ exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    THIS MACHINE
@@ -615,7 +615,7 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Remote hosts at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   REMOTE HOSTS
@@ -658,7 +658,7 @@ exports[`golden frames (NO_COLOR) settings › Remote hosts at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Remote hosts at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    REMOTE HOSTS
@@ -685,7 +685,7 @@ exports[`golden frames (NO_COLOR) settings › Remote hosts at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Routing at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   ROUTING
@@ -728,7 +728,7 @@ exports[`golden frames (NO_COLOR) settings › Routing at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Routing at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    ROUTING
@@ -755,7 +755,7 @@ exports[`golden frames (NO_COLOR) settings › Routing at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Project strategies at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   PROJECT STRATEGIES
@@ -798,7 +798,7 @@ exports[`golden frames (NO_COLOR) settings › Project strategies at 120x40 1`] 
 `;
 
 exports[`golden frames (NO_COLOR) settings › Project strategies at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    PROJECT STRATEGIES
@@ -825,7 +825,7 @@ exports[`golden frames (NO_COLOR) settings › Project strategies at 80x24 1`] =
 `;
 
 exports[`golden frames (NO_COLOR) settings › Strategies at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   STRATEGIES
@@ -868,7 +868,7 @@ exports[`golden frames (NO_COLOR) settings › Strategies at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Strategies at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    STRATEGIES
@@ -895,7 +895,7 @@ exports[`golden frames (NO_COLOR) settings › Strategies at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Updates at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   UPDATES
@@ -938,7 +938,7 @@ exports[`golden frames (NO_COLOR) settings › Updates at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Updates at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    UPDATES
@@ -965,7 +965,7 @@ exports[`golden frames (NO_COLOR) settings › Updates at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Notifications at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   NOTIFICATIONS
@@ -1008,7 +1008,7 @@ exports[`golden frames (NO_COLOR) settings › Notifications at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Notifications at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    NOTIFICATIONS
@@ -1035,7 +1035,7 @@ exports[`golden frames (NO_COLOR) settings › Notifications at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Appearance at 120x40 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]                                All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
      Planner & pacing           │   APPEARANCE
@@ -1078,7 +1078,7 @@ exports[`golden frames (NO_COLOR) settings › Appearance at 120x40 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) settings › Appearance at 80x24 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  [ Settings ]             ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    APPEARANCE
@@ -1105,7 +1105,7 @@ exports[`golden frames (NO_COLOR) settings › Appearance at 80x24 1`] = `
 `;
 
 exports[`golden frames (NO_COLOR) setup replaces work screens while setup is incomplete 1`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  Settings  [ Setup ]                         All repos · Normal · ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  Settings  [ Setup ]                           All repos · Normal · ● live 08:00
  Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    pacer works once the required steps are done. The rest makes it useful.
@@ -1148,7 +1148,7 @@ exports[`golden frames (NO_COLOR) setup replaces work screens while setup is inc
 `;
 
 exports[`golden frames (NO_COLOR) setup replaces work screens while setup is incomplete 2`] = `
-" ▬┃ pacer   Home 4  Review 2  Sessions 2  Settings  [ Setup ]      ● live 08:00
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  Settings  [ Setup ]        ● live 08:00
  Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
  ──────────────────────────────────────────────────────────────────────────────
    pacer works once the required steps are done. The rest makes it useful.
@@ -1175,7 +1175,7 @@ exports[`golden frames (NO_COLOR) setup replaces work screens while setup is inc
 `;
 
 exports[`color, plain and ASCII renditions home in truecolor uses token colors 1`] = `
-" \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[1m\x1B[38;2;147;197;253m[ Home ]\x1B[0m  \x1B[38;2;161;161;170mReview\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 2\x1B[0m  \x1B[38;2;161;161;170mSessions\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                  \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
+" \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[1m\x1B[38;2;147;197;253m[ Home ]\x1B[0m  \x1B[38;2;161;161;170mNeeds you\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[38;2;161;161;170mTasks\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                  \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
  \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
    \x1B[1m14 pts under pace — spend it.\x1B[0m
@@ -1183,8 +1183,8 @@ exports[`color, plain and ASCII renditions home in truecolor uses token colors 1
    \x1B[1m\x1B[38;2;161;161;170mNEEDS YOU\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m4\x1B[0m
  \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[38;2;252;165;165m\x1B[48;2;39;39;42m✕ Unavailable\x1B[0m\x1B[48;2;39;39;42m       \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[1m\x1B[48;2;39;39;42mbuildbox is not answering\x1B[0m\x1B[48;2;39;39;42m                  \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m\x1B[0m\x1B[48;2;39;39;42m          \x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42mssh failed twice · last answe…\x1B[0m\x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m07:40\x1B[0m
    \x1B[38;2;252;165;165m✕ Failed\x1B[0m              \x1B[1mRetry budget refresh on 429\x1B[0m                  \x1B[38;2;161;161;170macme/api\x1B[0m    \x1B[38;2;161;161;170mFailed twice on Antigravity ·…\x1B[0m  \x1B[38;2;161;161;170m07:50\x1B[0m
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mFix flaky retry test in the payments client\x1B[0m  \x1B[38;2;161;161;170macme/api\x1B[0m    \x1B[38;2;161;161;170mTests passed · 11:58\x1B[0m            \x1B[38;2;161;161;170m07:30\x1B[0m
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mAdd dark mode to the web header\x1B[0m              \x1B[38;2;161;161;170macme/web\x1B[0m    \x1B[38;2;161;161;170mTests passed · 12:13\x1B[0m            \x1B[38;2;161;161;170m07:45\x1B[0m
+   \x1B[38;2;252;211;77m◐ Review requested\x1B[0m    \x1B[1mFix flaky retry test in the payments client\x1B[0m  \x1B[38;2;161;161;170macme/api\x1B[0m    \x1B[38;2;161;161;170mTests passed · 11:58\x1B[0m            \x1B[38;2;161;161;170m07:30\x1B[0m
+   \x1B[38;2;252;211;77m◐ Review requested\x1B[0m    \x1B[1mAdd dark mode to the web header\x1B[0m              \x1B[38;2;161;161;170macme/web\x1B[0m    \x1B[38;2;161;161;170mTests passed · 12:13\x1B[0m            \x1B[38;2;161;161;170m07:45\x1B[0m
    
    \x1B[1m\x1B[38;2;161;161;170mRUNNING\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m2\x1B[0m\x1B[38;2;161;161;170m · 1 queued\x1B[0m
    \x1B[38;2;147;197;253m▶ Editing\x1B[0m         \x1B[1mAdd SSH keepalive to remote runs\x1B[0m                            \x1B[38;2;161;161;170macme/api\x1B[0m      \x1B[38;2;161;161;170m● \x1B[0mCodex · team on devbox
@@ -1204,12 +1204,12 @@ exports[`color, plain and ASCII renditions home in truecolor uses token colors 1
    
    \x1B[1m\x1B[38;2;161;161;170mDONE TODAY\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m7\x1B[0m\x1B[38;2;161;161;170m · 6 accepted\x1B[0m
    \x1B[38;2;161;161;170m07:50\x1B[0m  \x1B[38;2;252;165;165m✕ Failed\x1B[0m              \x1B[1mRetry budget refresh on 429\x1B[0m          \x1B[38;2;161;161;170macme/api\x1B[0m      \x1B[38;2;66;133;244m● \x1B[0mAntigravity             \x1B[38;2;161;161;170m\x1B[0m          
-   \x1B[38;2;161;161;170m07:45\x1B[0m  \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mAdd dark mode to the web header\x1B[0m      \x1B[38;2;161;161;170macme/web\x1B[0m      \x1B[38;2;161;161;170m● \x1B[0mCursor                  \x1B[38;2;161;161;170m\x1B[0m          
-   \x1B[38;2;161;161;170m07:30\x1B[0m  \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m  \x1B[1mFix flaky retry test in the paymen…\x1B[0m  \x1B[38;2;161;161;170macme/api\x1B[0m      \x1B[38;2;161;161;170m● \x1B[0mCodex · team on devbox  \x1B[38;2;161;161;170m\x1B[0m          
-   \x1B[38;2;161;161;170m03:00\x1B[0m  \x1B[38;2;134;239;172m✓ Accepted\x1B[0m            \x1B[1mRename runner ids in docs\x1B[0m            \x1B[38;2;161;161;170mpacer\x1B[0m         \x1B[38;2;161;161;170m● \x1B[0mCodex · team on devbox  \x1B[38;2;161;161;170m\x1B[0m          
-   \x1B[38;2;161;161;170m02:00\x1B[0m  \x1B[38;2;252;165;165m✕ Rejected\x1B[0m            \x1B[1mBump yaml to 2.8.2\x1B[0m                   \x1B[38;2;161;161;170mpacer\x1B[0m         \x1B[38;2;161;161;170m● \x1B[0mLocal model             \x1B[38;2;161;161;170m\x1B[0m          
- 
- 
+   \x1B[38;2;161;161;170m07:45\x1B[0m  \x1B[38;2;134;239;172m✓ Completed\x1B[0m           \x1B[1mAdd dark mode to the web header\x1B[0m      \x1B[38;2;161;161;170macme/web\x1B[0m      \x1B[38;2;161;161;170m● \x1B[0mCursor                  \x1B[38;2;161;161;170m\x1B[0m          
+   \x1B[38;2;161;161;170m07:30\x1B[0m  \x1B[38;2;134;239;172m✓ Completed\x1B[0m           \x1B[1mFix flaky retry test in the paymen…\x1B[0m  \x1B[38;2;161;161;170macme/api\x1B[0m      \x1B[38;2;161;161;170m● \x1B[0mCodex · team on devbox  \x1B[38;2;161;161;170m\x1B[0m          
+   \x1B[38;2;161;161;170m03:00\x1B[0m  \x1B[38;2;134;239;172m✓ Completed\x1B[0m           \x1B[1mRename runner ids in docs\x1B[0m            \x1B[38;2;161;161;170mpacer\x1B[0m         \x1B[38;2;161;161;170m● \x1B[0mCodex · team on devbox  \x1B[38;2;161;161;170m\x1B[0m          
+   \x1B[38;2;134;239;172m✓ Accepted\x1B[0m
+   \x1B[38;2;161;161;170m02:00\x1B[0m  \x1B[38;2;134;239;172m✓ Completed\x1B[0m           \x1B[1mBump yaml to 2.8.2\x1B[0m                   \x1B[38;2;161;161;170mpacer\x1B[0m         \x1B[38;2;161;161;170m● \x1B[0mLocal model             \x1B[38;2;161;161;170m\x1B[0m          
+   \x1B[38;2;252;165;165m✕ Rejected\x1B[0m
  
  
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
@@ -1218,35 +1218,35 @@ exports[`color, plain and ASCII renditions home in truecolor uses token colors 1
 `;
 
 exports[`color, plain and ASCII renditions review in truecolor uses token colors 1`] = `
-" \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Review ]\x1B[0m  \x1B[38;2;161;161;170mSessions\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                  \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
+" \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Needs you ]\x1B[0m  \x1B[38;2;161;161;170mTasks\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                    \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
  \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
-   \x1B[1m\x1B[38;2;161;161;170mREVIEW QUEUE\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m2\x1B[0m                                   \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1mFix flaky retry test in the payments client\x1B[0m
- \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[38;2;252;211;77m\x1B[48;2;39;39;42m◐ Waiting for review\x1B[0m\x1B[48;2;39;39;42m \x1B[0m\x1B[1m\x1B[48;2;39;39;42mFix flaky retry test i…\x1B[0m\x1B[48;2;39;39;42m \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42m07:30\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mCodex · team on devbox · ran 50m ·\x1B[0m
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m \x1B[1mAdd dark mode to the w…\x1B[0m \x1B[38;2;161;161;170m07:45\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mpacer/review → main\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170macme/api · finished 07:50\x1B[0m
-   \x1B[38;2;161;161;170mAccepted today 6 · rejected 1. Your verdicts teach\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
-   \x1B[38;2;161;161;170mrouting which executor suits which kind.\x1B[0m          \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m╭\x1B[0m\x1B[1m\x1B[38;2;250;250;250m Done when \x1B[0m\x1B[38;2;63;63;70m──────────────────────────────────────────────────\x1B[0m\x1B[38;2;63;63;70m╮\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m│ \x1B[0mbun test                                                   \x1B[38;2;63;63;70m │\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m│ \x1B[0m\x1B[38;2;134;239;172m✓ Tests passed\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170m38 passed · checks ran 41 s · run by pacer\x1B[0m\x1B[38;2;63;63;70m │\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m│ \x1B[0m\x1B[38;2;161;161;170mon devbox\x1B[0m                                                  \x1B[38;2;63;63;70m │\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m╰─────────────────────────────────────────────────────────────╯\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m╭\x1B[0m\x1B[1m\x1B[38;2;250;250;250m Why Codex · team on devbox \x1B[0m\x1B[38;2;63;63;70m─────────────────────────────────\x1B[0m\x1B[38;2;63;63;70m╮\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m│ \x1B[0mBest available capacity                                    \x1B[38;2;63;63;70m │\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m│ \x1B[0m\x1B[38;2;161;161;170mSkipped other: Quota budget reached\x1B[0m                        \x1B[38;2;63;63;70m │\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m╰─────────────────────────────────────────────────────────────╯\x1B[0m
+   \x1B[1m\x1B[38;2;161;161;170mDECISIONS AND PROBLEMS\x1B[0m                            \x1B[38;2;63;63;70m │ \x1B[0mssh failed twice · last answered 40m ago
+ \x1B[1m\x1B[38;2;147;197;253m\x1B[48;2;39;39;42m› \x1B[0m\x1B[38;2;252;165;165m\x1B[48;2;39;39;42m✕ Unavailable\x1B[0m\x1B[48;2;39;39;42m       \x1B[0m\x1B[48;2;39;39;42m \x1B[0m\x1B[1m\x1B[48;2;39;39;42mbuildbox is not answering\x1B[0m\x1B[48;2;39;39;42m    \x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
+ \x1B[48;2;39;39;42m  \x1B[0m\x1B[38;2;161;161;170m\x1B[48;2;39;39;42mssh failed twice · last answered 40m ago\x1B[0m\x1B[48;2;39;39;42m          \x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
                                                      \x1B[38;2;63;63;70m │ \x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mCHANGES\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m1 file\x1B[0m\x1B[38;2;161;161;170m · +3 −1\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mM\x1B[0m  src/example.ts                                    \x1B[38;2;134;239;172m+3\x1B[0m      \x1B[38;2;252;165;165m−1\x1B[0m
+   \x1B[38;2;252;165;165m✕ Failed\x1B[0m             \x1B[1mRetry budget refresh on 429\x1B[0m  \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[38;2;161;161;170mFailed twice on Antigravity · test timed out after\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[38;2;161;161;170m120 s\x1B[0m                                             \x1B[38;2;63;63;70m │ \x1B[0m
                                                      \x1B[38;2;63;63;70m │ \x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mEXECUTOR SUMMARY\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;250;250;250mImplemented and verified the change.\x1B[0m
+   \x1B[38;2;252;211;77m◐ Review requested\x1B[0m   \x1B[1mFix flaky retry test in the…\x1B[0m \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[38;2;161;161;170mTests passed · 11:58\x1B[0m                              \x1B[38;2;63;63;70m │ \x1B[0m
                                                      \x1B[38;2;63;63;70m │ \x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m╭\x1B[0m\x1B[1m\x1B[38;2;250;250;250m Your verdict \x1B[0m\x1B[38;2;63;63;70m───────────────────────────────────────────────\x1B[0m\x1B[38;2;63;63;70m╮\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m│ \x1B[0m\x1B[1ma\x1B[0m\x1B[1m\x1B[38;2;250;250;250m Accept and bring back\x1B[0m   \x1B[1ms\x1B[0m\x1B[38;2;161;161;170m Send back\x1B[0m   \x1B[1mr\x1B[0m\x1B[38;2;252;165;165m Reject\x1B[0m           \x1B[38;2;63;63;70m │\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m│ \x1B[0m\x1B[1mt\x1B[0m\x1B[38;2;161;161;170m Retry on another executor\x1B[0m                                \x1B[38;2;63;63;70m │\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m│ \x1B[0m\x1B[38;2;161;161;170mAccept records the verdict; you merge the branch.\x1B[0m          \x1B[38;2;63;63;70m │\x1B[0m
-                                                     \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;63;63;70m╰─────────────────────────────────────────────────────────────╯\x1B[0m
+   \x1B[38;2;252;211;77m◐ Review requested\x1B[0m   \x1B[1mAdd dark mode to the web hea…\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[38;2;161;161;170mTests passed · 12:13\x1B[0m                              \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
+                                                     \x1B[38;2;63;63;70m │ \x1B[0m
                                                      \x1B[38;2;63;63;70m │ \x1B[0m
                                                      \x1B[38;2;63;63;70m │ \x1B[0m
                                                      \x1B[38;2;63;63;70m │ \x1B[0m
@@ -1257,11 +1257,11 @@ exports[`color, plain and ASCII renditions review in truecolor uses token colors
                                                      \x1B[38;2;63;63;70m │ \x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
  
- \x1B[1ma\x1B[0m\x1B[38;2;161;161;170m accept and bring back\x1B[0m  \x1B[1ms\x1B[0m\x1B[38;2;161;161;170m send back\x1B[0m  \x1B[1mr\x1B[0m\x1B[38;2;161;161;170m reject\x1B[0m  \x1B[1mt\x1B[0m\x1B[38;2;161;161;170m retry on another executor\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                   \x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
+ \x1B[1m⏎\x1B[0m\x1B[38;2;161;161;170m Run checks\x1B[0m  \x1B[1m.\x1B[0m\x1B[38;2;161;161;170m actions (2)\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                                                                   \x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
 `;
 
 exports[`color, plain and ASCII renditions sessions in truecolor uses token colors 1`] = `
-" \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[38;2;161;161;170mReview\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 2\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Sessions ]\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                  \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
+" \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m  \x1B[38;2;161;161;170mNeeds you\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Tasks ]\x1B[0m  \x1B[38;2;161;161;170mSettings\x1B[0m                                    \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
  \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
    \x1B[1m\x1B[38;2;161;161;170mRUNNING\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m2\x1B[0m\x1B[38;2;161;161;170m · 1 queued\x1B[0m                       \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1mAdd SSH keepalive to remote runs\x1B[0m
@@ -1272,17 +1272,17 @@ exports[`color, plain and ASCII renditions sessions in truecolor uses token colo
    \x1B[1mDocument the token sync\x1B[0m               \x1B[38;2;161;161;170mqueued\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mWATCH\x1B[0m
    \x1B[38;2;161;161;170m… Queued\x1B[0m                                    \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mThis run is headless; its output is in the task log.\x1B[0m
                                                \x1B[38;2;63;63;70m │ \x1B[0m
-   \x1B[1m\x1B[38;2;161;161;170mRECENTLY ENDED\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m5\x1B[0m                           \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mDONE WHEN\x1B[0m
+   \x1B[1m\x1B[38;2;161;161;170mCOMPLETED\x1B[0m  \x1B[1m\x1B[38;2;250;250;250m5\x1B[0m                                \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mDONE WHEN\x1B[0m
    \x1B[1mRetry budget refresh on 429\x1B[0m            \x1B[38;2;161;161;170m07:50\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0mbun test
-   \x1B[38;2;252;165;165m✕ Failed\x1B[0m                                    \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mpacer runs it after the executor exits, then asks you to review.\x1B[0m
-   \x1B[1mAdd dark mode to the web header\x1B[0m        \x1B[38;2;161;161;170m07:45\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m                        \x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mTIMELINE\x1B[0m
-   \x1B[1mFix flaky retry test in the paym…\x1B[0m      \x1B[38;2;161;161;170m07:30\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:46 \x1B[0mExecutor selected
-   \x1B[38;2;252;211;77m◐ Waiting for review\x1B[0m                        \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:46 \x1B[0mWorking copy created
-   \x1B[1mRename runner ids in docs\x1B[0m              \x1B[38;2;161;161;170m03:00\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:51 \x1B[0mRunning checks
-   \x1B[38;2;134;239;172m✓ Accepted\x1B[0m                                  \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[38;2;252;165;165m✕ Failed\x1B[0m                                    \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mpacer runs it after the executor exits, records the checks with the\x1B[0m
+   \x1B[1mAdd dark mode to the web header\x1B[0m        \x1B[38;2;161;161;170m07:45\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170mresult.\x1B[0m
+   \x1B[38;2;134;239;172m✓ Completed\x1B[0m                                 \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[1mFix flaky retry test in the paym…\x1B[0m      \x1B[38;2;161;161;170m07:30\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[1m\x1B[38;2;161;161;170mTIMELINE\x1B[0m
+   \x1B[38;2;134;239;172m✓ Completed\x1B[0m                                 \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:46 \x1B[0mExecutor selected
+   \x1B[1mRename runner ids in docs\x1B[0m              \x1B[38;2;161;161;170m03:00\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:46 \x1B[0mWorking copy created
+   \x1B[38;2;134;239;172m✓ Completed\x1B[0m                                 \x1B[38;2;63;63;70m │ \x1B[0m\x1B[38;2;161;161;170m07:51 \x1B[0mRunning checks
    \x1B[1mBump yaml to 2.8.2\x1B[0m                     \x1B[38;2;161;161;170m02:00\x1B[0m\x1B[38;2;63;63;70m │ \x1B[0m
-   \x1B[38;2;252;165;165m✕ Rejected\x1B[0m                                  \x1B[38;2;63;63;70m │ \x1B[0m
+   \x1B[38;2;134;239;172m✓ Completed\x1B[0m                                 \x1B[38;2;63;63;70m │ \x1B[0m
                                                \x1B[38;2;63;63;70m │ \x1B[0m
                                                \x1B[38;2;63;63;70m │ \x1B[0m
                                                \x1B[38;2;63;63;70m │ \x1B[0m
@@ -1304,7 +1304,7 @@ exports[`color, plain and ASCII renditions sessions in truecolor uses token colo
 `;
 
 exports[`color, plain and ASCII renditions settings in truecolor uses token colors 1`] = `
-" \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[38;2;161;161;170mReview\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 2\x1B[0m  \x1B[38;2;161;161;170mSessions\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Settings ]\x1B[0m                                \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
+" \x1B[1m\x1B[38;2;250;250;250m▬\x1B[0m\x1B[1m\x1B[38;2;163;230;53m┃\x1B[0m\x1B[1m\x1B[38;2;250;250;250m pacer\x1B[0m   \x1B[38;2;161;161;170mHome\x1B[0m  \x1B[38;2;161;161;170mNeeds you\x1B[0m\x1B[1m\x1B[38;2;252;211;77m 4\x1B[0m  \x1B[38;2;161;161;170mTasks\x1B[0m\x1B[1m\x1B[38;2;147;197;253m 2\x1B[0m  \x1B[1m\x1B[38;2;147;197;253m[ Settings ]\x1B[0m                                  \x1B[38;2;161;161;170mAll repos\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mNormal\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;134;239;172m● live 08:00\x1B[0m
  \x1B[1mClaude Code planner\x1B[0m  \x1B[38;2;134;239;172m━━━━━━━━━━━━━\x1B[0m\x1B[38;2;63;63;70m──\x1B[0m\x1B[1m\x1B[38;2;250;250;250m┃\x1B[0m\x1B[38;2;63;63;70m────\x1B[0m  \x1B[1m63% used · pace 77%\x1B[0m  \x1B[38;2;134;239;172m↓ Behind pace\x1B[0m\x1B[38;2;161;161;170m  10 active-h · resets 18 Jan 08:00\x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
    \x1B[1m\x1B[38;2;147;197;253m▸ \x1B[0m\x1B[1m\x1B[38;2;250;250;250mPlanner & pacing\x1B[0m          \x1B[38;2;63;63;70m │ \x1B[0m  \x1B[1m\x1B[38;2;161;161;170mPLANNER & PACING\x1B[0m
@@ -1347,12 +1347,20 @@ exports[`color, plain and ASCII renditions settings in truecolor uses token colo
 `;
 
 exports[`color, plain and ASCII renditions plain mode drops glyphs and borders but keeps every label 1`] = `
-" =| pacer   Home (4)  [ Review ]  Sessions (2)  Settings           * live 08:00
+" =| pacer   Home  [ Needs you ]  Tasks (2)  Settings               * live 08:00
  Claude Code  [######-|--]  63% used - pace 77%  Behind pace  10 active-h -...
  ------------------------------------------------------------------------------
    Fix flaky retry test in the payments client
-   Waiting for review - Codex - team on devbox - ran 50m - pacer/review -> main
+   Completed - Codex - team on devbox - ran 50m - pacer/review -> main
    acme/api - finished 07:50
+   
+   RESULT
+   Implemented and verified the change.
+   Outcome not recorded
+   Review requested: Please review these changes before integrating.
+   
+   DELIVERY
+   Integration not recorded
    
    DONE WHEN
      bun test
@@ -1364,12 +1372,8 @@ exports[`color, plain and ASCII renditions plain mode drops glyphs and borders b
    CHANGES  1 file - +3 −1
    M  src/example.ts                                                 +3      −1
    
-   EXECUTOR SUMMARY
-   Implemented and verified the change.
-   
    YOUR VERDICT
-     a Accept and bring back   s Send back   r Reject
-     t Retry on another executor
+     a Mark accepted   s Send back   r Reject   t Retry on another executor
      Accept records the verdict; you merge the branch.
  
  
@@ -1380,17 +1384,13 @@ exports[`color, plain and ASCII renditions plain mode drops glyphs and borders b
  
  
  
- 
- 
- 
- 
  ------------------------------------------------------------------------------
  
- a accept and bring back  s send back  r reject  ? help        pacer 0.0.0-test"
+ a mark accepted  s send back  r reject  ? help                pacer 0.0.0-test"
 `;
 
 exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
-" =| pacer   [ Home ]  Review 2  Sessions 2  Settings               * live 08:00
+" =| pacer   [ Home ]  Needs you 4  Tasks 2  Settings               * live 08:00
  Claude Code  [######-|--]  63% used - pace 77%  v Behind pace  10 active-h...
  ------------------------------------------------------------------------------
    14 pts under pace - spend it.
@@ -1398,8 +1398,8 @@ exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
    NEEDS YOU  4
  > x Unavailable         buildbox is not answering   ssh failed twice - last...
    x Failed              Retry budget refresh on...  Failed twice on Antigra...
-   o Waiting for review  Fix flaky retry test in...  Tests passed - 11:58      
-   o Waiting for review  Add dark mode to the we...  Tests passed - 12:13      
+   o Review requested    Fix flaky retry test in...  Tests passed - 11:58      
+   o Review requested    Add dark mode to the we...  Tests passed - 12:13      
    
    RUNNING  2 - 1 queued
    > Editing         Add SSH keepalive to remote runs        Codex - team on...
@@ -1410,7 +1410,7 @@ exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
                      Waiting: this executor is running 1 of 1
    
    CAPACITY  2/4 executors ready
- v 13 more
+ v 15 more
  ------------------------------------------------------------------------------
  
  Enter Run checks  x dismiss  . actions (3)  ? help            pacer 0.0.0-test"

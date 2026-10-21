@@ -93,12 +93,12 @@ describe("color, plain and ASCII renditions", () => {
     const text = frame("home", 120, 40, { theme: detectTheme({ TERM: "xterm" }, true) });
     expect(text).toContain("\x1b[7m");
     expect(text).toContain("\x1b[31m✕ Unavailable");
-    expect(text).toContain("\x1b[33m◐ Waiting for review");
+    expect(text).toContain("\x1b[33m◐ Review requested");
   });
   test("plain mode drops glyphs and borders but keeps every label", () => {
-    const text = frame("review", 80, 40, { theme: detectTheme({}, true, { plain: true }), state: { focus: "detail" } });
+    const text = frame("review", 80, 40, { theme: detectTheme({}, true, { plain: true }), state: { focus: "detail", selected:{review:"review:t-0412"} } });
     expect(text).not.toMatch(/[╭╮╰╯│━┃◐✓✕▶]/);
-    expect(text).toContain("Waiting for review");
+    expect(text).toContain("Review requested");
     expect(text).toContain("DONE WHEN");
     expect(text).toMatchSnapshot();
   });
@@ -153,8 +153,8 @@ describe("frame behavior", () => {
   });
   test("the page title appears once, in the top bar", () => {
     const text = frame("review", 120, 40);
-    expect(text.split("\n")[0]).toContain("[ Review ]");
-    expect(text.split("\n").slice(1).join("\n")).not.toContain("[ Review ]");
+    expect(text.split("\n")[0]).toContain("[ Needs you ]");
+    expect(text.split("\n").slice(1).join("\n")).not.toContain("[ Needs you ]");
   });
   test("untrusted text cannot inject escapes and wide text stays bounded", () => {
     const s = snapshot();
@@ -296,7 +296,7 @@ describe("prose wraps instead of clipping (UI-11, UI-13)", () => {
     expect(right.filter(line => line.includes("…"))).toEqual([]);
     const divider = text.split("\n")[4]!.indexOf("│");
     expect(divider).toBeLessThan(60);
-    expect(text).toContain("then asks you to review.");
+    expect(right.join(" ").replace(/\s+/g," ")).toContain("records the checks with the result.");
   });
   test("the narrow Sessions detail wraps and stops offering → details", () => {
     const text = frame("sessions", 80, 24, { state: { focus: "detail" } });
@@ -322,7 +322,7 @@ describe("review queue rows carry a status word (UI-2)", () => {
         // The queue is the left pane at wide sizes; the detail repeats the title, so only the list side counts.
         const queueRows = frame("review", width, height, { theme }).split("\n").slice(3).map(line => line.split(/│|\s\|\s/)[0]!).filter(line => /Fix flaky|Add dark mode/.test(line));
         expect(queueRows.length).toBeGreaterThanOrEqual(2);
-        for (const row of queueRows) expect(row).toContain("Waiting for review");
+        for (const row of queueRows) expect(row).toContain("Review requested");
       }
     });
   }
@@ -345,16 +345,16 @@ test("the Review detail wraps its status line and box prose at 120x40 and 80x24"
 test("Done when shows no dangling separator when the check has no extra facts", () => {
   const d = { ...data(), details: new Map([["t-0412", { value: { ...detail, acceptance: { cmd: "bun test", state: "passed" } } as TaskDetail }]]) };
   const s = snapshot();
-  const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state: { screen: "review" } });
-  const line = text.split("\n").find(l => l.includes("Tests passed"))!;
+  const text = renderDashboard(s, 120, 80, s.at, { theme: PLAIN_THEME, data: d, state: { screen: "review", selected:{review:"review:t-0412"} } });
+  const line = text.split("\n").map(l=>l.slice(l.indexOf("│")+1)).find(l => l.includes("Tests passed"))!;
   expect(line).not.toMatch(/Tests passed ·/);
 });
 
 test("help labels line up in one column", () => {
-  const rows = frame("review", 120, 40, { state: { overlay: { kind: "help" } } }).split("\n").filter(line => /Switch screen|Primary action|Accept and bring back/.test(line));
+  const rows = frame("review", 120, 40, { state: { overlay: { kind: "help" } } }).split("\n").filter(line => /Switch screen|Primary action|Mark accepted/.test(line));
   expect(rows).toHaveLength(3);
   const at = (line: string, label: string) => line.indexOf(label);
-  expect(new Set([at(rows[0]!, "Switch screen"), at(rows[1]!, "Primary action"), at(rows[2]!, "Accept and bring back")]).size).toBe(1);
+  expect(new Set([at(rows[0]!, "Switch screen"), at(rows[1]!, "Primary action"), at(rows[2]!, "Mark accepted")]).size).toBe(1);
 });
 
 test("Sessions list titles keep about 30 characters at 120x40 without shrinking the detail", () => {
@@ -363,7 +363,7 @@ test("Sessions list titles keep about 30 characters at 120x40 without shrinking 
   const list = lines.slice(3, -3).map(line => line.split("│")[0]!);
   expect(list.some(line => line.includes("Add SSH keepalive to remote runs"))).toBe(true);
   expect(list.some(line => line.includes("Split the settings page into"))).toBe(true);
-  for (const word of ["Editing", "Idle", "Queued", "Waiting for review"]) expect(list.some(line => line.includes(word))).toBe(true);
+  for (const word of ["Editing", "Idle", "Queued", "Completed"]) expect(list.some(line => line.includes(word))).toBe(true);
   expect(lines[4]!.indexOf("│")).toBeLessThan(60);
 });
 
@@ -377,4 +377,22 @@ describe("every Settings section wraps instead of clipping", () => {
       });
     }
   }
+});
+
+test("Needs you includes problems and questions while successful work stays in Tasks",()=>{
+ const s=snapshot();
+ const items=screenItems(s,s.at,{state:{screen:"review"},data:data()});
+ expect(items.some(i=>i.id.includes("failed:t-0409"))).toBe(true);
+ const text=renderDashboard(s,120,40,s.at,{noColor:true,state:{screen:"review"},data:data()});
+ expect(text).toContain("Needs you");
+ expect(text).not.toContain("Mark accepted");
+});
+
+test("requested failed-check and partial results never bind the accept key in Tasks",()=>{
+ for(const patch of [{state:'done',acceptanceState:'failed'},{state:'partial',acceptanceState:'none'}] as const){
+  const s=snapshot();
+  const t={...s.tasks.find(t=>t.id==='t-0412')!,...patch,reviewRequest:{note:'Check',at:s.at}};
+  const items=screenItems({...s,tasks:[t]},s.at,{state:{screen:'sessions'},data:data()});
+  expect(items.find(i=>i.id==='session:t-0412')?.keys.a).toBeUndefined();
+ }
 });

@@ -124,3 +124,10 @@ test('takeover data is cached during refresh and remains isolated by task', asyn
   query.setData('task.session', two, 'ignored');
   expect(states.at(-1)?.data).toBe('other task');
 });
+
+test('task history invalidates on task revisions, not just configuration',()=>{
+ const state={...initialState(),snapshot:snapshot as unknown as ClientSnapshot};
+ const before=queryRevision(state,'task.list',{});
+ const updated={...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map((t,i)=>i===0?{...t,rev:(t.rev??0)+1,state:'done'}:t)}};
+ expect(queryRevision(updated,'task.list',{})).not.toBe(before);
+});

@@ -16,11 +16,11 @@ const ready = (protocol = "2.8.0") => ({ ...reduceStore(reduceStore(initialState
 const at = (hash: string) => resolveRoute(hash) as Route;
 
 test("rail labels carry counts and mark the current screen", () => {
-  const html = renderToString(<Rail route={at("#/review")} counts={snap.counts!} />);
-  expect(html).toContain('aria-label="Overview · 4 need you"');
-  expect(html).toContain('aria-label="Review · 2 waiting"');
-  expect(html).toContain('aria-label="Sessions · 2 running"');
-  expect(html).toMatch(/aria-current="page"[^>]*aria-label="Review|aria-label="Review[^"]*"[^>]*aria-current="page"/);
+  const html = renderToString(<Rail route={at("#/needs-you")} counts={snap.counts!} />);
+  expect(html).toContain('aria-label="Overview"');
+  expect(html).toContain('aria-label="Needs you · 4 need you"');
+  expect(html).toContain('aria-label="Tasks · 2 running"');
+  expect(html).toMatch(/aria-current="page"[^>]*aria-label="Needs you|aria-label="Needs you[^"]*"[^>]*aria-current="page"/);
   expect(html).toContain('role="tooltip"');
 });
 
@@ -95,7 +95,7 @@ test("settings counts are neutral while executor and host status badges use thei
 });
 
 test("retired and unknown hashes select Overview in the shell", () => {
-  for (const hash of ["#/tasks/t1", "#/accounts", "#/missing"]) {
+  for (const hash of ["#/accounts", "#/missing"]) {
     const html = renderToString(<Layout route={at(hash)} state={ready()} title="Overview"><p>Overview body</p></Layout>);
     expect(html).toContain("<p>Overview body</p>");
     expect(html).toMatch(/aria-current="page"[^>]*aria-label="Overview|aria-label="Overview[^"]*"[^>]*aria-current="page"/);

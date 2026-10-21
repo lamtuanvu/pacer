@@ -58,7 +58,7 @@ test("fill width is a custom property, not a colour", () => {
 
 test("glyphs are hidden from assistive tech", () => {
   const failed = renderToString(<StatusGlyph status={taskStatus({state:"failed"})} />); expect(failed).toContain('class="pc-glyph pc-status--bad"'); expect(failed).toContain('aria-hidden="true"'); expect(failed).toContain('>✕</span>');
-  expect(renderToString(<StatusGlyph status={taskStatus({state:"done"})} />)).toContain("◐");
+  expect(renderToString(<StatusGlyph status={taskStatus({state:"done"})} />)).toContain("✓");
   expect(renderToString(<StatusGlyph status={taskStatus({state:"done",review:{accepted:true}})} />)).toContain("✓");
 });
 
