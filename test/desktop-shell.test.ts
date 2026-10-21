@@ -236,6 +236,15 @@ test("OTA fallback pages distinguish installation, rollback, restored and failed
   }
   expect(shell("?state=restored").element("#message").textContent).toBe("The update couldn't start. Your previous version has been restored.");
   expect(shell("?state=recoveryFailed").element("#message").textContent).not.toContain("has been restored");
+  // The tray popover has no report button, so its text names where to report.
+  expect(shell("?state=recoveryFailed&compact=1").element("#message").textContent).toContain("github.com/lamtuanvu/pacer/issues");
+  expect(shell("?state=recoveryFailed").element("#message").textContent).not.toContain("github.com");
+});
+
+test("reduced motion keeps a visible static spinner arc and the report action is centred", async () => {
+  const css = await Bun.file("desktop/ui/shell.css").text();
+  expect(css).not.toMatch(/prefers-reduced-motion:\s*reduce\)\s*\{\s*\.spinner\s*\{[^}]*border-top-color/);
+  expect(css).toMatch(/\.actions--center\s*\{\s*justify-content:\s*center/);
 });
 
 test("fixture shell excludes the production global singleton socket before registering plugins",()=>{

@@ -257,7 +257,8 @@ a:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
 .compact img { width: 32px; height: 32px; }
 .spinner { display: block; width: 14px; height: 14px; margin: var(--space-2) auto 0; border: 2px solid var(--line); border-top-color: var(--ink-muted); border-radius: 50%; animation: pacer-spin 0.9s linear infinite; }
 @keyframes pacer-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-top-color: var(--line); } }
+/* Reduced motion keeps a static, visible arc so progress pages still show activity. */
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 
 main:has(section:not([hidden])) { max-width: 600px; text-align: left; }
 main:has(section:not([hidden])) h1 { font-size: var(--type-display-size); line-height: var(--type-display-line); font-weight: var(--type-display-weight); letter-spacing: var(--type-display-tracking); }
@@ -265,6 +266,7 @@ main:has(section:not([hidden])) h1 { font-size: var(--type-display-size); line-h
 .steps li { padding-left: var(--space-2); margin-bottom: var(--space-4); color: var(--ink-secondary); }
 .steps strong { color: var(--ink); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-5); }
+.actions--center { justify-content: center; }
 .button { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-card); color: var(--ink); font-weight: var(--type-body-strong-weight); text-decoration: none; }
 .button:hover { background: var(--surface-lane); }
 .button.primary { background: var(--ink); border-color: var(--ink); color: var(--ink-on-ink); }
