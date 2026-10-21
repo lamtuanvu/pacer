@@ -20,6 +20,8 @@ export interface Session {
   serviceIdentity?: ProcessIdentity;
   createdAt: string;
   seed?: "ui";
+  /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
+  frontDoor?: "rust";
   stopped?: boolean;
   desktopPid?: number;
   desktopExecutable?: string;
@@ -79,9 +81,17 @@ export function loadSession(id?: string, base = liveRoot): Session {
   if (session.serviceIdentity && (session.serviceIdentity.pid !== session.pid || !session.serviceIdentity.bootId || !session.serviceIdentity.birth)) throw Error("Invalid live source process identity");
   return session;
 }
+/** The checkout CLI the sandbox runs: the TypeScript core, or the Rust front door in front of it. */
+export function pacerArgv(session: Pick<Session, "frontDoor">): string[] {
+  return session.frontDoor === "rust" ? [join(checkout, "target/debug/pacer")] : [process.execPath, join(checkout, "src/cli.ts")];
+}
+export function validateFrontDoor(frontDoor: string | undefined): void {
+  if (frontDoor !== undefined && frontDoor !== "rust") throw Error(`Unknown front door: ${frontDoor} (expected rust)`);
+}
 export function sandboxEnv(session: Session, inherited = process.env): NodeJS.ProcessEnv {
   return {
     ...inherited,
+    ...(session.frontDoor === "rust" ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, "src/cli.ts")]) } : {}),
     PATH: `${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
     PACER_BIN: join(session.root, "bin/pacer"),
     PACER_HOME: join(session.root, "home"),
@@ -104,7 +114,7 @@ export function shellQuote(value: string): string {
 }
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
-  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.seed === "ui" ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
+  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []), ...(session.seed === "ui" ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
 async function reservePort(): Promise<number> {
@@ -183,15 +193,20 @@ export function launch(session: Session, argv: string[], logName: string, overri
     return child.pid;
   } finally { closeSync(log); }
 }
-export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string): Promise<Session> {
+export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string): Promise<Session> {
   validateSeed(seed);
+  validateFrontDoor(frontDoor);
+  if (frontDoor === "rust") {
+    const build = Bun.spawnSync(["cargo", "build", "-q", "--locked", "-p", "pacer"], { cwd: checkout, stdout: "pipe", stderr: "pipe" });
+    if (build.exitCode !== 0) throw Error(`cargo build -p pacer failed:\n${build.stderr.toString().trim()}`);
+  }
   const root = resolve(base, validId(id));
   const port = await freePort();
   let innerPort = await freePort();
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (template) cpSync(resolve(template), join(root, "repo"), {
@@ -210,7 +225,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
       if (result.code) throw Error(`Sandbox git setup failed: ${result.stderr}`);
     }
     atomicWrite(join(root, "env.sh"), environmentScript(session));
-    session.pid = launch(session, [process.execPath, join(checkout, "src/cli.ts"), "serve", "--port", String(session.innerPort)], "serve.log");
+    session.pid = launch(session, [...pacerArgv(session), "serve", "--port", String(session.innerPort)], "serve.log");
     const serviceIdentity = processIdentity(session.pid);
     if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
     session.serviceIdentity = serviceIdentity;

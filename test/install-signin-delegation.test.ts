@@ -53,11 +53,12 @@ async function sandbox() {
   // Exercise the real checksum-verifying installer with this checkout's build,
   // including atomic replacement on a second install. No release network needed.
   // `bun run build` intentionally reports 0.0.0-dev; release builds embed a version.
-  const version = (await run([join(root, "dist/pacer"), "--version"])).replace(/^pacer /, "");
+  const version = (await run([join(root, "dist/pacer-core"), "--version"])).replace(/^pacer /, "");
   const release = join(home, "releases", version);
   mkdirSync(release, { recursive: true });
   const artifact = `pacer-${process.platform}-${process.arch}`;
-  copyFileSync(join(root, "dist/pacer"), join(release, artifact));
+  // Releases still ship the single bun-compiled CLI until the paired release (M1 plan 5).
+  copyFileSync(join(root, "dist/pacer-core"), join(release, artifact));
   const hash = createHash("sha256").update(readFileSync(join(release, artifact))).digest("hex");
   writeFileSync(join(release, "SHA256SUMS"), `${hash}  ${artifact}\n`);
   Object.assign(env, { PACER_INSTALL_DIR: bin, PACER_INSTALL_VERSION: version, PACER_RELEASE_BASE: `file://${join(home, "releases")}` });

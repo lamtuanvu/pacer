@@ -3,6 +3,26 @@ import { join } from "node:path";
 import { v2OpJsonSchemas, V2_PROTOCOL } from "../src/api/v2-compat";
 import { opJsonSchemas } from "../src/api/ops";
 import { PROTOCOL_VERSION, PREVIOUS, httpStatus, type ApiErrorCode } from "../src/api/protocol";
+import { bundleDefs } from "./schema-bundle";
+
+/** JSON Schema bundle consumed by `cargo xtask gen`. */
+export function clientProtocolSchema(): object {
+  const params: Record<string, unknown> = {};
+  for (const [name, schema] of Object.entries(opJsonSchemas())) {
+    const pascal = name.split(/[._]/).map(s => s[0]!.toUpperCase() + s.slice(1)).join("");
+    params[`${pascal}Params`] = schema.params;
+  }
+  const defs = bundleDefs(params);
+  defs.ApiError = {
+    type: "object", required: ["code", "message"], additionalProperties: true,
+    properties: { code: { type: "string" }, message: { type: "string" }, hint: { type: "string" }, data: {} },
+  };
+  defs.Hello = {
+    type: "object", required: ["protocol"], additionalProperties: true,
+    properties: { protocol: { type: "string" }, previous: { type: "string" }, pacer: { type: "string" } },
+  };
+  return { $schema: "https://json-schema.org/draft/2020-12/schema", title: "pacer client protocol", version: PROTOCOL_VERSION, $defs: defs };
+}
 
 /** Deterministic documentation for the current protocol and its overlap adapter. */
 export function renderProtocolDoc(major: 2 | 3 = 3): string {
@@ -220,10 +240,13 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
 }
 
 if (import.meta.main) {
-  for (const major of [3, 2] as const) {
-    const file = major === 3 ? "protocol.md" : "protocol-v2.md";
+  const outputs = [
+    ["protocol.md", renderProtocolDoc(3)],
+    ["protocol-v2.md", renderProtocolDoc(2)],
+    ["protocol.schema.json", JSON.stringify(clientProtocolSchema(), null, 2) + "\n"],
+  ] as const;
+  for (const [file, doc] of outputs) {
     const path = join(import.meta.dir, "..", "docs", file);
-    const doc = renderProtocolDoc(major);
     if (process.argv.includes("--check")) {
       let existing: string | undefined;
       try { existing = readFileSync(path, "utf8"); }

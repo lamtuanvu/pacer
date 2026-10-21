@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Restore desktop capture-worker enrollment during client registration so native live diagnostics can capture owned windows.
 - Offer “Add another account” after executor setup, resetting the completed setup and clearing the successful account form.
 - Setup labels its footer version as the running service version, avoiding confusion with the independently versioned desktop app.
 - Claude executor checks collect quota telemetry from Claude Code's structured test-task output for the selected account, then verify usage instead of silently skipping it when no status-line cache exists.
@@ -34,6 +35,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Separate `desktop.update.*` operations on protocol v3 and `pacer desktop-update` commands; existing standalone CLI update operations retain their behavior.
 - Explicit human review handoff through `task.request_review`, MCP `task_request_review`, and `pacer task request-review <id> --note <concern>`, with revision guards and no inferred acceptance.
 
+- Rust front door for local source builds: native version and status line, HTTP/SSE/WebSocket and stdio transports forwarding to a supervised TypeScript core, shared-state locking, Rust plugin SDK and conformance fixtures. Release packaging remains the single Bun binary until paired updates ship.
 - Guided OpenCode endpoint setup: `pacer account add` and Settings › Add executor list providers already signed in to OpenCode, local model servers (Ollama, LM Studio) and catalog providers, recommend a model that can call tools, set the usage type from the models.dev catalog and offer an optional weekly dollar cap. Signed-in providers are stored as `source: opencode` accounts that refer to the provider and never hold its key. `pacer account add opencode <provider> [--model] [--cap-usd] [--name] [--no-test]` does it in one command. Spend is read in dollars from `opencode stats --cost`, and new API ops `executor.setup.candidates`, `executor.setup.models` and `executor.setup.connect` serve the app.
 - Plugin host: `pacer-plugin.json` manifests, `plugin.list/enable/disable/remove/doctor` operations and `pacer plugin …` commands, a stdio JSON-RPC plugin transport with deadlines and crash backoff, the `@pacer/plugin` runtime, a conformance suite and the generated `docs/plugin-protocol.md`. No plugin is bundled yet; behavior is unchanged for a fresh install.
 
@@ -120,6 +122,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Live validation supports `up --seed ui` for isolated setup-complete UI sample data without starting executors.
 
+- Cargo workspace for the Rust host, generated protocol types, and required Rust CI checks.
+
+- Rust plugin SDK `pacer-plugin` (unpublished until M1 completes).
+
 ### Fixed
 
 - The service no longer restart-loops when building a snapshot is slow: a listener thread answers `/health` (reporting `backendLagS` from a main-thread heartbeat, 503 when it is older than 45s), snapshot and status reads serve the last value while refreshing in the background, and the desktop app restarts the service only after repeated failed probes over at least 30 seconds.
@@ -153,6 +159,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Local builds produce a Rust front door `dist/pacer` next to the bun-compiled `dist/pacer-core`.
 - App links now point directly to Overview, Review, Sessions and Settings. Retired UI routes fall back to Overview; old screens and route redirects have been removed.
 
 ### Added

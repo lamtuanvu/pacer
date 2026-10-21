@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { bundleDefs } from "./schema-bundle";
 import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, PLUGIN_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema } from "../src/plugins/protocol";
 
 const json = (s: z.ZodTypeAny) => JSON.stringify(z.toJSONSchema(s), null, 2);
@@ -16,6 +17,7 @@ export function renderPluginProtocolDoc(): string {
     "## Overview", "",
     "A plugin is a subprocess the host starts lazily. Both sides speak newline-delimited JSON-RPC 2.0 on the plugin's stdin and stdout (one object per line, 1 MiB cap). stderr is captured to `$PACER_HOME/logs/plugins/<id>.log`. Both sides send requests, so each side matches replies by id. Additive changes do not bump the version; removals bump the major, and the host serves the previous major for one pacer minor release.", "",
     `The host sends \`${HELLO_METHOD}\` first and refuses a plugin whose reply has a different protocol major, or an id or version that differs from its manifest. Every call carries a deadline owned by the host; on expiry it sends the notification \`${CANCEL_METHOD}\` with \`{ id }\`, fails the call with \`plugin_timeout\` and drops any later reply.`, "",
+    "SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).", "",
     "## Manifest", "",
     "`pacer-plugin.json` in the plugin folder. Installed plugins live under `$PACER_HOME/plugins/<id>/`; the folder name must equal `id`.", "",
     "```json", json(manifestSchema), "```", "",
@@ -43,7 +45,7 @@ export function renderPluginProtocolDoc(): string {
 export function pluginProtocolSchema(): unknown {
   const defs: Record<string, unknown> = { manifest: z.toJSONSchema(manifestSchema), helloParams: z.toJSONSchema(helloParams), helloResult: z.toJSONSchema(helloResult) };
   for (const [name, d] of [...Object.entries(EXTENSION_METHODS), ...Object.entries(CAPABILITY_METHODS)]) { defs[`${name}.params`] = z.toJSONSchema(d.params); defs[`${name}.result`] = z.toJSONSchema(d.result); }
-  return { $schema: "https://json-schema.org/draft/2020-12/schema", title: `pacer plugin protocol ${PLUGIN_PROTOCOL_VERSION}`, $defs: defs };
+  return { $schema: "https://json-schema.org/draft/2020-12/schema", title: `pacer plugin protocol ${PLUGIN_PROTOCOL_VERSION}`, version: PLUGIN_PROTOCOL_VERSION, $defs: bundleDefs(defs) };
 }
 
 if (import.meta.main) {

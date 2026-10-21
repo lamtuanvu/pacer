@@ -98,3 +98,16 @@ test("snapshot service exposes only the live notifier identity", async()=>{
  ctx.now+=46;
  expect(model().service).toHaveProperty("notifier",null);
 });
+
+test("only desktop capture opt-in issues an ephemeral instance credential", async () => {
+  const ctx = fakeCtx();
+  const captured = await callOp(ctx, "client.register", { kind: "desktop", version: "test", capture: true }) as { client_id: string; capture_worker: string };
+  expect(captured.capture_worker).toMatch(/^[0-9a-f]{64}$/);
+  const claimed = await callOp(ctx, "desktop.capture.claim", { client_id: captured.client_id, worker_token: captured.capture_worker });
+  expect(claimed).toBeNull();
+  const ordinary = await callOp(ctx, "client.register", { kind: "desktop", version: "test" });
+  expect(ordinary).not.toHaveProperty("capture_worker");
+  expect(JSON.stringify(await callOp(ctx, "client.list", {}))).not.toContain(captured.capture_worker);
+  expect(readFileSync(join(ctx.pacerHome, "state/clients.json"), "utf8")).not.toContain(captured.capture_worker);
+  await expect(callOp(ctx, "client.register", { kind: "app", version: "test", capture: true })).rejects.toMatchObject({ code: "invalid_input" });
+});

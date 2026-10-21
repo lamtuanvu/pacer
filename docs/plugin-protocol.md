@@ -8,6 +8,8 @@ A plugin is a subprocess the host starts lazily. Both sides speak newline-delimi
 
 The host sends `plugin.hello` first and refuses a plugin whose reply has a different protocol major, or an id or version that differs from its manifest. Every call carries a deadline owned by the host; on expiry it sends the notification `$/cancel` with `{ id }`, fails the call with `plugin_timeout` and drops any later reply.
 
+SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
+
 ## Manifest
 
 `pacer-plugin.json` in the plugin folder. Installed plugins live under `$PACER_HOME/plugins/<id>/`; the folder name must equal `id`.

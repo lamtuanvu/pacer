@@ -90,7 +90,7 @@ const USAGE = `usage: pacer <command>
   limits check [--json]                          where each account's usage comes from, its age and freshness
   mcp                                            run the MCP server on stdio
   api --stdio                                    client protocol v2 on stdio (JSON-RPC)
-  serve [--port <n>]                             local HTTP status endpoint (default ${DEFAULT_PORT})
+  serve [--port <n>] [--internal]                local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
   account list [--json] | add <kind> <name> [options] | rm <name> [--delete-home]
   runner list [--json] | add <agent#account> [--model <m>] | rm <agent#account>
@@ -509,8 +509,29 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     }
     case "serve": {
       if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
-      const { opts } = parseFlags(rest, []);
+      const { opts } = parseFlags(rest, ["internal"]);
+      const internal = opts.internal === true;
+      const internalToken = ctx.env.PACER_INTERNAL_TOKEN;
+      if (internal && (!internalToken || internalToken.length < 32)) {
+        return { code: 2, out: "", err: "pacer serve --internal requires PACER_INTERNAL_TOKEN in the environment (at least 32 characters)" };
+      }
       try {
+        if (internal) {
+          // Only this process may hold the internal credential: task runners and executors inherit the environment.
+          delete process.env.PACER_INTERNAL_TOKEN;
+          delete ctx.env.PACER_INTERNAL_TOKEN;
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! } });
+          process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
+          if (ctx.env.PACER_INTERNAL_PARENT_PIPE === "1") {
+            // The front door owns the write end. EOF also arrives after SIGKILL,
+            // when signal handlers in the parent cannot clean up its child.
+            process.stdin.once("end", () => {
+              void s.stop().finally(() => process.exit(0));
+            });
+            process.stdin.resume();
+          }
+          return { code: 0, out: "", err: "", keepAlive: true };
+        }
         const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });
         return { code: 0, out: `pacer serve listening on http://127.0.0.1:${s.port} (token: ${ctx.pacerHome}/token)`, err: "", keepAlive: true };
       } catch (e) {

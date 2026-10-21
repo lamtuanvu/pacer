@@ -1,0 +1,169 @@
+[
+ {
+  "name": "wrong-host",
+  "method": "GET",
+  "path": "/v3/hello",
+  "headers": {
+   "Host": "wrong.example.com"
+  },
+  "status": 421,
+  "body": "misdirected request\n"
+ },
+ {
+  "name": "localhost-host-valid-bearer",
+  "method": "GET",
+  "path": "/v3/hello",
+  "headers": {
+   "Host": "localhost:<port>",
+   "Authorization": "Bearer <token>"
+  },
+  "status": 200,
+  "body": "{\"protocol\":\"3.0.0\",\"previous\":\"2.8.0\",\"pacer\":\"0.5.0\",\"ops\":[\"account.add\",\"account.adopt\",\"account.edit\",\"account.list\",\"account.models\",\"account.remove\",\"account.signin\",\"account.test\",\"activity.list\",\"agent.connect\",\"agent.detect\",\"agent.disconnect\",\"agent.preview\",\"attention.dismiss\",\"attention.snooze\",\"client.heartbeat\",\"client.list\",\"client.register\",\"config.get\",\"config.set\",\"delegation.pause\",\"delegation.resume\",\"doctor.run\",\"executor.setup.candidates\",\"executor.setup.connect\",\"executor.setup.models\",\"host.account.add\",\"host.add\",\"host.check\",\"host.clean\",\"host.get\",\"host.list\",\"host.remove\",\"host.repo.map\",\"host.repo.setup\",\"host.set\",\"host.suggest\",\"host.terminal\",\"job.cancel\",\"job.get\",\"job.list\",\"limits.check\",\"limits.report\",\"mode.hold\",\"mode.release\",\"notifications.get\",\"notifications.set\",\"onboarding.skip\",\"onboarding.try\",\"plugin.disable\",\"plugin.doctor\",\"plugin.enable\",\"plugin.install\",\"plugin.list\",\"plugin.remove\",\"project.strategy.get\",\"project.strategy.list\",\"project.strategy.remove\",\"project.strategy.set\",\"repo.add\",\"repo.list\",\"repo.remove\",\"routing.get\",\"routing.route\",\"routing.set\",\"routing.status\",\"runner.add\",\"runner.block\",\"runner.check\",\"runner.list\",\"runner.remove\",\"runner.reorder\",\"runner.set\",\"runner.unblock\",\"service.install\",\"service.status\",\"setup.check\",\"setup.init\",\"strategy.build\",\"strategy.list\",\"strategy.preview\",\"strategy.remove\",\"strategy.save\",\"strategy.show\",\"strategy.use\",\"task.answer\",\"task.ask\",\"task.attach\",\"task.delegate\",\"task.diff\",\"task.dismiss\",\"task.get\",\"task.list\",\"task.log\",\"task.prune\",\"task.restore\",\"task.retry\",\"task.retry_all\",\"task.retry_options\",\"task.review\",\"task.session\",\"task.stop\",\"task.takeover\",\"task.wait\",\"update.apply\",\"update.check\",\"version.get\"],\"events\":[\"plugin\",\"pause\",\"task\",\"mode\",\"config\",\"reset\",\"planner\",\"executor\",\"account\",\"host\",\"repo\",\"counts\",\"attention\",\"activity\",\"job\",\"notify\"]}"
+ },
+ {
+  "name": "options-app-x",
+  "method": "OPTIONS",
+  "path": "/app/x",
+  "headers": {
+   "Host": "127.0.0.1:<port>"
+  },
+  "status": 405,
+  "body": null,
+  "bodySha256": "8e027d0c9b5bf8e8f8e17bd3b14d3e2d6311b7547fe4a9e91d126d873c7357ec"
+ },
+ {
+  "name": "options-v3-x",
+  "method": "OPTIONS",
+  "path": "/v3/x",
+  "headers": {
+   "Host": "127.0.0.1:<port>"
+  },
+  "status": 405,
+  "body": "method not allowed\n"
+ },
+ {
+  "name": "health",
+  "method": "GET",
+  "path": "/health",
+  "headers": {
+   "Host": "127.0.0.1:<port>"
+  },
+  "status": 200,
+  "body": "{\"ok\":true,\"pid\":\"<pid>\",\"backendLagS\":\"<lag>\"}"
+ },
+ {
+  "name": "app-auth-no-credentials",
+  "method": "GET",
+  "path": "/app/auth",
+  "headers": {
+   "Host": "127.0.0.1:<port>"
+  },
+  "status": 403,
+  "body": null,
+  "bodySha256": "837eea7b49d64c6fafb4d8d2f2a84d7903ec740a5f1356cd0ae68f5f89b8a5c9"
+ },
+ {
+  "name": "valid-bearer-v3-hello",
+  "method": "GET",
+  "path": "/v3/hello",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Authorization": "Bearer <token>"
+  },
+  "status": 200,
+  "body": "{\"protocol\":\"3.0.0\",\"previous\":\"2.8.0\",\"pacer\":\"0.5.0\",\"ops\":[\"account.add\",\"account.adopt\",\"account.edit\",\"account.list\",\"account.models\",\"account.remove\",\"account.signin\",\"account.test\",\"activity.list\",\"agent.connect\",\"agent.detect\",\"agent.disconnect\",\"agent.preview\",\"attention.dismiss\",\"attention.snooze\",\"client.heartbeat\",\"client.list\",\"client.register\",\"config.get\",\"config.set\",\"delegation.pause\",\"delegation.resume\",\"doctor.run\",\"executor.setup.candidates\",\"executor.setup.connect\",\"executor.setup.models\",\"host.account.add\",\"host.add\",\"host.check\",\"host.clean\",\"host.get\",\"host.list\",\"host.remove\",\"host.repo.map\",\"host.repo.setup\",\"host.set\",\"host.suggest\",\"host.terminal\",\"job.cancel\",\"job.get\",\"job.list\",\"limits.check\",\"limits.report\",\"mode.hold\",\"mode.release\",\"notifications.get\",\"notifications.set\",\"onboarding.skip\",\"onboarding.try\",\"plugin.disable\",\"plugin.doctor\",\"plugin.enable\",\"plugin.install\",\"plugin.list\",\"plugin.remove\",\"project.strategy.get\",\"project.strategy.list\",\"project.strategy.remove\",\"project.strategy.set\",\"repo.add\",\"repo.list\",\"repo.remove\",\"routing.get\",\"routing.route\",\"routing.set\",\"routing.status\",\"runner.add\",\"runner.block\",\"runner.check\",\"runner.list\",\"runner.remove\",\"runner.reorder\",\"runner.set\",\"runner.unblock\",\"service.install\",\"service.status\",\"setup.check\",\"setup.init\",\"strategy.build\",\"strategy.list\",\"strategy.preview\",\"strategy.remove\",\"strategy.save\",\"strategy.show\",\"strategy.use\",\"task.answer\",\"task.ask\",\"task.attach\",\"task.delegate\",\"task.diff\",\"task.dismiss\",\"task.get\",\"task.list\",\"task.log\",\"task.prune\",\"task.restore\",\"task.retry\",\"task.retry_all\",\"task.retry_options\",\"task.review\",\"task.session\",\"task.stop\",\"task.takeover\",\"task.wait\",\"update.apply\",\"update.check\",\"version.get\"],\"events\":[\"plugin\",\"pause\",\"task\",\"mode\",\"config\",\"reset\",\"planner\",\"executor\",\"account\",\"host\",\"repo\",\"counts\",\"attention\",\"activity\",\"job\",\"notify\"]}"
+ },
+ {
+  "name": "invalid-bearer-v3-hello",
+  "method": "GET",
+  "path": "/v3/hello",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Authorization": "Bearer bad-token"
+  },
+  "status": 401,
+  "body": "unauthorized\n"
+ },
+ {
+  "name": "invalid-bearer-app",
+  "method": "GET",
+  "path": "/app/",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Authorization": "Bearer bad-token"
+  },
+  "status": 401,
+  "body": null,
+  "bodySha256": "e7619bc48222e32828b420c5a6466ef67bd2f3d00ff31985d3f3791db0135fd7"
+ },
+ {
+  "name": "cookie-session-exchange",
+  "method": "POST",
+  "path": "/v3/session/exchange",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Cookie": "<cookie>"
+  },
+  "status": 403,
+  "body": "forbidden\n"
+ },
+ {
+  "name": "cookie-version-get-no-client",
+  "method": "POST",
+  "path": "/v3/ops/version.get",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Cookie": "<cookie>"
+  },
+  "status": 403,
+  "body": "forbidden\n"
+ },
+ {
+  "name": "cookie-sec-fetch-site-cross-site",
+  "method": "GET",
+  "path": "/v3/hello",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Cookie": "<cookie>",
+   "Sec-Fetch-Site": "cross-site"
+  },
+  "status": 403,
+  "body": "forbidden\n"
+ },
+ {
+  "name": "cookie-get-v3-hello-same-origin",
+  "method": "GET",
+  "path": "/v3/hello",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Cookie": "<cookie>",
+   "Sec-Fetch-Site": "same-origin",
+   "Origin": "http://localhost:<port>"
+  },
+  "status": 200,
+  "body": "{\"protocol\":\"3.0.0\",\"previous\":\"2.8.0\",\"pacer\":\"0.5.0\",\"ops\":[\"account.add\",\"account.adopt\",\"account.edit\",\"account.list\",\"account.models\",\"account.remove\",\"account.signin\",\"account.test\",\"activity.list\",\"agent.connect\",\"agent.detect\",\"agent.disconnect\",\"agent.preview\",\"attention.dismiss\",\"attention.snooze\",\"client.heartbeat\",\"client.list\",\"client.register\",\"config.get\",\"config.set\",\"delegation.pause\",\"delegation.resume\",\"doctor.run\",\"executor.setup.candidates\",\"executor.setup.connect\",\"executor.setup.models\",\"host.account.add\",\"host.add\",\"host.check\",\"host.clean\",\"host.get\",\"host.list\",\"host.remove\",\"host.repo.map\",\"host.repo.setup\",\"host.set\",\"host.suggest\",\"host.terminal\",\"job.cancel\",\"job.get\",\"job.list\",\"limits.check\",\"limits.report\",\"mode.hold\",\"mode.release\",\"notifications.get\",\"notifications.set\",\"onboarding.skip\",\"onboarding.try\",\"plugin.disable\",\"plugin.doctor\",\"plugin.enable\",\"plugin.install\",\"plugin.list\",\"plugin.remove\",\"project.strategy.get\",\"project.strategy.list\",\"project.strategy.remove\",\"project.strategy.set\",\"repo.add\",\"repo.list\",\"repo.remove\",\"routing.get\",\"routing.route\",\"routing.set\",\"routing.status\",\"runner.add\",\"runner.block\",\"runner.check\",\"runner.list\",\"runner.remove\",\"runner.reorder\",\"runner.set\",\"runner.unblock\",\"service.install\",\"service.status\",\"setup.check\",\"setup.init\",\"strategy.build\",\"strategy.list\",\"strategy.preview\",\"strategy.remove\",\"strategy.save\",\"strategy.show\",\"strategy.use\",\"task.answer\",\"task.ask\",\"task.attach\",\"task.delegate\",\"task.diff\",\"task.dismiss\",\"task.get\",\"task.list\",\"task.log\",\"task.prune\",\"task.restore\",\"task.retry\",\"task.retry_all\",\"task.retry_options\",\"task.review\",\"task.session\",\"task.stop\",\"task.takeover\",\"task.wait\",\"update.apply\",\"update.check\",\"version.get\"],\"events\":[\"plugin\",\"pause\",\"task\",\"mode\",\"config\",\"reset\",\"planner\",\"executor\",\"account\",\"host\",\"repo\",\"counts\",\"attention\",\"activity\",\"job\",\"notify\"]}"
+ },
+ {
+  "name": "cookie-non-app-non-api",
+  "method": "GET",
+  "path": "/other",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Cookie": "<cookie>"
+  },
+  "status": 401,
+  "body": "unauthorized\n"
+ },
+ {
+  "name": "session-websocket-foreign-origin",
+  "method": "GET",
+  "path": "/v3/tasks/t-x/session",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Cookie": "<cookie>",
+   "Origin": "http://example.com"
+  },
+  "status": 403,
+  "body": "forbidden\n"
+ }
+]

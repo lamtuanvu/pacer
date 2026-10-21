@@ -20,6 +20,7 @@ export async function fixtureFeedDryRun(root: string) {
     if (code) throw Error("Fixture signer failed");
     return stdout.trim();
   }
+  let signatures = 0;
   try {
     if (await signer(["--version"]) !== "tauri-cli 2.12.3") throw Error("Fixture requires pinned Tauri CLI 2.12.3");
     await signer(["signer", "generate", "--ci", "--password", "disposable-fixture", "--write-keys", key]);
@@ -32,6 +33,7 @@ export async function fixtureFeedDryRun(root: string) {
       const archive = new Bun.Archive({ "pacer.app/Contents/Resources/pacer-release.json": JSON.stringify(metadata), "FIXTURE-ONLY.txt": "Data-only release fixture; never install" }, { compress: "gzip" });
       await Bun.write(artifact, await archive.blob());
       await signer(["signer", "sign", "--private-key-path", key, "--password", "disposable-fixture", "--app-version", version, artifact]);
+      signatures++;
     }
     const options: DesktopReleaseOptions = { mode: "fixture", publicKey, pins: { appleTeamId: "FIXTURE123" }, verifyArchive: async bytes => {
       const file = (await new Bun.Archive(gunzipSync(bytes)).files()).get("pacer.app/Contents/Resources/pacer-release.json");
@@ -45,7 +47,7 @@ export async function fixtureFeedDryRun(root: string) {
     if ((await publisher.readFeed()).head !== first.head) throw Error("Fixture retry changed feed");
     const feed = await buildDesktopFeed(release, version, options);
     writeFileSync(join(root, "stable.json"), feed);
-    const report = { mode: "fixture", signatures: 2, immutableRetry: "PASS", cas: "PASS", feedSha256: digest(Buffer.from(feed)), production: "UNVERIFIED", native: "UNVERIFIED", detail: "Real Tauri signatures and local Git CAS; data-only archives, no Apple signing/notarization/native installation or remote publication" };
+    const report = { mode: "fixture", signatures, immutableRetry: "PASS", cas: "PASS", feedSha256: digest(Buffer.from(feed)), production: "UNVERIFIED", native: "UNVERIFIED", detail: "Real Tauri signatures and local Git CAS; data-only archives, no Apple signing/notarization/native installation or remote publication" };
     writeFileSync(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
     return report;
   } finally { rmSync(privateDir, { recursive: true, force: true }); }

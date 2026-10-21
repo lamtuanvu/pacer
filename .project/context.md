@@ -10,7 +10,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 
 | Path | Component |
 |------|-----------|
-| `src/cli.ts`, `src/commands/` | CLI dispatcher and subcommands. Compiled into a single `dist/pacer` binary. |
+| `src/cli.ts`, `src/commands/` | CLI dispatcher and subcommands. Compiled into the bun CLI `dist/pacer-core`; the Rust front door `dist/pacer` execs it when a command is not yet native. |
 | `src/api/` | Versioned protocol (`protocol.ts`, now 3.0.0), operation registry (`ops.ts`), HTTP and stdio JSON-RPC transports, `v2-compat` adapter, read model |
 | `src/serve/`, `src/service/` | The local service: HTTP/SSE/WebSocket, app auth and panel. Installed under launchd or as a systemd user unit. |
 | `src/core/`, `src/engine/`, `src/tasks/`, `src/strategy/`, `src/config/` | Domain core: ranking, slots, verdicts, tasks, strategy and config. `CoreError` lives in `src/core/errors.ts`. |
@@ -28,6 +28,11 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `npm/launcher/` | npm launcher that picks the platform package |
 | `scripts/` | Release, protocol-doc, e2e, QA, brand and design-system sync scripts |
 | `test/` | Flat `bun:test` suite (`<area>-<topic>.test.ts`), `fixtures/`, `__snapshots__/`; `test/setup.ts` isolates `HOME`/`PACER_HOME` |
+| `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
+| `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
+| `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
+| `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
+| `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 
 Dependency direction: clients → `src/api` → core → adapters. Source: [ADR clients-over-local-service](../docs/decisions/2026-10-16-clients-over-local-service.md).
 
@@ -57,6 +62,11 @@ These come from the configuration listed in Source. None were run while this ind
 | Plugin protocol docs | `bun run plugin:protocol` | package.json |
 | Release | `bun run release:prepare <x.y.z>` → PR `chore: release x.y.z` → dry-run dispatch → tag `v<x.y.z>` | CONTRIBUTING.md |
 | Desktop | `cargo test --offline`; `bunx tauri build --no-sign` (in `desktop/`) | desktop/README.md |
+| Rust build | `cargo build --workspace` | ci.yml, CONTRIBUTING.md |
+| Rust test | `cargo test --workspace --locked` (also in the rust CI job) | ci.yml, CONTRIBUTING.md |
+| Generate Rust code | `cargo xtask gen` (`cargo xtask gen --check` verifies it is fresh) | ci.yml, rules/rust.md |
+| Crate sizes | `cargo xtask loc` (`cargo xtask loc --check` in CI) | ci.yml, rules/rust-crates.md |
+| Crate layers and heavy deps | `cargo xtask deps` | ci.yml, rules/rust-crates.md |
 | Live validation | `bun run live up`, then drive the surfaces, `bun run live report`, `bun run live down --keep` | docs/testing/live-validation.md |
 
 There is no lint or format command; `.editorconfig` is the only style config.

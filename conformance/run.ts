@@ -18,7 +18,7 @@ export async function runCase(c: ConformanceCase, hostArgv: string[], root: stri
   mkdirSync(scope, { recursive: true });
   symlinkSync(resolve(import.meta.dir, "../packages/plugin-sdk"), join(scope, "plugin"), "dir");
   const sessions: HostSession[] = [];
-  const env = { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh" };
+  const env = { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh", ...(process.env.PACER_CORE_ARGV ? { PACER_CORE_ARGV: process.env.PACER_CORE_ARGV } : {}) };
   try {
     await c.run({
       home, pluginsDir,
