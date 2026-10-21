@@ -38,6 +38,11 @@ HTTP route errors after authentication use `{ "error": { "code": "...", "message
 | `conflict` | 409 |
 | `too_large` | 413 |
 | `internal` | 500 |
+| `plugin_timeout` | 504 |
+| `plugin_unavailable` | 503 |
+| `plugin_refused` | 422 |
+| `capability_denied` | 403 |
+| `unknown_plugin` | 404 |
 
 Missing or invalid HTTP tokens return 401 with the plain-text body `unauthorized`. A wrong HTTP verb returns 405 with `invalid_input`.
 
@@ -712,6 +717,7 @@ Params JSON Schema:
       "items": {
         "type": "string",
         "enum": [
+          "plugin_state",
           "task_started",
           "task_settled",
           "verdict",
@@ -2024,6 +2030,75 @@ Params JSON Schema:
 }
 ```
 
+### `plugin.disable`
+
+Stop a plugin and record it as disabled.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.doctor`
+
+Start enabled plugins if idle and ping each with a 5 s deadline; report protocol versions, served extension points, restarts and errors.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `plugin.enable`
+
+Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set until called with grant: true.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "grant": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `plugin.install`
 
 Retired: pacer no longer ships an Orca plugin. Always fails with not_allowed; removed in the next protocol major.
@@ -2035,6 +2110,44 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `plugin.list`
+
+Discovered plugins with state, capabilities, grants and pid; starts nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `plugin.remove`
+
+Disable an installed plugin, delete its folder and forget its grant. Bundled plugins return not_allowed.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
   "additionalProperties": false
 }
 ```
