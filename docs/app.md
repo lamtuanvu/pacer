@@ -89,6 +89,14 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
+On wide screens, Overview pairs Needs you with Capacity, Running with Quick delegate,
+and Done today with Activity. Cards in each row share their height. Needs you and
+Capacity show five rows per page; Running, Done today and Activity show three.
+Previous/Next navigation keeps longer lists contained. Repository changes reset
+scoped lists to their first page. Compact Capacity continues to show all executors.
+Narrow layouts stack the existing sections. The standalone Needs you page retains
+its full actionable queue.
+
 **Needs you** contains actionable questions, failures, incomplete work and explicit
 human review requests, alongside existing account, setup and service problems.
 Items follow the service order: blocked items, problems, then decisions, oldest

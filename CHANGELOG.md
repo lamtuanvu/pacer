@@ -20,6 +20,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Settings categories open separate pages with icon navigation and a proper gear icon. Forms use consistent compact sizing, bounded widths and aligned spacing; narrow layouts keep category navigation and focused controls visible.
 
+### Changed
+
+- Overview uses aligned pairs of cards and paginated attention, running, capacity, completed-work and activity lists, keeping the existing design system and compact layout.
+- Repository filters use filled count badges and a searchable **Find repo** menu anchored to its trigger, with compact rows, selected checkmarks, keyboard navigation and narrow-screen containment. The finder includes repositories with no current work.
+
 ## [0.5.0] - 2026-10-20
 
 ### Added
