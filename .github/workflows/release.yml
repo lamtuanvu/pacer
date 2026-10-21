@@ -428,6 +428,21 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun install --frozen-lockfile
         working-directory: desktop
+      - name: Probe production signing identity
+        env:
+          # The runner context is unavailable in job-level env; credential steps set it.
+          PACER_SIGNING_CLEANUP_RECORD: ${{ runner.temp }}/pacer-desktop-sign.json
+          PACER_SELF_SIGNING_CERTIFICATE_BASE64: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}
+          PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}
+          PACER_APPLE_SIGNING_IDENTITY: ${{ vars.PACER_APPLE_SIGNING_IDENTITY }}
+          PACER_APPLE_CERTIFICATE_BASE64: ${{ secrets.PACER_APPLE_CERTIFICATE_BASE64 }}
+          PACER_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.PACER_APPLE_CERTIFICATE_PASSWORD }}
+          PACER_NOTARY_KEY: ${{ secrets.PACER_NOTARY_KEY }}
+          PACER_NOTARY_KEY_ID: ${{ vars.PACER_NOTARY_KEY_ID }}
+          PACER_NOTARY_ISSUER: ${{ vars.PACER_NOTARY_ISSUER }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bun scripts/release/desktop-credentials.ts --probe
       - name: Fetch pinned Rust dependencies
         working-directory: desktop/src-tauri
         run: |
@@ -445,7 +460,7 @@ jobs:
           cp desktop/src-tauri/target/release/pacer-update-helper "dist/desktop-cli/$VERSION/pacer-update-helper"
       - name: Sign complete app (Developer ID builds also notarize and staple) and version-sign final artifact
         env:
-          # The runner context is unavailable in job-level env; both credential steps set it.
+          # The runner context is unavailable in job-level env; credential steps set it.
           PACER_SIGNING_CLEANUP_RECORD: ${{ runner.temp }}/pacer-desktop-sign.json
           PACER_SELF_SIGNING_CERTIFICATE_BASE64: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}
           PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}

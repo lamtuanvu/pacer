@@ -98,3 +98,20 @@ test("interim signing refuses missing certificate secrets or both signers' certi
   await expect(withSigningCredentials({ ...base, PACER_SELF_SIGNING_CERTIFICATE_BASE64: "eA==", PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: "pw", PACER_APPLE_CERTIFICATE_BASE64: "eA==" }, async () => {}, run)).rejects.toThrow("one signing");
   expect(calls).toBe(0);
 });
+
+test("signing preflight exercises the configured identity and cleans its temporary keychain", async () => {
+  const { probeSigningCredentials } = await import("../scripts/release/desktop-credentials");
+  const env = { PACER_SIGNING_CERT_SHA1: "2C5405FB6D2906AE2049D59B9DF5D42661997922", PACER_OTA_PUBLIC_KEY: "public", PACER_SELF_SIGNING_CERTIFICATE_BASE64: Buffer.from("p12").toString("base64"), PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: "pw", TAURI_SIGNING_PRIVATE_KEY: "fixture-updater" };
+  const calls: string[][] = [];
+  await probeSigningCredentials(env, async argv => {
+    calls.push(argv);
+    if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o600 });
+    return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : "";
+  });
+  const sign = calls.find(a => a[0] === "/usr/bin/codesign" && a[1] === "--force")!;
+  expect(sign[sign.indexOf("--sign") + 1]).toBe(env.PACER_SIGNING_CERT_SHA1);
+  expect(calls.some(a => a[0] === "/usr/bin/codesign" && a[1] === "--verify")).toBe(true);
+  const keychain = sign[sign.indexOf("--keychain") + 1];
+  expect(existsSync(keychain)).toBe(false);
+  expect(calls.some(a => a[1] === "delete-keychain" && a.at(-1) === keychain)).toBe(true);
+});

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
+import { copyFileSync, chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, basename, dirname } from "node:path";
 import { command } from "./desktop-verify";
@@ -65,10 +65,25 @@ export async function withSigningCredentials<T>(env: NodeJS.ProcessEnv, body: (c
     await cleanupSigningRecord(cleanupRecord, run);
   }
 }
+/** Fail before compilation when CI cannot use its configured signing identity. */
+export async function probeSigningCredentials(env: NodeJS.ProcessEnv, run = command): Promise<void> {
+  await withSigningCredentials(env, async config => {
+    const probe = join(dirname(config.keychain), "signing-probe");
+    copyFileSync("/usr/bin/true", probe);
+    const identity = config.signer === "self" ? config.certSha1 : config.identity;
+    await run(["/usr/bin/codesign", "--force", "--sign", identity, "--keychain", config.keychain, "--timestamp=none", probe]);
+    await run(["/usr/bin/codesign", "--verify", "--strict", probe]);
+  }, run);
+}
 if (import.meta.main) {
   try {
     if (process.argv[2] === "--cleanup" && process.argv.length === 3 && process.env.GITHUB_ACTIONS === "true") {
       if (process.env.PACER_SIGNING_CLEANUP_RECORD) await cleanupSigningRecord(process.env.PACER_SIGNING_CLEANUP_RECORD);
+      process.exit(0);
+    }
+    if (process.argv[2] === "--probe" && process.argv.length === 3 && process.platform === "darwin" && process.env.GITHUB_ACTIONS === "true") {
+      await probeSigningCredentials(process.env);
+      console.log("Production signing identity probe passed");
       process.exit(0);
     }
     const [dir, arch, out] = process.argv.slice(2);
