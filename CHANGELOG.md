@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-21
+
 ### Added
 
 - macOS desktop OTA support with complete app/service packages, explicit restart after download, work admission, verified recovery, and shared Settings, tray, TUI and CLI controls. Until pacer has an Apple Developer ID, releases are signed with a pinned project certificate; a later bridge release moves installed apps to Developer ID builds by update. macOS desktop downloads are the signed, auto-updating app; Linux packages are unchanged.
