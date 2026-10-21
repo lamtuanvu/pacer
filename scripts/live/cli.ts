@@ -4,6 +4,7 @@ import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidenc
 import { cleanupOta, exerciseOta, prepareOta } from "./ota";
 import { buildOtaFixtures } from "./ota-build";
 import { desktop, tui } from "./surfaces";
+import { exerciseUpdater } from "./updater";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui]
@@ -18,6 +19,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   inspect and control sandbox UI
   doctor --surface desktop --request-accessibility
                                   ask macOS to show Accessibility approval
+  updater --id <id>               exercise fixed disposable CLI updater fixtures (seeded sandbox)
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -80,6 +82,11 @@ export async function main(argv: string[]): Promise<number> {
     }
     else if (action === "cleanup") await cleanupOta(id);
     else throw Error("Unsupported OTA action");
+    return 0;
+  }
+  if (command === "updater") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live updater --id <id>");
+    await exerciseUpdater(loadSession(id));
     return 0;
   }
   const session = loadSession(id);
