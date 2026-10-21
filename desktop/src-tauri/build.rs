@@ -10,6 +10,7 @@ fn main() {
             "app_quit",
             "session_expired",
             "session_ready",
+            "desktop_version",
         ]),
     ))
     .expect("build desktop shell");
