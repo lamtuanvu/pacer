@@ -47,6 +47,7 @@ The executor contract asks workers to stay in scope, avoid further delegation, a
 ```sh
 pacer tasks --json
 pacer tasks TASK_ID --json
+pacer watch TASK_ID --timeout 600 --json
 pacer wait TASK_ID --timeout 600 --json
 pacer stop TASK_ID --json
 pacer report-limit cursor

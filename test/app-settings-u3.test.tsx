@@ -49,7 +49,7 @@ test('host list and detail expose loading and empty states',()=>{
 });
 test('job progress uses service words and steps, including error hints',()=>{
  const html=renderToString(<JobProgress job={{...job,state:'failed',error:{code:'bad',message:'Check failed',hint:'Sign in on host'}}}/>);
- for(const text of ['CLI found','Test task','failed','Check failed','Sign in on host'])expect(html).toContain(text);
+ for(const text of ['CLI found','Test task','Failed','Check failed','Sign in on host'])expect(html).toContain(text);
 });
 test('operation helper preserves response and error details, and follows bare or wrapped jobs',async()=>{
  const calls:any[]=[];
@@ -175,7 +175,7 @@ test('Settings and host executors share uncertainty; retained account usage is h
 test('Executors copy matches routing: a failed check does not skip an executor',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
- expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention. Recent task failures means two or more tasks failed in the past 24 hours; a passed check does not clear that history. Routing keeps using executors with either warning. Disable an executor to skip it.');
+ expect(html).toContain('Unavailable executors are skipped; warning states may still receive work.');
 });
 
 test('a not-tested endpoint executor reads Not tested, not Ready, in Executors',()=>{
@@ -261,4 +261,37 @@ test('paged Updates keeps OTA controls, service identity and navigation status t
  expect(panel).toContain('pc-rail__badge--info');
  expect(panel).toContain('title="Update ready"');
  expect(panel.match(/aria-current="page"/g)).toHaveLength(1);
+});
+
+test('completed executor setup offers another account without leaving the wizard', () => {
+ const initialDraft={step:'4',agent:'claude-code',account:'team',createdId:executor.id,jobId:job.id};
+ const html=render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
+ expect(html).toContain('Add another account');
+ expect(html).toContain('Back to settings');
+ expect((html.match(/pc-btn--primary/g)||[]).length).toBe(1);
+});
+
+test('adding another account replaces the completed draft with an unlocked account step', async () => {
+ const {options}=await import('preact');
+ const saved=new Map<string,string>();
+ const key='pacer.settings.add-executor';
+ saved.set(key,JSON.stringify({step:'4',agent:'claude-code',host:'devbox',account:'team',model:'old',rank:'1',createdId:executor.id,jobId:job.id}));
+ const oldStorage=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+ const oldVNode=options.vnode;
+ let startAnother:(()=>void)|undefined;
+ Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>saved.get(key)??null,setItem:(key:string,value:string)=>saved.set(key,value),removeItem:(key:string)=>saved.delete(key)}});
+ options.vnode=node=>{oldVNode?.(node);if(node.type==='button'&&(node.props as any).children==='Add another account')startAnother=(node.props as any).onClick;};
+ try {
+  render(<AddExecutor/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
+  expect(startAnother).toBeDefined();
+  startAnother!();
+  const html=render(<AddExecutor/>);
+  expect(html).toContain('Which account pays for it?');
+  expect(html).toContain('New account');
+  expect(html).not.toContain('is ready');
+  expect(JSON.parse(saved.get(key)!)).toEqual({step:'2',agent:'claude-code',host:'devbox',account:'',model:'',rank:'',createdId:'',jobId:''});
+ } finally {
+  options.vnode=oldVNode;
+  if(oldStorage)Object.defineProperty(globalThis,'sessionStorage',oldStorage);else Reflect.deleteProperty(globalThis,'sessionStorage');
+ }
 });

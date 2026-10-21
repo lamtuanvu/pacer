@@ -2924,6 +2924,81 @@ Params JSON Schema:
 }
 ```
 
+### `runner.settings.get`
+
+Read editable executor settings and an opaque revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `runner.settings.save`
+
+Atomically save executor order, enabled states and parallel limits against the expected revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "expectedRevision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "order": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "runners": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "maxTasks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          }
+        },
+        "required": [
+          "id",
+          "enabled",
+          "maxTasks"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "expectedRevision",
+    "order",
+    "runners"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `runner.unblock`
 
 Remove an executor's manual block.
@@ -3685,7 +3760,7 @@ Params JSON Schema:
 
 ### `task.log`
 
-Read up to 256 KiB per output stream from byte offsets.
+Read up to 256 KiB per output stream from byte offsets. Returns an opaque source identity; reset offsets when it changes.
 
 Params JSON Schema:
 
