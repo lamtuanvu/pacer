@@ -7,7 +7,7 @@ import { fixtureFeedDryRun } from "../scripts/release/desktop-feed-fixture";
 // the release workflow's dry-run desktop-fixture job installs it and runs this same exercise.
 const signer = existsSync(join(import.meta.dir, "../desktop/node_modules/@tauri-apps/cli/tauri.js"));
 test.skipIf(!signer)("explicit fixture driver uses real pinned signer and local immutable assets without leaving private keys", async () => {
-  const root = join(tmpDir(), "fixture");
+  const root = join(tmpDir(), "dist", "fixture");
   const report = await fixtureFeedDryRun(root);
   expect(report.mode).toBe("fixture");
   expect(report.production).toBe("UNVERIFIED");

@@ -475,6 +475,7 @@ mod tests {
         )
         .is_err());
     }
+    #[cfg(target_os = "macos")]
     #[test]
     fn ordinary_bootstrap_refuses_redirected_maintenance_directory() {
         use std::os::unix::fs::{symlink, PermissionsExt};
@@ -1505,6 +1506,12 @@ fn managed_action(
 }
 
 /// Bounded kernel inventory. No process environments or untrusted executable probes.
+// Native audit-token process discovery is unavailable on other platforms.
+#[cfg(not(target_os = "macos"))]
+pub fn native_process_inventory() -> Result<Vec<native::ProcessDetails>, OtaError> {
+    Err(OtaError::Unavailable)
+}
+
 #[cfg(target_os = "macos")]
 pub fn native_process_inventory() -> Result<Vec<native::ProcessDetails>, OtaError> {
     unsafe extern "C" {
