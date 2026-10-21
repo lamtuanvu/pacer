@@ -101,7 +101,8 @@ export function prepare(input: AgentSessionPrepare): AgentSessionLaunch {
       ...dirs,
       ...models,
       ...images,
-      ...(input.sessionId ? [input.sessionId] : ["--", prompt]),
+      "--",
+      input.sessionId ?? prompt,
     ];
   else if (input.agent === "claude-code")
     argv = [
