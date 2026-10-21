@@ -16,6 +16,7 @@ import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
 import { Delegate } from "./screens/Delegate";
 import { followSavedTheme } from "./theme";
+import { NavigationProvider } from "./navigation";
 followSavedTheme();
 const store = createStore();
 const TITLES: Record<Route["name"], string> = { overview: "Overview", setup: "Set up pacer", review: "Needs you", sessions: "Tasks", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
@@ -83,7 +84,7 @@ function App() {
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
+      <NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider>
     </SetupContext.Provider>
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
