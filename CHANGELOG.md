@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore desktop capture-worker enrollment during client registration so native live diagnostics can capture owned windows.
+
+
 ### Added
 
 - Companion-aware bridge updater: validates and verifies `pacer-core` release assets, stages and smoke-tests both executables, installs the core first, and rolls it back if replacing `pacer` fails. Manifests without companions keep the existing single-binary behavior. The bridge remains a single Bun binary.
