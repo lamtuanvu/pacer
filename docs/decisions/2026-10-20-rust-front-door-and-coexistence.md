@@ -40,6 +40,33 @@ home, and how releases ship and update the pair.
   release (assets, manifest companions, self-repair, sign and update as a pair)
   lands together in its own plan.
 
+## Transports (M1 plan 4)
+
+- **D6. The front door owns every client transport.** `pacer api --stdio` and
+  `pacer serve` terminate in Rust. Stdio forwards each line to a `pacer-core api
+  --stdio` child, except operations the front door answers natively. `serve`
+  binds the public port, authenticates every request exactly as the Bun server
+  did (bearer token, app session cookie, Host, Origin, `Sec-Fetch-Site` and
+  `X-Pacer-Client` checks, recorded as goldens from the Bun server), and
+  forwards HTTP, SSE and session WebSockets to the core.
+- **D7. The core listens privately.** The front door supervises
+  `pacer-core serve --internal`, which binds an ephemeral loopback port,
+  announces it as one JSON line on stdout, and accepts only
+  `Authorization: Bearer <PACER_INTERNAL_TOKEN>`. The token is 32 random bytes,
+  fresh for every core generation, and exists only in the child's environment.
+  The front door replaces client credentials with that token and tells the core
+  how the client authenticated in `x-pacer-auth: bearer|cookie`, so cookie
+  clients keep their narrower permissions.
+- **D8. Health reflects the core.** The front door probes the core's `/health`
+  once a second and answers `/health` itself with `ok`, its pid and
+  `backendLagS`; it returns 503 once the last answer is older than 45 s, the
+  same contract as the Bun health listener.
+- **D9. A dead core restarts behind the same port.** When the core exits, the
+  front door answers 502 (`pacer core is restarting`) and restarts it with
+  backoff (1 s doubling to 30 s, reset after 60 s healthy). Measured in live
+  validation: about 1.4 s from a killed core to the next 200, and a median
+  overhead of about 0.35 ms per `/v3/snapshot` request.
+
 ## Consequences
 
 - M1 and M2 ship two files to sign and ship (`pacer` and `pacer-core`), updated
