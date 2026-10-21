@@ -103,3 +103,12 @@ test("retired and unknown hashes select Overview in the shell", () => {
     expect(html).not.toContain("<aside");
   }
 });
+
+test("detail routes select exactly one primary and at most one settings destination", () => {
+ const task = renderToString(<Rail route={at("#/tasks/t1")} counts={snap.counts!}/>);
+ expect(task.match(/aria-current="page"/g)).toHaveLength(1);
+ expect(task).toMatch(/aria-current="page"[^>]*aria-label="Tasks|aria-label="Tasks[^\"]*"[^>]*aria-current="page"/);
+ const hostRoute = at("#/settings/hosts/devbox");
+ const shell = renderToString(<><Rail route={hostRoute} counts={snap.counts!}/><SettingsPanel route={hostRoute} counts={snap.counts!}/></>);
+ expect(shell.match(/aria-current="page"/g)).toHaveLength(2);
+});

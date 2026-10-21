@@ -7,6 +7,7 @@ import { UpdatesSection } from "./Updates";
 import { withQuery, type RouteQuery } from '../../router';
 import { DensityContext } from '../../ds/Density';
 import { SETTINGS_PAGES } from '../../settings-pages';
+import { Page } from '../../ds/Page';
 import { Icon } from '../../ds/icons';
 import { DiagnosticsSection } from "./Diagnostics";
 import { ProjectStrategies } from "./ProjectStrategies";
@@ -49,9 +50,9 @@ export function SettingsGeneral({ section, initialData = {}, query = {repo:null,
     default: content = <GeneralOverview query={query}/>;
   }
   return <DensityContext.Provider value="settings"><SettingsPageContext.Provider value={section === 'planner' ? 'pacing' : section ?? null}>
-    <div className="u3-settings u3-settings-page"><div className="u3-general-sections">{content}</div>
+    <Page width="standard" className="u3-settings u3-settings-page"><div className="u3-general-sections">{content}</div>
       {section!=='executors'&&<p className="u3-settings-note">Changes apply on the next routing decision.</p>}
-    </div>
+    </Page>
   </SettingsPageContext.Provider></DensityContext.Provider>;
 }
 

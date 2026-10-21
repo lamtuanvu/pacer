@@ -39,6 +39,7 @@ test('wizard has four board steps and never claims ready before a passed check',
 });
 test('host board includes management sections, facts and service supplied branch fate',()=>{
  const html=render(<HostDetail alias="devbox" initialData={host}/>);
+ expect(html).toContain('pc-page--standard');expect(html).toContain('aria-label="Breadcrumb"');
  for(const text of ['Run checks','Open SSH terminal','Pause new work','Max parallel tasks','Repositories','Map a repo','Account folders on host','Worktrees on host','kept','Remove host'])expect(html).toContain(text);
  expect(html).toContain('aria-label="Codex"');expect(html).toContain('disabled');expect(html).not.toContain('Full sessions');
 });
@@ -260,4 +261,37 @@ test('paged Updates keeps OTA controls, service identity and navigation status t
  expect(panel).toContain('pc-rail__badge--info');
  expect(panel).toContain('title="Update ready"');
  expect(panel.match(/aria-current="page"/g)).toHaveLength(1);
+});
+
+test('completed executor setup offers another account without leaving the wizard', () => {
+ const initialDraft={step:'4',agent:'claude-code',account:'team',createdId:executor.id,jobId:job.id};
+ const html=render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
+ expect(html).toContain('Add another account');
+ expect(html).toContain('Back to settings');
+ expect((html.match(/pc-btn--primary/g)||[]).length).toBe(1);
+});
+
+test('adding another account replaces the completed draft with an unlocked account step', async () => {
+ const {options}=await import('preact');
+ const saved=new Map<string,string>();
+ const key='pacer.settings.add-executor';
+ saved.set(key,JSON.stringify({step:'4',agent:'claude-code',host:'devbox',account:'team',model:'old',rank:'1',createdId:executor.id,jobId:job.id}));
+ const oldStorage=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+ const oldVNode=options.vnode;
+ let startAnother:(()=>void)|undefined;
+ Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>saved.get(key)??null,setItem:(key:string,value:string)=>saved.set(key,value),removeItem:(key:string)=>saved.delete(key)}});
+ options.vnode=node=>{oldVNode?.(node);if(node.type==='button'&&(node.props as any).children==='Add another account')startAnother=(node.props as any).onClick;};
+ try {
+  render(<AddExecutor/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
+  expect(startAnother).toBeDefined();
+  startAnother!();
+  const html=render(<AddExecutor/>);
+  expect(html).toContain('Which account pays for it?');
+  expect(html).toContain('New account');
+  expect(html).not.toContain('is ready');
+  expect(JSON.parse(saved.get(key)!)).toEqual({step:'2',agent:'claude-code',host:'devbox',account:'',model:'',rank:'',createdId:'',jobId:''});
+ } finally {
+  options.vnode=oldVNode;
+  if(oldStorage)Object.defineProperty(globalThis,'sessionStorage',oldStorage);else Reflect.deleteProperty(globalThis,'sessionStorage');
+ }
 });
