@@ -28,3 +28,15 @@ test("release cannot remove a replacement owner's lease", async () => {
   const owner = JSON.parse(readFileSync(file, "utf8")); owner.nonce = "replacement"; writeFileSync(file, JSON.stringify(owner));
   await lease.release(); expect(JSON.parse(readFileSync(file, "utf8")).nonce).toBe("replacement");
 });
+
+test("teardown never signals a desktop with mismatched recorded identity", async () => {
+  const { down } = await import("../scripts/live/core");
+  const { mkdirSync } = await import("node:fs");
+  const base = root(); for (const dir of ["repo", "evidence", "bin"]) mkdirSync(join(base, dir));
+  const original = process.kill; const signals: number[] = [];
+  process.kill = ((pid: number, signal?: string | number) => { if (signal !== 0) signals.push(pid); return true; }) as typeof process.kill;
+  try {
+    await expect(down({ id: "review-owned", root: base, port: 1, pid: 0, createdAt: "now", stopped: true, desktopPid: process.pid, desktopIdentity: { pid: process.pid, start_identity: "mismatch" } }, true)).rejects.toThrow("identity");
+    expect(signals).toEqual([]);
+  } finally { process.kill = original; }
+});

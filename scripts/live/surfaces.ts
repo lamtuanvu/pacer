@@ -1,4 +1,6 @@
 import { existsSync, readdirSync, lstatSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { processIdentitySync } from "./control/lease";
 import { basename, join, resolve } from "node:path";
 import { atomicWrite, checkout, launch, record, run, sandboxEnv, saveSession, shellQuote, type Session } from "./core";
@@ -74,6 +76,7 @@ export function desktop(session: Session, requested?: string): string {
   const shell = join(session.root, "bin/login-shell");
   atomicWrite(shell, '#!/bin/sh\nif [ "$1" = -l ]; then shift; fi\nexec /bin/sh "$@"\n', 0o700);
   session.desktopExecutable = app;
+  session.desktopSha256 = createHash("sha256").update(readFileSync(app)).digest("hex");
   session.desktopPid = launch(session, [app], "desktop.log", { SHELL: shell });
   const identity = processIdentitySync(session.desktopPid);
   if (identity) session.desktopIdentity = identity;

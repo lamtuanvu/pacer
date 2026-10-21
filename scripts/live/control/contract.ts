@@ -1,4 +1,6 @@
+import type { OperationContext } from "./deadline";
 import { z } from "zod";
+import { captureMetadataSchema, type CaptureMetadata } from "../../../src/desktop/capture-contract";
 
 export const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 16384;
@@ -55,11 +57,12 @@ export interface CaptureResult {
   method: "browser" | "window" | "content" | "external-window" | "terminal";
   bytes: Uint8Array; mime: "image/png" | "text/plain";
   width?: number; height?: number; scale?: number;
+  producer?: CaptureMetadata;
   warnings?: Array<{ code: string; message: string }>;
 }
 export const artifactSchema = z.object({
   id: z.string(), path: z.string(), sha256: z.string(), method: z.string(), mime: z.string(), at: z.string(),
-  width: z.number().optional(), height: z.number().optional(), scale: z.number().optional(), bounds: boundsSchema.optional(),
+  width: z.number().optional(), height: z.number().optional(), scale: z.number().optional(), bounds: boundsSchema.optional(), producer: captureMetadataSchema.optional(),
 });
 export type Artifact = z.infer<typeof artifactSchema>;
 export type Delivery = "delivered" | "not_delivered" | "unknown";
@@ -83,6 +86,7 @@ export const resultSchema = z.object({
   delivery: z.enum(["delivered", "not_delivered", "unknown"]).optional(),
   verdict: z.enum(["PASS", "FAIL", "UNVERIFIED"]).optional(), artifacts: z.array(artifactSchema),
   error: z.object({ code: z.string(), message: z.string() }).optional(),
+  provenance: z.object({ id: z.string(), path: z.string() }).optional(),
   request: z.record(z.string(), z.json()).optional(),
   diagnostics: z.record(z.string(), z.json()).optional(),
   warnings: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
@@ -95,10 +99,10 @@ export function parseResult(value: unknown): ControlResult {
   return resultSchema.parse(value);
 }
 export interface SurfaceAdapter {
-  targets(): Promise<Target[]>;
-  inspect(target: Target): Promise<Observation>;
-  act(target: Target, action: Action): Promise<ActionReceipt>;
-  capture(target: Target, mode: CaptureMode, captureId?: string): Promise<CaptureResult>;
+  targets(context?: OperationContext): Promise<Target[]>;
+  inspect(target: Target, context?: OperationContext): Promise<Observation>;
+  act(target: Target, action: Action, context?: OperationContext): Promise<ActionReceipt>;
+  capture(target: Target, mode: CaptureMode, captureId?: string, context?: OperationContext): Promise<CaptureResult>;
   close(): Promise<void>;
 }
 export function resolveElement(observation: Observation, selector: Selector): Element {

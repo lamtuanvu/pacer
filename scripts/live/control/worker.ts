@@ -6,6 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { atomicWrite, loadSession, run, sandboxEnv, type Session } from "../core";
 import { createBrowserAdapter } from "./browser";
 import { dispatch } from "./dispatch";
+import { recordProvenance } from "./provenance";
 import { createCaptureWriter, recordStep } from "./evidence";
 import { ControlError, parseResult, type ControlRequest, type ControlResult } from "./contract";
 import { acquireLease, processIdentity, sameProcess, type ProcessIdentity } from "./lease";
@@ -92,7 +93,8 @@ async function serve(session: Session): Promise<void> {
       busy = true;
       try {
         const body = await req.text(); if (body.length > 256 * 1024) return new Response("Too large", { status: 413 });
-        const result = await dispatch(JSON.parse(body), adapter, createCaptureWriter(session)); result.run_id = session.id; recordStep(session, result); return Response.json(result);
+        const provenance = recordProvenance(session);
+        const result = await dispatch(JSON.parse(body), adapter, createCaptureWriter(session)); result.provenance = provenance; result.run_id = session.id; recordStep(session, result); return Response.json(result);
       } catch (error) { log(String(error)); return Response.json({ error: "invalid command" }, { status: 400 }); }
       finally { busy = false; }
     } });

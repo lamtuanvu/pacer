@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
 import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
+import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
 import { loadStrategy } from "../src/config/strategy";
@@ -305,6 +306,7 @@ test("UI seed writes only sandbox home and supplies safe task fixtures and accou
   } });
   const tasks = listTasks(ctx, Infinity);
   expect(tasks).toHaveLength(5);
+  for (const task of tasks) expect((await resolveRepoInput(ctx, task.repo!.key)).path).toBe(task.repo!.path);
   expect(new Set(tasks.map(task => task.state))).toEqual(new Set(["done", "failed", "partial", "running"]));
   expect(tasks.filter(task => task.state === "done" && !task.review)).toHaveLength(1);
   expect(tasks.filter(task => task.review?.accepted)).toHaveLength(1);

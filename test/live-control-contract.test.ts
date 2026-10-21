@@ -76,3 +76,12 @@ describe("live control contract", () => {
     expect(result.error?.code).toBe("unsupported_capability");
   });
 });
+
+test("expired preflight cannot deliver a late mutation", async () => {
+  const backend = adapter(); let mutations = 0;
+  backend.inspect = async () => { await Bun.sleep(40); return observation; };
+  backend.act = async () => { mutations++; return { delivery: "delivered" }; };
+  const result = await dispatch({ ...request, timeout_ms: 1 }, backend);
+  expect(result.outcome).toBe("error");
+  expect(result.delivery).toBe("not_delivered"); expect(mutations).toBe(0);
+});

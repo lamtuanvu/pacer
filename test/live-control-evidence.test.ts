@@ -24,3 +24,35 @@ test("capture writer restricts paths and hashes actual artifact bytes", async ()
     await expect(save({ bytes: new Uint8Array([1]), method: "window", mime: "image/png" }, target, "../../escape")).rejects.toThrow();
   } finally { rmSync(root, { force: true, recursive: true }); }
 });
+
+test("each step keeps immutable provenance across later source revisions", async () => {
+  const { recordStep } = await import("../scripts/live/control/evidence");
+  const root = mkdtempSync(join(tmpdir(), "live-provenance-")); mkdirSync(join(root, "evidence"));
+  try {
+    const session = { id: "provenance", root } as Session;
+    const first = { schema_version: 1 as const, command_id: "first", command: "inspect", started_at: "now", finished_at: "now", outcome: "ok" as const, artifacts: [] };
+    const { recordProvenance } = await import("../scripts/live/control/provenance");
+    recordStep(session, { ...first, provenance: recordProvenance(session, { head: "revision-one", dirty_fingerprint: "one" }) });
+    const stored = JSON.parse(readFileSync(join(root, "evidence/steps/first.json"), "utf8"));
+    expect(stored.provenance?.path).toMatch(/^provenance\//);
+    const original = readFileSync(join(root, "evidence", stored.provenance.path), "utf8");
+    recordStep(session, { ...first, command_id: "second", provenance: recordProvenance(session, { head: "revision-two", dirty_fingerprint: "two" }) });
+    expect(readFileSync(join(root, "evidence", stored.provenance.path), "utf8")).toBe(original);
+    expect(JSON.parse(original).source.head).toBe("revision-one");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("saved native artifact retains capture-time producer identity", async () => {
+  const root = mkdtempSync(join(tmpdir(), "live-producer-")); mkdirSync(join(root, "evidence"));
+  try {
+    const producer = { method: "content" as const, scale: 1, window_id: "42", pid: 123,
+      app_version: "0.5.0", app_sha256: "a".repeat(64), captured_at_ms: 12345,
+      viewport_width: 1, viewport_height: 1, width: 1, height: 1 };
+    const bytes = readFileSync(join(import.meta.dir, "fixtures/live-control/one-pixel.png"));
+    const artifact = await createCaptureWriter({ root } as Session)({ bytes, method: "content", mime: "image/png", producer }, target, "native-producer");
+    expect(artifact.producer).toEqual(producer);
+    expect(artifact.width).toBe(1);
+    expect(artifact.height).toBe(1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

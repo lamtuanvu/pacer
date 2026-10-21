@@ -313,6 +313,10 @@ pub struct Session {
     service_version: Option<String>,
 }
 impl Session {
+    #[cfg(test)]
+    pub(crate) fn for_capture_test(client: Client, origin: String) -> Self {
+        Self { client, origin, service_version: None }
+    }
     pub async fn connect(cli: &Cli, auth: &Url) -> Result<Self, String> {
         // Use exactly the home passed to CLI discovery, including PACER_HOME overrides.
         let token = std::fs::read_to_string(cli.pacer_home.join("token"))

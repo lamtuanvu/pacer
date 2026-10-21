@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import AppKit
 import ApplicationServices
@@ -5,6 +6,30 @@ import ScreenCaptureKit
 
 struct NativeFailure: Error { let code: String; let message: String }
 func fail(_ code: String, _ message: String) throws -> Never { throw NativeFailure(code: code, message: message) }
+func verifyProcess(_ pid: pid_t, _ expected: String) throws {
+    var info = proc_bsdinfo()
+    let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+    guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
+        "\(info.pbi_start_tvsec):\(info.pbi_start_tvusec)" == expected else { try fail("stale_reference", "Native process identity changed") }
+}
+func inputDeadline(_ request: [String: Any]) throws {
+    guard let deadline = request["deadline_ms"] as? Double, Date().timeIntervalSince1970 * 1000 < deadline else { try fail("command_timeout", "Native input deadline expired") }
+}
+func focusedTarget(_ pid: pid_t, _ root: AXUIElement, _ element: AXUIElement?) throws {
+    let app = AXUIElementCreateApplication(pid)
+    guard let focusedWindow = attribute(app, kAXFocusedWindowAttribute), CFEqual(focusedWindow, root) else { try fail("foreground_changed", "Selected native window is not focused") }
+    if let element = element {
+        guard let focused = attribute(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute), CFEqual(focused, element) else { try fail("foreground_changed", "Selected native control is not focused") }
+    }
+}
+func unobstructed(_ point: CGPoint, _ windowID: UInt32) throws {
+    let all = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    for other in all {
+        if (other[kCGWindowNumber as String] as? UInt32) == windowID { return }
+        if let dictionary = other[kCGWindowBounds as String] as? [String: Any], let bounds = CGRect(dictionaryRepresentation: dictionary as CFDictionary), bounds.contains(point), (other[kCGWindowAlpha as String] as? Double ?? 1) > 0 { try fail("foreground_changed", "Another window covers the target") }
+    }
+    try fail("target_unavailable", "Native window is no longer visible")
+}
 func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
     var value: CFTypeRef?; return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
 }
@@ -91,6 +116,8 @@ func pressKey(_ key: String) throws {
         }
         guard let rawPid = request["pid"] as? Int, rawPid > 1 else { try fail("invalid_input", "Exact owned PID required") }
         let pid = pid_t(rawPid)
+        guard let expectedIdentity = request["start_identity"] as? String else { try fail("invalid_input", "Native process start identity required") }
+        try verifyProcess(pid, expectedIdentity)
         if command == "targets" { return ["windows": windows(pid).map { info in ["window_id": String(info[kCGWindowNumber as String] as? UInt32 ?? 0), "title": info[kCGWindowName as String] as? String ?? "", "bounds":info[kCGWindowBounds as String] ?? [:]] }] }
         guard let rawWindow = request["window_id"] as? String, let windowID = UInt32(rawWindow) else { try fail("invalid_input", "Window ID required") }
         let info = try locateWindow(pid, windowID)
@@ -104,6 +131,7 @@ func pressKey(_ key: String) throws {
             let scale = display.map { Double(CGDisplayPixelsWide($0.displayID)) / CGDisplayBounds($0.displayID).width } ?? 1
             config.width = Int(window.frame.width * scale); config.height = Int(window.frame.height * scale); config.showsCursor = false
             guard config.width > 0 && config.height > 0 && config.width <= 16384 && config.height <= 16384 else { try fail("capture_invalid", "Image dimensions exceed limit") }
+            try verifyProcess(pid, expectedIdentity)
             let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
             let rep = NSBitmapImageRep(cgImage: image)
             guard let png = rep.representation(using: .png, properties: [:]), png.count <= 16 * 1024 * 1024 else { try fail("capture_invalid", "PNG unavailable or too large") }
@@ -115,18 +143,20 @@ func pressKey(_ key: String) throws {
         guard command == "act", let action = request["action"] as? [String: Any], let kind = action["kind"] as? String else { try fail("invalid_input", "Unknown native command") }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid || kind == "activate" else { try fail("foreground_changed", "Owned application lost foreground; activate then inspect") }
         let element = (action["ref"] as? String).flatMap {refs[$0]}
+        if action["ref"] != nil && element == nil { try fail("stale_reference", "Selected native control disappeared") }
+        try verifyProcess(pid, expectedIdentity)
+        try inputDeadline(request)
         switch kind {
-        case "activate": guard NSRunningApplication(processIdentifier: pid)?.activate(options: []) == true else { try fail("target_unavailable", "Activation failed") }
+        case "activate":
+            guard NSRunningApplication(processIdentifier: pid)?.activate(options: []) == true,
+                AXUIElementPerformAction(root, kAXRaiseAction as CFString) == .success else { try fail("target_unavailable", "Selected window activation failed") }
         case "click":
             if let x = action["x"] as? Double, let y = action["y"] as? Double {
                 guard let expected = request["expected_bounds"] as? [String: Double], let actual = info[kCGWindowBounds as String] as? [String: Double],
                     expected["x"] == actual["X"], expected["y"] == actual["Y"], expected["width"] == actual["Width"], expected["height"] == actual["Height"] else { try fail("stale_reference", "Window moved since capture") }
                 let point = CGPoint(x: x, y: y)
-                let all = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-                for other in all {
-                    if (other[kCGWindowNumber as String] as? UInt32) == windowID { break }
-                    if let dictionary = other[kCGWindowBounds as String] as? [String: Any], let bounds = CGRect(dictionaryRepresentation: dictionary as CFDictionary), bounds.contains(point), (other[kCGWindowAlpha as String] as? Double ?? 1) > 0 { try fail("foreground_changed", "Another window covers the coordinate") }
-                }
+                try unobstructed(point, windowID)
+                try verifyProcess(pid, expectedIdentity); try inputDeadline(request)
                 guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left), let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else { try fail("observer_unavailable", "Mouse events unavailable") }
                 down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
             } else {
@@ -141,12 +171,24 @@ func pressKey(_ key: String) throws {
             var size = CGSize(width: width, height: height)
             guard let value = AXValueCreate(.cgSize, &size), AXUIElementSetAttributeValue(root, kAXSizeAttribute as CFString, value) == .success else { try fail("unsupported_capability", "Window cannot be resized") }
         case "scroll":
+            if element != nil { try fail("unsupported_capability", "Use a window scroll after inspecting its current focus") }
             let dy = action["delta_y"] as? Double ?? 400
             let dx = action["delta_x"] as? Double ?? 0
             guard abs(dy) <= 16384 && abs(dx) <= 16384 else { try fail("invalid_input", "Scroll delta too large") }
             guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(-dy), wheel2: Int32(-dx), wheel3: 0) else { try fail("observer_unavailable", "Scroll event unavailable") }
+            guard let dictionary = info[kCGWindowBounds as String] as? [String: Any], let bounds = CGRect(dictionaryRepresentation: dictionary as CFDictionary) else { try fail("target_unavailable", "Window bounds unavailable") }
+            let point = CGPoint(x: bounds.midX, y: bounds.midY)
+            try unobstructed(point, windowID)
+            try focusedTarget(pid, root, nil)
+            try verifyProcess(pid, expectedIdentity); try inputDeadline(request)
+            guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { try fail("observer_unavailable", "Pointer event unavailable") }
+            move.post(tap: .cghidEventTap)
+            event.location = point
             event.post(tap: .cghidEventTap)
-        case "key": try pressKey(action["key"] as? String ?? "")
+        case "key":
+            try focusedTarget(pid, root, element)
+            try verifyProcess(pid, expectedIdentity); try inputDeadline(request)
+            try pressKey(action["key"] as? String ?? "")
         default: try fail("unsupported_capability", "Native action not supported by this control")
         }
         return ["delivery":"delivered"]

@@ -1,3 +1,4 @@
+import { recordProvenance } from "./provenance";
 import { desktopDoctor } from "./doctor";
 import { readFileSync } from "node:fs";
 import { runScenario } from "./scenarios";
@@ -45,16 +46,17 @@ export async function controlMain(argv: string[]): Promise<number> {
 
 export async function executeControl(session: import("../core").Session, input: ControlRequest): Promise<ControlResult> {
   const request = requestSchema.parse(input);
+  const provenance = recordProvenance(session);
   let result: ControlResult;
-  if (request.command === "doctor" && request.surface === "desktop") { result = await desktopDoctor(session); result.run_id = session.id; recordStep(session, result); return result; }
+  if (request.command === "doctor" && request.surface === "desktop") { result = await desktopDoctor(session); result.provenance = provenance; result.run_id = session.id; recordStep(session, result); return result; }
   if (request.surface === "web" || request.surface === "tray") result = await (await import("./worker")).browserCommand(session, request);
     else if (request.surface === "tui") {
       const lease = await acquireLease(`tui-${session.id}`, { run_id: session.id });
-      try { result = await dispatch(request, createTuiAdapter(session), createCaptureWriter(session)); result.run_id = session.id; recordStep(session, result); }
+      try { result = await dispatch(request, createTuiAdapter(session), createCaptureWriter(session)); result.provenance = provenance; result.run_id = session.id; recordStep(session, result); }
       finally { await lease.release(); }
     } else {
       const lease = await acquireLease("desktop", { run_id: session.id });
-      try { result = await dispatch(request, await createDesktopAdapter(session), createCaptureWriter(session)); result.run_id = session.id; recordStep(session, result); }
+      try { result = await dispatch(request, await createDesktopAdapter(session), createCaptureWriter(session)); result.provenance = provenance; result.run_id = session.id; recordStep(session, result); }
       finally { await lease.release(); }
     }
   return result;

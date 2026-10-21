@@ -792,6 +792,7 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
 }
 
 fn main() {
+    capture::initialize_build_identity();
     desktop_log!(
         "pacer lifecycle: desktop starting version {}",
         env!("CARGO_PKG_VERSION")

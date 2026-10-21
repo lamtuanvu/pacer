@@ -1,3 +1,4 @@
+import { validatePng } from "../../../src/desktop/png";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -11,23 +12,20 @@ export function createCaptureWriter(session: Session): SaveCapture {
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(commandId)) throw new ControlError("capture_invalid", "invalid artifact id");
     if (capture.bytes.byteLength > MAX_IMAGE_BYTES) throw new ControlError("capture_invalid", "artifact exceeds size cap");
     if (capture.mime === "image/png") {
-      const bytes = Buffer.from(capture.bytes);
-      if (bytes.length < 24 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new ControlError("capture_invalid", "invalid PNG header");
-      const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20);
-      if (width < 1 || height < 1 || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) throw new ControlError("capture_invalid", "invalid image dimensions");
+      const { width, height } = validatePng(capture.bytes);
       capture.width = width; capture.height = height;
     }
     const directory = join(session.root, "evidence", "captures"); mkdirSync(directory, { recursive: true, mode: 0o700 });
     const path = `captures/${commandId}.${capture.mime === "image/png" ? "png" : "txt"}`;
     writeFileSync(join(session.root, "evidence", path), capture.bytes, { flag: "wx", mode: 0o600 });
     const artifact: Artifact = { id: commandId, path, sha256: createHash("sha256").update(capture.bytes).digest("hex"),
-      method: capture.method, mime: capture.mime, at: new Date().toISOString(), width: capture.width, height: capture.height, scale: capture.scale, bounds: _target.bounds };
+      method: capture.method, mime: capture.mime, at: new Date().toISOString(), width: capture.width, height: capture.height, scale: capture.scale, bounds: _target.bounds, producer: capture.producer };
     record(session, { kind: "capture", path, text: `${artifact.method}; sha256 ${artifact.sha256}` });
     return artifact;
   };
 }
 export function recordStep(session: Session, result: ControlResult): void {
-  recordProvenance(session);
+  result.provenance ??= recordProvenance(session);
   const directory = join(session.root, "evidence", "steps"); mkdirSync(directory, { recursive: true, mode: 0o700 });
   writeFileSync(join(directory, `${result.command_id}.json`), JSON.stringify(result, null, 2) + "\n", { flag: "wx", mode: 0o600 });
   if (result.verdict) record(session, { kind: "note", behavior: result.command, surface: result.target?.surface,

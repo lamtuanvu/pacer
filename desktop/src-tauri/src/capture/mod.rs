@@ -1,5 +1,7 @@
 //! Owned-window diagnostics available in ordinary release builds.
-use std::time::Duration;
+use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 #[cfg(target_os = "macos")]
 mod macos;
@@ -14,6 +16,25 @@ pub enum CaptureMode {
 pub struct CapturedImage {
     pub png: Vec<u8>,
     pub scale: f64,
+    pub window_id: String,
+    pub captured_at_ms: u64,
+    pub viewport_width: f64,
+    pub viewport_height: f64,
+}
+static BUILD_HASH: OnceLock<String> = OnceLock::new();
+pub fn initialize_build_identity() {
+    BUILD_HASH.get_or_init(|| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|path| std::fs::read(path).ok())
+            .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
+            .unwrap_or_default()
+    });
+}
+fn metadata(image: &CapturedImage, method: &str) -> serde_json::Value {
+    serde_json::json!({"method":method,"scale":image.scale,"window_id":image.window_id,"pid":std::process::id(),
+        "app_version":env!("CARGO_PKG_VERSION"),"app_sha256":BUILD_HASH.get().cloned().unwrap_or_default(),
+        "captured_at_ms":image.captured_at_ms,"viewport_width":image.viewport_width,"viewport_height":image.viewport_height})
 }
 pub fn validate_request(label: &str, mode: &str) -> Result<CaptureMode, &'static str> {
     if !matches!(label, "main" | "tray") {
@@ -33,11 +54,27 @@ pub fn validate_image(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
     {
         return Err("capture_failed");
     }
-    let width = u32::from_be_bytes(bytes[16..20].try_into().unwrap());
-    let height = u32::from_be_bytes(bytes[20..24].try_into().unwrap());
+    let decoder = png::Decoder::new_with_limits(
+        std::io::Cursor::new(bytes),
+        png::Limits {
+            bytes: 128 * 1024 * 1024,
+        },
+    );
+    let mut reader = decoder.read_info().map_err(|_| "capture_failed")?;
+    let width = reader.info().width;
+    let height = reader.info().height;
     if width == 0 || height == 0 || width > 16384 || height > 16384 {
         return Err("capture_failed");
     }
+    let size = reader.output_buffer_size().ok_or("capture_failed")?;
+    if size > 128 * 1024 * 1024 {
+        return Err("capture_failed");
+    }
+    let mut output = vec![0; size];
+    reader
+        .next_frame(&mut output)
+        .map_err(|_| "capture_failed")?;
+    reader.finish().map_err(|_| "capture_failed")?;
     Ok((width, height))
 }
 pub async fn capture_owned_window(
@@ -74,43 +111,91 @@ pub async fn worker(
     client_id: &str,
     token: &str,
 ) -> Result<(), String> {
+    let mut credential = token.to_owned();
+    let mut delay = 1;
     loop {
         let windows = owned_targets(app).await;
-        let request = session
-            .op(
-                "desktop.capture.claim",
-                &serde_json::json!({"client_id":client_id,"worker_token":token,"windows":windows}),
-            )
-            .await?;
+        let request = match claim_next(session, client_id, &mut credential, windows).await {
+            Ok(request) => {
+                delay = 1;
+                request
+            }
+            Err(_) => {
+                desktop_log!("Desktop capture observer reconnecting");
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+                delay = (delay * 2).min(10);
+                continue;
+            }
+        };
         if let Some(id) = request["request_id"].as_str() {
             let label = request["window"].as_str().unwrap_or("");
             let mode = request["mode"].as_str().unwrap_or("");
-            match capture_owned_window(app, label, mode, &session.origin).await {
-                Ok(image) => {
-                    let response = session
+            let outcome = match capture_owned_window(app, label, mode, &session.origin).await {
+                Ok(image)
+                    if request["window_id"]
+                        .as_str()
+                        .is_none_or(|expected| expected == image.window_id) =>
+                {
+                    let capture_metadata = metadata(&image, mode).to_string();
+                    session
                         .client
                         .post(format!("{}/v3/desktop/capture/{id}/image", session.origin))
                         .header("Origin", &session.origin)
                         .header("X-Pacer-Client", "app")
-                        .header("X-Pacer-Capture-Worker", token)
+                        .header("X-Pacer-Capture-Worker", &credential)
                         .header("X-Pacer-Capture-Method", mode)
                         .header("X-Pacer-Capture-Scale", image.scale.to_string())
+                        .header("X-Pacer-Capture-Metadata", capture_metadata)
                         .header("Content-Type", "image/png")
                         .body(image.png)
-                        .timeout(Duration::from_secs(15))
+                        .timeout(Duration::from_secs(10))
                         .send()
                         .await
-                        .map_err(|_| "Capture upload failed")?;
-                    if !response.status().is_success() {
-                        return Err("Capture upload rejected".into());
-                    }
+                        .map(|response| response.status().is_success())
+                        .unwrap_or(false)
                 }
+                Ok(_) => false,
                 Err(error) => {
-                    session.op("desktop.capture.complete", &serde_json::json!({"request_id":id,"worker_token":token,"error":error})).await?;
+                    let _ = session.op("desktop.capture.complete", &serde_json::json!({"request_id":id,"worker_token":credential,"error":error})).await;
+                    false
                 }
+            };
+            if !outcome {
+                // Capture is read-only. Preserve failed evidence; never restart a UI action.
+                let _ = session.op("desktop.capture.complete", &serde_json::json!({"request_id":id,"worker_token":credential,"error":"capture_failed"})).await;
             }
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+async fn claim_next(
+    session: &crate::client::Session,
+    client_id: &str,
+    credential: &mut String,
+    windows: Vec<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let params = |token: &str| serde_json::json!({"client_id":client_id,"worker_token":token,"windows":windows});
+    match session
+        .op("desktop.capture.claim", &params(credential))
+        .await
+    {
+        Ok(request) => Ok(request),
+        Err(_) => {
+            let registration = session
+                .op(
+                    "desktop.capture.register",
+                    &serde_json::json!({"client_id":client_id}),
+                )
+                .await?;
+            *credential = registration["worker_token"]
+                .as_str()
+                .ok_or("Missing capture worker credential")?
+                .to_owned();
+            session
+                .op("desktop.capture.claim", &params(credential))
+                .await
+        }
     }
 }
 

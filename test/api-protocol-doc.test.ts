@@ -28,3 +28,12 @@ for (const major of [3,2] as const) test(`protocol v${major} docs match the sele
  const schema=doc.split("### `task.review`")[1]!.split("###")[0]!;
  expect(schema).toContain(major===3?'"verdict"':'"accepted"');
 });
+
+
+test("desktop image transport and errors are documented only in v3", () => {
+  const current = renderProtocolDoc(3), previous = renderProtocolDoc(2);
+  for (const value of ["`not_found` | 404", "POST /v3/desktop/capture/<request_id>/image", "GET /v3/desktop/capture/<request_id>/image", "X-Pacer-Capture-Worker", "X-Pacer-Capture-Metadata", "128 MiB decoded", "desktop.capture.register"])
+    expect(current).toContain(value);
+  expect(previous).not.toContain("desktop.capture");
+  expect(previous).not.toContain("X-Pacer-Capture");
+});

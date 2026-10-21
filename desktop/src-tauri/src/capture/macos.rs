@@ -1,4 +1,4 @@
-use super::{validate_image, CaptureMode, CapturedImage};
+use super::{validate_image, CaptureMode, CapturedImage, SystemTime, UNIX_EPOCH};
 use block2::RcBlock;
 use objc2::{
     msg_send,
@@ -65,11 +65,15 @@ pub async fn capture(
     if size.width > 16384 || size.height > 16384 {
         return Err("capture_failed");
     }
+    let window_identity = Arc::new(Mutex::new(None::<String>));
+    let captured_identity = window_identity.clone();
     let (tx, rx) = oneshot::channel();
     let sender: Sender = Arc::new(Mutex::new(Some(tx)));
     match mode {
         CaptureMode::Content => {
             window.with_webview(move |webview| unsafe {
+                let number: isize = msg_send![webview.ns_window() as *mut AnyObject, windowNumber];
+                *captured_identity.lock().unwrap() = Some(number.to_string());
                 let block_sender = sender.clone();
                 let completion = RcBlock::new(move |image: *mut AnyObject, error: *mut AnyObject| {
                     finish(&block_sender, if error.is_null() { png_from_image(image) } else { Err("capture_failed") });
@@ -87,6 +91,7 @@ pub async fn capture(
                 let result = (|| -> Result<(), &'static str> {
                     let ns_window = main.ns_window().map_err(|_| "window_unavailable")? as *mut AnyObject;
                     let number: isize = msg_send![ns_window, windowNumber];
+                    *captured_identity.lock().unwrap() = Some(number.to_string());
                     let manager = class(c"SCScreenshotManager")?;
                     let shareable = class(c"SCShareableContent")?;
                     let outer_sender = sender.clone();
@@ -134,6 +139,30 @@ pub async fn capture(
         }
     }
     let png = rx.await.map_err(|_| "capture_failed")??;
-    validate_image(&png)?;
-    Ok(CapturedImage { png, scale })
+    let (width, _) = validate_image(&png)?;
+    let inner = window.inner_size().map_err(|_| "window_unavailable")?;
+    let viewport_width = inner.width as f64 / scale;
+    let viewport_height = inner.height as f64 / scale;
+    let point_width = match mode {
+        CaptureMode::Content => viewport_width,
+        CaptureMode::Window => size.width as f64 / scale,
+    };
+    let scale = width as f64 / point_width;
+    let window_id = window_identity
+        .lock()
+        .map_err(|_| "capture_failed")?
+        .clone()
+        .ok_or("capture_failed")?;
+    let captured_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "capture_failed")?
+        .as_millis() as u64;
+    Ok(CapturedImage {
+        png,
+        scale,
+        window_id,
+        captured_at_ms,
+        viewport_width,
+        viewport_height,
+    })
 }

@@ -11,6 +11,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
     "conflict", "too_large", "internal",
     "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin",
   ];
+  if (major === 3) codes.push("not_found");
   const schemas = major === 2 ? v2OpJsonSchemas() : opJsonSchemas();
   const doc = [
     `# Client protocol v${major}`,
@@ -198,6 +199,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
     .replace("returns `{ tasks, next }` when any new filter/cursor parameter is supplied.", "always returns `{ tasks, next }`.")
     .replace("; `diff` remains an alias for patch in 2.x", "")
     .replace("The Orca plugin worker reads the v2 API", "The Orca plugin worker continues to read the compatibility v2 API")
+    + "\n## Desktop capture images\n\nDesktop clients enroll with `client.register` (`kind: desktop`, `capture: true`) and renew expired worker credentials through `desktop.capture.register`. Workers claim queued requests with `desktop.capture.claim`.\n\n`POST /v3/desktop/capture/<request_id>/image` uploads PNG bytes after normal Host, bearer/cookie and Origin checks. Required headers are `X-Pacer-Capture-Worker`, `X-Pacer-Capture-Method`, `X-Pacer-Capture-Scale`, and `X-Pacer-Capture-Metadata` (JSON matching the capture metadata schema: method, scale, native window_id, pid, app_version, app_sha256, captured_at_ms, viewport_width and viewport_height). Metadata must identify the requested window and agree with decoded image geometry. Only one upload per claim may read at a time; duplicates return 409. Uploads expire after at most 10 seconds or the request deadline. PNGs are limited to 16 MiB compressed, 128 MiB decoded and 16384 pixels per dimension.\n\n`GET /v3/desktop/capture/<request_id>/image` downloads a completed PNG with `Cache-Control: no-store`; it uses the same normal authorization. Missing or expired images return `not_found` (404). Requests expire after 60 seconds; images expire after 30 seconds. Queue capacity is 16 and worker capacity is 64.\n"
     + "\n## Migration from 2.x\n\n`budget` and `alert` events are removed; consume `planner`, `account`, `executor`, `attention` and `notify` events. A cursor from before the upgrade receives `reset`; fetch a fresh snapshot. `task.review` requires `verdict` instead of `accepted`. `task.diff` returns `patch` instead of `diff`. `task.list` always returns `{ tasks, next }`; use filters and the cursor for pagination. `notifications.set` is unchanged. `pacer status --json` and planner hook text still use Status and are unchanged.\n";
 }
 

@@ -215,7 +215,8 @@ allowed; unsupported schema majors are rejected.
 Inspection returns accessible controls with refs, revision and target generation.
 A ref action needs all three (`--ref`, `--revision`, `--generation`); navigation,
 replacement or changed state may invalidate it. A semantic selector must match
-exactly one control. Coordinate clicks use image-pixel `--x`, `--y` and
+exactly one control. When names repeat, scope the selector with `within`, for example
+`{"role":"link","name":"Updates","within":{"role":"navigation","name":"Settings sections"}}`. Coordinate clicks use image-pixel `--x`, `--y` and
 `--capture-id`; stale image geometry is rejected. Browser control supports click,
 type, key, select, scroll, resize and activate. Native capabilities are reported
 by the adapter; unsupported controls produce explicit errors. TUI uses literal
@@ -223,7 +224,14 @@ text or named tmux keys, screen text and cursor state rather than DOM controls.
 
 Each delivered/uncertain action attempts an automatic capture, including failure
 paths. Terminal captures are text. Files go to `evidence/captures/`, detailed
-steps to `evidence/steps/` and source/binary metadata to `evidence/provenance.json`.
+steps to `evidence/steps/` and immutable source/binary metadata to
+`evidence/provenance/<hash>.json`. Each step retains its own provenance reference;
+`evidence/provenance.json` points to the latest document. Native self-capture
+artifacts also retain capture-time PID, native window ID, application version and
+executable hash, timestamp, viewport dimensions and scale. The harness checks
+the producer against its owned desktop build/window before saving evidence.
+The input deadline prevents late actions after expired preflight; follow-up
+read-only capture gets a separate diagnostic budget of at most 10 seconds.
 Input values are redacted from step requests, and browser password/OTP controls
 are masked in screenshots. Review all evidence before publishing: other visible
 text can still be sensitive. Captures alone do not establish a passing behavior.
@@ -255,7 +263,12 @@ does not grant permissions or close another Pacer instance to obtain a slot.
 Launching an executable does not bypass Tauri's application singleton.
 
 The normal desktop app supports `desktop.capture.*` on protocol v3. It reports
-owned main/tray window IDs through its authenticated capture worker. Native
+owned main/tray window IDs through its authenticated capture worker. Expired
+worker credentials are renewed over the existing service session; transient
+observer failures retry with bounded backoff without repeating UI actions.
+PNG validation limits compressed images to 16 MiB, decoded data to 128 MiB and
+each dimension to 16384 pixels. Binary uploads reserve one reader per request
+and terminate after at most 10 seconds or request expiry. Native
 `capture --mode window` defaults to OS window paint; `--mode content` takes a
 WKWebView content snapshot. Content excludes titlebars and native dialogs.
 Window capture may fall back to an explicitly labeled external window capture
