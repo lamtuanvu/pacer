@@ -398,10 +398,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS Intel (x86_64) release packages are temporarily not built.
           - runner: macos-15
             arch: aarch64
-          - runner: macos-15-intel
-            arch: x86_64
     env:
       VERSION: ${{ needs.verify.outputs.version }}
       ARCH: ${{ matrix.arch }}
@@ -503,7 +502,7 @@ jobs:
           merge-multiple: true
       - name: Prepare deterministic desktop metadata
         run: bun scripts/release/desktop-release.ts prepare dist/desktop-assets "$VERSION"
-      - name: Verify both signed architecture packages before any publication
+      - name: Verify signed architecture packages before any publication
         run: bun scripts/release/desktop-release.ts validate dist/desktop-assets "$VERSION" > dist/desktop-feed-preview.json
       - name: Publish immutable desktop assets and compare-and-swap stable feed
         env:

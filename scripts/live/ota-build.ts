@@ -122,7 +122,8 @@ async function createFixtureSigner(directory: string, run: (argv: string[], cwd?
 export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc"): Promise<void> {
   if (process.platform !== "darwin") throw Error("Native fixtures require macOS");
   const target = hostTarget(); if (!target || target.os !== "darwin") throw Error("Unsupported fixture host");
-  const arch: DesktopArch = target.arch === "arm64" ? "aarch64" : "x86_64";
+  // macOS Intel (x86_64) is temporarily not built for release (see DESKTOP_ARCHES); fixtures track aarch64.
+  const arch: DesktopArch = "aarch64";
   // Guard the lease before even invoking the disposable signer. No fixture can replace an existing record.
   const { loadSession, liveRoot } = await import("./core");
   const session = loadSession(id), root = join(session.root, "ota");
