@@ -1,6 +1,6 @@
 # Agent control for live validation
 
-Status: conversational design approved; written spec awaiting maintainer review.
+Status: written spec approved by the maintainer in conversation on 2026-10-21.
 Date: 2026-10-21
 Issue: [#239](https://github.com/lamtuanvu/pacer/issues/239)
 
