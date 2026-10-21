@@ -91,6 +91,12 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
   try {
     const target = join(stage, "pacer.app");
     cpSync(app, target, { recursive: true, dereference: false });
+    // Tauri also copies Cargo's helper binary here. Only the independently
+    // validated Resources helper belongs in the release signing layout.
+    const macos = join(target, "Contents/MacOS");
+    rmSync(join(macos, "pacer-update-helper"), { force: true });
+    const executables = readdirSync(macos);
+    if (executables.length !== 1 || executables[0] !== "pacer") throw new Error("Unsupported MacOS signing payload");
     // Existing signatures describe the incomplete input. The returned tree must be signed anew.
     rmSync(join(target, "Contents/_CodeSignature"), { recursive: true, force: true });
     const resources = join(target, "Contents/Resources");

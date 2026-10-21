@@ -37,7 +37,13 @@ test("interim certificate signing is wired through build, signing and publicatio
   const steps = jobs["desktop-build"].steps;
   const trust = steps.find((s: any) => s.name === "Verify native runner and production trust").run;
   expect(trust).toContain('test -n "$PACER_APPLE_TEAM_ID" || test -n "$PACER_SIGNING_CERT_SHA1"');
-  const sign = steps.find((s: any) => typeof s.run === "string" && s.run.includes("desktop-credentials.ts") && !s.run.includes("--cleanup"));
+  const sign = steps.find((s: any) => s.name?.startsWith("Sign complete app"));
   expect(sign.env.PACER_SELF_SIGNING_CERTIFICATE_BASE64).toBe("${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}");
   expect(sign.env.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD).toBe("${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}");
+});
+
+test("opted-in release dry runs sign both production desktops without publishing their feed", () => {
+  expect(jobs["desktop-build"].if).toContain("github.event_name == 'workflow_dispatch' && inputs.dry_run");
+  expect(jobs["desktop-publish"].if).toContain("github.event_name == 'push'");
+  expect(jobs["desktop-publish"].if).not.toContain("workflow_dispatch");
 });

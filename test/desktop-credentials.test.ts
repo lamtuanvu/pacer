@@ -84,7 +84,11 @@ test("interim signing secures a macOS-created 0644 keychain before importing cre
     expect(statSync(config.keychain).mode & 0o777).toBe(0o600);
     expect(existsSync(config.keychain.slice(0, config.keychain.lastIndexOf("/")) + "/notary.p8")).toBe(false);
     return config.keychain;
-  }, async argv => { calls.push(argv); if (argv[1] === "import") expect(statSync(argv[argv.indexOf("-k") + 1]).mode & 0o777).toBe(0o600); if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o644 }); return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : ""; });
+  }, async argv => { calls.push(argv); if (argv[1] === "import") {
+    const keychain = argv[argv.indexOf("-k") + 1];
+    expect(statSync(keychain).mode & 0o777).toBe(0o600);
+    expect(calls.some(call => call[1] === "list-keychains" && call.includes("-s") && call.includes(keychain))).toBe(true);
+  } if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o644 }); return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : ""; });
   const imported = calls.find(a => a[1] === "import")!;
   expect(imported[imported.indexOf("-k") + 1]).toBe(seen);
   expect(imported[imported.indexOf("-P") + 1]).toBe("pw");
@@ -97,4 +101,40 @@ test("interim signing refuses missing certificate secrets or both signers' certi
   await expect(withSigningCredentials(base, async () => {}, run)).rejects.toThrow("configured");
   await expect(withSigningCredentials({ ...base, PACER_SELF_SIGNING_CERTIFICATE_BASE64: "eA==", PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: "pw", PACER_APPLE_CERTIFICATE_BASE64: "eA==" }, async () => {}, run)).rejects.toThrow("one signing");
   expect(calls).toBe(0);
+});
+
+test("signing preflight exercises the configured identity and cleans its temporary keychain", async () => {
+  const { probeSigningCredentials } = await import("../scripts/release/desktop-credentials");
+  const env = { PACER_SIGNING_CERT_SHA1: "2C5405FB6D2906AE2049D59B9DF5D42661997922", PACER_OTA_PUBLIC_KEY: "public", PACER_SELF_SIGNING_CERTIFICATE_BASE64: Buffer.from("p12").toString("base64"), PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: "pw", TAURI_SIGNING_PRIVATE_KEY: "fixture-updater" };
+  const calls: string[][] = [];
+  await probeSigningCredentials(env, async argv => {
+    calls.push(argv);
+    if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o600 });
+    return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : "";
+  });
+  const sign = calls.find(a => a[0] === "/usr/bin/codesign" && a[1] === "--force")!;
+  expect(sign[sign.indexOf("--sign") + 1]).toBe(env.PACER_SIGNING_CERT_SHA1);
+  expect(calls.some(a => a[0] === "/usr/bin/codesign" && a[1] === "--verify")).toBe(true);
+  const keychain = sign[sign.indexOf("--keychain") + 1];
+  expect(existsSync(keychain)).toBe(false);
+  expect(calls.some(a => a[1] === "delete-keychain" && a.at(-1) === keychain)).toBe(true);
+});
+
+test("failed signing probe reports only public imported identity hashes", async () => {
+  const { probeSigningCredentials } = await import("../scripts/release/desktop-credentials");
+  const cert = "A".repeat(40), imported = "B".repeat(40);
+  const env = { PACER_SIGNING_CERT_SHA1: cert, PACER_OTA_PUBLIC_KEY: "public", PACER_SELF_SIGNING_CERTIFICATE_BASE64: "cDEy", PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: "pw", TAURI_SIGNING_PRIVATE_KEY: "fixture-updater" };
+  let message = "", keychain = "";
+  try { await probeSigningCredentials(env, async argv => {
+    if (argv[1] === "create-keychain") { keychain = argv.at(-1)!; writeFileSync(keychain, "fixture", { mode: 0o600 }); }
+    if (argv[0] === "/usr/bin/codesign") throw Error("signing failed");
+    if (argv[1] === "find-certificate") return `SHA-1 hash: ${imported}\nfixture-secret-must-not-be-logged`;
+    if (argv[1] === "find-identity") return `  1) ${imported} "fixture-secret-must-not-be-logged"\n`;
+    return "";
+  }); } catch (error) { message = (error as Error).message; }
+  expect(message).toContain(`expected=${cert}`);
+  expect(message).toContain(`certificates=${imported}`);
+  expect(message).toContain(`identities=${imported}`);
+  expect(message).not.toContain("fixture-secret-must-not-be-logged");
+  expect(existsSync(keychain)).toBe(false);
 });
