@@ -71,7 +71,7 @@ test("onboarding tasks stay reviewable and listed but do not count as finished t
  const {ctx,deps}=fixture(),result=await callOp(ctx,"onboarding.try",{},deps) as TryResult;
  const record=updateTask(ctx,result.task_id,t=>{t.state="done";});
  const task=apiTask(ctx,record),today=buildToday(ctx,[task]);
- expect(today.done).toBe(0);expect(today.byRepo).toEqual({});expect(needsReview(task)).toBe(true);
+ expect(today.done).toBe(0);expect(today.byRepo).toEqual({});expect(needsReview(task)).toBe(false);
  expect(doneToday({...emptySnapshot(),tasks:[task],today},{repo:null})).toEqual([]);
  expect(await callOp(ctx,"task.list",{},deps)).toMatchObject({tasks:[expect.objectContaining({id:record.id,source:"onboarding"})]});
  const normal={...task,source:undefined};expect(buildToday(ctx,[normal]).done).toBe(1);

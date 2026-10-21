@@ -12,7 +12,7 @@ import type { AttentionItem } from "../src/api/read-model/types";
 const task = fixture as unknown as TaskDetail;
 test("verdict panel has one primary, disables unavailable retry and explains accept", () => {
   const html = renderToString(<VerdictPanel task={task} note="" kind={task.kind ?? ""} executor="" noteFor={null} pending={false} onNote={() => {}} onKind={() => {}} onExecutor={() => {}} onOpenNote={() => {}} onCancel={() => {}} onSubmit={() => {}} />);
-  expect(html).toContain("Accept and bring back");
+  expect(html).toContain("Mark accepted");
   expect(html.match(/pc-btn--primary/g)?.length).toBe(1);
   expect(html).toContain("Accept records the verdict; you merge the branch.");
   expect(html).toMatch(/<option value="other" disabled[^>]*>other · Sign-in needed/);
@@ -88,7 +88,7 @@ test("open action copies the worktree path and announces success", async () => {
 test("verdict groups secondary actions, labels inline retry and collapses the CLI", () => {
   const html = renderToString(<VerdictPanel task={task} note="" kind="" executor="" noteFor={null} pending={false} onNote={() => {}} onKind={() => {}} onExecutor={() => {}} onOpenNote={() => {}} onCancel={() => {}} onSubmit={() => {}} />);
   expect(html).toContain('<h2 class="pc-section-heading">Your verdict</h2>');
-  expect(html).toMatch(/pc-verdict-pair[^>]*><button[^>]*>Send back<\/button><button[^>]*>Reject<\/button><\/div>/);
+  expect(html).toMatch(/pc-verdict-pair[^>]*><button[^>]*>Send back<\/button><button[^>]*>Reject result<\/button><\/div>/);
   expect(html).toMatch(/<label for="review-retry" class="pc-section-heading">Or retry on<\/label><div class="row"><select(?=[^>]*class="pc-select(?: [^"]*)?")(?=[^>]*id="review-retry")/);
   expect(html).toMatch(/<details class="pc-disclosure"><summary>Use the CLI<\/summary><code[^>]*>pacer review/);
   expect(html).not.toContain('<details open');

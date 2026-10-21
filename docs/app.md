@@ -87,34 +87,40 @@ Provider sign-in commands remain in a disclosure with a copy action. Errors appe
 under the current action. Until pacer is ready, Home offers **Continue setup**;
 banner dismissal lasts until the pending recommended items change.
 
-## Needs you and review
+## Needs you and Tasks
 
-Overview reads the service's attention queue in its supplied order: blocked items,
-problems, then decisions, oldest first within each group. The service includes
-review work, failed or limited tasks, stuck work, sign-in and executor problems,
-exhausted planner quota, setup and updates. Ahead-of-pace advice stays on the
-planner strip and tray header and does not add to Needs you or its counts.
-Dismissed and snoozed items stay hidden as managed by the service. Counts and
-the review tab use the same snapshot.
-Planner-delegated work enters the review queue after ten minutes without a
-verdict; other work enters immediately. Older services retain client fallback
-behavior.
+**Needs you** contains actionable questions, failures, incomplete work and explicit
+human review requests, alongside existing account, setup and service problems.
+Items follow the service order: blocked items, problems, then decisions, oldest
+first within each group. Repository filters narrow work, not shared budgets.
+Dismissed and snoozed items stay hidden. Web, tray and TUI use the same reasons
+and counts. Ordinary completed runs never escalate merely because no verdict
+was recorded, including planner-delegated work after ten minutes.
 
-Overview and Review offer a repository filter and checkboxes to select review tasks.
-Use **Accept selected** or **Reject selected** (with a required shared note), or
-**Accept all with passing checks** to check the visible queue’s stored acceptance
-results. The confirmation lists each eligible task before recording verdicts.
-Tasks without passing checks are excluded from accept-all; errors and concurrent
-reviews are reported per task. Accepting records a verdict only; merge branches
-yourself.
+**Tasks** contains running work and paginated execution history. Open a finished
+run to see its result, checks, changes and delivery information before the
+collapsed executor transcript. Execution status and quality verdict are separate:
+a run can be Completed with Outcome not recorded. Accepted does not mean merged;
+Pacer shows Integration not recorded unless integration is independently known.
+Existing verdicts do not identify the reviewer, so they are labelled Accepted.
 
-The API supports four review verdicts: accept, reject, send back with feedback
-to the same executor, and retry on another executor. Send back requires a note;
-retry requires an executor. Both create a linked retry and record a rejected
-review on the original. The current task detail screen exposes accept, reject
-and retry; API clients can use all four verdicts. Task detail also exposes the
-routing explanation, acceptance duration and summary, per-file diffstat, cost
-readings when attributable, retry options and activity timeline through the API.
+Planners should record a verdict after actually reviewing a result. When a human
+decision is needed instead, use `pacer task request-review <id> --note "<concern>"`
+or MCP `task_request_review`. The note explains the specific decision. Explicit
+requests offer **Mark accepted**, **Send back**, and **Reject result** in detail.
+Failed checks and incomplete results expose recovery actions. Ordinary completed
+runs keep verdict recording optional. Mixed attention has no bulk accept action.
+
+Acceptance records a verdict only; integrate branches separately. Send back needs
+a note and creates a linked retry on the same executor. Retry on another executor
+also creates a linked attempt. Concurrent mutations report a conflict and refresh
+the result rather than overwriting another client's decision.
+
+Historical unreviewed completions remain in Tasks without fabricated verdicts or
+dismissals. Their retention eligibility is unchanged. Legacy review/session links
+open the corresponding Needs you or task destination. Older services cannot create
+explicit requests; missing-verdict reviews for known ordinary completions are
+suppressed conservatively while failures and other actionable items remain.
 
 ## Security model
 

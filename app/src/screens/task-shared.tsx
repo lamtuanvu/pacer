@@ -15,6 +15,7 @@ export function ErrorMessage({ error }: { error: unknown }) {
 }
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
 export function queryRevision(state: StoreState, op: string, params: unknown): string {
+  if (op === "task.list") return JSON.stringify([state.invalidations, state.snapshot?.tasks.map(t=>[t.id,t.rev,t.state,t.updatedAt])]);
   if (["task.get", "task.diff", "task.session"].includes(op)) {
     const id = (params as { id?: string } | null)?.id;
     const task = state.snapshot?.tasks.find(task => task.id === id);

@@ -125,6 +125,7 @@ Task retention defaults to 14 days (`task_retention_days`, zero disables). Defau
 
 `task.review` accepts verdict `accept`, `reject`, `send_back` (requires note), or `retry` (requires executor), and returns `{ task, retry? }`. Legacy `accepted: true/false` maps to accept/reject. Send back creates a retry on the same executor with the note as review feedback. Queued or running tasks cannot be reviewed.
 
+`task.request_review` adds a human handoff note (1–2000 trimmed characters) to an unresolved done or partial task. It accepts optional `expect_rev`, returns `{ task }`, and never records an acceptance. Repeating the same note is a no-op after revision validation. Task reads/events expose additive `reviewRequest` and `acceptanceState` fields. Ordinary completion without a verdict does not generate review attention.
 Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task.dismiss` accept optional `expect_rev`. A revision mismatch returns `conflict` with `data.task` containing the current task; omitting expect_rev preserves unconditional behavior. Task revisions increase on persisted changes.
 
 `task.delegate` accepts optional `request_id` (1–128 characters, deduplicated for 600 seconds), `base` (branch/ref or 7–40 hex SHA) and `source` (`planner`, `ui`, `cli`). A repo may be an absolute path or RepoRef key. HTTP client labels starting with app, desktop, orca, tui or tray default source to ui; others default to planner. `routing.route { kind?, goal?, repo? }` classifies goal when kind is absent.
@@ -3224,6 +3225,41 @@ Params JSON Schema:
       "type": "boolean"
     }
   },
+  "additionalProperties": false
+}
+```
+
+### `task.request_review`
+
+Request a human decision on a completed result without accepting it.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "note"
+  ],
   "additionalProperties": false
 }
 ```

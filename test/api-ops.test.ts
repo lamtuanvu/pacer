@@ -77,7 +77,7 @@ test("task.diff validates its optional path", async () => {
 test("attention dismiss is idempotent for concurrent clients and dismisses a review task", async () => {
  const {updateTask,readTask}=await import("../src/tasks/store");
  const ctx=await ctxWithStrategy(),t=createTask(ctx,{brief:{goal:"review me",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
- updateTask(ctx,t.id,t=>{t.state="done";});
+ updateTask(ctx,t.id,t=>{t.state="done";t.reviewRequest={note:"Inspect",at:ctx.now};});
  const id=`review:${t.id}`;
  expect(await Promise.all([callOp(ctx,"attention.dismiss",{id}),callOp(ctx,"attention.dismiss",{id})])).toEqual([{dismissed:true},{dismissed:true}]);
  expect(readTask(ctx,t.id)?.dismissed).toBe(true);
@@ -86,7 +86,7 @@ test("attention dismiss is idempotent for concurrent clients and dismisses a rev
 test("attention snooze validates duration and returns its expiry",async()=>{
  const {updateTask}=await import("../src/tasks/store");
  const ctx=await ctxWithStrategy(),t=createTask(ctx,{brief:{goal:"review me",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
- updateTask(ctx,t.id,t=>{t.state="done";});
+ updateTask(ctx,t.id,t=>{t.state="done";t.reviewRequest={note:"Inspect",at:ctx.now};});
  expect(await callOp(ctx,"attention.snooze",{id:`review:${t.id}`,for:"1h"})).toEqual({until:ctx.now+3600});
  expect(await codeOf(callOp(ctx,"attention.snooze",{id:`review:${t.id}`,for:"2h"}))).toBe("invalid_input");
 });

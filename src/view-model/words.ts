@@ -52,8 +52,8 @@ const status = (label: string, tone: Tone, glyph: string): Status => ({ label, t
 const unknownStatus = status("Unknown", "neutral", "?");
 const taskStates: Record<string, Status> = {
   needs_input: status("Needs your answer", "warn", "!"), running: status("Working", "info", "▶"),
-  queued: status("Queued", "neutral", "…"), done: status("Done", "good", "✓"),
-  partial: status("Partial", "warn", "!"), failed: status("Failed", "bad", "✕"),
+  queued: status("Queued", "neutral", "…"), done: status("Completed", "good", "✓"),
+  partial: status("Incomplete", "warn", "!"), failed: status("Failed", "bad", "✕"),
   limit: status("Out of quota", "bad", "!"), stopped: status("Stopped", "neutral", "■"),
 };
 const sessionStates: Record<string, Status> = {
@@ -62,14 +62,16 @@ const sessionStates: Record<string, Status> = {
   idle: status("Idle", "warn", "…"), "lost-contact": status("Lost contact", "bad", "!"),
   queued: taskStates.queued!,
 };
-const waitingReview = status("Waiting for review", "warn", "◐");
-export interface TaskStatusInput { dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; phase?: string; progress?: { phase?: string } | null }
+const waitingReview = status("Review requested", "warn", "◐");
+export interface TaskStatusInput { dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; acceptanceState?: string; phase?: string; progress?: { phase?: string } | null }
 export function taskStatus(task: TaskStatusInput): Status {
-  if (task.review) return task.review.accepted ? status("Accepted", "good", "✓") : status("Rejected", "bad", "✕");
-  if (["done", "partial"].includes(task.state) && !task.dismissed && !task.resolved && !task.retriedBy) return waitingReview;
   const phase = task.progress?.phase ?? task.phase;
   if (task.state === "running" && phase) return sessionStatus(phase);
   return Object.hasOwn(taskStates, task.state) ? taskStates[task.state]! : unknownStatus;
+}
+export function taskOutcome(task: TaskStatusInput): Status {
+  return task.review ? task.review.accepted ? status("Accepted", "good", "✓") : status("Rejected", "bad", "✕")
+    : status("Outcome not recorded", "neutral", "—");
 }
 export const sessionStatus = (phase: string): Status => Object.hasOwn(sessionStates, phase) ? sessionStates[phase]! : unknownStatus;
 const executorStates: Record<string, Status> = {
@@ -119,6 +121,8 @@ export function paceStatus(verdict: string): Status {
 }
 export function attentionStatus(item: { kind: string; taskId?: string }, tasks: (TaskStatusInput & { id: string })[] = []): Status {
   const task = tasks.find(t => t.id === item.taskId);
+  if (item.kind === "review") return waitingReview;
+  if (item.kind === "failed" && (task?.state === "done" || task?.acceptanceState === "failed")) return status("Checks failed", "bad", "✕");
   if (task) return taskStatus(task);
   return ({ review: waitingReview, question: taskStates.needs_input!, failed: taskStates.failed!, limit: taskStates.limit!,
     executor_down: executorStates.down!, host_down: executorStates.down!, stuck: sessionStates.idle! } as Record<string, Status>)[item.kind] ?? status("Needs attention", "warn", "!");

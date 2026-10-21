@@ -65,3 +65,18 @@ test("selectors are memoised per snapshot and scope", () => {
   expect(running(s, all)).toBe(running(s, { repo: null }));
   expect(needsYou(s, api)).not.toBe(needsYou({ ...s }, api));
 });
+
+test("legacy routine reviews do not inflate attention but failures stay visible", () => {
+ const old = {...s,tasks:s.tasks.map(t=>({...t,reviewRequest:undefined,acceptanceState:undefined}))};
+ expect(needsYou(old,all).some(a=>a.id==="review:t-0412")).toBe(false);
+ expect(needsYou(old,all).some(a=>a.kind==="failed")).toBe(true);
+ expect(counts(old)?.attention).toBe(needsYou(old,all).length);
+});
+
+test("compatibility filtering retains nonroutine or unknown task states",()=>{
+ const item={...s.attention!.find(a=>a.kind==='review')!};
+ for(const state of ['failed','limit','needs_input','unknown-state']){
+  const task={...s.tasks.find(t=>t.id===item.taskId)!,state,reviewRequest:undefined};
+  expect(needsYou({...s,tasks:[task],attention:[item]},all)).toHaveLength(1);
+ }
+});
