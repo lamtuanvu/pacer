@@ -68,8 +68,10 @@ test('settings sidebar links the same update state and labels its status',async(
  expect(html).toContain('aria-label="Update ready"');expect(html).toContain('#/settings/updates');
 });
 test('download preference without configure permission is a fact, not an unexplained disabled control',()=>{
- const html=render(desktopStatus({phase:'installing',actions:[]}));
+ const html=render(desktopStatus({phase:'ready',target:'0.2.4',actions:['restart']}));
  expect(html).not.toContain('type="checkbox"');expect(html).toContain('Automatic downloads are on.');
+ // While installing, recovering, or attached, the preference is beside the point and is not shown.
+ for(const status of [desktopStatus({phase:'installing',actions:[]}),desktopStatus({phase:'recovery-failed',actions:[]}),desktopStatus({ownership:'attached',actions:[]})])expect(render(status)).not.toContain('Automatic downloads are');
 });
 test('a completed update displays the installed version once',()=>{
  const html=render(desktopStatus({phase:'complete',current:'0.2.4',target:'0.2.4',actions:['check']}));
@@ -83,4 +85,12 @@ test('adoption details expose inspected service change and separate work blocker
  expect(html).toContain(adoption.currentServiceExecutable);expect(html).toContain(adoption.replacementServiceExecutable);
  const committed=render(desktopStatus({adoption:adoptionStatus({phase:'committed',resultingInstallationId:'managed-installation'}),actions:[]}));
  expect(committed).toContain('managed-installation');expect(committed).toContain('Desktop service is ready');
+});
+test("progress is shown but only the phase is announced, and each update is a named group", () => {
+  const html = render(desktopStatus({ phase: "downloading", target: "0.2.4", downloadedBytes: 40, totalBytes: 100, actions: ["cancel"] }));
+  const live = html.match(/<div role="status" aria-live="polite">(.*?)<\/div>/)?.[1] ?? "";
+  expect(live).toContain("Downloading update"); expect(live).not.toContain("40%");
+  expect(html).toContain("40% downloaded");
+  expect(html).toMatch(/role="group" aria-label="pacer desktop 0\.2\.3"/);
+  expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Cancel update/);
 });
