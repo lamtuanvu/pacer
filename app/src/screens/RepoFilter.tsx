@@ -1,7 +1,7 @@
-import { FilterChip, SelectableRow } from "../ds/Patterns";
-
-import { TextInput } from "../ds/Controls";
-import { useRef, useState } from "preact/hooks";
+import { FilterChip } from "../ds/Patterns";
+import { CountBadge } from "../ds/CountBadge";
+import { SearchPicker } from "../ds/SearchPicker";
+import { useRef } from "preact/hooks";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import { activeRepo, scopeRepo } from "../shell/narrow";
 import { withQuery, type RouteQuery } from "../router";
@@ -24,20 +24,11 @@ export function repoChoices(snapshot: ClientSnapshot, active: string | null) {
   return { all, chips };
 }
 
-export function RepoList({ snapshot, active, search, onSelect }: { snapshot: ClientSnapshot; active: string | null; search: string; onSelect: (repo: string) => void }) {
-  const matches = repoChoices(snapshot, active).all.filter(repo => `${repo.label} ${repo.key}`.toLowerCase().includes(search.trim().toLowerCase()));
-  return <div className="pc-repo-list" role="group" aria-label="All repositories">
-    {matches.map(repo => <SelectableRow key={repo.key} aria-pressed={repo.key === active} onClick={() => onSelect(repo.key)}>{repo.label} <span className="muted">{repo.count}</span></SelectableRow>)}
-    {!matches.length && <p className="muted">No matching repositories.</p>}
-  </div>;
-}
-
 export function RepoFilter({ snapshot, query, narrow = false }: { snapshot: ClientSnapshot; query: RouteQuery; narrow?: boolean }) {
-  const [open, setOpen] = useState(false), [search, setSearch] = useState("");
   const lastRepo = useRef(query.repo);
   if (query.repo) lastRepo.current = query.repo;
   const { all, chips } = repoChoices(snapshot, query.repo);
-  const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); setOpen(false); };
+  const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
   if (narrow) {
     const here = scopeRepo(query) ?? (query.repo || lastRepo.current) ?? null;
     const selected = activeRepo(query);
@@ -48,18 +39,22 @@ export function RepoFilter({ snapshot, query, narrow = false }: { snapshot: Clie
     </div>;
   }
   const chip = (repo: string | null, label: string, n?: number) =>
-    <FilterChip key={repo ?? "all"} className={`pc-chip${(query.repo || null) === repo ? " on" : ""}`} aria-pressed={(query.repo || null) === repo ? "true" : "false"} onClick={() => go(repo)}>{label}{n !== undefined && <> <span className="pc-chip__n">{n}</span></>}</FilterChip>;
+    <FilterChip key={repo ?? "all"} title={label} className={`pc-chip${(query.repo || null) === repo ? " on" : ""}`} aria-pressed={(query.repo || null) === repo ? "true" : "false"} onClick={() => go(repo)}><span className="pc-chip__label">{label}</span>{n !== undefined && <CountBadge count={n} />}</FilterChip>;
   return <div className="pc-filter">
     <div className="pc-chips" role="group" aria-label="Repository filter" id="repo-filter">
       {chip(null, "All repos")}
       {chips.map(repo => chip(repo.key, repo.label, repo.count))}
-      {all.length > chips.length && <div className="pc-repo-picker">
-        <FilterChip className="pc-chip" aria-expanded={open} aria-controls="more-repos" onClick={() => setOpen(value => !value)}>More repos ▾</FilterChip>
-        {open && <div className="pc-repo-popover" id="more-repos" onKeyDown={event => { if (event.key === "Escape") { setOpen(false); event.currentTarget.parentElement?.querySelector("button")?.focus(); } }}>
-          <TextInput id="repo-search" autoFocus type="search" aria-label="Search repositories" placeholder="Search repositories…" value={search} onInput={event => setSearch(event.currentTarget.value)} />
-          <RepoList snapshot={snapshot} active={query.repo} search={search} onSelect={go} />
-        </div>}
-      </div>}
+      {all.length > 0 && <SearchPicker label="Find repo" searchLabel="Search repositories" placeholder="Search repositories…"
+        emptyLabel="No matching repositories."
+        value={query.repo || null} onChange={go} options={[
+          { value: null, label: "All repos" },
+          ...all.map(repo => {
+            const slash = repo.label.indexOf("/");
+            return { value: repo.key, label: slash < 0 ? repo.label : repo.label.slice(slash + 1),
+              description: slash < 0 ? undefined : repo.label.slice(0, slash), count: repo.count,
+              searchText: `${repo.label} ${repo.key}` };
+          }),
+        ]} />}
     </div>
     <p className="muted">Budgets are shared across repos; the filter only narrows work.</p>
   </div>;
