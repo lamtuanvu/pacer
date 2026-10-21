@@ -123,3 +123,9 @@ canvas owns label/control grids and semantic table columns. Primary page titles
 remain in the shell; nested sections retain `SectionHeading`. Navigation icons
 are decorative beside named links, with one current category. No new upstream
 adaptation or dependency is introduced.
+
+### Session content
+
+`Prose({ text })` renders executor-authored text as an escaped Markdown subset: paragraphs, headings (canonical `SectionHeading` at h3), unordered lists, bold text, inline code and fenced code. Unsupported Markdown remains literal text. It never renders HTML, images or executable URLs. Code retains token boundaries and scrolls within its container; paragraphs preserve line breaks. It uses the normal token type scale at every density. Session briefs and executor reports are its production consumers. This is an original Preact composition; no additional upstream code or dependency is incorporated.
+
+Session details retain a specialized responsive main/activity layout. They compose canonical Tabs, Disclosure, Field, Select, Dialog, Button and StatusPill. Active sessions default to Output; ended sessions default to Brief, and an explicit tab selection stays selected during refreshes. Brief sections use API-provided fields; the original text remains in a collapsed disclosure. The executor report is formatted separately from the unmodified technical log; absent reports are not inferred from logs. Retry selection opens the canonical modal, with native keyboard controls, Escape dismissal, focus cycling/return, visible unavailable reasons, pending state and errors. Changes remain the service-provided diff rather than an inferred file summary.

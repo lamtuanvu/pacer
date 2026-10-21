@@ -18,6 +18,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Settings categories open separate pages with icon navigation and a proper gear icon. Forms use consistent compact sizing, bounded widths and aligned spacing; narrow layouts keep category navigation and focused controls visible.
 
+### Changed
+
+- Session details now show a structured Brief, readable executor reports alongside collapsed technical logs, a responsive Activity panel, and an on-demand retry dialog.
+
 ## [0.5.0] - 2026-10-20
 
 ### Added

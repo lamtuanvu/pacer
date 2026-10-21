@@ -41,6 +41,11 @@ export function Sessions({query}:{query:RouteQuery}) {
 }
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,
+ briefSections:([
+  ['Goal',task.brief.goal],['Repository',task.brief.repo],['Scope',task.brief.scope],
+  ['Constraints',task.brief.constraints],['Context',task.brief.context],['Feedback',task.brief.feedback],['Base',task.brief.base],
+  ['Questions and answers',task.brief.qa?.map(item=>`${item.q}\n${item.a}`).join('\n\n')],
+ ] as const).filter((item):item is readonly [typeof item[0],string]=>!!item[1]).map(([label,text])=>({label,text})),report:task.summary,
  brief:{data:Object.entries(task.brief).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>`${k}: ${typeof v==='string'?v:JSON.stringify(v)}`).join('\n\n')},doneWhen:{data:task.acceptance.cmd},timeline:{data:timelineCopy(task.timeline).map(e=>({...e,at:clock(e.at,Date.now()/1000)}))}};
 }
 export function SessionRoute({id}:{id:string}) {
@@ -94,6 +99,6 @@ export function SessionRoute({id}:{id:string}) {
  changes:{data:diff.data?`${diff.data.diff}${diff.data.untracked.length?'\nUntracked files:\n'+diff.data.untracked.join('\n'):''}${diff.data.truncated?'\nDiff truncated.':''}`:undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}),[]);
- return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
+ return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;

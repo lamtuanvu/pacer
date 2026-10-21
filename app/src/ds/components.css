@@ -284,3 +284,11 @@ a.pc-btn{text-decoration:none}
  .pc-btn--settings,.pc-btn--settings.pc-btn--sm,.pc-input.pc-control--settings,.pc-select.pc-control--settings,.pc-range.pc-control--settings,.pc-checkbox:has(.pc-control--settings){min-height:var(--control-touch)}
  .pc-input.pc-control--settings,.pc-select.pc-control--settings{font-size:var(--type-headline-size)}
 }
+
+/* Executor prose: content is escaped; code keeps token boundaries. */
+.pc-prose{display:flex;flex-direction:column;gap:var(--space-3);min-width:0;max-width:100%;overflow-wrap:anywhere}
+.pc-prose p{margin:0;white-space:pre-wrap}.pc-prose ul{margin:0;padding-left:var(--space-5)}
+.pc-prose li+li{margin-top:var(--space-2)}.pc-prose strong{font-weight:var(--type-body-strong-weight)}
+.pc-prose code{font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);white-space:pre;overflow-wrap:normal;word-break:normal}
+.pc-prose p:has(code),.pc-prose li:has(code){overflow-x:auto}
+.pc-prose pre{max-width:100%;overflow:auto;margin:0;padding:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md)}
