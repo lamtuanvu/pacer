@@ -58,7 +58,7 @@ browserTest('Strategies rows keep their bottom border when operation feedback fo
   const state = { ...initialState(), snapshot: { executors: [], accounts: [], hosts: [], repos: [] } } as any;
   const api = { call: async () => ({}), hello: async () => ({}), snapshot: async () => ({}) } as any;
   const markup = renderToString(<TaskContext.Provider value={{ state, api }}>
-    <SettingsGeneral initialData={settings} />
+    <SettingsGeneral section="strategies" initialData={settings} />
   </TaskContext.Provider>);
   const styles = await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/screens/settings/settings.css']
     .map(path => Bun.file(path).text()));

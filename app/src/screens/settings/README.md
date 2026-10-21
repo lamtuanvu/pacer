@@ -7,7 +7,7 @@ Mount inside the existing `TaskContext.Provider`:
 | Route | Component |
 | --- | --- |
 | `#/settings` | `SettingsGeneral` |
-| `#/settings/<section>` | `SettingsGeneral section={section}` |
+| `#/settings/<section>` | `SettingsGeneral section={section}` (only the selected editor mounts) |
 | `#/settings/hosts` | `RemoteHosts` |
 | `#/settings/hosts/<alias>` | `HostDetail alias={alias}` |
 | `#/settings/add-executor` | `AddExecutor` |
@@ -15,3 +15,5 @@ Mount inside the existing `TaskContext.Provider`:
 Pass the `host` query parameter to `AddExecutor host={host}` for “Add executor here”. The screens register their token-based constructed stylesheet on mount; the shared build and stylesheet need no edits. `initialData` is optional preloaded data for rendering before requests complete. The API remains authoritative after mounting.
 
 Jobs use store events plus `job.get` polling. Host detail also recovers retained jobs with `job.list`. The executor draft preserves the service-returned id and job id across reloads. Host detail shows the Full live sessions switch only when `host.get` returns a `session` field; it sends `host.set` with `session: 'full' | 'recording'`.
+
+General is a navigation overview. Settings category metadata lives in `app/src/settings-pages.ts`; the shell owns the single page title. Settings forms use DS `settings` density (32px) and small table actions use 28px; narrow layouts retain touch targets.

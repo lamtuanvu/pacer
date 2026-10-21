@@ -1,10 +1,11 @@
+import { createContext } from 'preact';
 import { jobKindCopy, jobStateCopy } from "../../../../src/view-model/copy";
 import { SegmentedControl, LoadingState, EmptyState, TextRow } from "../../ds/Patterns";
 export { Field } from "../../ds/Controls";
 import { clock } from "../../../../src/view-model/time";
 import { settingsMigrationMessage } from "../../../../src/view-model/feedback";
 import { SectionHeading } from "../../ds/SectionHeading";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from 'preact';
 import type { Job } from '../../../../src/api/read-model/types';
 import type { BrowserApi } from '../../data/api';
@@ -21,8 +22,12 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
  if(event&&event.state!=='running')return event;
  return polled??event;
 }
+export const SettingsPageContext = createContext<string | null>(null);
+
 export function Section({id,title,detail,actions,children}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren}) {
- return <section id={id} className="u3-section"><div className="u3-heading"><div><SectionHeading>{title}</SectionHeading>{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>{children}</section>;
+ useSettingsStyles();
+ const page = useContext(SettingsPageContext) === id;
+ return <section aria-label={title} id={id} className="u3-section">{(!page || detail || actions) && <div className="u3-heading"><div>{!page && <SectionHeading>{title}</SectionHeading>}{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>}{children}</section>;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  // update.check itself publishes an update event; reacting to it creates a request loop.

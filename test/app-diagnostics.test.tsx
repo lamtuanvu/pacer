@@ -57,10 +57,12 @@ test('diagnostic titles retain readable agent and account identities', async () 
   expect(diagnosticTitle('toString codex')).toBe('toString codex');
 });
 
-test('persistent and local Settings navigation mark Diagnostics current', async () => {
+test('persistent Settings navigation marks Diagnostics current without a second local menu', async () => {
   const {SettingsPanel} = await import('../app/src/shell/SettingsPanel');
   const {SettingsGeneral} = await import('../app/src/screens/settings/General');
-  const panel = renderToString(<SettingsPanel route={{name:'settings',section:'diagnostics',query:{}} as any} counts={null}/>);
+  const panel = renderToString(<SettingsPanel route={{name:'settings',section:'diagnostics',query:{repo:null,scope:null}} as any} counts={null}/>);
   const local = renderToString(<TaskContext.Provider value={{state:initialState(),api:{} as any}}><SettingsGeneral section="diagnostics"/></TaskContext.Provider>);
-  for (const html of [panel,local]) expect(html).toMatch(/<a(?=[^>]*href="[#/]?[^\"]*settings\/diagnostics(?:\?[^"]*)?")(?=[^>]*aria-current="page")[^>]*>Diagnostics<\/a>/);
+  expect(panel).toMatch(/<a(?=[^>]*href="[^"]*settings\/diagnostics")(?=[^>]*aria-current="page")[^>]*>[\s\S]*?Diagnostics<\/a>/);
+  expect(local).not.toContain('aria-label="Settings sections"');
+  expect(local).toContain('id="diagnostics"');
 });

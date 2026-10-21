@@ -22,7 +22,11 @@ const runner=createActionRunner({call:async<T,>()=>({}) as T,waitFor:async()=>tr
 const html=(hash:string)=>renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})} as any}}><ActionContext.Provider value={runner}><Screen route={destination(hash)}/></ActionContext.Provider></TaskContext.Provider>);
 test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  expect(html('#/settings')).toContain('u3-general-sections');
- for(const section of SETTINGS_SECTIONS)expect(html(`#/settings/${section}`)).toContain('Planner &amp; pacing');
+ for(const section of SETTINGS_SECTIONS) {
+  const page=html(`#/settings/${section}`);
+  expect(page).toContain(`id="${section==='planner'?'pacing':section}"`);
+  if(section!=='planner')expect(page).not.toContain('id="pacing"');
+ }
  expect(html('#/settings/hosts')).toContain('Connect and check');
  expect(html('#/settings/hosts/devbox')).toContain('Remote hosts</a>');
  expect(html('#/settings/add-executor')).toContain('Step 1 of 4');

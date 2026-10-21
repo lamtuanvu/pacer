@@ -88,3 +88,19 @@ Component tests establish native attributes, disabled/busy behavior, label/help/
 This migration consolidates the shared-foundation inventory from #174 while preserving #134's semantic status, title, time, containment and one-action requirements. Product-specific remaining work in #134 is complete only when its own observed acceptance criteria and visual evidence pass; architectural reuse alone does not close it.
 
 The canonical Disclosure supports `pc-disclosure--wrap` for multi-part summaries, wrapping title, status and evidence within the container. Diagnostics uses this variant with `pc-ellipsis` and a full title attribute for long identities. Native disclosure keyboard and open/closed semantics remain unchanged; no new upstream adaptation is introduced.
+
+### Settings page density
+
+`DensityContext` additionally supports `settings`: 32px minimum form buttons,
+inputs, selects and range hit areas, using `control-settings`. Small row actions
+retain the 28px compact minimum; segmented choices use 32px. Body/field text stays
+13px, help 12px and pills 11px. Narrow layouts resolve to touch density; settings
+controls outside the shell also retain 48px targets at narrow/coarse-pointer sizes.
+The existing compact tray density and normal app density are unchanged.
+
+Settings screens mount one editor per route. `settings-pages.ts` owns category
+labels/icons for the sidebar, General links and shell titles. The bounded settings
+canvas owns label/control grids and semantic table columns. Primary page titles
+remain in the shell; nested sections retain `SectionHeading`. Navigation icons
+are decorative beside named links, with one current category. No new upstream
+adaptation or dependency is introduced.
