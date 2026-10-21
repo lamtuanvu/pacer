@@ -106,3 +106,18 @@ ListRow also supports `outlined` for a standalone row with a closed border, and
 `tone="bad"` for a failure tint. Outline and tone belong to the shared component,
 including the last child; Needs you uses them for actionable rows. Existing
 list density, sibling action slots and keyboard behavior are unchanged.
+### Settings page density
+
+`DensityContext` additionally supports `settings`: 32px minimum form buttons,
+inputs, selects and range hit areas, using `control-settings`. Small row actions
+retain the 28px compact minimum; segmented choices use 32px. Body/field text stays
+13px, help 12px and pills 11px. Narrow layouts resolve to touch density; settings
+controls outside the shell also retain 48px targets at narrow/coarse-pointer sizes.
+The existing compact tray density and normal app density are unchanged.
+
+Settings screens mount one editor per route. `settings-pages.ts` owns category
+labels/icons for the sidebar, General links and shell titles. The bounded settings
+canvas owns label/control grids and semantic table columns. Primary page titles
+remain in the shell; nested sections retain `SectionHeading`. Navigation icons
+are decorative beside named links, with one current category. No new upstream
+adaptation or dependency is introduced.
