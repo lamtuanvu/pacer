@@ -24,6 +24,7 @@ import { VerdictPanel } from "./review/VerdictPanel";
 import { useQuery, useTaskContext } from "./task-shared";
 import { Diff } from "./review/Diff";
 import { initialReview, reviewReducer, verdictParams, type ReviewView as ReviewState, type Verdict, type ReviewAction } from "./review/model";
+import { Page } from "../ds/Page";
 
 export interface ReviewDiff { base: string | null; worktree: string; files: TaskDetail["files"]; patch: string; diff: string; untracked: string[]; truncated: boolean; note?: string }
 export interface ReviewProps {
@@ -177,9 +178,9 @@ function ReviewController({ snapshot, route }: { snapshot: ClientSnapshot; route
   useEffect(() => {
     history.replaceState(null, "", withQuery(view.selectedId ? `#/review/${encodeURIComponent(view.selectedId)}` : "#/review", route.query));
   }, [view.selectedId, repo]);
-  return <><RepoFilter snapshot={snapshot} query={route.query} /><BulkReview key={repo ?? "all"} snapshot={snapshot} repo={repo} runner={runner}>{view.selectedId
+  return <Page width="wide"><RepoFilter snapshot={snapshot} query={route.query} /><BulkReview key={repo ?? "all"} snapshot={snapshot} repo={repo} runner={runner}>{view.selectedId
     ? <ReviewItem key={view.selectedId} id={view.selectedId} snapshot={snapshot} view={view} dispatch={dispatch} getView={() => current.current} announce={announce} announcement={announcement} />
-    : <ReviewView snapshot={snapshot} view={view} now={Date.now() / 1000} announcement={announcement} />}</BulkReview></>;
+    : <ReviewView snapshot={snapshot} view={view} now={Date.now() / 1000} announcement={announcement} />}</BulkReview></Page>;
 }
 export function Review({ route }: { route: Route & { id?: string } }) {
   const { state } = useTaskContext();

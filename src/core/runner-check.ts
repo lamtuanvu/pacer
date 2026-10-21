@@ -8,6 +8,7 @@ import { detectAgents } from "../install/detection";
 import { startJob, type Job } from "../jobs/registry";
 import type { Ctx } from "../types";
 import { accountSignIn } from "../usage/signin";
+import { readAccountUsage } from "../usage";
 import { accountEvidenceScope } from "../evidence/scope";
 import { list as listAccounts } from "./accounts";
 import { CoreError } from "./errors";
@@ -65,12 +66,16 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
           throw Error(`Sign in to account ${account.name}${signIn.reason ? ` (${signIn.reason})` : ""}`);
         }
       });
-      const row = (await (deps.checkLimits ?? checkLimits)(ctx, strategy)).find(r => r.account === account.name);
+      let row = (await (deps.checkLimits ?? checkLimits)(ctx, strategy)).find(r => r.account === account.name);
+      const collectUsage = local && account.kind === "claude" && account.usage === "quota"
+        && (row?.usedPct == null || row.stale);
       // Native usage first appears after the agent runs with this account (the Claude
       // Code status line or Codex session logs). Routing treats it as unknown, so a
       // missing first reading is skipped with its hint instead of failing the check.
       const native = account.kind === "claude" || account.kind === "codex";
-      if (native && row && row.capturedAt === null && row.usedPct === null) {
+      if (collectUsage) {
+        step.start("Usage readable", "Collecting account usage from the test task");
+      } else if (native && row && row.capturedAt === null && row.usedPct === null) {
         step.start("Usage readable");
         step.skip("Usage readable", `No usage reading yet${row.error ? ` · ${row.error}` : ""}${row.hint ? ` · ${row.hint}` : ""}`);
       } else {
@@ -80,6 +85,19 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
         });
       }
       await perform("Test task", "Write and run a one-line test in a scratch worktree", () => (deps.runTestTask ?? runTestTask)(ctx, runner.id));
+      if (collectUsage) {
+        // The initial account listing cached the empty reading. Bypass that cache
+        // before checking the telemetry just emitted by this account's test task.
+        current = "Usage readable";
+        step.start(current, "Verifying account usage collected by the test task");
+        await readAccountUsage(ctx, account, Object.values(strategy.runners).filter(r => r.account === account.name), true, false, strategy.hosts);
+        row = (await (deps.checkLimits ?? checkLimits)(ctx, strategy)).find(r => r.account === account.name);
+        await perform("Usage readable", usageDetail(row, account.usage), async () => {
+          if (row?.usedPct == null || row.stale || row.error) {
+            throw Error("Claude Code did not report current account usage after the test task. Update Claude Code and check that this account has a Pro or Max subscription.");
+          }
+        });
+      }
       passed = true;
     } catch (error) {
       detail = redactEndpointError(error instanceof Error ? error.message : String(error), Object.entries(ctx.env).filter(([key]) => /key|token|secret|password/i.test(key)).map(([,value]) => value ?? ""));

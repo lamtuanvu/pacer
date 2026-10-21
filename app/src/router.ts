@@ -1,3 +1,5 @@
+import { settingsPageTitle } from "./settings-pages";
+
 /** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
@@ -8,7 +10,67 @@ type RouteBase =
   | { name: "hosts"; alias?: string }
   ;
 export type Route = RouteBase & { query: RouteQuery };
+export type RouteName = Route["name"];
+export type PrimaryRoute = "overview" | "review" | "sessions" | "settings" | null;
+type TargetQuery = Partial<RouteQuery>;
+export type RouteTarget =
+  | { name: "overview" | "review" | "setup"; query?: TargetQuery }
+  | { name: "sessions"; id?: string; query?: TargetQuery }
+  | { name: "settings"; section?: string; query?: TargetQuery }
+  | { name: "hosts"; alias?: string; query?: TargetQuery }
+  | { name: "add-executor"; host?: string; query?: TargetQuery };
 export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "routing", "strategies", "updates", "notifications", "appearance", "diagnostics"] as const;
+const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
+const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
+export const routes = {
+  overview: (query?: TargetQuery) => withTargetQuery({ name: "overview" } as const, query),
+  needsYou: (query?: TargetQuery) => withTargetQuery({ name: "review" } as const, query),
+  tasks: (query?: TargetQuery) => withTargetQuery({ name: "sessions" } as const, query),
+  task: (id: string, query?: TargetQuery) => withTargetQuery({ name: "sessions", id } as const, query),
+  settings: (section?: string, query?: TargetQuery) => withTargetQuery({ name: "settings", ...(section ? { section } : {}) } as const, query),
+  hosts: (query?: TargetQuery) => withTargetQuery({ name: "hosts" } as const, query),
+  host: (alias: string, query?: TargetQuery) => withTargetQuery({ name: "hosts", alias } as const, query),
+  addExecutor: (host?: string, query?: TargetQuery) => withTargetQuery({ name: "add-executor", ...(host ? { host } : {}) } as const, query),
+  setup: (query?: TargetQuery) => withTargetQuery({ name: "setup" } as const, query),
+};
+
+function mergedQuery(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): RouteQuery {
+  return { repo: target.query?.repo === undefined ? current.repo : target.query.repo, scope: target.query?.scope === undefined ? current.scope : target.query.scope };
+}
+export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): string {
+  let href: string;
+  switch (target.name) {
+    case "overview": href = "#/"; break;
+    case "review": href = "#/needs-you"; break;
+    case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}` : "#/tasks"; break;
+    case "settings": href = target.section ? `#/settings/${encodeURIComponent(target.section)}` : "#/settings"; break;
+    case "hosts": href = target.alias ? `#/settings/hosts/${encodeURIComponent(target.alias)}` : "#/settings/hosts"; break;
+    case "add-executor": href = "#/settings/add-executor"; break;
+    case "setup": href = "#/setup"; break;
+  }
+  const query = mergedQuery(target, current);
+  if (target.name !== "add-executor" || !target.host) return withQuery(href, query);
+  const params = new URLSearchParams({ host: target.host });
+  if (query.repo !== null) params.set("repo", query.repo);
+  if (query.scope) params.set("scope", query.scope);
+  return `${href}?${params}`;
+}
+export function parentFor(route: Route): RouteTarget | null {
+  if (route.name === "sessions" && route.id) return routes.tasks(route.query);
+  if (route.name === "settings" && route.section) return routes.settings(undefined, route.query);
+  if (route.name === "hosts") return route.alias ? routes.hosts(route.query) : routes.settings(undefined, route.query);
+  if (route.name === "add-executor") return routes.settings(undefined, route.query);
+  return null;
+}
+export function titleFor(route: Route): string {
+  if (route.name === "sessions" && route.id) return "Task";
+  if (route.name === "hosts" && route.alias) return "Host";
+  if (route.name === "settings") return settingsPageTitle(route.section);
+  return route.name === "overview" ? "Overview" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Remote hosts" : route.name === "add-executor" ? "Add executor" : route.name === "setup" ? "Set up pacer" : "pacer";
+}
+export function primaryFor(route: Route): PrimaryRoute {
+  return route.name === "overview" || route.name === "review" || route.name === "sessions" ? route.name : route.name === "settings" || route.name === "hosts" || route.name === "add-executor" ? "settings" : null;
+}
 
 /** Map service settings sections to Settings; setup item ids open Overview. */
 export function settingsPath(section: unknown): string {

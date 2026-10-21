@@ -7,7 +7,10 @@ import { SectionHeading } from '../../ds/SectionHeading';
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { AgentMark } from '../../ds/AgentMark';
-import { Button, ButtonLink } from '../../ds/Button';
+import { Button } from '../../ds/Button';
+import { Page } from '../../ds/Page';
+import { AppButtonLink, AppLink } from '../../navigation';
+import { routes } from '../../router';
 import { StatusPill } from '../../ds/StatusPill';
 import { LazyTerminal } from '../../term/LazyTerminal';
 import { PlainLog } from './PlainLog';
@@ -107,8 +110,8 @@ export function Session({ data, loading, error, initialTab, onAction, onAttach, 
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </>;
-  return <article className="pc-session" aria-label="Session">
-    <div className="pc-session-breadcrumb"><ButtonLink variant="quiet" size="sm" href="#/tasks">‹ Tasks</ButtonLink></div>
+  return <Page width="wide" className="pc-session">
+    <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>
     {loading && <LoadingState updating label="Updating session…"/>}
     <header className="pc-session-header">
       <AgentMark agent={data.agent} size={28}/>
@@ -124,7 +127,7 @@ export function Session({ data, loading, error, initialTab, onAction, onAttach, 
       <div className="pc-session-header-actions">
         {!active && taskOutcome(data).label !== status.label && <span className="pc-session-muted">{taskOutcome(data).label}</span>}
         <StatusPill status={data.state === 'running' && driving ? sessionStatus('driving') : status}/>
-        {waitingForReview && <ButtonLink variant="primary" size="md" href={`#/review/${encodeURIComponent(data.id)}`}>Review</ButtonLink>}
+        {waitingForReview && <AppButtonLink variant="primary" size="md" to={routes.task(data.id)}>Review</AppButtonLink>}
         {active && data.stop && <Button variant="danger" disabled={busy || !onAction} onClick={() => void run(data.stop!)}>{data.stop.label}</Button>}
       </div>
     </header>
@@ -184,6 +187,6 @@ export function Session({ data, loading, error, initialTab, onAction, onAttach, 
         </div>
       </div>
     </Dialog>}
-  </article>;
+  </Page>;
 }
 export default Session;

@@ -106,3 +106,11 @@ export function desktopUpdateModel(current: string | null, report?: UpdateCheck)
   const canUpdate = difference > 0;
   return {label:canUpdate ? `Update available: ${report.latest}` : 'Up to date',canUpdate};
 }
+
+/** Dismiss one version without suppressing a later release or another installation. */
+export function updateNoticeKey(status: UpdateStatus): string {
+  return JSON.stringify([status.installationId, status.target]);
+}
+export function updateNotice(updates: UpdateStatus[] = [], dismissed: ReadonlySet<string>): UpdateStatus | null {
+  return updates.find(status => status.phase === "ready" && !!status.target && status.actions.includes("restart") && !dismissed.has(updateNoticeKey(status))) ?? null;
+}
