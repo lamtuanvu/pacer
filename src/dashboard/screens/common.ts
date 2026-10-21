@@ -37,6 +37,9 @@ export function serviceAct(ctx: ScreenCtx, action: Action, subject?: string): Ac
     const section = typeof action.params.section === "string" ? SECTION_IDS[action.params.section] : undefined;
     return { label: action.label, effect: { type: "navigate", screen, ...(id ? { id } : {}), ...(section ? { section } : {}) } };
   }
+  if (action.op === "task.answer" && ctx.supports(action.op)) {
+    return {label:action.label,effect:{type:"prompt",prompt:{title:"Answer the agent",label:subject??"Your answer",required:"Add an answer.",submit:text=>({type:"action",action:{...action,params:{...action.params,text}}})}}};
+  }
   if (!ctx.supports(action.op)) return undefined;
   return {
     label: action.label,

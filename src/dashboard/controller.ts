@@ -2,7 +2,7 @@
 import { ApiError, type ApiClient } from "../api/client";
 import type { Action } from "../attention/types";
 import { emptySnapshot } from "../link/envelope";
-import type { ClientSnapshot } from "../view-model/snapshot";
+import type { ClientSnapshot, ClientTask } from "../view-model/snapshot";
 import { displayTitle } from "../view-model/titles";
 import { jobKindCopy } from "../view-model/copy";
 import type { StatusTone } from "../view-model/words";
@@ -48,7 +48,7 @@ export class Dashboard {
   /** When the last successful snapshot read finished. */
   private readAt: number | undefined;
   theme: TerminalTheme;
-  data: { details: Map<string, Resource<TaskDetail> & { stamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
+  data: { history?: DashData["history"]; details: Map<string, Resource<TaskDetail> & { stamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
   /** `untilRead` keeps the message until the next successful read, then for the usual 5 s. */
   private message?: { text: string; tone: StatusTone; until: number; untilRead?: boolean };
   private frame = 0;
@@ -129,6 +129,7 @@ export class Dashboard {
   /** Fetch task detail and settings resources the visible view shows. */
   loadNeeds() {
     const { view, screen } = screenView(this.input());
+    if (screen === "sessions" && !this.data.history && this.supports("task.list")) this.loadHistory();
     if (this.supports("task.get")) for (const id of view.needs ?? []) {
       const task = this.snapshot.tasks.find(t => t.id === id), stamp = `${task?.rev ?? ""}:${task?.updatedAt ?? ""}:${task?.state ?? ""}`;
       const current = this.data.details.get(id);
@@ -150,6 +151,14 @@ export class Dashboard {
         .catch(error => { (this.data.settings as Record<string, Resource<unknown>>)[key] = { ...before, loading: false, error: errorOf(error) }; }));
     }
   }
+  private loadHistory(before?: string) {
+    if(this.data.history?.loading || !this.supports("task.list"))return;
+    const previous=this.data.history?.value;
+    this.data.history={value:previous,loading:true};
+    this.track(this.deps.client.call<{tasks:ClientTask[];next:string|null}>("task.list",{all:true,limit:20,...(before?{before}:{})})
+      .then(value=>{this.data.history={value:{...value,tasks:[...new Map([...(before?previous?.tasks??[]:[]),...value.tasks].map(t=>[t.id,t])).values()]}};this.loadNeeds();})
+      .catch(error=>{this.data.history={value:previous,error:errorOf(error)};}));
+  }
   private track(work: Promise<unknown>) {
     this.loading++;
     const done = work.finally(() => { this.loading--; this.pending.delete(done); this.draw(); });
@@ -170,7 +179,7 @@ export class Dashboard {
     });
     this.state = result.state.screen === screen && screen !== this.state.screen ? { ...result.state, screen: this.state.screen } : result.state;
     if (result.quit) return "quit";
-    if (result.refresh) { this.invalidateSettings(); this.data.details.clear(); await this.refresh(); this.report("Refreshed", "good"); return; }
+    if (result.refresh) { this.invalidateSettings(); this.data.details.clear(); this.data.history=undefined; await this.refresh(); this.report("Refreshed", "good"); return; }
     this.loadNeeds();
     this.draw();
     if (result.effect) await this.run(result.effect);
@@ -188,6 +197,7 @@ export class Dashboard {
 
   async run(effect: Effect): Promise<void> {
     switch (effect.type) {
+      case "history-more": this.loadHistory(this.data.history?.value?.next??undefined); return;
       case "navigate": this.navigate(effect.screen, effect.id, effect.section); return;
       case "local": this.report(effect.label); await effect.run(); return;
       case "action": await this.call(effect.action); return;

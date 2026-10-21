@@ -63,7 +63,7 @@ export function screenView(input: FrameInput): { ctx: ScreenCtx; view: ScreenVie
 function topBar(input: FrameInput, screen: ScreenId, width: number): Line {
   const { s, theme } = input, c = counts(s);
   const left: Line = [span(glyph(theme, "▬┃").slice(0, -1), { fg: "ink", bold: true }), span(glyph(theme, "▬┃").slice(-1), { fg: "accent", bold: true }), span(" pacer", { fg: "ink", bold: true }), span(" ")];
-  const badge: Partial<Record<ScreenId, [number, StatusTone]>> = c ? { home: [c.attention, "warn"], review: [c.review, "warn"], sessions: [c.running, "info"] } : {};
+  const badge: Partial<Record<ScreenId, [number, StatusTone]>> = c ? { review: [c.attention, "warn"], sessions: [c.running, "info"] } : {};
   for (const tab of tabs(s)) {
     const label = SCREEN_LABELS[tab], active = tab === screen || tab === "setup" && screen === "setup";
     left.push(span("  "));
@@ -162,7 +162,7 @@ const HELP: HelpRow[] = [
 ];
 const SCREEN_HELP: Partial<Record<ScreenId, HelpRow[]>> = {
   home: [["x", "Dismiss", "attention.dismiss"], ["v", "Open in Review"], ["b", "Block or unblock an executor", "runner.block"], ["t m", "Terminal window · tmux pane", "task.attach"], ["s", "Stop", "task.stop"]],
-  review: [["a", "Accept and bring back", "task.review"], ["s", "Send back with a note", "task.review"], ["r", "Reject with a note", "task.review"], ["t", "Retry on another executor", "task.review"], ["o", "Show worktree path"]],
+  review: [["a", "Mark accepted", "task.review"], ["s", "Send back with a note", "task.review"], ["r", "Reject with a note", "task.review"], ["t", "Retry on another executor", "task.review"], ["o", "Show worktree path"]],
   sessions: [["⏎", "Watch here", "task.attach"], ["t", "Open in a terminal window", "task.attach"], ["m", "Open in a tmux pane", "task.attach"], ["s", "Stop", "task.stop"], ["x", "Dismiss", "task.dismiss"]],
   settings: [["⏎ / →", "Open a section"], ["← →", "Adjust a value"], ["Esc", "Back to sections"]],
   setup: [["⏎", "Run the selected step"], ["x", "Skip first delegation", "onboarding.skip"]],
