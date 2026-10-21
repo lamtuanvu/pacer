@@ -20,7 +20,7 @@ export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
     "rolling-back": ["Restoring the previous version", "warn", "…", "The update couldn't start. Restoring your previous version."],
     restored: ["Previous version restored", "warn", "!", "The update couldn't start. Your previous version has been restored."],
     error: ["Update needs attention", "bad", "!", update.error?.message || "The update couldn't finish. Check again when you're ready."],
-    "recovery-failed": ["Recovery needs attention", "bad", "!", "The previous version could not be restored automatically. Keep your data and update recovery files in place. Quit the desktop and report the failed update at github.com/lamtuanvu/pacer/issues."],
+    "recovery-failed": ["Recovery needs attention", "bad", "!", "An update didn't finish, and pacer couldn't put the previous version back on its own. Your tasks and settings are safe. Keep this app installed and leave the files in your pacer folder as they are: pacer needs them to recover. Quit pacer, then report the problem at github.com/lamtuanvu/pacer/issues."],
   };
   let [label, tone, glyph, detail] = states[update.phase] ?? ["Update status unavailable", "neutral", "?", "Refresh the status or use a compatible desktop app."];
   if (update.ownership === "attached" && update.phase === "idle" && update.actions.length === 0) detail = "This desktop is connected to an externally managed service. Update that service separately.";

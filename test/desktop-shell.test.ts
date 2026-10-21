@@ -82,7 +82,9 @@ test("Starting pacer shows a subtle spinner that stops for reduced motion", asyn
   expect(html).toContain('id="spinner"');
   expect(css).toMatch(/\.spinner\s*\{[^}]*animation:\s*pacer-spin/);
   expect(css).toMatch(/prefers-reduced-motion:\s*reduce\)\s*\{\s*\.spinner\s*\{[^}]*animation:\s*none/);
-  expect(js).toContain("document.querySelector('#spinner').hidden = permission || Boolean(pages[detail.page]);");
+  // Progress pages (installing, rolling back) keep the spinner; the other pages stop it.
+  expect(js).toContain("document.querySelector('#spinner').hidden = permission || (Boolean(pages[detail.page]) && !progress.includes(detail.page));");
+  expect(js).toMatch(/progress\s*=\s*\[[^\]]*'installing'[^\]]*'rollingBack'/);
 });
 
 

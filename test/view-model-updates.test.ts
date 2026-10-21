@@ -56,7 +56,7 @@ test('operation feedback expires with its result revision and never claims cance
 });
 test('failed recovery preserves evidence and directs the user to an actual issue destination',()=>{
  const detail=desktopUpdateView(desktopStatus({phase:'recovery-failed',actions:[]})).detail;
- expect(detail).toContain('Keep your data and update recovery files in place.');expect(detail).toContain('github.com/lamtuanvu/pacer/issues');expect(detail).not.toContain('Reinstall');
+ expect(detail).toContain('leave the files in your pacer folder as they are');expect(detail).toContain('github.com/lamtuanvu/pacer/issues');expect(detail).not.toContain('Reinstall');
 });
 test('adoption cancellation uses its separate revision and intent identity', async () => {
  const {adoptionStatus}=await import('./fixtures/desktop-update/status');
